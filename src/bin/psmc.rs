@@ -1,8 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 
 use psmc_rs::io::psmcfa::read_psmcfa;
+use psmc_rs::opt::{em_train, MStepConfig};
 use psmc_rs::PsmcModel;
 
 #[derive(Parser, Debug)]
@@ -26,14 +27,14 @@ struct Cli {
     batch_size: Option<usize>,
     #[arg(long, default_value_t = 2.5e-8)]
     mu: f64,
+    #[arg(long, default_value_t = 30)]
+    mstep_iters: usize,
+    #[arg(long, default_value_t = 1e-2)]
+    smooth_lambda: f64,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-
-    if cli.n_iter > 0 {
-        bail!("EM training not implemented yet; set n_iter=0 for now");
-    }
 
     let xs = read_psmcfa(&cli.input_file, cli.batch_size)
         .with_context(|| "failed to read psmcfa input")?;
@@ -59,6 +60,17 @@ fn main() -> Result<()> {
         cli.mu,
         cli.pattern,
     )?;
+
+    let mut model = model;
+    if cli.n_iter > 0 {
+        let mut config = MStepConfig::default();
+        config.max_iters = cli.mstep_iters;
+        config.lambda = cli.smooth_lambda;
+        let history = em_train(&mut model, &xs, cli.n_iter, &config)?;
+        if let Some((before, after)) = history.loglike.last() {
+            println!("Last EM loglike: {} -> {}", before, after);
+        }
+    }
 
     model.save_params(&cli.output_file)?;
     Ok(())

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
+argmin = "0.10"
 bstr = "1.11"
 clap = { version = "4.5", features = ["derive"] }
 flate2 = "1.0"
