@@ -3,6 +3,7 @@ use ndarray::{Array2, Array3};
 
 use crate::hmm::forward_backward;
 use crate::model::PsmcModel;
+use crate::progress;
 use crate::utils::{logit, sigmoid};
 
 #[derive(Debug, Clone, Copy)]
@@ -20,6 +21,8 @@ pub struct MStepConfig {
     pub line_search_c1: f64,
     pub max_ls_steps: usize,
     pub tol_grad: f64,
+    pub progress: bool,
+    pub progress_grads: bool,
 }
 
 impl Default for MStepConfig {
@@ -32,6 +35,8 @@ impl Default for MStepConfig {
             line_search_c1: 1e-4,
             max_ls_steps: 20,
             tol_grad: 1e-4,
+            progress: true,
+            progress_grads: true,
         }
     }
 }
@@ -56,14 +61,24 @@ pub fn em_train(
     history.params.push(params.clone());
 
     let bounds = default_bounds(model);
+    let pb_em = if config.progress && n_iter > 0 {
+        Some(progress::bar(n_iter as u64, "EM", "overall"))
+    } else {
+        None
+    };
 
-    for _ in 0..n_iter {
+    for iter in 0..n_iter {
+        if let Some(pb) = &pb_em {
+            pb.set_message(format!("overall {}/{}", iter + 1, n_iter));
+        }
         model.param_recalculate()?;
         let fb = forward_backward(
             model.prior_matrix(),
             model.transition_matrix(),
             model.emission_matrix(),
             x,
+            config.progress,
+            "E",
         )?;
         let loglike_before = fb.loglike;
 
@@ -77,11 +92,20 @@ pub fn em_train(
             model.transition_matrix(),
             model.emission_matrix(),
             x,
+            config.progress,
+            "E2",
         )?;
         let loglike_after = fb_after.loglike;
 
         history.loglike.push((loglike_before, loglike_after));
         history.params.push(params.clone());
+
+        if let Some(pb) = &pb_em {
+            pb.inc(1);
+        }
+    }
+    if let Some(pb) = pb_em {
+        pb.finish_with_message("EM done");
     }
 
     Ok(history)
@@ -215,8 +239,15 @@ fn numerical_grad(
     bounds: &[Bounds],
     lambda: f64,
     eps: f64,
+    progress_enabled: bool,
+    label: &str,
 ) -> Result<Vec<f64>> {
     let mut grad = vec![0.0; params.len()];
+    let pb = if progress_enabled {
+        Some(progress::bar(params.len() as u64, "M", label))
+    } else {
+        None
+    };
     for i in 0..params.len() {
         let step = eps * params[i].abs().max(1.0);
         let mut p1 = params.to_vec();
@@ -226,6 +257,12 @@ fn numerical_grad(
         let f1 = cost_function(base_model, x, gamma, xi, &p1, bounds, lambda)?;
         let f2 = cost_function(base_model, x, gamma, xi, &p2, bounds, lambda)?;
         grad[i] = (f1 - f2) / (2.0 * step);
+        if let Some(pb) = &pb {
+            pb.inc(1);
+        }
+    }
+    if let Some(pb) = pb {
+        pb.finish_with_message(format!("{label} done"));
     }
     Ok(grad)
 }
@@ -248,13 +285,32 @@ pub fn m_step_lbfgs(
     config: &MStepConfig,
 ) -> Result<Vec<f64>> {
     let mut xk = to_unconstrained(init_params, bounds)?;
-    let mut gk = numerical_grad(model, x, gamma, xi, &xk, bounds, config.lambda, config.grad_eps)?;
+    let mut gk = numerical_grad(
+        model,
+        x,
+        gamma,
+        xi,
+        &xk,
+        bounds,
+        config.lambda,
+        config.grad_eps,
+        config.progress && config.progress_grads,
+        "M-step grad",
+    )?;
 
     let mut s_hist: Vec<Vec<f64>> = Vec::new();
     let mut y_hist: Vec<Vec<f64>> = Vec::new();
     let mut rho_hist: Vec<f64> = Vec::new();
 
-    for _ in 0..config.max_iters {
+    let pb = if config.progress {
+        Some(progress::bar(config.max_iters as u64, "M", "L-BFGS"))
+    } else {
+        None
+    };
+    for iter in 0..config.max_iters {
+        if let Some(pb) = &pb {
+            pb.set_message(format!("L-BFGS {}/{}", iter + 1, config.max_iters));
+        }
         if norm(&gk) < config.tol_grad {
             break;
         }
@@ -309,8 +365,18 @@ pub fn m_step_lbfgs(
             break;
         }
 
-        let g_new =
-            numerical_grad(model, x, gamma, xi, &x_new, bounds, config.lambda, config.grad_eps)?;
+        let g_new = numerical_grad(
+            model,
+            x,
+            gamma,
+            xi,
+            &x_new,
+            bounds,
+            config.lambda,
+            config.grad_eps,
+            config.progress && config.progress_grads,
+            "M-step grad",
+        )?;
         let mut s = vec![0.0; xk.len()];
         let mut y = vec![0.0; xk.len()];
         for i in 0..xk.len() {
@@ -330,6 +396,12 @@ pub fn m_step_lbfgs(
         }
         xk = x_new;
         gk = g_new;
+        if let Some(pb) = &pb {
+            pb.inc(1);
+        }
+    }
+    if let Some(pb) = pb {
+        pb.finish_with_message("M-step done");
     }
 
     from_unconstrained(&xk, bounds)

@@ -4,6 +4,8 @@
 use anyhow::{bail, Result};
 use ndarray::{Array2, Array3};
 
+use crate::progress;
+
 #[derive(Debug)]
 pub struct ForwardBackwardResult {
     pub gamma: Array3<f64>,
@@ -17,6 +19,8 @@ pub fn forward_backward(
     a: &Array2<f64>,
     em: &Array2<f64>,
     x: &Array2<u8>,
+    progress_enabled: bool,
+    label: &str,
 ) -> Result<ForwardBackwardResult> {
     let (batch, s_max) = x.dim();
     let n_states = pi.len();
@@ -48,6 +52,15 @@ pub fn forward_backward(
         }
     }
 
+    let span = s_max.saturating_sub(1) as u64;
+    let pb_alpha = if progress_enabled && span > 0 {
+        Some(progress::bar(span, label, "alpha"))
+    } else {
+        None
+    };
+    let stride = (span as usize / 200).max(1);
+    let mut pending = 0usize;
+
     for t in 1..s_max {
         for b in 0..batch {
             let obs = x[(b, t)] as usize;
@@ -69,6 +82,19 @@ pub fn forward_backward(
                 alpha[(b, t, k)] /= norm;
             }
         }
+        if let Some(pb) = &pb_alpha {
+            pending += 1;
+            if pending == stride {
+                pb.inc(pending as u64);
+                pending = 0;
+            }
+        }
+    }
+    if let Some(pb) = pb_alpha {
+        if pending > 0 {
+            pb.inc(pending as u64);
+        }
+        pb.finish_with_message(format!("{label} alpha done"));
     }
 
     for b in 0..batch {
@@ -77,6 +103,12 @@ pub fn forward_backward(
         }
     }
 
+    let pb_beta = if progress_enabled && span > 0 {
+        Some(progress::bar(span, label, "beta"))
+    } else {
+        None
+    };
+    let mut pending = 0usize;
     for t in (0..(s_max - 1)).rev() {
         for b in 0..batch {
             let obs_next = x[(b, t + 1)] as usize;
@@ -89,6 +121,19 @@ pub fn forward_backward(
                 beta[(b, t, k)] = acc / norm;
             }
         }
+        if let Some(pb) = &pb_beta {
+            pending += 1;
+            if pending == stride {
+                pb.inc(pending as u64);
+                pending = 0;
+            }
+        }
+    }
+    if let Some(pb) = pb_beta {
+        if pending > 0 {
+            pb.inc(pending as u64);
+        }
+        pb.finish_with_message(format!("{label} beta done"));
     }
 
     let mut gamma = Array3::<f64>::zeros((batch, s_max, n_states));
@@ -101,6 +146,12 @@ pub fn forward_backward(
     }
 
     let mut xi = Array2::<f64>::zeros((n_states, n_states));
+    let pb_xi = if progress_enabled && span > 0 {
+        Some(progress::bar(span, label, "xi/gamma"))
+    } else {
+        None
+    };
+    let mut pending = 0usize;
     for t in 1..s_max {
         for b in 0..batch {
             let obs = x[(b, t)] as usize;
@@ -112,6 +163,19 @@ pub fn forward_backward(
                 }
             }
         }
+        if let Some(pb) = &pb_xi {
+            pending += 1;
+            if pending == stride {
+                pb.inc(pending as u64);
+                pending = 0;
+            }
+        }
+    }
+    if let Some(pb) = pb_xi {
+        if pending > 0 {
+            pb.inc(pending as u64);
+        }
+        pb.finish_with_message(format!("{label} xi/gamma done"));
     }
 
     let mut loglike = 0.0;

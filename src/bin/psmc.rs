@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::opt::{em_train, MStepConfig};
+use psmc_rs::progress;
 use psmc_rs::PsmcModel;
 
 #[derive(Parser, Debug)]
@@ -31,13 +32,23 @@ struct Cli {
     mstep_iters: usize,
     #[arg(long, default_value_t = 1e-2)]
     smooth_lambda: f64,
+    #[arg(long)]
+    no_progress: bool,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let xs = read_psmcfa(&cli.input_file, cli.batch_size)
-        .with_context(|| "failed to read psmcfa input")?;
+    let xs = if cli.no_progress {
+        read_psmcfa(&cli.input_file, cli.batch_size)
+            .with_context(|| "failed to read psmcfa input")?
+    } else {
+        let pb = progress::spinner("IO", "Reading psmcfa");
+        let xs = read_psmcfa(&cli.input_file, cli.batch_size)
+            .with_context(|| "failed to read psmcfa input")?;
+        pb.finish_with_message("Reading psmcfa done");
+        xs
+    };
 
     let total = (xs.shape()[0] * xs.shape()[1]) as f64;
     let mut count_k = 0usize;
@@ -66,6 +77,10 @@ fn main() -> Result<()> {
         let mut config = MStepConfig::default();
         config.max_iters = cli.mstep_iters;
         config.lambda = cli.smooth_lambda;
+        if cli.no_progress {
+            config.progress = false;
+            config.progress_grads = false;
+        }
         let history = em_train(&mut model, &xs, cli.n_iter, &config)?;
         if let Some((before, after)) = history.loglike.last() {
             println!("Last EM loglike: {} -> {}", before, after);
