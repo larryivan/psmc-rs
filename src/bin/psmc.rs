@@ -34,6 +34,8 @@ struct Cli {
     smooth_lambda: f64,
     #[arg(long)]
     no_progress: bool,
+    #[arg(long)]
+    no_ad: bool,
 }
 
 fn main() -> Result<()> {
@@ -77,6 +79,9 @@ fn main() -> Result<()> {
         let mut config = MStepConfig::default();
         config.max_iters = cli.mstep_iters;
         config.lambda = cli.smooth_lambda;
+        if cli.no_ad {
+            config.use_ad = false;
+        }
         if cli.no_progress {
             config.progress = false;
             config.progress_grads = false;

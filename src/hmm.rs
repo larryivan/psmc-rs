@@ -1,27 +1,32 @@
-// HMM forward-backward and Viterbi will live here.
-// This module is intentionally minimal for the first iteration.
-
 use anyhow::{bail, Result};
-use ndarray::{Array2, Array3};
+use faer::linalg::matmul::matmul;
+use faer::mat::{from_row_major_slice, from_row_major_slice_mut};
+use faer::{Mat, Parallelism};
+use ndarray::Array2;
 
 use crate::progress;
 
-#[derive(Debug)]
-pub struct ForwardBackwardResult {
-    pub gamma: Array3<f64>,
+#[derive(Debug, Clone)]
+pub struct SufficientStats {
+    pub g0: Vec<f64>,
+    pub gobs: [Vec<f64>; 3],
     pub xi: Array2<f64>,
-    pub c_norm: Vec<f64>,
+}
+
+#[derive(Debug)]
+pub struct EStepResult {
+    pub stats: SufficientStats,
     pub loglike: f64,
 }
 
-pub fn forward_backward(
+pub fn e_step_streaming(
     pi: &[f64],
     a: &Array2<f64>,
     em: &Array2<f64>,
     x: &Array2<u8>,
     progress_enabled: bool,
     label: &str,
-) -> Result<ForwardBackwardResult> {
+) -> Result<EStepResult> {
     let (batch, s_max) = x.dim();
     let n_states = pi.len();
     if a.nrows() != n_states || a.ncols() != n_states {
@@ -31,162 +36,169 @@ pub fn forward_backward(
         bail!("emission matrix shape mismatch");
     }
 
-    let mut alpha = Array3::<f64>::zeros((batch, s_max, n_states));
-    let mut beta = Array3::<f64>::zeros((batch, s_max, n_states));
-    let mut c_norm = vec![0.0f64; batch * s_max];
+    let mut g0 = vec![0.0; n_states];
+    let mut gobs0 = vec![0.0; n_states];
+    let mut gobs1 = vec![0.0; n_states];
+    let mut gobs2 = vec![0.0; n_states];
+    let mut xi = Array2::<f64>::zeros((n_states, n_states));
+    let mut loglike = 0.0;
 
-    for b in 0..batch {
-        let obs0 = x[(b, 0)] as usize;
-        let mut sum = 0.0;
-        for k in 0..n_states {
-            let v = em[(obs0, k)] * pi[k];
-            alpha[(b, 0, k)] = v;
-            sum += v;
-        }
-        if sum <= 0.0 {
-            bail!("normalization factor is zero at t=0");
-        }
-        c_norm[b * s_max] = sum;
-        for k in 0..n_states {
-            alpha[(b, 0, k)] /= sum;
-        }
-    }
+    let a_faer = Mat::<f64>::from_fn(n_states, n_states, |i, j| a[(i, j)]);
+    let par = Parallelism::None;
 
-    let span = s_max.saturating_sub(1) as u64;
-    let pb_alpha = if progress_enabled && span > 0 {
-        Some(progress::bar(span, label, "alpha"))
+    let total_fwd = batch.saturating_mul(s_max.saturating_sub(1)) as u64;
+    let total_bwd = batch.saturating_mul(s_max) as u64;
+
+    let pb_fwd = if progress_enabled && total_fwd > 0 {
+        Some(progress::bar(total_fwd, label, "forward"))
     } else {
         None
     };
-    let stride = (span as usize / 200).max(1);
-    let mut pending = 0usize;
+    let pb_bwd = if progress_enabled && total_bwd > 0 {
+        Some(progress::bar(total_bwd, label, "backward"))
+    } else {
+        None
+    };
 
-    for t in 1..s_max {
-        for b in 0..batch {
+    let stride_fwd = (total_fwd / 200).max(1) as usize;
+    let stride_bwd = (total_bwd / 200).max(1) as usize;
+    let mut pending_fwd = 0usize;
+    let mut pending_bwd = 0usize;
+
+    for b in 0..batch {
+        let mut alpha = vec![0.0f64; s_max * n_states];
+        let mut c_norm = vec![0.0f64; s_max];
+        let mut tmp = vec![0.0f64; n_states];
+
+        let obs0 = x[(b, 0)] as usize;
+        let mut norm = 0.0;
+        for k in 0..n_states {
+            let v = pi[k] * em[(obs0, k)];
+            alpha[k] = v;
+            norm += v;
+        }
+        if norm <= 0.0 {
+            bail!("normalization factor is zero at t=0");
+        }
+        c_norm[0] = norm;
+        for k in 0..n_states {
+            alpha[k] /= norm;
+        }
+
+        for t in 1..s_max {
             let obs = x[(b, t)] as usize;
-            let mut norm = 0.0;
+            let prev = &alpha[(t - 1) * n_states..t * n_states];
+            let lhs = from_row_major_slice(prev, 1, n_states);
+            let rhs = a_faer.as_ref();
+            let mut out = from_row_major_slice_mut(&mut tmp, 1, n_states);
+            matmul(out.as_mut(), lhs, rhs, None, 1.0, par);
+
+            norm = 0.0;
             for k in 0..n_states {
-                let mut acc = 0.0;
-                for j in 0..n_states {
-                    acc += alpha[(b, t - 1, j)] * a[(j, k)];
-                }
-                let v = em[(obs, k)] * acc;
-                alpha[(b, t, k)] = v;
-                norm += v;
+                tmp[k] *= em[(obs, k)];
+                norm += tmp[k];
             }
             if norm <= 0.0 {
                 bail!("normalization factor is zero at t={}", t);
             }
-            c_norm[b * s_max + t] = norm;
+            c_norm[t] = norm;
+            let alpha_t = &mut alpha[t * n_states..(t + 1) * n_states];
             for k in 0..n_states {
-                alpha[(b, t, k)] /= norm;
+                alpha_t[k] = tmp[k] / norm;
+            }
+
+            if let Some(pb) = &pb_fwd {
+                pending_fwd += 1;
+                if pending_fwd == stride_fwd {
+                    pb.inc(pending_fwd as u64);
+                    pending_fwd = 0;
+                }
             }
         }
-        if let Some(pb) = &pb_alpha {
-            pending += 1;
-            if pending == stride {
-                pb.inc(pending as u64);
-                pending = 0;
-            }
-        }
-    }
-    if let Some(pb) = pb_alpha {
-        if pending > 0 {
-            pb.inc(pending as u64);
-        }
-        pb.finish_with_message(format!("{label} alpha done"));
-    }
 
-    for b in 0..batch {
-        for k in 0..n_states {
-            beta[(b, s_max - 1, k)] = 1.0;
+        for v in c_norm.iter() {
+            loglike += v.ln();
         }
-    }
 
-    let pb_beta = if progress_enabled && span > 0 {
-        Some(progress::bar(span, label, "beta"))
-    } else {
-        None
-    };
-    let mut pending = 0usize;
-    for t in (0..(s_max - 1)).rev() {
-        for b in 0..batch {
-            let obs_next = x[(b, t + 1)] as usize;
-            let norm = c_norm[b * s_max + t + 1];
+        let mut beta = vec![1.0f64; n_states];
+        let mut beta_new = vec![0.0f64; n_states];
+
+        for t in (0..s_max).rev() {
+            let obs = x[(b, t)] as usize;
+            let alpha_t = &alpha[t * n_states..(t + 1) * n_states];
             for k in 0..n_states {
+                let g = alpha_t[k] * beta[k];
+                if t == 0 {
+                    g0[k] += g;
+                }
+                match obs {
+                    0 => gobs0[k] += g,
+                    1 => gobs1[k] += g,
+                    _ => gobs2[k] += g,
+                }
+            }
+
+            if t == 0 {
+                break;
+            }
+
+            let norm_t = c_norm[t];
+            let alpha_prev = &alpha[(t - 1) * n_states..t * n_states];
+            let a_ref = a_faer.as_ref();
+            for i in 0..n_states {
+                let a_i = a_ref.row(i);
+                for j in 0..n_states {
+                    let a_ij = a_i.read(j);
+                    let val = alpha_prev[i] * a_ij * em[(obs, j)] * beta[j] / norm_t;
+                    xi[(i, j)] += val;
+                }
+            }
+
+            for i in 0..n_states {
+                let a_i = a_ref.row(i);
                 let mut acc = 0.0;
                 for j in 0..n_states {
-                    acc += beta[(b, t + 1, j)] * em[(obs_next, j)] * a[(k, j)];
+                    acc += a_i.read(j) * em[(obs, j)] * beta[j];
                 }
-                beta[(b, t, k)] = acc / norm;
+                beta_new[i] = acc / norm_t;
             }
-        }
-        if let Some(pb) = &pb_beta {
-            pending += 1;
-            if pending == stride {
-                pb.inc(pending as u64);
-                pending = 0;
-            }
-        }
-    }
-    if let Some(pb) = pb_beta {
-        if pending > 0 {
-            pb.inc(pending as u64);
-        }
-        pb.finish_with_message(format!("{label} beta done"));
-    }
-
-    let mut gamma = Array3::<f64>::zeros((batch, s_max, n_states));
-    for b in 0..batch {
-        for t in 0..s_max {
-            for k in 0..n_states {
-                gamma[(b, t, k)] = alpha[(b, t, k)] * beta[(b, t, k)];
-            }
-        }
-    }
-
-    let mut xi = Array2::<f64>::zeros((n_states, n_states));
-    let pb_xi = if progress_enabled && span > 0 {
-        Some(progress::bar(span, label, "xi/gamma"))
-    } else {
-        None
-    };
-    let mut pending = 0usize;
-    for t in 1..s_max {
-        for b in 0..batch {
-            let obs = x[(b, t)] as usize;
-            let denom = c_norm[b * s_max + t];
-            for i in 0..n_states {
-                let alpha_prev = alpha[(b, t - 1, i)];
-                for j in 0..n_states {
-                    xi[(i, j)] += alpha_prev * a[(i, j)] * em[(obs, j)] * beta[(b, t, j)] / denom;
+            std::mem::swap(&mut beta, &mut beta_new);
+            if let Some(pb) = &pb_bwd {
+                pending_bwd += 1;
+                if pending_bwd == stride_bwd {
+                    pb.inc(pending_bwd as u64);
+                    pending_bwd = 0;
                 }
             }
         }
-        if let Some(pb) = &pb_xi {
-            pending += 1;
-            if pending == stride {
-                pb.inc(pending as u64);
-                pending = 0;
+        if let Some(pb) = &pb_bwd {
+            pending_bwd += 1;
+            if pending_bwd == stride_bwd {
+                pb.inc(pending_bwd as u64);
+                pending_bwd = 0;
             }
         }
     }
-    if let Some(pb) = pb_xi {
-        if pending > 0 {
-            pb.inc(pending as u64);
+
+    if let Some(pb) = pb_fwd {
+        if pending_fwd > 0 {
+            pb.inc(pending_fwd as u64);
         }
-        pb.finish_with_message(format!("{label} xi/gamma done"));
+        pb.finish_with_message(format!("{label} forward done"));
+    }
+    if let Some(pb) = pb_bwd {
+        if pending_bwd > 0 {
+            pb.inc(pending_bwd as u64);
+        }
+        pb.finish_with_message(format!("{label} backward done"));
     }
 
-    let mut loglike = 0.0;
-    for v in c_norm.iter() {
-        loglike += v.ln();
-    }
-
-    Ok(ForwardBackwardResult {
-        gamma,
-        xi,
-        c_norm,
+    Ok(EStepResult {
+        stats: SufficientStats {
+            g0,
+            gobs: [gobs0, gobs1, gobs2],
+            xi,
+        },
         loglike,
     })
 }

@@ -9,6 +9,7 @@ argmin = "0.10"
 bstr = "1.11"
 clap = { version = "4.5", features = ["derive"] }
 flate2 = "1.0"
+faer = "0.19"
 indicatif = "0.17"
 memchr = "2.7"
 ndarray = { version = "0.15", features = ["rayon"] }

@@ -1,10 +1,206 @@
 use anyhow::{bail, Result};
-use ndarray::{Array2, Array3};
+use ndarray::Array2;
 
-use crate::hmm::forward_backward;
+use crate::hmm::{e_step_streaming, SufficientStats};
 use crate::model::PsmcModel;
 use crate::progress;
 use crate::utils::{logit, sigmoid};
+
+#[derive(Clone, Debug)]
+struct Dual {
+    re: f64,
+    grad: Vec<f64>,
+}
+
+impl Dual {
+    fn constant(val: f64, n: usize) -> Self {
+        Self {
+            re: val,
+            grad: vec![0.0; n],
+        }
+    }
+
+    fn variable(val: f64, n: usize, idx: usize) -> Self {
+        let mut grad = vec![0.0; n];
+        grad[idx] = 1.0;
+        Self { re: val, grad }
+    }
+
+    fn exp(&self) -> Self {
+        let v = self.re.exp();
+        let grad = self.grad.iter().map(|g| g * v).collect();
+        Self { re: v, grad }
+    }
+
+    fn ln(&self) -> Self {
+        let v = self.re.ln();
+        let grad = self.grad.iter().map(|g| g / self.re).collect();
+        Self { re: v, grad }
+    }
+}
+
+use std::ops::{Add, Div, Mul, Neg, Sub};
+
+impl<'a, 'b> Add<&'b Dual> for &'a Dual {
+    type Output = Dual;
+    fn add(self, rhs: &'b Dual) -> Dual {
+        let mut grad = vec![0.0; self.grad.len()];
+        for i in 0..grad.len() {
+            grad[i] = self.grad[i] + rhs.grad[i];
+        }
+        Dual {
+            re: self.re + rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a, 'b> Sub<&'b Dual> for &'a Dual {
+    type Output = Dual;
+    fn sub(self, rhs: &'b Dual) -> Dual {
+        let mut grad = vec![0.0; self.grad.len()];
+        for i in 0..grad.len() {
+            grad[i] = self.grad[i] - rhs.grad[i];
+        }
+        Dual {
+            re: self.re - rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a, 'b> Mul<&'b Dual> for &'a Dual {
+    type Output = Dual;
+    fn mul(self, rhs: &'b Dual) -> Dual {
+        let mut grad = vec![0.0; self.grad.len()];
+        for i in 0..grad.len() {
+            grad[i] = self.grad[i] * rhs.re + rhs.grad[i] * self.re;
+        }
+        Dual {
+            re: self.re * rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a, 'b> Div<&'b Dual> for &'a Dual {
+    type Output = Dual;
+    fn div(self, rhs: &'b Dual) -> Dual {
+        let denom = rhs.re * rhs.re;
+        let mut grad = vec![0.0; self.grad.len()];
+        for i in 0..grad.len() {
+            grad[i] = (self.grad[i] * rhs.re - rhs.grad[i] * self.re) / denom;
+        }
+        Dual {
+            re: self.re / rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a> Add<f64> for &'a Dual {
+    type Output = Dual;
+    fn add(self, rhs: f64) -> Dual {
+        Dual {
+            re: self.re + rhs,
+            grad: self.grad.clone(),
+        }
+    }
+}
+
+impl<'a> Sub<f64> for &'a Dual {
+    type Output = Dual;
+    fn sub(self, rhs: f64) -> Dual {
+        Dual {
+            re: self.re - rhs,
+            grad: self.grad.clone(),
+        }
+    }
+}
+
+impl<'a> Mul<f64> for &'a Dual {
+    type Output = Dual;
+    fn mul(self, rhs: f64) -> Dual {
+        let grad = self.grad.iter().map(|g| g * rhs).collect();
+        Dual {
+            re: self.re * rhs,
+            grad,
+        }
+    }
+}
+
+impl<'a> Div<f64> for &'a Dual {
+    type Output = Dual;
+    fn div(self, rhs: f64) -> Dual {
+        let grad = self.grad.iter().map(|g| g / rhs).collect();
+        Dual {
+            re: self.re / rhs,
+            grad,
+        }
+    }
+}
+
+impl<'a> Add<&'a Dual> for f64 {
+    type Output = Dual;
+    fn add(self, rhs: &'a Dual) -> Dual {
+        Dual {
+            re: self + rhs.re,
+            grad: rhs.grad.clone(),
+        }
+    }
+}
+
+impl<'a> Sub<&'a Dual> for f64 {
+    type Output = Dual;
+    fn sub(self, rhs: &'a Dual) -> Dual {
+        let grad = rhs.grad.iter().map(|g| -g).collect();
+        Dual {
+            re: self - rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a> Mul<&'a Dual> for f64 {
+    type Output = Dual;
+    fn mul(self, rhs: &'a Dual) -> Dual {
+        let grad = rhs.grad.iter().map(|g| g * self).collect();
+        Dual {
+            re: self * rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a> Div<&'a Dual> for f64 {
+    type Output = Dual;
+    fn div(self, rhs: &'a Dual) -> Dual {
+        let denom = rhs.re * rhs.re;
+        let grad = rhs.grad.iter().map(|g| -self * g / denom).collect();
+        Dual {
+            re: self / rhs.re,
+            grad,
+        }
+    }
+}
+
+impl<'a> Neg for &'a Dual {
+    type Output = Dual;
+    fn neg(self) -> Dual {
+        let grad = self.grad.iter().map(|g| -g).collect();
+        Dual {
+            re: -self.re,
+            grad,
+        }
+    }
+}
+
+fn sigmoid_dual(x: &Dual) -> Dual {
+    let n = x.grad.len();
+    let one = Dual::constant(1.0, n);
+    let denom = &one + &(-x).exp();
+    &one / &denom
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bounds {
@@ -23,6 +219,7 @@ pub struct MStepConfig {
     pub tol_grad: f64,
     pub progress: bool,
     pub progress_grads: bool,
+    pub use_ad: bool,
 }
 
 impl Default for MStepConfig {
@@ -37,6 +234,7 @@ impl Default for MStepConfig {
             tol_grad: 1e-4,
             progress: true,
             progress_grads: true,
+            use_ad: true,
         }
     }
 }
@@ -72,7 +270,7 @@ pub fn em_train(
             pb.set_message(format!("overall {}/{}", iter + 1, n_iter));
         }
         model.param_recalculate()?;
-        let fb = forward_backward(
+        let e = e_step_streaming(
             model.prior_matrix(),
             model.transition_matrix(),
             model.emission_matrix(),
@@ -80,14 +278,18 @@ pub fn em_train(
             config.progress,
             "E",
         )?;
-        let loglike_before = fb.loglike;
-
-        let params_opt = m_step_lbfgs(model, x, &fb.gamma, &fb.xi, &params, &bounds, config)?;
+        let loglike_before = e.loglike;
+        let stats = e.stats;
+        let params_opt = if config.use_ad {
+            m_step_lbfgs_ad(model, &stats, &params, &bounds, config)?
+        } else {
+            m_step_lbfgs(model, &stats, &params, &bounds, config)?
+        };
         params = params_opt.clone();
         unpack_params(model, &params)?;
 
         model.param_recalculate()?;
-        let fb_after = forward_backward(
+        let e_after = e_step_streaming(
             model.prior_matrix(),
             model.transition_matrix(),
             model.emission_matrix(),
@@ -95,7 +297,7 @@ pub fn em_train(
             config.progress,
             "E2",
         )?;
-        let loglike_after = fb_after.loglike;
+        let loglike_after = e_after.loglike;
 
         history.loglike.push((loglike_before, loglike_after));
         history.params.push(params.clone());
@@ -121,6 +323,8 @@ pub fn default_bounds(model: &PsmcModel) -> Vec<Bounds> {
     }
     bounds
 }
+
+
 
 fn pack_params(model: &PsmcModel) -> Vec<f64> {
     let mut params = Vec::with_capacity(3 + model.lam.len());
@@ -181,8 +385,7 @@ fn smooth_penalty(lam_full: &[f64]) -> f64 {
     sum
 }
 
-fn q_function(model: &PsmcModel, x: &Array2<u8>, gamma: &Array3<f64>, xi: &Array2<f64>) -> f64 {
-    let (batch, s_max) = x.dim();
+fn q_function_stats(model: &PsmcModel, stats: &SufficientStats) -> f64 {
     let n_states = model.sigma.len();
     let pi = model.prior_matrix();
     let a = model.transition_matrix();
@@ -190,32 +393,25 @@ fn q_function(model: &PsmcModel, x: &Array2<u8>, gamma: &Array3<f64>, xi: &Array
 
     let mut q = 0.0;
     let ln = |v: f64| -> f64 { (v.max(1e-300)).ln() };
-    for b in 0..batch {
-        for k in 0..n_states {
-            q += gamma[(b, 0, k)] * ln(pi[k]);
-        }
+    for k in 0..n_states {
+        q += stats.g0[k] * ln(pi[k]);
     }
     for i in 0..n_states {
         for j in 0..n_states {
-            q += xi[(i, j)] * ln(a[(i, j)]);
+            q += stats.xi[(i, j)] * ln(a[(i, j)]);
         }
     }
-    for b in 0..batch {
-        for t in 0..s_max {
-            let obs = x[(b, t)] as usize;
-            for k in 0..n_states {
-                q += gamma[(b, t, k)] * ln(em[(obs, k)]);
-            }
-        }
+    for k in 0..n_states {
+        q += stats.gobs[0][k] * ln(em[(0, k)]);
+        q += stats.gobs[1][k] * ln(em[(1, k)]);
+        q += stats.gobs[2][k] * ln(em[(2, k)]);
     }
     q
 }
 
 fn cost_function(
     base_model: &PsmcModel,
-    x: &Array2<u8>,
-    gamma: &Array3<f64>,
-    xi: &Array2<f64>,
+    stats: &SufficientStats,
     params: &[f64],
     bounds: &[Bounds],
     lambda: f64,
@@ -224,7 +420,7 @@ fn cost_function(
     let mut model = base_model.clone();
     unpack_params(&mut model, &constrained)?;
     model.param_recalculate()?;
-    let q = q_function(&model, x, gamma, xi);
+    let q = q_function_stats(&model, stats);
     let lam_full = model.map_lam(&model.lam)?;
     let penalty = smooth_penalty(&lam_full);
     Ok(-q + lambda * penalty)
@@ -232,9 +428,7 @@ fn cost_function(
 
 fn numerical_grad(
     base_model: &PsmcModel,
-    x: &Array2<u8>,
-    gamma: &Array3<f64>,
-    xi: &Array2<f64>,
+    stats: &SufficientStats,
     params: &[f64],
     bounds: &[Bounds],
     lambda: f64,
@@ -254,8 +448,8 @@ fn numerical_grad(
         let mut p2 = params.to_vec();
         p1[i] += step;
         p2[i] -= step;
-        let f1 = cost_function(base_model, x, gamma, xi, &p1, bounds, lambda)?;
-        let f2 = cost_function(base_model, x, gamma, xi, &p2, bounds, lambda)?;
+        let f1 = cost_function(base_model, stats, &p1, bounds, lambda)?;
+        let f2 = cost_function(base_model, stats, &p2, bounds, lambda)?;
         grad[i] = (f1 - f2) / (2.0 * step);
         if let Some(pb) = &pb {
             pb.inc(1);
@@ -265,6 +459,260 @@ fn numerical_grad(
         pb.finish_with_message(format!("{label} done"));
     }
     Ok(grad)
+}
+
+fn from_unconstrained_dual(p: &[Dual], bounds: &[Bounds]) -> Result<Vec<Dual>> {
+    if p.len() != bounds.len() {
+        bail!("bounds length mismatch");
+    }
+    let mut out = Vec::with_capacity(p.len());
+    for (v, b) in p.iter().zip(bounds.iter()) {
+        let z = sigmoid_dual(v);
+        let scaled = &z * (b.hi - b.lo);
+        let scaled = &scaled + b.lo;
+        out.push(scaled);
+    }
+    Ok(out)
+}
+
+fn expand_lam_dual(
+    lam_grouped: &[Dual],
+    spec: Option<&[(usize, usize)]>,
+    n_steps: usize,
+    n_params: usize,
+) -> Result<Vec<Dual>> {
+    match spec {
+        None => {
+            if lam_grouped.len() != n_steps + 1 {
+                bail!("lam length mismatch for ungrouped params");
+            }
+            Ok(lam_grouped.to_vec())
+        }
+        Some(spec) => {
+            let expected = spec.iter().map(|(ts, _)| ts).sum::<usize>() + 1;
+            if lam_grouped.len() != expected {
+                bail!(
+                    "lam length {} does not match grouped params {}",
+                    lam_grouped.len(),
+                    expected
+                );
+            }
+            let mut lam = Vec::with_capacity(n_steps + 1);
+            let mut counter = 0usize;
+            for (ts, gs) in spec.iter().cloned() {
+                for _ in 0..ts {
+                    for _ in 0..gs {
+                        lam.push(lam_grouped[counter].clone());
+                    }
+                    counter += 1;
+                }
+            }
+            if let Some(last) = lam_grouped.last() {
+                lam.push(last.clone());
+            } else {
+                lam.push(Dual::constant(1.0, n_params));
+            }
+            Ok(lam)
+        }
+    }
+}
+
+fn compute_params_dual(
+    n_steps: usize,
+    theta: &Dual,
+    rho: &Dual,
+    t_max: &Dual,
+    lam_full: &[Dual],
+) -> Result<(Vec<Dual>, Vec<Dual>, Vec<Vec<Dual>>, Vec<Vec<Dual>>)> {
+    let n = n_steps;
+    let n_params = theta.grad.len();
+    if lam_full.len() != n + 1 {
+        bail!("lam_full length {} != n_steps+1 {}", lam_full.len(), n + 1);
+    }
+
+    let alpha_c = Dual::constant(0.1, n_params);
+    let one = Dual::constant(1.0, n_params);
+    let beta = (&(&one + &(t_max / &alpha_c)).ln()) / (n as f64);
+
+    let mut t = Vec::with_capacity(n + 2);
+    for k in 0..n {
+        let exp_term = (&beta * (k as f64)).exp();
+        let expm1 = &exp_term - 1.0;
+        let tk = &alpha_c * &expm1;
+        t.push(tk);
+    }
+    t.push(t_max.clone());
+    t.push(Dual::constant(1e300, n_params));
+
+    let mut tau = vec![Dual::constant(0.0, n_params); n + 1];
+    for k in 0..=n {
+        tau[k] = &t[k + 1] - &t[k];
+    }
+
+    let mut alpha = vec![Dual::constant(0.0, n_params); n + 2];
+    alpha[0] = one.clone();
+    for k in 1..=n {
+        let ratio = &tau[k - 1] / &lam_full[k - 1];
+        let term = (-&ratio).exp();
+        alpha[k] = &alpha[k - 1] * &term;
+    }
+    alpha[n + 1] = Dual::constant(0.0, n_params);
+
+    let mut beta_arr = vec![Dual::constant(0.0, n_params); n + 1];
+    for k in 1..=n {
+        let inv_a = 1.0 / &alpha[k];
+        let inv_prev = 1.0 / &alpha[k - 1];
+        let diff = &inv_a - &inv_prev;
+        let term = &lam_full[k - 1] * &diff;
+        beta_arr[k] = &beta_arr[k - 1] + &term;
+    }
+
+    let mut c_pi = Dual::constant(0.0, n_params);
+    for i in 0..=n {
+        let diff = &alpha[i] - &alpha[i + 1];
+        c_pi = &c_pi + &(&lam_full[i] * &diff);
+    }
+    let c_sigma = &(1.0 / &(&c_pi * rho)) + 0.5;
+
+    let mut q_aux = vec![Dual::constant(0.0, n_params); n];
+    for m in 0..n {
+        let diff_alpha = &alpha[m] - &alpha[m + 1];
+        let term = &beta_arr[m] - &(&lam_full[m] / &alpha[m]);
+        q_aux[m] = &(&diff_alpha * &term) + &tau[m];
+    }
+
+    let mut sigma = vec![Dual::constant(0.0, n_params); n + 1];
+    let mut pi_k = vec![Dual::constant(0.0, n_params); n + 1];
+    let mut p_kl = vec![vec![Dual::constant(0.0, n_params); n + 1]; n + 1];
+    let mut em = vec![vec![Dual::constant(0.0, n_params); n + 1]; 3];
+    let mut q = vec![Dual::constant(0.0, n_params); n + 1];
+
+    let mut sum_t = Dual::constant(0.0, n_params);
+
+    for k in 0..=n {
+        let ak1 = &alpha[k] - &alpha[k + 1];
+        let lak = lam_full[k].clone();
+
+        let cpik = &(&ak1 * &(&sum_t + &lak)) - &(&alpha[k + 1] * &tau[k]);
+        let pik = &cpik / &c_pi;
+        pi_k[k] = pik.clone();
+        sigma[k] = &(&(&ak1 / &(&c_pi * rho)) + &(&pik / 2.0)) / &c_sigma;
+
+        let tmp_avg = -(&(&one - &(&pik / &(&c_sigma * &sigma[k]))).ln());
+        let mut avg_t = &tmp_avg / rho;
+        let avg_re = avg_t.re;
+        let sum_re = sum_t.re;
+        let tau_re = tau[k].re;
+        if !avg_re.is_finite() || avg_re < sum_re || avg_re > (sum_re + tau_re) {
+            let denom = &alpha[k] - &alpha[k + 1];
+            let term = &alpha[k + 1] / &denom;
+            avg_t = &sum_t + &(&lak - &(&tau[k] * &term));
+        }
+
+        let tmp = &ak1 / &cpik;
+        for m in 0..k {
+            q[m] = &tmp * &q_aux[m];
+        }
+        let term1 = &(&ak1 * &ak1) * &(&beta_arr[k] - &(&lak / &alpha[k]));
+        let term2 = &(&lak * 2.0) * &ak1;
+        let term3 = &(&alpha[k + 1] * 2.0) * &tau[k];
+        q[k] = &(&term1 + &term2) - &term3;
+        q[k] = &q[k] / &cpik;
+
+        if k < n {
+            let tmp2 = &q_aux[k] / &cpik;
+            for m in (k + 1)..=n {
+                let diff_alpha = &alpha[m] - &alpha[m + 1];
+                q[m] = &diff_alpha * &tmp2;
+            }
+        }
+
+        let tmp3 = &pik / &(&c_sigma * &sigma[k]);
+        for m in 0..=n {
+            p_kl[k][m] = &tmp3 * &q[m];
+        }
+        p_kl[k][k] = &(&tmp3 * &q[k]) + &(1.0 - &tmp3);
+
+        let prod = theta * &avg_t;
+        let exp_term = (-&prod).exp();
+        em[0][k] = exp_term.clone();
+        em[1][k] = &one - &exp_term;
+        em[2][k] = one.clone();
+
+        sum_t = &sum_t + &tau[k];
+    }
+
+    Ok((pi_k, sigma, p_kl, em))
+}
+
+fn smooth_penalty_dual(lam_full: &[Dual]) -> Dual {
+    let n_params = lam_full[0].grad.len();
+    let mut sum = Dual::constant(0.0, n_params);
+    if lam_full.len() < 2 {
+        return sum;
+    }
+    for k in 0..(lam_full.len() - 1) {
+        let d = &lam_full[k + 1].ln() - &lam_full[k].ln();
+        sum = &sum + &(&d * &d);
+    }
+    sum
+}
+
+fn q_function_stats_dual(
+    pi: &[Dual],
+    a: &[Vec<Dual>],
+    em: &[Vec<Dual>],
+    stats: &SufficientStats,
+) -> Dual {
+    let n_params = pi[0].grad.len();
+    let n_states = pi.len();
+    let mut q = Dual::constant(0.0, n_params);
+    let ln = |v: &Dual| v.ln();
+    for k in 0..n_states {
+        q = &q + &(&ln(&pi[k]) * stats.g0[k]);
+    }
+    for i in 0..n_states {
+        for j in 0..n_states {
+            let c = stats.xi[(i, j)];
+            if c != 0.0 {
+                q = &q + &(&ln(&a[i][j]) * c);
+            }
+        }
+    }
+    for k in 0..n_states {
+        q = &q + &(&ln(&em[0][k]) * stats.gobs[0][k]);
+        q = &q + &(&ln(&em[1][k]) * stats.gobs[1][k]);
+        q = &q + &(&ln(&em[2][k]) * stats.gobs[2][k]);
+    }
+    q
+}
+
+fn eval_ad(
+    base_model: &PsmcModel,
+    stats: &SufficientStats,
+    params: &[f64],
+    bounds: &[Bounds],
+    lambda: f64,
+) -> Result<(f64, Vec<f64>)> {
+    let n = params.len();
+    let vars: Vec<Dual> = (0..n).map(|i| Dual::variable(params[i], n, i)).collect();
+    let constrained = from_unconstrained_dual(&vars, bounds)?;
+
+    let theta = &constrained[0];
+    let rho = &constrained[1];
+    let t_max = &constrained[2];
+    let lam_grouped = &constrained[3..];
+    let lam_full =
+        expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps, n)?;
+
+    let (pi, _sigma, a, em) =
+        compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
+    let q = q_function_stats_dual(&pi, &a, &em, stats);
+    let penalty = smooth_penalty_dual(&lam_full);
+    let neg_q = -&q;
+    let pen = &penalty * lambda;
+    let f = &neg_q + &pen;
+    Ok((f.re, f.grad))
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -277,9 +725,7 @@ fn norm(a: &[f64]) -> f64 {
 
 pub fn m_step_lbfgs(
     model: &PsmcModel,
-    x: &Array2<u8>,
-    gamma: &Array3<f64>,
-    xi: &Array2<f64>,
+    stats: &SufficientStats,
     init_params: &[f64],
     bounds: &[Bounds],
     config: &MStepConfig,
@@ -287,9 +733,7 @@ pub fn m_step_lbfgs(
     let mut xk = to_unconstrained(init_params, bounds)?;
     let mut gk = numerical_grad(
         model,
-        x,
-        gamma,
-        xi,
+        stats,
         &xk,
         bounds,
         config.lambda,
@@ -344,7 +788,7 @@ pub fn m_step_lbfgs(
             *v = -*v;
         }
 
-        let f0 = cost_function(model, x, gamma, xi, &xk, bounds, config.lambda)?;
+        let f0 = cost_function(model, stats, &xk, bounds, config.lambda)?;
         let mut step = 1.0;
         let gdotp = dot(&gk, &r);
         let mut x_new = xk.clone();
@@ -354,7 +798,7 @@ pub fn m_step_lbfgs(
             for i in 0..xk.len() {
                 x_new[i] = xk[i] + step * r[i];
             }
-            f_new = cost_function(model, x, gamma, xi, &x_new, bounds, config.lambda)?;
+            f_new = cost_function(model, stats, &x_new, bounds, config.lambda)?;
             if f_new <= f0 + config.line_search_c1 * step * gdotp {
                 ls_ok = true;
                 break;
@@ -367,9 +811,7 @@ pub fn m_step_lbfgs(
 
         let g_new = numerical_grad(
             model,
-            x,
-            gamma,
-            xi,
+            stats,
             &x_new,
             bounds,
             config.lambda,
@@ -396,6 +838,114 @@ pub fn m_step_lbfgs(
         }
         xk = x_new;
         gk = g_new;
+        if let Some(pb) = &pb {
+            pb.inc(1);
+        }
+    }
+    if let Some(pb) = pb {
+        pb.finish_with_message("M-step done");
+    }
+
+    from_unconstrained(&xk, bounds)
+}
+
+pub fn m_step_lbfgs_ad(
+    model: &PsmcModel,
+    stats: &SufficientStats,
+    init_params: &[f64],
+    bounds: &[Bounds],
+    config: &MStepConfig,
+) -> Result<Vec<f64>> {
+    let mut xk = to_unconstrained(init_params, bounds)?;
+    let (mut f0, mut gk) = eval_ad(model, stats, &xk, bounds, config.lambda)?;
+
+    let mut s_hist: Vec<Vec<f64>> = Vec::new();
+    let mut y_hist: Vec<Vec<f64>> = Vec::new();
+    let mut rho_hist: Vec<f64> = Vec::new();
+
+    let pb = if config.progress {
+        Some(progress::bar(config.max_iters as u64, "M", "L-BFGS"))
+    } else {
+        None
+    };
+
+    for iter in 0..config.max_iters {
+        if let Some(pb) = &pb {
+            pb.set_message(format!("L-BFGS {}/{}", iter + 1, config.max_iters));
+        }
+        if norm(&gk) < config.tol_grad {
+            break;
+        }
+        let mut q = gk.clone();
+        let mut alpha = vec![0.0; s_hist.len()];
+        for i in (0..s_hist.len()).rev() {
+            let rho = rho_hist[i];
+            let a = rho * dot(&s_hist[i], &q);
+            alpha[i] = a;
+            for j in 0..q.len() {
+                q[j] -= a * y_hist[i][j];
+            }
+        }
+        let mut r = if let Some(last) = y_hist.last() {
+            let s_last = s_hist.last().unwrap();
+            let ys = dot(last, s_last);
+            let yy = dot(last, last);
+            let h0 = if yy > 0.0 { ys / yy } else { 1.0 };
+            q.iter().map(|v| v * h0).collect::<Vec<f64>>()
+        } else {
+            q.clone()
+        };
+        for i in 0..s_hist.len() {
+            let rho = rho_hist[i];
+            let beta = rho * dot(&y_hist[i], &r);
+            for j in 0..r.len() {
+                r[j] += s_hist[i][j] * (alpha[i] - beta);
+            }
+        }
+        for v in r.iter_mut() {
+            *v = -*v;
+        }
+
+        let gdotp = dot(&gk, &r);
+        let mut step = 1.0;
+        let mut x_new = xk.clone();
+        let mut ls_ok = false;
+        for _ in 0..config.max_ls_steps {
+            for i in 0..xk.len() {
+                x_new[i] = xk[i] + step * r[i];
+            }
+            let f_new = cost_function(model, stats, &x_new, bounds, config.lambda)?;
+            if f_new <= f0 + config.line_search_c1 * step * gdotp {
+                ls_ok = true;
+                break;
+            }
+            step *= 0.5;
+        }
+        if !ls_ok {
+            break;
+        }
+
+        let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
+        let mut s = vec![0.0; xk.len()];
+        let mut y = vec![0.0; xk.len()];
+        for i in 0..xk.len() {
+            s[i] = x_new[i] - xk[i];
+            y[i] = g_new[i] - gk[i];
+        }
+        let ys = dot(&y, &s);
+        if ys > 1e-12 {
+            if s_hist.len() == config.lbfgs_m {
+                s_hist.remove(0);
+                y_hist.remove(0);
+                rho_hist.remove(0);
+            }
+            s_hist.push(s);
+            y_hist.push(y);
+            rho_hist.push(1.0 / ys);
+        }
+        xk = x_new;
+        gk = g_new;
+        f0 = f_new;
         if let Some(pb) = &pb {
             pb.inc(1);
         }

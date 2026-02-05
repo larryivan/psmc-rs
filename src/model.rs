@@ -239,6 +239,10 @@ impl PsmcModel {
     pub fn emission_matrix(&self) -> &Array2<f64> {
         &self.em
     }
+
+    pub fn pattern_spec(&self) -> Option<&[(usize, usize)]> {
+        self.pattern_spec.as_deref()
+    }
 }
 
 fn n_free_params(n_steps: usize, spec: Option<&[(usize, usize)]>) -> usize {
