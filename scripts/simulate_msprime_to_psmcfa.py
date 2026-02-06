@@ -17,7 +17,7 @@ from pathlib import Path
 def parse_args():
     p = argparse.ArgumentParser(description="Simulate msprime and output PSMCFA")
     p.add_argument("--out", required=True, help="Output .psmcfa or .psmcfa.gz")
-    p.add_argument("--length", type=float, default=30_000_000, help="Sequence length")
+    p.add_argument("--length", type=float, default=500_000_000, help="Sequence length (bp)")
     p.add_argument("--ne", type=float, default=10_000, help="Effective population size")
     p.add_argument("--recomb", type=float, default=1e-8, help="Recombination rate per bp")
     p.add_argument("--mutation", type=float, default=2.5e-8, help="Mutation rate per bp")
@@ -28,7 +28,7 @@ def parse_args():
         "--model",
         choices=["constant", "zigzag"],
         default="constant",
-        help="Demography model (constant or zigzag)",
+        help="Demography model (constant or zigzag; zigzag defaults to Li & Durbin sim-2 style)",
     )
     p.add_argument(
         "--zigzag-sizes",
@@ -85,22 +85,29 @@ def main() -> int:
             random_seed=args.seed,
         )
     else:
-        # Default zigzag: alternating sizes with doubling time intervals
-        default_sizes = [10_000, 50_000, 10_000, 50_000, 10_000, 50_000, 10_000, 50_000, 10_000]
-        default_times = [200, 400, 800, 1_600, 3_200, 6_400, 12_800, 25_600]
-        sizes = default_sizes
-        times = default_times
-        if args.zigzag_sizes is not None:
-            sizes = parse_csv_floats(args.zigzag_sizes)
-        if args.zigzag_times is not None:
-            times = parse_csv_floats(args.zigzag_times)
-        if len(sizes) != len(times) + 1:
-            print(
-                "zigzag sizes must be one longer than times: "
-                f"len(sizes)={len(sizes)}, len(times)={len(times)}",
-                file=sys.stderr,
-            )
-            return 1
+        # times as coalescent units (4N0) and scale by Ne to generations.
+        if args.zigzag_sizes is None and args.zigzag_times is None:
+            base_ne = float(args.ne)
+            times_coal = [0.1, 0.6, 2.0, 10.0, 20.0]
+            size_mult = [1.0, 5.0, 20.0, 5.0, 10.0, 5.0]
+            times = [t * 4.0 * base_ne for t in times_coal]
+            sizes = [m * base_ne for m in size_mult]
+        else:
+            sizes = parse_csv_floats(args.zigzag_sizes) if args.zigzag_sizes else None
+            times = parse_csv_floats(args.zigzag_times) if args.zigzag_times else None
+            if sizes is None or times is None:
+                print(
+                    "zigzag requires both --zigzag-sizes and --zigzag-times when custom.",
+                    file=sys.stderr,
+                )
+                return 1
+            if len(sizes) != len(times) + 1:
+                print(
+                    "zigzag sizes must be one longer than times: "
+                    f"len(sizes)={len(sizes)}, len(times)={len(times)}",
+                    file=sys.stderr,
+                )
+                return 1
 
         demography = msprime.Demography()
         demography.add_population(name="pop0", initial_size=sizes[0])
