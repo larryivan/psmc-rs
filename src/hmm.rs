@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use faer::linalg::matmul::matmul;
 use faer::mat::{from_row_major_slice, from_row_major_slice_mut};
 use faer::{Mat, Parallelism};

@@ -1,8 +1,8 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
 use ndarray::Array2;
 use std::fs::File;
-use std::io::{Read, BufReader};
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 fn read_to_string(path: &Path) -> Result<String> {
@@ -86,6 +86,5 @@ fn read_psmcfa_unbatched(content: &str) -> Result<Array2<u8>> {
     for s in seqs {
         data.extend(s);
     }
-    Array2::from_shape_vec((rows, len0), data)
-        .context("failed to reshape unbatched psmcfa data")
+    Array2::from_shape_vec((rows, len0), data).context("failed to reshape unbatched psmcfa data")
 }

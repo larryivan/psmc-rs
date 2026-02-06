@@ -1,7 +1,7 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ndarray::Array2;
 
-use crate::hmm::{e_step_streaming, SufficientStats};
+use crate::hmm::{SufficientStats, e_step_streaming};
 use crate::model::PsmcModel;
 use crate::progress;
 use crate::utils::{logit, sigmoid};
@@ -188,10 +188,7 @@ impl<'a> Neg for &'a Dual {
     type Output = Dual;
     fn neg(self) -> Dual {
         let grad = self.grad.iter().map(|g| -g).collect();
-        Dual {
-            re: -self.re,
-            grad,
-        }
+        Dual { re: -self.re, grad }
     }
 }
 
@@ -323,8 +320,6 @@ pub fn default_bounds(model: &PsmcModel) -> Vec<Bounds> {
     }
     bounds
 }
-
-
 
 fn pack_params(model: &PsmcModel) -> Vec<f64> {
     let mut params = Vec::with_capacity(3 + model.lam.len());
@@ -702,8 +697,12 @@ fn eval_ad(
     let rho = &constrained[1];
     let t_max = &constrained[2];
     let lam_grouped = &constrained[3..];
-    let lam_full =
-        expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps, n)?;
+    let lam_full = expand_lam_dual(
+        lam_grouped,
+        base_model.pattern_spec(),
+        base_model.n_steps,
+        n,
+    )?;
 
     let (pi, _sigma, a, em) =
         compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;

@@ -1,7 +1,7 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use ndarray::Array2;
 
-use crate::io::params::{save_params, PsmcParamsFile};
+use crate::io::params::{PsmcParamsFile, save_params};
 
 #[derive(Debug, Clone)]
 pub struct PsmcModel {
@@ -122,7 +122,11 @@ impl PsmcModel {
         let n = self.n_steps;
         let lam = self.map_lam(&self.lam)?;
         if lam.len() != n + 1 {
-            bail!("expanded lam length {} does not match n_steps+1 {}", lam.len(), n + 1);
+            bail!(
+                "expanded lam length {} does not match n_steps+1 {}",
+                lam.len(),
+                n + 1
+            );
         }
 
         let mut alpha = vec![0.0f64; n + 2];

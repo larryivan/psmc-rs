@@ -10,9 +10,11 @@ fn bar_style() -> ProgressStyle {
 }
 
 fn spinner_style() -> ProgressStyle {
-    ProgressStyle::with_template("{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}]")
-        .unwrap()
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+    ProgressStyle::with_template(
+        "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}]",
+    )
+    .unwrap()
+    .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 }
 
 pub fn bar(len: u64, prefix: &str, msg: &str) -> ProgressBar {
