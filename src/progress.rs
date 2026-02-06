@@ -31,3 +31,11 @@ pub fn spinner(prefix: &str, msg: &str) -> ProgressBar {
     pb.enable_steady_tick(Duration::from_millis(80));
     pb
 }
+
+pub fn bar_raw(len: u64, prefix: &str, msg: &str) -> ProgressBar {
+    let pb = ProgressBar::new(len);
+    pb.set_style(bar_style());
+    pb.set_prefix(prefix.to_string());
+    pb.set_message(msg.to_string());
+    pb
+}

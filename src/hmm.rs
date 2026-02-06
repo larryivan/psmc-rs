@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 use faer::linalg::matmul::matmul;
 use faer::mat::{from_row_major_slice, from_row_major_slice_mut};
 use faer::{Mat, Parallelism};
+use indicatif::{MultiProgress, ProgressDrawTarget};
 use ndarray::Array2;
 
 use crate::progress;
@@ -49,17 +50,25 @@ pub fn e_step_streaming(
     let total_fwd = batch.saturating_mul(s_max.saturating_sub(1)) as u64;
     let total_bwd = batch.saturating_mul(s_max) as u64;
 
-    let pb_fwd = if progress_enabled && total_fwd > 0 {
-        Some(progress::bar(total_fwd, label, "forward"))
+    let mp = if progress_enabled {
+        Some(MultiProgress::with_draw_target(
+            ProgressDrawTarget::stderr_with_hz(15),
+        ))
     } else {
         None
     };
-    let pb_bwd = if progress_enabled && total_bwd > 0 {
-        Some(progress::bar(total_bwd, label, "backward"))
+    let pb_fwd = if total_fwd > 0 {
+        mp.as_ref()
+            .map(|mp| mp.add(progress::bar_raw(total_fwd, label, "forward")))
     } else {
         None
     };
-
+    let pb_bwd = if total_bwd > 0 {
+        mp.as_ref()
+            .map(|mp| mp.add(progress::bar_raw(total_bwd, label, "backward")))
+    } else {
+        None
+    };
     let stride_fwd = (total_fwd / 200).max(1) as usize;
     let stride_bwd = (total_bwd / 200).max(1) as usize;
     let mut pending_fwd = 0usize;
@@ -171,13 +180,6 @@ pub fn e_step_streaming(
                 }
             }
         }
-        if let Some(pb) = &pb_bwd {
-            pending_bwd += 1;
-            if pending_bwd == stride_bwd {
-                pb.inc(pending_bwd as u64);
-                pending_bwd = 0;
-            }
-        }
     }
 
     if let Some(pb) = pb_fwd {
@@ -186,6 +188,7 @@ pub fn e_step_streaming(
         }
         pb.finish_with_message(format!("{label} forward done"));
     }
+
     if let Some(pb) = pb_bwd {
         if pending_bwd > 0 {
             pb.inc(pending_bwd as u64);
