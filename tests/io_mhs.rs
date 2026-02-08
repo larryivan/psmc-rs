@@ -22,10 +22,10 @@ fn read_mhs_unbatched_bin_one() {
     let content = "chr1\t10\t3\tAT\nchr1\t20\t2\tAC\n";
     fs::write(&path, content).expect("failed to write mhs");
 
-    let xs = read_mhs(&path, None, 1).expect("failed to parse mhs");
-    assert_eq!(xs.shape(), &[1, 5]);
-    let got = xs.row(0).to_vec();
-    assert_eq!(got, vec![0, 0, 1, 0, 1]);
+    let obs = read_mhs(&path, None, 1).expect("failed to parse mhs");
+    assert_eq!(obs.rows.len(), 1);
+    assert_eq!(obs.row_starts, vec![true]);
+    assert_eq!(obs.rows[0], vec![0, 0, 1, 0, 1]);
 
     let _ = fs::remove_file(path);
 }
@@ -36,30 +36,25 @@ fn read_mhs_unbatched_with_binning() {
     let content = "chr1\t10\t3\tAT\nchr1\t20\t2\tAC\n";
     fs::write(&path, content).expect("failed to write mhs");
 
-    let xs = read_mhs(&path, None, 2).expect("failed to parse binned mhs");
-    assert_eq!(xs.shape(), &[1, 3]);
-    let got = xs.row(0).to_vec();
-    assert_eq!(got, vec![0, 1, 1]);
+    let obs = read_mhs(&path, None, 2).expect("failed to parse binned mhs");
+    assert_eq!(obs.rows.len(), 1);
+    assert_eq!(obs.row_starts, vec![true]);
+    assert_eq!(obs.rows[0], vec![0, 1, 1]);
 
     let _ = fs::remove_file(path);
 }
 
 #[test]
-fn read_mhs_batched_pads_with_n() {
+fn read_mhs_batched_keeps_sequence_chain() {
     let path = unique_temp_path("psmc_mhs_batch", "mhs");
     let content = "chr1\t10\t3\tAT\nchr1\t20\t2\tAC\n";
     fs::write(&path, content).expect("failed to write mhs");
 
-    let xs = read_mhs(&path, Some(4), 1).expect("failed to parse batched mhs");
-    assert_eq!(xs.shape(), &[2, 4]);
-    assert_eq!(xs[[0, 0]], 0);
-    assert_eq!(xs[[0, 1]], 0);
-    assert_eq!(xs[[0, 2]], 1);
-    assert_eq!(xs[[0, 3]], 0);
-    assert_eq!(xs[[1, 0]], 1);
-    assert_eq!(xs[[1, 1]], 2);
-    assert_eq!(xs[[1, 2]], 2);
-    assert_eq!(xs[[1, 3]], 2);
+    let obs = read_mhs(&path, Some(4), 1).expect("failed to parse batched mhs");
+    assert_eq!(obs.rows.len(), 2);
+    assert_eq!(obs.row_starts, vec![true, false]);
+    assert_eq!(obs.rows[0], vec![0, 0, 1, 0]);
+    assert_eq!(obs.rows[1], vec![1]);
 
     let _ = fs::remove_file(path);
 }
@@ -74,10 +69,10 @@ fn read_mhs_gz_works() {
         .expect("failed to write gz mhs");
     writer.finish().expect("failed to finish gzip");
 
-    let xs = read_mhs(&path, None, 1).expect("failed to parse gz mhs");
-    assert_eq!(xs.shape(), &[1, 2]);
-    let got = xs.row(0).to_vec();
-    assert_eq!(got, vec![1, 1]);
+    let obs = read_mhs(&path, None, 1).expect("failed to parse gz mhs");
+    assert_eq!(obs.rows.len(), 1);
+    assert_eq!(obs.row_starts, vec![true]);
+    assert_eq!(obs.rows[0], vec![1, 1]);
 
     let _ = fs::remove_file(path);
 }

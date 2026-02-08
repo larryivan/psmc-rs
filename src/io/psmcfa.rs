@@ -1,12 +1,13 @@
 use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
-use ndarray::Array2;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
 
+use crate::io::Observations;
+
 fn read_to_string(path: &Path) -> Result<String> {
-    let file = File::open(path).with_context(|| format!("failed to open {:?}", path))?;
+    let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
     let mut reader: Box<dyn Read> = if path.extension().map(|e| e == "gz").unwrap_or(false) {
         Box::new(GzDecoder::new(file))
     } else {
@@ -15,7 +16,7 @@ fn read_to_string(path: &Path) -> Result<String> {
     let mut content = String::new();
     reader
         .read_to_string(&mut content)
-        .with_context(|| format!("failed to read {:?}", path))?;
+        .with_context(|| format!("failed to read {path:?}"))?;
     Ok(content)
 }
 
@@ -28,35 +29,7 @@ fn map_base(b: u8) -> Option<u8> {
     }
 }
 
-pub fn read_psmcfa(path: &Path, batch_size: Option<usize>) -> Result<Array2<u8>> {
-    let content = read_to_string(path)?;
-    match batch_size {
-        Some(batch) => read_psmcfa_batched(&content, batch),
-        None => read_psmcfa_unbatched(&content),
-    }
-}
-
-fn read_psmcfa_batched(content: &str, batch: usize) -> Result<Array2<u8>> {
-    if batch == 0 {
-        bail!("batch_size must be > 0");
-    }
-    let mut data = Vec::new();
-    for b in content.as_bytes() {
-        if let Some(v) = map_base(*b) {
-            data.push(v);
-        }
-    }
-    let residual = data.len() % batch;
-    if residual != 0 {
-        let pad = batch - residual;
-        data.extend(std::iter::repeat(2).take(pad));
-    }
-    let n_batches = data.len() / batch;
-    Array2::from_shape_vec((n_batches, batch), data)
-        .context("failed to reshape batched psmcfa data")
-}
-
-fn read_psmcfa_unbatched(content: &str) -> Result<Array2<u8>> {
+fn parse_sequences(content: &str) -> Result<Vec<Vec<u8>>> {
     let mut seqs: Vec<Vec<u8>> = Vec::new();
     for chunk in content.split('>').skip(1) {
         let mut seq = Vec::new();
@@ -69,22 +42,65 @@ fn read_psmcfa_unbatched(content: &str) -> Result<Array2<u8>> {
             seqs.push(seq);
         }
     }
+
+    // Fallback for header-less inputs.
+    if seqs.is_empty() {
+        let mut seq = Vec::new();
+        for b in content.as_bytes() {
+            if let Some(v) = map_base(*b) {
+                seq.push(v);
+            }
+        }
+        if !seq.is_empty() {
+            seqs.push(seq);
+        }
+    }
+
     if seqs.is_empty() {
         bail!("no sequences found in psmcfa data");
     }
-    let len0 = seqs[0].len();
-    if len0 == 0 {
-        bail!("empty sequence in psmcfa data");
-    }
-    for (i, s) in seqs.iter().enumerate() {
-        if s.len() != len0 {
-            bail!("sequence {} length {} does not match {}", i, s.len(), len0);
+    Ok(seqs)
+}
+
+fn chunk_sequences(seqs: Vec<Vec<u8>>, batch_size: Option<usize>) -> Result<Observations> {
+    let mut rows = Vec::new();
+    let mut row_starts = Vec::new();
+
+    match batch_size {
+        None => {
+            for seq in seqs {
+                if seq.is_empty() {
+                    continue;
+                }
+                rows.push(seq);
+                row_starts.push(true);
+            }
+        }
+        Some(batch) => {
+            if batch == 0 {
+                bail!("batch_size must be > 0");
+            }
+            for seq in seqs {
+                if seq.is_empty() {
+                    continue;
+                }
+                for (i, chunk) in seq.chunks(batch).enumerate() {
+                    rows.push(chunk.to_vec());
+                    row_starts.push(i == 0);
+                }
+            }
         }
     }
-    let rows = seqs.len();
-    let mut data = Vec::with_capacity(rows * len0);
-    for s in seqs {
-        data.extend(s);
+
+    if rows.is_empty() {
+        bail!("no valid observations found in psmcfa input");
     }
-    Array2::from_shape_vec((rows, len0), data).context("failed to reshape unbatched psmcfa data")
+
+    Ok(Observations { rows, row_starts })
+}
+
+pub fn read_psmcfa(path: &Path, batch_size: Option<usize>) -> Result<Observations> {
+    let content = read_to_string(path)?;
+    let seqs = parse_sequences(&content)?;
+    chunk_sequences(seqs, batch_size)
 }

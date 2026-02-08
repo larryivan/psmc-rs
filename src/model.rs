@@ -17,12 +17,9 @@ pub struct PsmcModel {
     pub t_max: f64,
 
     pub t: Vec<f64>,
-    pub c_pi: f64,
-    pub c_sigma: f64,
     pub p_kl: Array2<f64>,
     pub em: Array2<f64>,
     pub sigma: Vec<f64>,
-    pub pi_k: Vec<f64>,
 }
 
 impl PsmcModel {
@@ -69,12 +66,9 @@ impl PsmcModel {
             lam,
             t_max,
             t: Vec::new(),
-            c_pi: 0.0,
-            c_sigma: 0.0,
             p_kl: Array2::zeros((n_steps + 1, n_steps + 1)),
             em: Array2::zeros((3, n_steps + 1)),
             sigma: vec![0.0; n_steps + 1],
-            pi_k: vec![0.0; n_steps + 1],
         };
         model.param_recalculate()?;
         Ok(model)
@@ -153,7 +147,6 @@ impl PsmcModel {
         let mut q = vec![f64::NAN; n + 1];
         let mut e = Array2::zeros((3, n + 1));
         let mut p_kl = Array2::zeros((n + 1, n + 1));
-        let mut pi_k = vec![0.0f64; n + 1];
 
         for k in 0..=n {
             tau[k] = t[k + 1] - t[k];
@@ -187,7 +180,6 @@ impl PsmcModel {
 
             let cpik = ak1 * (sum_t + lak) - alpha[k + 1] * tau[k];
             let pik = cpik / c_pi;
-            pi_k[k] = pik;
             sigma[k] = (ak1 / (c_pi * self.rho) + pik / 2.0) / c_sigma;
 
             let mut avg_t = -(1.0 - pik / (c_sigma * sigma[k])).ln() / self.rho;
@@ -225,12 +217,9 @@ impl PsmcModel {
         }
 
         self.t = t;
-        self.c_pi = c_pi;
-        self.c_sigma = c_sigma;
         self.p_kl = p_kl;
         self.em = e;
         self.sigma = sigma;
-        self.pi_k = pi_k;
 
         Ok(())
     }

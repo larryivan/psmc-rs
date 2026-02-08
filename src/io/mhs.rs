@@ -1,9 +1,10 @@
 use anyhow::{Context, Result, bail};
 use flate2::read::GzDecoder;
-use ndarray::Array2;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
+
+use crate::io::Observations;
 
 fn open_reader(path: &Path) -> Result<Box<dyn BufRead>> {
     let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
@@ -45,14 +46,33 @@ fn add_k_site(seq: &mut Vec<u8>, bin_has_k: &mut bool, bin_len: &mut usize, bin_
     flush_bin(seq, bin_has_k, bin_len, bin_size);
 }
 
-pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Result<Array2<u8>> {
+fn chunk_single_sequence(seq: Vec<u8>, batch_size: Option<usize>) -> Result<Observations> {
+    if seq.is_empty() {
+        bail!("no valid mhs rows found in input");
+    }
+    match batch_size {
+        None => Ok(Observations {
+            rows: vec![seq],
+            row_starts: vec![true],
+        }),
+        Some(batch) => {
+            if batch == 0 {
+                bail!("batch_size must be > 0");
+            }
+            let mut rows = Vec::new();
+            let mut row_starts = Vec::new();
+            for (i, chunk) in seq.chunks(batch).enumerate() {
+                rows.push(chunk.to_vec());
+                row_starts.push(i == 0);
+            }
+            Ok(Observations { rows, row_starts })
+        }
+    }
+}
+
+pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Result<Observations> {
     if bin_size == 0 {
         bail!("mhs bin_size must be > 0");
-    }
-    if let Some(batch) = batch_size
-        && batch == 0
-    {
-        bail!("batch_size must be > 0");
     }
 
     let mut reader = open_reader(path)?;
@@ -105,23 +125,6 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
     if bin_len > 0 {
         seq.push(if bin_has_k { 1 } else { 0 });
     }
-    if seq.is_empty() {
-        bail!("no valid mhs rows found in input");
-    }
 
-    match batch_size {
-        None => Array2::from_shape_vec((1, seq.len()), seq)
-            .context("failed to reshape unbatched mhs data"),
-        Some(batch) => {
-            let mut data = seq;
-            let residual = data.len() % batch;
-            if residual != 0 {
-                let pad = batch - residual;
-                data.extend(std::iter::repeat_n(2, pad));
-            }
-            let n_batches = data.len() / batch;
-            Array2::from_shape_vec((n_batches, batch), data)
-                .context("failed to reshape batched mhs data")
-        }
-    }
+    chunk_single_sequence(seq, batch_size)
 }

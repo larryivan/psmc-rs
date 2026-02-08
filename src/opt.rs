@@ -1,14 +1,9 @@
 use anyhow::{Result, bail};
-use ndarray::Array2;
 
 use crate::hmm::{SufficientStats, e_step_streaming};
 use crate::model::PsmcModel;
 use crate::progress;
 use crate::utils::{logit, sigmoid};
-
-const KMIN_RADIUS: f64 = 0.5;
-const KMIN_EPS: f64 = 1e-7;
-const KMIN_MAXCALL: usize = 50_000;
 
 #[derive(Clone, Debug)]
 struct Dual {
@@ -213,16 +208,11 @@ pub struct Bounds {
 pub struct MStepConfig {
     pub max_iters: usize,
     pub lbfgs_m: usize,
-    pub grad_eps: f64,
     pub lambda: f64,
     pub line_search_c1: f64,
     pub max_ls_steps: usize,
     pub tol_grad: f64,
     pub progress: bool,
-    pub progress_grads: bool,
-    pub use_ad: bool,
-    pub compat_c_exact: bool,
-    pub rows_independent: bool,
     pub loglike_after_every: usize,
     pub loglike_after_last: bool,
     pub theta_lo: f64,
@@ -240,16 +230,11 @@ impl Default for MStepConfig {
         Self {
             max_iters: 30,
             lbfgs_m: 7,
-            grad_eps: 1e-4,
             lambda: 1e-2,
             line_search_c1: 1e-4,
             max_ls_steps: 20,
             tol_grad: 1e-4,
             progress: true,
-            progress_grads: true,
-            use_ad: true,
-            compat_c_exact: false,
-            rows_independent: true,
             loglike_after_every: 0,
             loglike_after_last: true,
             theta_lo: 1e-5,
@@ -272,7 +257,8 @@ pub struct EmHistory {
 
 pub fn em_train(
     model: &mut PsmcModel,
-    x: &Array2<u8>,
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
     n_iter: usize,
     config: &MStepConfig,
 ) -> Result<EmHistory> {
@@ -299,20 +285,14 @@ pub fn em_train(
             model.prior_matrix(),
             model.transition_matrix(),
             model.emission_matrix(),
-            x,
-            config.rows_independent,
+            rows,
+            row_starts,
             config.progress,
             "E",
         )?;
         let loglike_before = e.loglike;
         let stats = e.stats;
-        let params_opt = if config.compat_c_exact {
-            m_step_hooke_jeeves_c(model, &stats, &params, config)?
-        } else if config.use_ad {
-            m_step_lbfgs_ad(model, &stats, &params, &bounds, config)?
-        } else {
-            m_step_lbfgs(model, &stats, &params, &bounds, config)?
-        };
+        let params_opt = m_step_lbfgs(model, &stats, &params, &bounds, config)?;
         params = params_opt.clone();
         unpack_params(model, &params)?;
 
@@ -325,8 +305,8 @@ pub fn em_train(
                 model.prior_matrix(),
                 model.transition_matrix(),
                 model.emission_matrix(),
-                x,
-                config.rows_independent,
+                rows,
+                row_starts,
                 config.progress,
                 "E2",
             )?;
@@ -418,92 +398,6 @@ fn from_unconstrained(p: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-fn smooth_penalty(lam_full: &[f64]) -> f64 {
-    if lam_full.len() < 2 {
-        return 0.0;
-    }
-    let mut sum = 0.0;
-    for k in 0..(lam_full.len() - 1) {
-        let a = lam_full[k].ln();
-        let b = lam_full[k + 1].ln();
-        let d = b - a;
-        sum += d * d;
-    }
-    sum
-}
-
-fn q_function_stats(model: &PsmcModel, stats: &SufficientStats) -> f64 {
-    let n_states = model.sigma.len();
-    let a = model.transition_matrix();
-    let em = model.emission_matrix();
-
-    let mut q = 0.0;
-    let ln = |v: f64| -> f64 { (v.max(1e-300)).ln() };
-    for i in 0..n_states {
-        for j in 0..n_states {
-            q += stats.xi[(i, j)] * ln(a[(i, j)]);
-        }
-    }
-    for k in 0..n_states {
-        q += stats.gobs[0][k] * ln(em[(0, k)]);
-        q += stats.gobs[1][k] * ln(em[(1, k)]);
-        q += stats.gobs[2][k] * ln(em[(2, k)]);
-    }
-    q
-}
-
-fn cost_function(
-    base_model: &PsmcModel,
-    stats: &SufficientStats,
-    params: &[f64],
-    bounds: &[Bounds],
-    lambda: f64,
-) -> Result<f64> {
-    let constrained = from_unconstrained(params, bounds)?;
-    let mut model = base_model.clone();
-    unpack_params(&mut model, &constrained)?;
-    model.param_recalculate()?;
-    let q = q_function_stats(&model, stats);
-    let lam_full = model.map_lam(&model.lam)?;
-    let penalty = smooth_penalty(&lam_full);
-    Ok(-q + lambda * penalty)
-}
-
-fn numerical_grad(
-    base_model: &PsmcModel,
-    stats: &SufficientStats,
-    params: &[f64],
-    bounds: &[Bounds],
-    lambda: f64,
-    eps: f64,
-    progress_enabled: bool,
-    label: &str,
-) -> Result<Vec<f64>> {
-    let mut grad = vec![0.0; params.len()];
-    let pb = if progress_enabled {
-        Some(progress::bar(params.len() as u64, "M", label))
-    } else {
-        None
-    };
-    for i in 0..params.len() {
-        let step = eps * params[i].abs().max(1.0);
-        let mut p1 = params.to_vec();
-        let mut p2 = params.to_vec();
-        p1[i] += step;
-        p2[i] -= step;
-        let f1 = cost_function(base_model, stats, &p1, bounds, lambda)?;
-        let f2 = cost_function(base_model, stats, &p2, bounds, lambda)?;
-        grad[i] = (f1 - f2) / (2.0 * step);
-        if let Some(pb) = &pb {
-            pb.inc(1);
-        }
-    }
-    if let Some(pb) = pb {
-        pb.finish_with_message(format!("{label} done"));
-    }
-    Ok(grad)
-}
-
 fn from_unconstrained_dual(p: &[Dual], bounds: &[Bounds]) -> Result<Vec<Dual>> {
     if p.len() != bounds.len() {
         bail!("bounds length mismatch");
@@ -567,7 +461,7 @@ fn compute_params_dual(
     rho: &Dual,
     t_max: &Dual,
     lam_full: &[Dual],
-) -> Result<(Vec<Dual>, Vec<Dual>, Vec<Vec<Dual>>, Vec<Vec<Dual>>)> {
+) -> Result<(Vec<Vec<Dual>>, Vec<Vec<Dual>>)> {
     let n = n_steps;
     let n_params = theta.grad.len();
     if lam_full.len() != n + 1 {
@@ -626,7 +520,6 @@ fn compute_params_dual(
     }
 
     let mut sigma = vec![Dual::constant(0.0, n_params); n + 1];
-    let mut pi_k = vec![Dual::constant(0.0, n_params); n + 1];
     let mut p_kl = vec![vec![Dual::constant(0.0, n_params); n + 1]; n + 1];
     let mut em = vec![vec![Dual::constant(0.0, n_params); n + 1]; 3];
     let mut q = vec![Dual::constant(0.0, n_params); n + 1];
@@ -639,7 +532,6 @@ fn compute_params_dual(
 
         let cpik = &(&ak1 * &(&sum_t + &lak)) - &(&alpha[k + 1] * &tau[k]);
         let pik = &cpik / &c_pi;
-        pi_k[k] = pik.clone();
         sigma[k] = &(&(&ak1 / &(&c_pi * rho)) + &(&pik / 2.0)) / &c_sigma;
 
         let tmp_avg = -(&(&one - &(&pik / &(&c_sigma * &sigma[k]))).ln());
@@ -686,7 +578,7 @@ fn compute_params_dual(
         sum_t = &sum_t + &tau[k];
     }
 
-    Ok((pi_k, sigma, p_kl, em))
+    Ok((p_kl, em))
 }
 
 fn smooth_penalty_dual(lam_full: &[Dual]) -> Dual {
@@ -702,12 +594,7 @@ fn smooth_penalty_dual(lam_full: &[Dual]) -> Dual {
     sum
 }
 
-fn q_function_stats_dual(
-    _sigma: &[Dual],
-    a: &[Vec<Dual>],
-    em: &[Vec<Dual>],
-    stats: &SufficientStats,
-) -> Dual {
+fn q_function_stats_dual(a: &[Vec<Dual>], em: &[Vec<Dual>], stats: &SufficientStats) -> Dual {
     let n_params = a[0][0].grad.len();
     let n_states = a.len();
     let mut q = Dual::constant(0.0, n_params);
@@ -745,149 +632,13 @@ fn eval_ad(
     let lam_grouped = &constrained[3..];
     let lam_full = expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps)?;
 
-    let (_pi, sigma, a, em) =
-        compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
-    let q = q_function_stats_dual(&sigma, &a, &em, stats);
+    let (a, em) = compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
+    let q = q_function_stats_dual(&a, &em, stats);
     let penalty = smooth_penalty_dual(&lam_full);
     let neg_q = -&q;
     let pen = &penalty * lambda;
     let f = &neg_q + &pen;
     Ok((f.re, f.grad))
-}
-
-fn cost_function_c_compat(base_model: &PsmcModel, stats: &SufficientStats, params: &[f64]) -> f64 {
-    let constrained: Vec<f64> = params.iter().map(|v| v.abs()).collect();
-    let mut model = base_model.clone();
-    if unpack_params(&mut model, &constrained).is_err() {
-        return 1e300;
-    }
-    if model.param_recalculate().is_err() {
-        return 1e300;
-    }
-    let q = q_function_stats(&model, stats);
-    if q.is_finite() { -q } else { 1e300 }
-}
-
-fn hj_aux<F>(f: &F, x1: &mut [f64], fx1_in: f64, dx: &mut [f64], n_calls: &mut usize) -> f64
-where
-    F: Fn(&[f64]) -> f64,
-{
-    let n = x1.len();
-    let mut fx1 = fx1_in;
-    for k in 0..n {
-        x1[k] += dx[k];
-        let ftmp = f(x1);
-        *n_calls += 1;
-        if ftmp < fx1 {
-            fx1 = ftmp;
-        } else {
-            dx[k] = -dx[k];
-            x1[k] += dx[k] + dx[k];
-            let ftmp2 = f(x1);
-            *n_calls += 1;
-            if ftmp2 < fx1 {
-                fx1 = ftmp2;
-            } else {
-                x1[k] -= dx[k];
-            }
-        }
-    }
-    fx1
-}
-
-pub fn m_step_hooke_jeeves_c(
-    model: &PsmcModel,
-    stats: &SufficientStats,
-    init_params: &[f64],
-    config: &MStepConfig,
-) -> Result<Vec<f64>> {
-    let n = init_params.len();
-    let mut x = init_params.to_vec();
-    let mut x1 = vec![0.0; n];
-    let mut dx = vec![0.0; n];
-    for k in 0..n {
-        dx[k] = x[k].abs() * KMIN_RADIUS;
-        if dx[k] == 0.0 {
-            dx[k] = KMIN_RADIUS;
-        }
-    }
-
-    let cost = |p: &[f64]| cost_function_c_compat(model, stats, p);
-    let mut n_calls = 1usize;
-    let mut radius = KMIN_RADIUS;
-    let mut fx = cost(&x);
-
-    let pb = if config.progress {
-        Some(progress::bar(KMIN_MAXCALL as u64, "M", "Hooke-Jeeves"))
-    } else {
-        None
-    };
-    if let Some(pb) = &pb {
-        pb.inc(1);
-    }
-
-    loop {
-        x1.clone_from_slice(&x);
-        let mut fx1 = hj_aux(&cost, &mut x1, fx, &mut dx, &mut n_calls);
-        if let Some(pb) = &pb {
-            pb.set_position(n_calls.min(KMIN_MAXCALL) as u64);
-        }
-
-        while fx1 < fx {
-            for k in 0..n {
-                let t = x[k];
-                dx[k] = if x1[k] > x[k] {
-                    dx[k].abs()
-                } else {
-                    -dx[k].abs()
-                };
-                x[k] = x1[k];
-                x1[k] = x1[k] + x1[k] - t;
-            }
-            fx = fx1;
-            if n_calls >= KMIN_MAXCALL {
-                break;
-            }
-
-            fx1 = cost(&x1);
-            n_calls += 1;
-            fx1 = hj_aux(&cost, &mut x1, fx1, &mut dx, &mut n_calls);
-            if let Some(pb) = &pb {
-                pb.set_position(n_calls.min(KMIN_MAXCALL) as u64);
-            }
-
-            if fx1 >= fx {
-                break;
-            }
-            let mut moved_enough = false;
-            for k in 0..n {
-                if (x1[k] - x[k]).abs() > 0.5 * dx[k].abs() {
-                    moved_enough = true;
-                    break;
-                }
-            }
-            if !moved_enough {
-                break;
-            }
-        }
-
-        if radius >= KMIN_EPS {
-            if n_calls >= KMIN_MAXCALL {
-                break;
-            }
-            radius *= KMIN_RADIUS;
-            for d in &mut dx {
-                *d *= KMIN_RADIUS;
-            }
-        } else {
-            break;
-        }
-    }
-
-    if let Some(pb) = pb {
-        pb.finish_with_message(format!("Hooke-Jeeves done ({n_calls} calls)"));
-    }
-    Ok(x.into_iter().map(f64::abs).collect())
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -899,132 +650,6 @@ fn norm(a: &[f64]) -> f64 {
 }
 
 pub fn m_step_lbfgs(
-    model: &PsmcModel,
-    stats: &SufficientStats,
-    init_params: &[f64],
-    bounds: &[Bounds],
-    config: &MStepConfig,
-) -> Result<Vec<f64>> {
-    let mut xk = to_unconstrained(init_params, bounds)?;
-    let mut gk = numerical_grad(
-        model,
-        stats,
-        &xk,
-        bounds,
-        config.lambda,
-        config.grad_eps,
-        config.progress && config.progress_grads,
-        "M-step grad",
-    )?;
-
-    let mut s_hist: Vec<Vec<f64>> = Vec::new();
-    let mut y_hist: Vec<Vec<f64>> = Vec::new();
-    let mut rho_hist: Vec<f64> = Vec::new();
-
-    let pb = if config.progress {
-        Some(progress::bar(config.max_iters as u64, "M", "L-BFGS"))
-    } else {
-        None
-    };
-    for iter in 0..config.max_iters {
-        if let Some(pb) = &pb {
-            pb.set_message(format!("L-BFGS {}/{}", iter + 1, config.max_iters));
-        }
-        if norm(&gk) < config.tol_grad {
-            break;
-        }
-        let mut q = gk.clone();
-        let mut alpha = vec![0.0; s_hist.len()];
-        for i in (0..s_hist.len()).rev() {
-            let rho = rho_hist[i];
-            let a = rho * dot(&s_hist[i], &q);
-            alpha[i] = a;
-            for j in 0..q.len() {
-                q[j] -= a * y_hist[i][j];
-            }
-        }
-        let mut r = if let Some(last) = y_hist.last() {
-            let s_last = s_hist.last().unwrap();
-            let ys = dot(last, s_last);
-            let yy = dot(last, last);
-            let h0 = if yy > 0.0 { ys / yy } else { 1.0 };
-            q.iter().map(|v| v * h0).collect::<Vec<f64>>()
-        } else {
-            q.clone()
-        };
-        for i in 0..s_hist.len() {
-            let rho = rho_hist[i];
-            let beta = rho * dot(&y_hist[i], &r);
-            for j in 0..r.len() {
-                r[j] += s_hist[i][j] * (alpha[i] - beta);
-            }
-        }
-        for v in r.iter_mut() {
-            *v = -*v;
-        }
-
-        let f0 = cost_function(model, stats, &xk, bounds, config.lambda)?;
-        let mut step = 1.0;
-        let gdotp = dot(&gk, &r);
-        let mut x_new = xk.clone();
-        let mut f_new;
-        let mut ls_ok = false;
-        for _ in 0..config.max_ls_steps {
-            for i in 0..xk.len() {
-                x_new[i] = xk[i] + step * r[i];
-            }
-            f_new = cost_function(model, stats, &x_new, bounds, config.lambda)?;
-            if f_new <= f0 + config.line_search_c1 * step * gdotp {
-                ls_ok = true;
-                break;
-            }
-            step *= 0.5;
-        }
-        if !ls_ok {
-            break;
-        }
-
-        let g_new = numerical_grad(
-            model,
-            stats,
-            &x_new,
-            bounds,
-            config.lambda,
-            config.grad_eps,
-            config.progress && config.progress_grads,
-            "M-step grad",
-        )?;
-        let mut s = vec![0.0; xk.len()];
-        let mut y = vec![0.0; xk.len()];
-        for i in 0..xk.len() {
-            s[i] = x_new[i] - xk[i];
-            y[i] = g_new[i] - gk[i];
-        }
-        let ys = dot(&y, &s);
-        if ys > 1e-12 {
-            if s_hist.len() == config.lbfgs_m {
-                s_hist.remove(0);
-                y_hist.remove(0);
-                rho_hist.remove(0);
-            }
-            s_hist.push(s);
-            y_hist.push(y);
-            rho_hist.push(1.0 / ys);
-        }
-        xk = x_new;
-        gk = g_new;
-        if let Some(pb) = &pb {
-            pb.inc(1);
-        }
-    }
-    if let Some(pb) = pb {
-        pb.finish_with_message("M-step done");
-    }
-
-    from_unconstrained(&xk, bounds)
-}
-
-pub fn m_step_lbfgs_ad(
     model: &PsmcModel,
     stats: &SufficientStats,
     init_params: &[f64],
@@ -1084,23 +709,21 @@ pub fn m_step_lbfgs_ad(
         let gdotp = dot(&gk, &r);
         let mut step = 1.0;
         let mut x_new = xk.clone();
-        let mut ls_ok = false;
+        let mut accepted: Option<(f64, Vec<f64>)> = None;
         for _ in 0..config.max_ls_steps {
             for i in 0..xk.len() {
                 x_new[i] = xk[i] + step * r[i];
             }
-            let f_new = cost_function(model, stats, &x_new, bounds, config.lambda)?;
+            let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
             if f_new <= f0 + config.line_search_c1 * step * gdotp {
-                ls_ok = true;
+                accepted = Some((f_new, g_new));
                 break;
             }
             step *= 0.5;
         }
-        if !ls_ok {
+        let Some((f_new, g_new)) = accepted else {
             break;
-        }
-
-        let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
+        };
         let mut s = vec![0.0; xk.len()];
         let mut y = vec![0.0; xk.len()];
         for i in 0..xk.len() {

@@ -37,40 +37,48 @@ struct Cli {
     rho0: Option<f64>,
     #[arg(long)]
     pattern: Option<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Split long inputs into chunks for memory control; chunks remain connected in one HMM chain"
+    )]
     batch_size: Option<usize>,
     #[arg(long, default_value_t = 2.5e-8)]
     mu: f64,
     #[arg(long)]
     mstep_iters: Option<usize>,
-    #[arg(long, default_value_t = 1e-2)]
+    #[arg(
+        long,
+        default_value_t = 1e-2,
+        help = "M-step smoothness penalty on log-lambda differences (set to 0 for C-like behavior)"
+    )]
     smooth_lambda: f64,
     #[arg(long, default_value_t = 0)]
     loglike_after_every: usize,
     #[arg(long)]
     no_loglike_after_last: bool,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Use C-like defaults: pattern=4+25*2+4+6 when missing, theta0 init=-log(1-k/L), lambda=0, mstep_iters=100"
+    )]
     compat_c: bool,
-    #[arg(long, default_value_t = 1e-10)]
-    theta_lo: f64,
-    #[arg(long, default_value_t = 5.0)]
-    theta_hi: f64,
-    #[arg(long, default_value_t = 1e-10)]
-    rho_lo: f64,
-    #[arg(long, default_value_t = 5.0)]
-    rho_hi: f64,
-    #[arg(long, default_value_t = 1e-3)]
-    tmax_lo: f64,
-    #[arg(long, default_value_t = 200.0)]
-    tmax_hi: f64,
-    #[arg(long, default_value_t = 1e-6)]
-    lam_lo: f64,
-    #[arg(long, default_value_t = 1e4)]
-    lam_hi: f64,
+    #[arg(long)]
+    theta_lo: Option<f64>,
+    #[arg(long)]
+    theta_hi: Option<f64>,
+    #[arg(long)]
+    rho_lo: Option<f64>,
+    #[arg(long)]
+    rho_hi: Option<f64>,
+    #[arg(long)]
+    tmax_lo: Option<f64>,
+    #[arg(long)]
+    tmax_hi: Option<f64>,
+    #[arg(long)]
+    lam_lo: Option<f64>,
+    #[arg(long)]
+    lam_hi: Option<f64>,
     #[arg(long)]
     no_progress: bool,
-    #[arg(long)]
-    no_ad: bool,
 }
 
 fn main() -> Result<()> {
@@ -94,7 +102,7 @@ fn main() -> Result<()> {
         InputFormat::Mhs => "mhs",
     };
 
-    let xs = if cli.no_progress {
+    let obs = if cli.no_progress {
         match cli.input_format {
             InputFormat::Psmcfa => read_psmcfa(&cli.input_file, cli.batch_size),
             InputFormat::Mhs => read_mhs(&cli.input_file, cli.batch_size, cli.mhs_bin_size),
@@ -102,23 +110,25 @@ fn main() -> Result<()> {
         .with_context(|| format!("failed to read {format_name} input"))?
     } else {
         let pb = progress::spinner("IO", &format!("Reading {format_name}"));
-        let xs = match cli.input_format {
+        let obs = match cli.input_format {
             InputFormat::Psmcfa => read_psmcfa(&cli.input_file, cli.batch_size),
             InputFormat::Mhs => read_mhs(&cli.input_file, cli.batch_size, cli.mhs_bin_size),
         }
         .with_context(|| format!("failed to read {format_name} input"))?;
         pb.finish_with_message(format!("Reading {format_name} done"));
-        xs
+        obs
     };
 
     let mut count_k = 0usize;
     let mut total_observed = 0usize;
-    for v in xs.iter() {
-        if *v == 1 {
-            count_k += 1;
-        }
-        if *v != 2 {
-            total_observed += 1;
+    for row in &obs.rows {
+        for v in row {
+            if *v == 1 {
+                count_k += 1;
+            }
+            if *v != 2 {
+                total_observed += 1;
+            }
         }
     }
     if total_observed == 0 {
@@ -151,31 +161,38 @@ fn main() -> Result<()> {
         config.lambda = cli.smooth_lambda;
         config.loglike_after_every = cli.loglike_after_every;
         config.loglike_after_last = !cli.no_loglike_after_last;
-        config.theta_lo = cli.theta_lo;
-        config.theta_hi = cli.theta_hi;
-        config.rho_lo = cli.rho_lo;
-        config.rho_hi = cli.rho_hi;
-        config.tmax_lo = cli.tmax_lo;
-        config.tmax_hi = cli.tmax_hi;
-        config.lam_lo = cli.lam_lo;
-        config.lam_hi = cli.lam_hi;
-        if cli.compat_c {
-            // C-like mode: disable smooth penalty and use C optimizer path.
-            config.lambda = 0.0;
-            config.compat_c_exact = true;
-            config.use_ad = false;
+        if let Some(v) = cli.theta_lo {
+            config.theta_lo = v;
         }
-        // When input is chunked by --batch-size, rows are contiguous pieces of one sequence,
-        // not independent HMM samples.
-        config.rows_independent = cli.batch_size.is_none();
-        if cli.no_ad {
-            config.use_ad = false;
+        if let Some(v) = cli.theta_hi {
+            config.theta_hi = v;
+        }
+        if let Some(v) = cli.rho_lo {
+            config.rho_lo = v;
+        }
+        if let Some(v) = cli.rho_hi {
+            config.rho_hi = v;
+        }
+        if let Some(v) = cli.tmax_lo {
+            config.tmax_lo = v;
+        }
+        if let Some(v) = cli.tmax_hi {
+            config.tmax_hi = v;
+        }
+        if let Some(v) = cli.lam_lo {
+            config.lam_lo = v;
+        }
+        if let Some(v) = cli.lam_hi {
+            config.lam_hi = v;
+        }
+        if cli.compat_c {
+            // C-like mode: disable smooth penalty and keep C-like defaults.
+            config.lambda = 0.0;
         }
         if cli.no_progress {
             config.progress = false;
-            config.progress_grads = false;
         }
-        let history = em_train(&mut model, &xs, cli.n_iter, &config)?;
+        let history = em_train(&mut model, &obs.rows, &obs.row_starts, cli.n_iter, &config)?;
         if let Some((before, after)) = history.loglike.last() {
             if (before - after).abs() <= 1e-12 {
                 println!("Last EM loglike: {} (after-check skipped)", before);
@@ -227,7 +244,7 @@ fn warn_if_near_bounds(model: &PsmcModel, cfg: &MStepConfig) -> Result<()> {
     }
     if near_lo + near_hi > 0 {
         eprintln!(
-            "Warning: {} params are on/near optimization bounds (lo={}, hi={}). Examples: {}. Consider wider bounds or --compat-c.",
+            "Warning: {} params are on/near optimization bounds (lo={}, hi={}). Examples: {}. Consider wider bounds.",
             near_lo + near_hi,
             near_lo,
             near_hi,

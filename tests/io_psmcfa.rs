@@ -22,24 +22,28 @@ fn read_unbatched_psmcfa_parses_sequences() {
     let content = "> chr1\nTTKN\n> chr2\nTNTK\n";
     fs::write(&path, content).expect("failed to write test psmcfa");
 
-    let xs = read_psmcfa(&path, None).expect("failed to parse psmcfa");
-    assert_eq!(xs.shape(), &[2, 4]);
-    assert_eq!(xs[[0, 0]], 0); // T
-    assert_eq!(xs[[0, 2]], 1); // K
-    assert_eq!(xs[[1, 1]], 2); // N
+    let obs = read_psmcfa(&path, None).expect("failed to parse psmcfa");
+    assert_eq!(obs.rows.len(), 2);
+    assert_eq!(obs.row_starts, vec![true, true]);
+    assert_eq!(obs.rows[0], vec![0, 0, 1, 2]); // T T K N
+    assert_eq!(obs.rows[1], vec![0, 2, 0, 1]); // T N T K
 
     let _ = fs::remove_file(path);
 }
 
 #[test]
-fn read_batched_psmcfa_pads_with_n() {
+fn read_batched_psmcfa_keeps_sequence_chain() {
     let path = unique_temp_path("psmc_batched", "psmcfa");
     let content = "> chr1\nTTKN\n> chr2\nTNTK\n";
     fs::write(&path, content).expect("failed to write test psmcfa");
 
-    let xs = read_psmcfa(&path, Some(3)).expect("failed to parse batched psmcfa");
-    assert_eq!(xs.shape(), &[3, 3]);
-    assert_eq!(xs[[2, 2]], 2); // padding N
+    let obs = read_psmcfa(&path, Some(3)).expect("failed to parse batched psmcfa");
+    assert_eq!(obs.rows.len(), 4);
+    assert_eq!(obs.row_starts, vec![true, false, true, false]);
+    assert_eq!(obs.rows[0], vec![0, 0, 1]);
+    assert_eq!(obs.rows[1], vec![2]);
+    assert_eq!(obs.rows[2], vec![0, 2, 0]);
+    assert_eq!(obs.rows[3], vec![1]);
 
     let _ = fs::remove_file(path);
 }
@@ -54,11 +58,10 @@ fn read_gz_psmcfa_works() {
         .expect("failed to write gz data");
     writer.finish().expect("failed to finish gzip stream");
 
-    let xs = read_psmcfa(&path, None).expect("failed to parse gz psmcfa");
-    assert_eq!(xs.shape(), &[1, 4]);
-    assert_eq!(xs[[0, 0]], 0);
-    assert_eq!(xs[[0, 1]], 1);
-    assert_eq!(xs[[0, 2]], 2);
+    let obs = read_psmcfa(&path, None).expect("failed to parse gz psmcfa");
+    assert_eq!(obs.rows.len(), 1);
+    assert_eq!(obs.row_starts, vec![true]);
+    assert_eq!(obs.rows[0], vec![0, 1, 2, 0]);
 
     let _ = fs::remove_file(path);
 }
