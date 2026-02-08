@@ -8,6 +8,7 @@ pub struct PsmcModel {
     pub n_steps: usize,
     pub mu: f64,
     pub pattern: Option<String>,
+    // C-compatible pattern groups: (n_repeats, group_len)
     pattern_spec: Option<Vec<(usize, usize)>>,
 
     pub theta: f64,
@@ -37,20 +38,29 @@ impl PsmcModel {
             Some(p) => Some(parse_pattern(p)?),
             None => None,
         };
+        let mut n_steps_eff = n_steps;
         if let Some(spec) = &pattern_spec {
-            let n_from_pattern = spec.iter().map(|(ts, gs)| ts * gs).sum::<usize>();
-            if n_from_pattern != n_steps {
+            let n_states_from_pattern = spec.iter().map(|(nr, gl)| nr * gl).sum::<usize>();
+            if n_states_from_pattern == 0 {
+                bail!("pattern implies zero states");
+            }
+            let n_steps_from_pattern = n_states_from_pattern - 1;
+            if n_steps == n_states_from_pattern {
+                // Compatibility shim: previous Rust/Python style often passed state-count here.
+                n_steps_eff = n_steps_from_pattern;
+            } else if n_steps != n_steps_from_pattern {
                 bail!(
-                    "pattern implies n_steps={}, but n_steps={} was provided",
-                    n_from_pattern,
+                    "pattern implies n_steps={} (legacy state-count={}), but n_steps={} was provided",
+                    n_steps_from_pattern,
+                    n_states_from_pattern,
                     n_steps
                 );
             }
         }
-        let n_free = n_free_params(n_steps, pattern_spec.as_deref());
+        let n_free = n_free_params(n_steps_eff, pattern_spec.as_deref());
         let lam = vec![1.0; n_free - 3];
         let mut model = Self {
-            n_steps,
+            n_steps: n_steps_eff,
             mu,
             pattern,
             pattern_spec,
@@ -93,7 +103,7 @@ impl PsmcModel {
         match &self.pattern_spec {
             None => Ok(lam_grouped.to_vec()),
             Some(spec) => {
-                let expected = spec.iter().map(|(ts, _)| ts).sum::<usize>() + 1;
+                let expected = spec.iter().map(|(nr, _)| nr).sum::<usize>();
                 if lam_grouped.len() != expected {
                     bail!(
                         "lam length {} does not match grouped parameters {}",
@@ -103,15 +113,21 @@ impl PsmcModel {
                 }
                 let mut lam = Vec::with_capacity(self.n_steps + 1);
                 let mut counter = 0usize;
-                for (ts, gs) in spec.iter().cloned() {
-                    for _ in 0..ts {
-                        for _ in 0..gs {
+                for (nr, gl) in spec.iter().cloned() {
+                    for _ in 0..nr {
+                        for _ in 0..gl {
                             lam.push(lam_grouped[counter]);
                         }
                         counter += 1;
                     }
                 }
-                lam.push(*lam_grouped.last().unwrap());
+                if lam.len() != self.n_steps + 1 {
+                    bail!(
+                        "expanded lam length {} does not match n_steps+1 {}",
+                        lam.len(),
+                        self.n_steps + 1
+                    );
+                }
                 Ok(lam)
             }
         }
@@ -252,7 +268,7 @@ impl PsmcModel {
 fn n_free_params(n_steps: usize, spec: Option<&[(usize, usize)]>) -> usize {
     match spec {
         None => 4 + n_steps,
-        Some(v) => 4 + v.iter().map(|(ts, _)| ts).sum::<usize>(),
+        Some(v) => 3 + v.iter().map(|(nr, _)| nr).sum::<usize>(),
     }
 }
 
@@ -264,18 +280,19 @@ fn parse_pattern(pattern: &str) -> Result<Vec<(usize, usize)>> {
             continue;
         }
         if let Some((a, b)) = part.split_once('*') {
-            let ts: usize = a.trim().parse()?;
-            let gs: usize = b.trim().parse()?;
-            if ts == 0 || gs == 0 {
+            let nr: usize = a.trim().parse()?;
+            let gl: usize = b.trim().parse()?;
+            if nr == 0 || gl == 0 {
                 bail!("pattern values must be > 0");
             }
-            out.push((ts, gs));
+            out.push((nr, gl));
         } else {
-            let ts: usize = part.parse()?;
-            if ts == 0 {
+            // C behavior: token "L" means one free parameter repeated L times.
+            let gl: usize = part.parse()?;
+            if gl == 0 {
                 bail!("pattern values must be > 0");
             }
-            out.push((ts, 1));
+            out.push((1, gl));
         }
     }
     if out.is_empty() {

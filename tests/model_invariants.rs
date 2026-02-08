@@ -12,28 +12,40 @@ fn approx_eq(a: f64, b: f64, eps: f64) {
 fn model_new_rejects_pattern_mismatch() {
     let err = PsmcModel::new(
         15.0,
-        4,
+        3,
         1e-3,
         2e-4,
         2.5e-8,
-        Some("1*5".to_string()), // implies n_steps = 5
+        Some("1*5".to_string()), // implies n_steps = 4 (or legacy state-count=5)
     )
     .expect_err("expected pattern/n_steps mismatch error");
-    assert!(
-        err.to_string()
-            .contains("pattern implies n_steps=5, but n_steps=4 was provided")
-    );
+    assert!(err.to_string().contains("pattern implies n_steps=4"));
 }
 
 #[test]
 fn map_lam_expands_pattern_groups() {
-    let model = PsmcModel::new(15.0, 4, 1e-3, 2e-4, 2.5e-8, Some("2*2".to_string()))
+    let model = PsmcModel::new(15.0, 3, 1e-3, 2e-4, 2.5e-8, Some("2*2".to_string()))
         .expect("failed to create model");
 
     let expanded = model
-        .map_lam(&[1.0, 2.0, 3.0])
+        .map_lam(&[1.0, 2.0])
         .expect("failed to map grouped lam");
-    assert_eq!(expanded, vec![1.0, 1.0, 2.0, 2.0, 3.0]);
+    assert_eq!(expanded, vec![1.0, 1.0, 2.0, 2.0]);
+}
+
+#[test]
+fn model_new_accepts_legacy_state_count_with_pattern() {
+    let model = PsmcModel::new(
+        15.0,
+        64, // legacy style: state-count instead of n_steps
+        1e-3,
+        2e-4,
+        2.5e-8,
+        Some("4+25*2+4+6".to_string()),
+    )
+    .expect("failed to create model");
+    assert_eq!(model.n_steps, 63);
+    assert_eq!(model.lam.len(), 28);
 }
 
 #[test]

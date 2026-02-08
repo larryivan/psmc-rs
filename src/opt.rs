@@ -6,6 +6,10 @@ use crate::model::PsmcModel;
 use crate::progress;
 use crate::utils::{logit, sigmoid};
 
+const KMIN_RADIUS: f64 = 0.5;
+const KMIN_EPS: f64 = 1e-7;
+const KMIN_MAXCALL: usize = 50_000;
+
 #[derive(Clone, Debug)]
 struct Dual {
     re: f64,
@@ -217,6 +221,18 @@ pub struct MStepConfig {
     pub progress: bool,
     pub progress_grads: bool,
     pub use_ad: bool,
+    pub compat_c_exact: bool,
+    pub rows_independent: bool,
+    pub loglike_after_every: usize,
+    pub loglike_after_last: bool,
+    pub theta_lo: f64,
+    pub theta_hi: f64,
+    pub rho_lo: f64,
+    pub rho_hi: f64,
+    pub tmax_lo: f64,
+    pub tmax_hi: f64,
+    pub lam_lo: f64,
+    pub lam_hi: f64,
 }
 
 impl Default for MStepConfig {
@@ -232,6 +248,18 @@ impl Default for MStepConfig {
             progress: true,
             progress_grads: true,
             use_ad: true,
+            compat_c_exact: false,
+            rows_independent: true,
+            loglike_after_every: 0,
+            loglike_after_last: true,
+            theta_lo: 1e-5,
+            theta_hi: 1.0,
+            rho_lo: 1e-6,
+            rho_hi: 1.0,
+            tmax_lo: 8.0,
+            tmax_hi: 40.0,
+            lam_lo: 0.05,
+            lam_hi: 100.0,
         }
     }
 }
@@ -255,7 +283,7 @@ pub fn em_train(
     let mut params = pack_params(model);
     history.params.push(params.clone());
 
-    let bounds = default_bounds(model);
+    let bounds = bounds_from_config(model, config);
     let pb_em = if config.progress && n_iter > 0 {
         Some(progress::bar(n_iter as u64, "EM", "overall"))
     } else {
@@ -272,12 +300,15 @@ pub fn em_train(
             model.transition_matrix(),
             model.emission_matrix(),
             x,
+            config.rows_independent,
             config.progress,
             "E",
         )?;
         let loglike_before = e.loglike;
         let stats = e.stats;
-        let params_opt = if config.use_ad {
+        let params_opt = if config.compat_c_exact {
+            m_step_hooke_jeeves_c(model, &stats, &params, config)?
+        } else if config.use_ad {
             m_step_lbfgs_ad(model, &stats, &params, &bounds, config)?
         } else {
             m_step_lbfgs(model, &stats, &params, &bounds, config)?
@@ -285,16 +316,25 @@ pub fn em_train(
         params = params_opt.clone();
         unpack_params(model, &params)?;
 
-        model.param_recalculate()?;
-        let e_after = e_step_streaming(
-            model.prior_matrix(),
-            model.transition_matrix(),
-            model.emission_matrix(),
-            x,
-            config.progress,
-            "E2",
-        )?;
-        let loglike_after = e_after.loglike;
+        let should_run_after = (config.loglike_after_every > 0
+            && (iter + 1) % config.loglike_after_every == 0)
+            || (config.loglike_after_last && (iter + 1) == n_iter);
+        let loglike_after = if should_run_after {
+            model.param_recalculate()?;
+            let e_after = e_step_streaming(
+                model.prior_matrix(),
+                model.transition_matrix(),
+                model.emission_matrix(),
+                x,
+                config.rows_independent,
+                config.progress,
+                "E2",
+            )?;
+            e_after.loglike
+        } else {
+            // Avoid a second full E-step for speed; this still keeps history shape stable.
+            loglike_before
+        };
 
         history.loglike.push((loglike_before, loglike_after));
         history.params.push(params.clone());
@@ -310,13 +350,25 @@ pub fn em_train(
     Ok(history)
 }
 
-pub fn default_bounds(model: &PsmcModel) -> Vec<Bounds> {
+pub fn bounds_from_config(model: &PsmcModel, config: &MStepConfig) -> Vec<Bounds> {
     let mut bounds = Vec::new();
-    bounds.push(Bounds { lo: 1e-4, hi: 1e-1 }); // theta
-    bounds.push(Bounds { lo: 1e-5, hi: 1e-1 }); // rho
-    bounds.push(Bounds { lo: 12.0, hi: 20.0 }); // t_max
+    bounds.push(Bounds {
+        lo: config.theta_lo,
+        hi: config.theta_hi,
+    }); // theta
+    bounds.push(Bounds {
+        lo: config.rho_lo,
+        hi: config.rho_hi,
+    }); // rho
+    bounds.push(Bounds {
+        lo: config.tmax_lo,
+        hi: config.tmax_hi,
+    }); // t_max
     for _ in 0..model.lam.len() {
-        bounds.push(Bounds { lo: 0.1, hi: 10.0 });
+        bounds.push(Bounds {
+            lo: config.lam_lo,
+            hi: config.lam_hi,
+        });
     }
     bounds
 }
@@ -382,15 +434,11 @@ fn smooth_penalty(lam_full: &[f64]) -> f64 {
 
 fn q_function_stats(model: &PsmcModel, stats: &SufficientStats) -> f64 {
     let n_states = model.sigma.len();
-    let pi = model.prior_matrix();
     let a = model.transition_matrix();
     let em = model.emission_matrix();
 
     let mut q = 0.0;
     let ln = |v: f64| -> f64 { (v.max(1e-300)).ln() };
-    for k in 0..n_states {
-        q += stats.g0[k] * ln(pi[k]);
-    }
     for i in 0..n_states {
         for j in 0..n_states {
             q += stats.xi[(i, j)] * ln(a[(i, j)]);
@@ -474,7 +522,6 @@ fn expand_lam_dual(
     lam_grouped: &[Dual],
     spec: Option<&[(usize, usize)]>,
     n_steps: usize,
-    n_params: usize,
 ) -> Result<Vec<Dual>> {
     match spec {
         None => {
@@ -484,7 +531,7 @@ fn expand_lam_dual(
             Ok(lam_grouped.to_vec())
         }
         Some(spec) => {
-            let expected = spec.iter().map(|(ts, _)| ts).sum::<usize>() + 1;
+            let expected = spec.iter().map(|(nr, _)| nr).sum::<usize>();
             if lam_grouped.len() != expected {
                 bail!(
                     "lam length {} does not match grouped params {}",
@@ -494,18 +541,20 @@ fn expand_lam_dual(
             }
             let mut lam = Vec::with_capacity(n_steps + 1);
             let mut counter = 0usize;
-            for (ts, gs) in spec.iter().cloned() {
-                for _ in 0..ts {
-                    for _ in 0..gs {
+            for (nr, gl) in spec.iter().cloned() {
+                for _ in 0..nr {
+                    for _ in 0..gl {
                         lam.push(lam_grouped[counter].clone());
                     }
                     counter += 1;
                 }
             }
-            if let Some(last) = lam_grouped.last() {
-                lam.push(last.clone());
-            } else {
-                lam.push(Dual::constant(1.0, n_params));
+            if lam.len() != n_steps + 1 {
+                bail!(
+                    "expanded dual lam length {} != n_steps+1 {}",
+                    lam.len(),
+                    n_steps + 1
+                );
             }
             Ok(lam)
         }
@@ -654,18 +703,15 @@ fn smooth_penalty_dual(lam_full: &[Dual]) -> Dual {
 }
 
 fn q_function_stats_dual(
-    pi: &[Dual],
+    _sigma: &[Dual],
     a: &[Vec<Dual>],
     em: &[Vec<Dual>],
     stats: &SufficientStats,
 ) -> Dual {
-    let n_params = pi[0].grad.len();
-    let n_states = pi.len();
+    let n_params = a[0][0].grad.len();
+    let n_states = a.len();
     let mut q = Dual::constant(0.0, n_params);
     let ln = |v: &Dual| v.ln();
-    for k in 0..n_states {
-        q = &q + &(&ln(&pi[k]) * stats.g0[k]);
-    }
     for i in 0..n_states {
         for j in 0..n_states {
             let c = stats.xi[(i, j)];
@@ -697,21 +743,151 @@ fn eval_ad(
     let rho = &constrained[1];
     let t_max = &constrained[2];
     let lam_grouped = &constrained[3..];
-    let lam_full = expand_lam_dual(
-        lam_grouped,
-        base_model.pattern_spec(),
-        base_model.n_steps,
-        n,
-    )?;
+    let lam_full = expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps)?;
 
-    let (pi, _sigma, a, em) =
+    let (_pi, sigma, a, em) =
         compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
-    let q = q_function_stats_dual(&pi, &a, &em, stats);
+    let q = q_function_stats_dual(&sigma, &a, &em, stats);
     let penalty = smooth_penalty_dual(&lam_full);
     let neg_q = -&q;
     let pen = &penalty * lambda;
     let f = &neg_q + &pen;
     Ok((f.re, f.grad))
+}
+
+fn cost_function_c_compat(base_model: &PsmcModel, stats: &SufficientStats, params: &[f64]) -> f64 {
+    let constrained: Vec<f64> = params.iter().map(|v| v.abs()).collect();
+    let mut model = base_model.clone();
+    if unpack_params(&mut model, &constrained).is_err() {
+        return 1e300;
+    }
+    if model.param_recalculate().is_err() {
+        return 1e300;
+    }
+    let q = q_function_stats(&model, stats);
+    if q.is_finite() { -q } else { 1e300 }
+}
+
+fn hj_aux<F>(f: &F, x1: &mut [f64], fx1_in: f64, dx: &mut [f64], n_calls: &mut usize) -> f64
+where
+    F: Fn(&[f64]) -> f64,
+{
+    let n = x1.len();
+    let mut fx1 = fx1_in;
+    for k in 0..n {
+        x1[k] += dx[k];
+        let ftmp = f(x1);
+        *n_calls += 1;
+        if ftmp < fx1 {
+            fx1 = ftmp;
+        } else {
+            dx[k] = -dx[k];
+            x1[k] += dx[k] + dx[k];
+            let ftmp2 = f(x1);
+            *n_calls += 1;
+            if ftmp2 < fx1 {
+                fx1 = ftmp2;
+            } else {
+                x1[k] -= dx[k];
+            }
+        }
+    }
+    fx1
+}
+
+pub fn m_step_hooke_jeeves_c(
+    model: &PsmcModel,
+    stats: &SufficientStats,
+    init_params: &[f64],
+    config: &MStepConfig,
+) -> Result<Vec<f64>> {
+    let n = init_params.len();
+    let mut x = init_params.to_vec();
+    let mut x1 = vec![0.0; n];
+    let mut dx = vec![0.0; n];
+    for k in 0..n {
+        dx[k] = x[k].abs() * KMIN_RADIUS;
+        if dx[k] == 0.0 {
+            dx[k] = KMIN_RADIUS;
+        }
+    }
+
+    let cost = |p: &[f64]| cost_function_c_compat(model, stats, p);
+    let mut n_calls = 1usize;
+    let mut radius = KMIN_RADIUS;
+    let mut fx = cost(&x);
+
+    let pb = if config.progress {
+        Some(progress::bar(KMIN_MAXCALL as u64, "M", "Hooke-Jeeves"))
+    } else {
+        None
+    };
+    if let Some(pb) = &pb {
+        pb.inc(1);
+    }
+
+    loop {
+        x1.clone_from_slice(&x);
+        let mut fx1 = hj_aux(&cost, &mut x1, fx, &mut dx, &mut n_calls);
+        if let Some(pb) = &pb {
+            pb.set_position(n_calls.min(KMIN_MAXCALL) as u64);
+        }
+
+        while fx1 < fx {
+            for k in 0..n {
+                let t = x[k];
+                dx[k] = if x1[k] > x[k] {
+                    dx[k].abs()
+                } else {
+                    -dx[k].abs()
+                };
+                x[k] = x1[k];
+                x1[k] = x1[k] + x1[k] - t;
+            }
+            fx = fx1;
+            if n_calls >= KMIN_MAXCALL {
+                break;
+            }
+
+            fx1 = cost(&x1);
+            n_calls += 1;
+            fx1 = hj_aux(&cost, &mut x1, fx1, &mut dx, &mut n_calls);
+            if let Some(pb) = &pb {
+                pb.set_position(n_calls.min(KMIN_MAXCALL) as u64);
+            }
+
+            if fx1 >= fx {
+                break;
+            }
+            let mut moved_enough = false;
+            for k in 0..n {
+                if (x1[k] - x[k]).abs() > 0.5 * dx[k].abs() {
+                    moved_enough = true;
+                    break;
+                }
+            }
+            if !moved_enough {
+                break;
+            }
+        }
+
+        if radius >= KMIN_EPS {
+            if n_calls >= KMIN_MAXCALL {
+                break;
+            }
+            radius *= KMIN_RADIUS;
+            for d in &mut dx {
+                *d *= KMIN_RADIUS;
+            }
+        } else {
+            break;
+        }
+    }
+
+    if let Some(pb) = pb {
+        pb.finish_with_message(format!("Hooke-Jeeves done ({n_calls} calls)"));
+    }
+    Ok(x.into_iter().map(f64::abs).collect())
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {

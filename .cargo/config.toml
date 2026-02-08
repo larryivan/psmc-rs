@@ -1,0 +1,4 @@
+[build]
+# Build for the local machine to maximize runtime performance.
+# Note: binaries may not run on older CPUs with fewer instruction sets.
+rustflags = ["-C", "target-cpu=native"]
