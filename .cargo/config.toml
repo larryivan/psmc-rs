@@ -1,4 +1,4 @@
-[build]
-# Build for the local machine to maximize runtime performance.
-# Note: binaries may not run on older CPUs with fewer instruction sets.
-rustflags = ["-C", "target-cpu=native"]
+# Keep default rustc CPU target for portability across CI and user machines.
+# For local peak performance benchmarks, use:
+#   RUSTFLAGS="-C target-cpu=native" cargo build --release
+#   RUSTFLAGS="-C target-cpu=native" psmc-rs ...
