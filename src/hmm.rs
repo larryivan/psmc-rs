@@ -22,6 +22,8 @@ pub struct EStepResult {
 pub struct TmrcaReportData {
     pub sampled_mean: Vec<[f64; 2]>,
     pub sampled_map: Vec<[f64; 2]>,
+    pub sampled_lo: Vec<[f64; 2]>,
+    pub sampled_hi: Vec<[f64; 2]>,
     pub state_mass: Vec<f64>,
     pub state_years: Vec<f64>,
     pub total_sites: usize,
@@ -56,6 +58,23 @@ fn obs_to_char(v: u8) -> char {
     } else {
         'N'
     }
+}
+
+#[inline]
+fn quantile_from_probs(probs: &[f64], state_years: &[f64], q: f64) -> f64 {
+    debug_assert_eq!(probs.len(), state_years.len());
+    if probs.is_empty() {
+        return 0.0;
+    }
+    let target = q.clamp(0.0, 1.0);
+    let mut cdf = 0.0;
+    for (k, p) in probs.iter().enumerate() {
+        cdf += *p;
+        if cdf >= target {
+            return state_years[k];
+        }
+    }
+    state_years.last().copied().unwrap_or(0.0)
 }
 
 #[inline]
@@ -547,7 +566,7 @@ pub fn write_tmrca_posterior_tsv(
     let file = File::create(out_path)?;
     let mut writer = BufWriter::new(file);
     writer.write_all(
-        b"seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\tpmax\tentropy\n",
+        b"seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\ttmrca_q025_years\ttmrca_q975_years\tpmax\tentropy\n",
     )?;
 
     let mut state_mass = vec![0.0f64; n_states];
@@ -559,6 +578,8 @@ pub fn write_tmrca_posterior_tsv(
     };
     let mut sampled_mean = Vec::<[f64; 2]>::new();
     let mut sampled_map = Vec::<[f64; 2]>::new();
+    let mut sampled_lo = Vec::<[f64; 2]>::new();
+    let mut sampled_hi = Vec::<[f64; 2]>::new();
 
     for (r, obs_row) in rows.iter().enumerate() {
         let s_max = obs_row.len();
@@ -572,6 +593,8 @@ pub fn write_tmrca_posterior_tsv(
 
         let mut mean_years = vec![0.0f64; s_max];
         let mut map_years = vec![0.0f64; s_max];
+        let mut q025_years = vec![0.0f64; s_max];
+        let mut q975_years = vec![0.0f64; s_max];
         let mut map_state = vec![0usize; s_max];
         let mut pmax_vals = vec![0.0f64; s_max];
         let mut entropy_vals = vec![0.0f64; s_max];
@@ -598,6 +621,7 @@ pub fn write_tmrca_posterior_tsv(
             let mut entropy = 0.0f64;
             for k in 0..n_states {
                 let p = tmp[k] * inv_gamma_norm;
+                tmp[k] = p;
                 state_mass[k] += p;
                 mean += p * tmrca_years[k];
                 if p > max_p {
@@ -611,6 +635,8 @@ pub fn write_tmrca_posterior_tsv(
             mean_years[t] = mean;
             map_state[t] = max_k;
             map_years[t] = tmrca_years[max_k];
+            q025_years[t] = quantile_from_probs(&tmp[..n_states], tmrca_years, 0.025);
+            q975_years[t] = quantile_from_probs(&tmp[..n_states], tmrca_years, 0.975);
             pmax_vals[t] = max_p;
             entropy_vals[t] = entropy;
 
@@ -639,7 +665,7 @@ pub fn write_tmrca_posterior_tsv(
             let obs_ch = obs_to_char(obs_row[t]);
             writeln!(
                 writer,
-                "{}\t{}\t{}\t{}\t{}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
+                "{}\t{}\t{}\t{}\t{}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
                 row_seq_id[r],
                 seq_bin,
                 global_bin,
@@ -647,6 +673,8 @@ pub fn write_tmrca_posterior_tsv(
                 map_state[t],
                 map_years[t],
                 mean_years[t],
+                q025_years[t],
+                q975_years[t],
                 pmax_vals[t],
                 entropy_vals[t],
             )?;
@@ -654,6 +682,8 @@ pub fn write_tmrca_posterior_tsv(
             if global_bin % stride == 0 {
                 sampled_mean.push([global_bin as f64, mean_years[t]]);
                 sampled_map.push([global_bin as f64, map_years[t]]);
+                sampled_lo.push([global_bin as f64, q025_years[t]]);
+                sampled_hi.push([global_bin as f64, q975_years[t]]);
             }
             global_bin += 1;
         }
@@ -671,6 +701,8 @@ pub fn write_tmrca_posterior_tsv(
     Ok(TmrcaReportData {
         sampled_mean,
         sampled_map,
+        sampled_lo,
+        sampled_hi,
         state_mass,
         state_years: tmrca_years.to_vec(),
         total_sites,

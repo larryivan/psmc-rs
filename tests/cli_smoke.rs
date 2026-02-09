@@ -112,7 +112,7 @@ fn cli_tmrca_writes_tsv_and_html_tmrca_panel() {
     let tmrca_text = fs::read_to_string(&tmrca).expect("failed to read tmrca tsv");
     assert!(
         tmrca_text.starts_with(
-            "seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\tpmax\tentropy"
+            "seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\ttmrca_q025_years\ttmrca_q975_years\tpmax\tentropy"
         ),
         "tmrca header is missing"
     );

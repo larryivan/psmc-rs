@@ -14,6 +14,14 @@ struct JsSeries {
     data: Vec<[f64; 2]>,
 }
 
+#[derive(Serialize)]
+struct TmrcaStateBin {
+    start_years: f64,
+    end_years: Option<f64>,
+    mass: f64,
+    mass_pct: f64,
+}
+
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -127,16 +135,27 @@ pub fn write_html_report(
     let (tmrca_panel, tmrca_script) = if let Some(tm) = tmrca {
         let tmrca_mean_json = serde_json::to_string(&tm.sampled_mean)?;
         let tmrca_map_json = serde_json::to_string(&tm.sampled_map)?;
-        let mut state_mass_data = Vec::<[f64; 2]>::with_capacity(tm.state_mass.len());
-        for (k, mass) in tm.state_mass.iter().enumerate() {
-            let x = if k < tm.state_years.len() {
-                tm.state_years[k]
+        let tmrca_lo_json = serde_json::to_string(&tm.sampled_lo)?;
+        let tmrca_hi_json = serde_json::to_string(&tm.sampled_hi)?;
+        let total_mass: f64 = tm.state_mass.iter().sum();
+        let mut state_bins = Vec::<TmrcaStateBin>::with_capacity(tm.state_mass.len());
+        for k in 0..tm.state_mass.len() {
+            let start_years = tm.state_years.get(k).copied().unwrap_or(k as f64);
+            let end_years = tm.state_years.get(k + 1).copied();
+            let mass = tm.state_mass[k];
+            let mass_pct = if total_mass > 0.0 {
+                100.0 * mass / total_mass
             } else {
-                k as f64
+                0.0
             };
-            state_mass_data.push([x, *mass]);
+            state_bins.push(TmrcaStateBin {
+                start_years,
+                end_years,
+                mass,
+                mass_pct,
+            });
         }
-        let tmrca_state_json = serde_json::to_string(&state_mass_data)?;
+        let tmrca_state_bins_json = serde_json::to_string(&state_bins)?;
 
         let panel = format!(
             r#"
@@ -146,13 +165,14 @@ pub fn write_html_report(
         <div id="tmrca-track"></div>
       </div>
       <div class="chart-wrap compact">
-        <div class="chart-title">Posterior Mass by State</div>
+        <div class="chart-title">Posterior Mass by State Interval</div>
         <div id="tmrca-state"></div>
       </div>
       <div class="meta tmrca-meta">
         <table>
           <tr><th>TMRCA rows</th><td>{}</td></tr>
           <tr><th>Sampled points</th><td>{}</td></tr>
+          <tr><th>Posterior CI</th><td>q2.5 to q97.5 (per sampled bin)</td></tr>
           <tr><th>Sequences</th><td>{}</td></tr>
         </table>
       </div>
@@ -164,9 +184,16 @@ pub fn write_html_report(
         );
         let script = format!(
             r##"
-    const tmrcaMean = {};
-    const tmrcaMap = {};
-    const tmrcaState = {};
+    const tmrcaMeanRaw = {};
+    const tmrcaMapRaw = {};
+    const tmrcaLoRaw = {};
+    const tmrcaHiRaw = {};
+    const tmrcaStateBins = {};
+    const positiveY = (pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]) && pt[1] > 0;
+    const tmrcaMean = tmrcaMeanRaw.filter(positiveY);
+    const tmrcaMap = tmrcaMapRaw.filter(positiveY);
+    const tmrcaLo = tmrcaLoRaw.filter(positiveY);
+    const tmrcaHi = tmrcaHiRaw.filter(positiveY);
     const tmrcaTrack = echarts.init(document.getElementById("tmrca-track"), null, {{ renderer: "canvas" }});
     tmrcaTrack.setOption({{
       animationDuration: 650,
@@ -234,34 +261,88 @@ pub fn write_html_report(
           data: tmrcaMap,
           lineStyle: {{ width: 2.0, color: "#8E24AA", type: "dashed" }},
           itemStyle: {{ color: "#8E24AA" }}
+        }},
+        {{
+          name: "q2.5",
+          type: "line",
+          showSymbol: false,
+          symbol: "none",
+          data: tmrcaLo,
+          lineStyle: {{ width: 1.3, color: "#64B5F6", type: "dotted" }},
+          itemStyle: {{ color: "#64B5F6" }}
+        }},
+        {{
+          name: "q97.5",
+          type: "line",
+          showSymbol: false,
+          symbol: "none",
+          data: tmrcaHi,
+          lineStyle: {{ width: 1.3, color: "#64B5F6", type: "dotted" }},
+          itemStyle: {{ color: "#64B5F6" }}
         }}
       ]
     }});
 
+    const fmtYears = (v) => {{
+      if (!Number.isFinite(v)) return "NA";
+      if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+      if (v >= 1e3) return (v / 1e3).toFixed(1) + "k";
+      return v.toFixed(1);
+    }};
+    const tmrcaStateLabels = tmrcaStateBins.map((b) => {{
+      const s = fmtYears(b.start_years);
+      if (b.end_years === null || !Number.isFinite(b.end_years)) {{
+        return `>= ${{s}}`;
+      }}
+      return `${{s}} - ${{fmtYears(b.end_years)}}`;
+    }});
+    const tmrcaStatePct = tmrcaStateBins.map((b) => b.mass_pct);
+    const tickStep = Math.max(1, Math.ceil(tmrcaStateLabels.length / 18));
     const tmrcaStateChart = echarts.init(document.getElementById("tmrca-state"), null, {{ renderer: "canvas" }});
     tmrcaStateChart.setOption({{
       animationDuration: 600,
       animationEasing: "cubicOut",
       tooltip: {{
         trigger: "axis",
-        axisPointer: {{ type: "line" }},
+        axisPointer: {{ type: "shadow" }},
         backgroundColor: "rgba(13, 22, 34, 0.90)",
         borderWidth: 0,
-        textStyle: {{ color: "#f2f6fb" }}
+        textStyle: {{ color: "#f2f6fb" }},
+        formatter: (params) => {{
+          const p = Array.isArray(params) ? params[0] : params;
+          const idx = p.dataIndex;
+          const b = tmrcaStateBins[idx];
+          if (!b) return "";
+          const endTxt = (b.end_years === null || !Number.isFinite(b.end_years))
+            ? "inf"
+            : b.end_years.toExponential(3);
+          return [
+            `State ${{idx}}`,
+            `Interval: ${{b.start_years.toExponential(3)}} - ${{endTxt}} years`,
+            `Mass: ${{b.mass.toExponential(3)}}`,
+            `Mass %: ${{b.mass_pct.toFixed(2)}}%`
+          ].join("<br/>");
+        }}
       }},
-      grid: {{ left: 84, right: 36, top: 32, bottom: 44, containLabel: true }},
+      grid: {{ left: 84, right: 36, top: 32, bottom: 64, containLabel: true }},
       xAxis: {{
-        type: "log",
-        name: "State time (years)",
+        type: "category",
+        data: tmrcaStateLabels,
+        name: "State interval (years)",
         nameLocation: "middle",
-        nameGap: 30,
+        nameGap: 44,
         axisLine: {{ lineStyle: {{ color: "#698198" }} }},
-        axisLabel: {{ color: "#51697f" }},
-        splitLine: {{ lineStyle: {{ color: "rgba(81,105,127,0.15)" }} }}
+        axisLabel: {{
+          color: "#51697f",
+          interval: (idx) => idx % tickStep === 0,
+          rotate: 24,
+          fontSize: 10
+        }},
+        splitLine: {{ show: false }}
       }},
       yAxis: {{
         type: "value",
-        name: "Posterior mass",
+        name: "Posterior mass (%)",
         nameLocation: "middle",
         nameRotate: 90,
         nameGap: 56,
@@ -269,18 +350,35 @@ pub fn write_html_report(
         axisLabel: {{ color: "#51697f" }},
         splitLine: {{ lineStyle: {{ color: "rgba(81,105,127,0.15)" }} }}
       }},
+      dataZoom: [
+        {{ type: "inside", xAxisIndex: 0 }},
+        {{
+          type: "slider",
+          xAxisIndex: 0,
+          bottom: 12,
+          height: 16,
+          borderColor: "rgba(17,34,51,0.15)",
+          backgroundColor: "rgba(255,255,255,0.62)",
+          fillerColor: "rgba(38,166,154,0.22)",
+          handleStyle: {{ color: "#26A69A" }}
+        }}
+      ],
       series: [{{
-        type: "line",
-        showSymbol: false,
-        symbol: "none",
-        data: tmrcaState,
-        lineStyle: {{ width: 2.2, color: "#26A69A" }},
-        areaStyle: {{ color: "rgba(38,166,154,0.18)" }},
-        itemStyle: {{ color: "#26A69A" }}
+        name: "mass %",
+        type: "bar",
+        data: tmrcaStatePct,
+        barMaxWidth: 22,
+        itemStyle: {{
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            {{ offset: 0, color: "#26A69A" }},
+            {{ offset: 1, color: "#80CBC4" }}
+          ]),
+          borderRadius: [4, 4, 0, 0]
+        }}
       }}]
     }});
 "##,
-            tmrca_mean_json, tmrca_map_json, tmrca_state_json
+            tmrca_mean_json, tmrca_map_json, tmrca_lo_json, tmrca_hi_json, tmrca_state_bins_json
         );
         (panel, script)
     } else {
