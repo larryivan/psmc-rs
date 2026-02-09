@@ -21,15 +21,7 @@ struct RowForwardCache {
     c_norm: Vec<f64>,
 }
 
-fn alpha_cache_budget_bytes() -> usize {
-    // Allow tuning without changing CLI: PSMC_ALPHA_CACHE_MB=0 disables caching.
-    const DEFAULT_MB: usize = 1024;
-    let mb = std::env::var("PSMC_ALPHA_CACHE_MB")
-        .ok()
-        .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_MB);
-    mb.saturating_mul(1024).saturating_mul(1024)
-}
+const ALPHA_CACHE_BUDGET_BYTES: usize = 1024 * 1024 * 1024;
 
 #[inline]
 fn obs_to_idx(v: u8) -> usize {
@@ -42,9 +34,32 @@ fn obs_to_idx(v: u8) -> usize {
     }
 }
 
+#[inline]
+fn matvec_row_major(src: &[f64], a_row: &[f64], dst: &mut [f64]) {
+    let n_states = src.len();
+    debug_assert_eq!(dst.len(), n_states);
+    dst.fill(0.0);
+    for i in 0..n_states {
+        let s = src[i];
+        let row = &a_row[i * n_states..(i + 1) * n_states];
+        let mut k = 0usize;
+        while k + 4 <= n_states {
+            dst[k] += s * row[k];
+            dst[k + 1] += s * row[k + 1];
+            dst[k + 2] += s * row[k + 2];
+            dst[k + 3] += s * row[k + 3];
+            k += 4;
+        }
+        while k < n_states {
+            dst[k] += s * row[k];
+            k += 1;
+        }
+    }
+}
+
 fn forward_fill_row(
     pi: &[f64],
-    a_col: &[f64],
+    a_row: &[f64],
     em_rows: &[Vec<f64>; 3],
     obs_row: &[u8],
     start_prev: Option<&[f64]>,
@@ -58,38 +73,22 @@ fn forward_fill_row(
         let obs = obs_to_idx(obs_row[t]);
         let em_obs = &em_rows[obs];
 
-        let mut norm = 0.0;
-        if t == 0 {
-            match start_prev {
-                Some(prev) => {
-                    for k in 0..n_states {
-                        let a_col_k = &a_col[k * n_states..(k + 1) * n_states];
-                        let mut dot = 0.0;
-                        for i in 0..n_states {
-                            dot += prev[i] * a_col_k[i];
-                        }
-                        let v = dot * em_obs[k];
-                        tmp[k] = v;
-                        norm += v;
-                    }
-                }
-                None => {
-                    for k in 0..n_states {
-                        let v = pi[k] * em_obs[k];
-                        tmp[k] = v;
-                        norm += v;
-                    }
-                }
+        let mut norm = 0.0f64;
+        if t == 0 && start_prev.is_none() {
+            for k in 0..n_states {
+                let v = pi[k] * em_obs[k];
+                tmp[k] = v;
+                norm += v;
             }
         } else {
-            let prev = &alpha_row[(t - 1) * n_states..t * n_states];
+            let src = if t == 0 {
+                start_prev.expect("checked is_some above")
+            } else {
+                &alpha_row[(t - 1) * n_states..t * n_states]
+            };
+            matvec_row_major(src, a_row, tmp);
             for k in 0..n_states {
-                let a_col_k = &a_col[k * n_states..(k + 1) * n_states];
-                let mut dot = 0.0;
-                for i in 0..n_states {
-                    dot += prev[i] * a_col_k[i];
-                }
-                let v = dot * em_obs[k];
+                let v = tmp[k] * em_obs[k];
                 tmp[k] = v;
                 norm += v;
             }
@@ -149,12 +148,10 @@ pub fn e_step_streaming(
     let mut loglike = 0.0;
 
     let mut a_row = vec![0.0f64; n_states * n_states];
-    let mut a_col = vec![0.0f64; n_states * n_states];
     for i in 0..n_states {
         for j in 0..n_states {
             let v = a[(i, j)];
             a_row[i * n_states + j] = v;
-            a_col[j * n_states + i] = v;
         }
     }
     let em_rows = [em.row(0).to_vec(), em.row(1).to_vec(), em.row(2).to_vec()];
@@ -174,13 +171,12 @@ pub fn e_step_streaming(
     let mut row_prev_alpha: Vec<Option<Vec<f64>>> = vec![None; n_rows];
     let mut row_cache: Vec<Option<RowForwardCache>> = vec![None; n_rows];
     let mut prev_end = vec![0.0f64; n_states];
-    let cache_budget = alpha_cache_budget_bytes();
     let mut total_cache_bytes = 0usize;
     for row in rows {
         let row_bytes = (row.len() * n_states + row.len()) * std::mem::size_of::<f64>();
         total_cache_bytes = total_cache_bytes.saturating_add(row_bytes);
     }
-    let enable_cache = cache_budget > 0 && total_cache_bytes <= cache_budget;
+    let enable_cache = total_cache_bytes <= ALPHA_CACHE_BUDGET_BYTES;
 
     for (r, obs_row) in rows.iter().enumerate() {
         let s_max = obs_row.len();
@@ -192,7 +188,7 @@ pub fn e_step_streaming(
         }
         let start_prev = row_prev_alpha[r].as_deref();
         forward_fill_row(
-            pi, &a_col, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
         )?;
         for v in c_norm.iter() {
             loglike += v.ln();
@@ -222,66 +218,114 @@ pub fn e_step_streaming(
 
     let mut beta = vec![1.0f64; n_states];
     let mut beta_new = vec![0.0f64; n_states];
+    let mut emit_beta = vec![0.0f64; n_states];
     for r_rev in 0..n_rows {
         let r = n_rows - 1 - r_rev;
         let obs_row = &rows[r];
         let s_max = obs_row.len();
+        if let Some(cache) = row_cache[r].as_ref() {
+            let alpha_row = &cache.alpha;
+            let c_norm = &cache.c_norm;
+            for t_rev in 0..s_max {
+                let t = s_max - 1 - t_rev;
+                let obs = obs_to_idx(obs_row[t]);
+                let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
+                for k in 0..n_states {
+                    let g = alpha_t[k] * beta[k];
+                    match obs {
+                        0 => gobs0[k] += g,
+                        1 => gobs1[k] += g,
+                        _ => gobs2[k] += g,
+                    }
+                }
 
-        let (alpha_row, c_norm): (&[f64], &[f64]) = if let Some(cache) = row_cache[r].as_ref() {
-            (&cache.alpha, &cache.c_norm)
+                if t == 0 && row_starts[r] {
+                    continue;
+                }
+
+                let norm_t = c_norm[t];
+                let inv_norm_t = 1.0 / norm_t;
+                let em_obs = &em_rows[obs];
+                for j in 0..n_states {
+                    emit_beta[j] = em_obs[j] * beta[j];
+                }
+                let alpha_prev = if t > 0 {
+                    &alpha_row[(t - 1) * n_states..t * n_states]
+                } else {
+                    row_prev_alpha[r]
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?
+                };
+
+                for i in 0..n_states {
+                    let a_i = &a_row[i * n_states..(i + 1) * n_states];
+                    let xi_i = &mut xi_flat[i * n_states..(i + 1) * n_states];
+                    let alpha_prev_i = alpha_prev[i];
+                    let xi_scale = alpha_prev_i * inv_norm_t;
+                    let mut acc = 0.0;
+                    for j in 0..n_states {
+                        let trans = a_i[j];
+                        xi_i[j] += xi_scale * trans * emit_beta[j];
+                        acc += trans * emit_beta[j];
+                    }
+                    beta_new[i] = acc * inv_norm_t;
+                }
+                std::mem::swap(&mut beta, &mut beta_new);
+            }
         } else {
             let alpha_row = &mut alpha_row_buf[..s_max * n_states];
             let c_norm = &mut c_norm_buf[..s_max];
             let start_prev = row_prev_alpha[r].as_deref();
             forward_fill_row(
-                pi, &a_col, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+                pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
             )?;
-            (alpha_row, c_norm)
-        };
 
-        for t_rev in 0..s_max {
-            let t = s_max - 1 - t_rev;
-            let obs = obs_to_idx(obs_row[t]);
-            let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
-            for k in 0..n_states {
-                let g = alpha_t[k] * beta[k];
-                match obs {
-                    0 => gobs0[k] += g,
-                    1 => gobs1[k] += g,
-                    _ => gobs2[k] += g,
+            for t_rev in 0..s_max {
+                let t = s_max - 1 - t_rev;
+                let obs = obs_to_idx(obs_row[t]);
+                let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
+                for k in 0..n_states {
+                    let g = alpha_t[k] * beta[k];
+                    match obs {
+                        0 => gobs0[k] += g,
+                        1 => gobs1[k] += g,
+                        _ => gobs2[k] += g,
+                    }
                 }
-            }
 
-            if t == 0 && row_starts[r] {
-                continue;
-            }
+                if t == 0 && row_starts[r] {
+                    continue;
+                }
 
-            let norm_t = c_norm[t];
-            let inv_norm_t = 1.0 / norm_t;
-            let em_obs = &em_rows[obs];
-            let alpha_prev = if t > 0 {
-                &alpha_row[(t - 1) * n_states..t * n_states]
-            } else {
-                row_prev_alpha[r]
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?
-            };
-
-            for i in 0..n_states {
-                let a_i = &a_row[i * n_states..(i + 1) * n_states];
-                let xi_i = &mut xi_flat[i * n_states..(i + 1) * n_states];
-                let alpha_prev_i = alpha_prev[i];
-                let xi_scale = alpha_prev_i * inv_norm_t;
-                let mut acc = 0.0;
+                let norm_t = c_norm[t];
+                let inv_norm_t = 1.0 / norm_t;
+                let em_obs = &em_rows[obs];
                 for j in 0..n_states {
-                    let emit_beta = em_obs[j] * beta[j];
-                    let trans = a_i[j];
-                    xi_i[j] += xi_scale * trans * emit_beta;
-                    acc += trans * emit_beta;
+                    emit_beta[j] = em_obs[j] * beta[j];
                 }
-                beta_new[i] = acc * inv_norm_t;
+                let alpha_prev = if t > 0 {
+                    &alpha_row[(t - 1) * n_states..t * n_states]
+                } else {
+                    row_prev_alpha[r]
+                        .as_deref()
+                        .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?
+                };
+
+                for i in 0..n_states {
+                    let a_i = &a_row[i * n_states..(i + 1) * n_states];
+                    let xi_i = &mut xi_flat[i * n_states..(i + 1) * n_states];
+                    let alpha_prev_i = alpha_prev[i];
+                    let xi_scale = alpha_prev_i * inv_norm_t;
+                    let mut acc = 0.0;
+                    for j in 0..n_states {
+                        let trans = a_i[j];
+                        xi_i[j] += xi_scale * trans * emit_beta[j];
+                        acc += trans * emit_beta[j];
+                    }
+                    beta_new[i] = acc * inv_norm_t;
+                }
+                std::mem::swap(&mut beta, &mut beta_new);
             }
-            std::mem::swap(&mut beta, &mut beta_new);
         }
 
         if row_starts[r] {

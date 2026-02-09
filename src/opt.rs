@@ -213,8 +213,6 @@ pub struct MStepConfig {
     pub max_ls_steps: usize,
     pub tol_grad: f64,
     pub progress: bool,
-    pub loglike_after_every: usize,
-    pub loglike_after_last: bool,
     pub theta_lo: f64,
     pub theta_hi: f64,
     pub rho_lo: f64,
@@ -228,23 +226,21 @@ pub struct MStepConfig {
 impl Default for MStepConfig {
     fn default() -> Self {
         Self {
-            max_iters: 30,
+            max_iters: 100,
             lbfgs_m: 7,
-            lambda: 1e-2,
+            lambda: 1e-3,
             line_search_c1: 1e-4,
             max_ls_steps: 20,
             tol_grad: 1e-4,
             progress: true,
-            loglike_after_every: 0,
-            loglike_after_last: true,
-            theta_lo: 1e-5,
-            theta_hi: 1.0,
-            rho_lo: 1e-6,
-            rho_hi: 1.0,
-            tmax_lo: 8.0,
-            tmax_hi: 40.0,
-            lam_lo: 0.05,
-            lam_hi: 100.0,
+            theta_lo: 1e-12,
+            theta_hi: 10.0,
+            rho_lo: 1e-12,
+            rho_hi: 10.0,
+            tmax_lo: 1.0,
+            tmax_hi: 200.0,
+            lam_lo: 1e-6,
+            lam_hi: 1e6,
         }
     }
 }
@@ -295,26 +291,8 @@ pub fn em_train(
         let params_opt = m_step_lbfgs(model, &stats, &params, &bounds, config)?;
         params = params_opt.clone();
         unpack_params(model, &params)?;
-
-        let should_run_after = (config.loglike_after_every > 0
-            && (iter + 1) % config.loglike_after_every == 0)
-            || (config.loglike_after_last && (iter + 1) == n_iter);
-        let loglike_after = if should_run_after {
-            model.param_recalculate()?;
-            let e_after = e_step_streaming(
-                model.prior_matrix(),
-                model.transition_matrix(),
-                model.emission_matrix(),
-                rows,
-                row_starts,
-                config.progress,
-                "E2",
-            )?;
-            e_after.loglike
-        } else {
-            // Avoid a second full E-step for speed; this still keeps history shape stable.
-            loglike_before
-        };
+        // Keep EM history shape stable without paying for a second full E-step.
+        let loglike_after = loglike_before;
 
         history.loglike.push((loglike_before, loglike_after));
         history.params.push(params.clone());

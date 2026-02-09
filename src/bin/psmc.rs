@@ -48,35 +48,10 @@ struct Cli {
     mstep_iters: Option<usize>,
     #[arg(
         long,
-        default_value_t = 1e-2,
-        help = "M-step smoothness penalty on log-lambda differences (set to 0 for C-like behavior)"
+        default_value_t = 1e-3,
+        help = "M-step smoothness penalty on log-lambda differences"
     )]
     smooth_lambda: f64,
-    #[arg(long, default_value_t = 0)]
-    loglike_after_every: usize,
-    #[arg(long)]
-    no_loglike_after_last: bool,
-    #[arg(
-        long,
-        help = "Use C-like defaults: pattern=4+25*2+4+6 when missing, theta0 init=-log(1-k/L), lambda=0, mstep_iters=100"
-    )]
-    compat_c: bool,
-    #[arg(long)]
-    theta_lo: Option<f64>,
-    #[arg(long)]
-    theta_hi: Option<f64>,
-    #[arg(long)]
-    rho_lo: Option<f64>,
-    #[arg(long)]
-    rho_hi: Option<f64>,
-    #[arg(long)]
-    tmax_lo: Option<f64>,
-    #[arg(long)]
-    tmax_hi: Option<f64>,
-    #[arg(long)]
-    lam_lo: Option<f64>,
-    #[arg(long)]
-    lam_hi: Option<f64>,
     #[arg(long)]
     no_progress: bool,
 }
@@ -92,10 +67,7 @@ fn main() -> Result<()> {
             .build_global()
             .map_err(|e| anyhow!("failed to configure Rayon global thread pool: {e}"))?;
     }
-    let mut pattern = cli.pattern.clone();
-    if cli.compat_c && pattern.is_none() {
-        pattern = Some("4+25*2+4+6".to_string());
-    }
+    let pattern = cli.pattern.clone();
 
     let format_name = match cli.input_format {
         InputFormat::Psmcfa => "psmcfa",
@@ -137,15 +109,11 @@ fn main() -> Result<()> {
 
     let theta0 = cli.theta0.unwrap_or_else(|| {
         let frac = (count_k as f64) / (total_observed as f64);
-        if cli.compat_c {
-            // Match C initialization: theta0 = -log(1 - n_e / L_e).
-            if frac >= 1.0 {
-                f64::INFINITY
-            } else {
-                -(1.0 - frac).ln()
-            }
+        // Match C initialization: theta0 = -log(1 - n_e / L_e).
+        if frac >= 1.0 {
+            f64::INFINITY
         } else {
-            frac
+            -(1.0 - frac).ln()
         }
     });
     let rho0 = cli.rho0.unwrap_or_else(|| theta0 / 5.0);
@@ -155,50 +123,14 @@ fn main() -> Result<()> {
     let mut model = model;
     if cli.n_iter > 0 {
         let mut config = MStepConfig::default();
-        config.max_iters = cli
-            .mstep_iters
-            .unwrap_or(if cli.compat_c { 100 } else { 30 });
+        config.max_iters = cli.mstep_iters.unwrap_or(100);
         config.lambda = cli.smooth_lambda;
-        config.loglike_after_every = cli.loglike_after_every;
-        config.loglike_after_last = !cli.no_loglike_after_last;
-        if let Some(v) = cli.theta_lo {
-            config.theta_lo = v;
-        }
-        if let Some(v) = cli.theta_hi {
-            config.theta_hi = v;
-        }
-        if let Some(v) = cli.rho_lo {
-            config.rho_lo = v;
-        }
-        if let Some(v) = cli.rho_hi {
-            config.rho_hi = v;
-        }
-        if let Some(v) = cli.tmax_lo {
-            config.tmax_lo = v;
-        }
-        if let Some(v) = cli.tmax_hi {
-            config.tmax_hi = v;
-        }
-        if let Some(v) = cli.lam_lo {
-            config.lam_lo = v;
-        }
-        if let Some(v) = cli.lam_hi {
-            config.lam_hi = v;
-        }
-        if cli.compat_c {
-            // C-like mode: disable smooth penalty and keep C-like defaults.
-            config.lambda = 0.0;
-        }
         if cli.no_progress {
             config.progress = false;
         }
         let history = em_train(&mut model, &obs.rows, &obs.row_starts, cli.n_iter, &config)?;
-        if let Some((before, after)) = history.loglike.last() {
-            if (before - after).abs() <= 1e-12 {
-                println!("Last EM loglike: {} (after-check skipped)", before);
-            } else {
-                println!("Last EM loglike: {} -> {}", before, after);
-            }
+        if let Some((before, _)) = history.loglike.last() {
+            println!("Last EM loglike: {}", before);
         }
         warn_if_near_bounds(&model, &config)?;
     }
