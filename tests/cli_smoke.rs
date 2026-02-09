@@ -59,6 +59,7 @@ fn find_psmc_binary() -> PathBuf {
 fn cli_runs_and_writes_json() {
     let input = unique_temp_path("psmc_cli_input", "psmcfa");
     let output = unique_temp_path("psmc_cli_output", "json");
+    let report = output.with_extension("html");
     let content = "> chr1\nTTTTTKTTTTKTTTTNTTTTKTTTTKTTTT\n";
     fs::write(&input, content).expect("failed to write cli test input");
 
@@ -80,7 +81,54 @@ fn cli_runs_and_writes_json() {
     assert!(v.get("t_max").is_some());
     assert!(v.get("n_steps").is_some());
     assert!(v.get("mu").is_some());
+    assert!(report.exists(), "expected html report to be generated");
 
     let _ = fs::remove_file(input);
     let _ = fs::remove_file(output);
+    let _ = fs::remove_file(report);
+}
+
+#[test]
+fn cli_tmrca_writes_tsv_and_html_tmrca_panel() {
+    let input = unique_temp_path("psmc_cli_tmrca_input", "psmcfa");
+    let output = unique_temp_path("psmc_cli_tmrca_output", "json");
+    let tmrca = unique_temp_path("psmc_cli_tmrca_posterior", "tsv");
+    let report = output.with_extension("html");
+    let content = "> chr1\nTTTTTKTTTTKTTTTNTTTTKTTTTKTTTT\n";
+    fs::write(&input, content).expect("failed to write cli test input");
+
+    let exe = find_psmc_binary();
+    let status = Command::new(exe)
+        .arg(&input)
+        .arg(&output)
+        .arg("0")
+        .arg("--tmrca-out")
+        .arg(&tmrca)
+        .arg("--no-progress")
+        .status()
+        .expect("failed to run psmc binary");
+    assert!(status.success(), "psmc exited with non-zero status");
+
+    let tmrca_text = fs::read_to_string(&tmrca).expect("failed to read tmrca tsv");
+    assert!(
+        tmrca_text.starts_with(
+            "seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\tpmax\tentropy"
+        ),
+        "tmrca header is missing"
+    );
+    assert!(
+        tmrca_text.lines().count() > 1,
+        "tmrca output should contain data rows"
+    );
+
+    let html = fs::read_to_string(&report).expect("failed to read html report");
+    assert!(
+        html.contains("TMRCA Posterior Track"),
+        "html report should include tmrca panel"
+    );
+
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(tmrca);
+    let _ = fs::remove_file(report);
 }

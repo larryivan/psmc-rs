@@ -3,10 +3,12 @@ use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
 use psmc_rs::PsmcModel;
+use psmc_rs::hmm::write_tmrca_posterior_tsv;
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::opt::{MStepConfig, bounds_from_config, em_train};
 use psmc_rs::progress;
+use psmc_rs::report::{default_html_path, write_html_report};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 enum InputFormat {
@@ -54,6 +56,17 @@ struct Cli {
     smooth_lambda: f64,
     #[arg(long)]
     no_progress: bool,
+    #[arg(
+        long,
+        help = "Write per-bin TMRCA posterior TSV and add TMRCA charts into HTML report"
+    )]
+    tmrca_out: Option<PathBuf>,
+    #[arg(
+        long,
+        default_value_t = 25.0,
+        help = "Generation time (years) used for TMRCA scaling"
+    )]
+    tmrca_gen_years: f64,
 }
 
 fn main() -> Result<()> {
@@ -135,7 +148,55 @@ fn main() -> Result<()> {
         warn_if_near_bounds(&model, &config)?;
     }
 
+    let report_bin_size = match cli.input_format {
+        InputFormat::Psmcfa => 100.0,
+        InputFormat::Mhs => cli.mhs_bin_size as f64,
+    };
+    let input_format_name = match cli.input_format {
+        InputFormat::Psmcfa => "psmcfa",
+        InputFormat::Mhs => "mhs",
+    };
+
+    // Ensure matrices are synchronized with final optimized parameters.
+    model.param_recalculate()?;
+
+    let mut tmrca_report_data = None;
+    if let Some(tmrca_out) = &cli.tmrca_out {
+        let t = model.compute_t(0.1);
+        let n0 = model.theta / (4.0 * model.mu * report_bin_size);
+        let mut tmrca_years = Vec::with_capacity(model.n_steps + 1);
+        for k in 0..=model.n_steps {
+            tmrca_years.push(t[k] * 2.0 * n0 * cli.tmrca_gen_years);
+        }
+        let tmrca = write_tmrca_posterior_tsv(
+            model.prior_matrix(),
+            model.transition_matrix(),
+            model.emission_matrix(),
+            &obs.rows,
+            &obs.row_starts,
+            &tmrca_years,
+            tmrca_out,
+            !cli.no_progress,
+            20_000,
+        )?;
+        println!("TMRCA posterior: {}", tmrca_out.display());
+        tmrca_report_data = Some(tmrca);
+    }
+
     model.save_params(&cli.output_file)?;
+
+    let report_html = default_html_path(&cli.output_file);
+    write_html_report(
+        &model,
+        &cli.input_file,
+        &cli.output_file,
+        &report_html,
+        cli.n_iter,
+        input_format_name,
+        report_bin_size,
+        tmrca_report_data.as_ref(),
+    )?;
+    println!("HTML report: {}", report_html.display());
     Ok(())
 }
 
