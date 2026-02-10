@@ -3,6 +3,7 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 
+use crate::bootstrap::BootstrapSummary;
 use crate::hmm::TmrcaReportData;
 use crate::model::PsmcModel;
 
@@ -58,44 +59,68 @@ pub fn write_html_report(
     input_format: &str,
     bin_size: f64,
     tmrca: Option<&TmrcaReportData>,
+    bootstrap: Option<&BootstrapSummary>,
 ) -> Result<()> {
     let lam_full = model.map_lam(&model.lam)?;
     let t = model.compute_t(0.1);
     let n0 = model.theta / (4.0 * model.mu * bin_size);
 
-    let mut data = Vec::with_capacity(model.n_steps + 1);
+    let mut main_data = Vec::with_capacity(model.n_steps + 1);
     for k in 0..=model.n_steps {
         let x = t[k] * 2.0 * n0 * REPORT_GEN_YEARS;
         let y = lam_full[k] * n0;
         if x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0 {
-            data.push([x, y]);
+            main_data.push([x, y]);
         }
     }
 
-    let y_min = data
+    let y_min = main_data
         .iter()
         .map(|p| p[1])
         .fold(f64::INFINITY, f64::min)
         .max(1e-12);
-    let y_max = data.iter().map(|p| p[1]).fold(0.0f64, f64::max).max(y_min);
-    let x_min = data
+    let y_max = main_data
+        .iter()
+        .map(|p| p[1])
+        .fold(0.0f64, f64::max)
+        .max(y_min);
+    let x_min = main_data
         .iter()
         .map(|p| p[0])
         .fold(f64::INFINITY, f64::min)
         .max(1e-12);
-    let x_max = data.iter().map(|p| p[0]).fold(0.0f64, f64::max).max(x_min);
+    let x_max = main_data
+        .iter()
+        .map(|p| p[0])
+        .fold(0.0f64, f64::max)
+        .max(x_min);
 
-    let series_json = serde_json::to_string(&vec![JsSeries {
+    let mut series = vec![JsSeries {
         name: "Rust estimate".to_string(),
-        data,
-    }])?;
+        data: main_data,
+    }];
+    if let Some(bs) = bootstrap {
+        series.push(JsSeries {
+            name: "Bootstrap q2.5".to_string(),
+            data: bs.points.iter().map(|p| [p.x_years, p.ne_q025]).collect(),
+        });
+        series.push(JsSeries {
+            name: "Bootstrap median".to_string(),
+            data: bs.points.iter().map(|p| [p.x_years, p.ne_q500]).collect(),
+        });
+        series.push(JsSeries {
+            name: "Bootstrap q97.5".to_string(),
+            data: bs.points.iter().map(|p| [p.x_years, p.ne_q975]).collect(),
+        });
+    }
+    let series_json = serde_json::to_string(&series)?;
 
     let title = default_title();
     let input_name = input_file
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("input");
-    let meta_rows = format!(
+    let mut meta_rows = format!(
         r#"
 <tr><th>Input</th><td class="mono">{}</td></tr>
 <tr><th>Output JSON</th><td class="mono">{}</td></tr>
@@ -131,6 +156,16 @@ pub fn write_html_report(
         fmt_num(y_min),
         fmt_num(y_max)
     );
+    if let Some(bs) = bootstrap {
+        meta_rows.push_str(&format!(
+            r#"
+<tr><th>Bootstrap replicates</th><td>{}</td></tr>
+<tr><th>Bootstrap block size</th><td>{}</td></tr>
+<tr><th>Bootstrap seed</th><td>{}</td></tr>
+"#,
+            bs.n_replicates, bs.block_size, bs.seed
+        ));
+    }
 
     let (tmrca_panel, tmrca_script) = if let Some(tm) = tmrca {
         let tmrca_mean_json = serde_json::to_string(&tm.sampled_mean)?;
@@ -849,6 +884,16 @@ pub fn write_html_report(
     };
 
     const chart = echarts.init(document.getElementById("chart"), null, { renderer: "canvas" });
+    const rgba = (hex, alpha) => {
+      const h = String(hex || "").trim();
+      const m = /^#?([0-9a-f]{6})$/i.exec(h);
+      if (!m) return `rgba(100,181,246,${alpha})`;
+      const s = m[1];
+      const r = parseInt(s.slice(0, 2), 16);
+      const g = parseInt(s.slice(2, 4), 16);
+      const b = parseInt(s.slice(4, 6), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    };
 
     const sanitizeScale = (v, fallback) => (v === "log" || v === "value" ? v : fallback);
     const sanitizeMode = (v) => (v === "step" || v === "linear" || v === "smooth" ? v : "step");
@@ -888,11 +933,95 @@ pub fn write_html_report(
       const stepValue = mode === "step" ? "end" : false;
       const smoothValue = mode === "smooth";
       const areaStyle = cfg.area ? { color: palette.mainArea } : undefined;
+      const findSeries = (name) => {
+        const key = String(name || "").toLowerCase();
+        return series.find((s) => String(s.name || "").toLowerCase() === key);
+      };
+      const sMain = findSeries("rust estimate");
+      const sQ025 = findSeries("bootstrap q2.5");
+      const sQ500 = findSeries("bootstrap median");
+      const sQ975 = findSeries("bootstrap q97.5");
+      const mainData = sMain ? sMain.data : [];
+      const q025Data = sQ025 ? sQ025.data : [];
+      const q500Data = sQ500 ? sQ500.data : [];
+      const q975Data = sQ975 ? sQ975.data : [];
+      const hasRibbon = q025Data.length > 0 && q975Data.length > 0;
+
+      const ribbonBase = hasRibbon ? q025Data : [];
+      const ribbonDelta = hasRibbon
+        ? q975Data.map((p, i) => {
+            const lo = (q025Data[i] && Number.isFinite(q025Data[i][1])) ? q025Data[i][1] : p[1];
+            return [p[0], Math.max(0, p[1] - lo)];
+          })
+        : [];
+      const ciBandColor = rgba(palette.ci, 0.22);
+      const legendData = ["Rust estimate"];
+      if (q500Data.length > 0) legendData.push("Bootstrap median");
+      if (hasRibbon) legendData.push("Bootstrap 95% CI");
+
+      const mainSeries = [];
+      if (hasRibbon) {
+        mainSeries.push({
+          name: "__Bootstrap CI base",
+          type: "line",
+          stack: "bootstrap_ci",
+          step: stepValue,
+          data: ribbonBase,
+          showSymbol: false,
+          symbol: "none",
+          lineStyle: { width: 0, opacity: 0 },
+          areaStyle: { opacity: 0 },
+          silent: true,
+          tooltip: { show: false }
+        });
+        mainSeries.push({
+          name: "Bootstrap 95% CI",
+          type: "line",
+          stack: "bootstrap_ci",
+          step: stepValue,
+          data: ribbonDelta,
+          showSymbol: false,
+          symbol: "none",
+          lineStyle: { width: 0, opacity: 0 },
+          areaStyle: { color: ciBandColor },
+          silent: true
+        });
+      }
+      if (q500Data.length > 0) {
+        mainSeries.push({
+          name: "Bootstrap median",
+          type: "line",
+          data: q500Data,
+          step: stepValue,
+          smooth: false,
+          showSymbol: false,
+          symbol: "none",
+          lineStyle: {
+            width: Math.max(1.2, cfg.width - 1.0),
+            color: palette.trackMap,
+            type: "dashed"
+          },
+          itemStyle: { color: palette.trackMap }
+        });
+      }
+      mainSeries.push({
+        name: "Rust estimate",
+        type: "line",
+        data: mainData,
+        step: stepValue,
+        smooth: smoothValue,
+        showSymbol: false,
+        symbol: "none",
+        areaStyle,
+        lineStyle: { width: cfg.width, color: palette.mainLine },
+        itemStyle: { color: palette.mainLine }
+      });
       return {
         animationDuration: 750,
         animationEasing: "cubicOut",
         backgroundColor: "transparent",
         legend: {
+          data: legendData,
           top: 14,
           left: 18,
           textStyle: { color: "#223a52", fontSize: 13, fontFamily: "Sora, sans-serif" }
@@ -950,17 +1079,7 @@ pub fn write_html_report(
             handleStyle: { color: palette.accent }
           }
         ],
-        series: series.map((s) => ({
-          ...s,
-          type: "line",
-          step: stepValue,
-          smooth: smoothValue,
-          showSymbol: false,
-          symbol: "none",
-          areaStyle,
-          lineStyle: { width: cfg.width, color: palette.mainLine },
-          itemStyle: { color: palette.mainLine }
-        }))
+        series: mainSeries
       };
     };
 

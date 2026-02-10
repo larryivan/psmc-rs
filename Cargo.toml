@@ -11,6 +11,7 @@ flate2 = "1.0"
 indicatif = "0.17"
 ndarray = { version = "0.15", features = ["rayon"] }
 rayon = "1.10"
+rand = { version = "0.8", features = ["small_rng"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 

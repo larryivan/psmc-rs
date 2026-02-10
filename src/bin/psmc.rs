@@ -1,8 +1,14 @@
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
+use std::fs;
 use std::path::PathBuf;
 
 use psmc_rs::PsmcModel;
+use psmc_rs::bootstrap::{
+    default_bootstrap_dir, new_rng, replicate_json_path, rows_to_sequences,
+    sample_sequences_block_bootstrap, sequences_to_observations, summarize_bootstrap_models,
+    write_bootstrap_summary_json, write_bootstrap_summary_tsv,
+};
 use psmc_rs::hmm::write_tmrca_posterior_tsv;
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
@@ -54,6 +60,30 @@ struct Cli {
         help = "M-step smoothness penalty on log-lambda differences"
     )]
     smooth_lambda: f64,
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Number of block-bootstrap replicates (0 disables bootstrap)"
+    )]
+    bootstrap: usize,
+    #[arg(long, default_value_t = 50_000, help = "Bootstrap block size in bins")]
+    bootstrap_block_size: usize,
+    #[arg(
+        long,
+        default_value_t = 42,
+        help = "Random seed for bootstrap resampling"
+    )]
+    bootstrap_seed: u64,
+    #[arg(
+        long,
+        help = "EM iterations for each bootstrap replicate (default: same as N_ITER)"
+    )]
+    bootstrap_iters: Option<usize>,
+    #[arg(
+        long,
+        help = "Directory for bootstrap replicate JSON files and summary outputs"
+    )]
+    bootstrap_dir: Option<PathBuf>,
     #[arg(long)]
     no_progress: bool,
     #[arg(
@@ -71,6 +101,13 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    if cli.bootstrap > 0 && cli.bootstrap_block_size == 0 {
+        bail!("--bootstrap-block-size must be > 0 when --bootstrap is enabled");
+    }
+    let bootstrap_iters = cli.bootstrap_iters.unwrap_or(cli.n_iter);
+    if cli.bootstrap > 0 && bootstrap_iters == 0 {
+        bail!("bootstrap requires EM iterations; set N_ITER > 0 or use --bootstrap-iters");
+    }
     if let Some(n_threads) = cli.threads {
         if n_threads == 0 {
             bail!("--threads must be >= 1");
@@ -133,19 +170,26 @@ fn main() -> Result<()> {
 
     let model = PsmcModel::new(cli.t_max, cli.n_steps, theta0, rho0, cli.mu, pattern)?;
 
+    let mut base_mstep_config = MStepConfig::default();
+    base_mstep_config.max_iters = cli.mstep_iters.unwrap_or(100);
+    base_mstep_config.lambda = cli.smooth_lambda;
+    if cli.no_progress {
+        base_mstep_config.progress = false;
+    }
+
     let mut model = model;
     if cli.n_iter > 0 {
-        let mut config = MStepConfig::default();
-        config.max_iters = cli.mstep_iters.unwrap_or(100);
-        config.lambda = cli.smooth_lambda;
-        if cli.no_progress {
-            config.progress = false;
-        }
-        let history = em_train(&mut model, &obs.rows, &obs.row_starts, cli.n_iter, &config)?;
+        let history = em_train(
+            &mut model,
+            &obs.rows,
+            &obs.row_starts,
+            cli.n_iter,
+            &base_mstep_config,
+        )?;
         if let Some((before, _)) = history.loglike.last() {
             println!("Last EM loglike: {}", before);
         }
-        warn_if_near_bounds(&model, &config)?;
+        warn_if_near_bounds(&model, &base_mstep_config)?;
     }
 
     let report_bin_size = match cli.input_format {
@@ -159,6 +203,79 @@ fn main() -> Result<()> {
 
     // Ensure matrices are synchronized with final optimized parameters.
     model.param_recalculate()?;
+
+    let mut bootstrap_report_data = None;
+    if cli.bootstrap > 0 {
+        let bootstrap_dir = cli
+            .bootstrap_dir
+            .clone()
+            .unwrap_or_else(|| default_bootstrap_dir(&cli.output_file));
+        fs::create_dir_all(&bootstrap_dir).with_context(|| {
+            format!(
+                "failed to create bootstrap output directory {}",
+                bootstrap_dir.display()
+            )
+        })?;
+
+        let seqs = rows_to_sequences(&obs.rows, &obs.row_starts)?;
+        let mut rng = new_rng(cli.bootstrap_seed);
+        let mut boot_models = Vec::<PsmcModel>::with_capacity(cli.bootstrap);
+
+        let pb_boot = if !cli.no_progress {
+            Some(progress::bar(cli.bootstrap as u64, "BOOT", "replicates"))
+        } else {
+            None
+        };
+
+        for rep in 0..cli.bootstrap {
+            if let Some(pb) = &pb_boot {
+                pb.set_message(format!("replicate {}/{}", rep + 1, cli.bootstrap));
+            }
+            let sampled =
+                sample_sequences_block_bootstrap(&seqs, cli.bootstrap_block_size, &mut rng)?;
+            let obs_rep = sequences_to_observations(&sampled, cli.batch_size)?;
+
+            let mut model_rep = model.clone();
+            let mut rep_cfg = base_mstep_config.clone();
+            rep_cfg.progress = false;
+            let _ = em_train(
+                &mut model_rep,
+                &obs_rep.rows,
+                &obs_rep.row_starts,
+                bootstrap_iters,
+                &rep_cfg,
+            )?;
+            model_rep.param_recalculate()?;
+
+            let rep_json = replicate_json_path(&bootstrap_dir, rep + 1);
+            model_rep.save_params(&rep_json)?;
+            boot_models.push(model_rep);
+
+            if let Some(pb) = &pb_boot {
+                pb.inc(1);
+            }
+        }
+        if let Some(pb) = pb_boot {
+            pb.finish_with_message("bootstrap done");
+        }
+
+        let bootstrap_summary = summarize_bootstrap_models(
+            &model,
+            &boot_models,
+            report_bin_size,
+            25.0,
+            cli.bootstrap_block_size,
+            cli.bootstrap_seed,
+        )?;
+        let summary_tsv = bootstrap_dir.join("summary.tsv");
+        let summary_json = bootstrap_dir.join("summary.json");
+        write_bootstrap_summary_tsv(&summary_tsv, &bootstrap_summary)?;
+        write_bootstrap_summary_json(&summary_json, &bootstrap_summary)?;
+        println!("Bootstrap dir: {}", bootstrap_dir.display());
+        println!("Bootstrap summary TSV: {}", summary_tsv.display());
+        println!("Bootstrap summary JSON: {}", summary_json.display());
+        bootstrap_report_data = Some(bootstrap_summary);
+    }
 
     let mut tmrca_report_data = None;
     if let Some(tmrca_out) = &cli.tmrca_out {
@@ -195,6 +312,7 @@ fn main() -> Result<()> {
         input_format_name,
         report_bin_size,
         tmrca_report_data.as_ref(),
+        bootstrap_report_data.as_ref(),
     )?;
     println!("HTML report: {}", report_html.display());
     Ok(())

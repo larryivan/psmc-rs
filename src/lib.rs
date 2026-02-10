@@ -1,3 +1,4 @@
+pub mod bootstrap;
 pub mod hmm;
 pub mod io;
 pub mod model;

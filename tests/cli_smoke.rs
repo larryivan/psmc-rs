@@ -14,6 +14,16 @@ fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
     path
 }
 
+fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let mut path = std::env::temp_dir();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time is before unix epoch")
+        .as_nanos();
+    path.push(format!("{prefix}_{}_{}", std::process::id(), nanos));
+    path
+}
+
 fn find_psmc_binary() -> PathBuf {
     if let Ok(path) = std::env::var("CARGO_BIN_EXE_psmc") {
         return PathBuf::from(path);
@@ -131,4 +141,58 @@ fn cli_tmrca_writes_tsv_and_html_tmrca_panel() {
     let _ = fs::remove_file(output);
     let _ = fs::remove_file(tmrca);
     let _ = fs::remove_file(report);
+}
+
+#[test]
+fn cli_bootstrap_writes_replicates_summary_and_html_overlay() {
+    let input = unique_temp_path("psmc_cli_boot_input", "psmcfa");
+    let output = unique_temp_path("psmc_cli_boot_output", "json");
+    let report = output.with_extension("html");
+    let boot_dir = unique_temp_dir("psmc_cli_boot_dir");
+    let content = "> chr1\nTTTTTKTTTTKTTTTNTTTTKTTTTKTTTTTTTTTKTTTTKTTTTNTTTTKTTTTKTTTT\n";
+    fs::write(&input, content).expect("failed to write cli bootstrap input");
+
+    let exe = find_psmc_binary();
+    let status = Command::new(exe)
+        .arg(&input)
+        .arg(&output)
+        .arg("1")
+        .arg("--bootstrap")
+        .arg("2")
+        .arg("--bootstrap-block-size")
+        .arg("8")
+        .arg("--bootstrap-seed")
+        .arg("7")
+        .arg("--bootstrap-dir")
+        .arg(&boot_dir)
+        .arg("--no-progress")
+        .status()
+        .expect("failed to run psmc binary");
+    assert!(status.success(), "psmc exited with non-zero status");
+
+    let rep1 = boot_dir.join("replicate_001.json");
+    let rep2 = boot_dir.join("replicate_002.json");
+    let summary_tsv = boot_dir.join("summary.tsv");
+    let summary_json = boot_dir.join("summary.json");
+    assert!(rep1.exists(), "expected bootstrap replicate_001.json");
+    assert!(rep2.exists(), "expected bootstrap replicate_002.json");
+    assert!(summary_tsv.exists(), "expected bootstrap summary.tsv");
+    assert!(summary_json.exists(), "expected bootstrap summary.json");
+
+    let summary_text = fs::read_to_string(&summary_tsv).expect("failed to read bootstrap summary");
+    assert!(
+        summary_text.starts_with("x_years\tne_main\tne_q025\tne_q500\tne_q975"),
+        "bootstrap summary header is missing"
+    );
+
+    let html = fs::read_to_string(&report).expect("failed to read html report");
+    assert!(
+        html.contains("Bootstrap q2.5"),
+        "html report should include bootstrap series"
+    );
+
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(report);
+    let _ = fs::remove_dir_all(boot_dir);
 }
