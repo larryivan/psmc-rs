@@ -1,8 +1,5 @@
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use psmc_rs::io::mhs::read_mhs;
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,62 +14,85 @@ fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
 }
 
 #[test]
-fn read_mhs_unbatched_bin_one() {
-    let path = unique_temp_path("psmc_mhs", "mhs");
-    let content = "chr1\t10\t3\tAT\nchr1\t20\t2\tAC\n";
-    fs::write(&path, content).expect("failed to write mhs");
+fn read_mhs_multihetsep_semantics_with_missing_and_k() {
+    let path = unique_temp_path("mhs_semantics", "multihetsep");
+    let content = "\
+chr1 20 1 AC
+chr1 24 4 AC
+";
+    fs::write(&path, content).expect("failed to write test multihetsep");
 
-    let obs = read_mhs(&path, None, 1).expect("failed to parse mhs");
-    assert_eq!(obs.rows.len(), 1);
+    let obs = read_mhs(&path, None, 4).expect("failed to parse multihetsep");
     assert_eq!(obs.row_starts, vec![true]);
-    assert_eq!(obs.rows[0], vec![0, 0, 1, 0, 1]);
+    // row1: 19 N + K -> [N,N,N,N,K], row2: 3 T + K -> [K]
+    assert_eq!(obs.rows, vec![vec![2, 2, 2, 2, 1, 1]]);
 
     let _ = fs::remove_file(path);
 }
 
 #[test]
-fn read_mhs_unbatched_with_binning() {
-    let path = unique_temp_path("psmc_mhs_bin", "mhs");
-    let content = "chr1\t10\t3\tAT\nchr1\t20\t2\tAC\n";
-    fs::write(&path, content).expect("failed to write mhs");
+fn read_mhs_splits_chromosomes_and_batches() {
+    let path = unique_temp_path("mhs_chrom_batch", "mhs");
+    let content = "\
+chr1 8 8 AC
+chr2 8 8 AC
+";
+    fs::write(&path, content).expect("failed to write test mhs");
 
-    let obs = read_mhs(&path, None, 2).expect("failed to parse binned mhs");
-    assert_eq!(obs.rows.len(), 1);
-    assert_eq!(obs.row_starts, vec![true]);
-    assert_eq!(obs.rows[0], vec![0, 1, 1]);
-
-    let _ = fs::remove_file(path);
-}
-
-#[test]
-fn read_mhs_batched_keeps_sequence_chain() {
-    let path = unique_temp_path("psmc_mhs_batch", "mhs");
-    let content = "chr1\t10\t3\tAT\nchr1\t20\t2\tAC\n";
-    fs::write(&path, content).expect("failed to write mhs");
-
-    let obs = read_mhs(&path, Some(4), 1).expect("failed to parse batched mhs");
-    assert_eq!(obs.rows.len(), 2);
-    assert_eq!(obs.row_starts, vec![true, false]);
-    assert_eq!(obs.rows[0], vec![0, 0, 1, 0]);
-    assert_eq!(obs.rows[1], vec![1]);
+    let obs = read_mhs(&path, Some(1), 4).expect("failed to parse batched mhs");
+    assert_eq!(obs.row_starts, vec![true, false, true, false]);
+    assert_eq!(obs.rows, vec![vec![0], vec![1], vec![0], vec![1]]);
 
     let _ = fs::remove_file(path);
 }
 
 #[test]
-fn read_mhs_gz_works() {
-    let path = unique_temp_path("psmc_mhs_gz", "mhs.gz");
-    let file = fs::File::create(&path).expect("failed to create gz mhs");
-    let mut writer = GzEncoder::new(file, Compression::default());
-    writer
-        .write_all(b"chr1\t10\t1\tAT\nchr1\t20\t1\tAC\n")
-        .expect("failed to write gz mhs");
-    writer.finish().expect("failed to finish gzip");
+fn read_mhs_non_segregating_event_errors() {
+    let path = unique_temp_path("mhs_nonseg", "mhs");
+    let content = "chr1 4 4 AA\n";
+    fs::write(&path, content).expect("failed to write test mhs");
 
-    let obs = read_mhs(&path, None, 1).expect("failed to parse gz mhs");
-    assert_eq!(obs.rows.len(), 1);
-    assert_eq!(obs.row_starts, vec![true]);
-    assert_eq!(obs.rows[0], vec![1, 1]);
+    let err = read_mhs(&path, None, 4).expect_err("expected non-segregating mhs error");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("segregating site"),
+        "unexpected error message: {msg}"
+    );
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn read_mhs_missing_alleles_errors() {
+    let path = unique_temp_path("mhs_missing_alleles", "mhs");
+    let content = "chr1 4 4\n";
+    fs::write(&path, content).expect("failed to write test mhs");
+
+    let err = read_mhs(&path, None, 4).expect_err("expected missing-alleles mhs error");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("missing alleles"),
+        "unexpected error message: {msg}"
+    );
+
+    let _ = fs::remove_file(path);
+}
+
+#[test]
+fn read_mhs_invalid_called_greater_than_distance_errors() {
+    let path = unique_temp_path("mhs_invalid_called", "mhs");
+    let content = "\
+chr1 10 5 AC
+chr1 12 5 AC
+";
+    fs::write(&path, content).expect("failed to write test mhs");
+
+    let err = read_mhs(&path, None, 4).expect_err("expected invalid mhs error");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("cannot exceed distance"),
+        "unexpected error message: {msg}"
+    );
 
     let _ = fs::remove_file(path);
 }

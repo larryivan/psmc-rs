@@ -131,17 +131,21 @@ Additional outputs in `/path/to/out.bootstrap/` (default directory):
   - `N` -> 2
 - Other characters are ignored
 
-### `mhs`
+### `mhs` / `multihetsep`
 
 - Supports text and `.gz`
-- Expects at least 3 whitespace-separated columns per row:
+- Supports `.mhs`, `.multihetsep` (and `.gz`)
+- Expects 4 whitespace-separated columns per row (official `generate_multihetsep.py` format):
   - `chrom`
-  - `pos`
-  - `nr_called`
+  - `pos` (1-based genomic position)
+  - `nr_called` (callable sites since the previous emitted site, inclusive)
+  - `alleles` (must describe a segregating site)
 - Empty lines and `#...` lines are ignored
-- Only the first 3 columns are used
 - `nr_called` must be `> 0`
+- `pos` must increase within each chromosome
+- Chromosome switches start a new HMM sequence chain
 - Binning is controlled by `--mhs-bin-size`
+- Missingness (`N`) follows `fq2psmcfa`-style thresholding per bin (`N` if missing ratio `> 0.9`)
 
 ## Outputs
 

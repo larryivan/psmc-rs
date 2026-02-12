@@ -329,7 +329,7 @@ impl App {
             FormField {
                 label: "Input",
                 value: String::new(),
-                hint: "Input file (.psmcfa/.mhs/.gz)",
+                hint: "Input file (.psmcfa/.mhs/.multihetsep/.gz)",
             },
             FormField {
                 label: "Output",
@@ -606,8 +606,6 @@ fn is_supported_input_file(path: &Path, fmt: InputFormat) -> bool {
                 || name.ends_with(".mhs.gz")
                 || name.ends_with(".multihetsep")
                 || name.ends_with(".multihetsep.gz")
-                || name.ends_with(".txt")
-                || name.ends_with(".txt.gz")
         }
     }
 }
