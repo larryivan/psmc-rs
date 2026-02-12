@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use ndarray::Array2;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -18,6 +19,19 @@ pub struct EStepResult {
     pub loglike: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EStepPhase {
+    Forward,
+    Backward,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EStepProgress {
+    pub phase: EStepPhase,
+    pub done: u64,
+    pub total: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct TmrcaReportData {
     pub sampled_mean: Vec<[f64; 2]>,
@@ -32,11 +46,24 @@ pub struct TmrcaReportData {
 
 #[derive(Debug, Clone)]
 struct RowForwardCache {
-    alpha: Vec<f64>,
-    c_norm: Vec<f64>,
+    // Alpha is cache-heavy: store as f32 to reduce memory footprint and
+    // keep full-row caching enabled on long inputs (faster than recomputing forward).
+    alpha: Vec<f32>,
+    // c_norm is also cached as f32 to further reduce memory pressure.
+    c_norm: Vec<f32>,
 }
 
-const ALPHA_CACHE_BUDGET_BYTES: usize = 1024 * 1024 * 1024;
+const DEFAULT_ALPHA_CACHE_BUDGET_BYTES: usize = 2048 * 1024 * 1024; // 2 GiB
+
+fn alpha_cache_budget_bytes() -> usize {
+    match std::env::var("PSMC_ALPHA_CACHE_MB") {
+        Ok(v) => match v.trim().parse::<usize>() {
+            Ok(mb) if mb > 0 => mb.saturating_mul(1024 * 1024),
+            _ => DEFAULT_ALPHA_CACHE_BUDGET_BYTES,
+        },
+        Err(_) => DEFAULT_ALPHA_CACHE_BUDGET_BYTES,
+    }
+}
 
 #[inline]
 fn obs_to_idx(v: u8) -> usize {
@@ -100,6 +127,49 @@ fn matvec_row_major(src: &[f64], a_row: &[f64], dst: &mut [f64]) {
     }
 }
 
+#[inline(always)]
+fn matvec_row_major_fast(src: &[f64], a_row: &[f64], dst: &mut [f64]) {
+    let n_states = src.len();
+    debug_assert_eq!(dst.len(), n_states);
+    debug_assert_eq!(a_row.len(), n_states * n_states);
+    // Experimental lower-level kernel for A/B testing.
+    unsafe {
+        std::ptr::write_bytes(dst.as_mut_ptr(), 0, n_states);
+        let src_ptr = src.as_ptr();
+        let a_ptr = a_row.as_ptr();
+        let dst_ptr = dst.as_mut_ptr();
+        let mut i = 0usize;
+        while i < n_states {
+            let s = *src_ptr.add(i);
+            let row_ptr = a_ptr.add(i * n_states);
+            let mut k = 0usize;
+            while k + 8 <= n_states {
+                *dst_ptr.add(k) += s * *row_ptr.add(k);
+                *dst_ptr.add(k + 1) += s * *row_ptr.add(k + 1);
+                *dst_ptr.add(k + 2) += s * *row_ptr.add(k + 2);
+                *dst_ptr.add(k + 3) += s * *row_ptr.add(k + 3);
+                *dst_ptr.add(k + 4) += s * *row_ptr.add(k + 4);
+                *dst_ptr.add(k + 5) += s * *row_ptr.add(k + 5);
+                *dst_ptr.add(k + 6) += s * *row_ptr.add(k + 6);
+                *dst_ptr.add(k + 7) += s * *row_ptr.add(k + 7);
+                k += 8;
+            }
+            while k + 4 <= n_states {
+                *dst_ptr.add(k) += s * *row_ptr.add(k);
+                *dst_ptr.add(k + 1) += s * *row_ptr.add(k + 1);
+                *dst_ptr.add(k + 2) += s * *row_ptr.add(k + 2);
+                *dst_ptr.add(k + 3) += s * *row_ptr.add(k + 3);
+                k += 4;
+            }
+            while k < n_states {
+                *dst_ptr.add(k) += s * *row_ptr.add(k);
+                k += 1;
+            }
+            i += 1;
+        }
+    }
+}
+
 fn forward_fill_row(
     pi: &[f64],
     a_row: &[f64],
@@ -109,6 +179,7 @@ fn forward_fill_row(
     alpha_row: &mut [f64],
     c_norm: &mut [f64],
     tmp: &mut [f64],
+    use_fast_kernel: bool,
 ) -> Result<()> {
     let s_max = obs_row.len();
     let n_states = pi.len();
@@ -129,7 +200,11 @@ fn forward_fill_row(
             } else {
                 &alpha_row[(t - 1) * n_states..t * n_states]
             };
-            matvec_row_major(src, a_row, tmp);
+            if use_fast_kernel {
+                matvec_row_major_fast(src, a_row, tmp);
+            } else {
+                matvec_row_major(src, a_row, tmp);
+            }
             for k in 0..n_states {
                 let v = tmp[k] * em_obs[k];
                 tmp[k] = v;
@@ -149,6 +224,158 @@ fn forward_fill_row(
     Ok(())
 }
 
+fn sequence_ranges(rows: &[Vec<u8>], row_starts: &[bool]) -> Vec<(usize, usize, u64)> {
+    let mut out = Vec::new();
+    if rows.is_empty() {
+        return out;
+    }
+    let mut start = 0usize;
+    let mut sites = rows[0].len() as u64;
+    for i in 1..rows.len() {
+        if row_starts[i] {
+            out.push((start, i, sites));
+            start = i;
+            sites = 0;
+        }
+        sites = sites.saturating_add(rows[i].len() as u64);
+    }
+    out.push((start, rows.len(), sites));
+    out
+}
+
+fn e_step_sequence_no_cache(
+    pi: &[f64],
+    a_row: &[f64],
+    em_rows: &[Vec<f64>; 3],
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
+    use_fast_kernel: bool,
+) -> Result<EStepResult> {
+    let n_rows = rows.len();
+    let n_states = pi.len();
+
+    let mut gobs0 = vec![0.0; n_states];
+    let mut gobs1 = vec![0.0; n_states];
+    let mut gobs2 = vec![0.0; n_states];
+    let mut xi_flat = vec![0.0f64; n_states * n_states];
+    let mut loglike = 0.0;
+
+    let max_row_len = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let mut alpha_row_buf = vec![0.0f64; max_row_len * n_states];
+    let mut c_norm_buf = vec![0.0f64; max_row_len];
+    let mut tmp = vec![0.0f64; n_states];
+
+    let mut row_prev_alpha: Vec<Option<Vec<f64>>> = vec![None; n_rows];
+    let mut prev_end = vec![0.0f64; n_states];
+    for (r, obs_row) in rows.iter().enumerate() {
+        let s_max = obs_row.len();
+        let alpha_row = &mut alpha_row_buf[..s_max * n_states];
+        let c_norm = &mut c_norm_buf[..s_max];
+        if !row_starts[r] {
+            row_prev_alpha[r] = Some(prev_end.clone());
+        }
+        let start_prev = row_prev_alpha[r].as_deref();
+        forward_fill_row(
+            pi,
+            a_row,
+            em_rows,
+            obs_row,
+            start_prev,
+            alpha_row,
+            c_norm,
+            &mut tmp,
+            use_fast_kernel,
+        )?;
+        for v in c_norm.iter() {
+            loglike += v.ln();
+        }
+        prev_end.copy_from_slice(&alpha_row[(s_max - 1) * n_states..s_max * n_states]);
+    }
+
+    let mut beta = vec![1.0f64; n_states];
+    let mut beta_new = vec![0.0f64; n_states];
+    let mut emit_beta = vec![0.0f64; n_states];
+    for r_rev in 0..n_rows {
+        let r = n_rows - 1 - r_rev;
+        let obs_row = &rows[r];
+        let s_max = obs_row.len();
+
+        let alpha_row = &mut alpha_row_buf[..s_max * n_states];
+        let c_norm = &mut c_norm_buf[..s_max];
+        let start_prev = row_prev_alpha[r].as_deref();
+        forward_fill_row(
+            pi,
+            a_row,
+            em_rows,
+            obs_row,
+            start_prev,
+            alpha_row,
+            c_norm,
+            &mut tmp,
+            use_fast_kernel,
+        )?;
+
+        for t_rev in 0..s_max {
+            let t = s_max - 1 - t_rev;
+            let obs = obs_to_idx(obs_row[t]);
+            let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
+            for k in 0..n_states {
+                let g = alpha_t[k] * beta[k];
+                match obs {
+                    0 => gobs0[k] += g,
+                    1 => gobs1[k] += g,
+                    _ => gobs2[k] += g,
+                }
+            }
+
+            if t == 0 && row_starts[r] {
+                continue;
+            }
+
+            let norm_t = c_norm[t];
+            let inv_norm_t = 1.0 / norm_t;
+            let em_obs = &em_rows[obs];
+            for j in 0..n_states {
+                emit_beta[j] = em_obs[j] * beta[j];
+            }
+            let alpha_prev = if t > 0 {
+                &alpha_row[(t - 1) * n_states..t * n_states]
+            } else {
+                row_prev_alpha[r]
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?
+            };
+            for i in 0..n_states {
+                let a_i = &a_row[i * n_states..(i + 1) * n_states];
+                let xi_i = &mut xi_flat[i * n_states..(i + 1) * n_states];
+                let xi_scale = alpha_prev[i] * inv_norm_t;
+                let mut acc = 0.0;
+                for j in 0..n_states {
+                    let trans = a_i[j];
+                    xi_i[j] += xi_scale * trans * emit_beta[j];
+                    acc += trans * emit_beta[j];
+                }
+                beta_new[i] = acc * inv_norm_t;
+            }
+            std::mem::swap(&mut beta, &mut beta_new);
+        }
+
+        if row_starts[r] {
+            beta.fill(1.0);
+        }
+    }
+
+    let xi = Array2::from_shape_vec((n_states, n_states), xi_flat)
+        .expect("internal error: xi shape mismatch");
+    Ok(EStepResult {
+        stats: SufficientStats {
+            gobs: [gobs0, gobs1, gobs2],
+            xi,
+        },
+        loglike,
+    })
+}
+
 pub fn e_step_streaming(
     pi: &[f64],
     a: &Array2<f64>,
@@ -157,6 +384,19 @@ pub fn e_step_streaming(
     row_starts: &[bool],
     progress_enabled: bool,
     label: &str,
+) -> Result<EStepResult> {
+    e_step_streaming_with_progress(pi, a, em, rows, row_starts, progress_enabled, label, None)
+}
+
+pub fn e_step_streaming_with_progress(
+    pi: &[f64],
+    a: &Array2<f64>,
+    em: &Array2<f64>,
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
+    progress_enabled: bool,
+    label: &str,
+    mut on_progress: Option<&mut dyn FnMut(EStepProgress)>,
 ) -> Result<EStepResult> {
     let n_rows = rows.len();
     let n_states = pi.len();
@@ -200,27 +440,184 @@ pub fn e_step_streaming(
     let em_rows = [em.row(0).to_vec(), em.row(1).to_vec(), em.row(2).to_vec()];
 
     let total_sites: u64 = rows.iter().map(|r| r.len() as u64).sum();
+    let seq_ranges = sequence_ranges(rows, row_starts);
+    // Avoid nested Rayon parallelism: only parallelize sequences at top-level E-step calls.
+    let can_parallel_sequences = seq_ranges.len() > 1
+        && rayon::current_num_threads() > 1
+        && rayon::current_thread_index().is_none();
+    if can_parallel_sequences {
+        let use_fast_kernel = true;
+        let pb_fwd = if progress_enabled && total_sites > 0 {
+            Some(progress::bar_raw(total_sites, label, "forward"))
+        } else {
+            None
+        };
+        if let Some(cb) = on_progress.as_mut() {
+            (*cb)(EStepProgress {
+                phase: EStepPhase::Forward,
+                done: 0,
+                total: total_sites,
+            });
+        }
+
+        let seq_results = seq_ranges
+            .par_iter()
+            .map(|(start, end, sites)| {
+                e_step_sequence_no_cache(
+                    pi,
+                    &a_row,
+                    &em_rows,
+                    &rows[*start..*end],
+                    &row_starts[*start..*end],
+                    use_fast_kernel,
+                )
+                .map(|res| (*sites, res))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        let mut fwd_done = 0u64;
+        for (sites, _) in &seq_results {
+            if let Some(pb) = &pb_fwd {
+                pb.inc(*sites);
+            }
+            fwd_done = fwd_done.saturating_add(*sites);
+            if let Some(cb) = on_progress.as_mut() {
+                (*cb)(EStepProgress {
+                    phase: EStepPhase::Forward,
+                    done: fwd_done,
+                    total: total_sites,
+                });
+            }
+        }
+        if let Some(pb) = pb_fwd {
+            pb.finish_with_message(format!("{label} forward done"));
+        }
+
+        let pb_bwd = if progress_enabled && total_sites > 0 {
+            Some(progress::bar_raw(total_sites, label, "backward"))
+        } else {
+            None
+        };
+        if let Some(cb) = on_progress.as_mut() {
+            (*cb)(EStepProgress {
+                phase: EStepPhase::Backward,
+                done: 0,
+                total: total_sites,
+            });
+        }
+
+        let mut bwd_done = 0u64;
+        for (sites, _) in &seq_results {
+            if let Some(pb) = &pb_bwd {
+                pb.inc(*sites);
+            }
+            bwd_done = bwd_done.saturating_add(*sites);
+            if let Some(cb) = on_progress.as_mut() {
+                (*cb)(EStepProgress {
+                    phase: EStepPhase::Backward,
+                    done: bwd_done,
+                    total: total_sites,
+                });
+            }
+        }
+        if let Some(pb) = pb_bwd {
+            pb.finish_with_message(format!("{label} backward done"));
+        }
+
+        for (_, res) in seq_results {
+            loglike += res.loglike;
+            for k in 0..n_states {
+                gobs0[k] += res.stats.gobs[0][k];
+                gobs1[k] += res.stats.gobs[1][k];
+                gobs2[k] += res.stats.gobs[2][k];
+            }
+            for (dst, src) in xi_flat.iter_mut().zip(res.stats.xi.iter()) {
+                *dst += *src;
+            }
+        }
+
+        let xi = Array2::from_shape_vec((n_states, n_states), xi_flat)
+            .expect("internal error: xi shape mismatch");
+        return Ok(EStepResult {
+            stats: SufficientStats {
+                gobs: [gobs0, gobs1, gobs2],
+                xi,
+            },
+            loglike,
+        });
+    }
+
     let max_row_len = rows.iter().map(Vec::len).max().unwrap_or(0);
     let mut alpha_row_buf = vec![0.0f64; max_row_len * n_states];
     let mut c_norm_buf = vec![0.0f64; max_row_len];
     let mut tmp = vec![0.0f64; n_states];
+    // E-step always uses the lower-level hot kernel.
+    let use_fast_kernel = true;
 
     let pb_fwd = if progress_enabled && total_sites > 0 {
         Some(progress::bar_raw(total_sites, label, "forward"))
     } else {
         None
     };
+    if let Some(cb) = on_progress.as_mut() {
+        (*cb)(EStepProgress {
+            phase: EStepPhase::Forward,
+            done: 0,
+            total: total_sites,
+        });
+    }
 
     let mut row_prev_alpha: Vec<Option<Vec<f64>>> = vec![None; n_rows];
     let mut row_cache: Vec<Option<RowForwardCache>> = vec![None; n_rows];
     let mut prev_end = vec![0.0f64; n_states];
+    let mut row_cache_bytes = vec![0usize; n_rows];
     let mut total_cache_bytes = 0usize;
-    for row in rows {
-        let row_bytes = (row.len() * n_states + row.len()) * std::mem::size_of::<f64>();
+    for (r, row) in rows.iter().enumerate() {
+        let row_bytes = row
+            .len()
+            .saturating_mul(n_states)
+            .saturating_mul(std::mem::size_of::<f32>())
+            .saturating_add(row.len().saturating_mul(std::mem::size_of::<f32>()));
+        row_cache_bytes[r] = row_bytes;
         total_cache_bytes = total_cache_bytes.saturating_add(row_bytes);
     }
-    let enable_cache = total_cache_bytes <= ALPHA_CACHE_BUDGET_BYTES;
+    let cache_budget = alpha_cache_budget_bytes();
+    let mut cache_mask = vec![false; n_rows];
+    let mut used_cache_bytes = 0usize;
+    if total_cache_bytes <= cache_budget {
+        cache_mask.fill(true);
+        used_cache_bytes = total_cache_bytes;
+    } else {
+        // Cache the most expensive rows first to reduce backward-pass recompute.
+        let mut row_order: Vec<usize> = (0..n_rows).collect();
+        row_order.sort_unstable_by_key(|&r| std::cmp::Reverse(row_cache_bytes[r]));
+        for r in row_order {
+            let row_bytes = row_cache_bytes[r];
+            let remain = cache_budget.saturating_sub(used_cache_bytes);
+            if row_bytes <= remain {
+                cache_mask[r] = true;
+                used_cache_bytes = used_cache_bytes.saturating_add(row_bytes);
+            }
+        }
+    }
 
+    let cached_rows = cache_mask.iter().filter(|&&x| x).count();
+    if progress_enabled && cached_rows == 0 {
+        let need_mb = (total_cache_bytes as f64) / (1024.0 * 1024.0);
+        let have_mb = (cache_budget as f64) / (1024.0 * 1024.0);
+        eprintln!(
+            "Warning: E-step alpha cache disabled (need ~{need_mb:.1} MB, budget {have_mb:.1} MB). Set PSMC_ALPHA_CACHE_MB higher for speed."
+        );
+    } else if progress_enabled && cached_rows < n_rows {
+        let need_mb = (total_cache_bytes as f64) / (1024.0 * 1024.0);
+        let using_mb = (used_cache_bytes as f64) / (1024.0 * 1024.0);
+        let pct = 100.0 * (cached_rows as f64) / (n_rows as f64);
+        eprintln!(
+            "Info: E-step alpha cache partially enabled: {cached_rows}/{n_rows} rows ({pct:.1}%), using ~{using_mb:.1} MB (need ~{need_mb:.1} MB for full cache)."
+        );
+    }
+
+    let mut fwd_done = 0u64;
     for (r, obs_row) in rows.iter().enumerate() {
         let s_max = obs_row.len();
         let alpha_row = &mut alpha_row_buf[..s_max * n_states];
@@ -231,22 +628,38 @@ pub fn e_step_streaming(
         }
         let start_prev = row_prev_alpha[r].as_deref();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi,
+            &a_row,
+            &em_rows,
+            obs_row,
+            start_prev,
+            alpha_row,
+            c_norm,
+            &mut tmp,
+            use_fast_kernel,
         )?;
         for v in c_norm.iter() {
             loglike += v.ln();
         }
         prev_end.copy_from_slice(&alpha_row[(s_max - 1) * n_states..s_max * n_states]);
 
-        if enable_cache {
+        if cache_mask[r] {
             row_cache[r] = Some(RowForwardCache {
-                alpha: alpha_row.to_vec(),
-                c_norm: c_norm.to_vec(),
+                alpha: alpha_row.iter().map(|v| *v as f32).collect(),
+                c_norm: c_norm.iter().map(|v| *v as f32).collect(),
             });
         }
 
         if let Some(pb) = &pb_fwd {
             pb.inc(s_max as u64);
+        }
+        fwd_done = fwd_done.saturating_add(s_max as u64);
+        if let Some(cb) = on_progress.as_mut() {
+            (*cb)(EStepProgress {
+                phase: EStepPhase::Forward,
+                done: fwd_done,
+                total: total_sites,
+            });
         }
     }
     if let Some(pb) = pb_fwd {
@@ -258,10 +671,18 @@ pub fn e_step_streaming(
     } else {
         None
     };
+    if let Some(cb) = on_progress.as_mut() {
+        (*cb)(EStepProgress {
+            phase: EStepPhase::Backward,
+            done: 0,
+            total: total_sites,
+        });
+    }
 
     let mut beta = vec![1.0f64; n_states];
     let mut beta_new = vec![0.0f64; n_states];
     let mut emit_beta = vec![0.0f64; n_states];
+    let mut bwd_done = 0u64;
     for r_rev in 0..n_rows {
         let r = n_rows - 1 - r_rev;
         let obs_row = &rows[r];
@@ -272,9 +693,9 @@ pub fn e_step_streaming(
             for t_rev in 0..s_max {
                 let t = s_max - 1 - t_rev;
                 let obs = obs_to_idx(obs_row[t]);
-                let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
+                let alpha_t_off = t * n_states;
                 for k in 0..n_states {
-                    let g = alpha_t[k] * beta[k];
+                    let g = (alpha_row[alpha_t_off + k] as f64) * beta[k];
                     match obs {
                         0 => gobs0[k] += g,
                         1 => gobs1[k] += g,
@@ -287,23 +708,33 @@ pub fn e_step_streaming(
                 }
 
                 let norm_t = c_norm[t];
-                let inv_norm_t = 1.0 / norm_t;
+                let inv_norm_t = 1.0 / (norm_t as f64);
                 let em_obs = &em_rows[obs];
                 for j in 0..n_states {
                     emit_beta[j] = em_obs[j] * beta[j];
                 }
-                let alpha_prev = if t > 0 {
-                    &alpha_row[(t - 1) * n_states..t * n_states]
+                let alpha_prev_off = if t > 0 {
+                    Some((t - 1) * n_states)
                 } else {
-                    row_prev_alpha[r]
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?
+                    None
                 };
-
+                let row_prev = if alpha_prev_off.is_none() {
+                    Some(
+                        row_prev_alpha[r]
+                            .as_deref()
+                            .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?,
+                    )
+                } else {
+                    None
+                };
                 for i in 0..n_states {
                     let a_i = &a_row[i * n_states..(i + 1) * n_states];
                     let xi_i = &mut xi_flat[i * n_states..(i + 1) * n_states];
-                    let alpha_prev_i = alpha_prev[i];
+                    let alpha_prev_i = if let Some(off) = alpha_prev_off {
+                        alpha_row[off + i] as f64
+                    } else {
+                        row_prev.expect("row_prev set above")[i]
+                    };
                     let xi_scale = alpha_prev_i * inv_norm_t;
                     let mut acc = 0.0;
                     for j in 0..n_states {
@@ -320,7 +751,15 @@ pub fn e_step_streaming(
             let c_norm = &mut c_norm_buf[..s_max];
             let start_prev = row_prev_alpha[r].as_deref();
             forward_fill_row(
-                pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+                pi,
+                &a_row,
+                &em_rows,
+                obs_row,
+                start_prev,
+                alpha_row,
+                c_norm,
+                &mut tmp,
+                use_fast_kernel,
             )?;
 
             for t_rev in 0..s_max {
@@ -353,7 +792,6 @@ pub fn e_step_streaming(
                         .as_deref()
                         .ok_or_else(|| anyhow::anyhow!("missing row boundary alpha state"))?
                 };
-
                 for i in 0..n_states {
                     let a_i = &a_row[i * n_states..(i + 1) * n_states];
                     let xi_i = &mut xi_flat[i * n_states..(i + 1) * n_states];
@@ -376,6 +814,14 @@ pub fn e_step_streaming(
         }
         if let Some(pb) = &pb_bwd {
             pb.inc(s_max as u64);
+        }
+        bwd_done = bwd_done.saturating_add(s_max as u64);
+        if let Some(cb) = on_progress.as_mut() {
+            (*cb)(EStepProgress {
+                phase: EStepPhase::Backward,
+                done: bwd_done,
+                total: total_sites,
+            });
         }
     }
 
@@ -470,7 +916,7 @@ pub fn write_tmrca_posterior_tsv(
         }
         let start_prev = row_prev_alpha[r].as_deref();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp, false,
         )?;
         prev_end.copy_from_slice(&alpha_row[(s_max - 1) * n_states..s_max * n_states]);
         if let Some(pb) = &pb_prep {
@@ -499,7 +945,7 @@ pub fn write_tmrca_posterior_tsv(
         let c_norm = &mut c_norm_buf[..s_max];
         let start_prev = row_prev_alpha[r].as_deref();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp, false,
         )?;
 
         for t_rev in 0..s_max {
@@ -587,7 +1033,7 @@ pub fn write_tmrca_posterior_tsv(
         let c_norm = &mut c_norm_buf[..s_max];
         let start_prev = row_prev_alpha[r].as_deref();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp, false,
         )?;
         beta.copy_from_slice(&row_end_beta[r]);
 

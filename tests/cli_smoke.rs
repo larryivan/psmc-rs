@@ -25,7 +25,10 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
 }
 
 fn find_psmc_binary() -> PathBuf {
-    if let Ok(path) = std::env::var("CARGO_BIN_EXE_psmc") {
+    if let Ok(path) = std::env::var("CARGO_BIN_EXE_psmc-rs") {
+        return PathBuf::from(path);
+    }
+    if let Ok(path) = std::env::var("CARGO_BIN_EXE_psmc_rs") {
         return PathBuf::from(path);
     }
 
@@ -39,9 +42,13 @@ fn find_psmc_binary() -> PathBuf {
         .expect("failed to get debug dir from deps dir")
         .to_path_buf();
 
-    let direct = debug_dir.join("psmc");
+    let direct = debug_dir.join("psmc-rs");
     if direct.exists() {
         return direct;
+    }
+    let direct_compat = debug_dir.join("psmc");
+    if direct_compat.exists() {
+        return direct_compat;
     }
 
     for entry in fs::read_dir(&deps_dir).expect("failed to read target deps dir") {
@@ -51,7 +58,7 @@ fn find_psmc_binary() -> PathBuf {
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or_default();
-        if !name.starts_with("psmc-") {
+        if !(name.starts_with("psmc_rs-") || name.starts_with("psmc-")) {
             continue;
         }
         if name.ends_with(".d") || name.ends_with(".rlib") || name.ends_with(".rmeta") {
@@ -62,7 +69,7 @@ fn find_psmc_binary() -> PathBuf {
         }
     }
 
-    panic!("failed to find psmc binary in CARGO_BIN_EXE_psmc or target/debug");
+    panic!("failed to find psmc-rs binary in Cargo env or target/debug");
 }
 
 #[test]

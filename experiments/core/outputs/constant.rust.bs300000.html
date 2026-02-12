@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PSMC Inference Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f5f8ff;
+      --ink: #15253a;
+      --muted: #58708c;
+      --card: rgba(255,255,255,0.78);
+      --stroke: rgba(17, 34, 51, 0.12);
+      --shadow: 0 20px 70px rgba(27, 45, 72, 0.15);
+      --accent: #f4511e;
+      --accent2: #26a69a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(900px 480px at -8% -10%, rgba(244,81,30,0.18), transparent 70%),
+        radial-gradient(980px 480px at 108% -10%, rgba(38,166,154,0.18), transparent 68%),
+        linear-gradient(135deg, #f7f9ff, #edf6ff 52%, #f7fbff);
+      font-family: "Sora", "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+    .wrap { max-width: 1320px; margin: 0 auto; padding: 26px 18px 36px; }
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(1.45rem, 2.5vw, 2.5rem);
+      letter-spacing: -0.02em;
+      line-height: 1.08;
+      font-weight: 800;
+    }
+    .hero .sub {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .card {
+      margin-top: 18px;
+      border-radius: 20px;
+      border: 1px solid var(--stroke);
+      box-shadow: var(--shadow);
+      background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,255,255,0.74));
+      backdrop-filter: blur(6px);
+      overflow: hidden;
+    }
+    .control-card {
+      padding: 12px 14px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.9), rgba(245,251,255,0.78));
+    }
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px 12px;
+      align-items: center;
+    }
+    .ctrl-block {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.83rem;
+      color: #35506a;
+      font-weight: 600;
+    }
+    .ctrl-block select,
+    .ctrl-block input[type="range"] {
+      width: 100%;
+    }
+    .ctrl-block select {
+      border: 1px solid rgba(17, 34, 51, 0.18);
+      border-radius: 8px;
+      padding: 6px 8px;
+      color: #1f354a;
+      background: rgba(255,255,255,0.86);
+      font-size: 0.82rem;
+    }
+    .ctrl-block input[type="checkbox"] {
+      accent-color: #f4511e;
+    }
+    .ctrl-block .val {
+      min-width: 32px;
+      text-align: right;
+      color: #1f354a;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+    }
+    .chart-wrap { padding: 12px 12px 0; }
+    .chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 6px 8px 8px;
+      flex-wrap: wrap;
+    }
+    .chart-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ctrl {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #345168;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.7);
+      border: 1px solid rgba(21,37,58,0.12);
+    }
+    .ctrl select {
+      border: 0;
+      background: transparent;
+      color: #26445d;
+      font-size: 0.78rem;
+      font-weight: 600;
+      outline: none;
+    }
+    .btn {
+      border: 1px solid rgba(17,34,51,0.16);
+      background: linear-gradient(135deg, #f4511e, #ff7043);
+      color: #fff;
+      border-radius: 999px;
+      padding: 6px 11px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: transform 0.14s ease, box-shadow 0.16s ease;
+      box-shadow: 0 8px 18px rgba(244,81,30,0.25);
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(244,81,30,0.28);
+    }
+    .btn.ghost {
+      background: rgba(255,255,255,0.78);
+      color: #2f4a62;
+      box-shadow: none;
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+    #chart {
+      width: 100%;
+      height: min(72vh, 760px);
+      min-height: 410px;
+      border-radius: 14px;
+    }
+    .meta {
+      margin-top: 8px;
+      border-top: 1px solid var(--stroke);
+      padding: 14px 16px 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.32));
+    }
+    .tmrca-card { margin-top: 18px; }
+    .chart-title {
+      color: #2a425b;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+    #tmrca-track {
+      width: 100%;
+      height: min(46vh, 420px);
+      min-height: 300px;
+      border-radius: 12px;
+    }
+    #tmrca-state {
+      width: 100%;
+      height: min(34vh, 260px);
+      min-height: 200px;
+      border-radius: 12px;
+    }
+    .chart-wrap.compact {
+      border-top: 1px solid rgba(17, 34, 51, 0.08);
+      padding-top: 10px;
+    }
+    .tmrca-meta {
+      margin-top: 2px;
+      border-top: 1px solid rgba(17, 34, 51, 0.08);
+    }
+    .meta h2 {
+      margin: 0 0 12px;
+      font-size: 1rem;
+      font-weight: 700;
+      color: #23384e;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 8px 8px;
+      border-bottom: 1px dashed rgba(21,37,58,0.12);
+      text-align: left;
+      font-size: 0.9rem;
+      vertical-align: top;
+    }
+    th {
+      width: 180px;
+      color: #35506a;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.78rem;
+    }
+    .mono {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.78rem;
+      color: #4a637d;
+      word-break: break-all;
+    }
+    .note {
+      margin-top: 10px;
+      color: #5d7289;
+      font-size: 0.83rem;
+    }
+    @media (max-width: 900px) {
+      .wrap { padding: 16px 10px 22px; }
+      #chart { min-height: 360px; }
+      .chart-head { margin-bottom: 6px; }
+      .chart-actions { gap: 6px; }
+      .ctrl { font-size: 0.72rem; }
+      .btn { font-size: 0.72rem; padding: 5px 10px; }
+      th, td { font-size: 0.84rem; }
+      th { width: 130px; font-size: 0.72rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>PSMC Inference Report</h1>
+      <div class="sub">Input: constant.psmcfa · Auto-generated from `psmc-rs` CLI · Interactive report with per-chart export.</div>
+    </header>
+
+    <section class="card control-card">
+      <div class="control-grid">
+        <label class="ctrl-block">Theme
+          <select id="ctrl-theme">
+            <option value="sunrise" selected>Sunrise</option>
+            <option value="tealglass">Teal Glass</option>
+            <option value="graphite">Graphite</option>
+          </select>
+        </label>
+        <label class="ctrl-block">Line mode
+          <select id="ctrl-main-mode">
+            <option value="step" selected>PSMC step</option>
+            <option value="linear">linear</option>
+            <option value="smooth">smooth</option>
+          </select>
+        </label>
+        <label class="ctrl-block">Main X scale
+          <select id="ctrl-main-xscale">
+            <option value="log" selected>log</option>
+            <option value="value">linear</option>
+          </select>
+        </label>
+        <label class="ctrl-block">Main Y scale
+          <select id="ctrl-main-yscale">
+            <option value="value" selected>linear</option>
+            <option value="log">log</option>
+          </select>
+        </label>
+        <label class="ctrl-block">Line width
+          <input id="ctrl-main-width" type="range" min="1.2" max="5.0" step="0.2" value="3.0" />
+          <span class="val" id="ctrl-main-width-val">3.0</span>
+        </label>
+        <label class="ctrl-block"><input id="ctrl-main-area" type="checkbox" checked /> fill area</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="chart-wrap">
+        <div class="chart-head">
+          <div class="chart-title">Estimated Effective Population Size</div>
+          <div class="chart-actions">
+            <button class="btn ghost" id="btn-main-reset" type="button">Reset</button>
+            <button class="btn" id="btn-main-save" type="button">Save PNG</button>
+            <button class="btn" id="btn-save-all" type="button">Save All</button>
+          </div>
+        </div>
+        <div id="chart"></div>
+      </div>
+      <div class="meta">
+        <h2>Run Summary</h2>
+        <table>
+          
+<tr><th>Input</th><td class="mono">/Users/larryivanhan/Documents/lab/rspsmc/psmc-rs/experiments/core/inputs/constant.psmcfa</td></tr>
+<tr><th>Output JSON</th><td class="mono">/Users/larryivanhan/Documents/lab/rspsmc/psmc-rs/experiments/core/outputs/constant.rust.bs300000.json</td></tr>
+<tr><th>Input format</th><td>psmcfa</td></tr>
+<tr><th>EM iterations</th><td>20</td></tr>
+<tr><th>n_steps</th><td>63</td></tr>
+<tr><th>theta</th><td>0.081083</td></tr>
+<tr><th>rho</th><td>0.026560</td></tr>
+<tr><th>t_max</th><td>17.309135</td></tr>
+<tr><th>mu</th><td>2.5000e-8</td></tr>
+<tr><th>N0</th><td>8108.289868</td></tr>
+<tr><th>bin size</th><td>100.000000</td></tr>
+<tr><th>gen years</th><td>25.000000</td></tr>
+<tr><th>curve points</th><td>64</td></tr>
+<tr><th>x range (years)</th><td>3460.018296 - 7.0174e6</td></tr>
+<tr><th>y range (Ne)</th><td>8185.789490 - 1.1191e4</td></tr>
+
+        </table>
+        <div class="note">Use controls above to switch theme, axis scale, line style, and export each chart independently.</div>
+      </div>
+    </section>
+
+    
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script>
+    const series = [{"name":"Rust estimate","data":[[3460.0182959292447,8185.789489799569],[7215.33256187344,8185.789489799569],[11291.14489286477,8185.789489799569],[15714.80826189686,8747.92916319982],[20516.010087044866,8747.92916319982],[25726.971465159015,9567.739680363937],[31382.663409198532,9567.739680363937],[37521.04154038504,11190.788483784852],[44183.30081020595,11190.788483784852],[51414.15196171937,10595.095563343422],[59262.121585505636,10595.095563343422],[67779.87778395551,9543.388712875098],[77024.58362944376,9543.388712875098],[87058.28078846302,9268.699359508011],[97948.30588623759,9268.699359508011],[109767.742406061,9605.719082994636],[122595.91115607455,9605.719082994636],[136518.9025950339,10017.577135852664],[151630.15458952694,10017.577135852664],[168031.0794799997,10083.746587548769],[185831.7446638613,10083.746587548769],[205151.61126309235,9830.200090414613],[226120.3358335924,9830.200090414613],[248878.6404965755,9514.335019175613],[273579.2573315082,9514.335019175613],[300387.95336845564,9341.38306129788],[329484.64305861015,9341.38306129788],[361064.59568884457,9309.090180932571],[395339.7458433065,9309.090180932571],[432540.11570662895,9344.511118487142],[472915.3587538964,9344.511118487142],[516736.435187149,9419.37817693584],[564297.4303623578,9419.37817693584],[615917.5284104222,9509.630165173143],[671943.1542972571,9509.630165173143],[732750.2986984336,9596.691872782281],[798747.0412907274,9596.691872782281],[870376.2893944937,9702.389032429865],[948118.7503460443,9702.389032429865],[1032496.1575477486,9861.034907980391],[1124074.771846042,9861.034907980391],[1223469.1817352595,10072.178245423751],[1331346.427890641,10072.178245423751],[1448430.479710454,10259.674641512445],[1575507.0939095148,10259.674641512445],[1713429.0877703757,10381.233390024674],[1863122.06244121,10381.233390024674],[2025590.6146897275,10412.841897688835],[2201925.0788005027,10412.841897688835],[2393308.8438609056,10379.55455457699],[2601026.2955423063,10379.55455457699],[2826471.4356742147,10301.147544484218],[3071157.237457751,10301.147544484218],[3336725.7991017075,10052.384696157453],[3624959.364022783,10052.384696157453],[3937792.28156705,10052.384696157453],[4277323.988521623,10052.384696157453],[4645833.09853616,9415.218045232612],[5045792.694008857,9415.218045232612],[5479886.923061629,9415.218045232612],[5951029.012987519,9415.218045232612],[6462380.821059473,9415.218045232612],[7017374.053906885,9415.218045232612]]}];
+    const STYLE_KEY = "psmc_report_style_v2";
+    const themes = {
+      sunrise: {
+        accent: "#f4511e",
+        accent2: "#26a69a",
+        mainLine: "#f4511e",
+        mainArea: "rgba(244,81,30,0.10)",
+        trackMean: "#1e88e5",
+        trackMap: "#8e24aa",
+        ci: "#64b5f6",
+        stateTop: "#26a69a",
+        stateBottom: "#80cbc4"
+      },
+      tealglass: {
+        accent: "#00897b",
+        accent2: "#00796b",
+        mainLine: "#00897b",
+        mainArea: "rgba(0,137,123,0.12)",
+        trackMean: "#0277bd",
+        trackMap: "#1565c0",
+        ci: "#4fc3f7",
+        stateTop: "#00acc1",
+        stateBottom: "#80deea"
+      },
+      graphite: {
+        accent: "#455a64",
+        accent2: "#546e7a",
+        mainLine: "#37474f",
+        mainArea: "rgba(55,71,79,0.10)",
+        trackMean: "#455a64",
+        trackMap: "#263238",
+        ci: "#78909c",
+        stateTop: "#546e7a",
+        stateBottom: "#90a4ae"
+      }
+    };
+    const getEl = (id) => document.getElementById(id);
+    const controls = {
+      theme: getEl("ctrl-theme"),
+      mode: getEl("ctrl-main-mode"),
+      xScale: getEl("ctrl-main-xscale"),
+      yScale: getEl("ctrl-main-yscale"),
+      width: getEl("ctrl-main-width"),
+      widthVal: getEl("ctrl-main-width-val"),
+      area: getEl("ctrl-main-area")
+    };
+
+    const exportStamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const exportChartPng = (targetChart, name) => {
+      const url = targetChart.getDataURL({
+        type: "png",
+        pixelRatio: 3,
+        backgroundColor: "#f7fbff"
+      });
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${name}_${exportStamp}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+    const resetZoom = (targetChart) => {
+      targetChart.dispatchAction({ type: "dataZoom", start: 0, end: 100 });
+    };
+
+    const chart = echarts.init(document.getElementById("chart"), null, { renderer: "canvas" });
+    const rgba = (hex, alpha) => {
+      const h = String(hex || "").trim();
+      const m = /^#?([0-9a-f]{6})$/i.exec(h);
+      if (!m) return `rgba(100,181,246,${alpha})`;
+      const s = m[1];
+      const r = parseInt(s.slice(0, 2), 16);
+      const g = parseInt(s.slice(2, 4), 16);
+      const b = parseInt(s.slice(4, 6), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    };
+
+    const sanitizeScale = (v, fallback) => (v === "log" || v === "value" ? v : fallback);
+    const sanitizeMode = (v) => (v === "step" || v === "linear" || v === "smooth" ? v : "step");
+    const numeric = (v, fallback) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const readConfig = () => ({
+      theme: controls.theme ? controls.theme.value : "sunrise",
+      mode: sanitizeMode(controls.mode ? controls.mode.value : "step"),
+      xScale: sanitizeScale(controls.xScale ? controls.xScale.value : "log", "log"),
+      yScale: sanitizeScale(controls.yScale ? controls.yScale.value : "value", "value"),
+      width: Math.min(5.0, Math.max(1.2, numeric(controls.width ? controls.width.value : 3.0, 3.0))),
+      area: controls.area ? controls.area.checked : true
+    });
+    const saveConfig = (cfg) => {
+      try {
+        localStorage.setItem(STYLE_KEY, JSON.stringify(cfg));
+      } catch (_) {}
+    };
+    const restoreConfig = () => {
+      try {
+        const raw = localStorage.getItem(STYLE_KEY);
+        if (!raw) return;
+        const cfg = JSON.parse(raw);
+        if (controls.theme && cfg.theme) controls.theme.value = cfg.theme;
+        if (controls.mode && cfg.mode) controls.mode.value = sanitizeMode(cfg.mode);
+        if (controls.xScale && cfg.xScale) controls.xScale.value = sanitizeScale(cfg.xScale, "log");
+        if (controls.yScale && cfg.yScale) controls.yScale.value = sanitizeScale(cfg.yScale, "value");
+        if (controls.width && Number.isFinite(Number(cfg.width))) controls.width.value = String(cfg.width);
+        if (controls.area && typeof cfg.area === "boolean") controls.area.checked = cfg.area;
+      } catch (_) {}
+    };
+
+    const buildMainOption = (cfg, palette) => {
+      const mode = cfg.mode;
+      const stepValue = mode === "step" ? "end" : false;
+      const smoothValue = mode === "smooth";
+      const areaStyle = cfg.area ? { color: palette.mainArea } : undefined;
+      const findSeries = (name) => {
+        const key = String(name || "").toLowerCase();
+        return series.find((s) => String(s.name || "").toLowerCase() === key);
+      };
+      const sMain = findSeries("rust estimate");
+      const sQ025 = findSeries("bootstrap q2.5");
+      const sQ500 = findSeries("bootstrap median");
+      const sQ975 = findSeries("bootstrap q97.5");
+      const mainData = sMain ? sMain.data : [];
+      const q025Data = sQ025 ? sQ025.data : [];
+      const q500Data = sQ500 ? sQ500.data : [];
+      const q975Data = sQ975 ? sQ975.data : [];
+      const hasRibbon = q025Data.length > 0 && q975Data.length > 0;
+
+      const ribbonBase = hasRibbon ? q025Data : [];
+      const ribbonDelta = hasRibbon
+        ? q975Data.map((p, i) => {
+            const lo = (q025Data[i] && Number.isFinite(q025Data[i][1])) ? q025Data[i][1] : p[1];
+            return [p[0], Math.max(0, p[1] - lo)];
+          })
+        : [];
+      const ciBandColor = rgba(palette.ci, 0.22);
+      const legendData = ["Rust estimate"];
+      if (q500Data.length > 0) legendData.push("Bootstrap median");
+      if (hasRibbon) legendData.push("Bootstrap 95% CI");
+
+      const mainSeries = [];
+      if (hasRibbon) {
+        mainSeries.push({
+          name: "__Bootstrap CI base",
+          type: "line",
+          stack: "bootstrap_ci",
+          step: stepValue,
+          data: ribbonBase,
+          showSymbol: false,
+          symbol: "none",
+          lineStyle: { width: 0, opacity: 0 },
+          areaStyle: { opacity: 0 },
+          silent: true,
+          tooltip: { show: false }
+        });
+        mainSeries.push({
+          name: "Bootstrap 95% CI",
+          type: "line",
+          stack: "bootstrap_ci",
+          step: stepValue,
+          data: ribbonDelta,
+          showSymbol: false,
+          symbol: "none",
+          lineStyle: { width: 0, opacity: 0 },
+          areaStyle: { color: ciBandColor },
+          silent: true
+        });
+      }
+      if (q500Data.length > 0) {
+        mainSeries.push({
+          name: "Bootstrap median",
+          type: "line",
+          data: q500Data,
+          step: stepValue,
+          smooth: false,
+          showSymbol: false,
+          symbol: "none",
+          lineStyle: {
+            width: Math.max(1.2, cfg.width - 1.0),
+            color: palette.trackMap,
+            type: "dashed"
+          },
+          itemStyle: { color: palette.trackMap }
+        });
+      }
+      mainSeries.push({
+        name: "Rust estimate",
+        type: "line",
+        data: mainData,
+        step: stepValue,
+        smooth: smoothValue,
+        showSymbol: false,
+        symbol: "none",
+        areaStyle,
+        lineStyle: { width: cfg.width, color: palette.mainLine },
+        itemStyle: { color: palette.mainLine }
+      });
+      return {
+        animationDuration: 750,
+        animationEasing: "cubicOut",
+        backgroundColor: "transparent",
+        legend: {
+          data: legendData,
+          top: 14,
+          left: 18,
+          textStyle: { color: "#223a52", fontSize: 13, fontFamily: "Sora, sans-serif" }
+        },
+        grid: { left: 96, right: 58, top: 82, bottom: 98, containLabel: true },
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "cross" },
+          backgroundColor: "rgba(13, 22, 34, 0.90)",
+          borderWidth: 0,
+          textStyle: { color: "#f2f6fb" }
+        },
+        toolbox: {
+          right: 16,
+          top: 12,
+          itemSize: 15,
+          feature: {
+            dataZoom: { yAxisIndex: "none" },
+            restore: {},
+            saveAsImage: { pixelRatio: 2 }
+          }
+        },
+        xAxis: {
+          type: cfg.xScale,
+          name: "Years",
+          nameLocation: "middle",
+          nameGap: 38,
+          nameTextStyle: { color: "#334f67", fontWeight: 600 },
+          axisLine: { lineStyle: { color: "#698198" } },
+          axisLabel: { color: "#51697f" },
+          splitLine: { lineStyle: { color: "rgba(81,105,127,0.15)" } },
+          minorSplitLine: { show: cfg.xScale === "log", lineStyle: { color: "rgba(81,105,127,0.08)" } }
+        },
+        yAxis: {
+          type: cfg.yScale,
+          name: "Effective population size (Ne)",
+          nameLocation: "middle",
+          nameRotate: 90,
+          nameGap: 74,
+          nameTextStyle: { color: "#334f67", fontWeight: 600 },
+          axisLine: { lineStyle: { color: "#698198" } },
+          axisLabel: { color: "#51697f" },
+          splitLine: { lineStyle: { color: "rgba(81,105,127,0.15)" } }
+        },
+        dataZoom: [
+          { type: "inside", xAxisIndex: 0 },
+          {
+            type: "slider",
+            xAxisIndex: 0,
+            bottom: 18,
+            height: 20,
+            borderColor: "rgba(17,34,51,0.15)",
+            backgroundColor: "rgba(255,255,255,0.62)",
+            fillerColor: palette.mainArea,
+            handleStyle: { color: palette.accent }
+          }
+        ],
+        series: mainSeries
+      };
+    };
+
+    
+    const applyAllCharts = () => {
+      const cfg = readConfig();
+      const palette = themes[cfg.theme] || themes.sunrise;
+      window.__psmcTheme = palette;
+      if (controls.widthVal) controls.widthVal.textContent = cfg.width.toFixed(1);
+      chart.setOption(buildMainOption(cfg, palette), true);
+      if (window.__psmcTmrca && typeof window.__psmcTmrca.apply === "function") {
+        window.__psmcTmrca.apply(palette);
+      }
+      saveConfig(cfg);
+    };
+
+    const bindChange = (id, eventName = "change") => {
+      const el = getEl(id);
+      if (el) el.addEventListener(eventName, applyAllCharts);
+    };
+    bindChange("ctrl-theme");
+    bindChange("ctrl-main-mode");
+    bindChange("ctrl-main-xscale");
+    bindChange("ctrl-main-yscale");
+    bindChange("ctrl-main-area");
+    bindChange("ctrl-main-width", "input");
+    bindChange("ctrl-tmrca-map");
+    bindChange("ctrl-tmrca-ci");
+    bindChange("ctrl-tmrca-yscale");
+    bindChange("ctrl-state-metric");
+
+    const btnMainSave = getEl("btn-main-save");
+    if (btnMainSave) btnMainSave.addEventListener("click", () => exportChartPng(chart, "psmc_ne_curve"));
+    const btnMainReset = getEl("btn-main-reset");
+    if (btnMainReset) btnMainReset.addEventListener("click", () => resetZoom(chart));
+    const btnSaveAll = getEl("btn-save-all");
+    if (btnSaveAll) {
+      btnSaveAll.addEventListener("click", () => {
+        exportChartPng(chart, "psmc_ne_curve");
+        if (window.__psmcTmrca && window.__psmcTmrca.track) {
+          setTimeout(() => exportChartPng(window.__psmcTmrca.track, "psmc_tmrca_track"), 160);
+        }
+        if (window.__psmcTmrca && window.__psmcTmrca.state) {
+          setTimeout(() => exportChartPng(window.__psmcTmrca.state, "psmc_tmrca_state"), 320);
+        }
+      });
+    }
+    const btnTmrcaSave = getEl("btn-tmrca-save");
+    if (btnTmrcaSave) {
+      btnTmrcaSave.addEventListener("click", () => {
+        if (window.__psmcTmrca && window.__psmcTmrca.track) exportChartPng(window.__psmcTmrca.track, "psmc_tmrca_track");
+      });
+    }
+    const btnTmrcaReset = getEl("btn-tmrca-reset");
+    if (btnTmrcaReset) {
+      btnTmrcaReset.addEventListener("click", () => {
+        if (window.__psmcTmrca && window.__psmcTmrca.track) resetZoom(window.__psmcTmrca.track);
+      });
+    }
+    const btnStateSave = getEl("btn-state-save");
+    if (btnStateSave) {
+      btnStateSave.addEventListener("click", () => {
+        if (window.__psmcTmrca && window.__psmcTmrca.state) exportChartPng(window.__psmcTmrca.state, "psmc_tmrca_state");
+      });
+    }
+    const btnStateReset = getEl("btn-state-reset");
+    if (btnStateReset) {
+      btnStateReset.addEventListener("click", () => {
+        if (window.__psmcTmrca && window.__psmcTmrca.state) resetZoom(window.__psmcTmrca.state);
+      });
+    }
+
+    restoreConfig();
+    applyAllCharts();
+    window.addEventListener("resize", () => {
+      chart.resize();
+      if (window.__psmcTmrca && window.__psmcTmrca.track) window.__psmcTmrca.track.resize();
+      if (window.__psmcTmrca && window.__psmcTmrca.state) window.__psmcTmrca.state.resize();
+    });
+  </script>
+</body>
+</html>

@@ -10,7 +10,7 @@ Current features:
 - Optional per-bin TMRCA posterior TSV output (mean, MAP, q2.5, q97.5)
 - Optional block-bootstrap with replicate JSON outputs and summary CI tables
 
-## Build and install a `psmc-rs` command
+## Build and install
 
 Build:
 
@@ -18,18 +18,9 @@ Build:
 cargo build --release
 ```
 
-Create a local command named `psmc-rs`:
+This project provides one integrated CLI/TUI binary:
 
-```bash
-mkdir -p "$HOME/.local/bin"
-ln -sf "$(pwd)/target/release/psmc" "$HOME/.local/bin/psmc-rs"
-```
-
-Make sure `$HOME/.local/bin` is in your `PATH`:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+- `psmc-rs`
 
 Then run:
 
@@ -37,7 +28,35 @@ Then run:
 psmc-rs --help
 ```
 
+Install globally (optional):
+
+```bash
+cargo install --path .
+```
+
 ## Quick start
+
+### Interactive TUI
+
+Launch:
+
+```bash
+psmc-rs --tui
+```
+
+TUI hotkeys:
+
+- `F1` / `F2` / `F3`: switch `Setup` / `Run` / `Result` pages
+- `Tab` / `Shift+Tab`: switch fields on `Setup`
+- Type / `Backspace`: edit selected field
+- `Ctrl+O`: open input file picker (filtered by current `Input fmt`)
+- `Ctrl+D`: open output directory picker
+- `Space`: toggle `Input fmt` (`psmcfa`/`mhs`)
+- In picker: `Enter` select/open, `→` browse directory, `Backspace`/`←` go parent, `Esc`/`q` close
+- `F5` (or `Enter` / `r`): start run
+- `x`: request stop (safe stop at phase boundary)
+- `PgUp` / `PgDn` / `End`: log scrolling
+- `q`: quit (only when no job is running)
 
 ### PSMCFA input
 
@@ -178,6 +197,7 @@ Positional arguments:
 
 Common options:
 
+- `--tui`: launch interactive Ratatui interface
 - `--threads <N>`: set Rayon thread count
 - `--input-format <psmcfa|mhs>`: default `psmcfa`
 - `--mhs-bin-size <INT>`: default `100`
@@ -219,6 +239,10 @@ Notes:
 - Use `--batch-size` for long inputs to control memory
 - Use `--threads` on multi-core machines
 - Use `--no-progress` for batch runs
+- E-step alpha cache budget can be tuned with `PSMC_ALPHA_CACHE_MB` (default `2048` MB)
+- When budget is insufficient, `psmc-rs` now caches a subset of rows instead of disabling cache entirely
+- Example: `PSMC_ALPHA_CACHE_MB=2048 psmc-rs ...`
+- E-step now uses a lower-level hot loop kernel by default for better single-thread speed
 - For bootstrap, reduce `--bootstrap-iters` first if runtime is high
 
 ## License
