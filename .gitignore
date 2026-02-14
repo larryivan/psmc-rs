@@ -1,1 +1,17 @@
 /target
+.DS_Store
+__pycache__/
+
+# Experiment runtime artifacts (regenerable)
+/experiment/runs/**/inputs/*
+/experiment/runs/**/shared_inputs/*
+/experiment/runs/**/outputs/*
+/experiment/runs/**/perf/*
+/experiment/runs/**/logs/*
+/experiment/runs/**/bootstrap/*
+!/experiment/runs/**/inputs/.gitkeep
+!/experiment/runs/**/shared_inputs/.gitkeep
+!/experiment/runs/**/outputs/.gitkeep
+!/experiment/runs/**/perf/.gitkeep
+!/experiment/runs/**/logs/.gitkeep
+!/experiment/runs/**/bootstrap/.gitkeep

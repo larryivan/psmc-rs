@@ -203,3 +203,42 @@ fn cli_bootstrap_writes_replicates_summary_and_html_overlay() {
     let _ = fs::remove_file(report);
     let _ = fs::remove_dir_all(boot_dir);
 }
+
+#[test]
+fn cli_vcf_input_runs_and_writes_json() {
+    let input = unique_temp_path("psmc_cli_vcf_input", "vcf");
+    let output = unique_temp_path("psmc_cli_vcf_output", "json");
+    let report = output.with_extension("html");
+    let content = "\
+##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1
+chr1\t20\t.\tA\tC\t.\tPASS\t.\tGT\t0/1
+chr1\t24\t.\tA\tC\t.\tPASS\t.\tGT\t1/0
+";
+    fs::write(&input, content).expect("failed to write cli vcf input");
+
+    let exe = find_psmc_binary();
+    let status = Command::new(exe)
+        .arg(&input)
+        .arg(&output)
+        .arg("0")
+        .arg("--input-format")
+        .arg("vcf")
+        .arg("--mhs-bin-size")
+        .arg("4")
+        .arg("--no-progress")
+        .status()
+        .expect("failed to run psmc binary with vcf input");
+    assert!(status.success(), "psmc exited with non-zero status");
+
+    let out = fs::read_to_string(&output).expect("failed to read psmc output json");
+    let v: Value = serde_json::from_str(&out).expect("output json is invalid");
+    assert!(v.get("theta").is_some());
+    assert!(v.get("rho").is_some());
+    assert!(v.get("lam").is_some());
+    assert!(report.exists(), "expected html report to be generated");
+
+    let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+    let _ = fs::remove_file(report);
+}

@@ -31,6 +31,7 @@ use psmc_rs::hmm::EStepPhase;
 use psmc_rs::hmm::write_tmrca_posterior_tsv;
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
+use psmc_rs::io::vcf::read_vcf;
 use psmc_rs::opt::{
     EmProgressEvent, MStepConfig, bounds_from_config, em_train, em_train_with_progress,
 };
@@ -54,6 +55,7 @@ const FIELD_SMOOTH_LAMBDA: usize = 9;
 enum InputFormat {
     Psmcfa,
     Mhs,
+    Vcf,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -83,6 +85,24 @@ struct Cli {
 
     #[arg(long, default_value_t = 100)]
     mhs_bin_size: usize,
+
+    #[arg(
+        long,
+        help = "Sample name in VCF (required if VCF has multiple samples)"
+    )]
+    vcf_sample: Option<String>,
+
+    #[arg(
+        long = "vcf-mask",
+        help = "Callable mask BED path for VCF->MHS semantics (can be repeated)"
+    )]
+    vcf_mask: Vec<PathBuf>,
+
+    #[arg(
+        long = "vcf-negative-mask",
+        help = "Negative mask BED path for VCF->MHS semantics (can be repeated)"
+    )]
+    vcf_negative_mask: Vec<PathBuf>,
 
     #[arg(long, default_value_t = 15.0)]
     t_max: f64,
@@ -329,7 +349,7 @@ impl App {
             FormField {
                 label: "Input",
                 value: String::new(),
-                hint: "Input file (.psmcfa/.mhs/.multihetsep/.gz)",
+                hint: "Input file (.psmcfa/.mhs/.multihetsep/.vcf/.gz)",
             },
             FormField {
                 label: "Output",
@@ -359,12 +379,12 @@ impl App {
             FormField {
                 label: "Input fmt",
                 value: "psmcfa".to_string(),
-                hint: "psmcfa or mhs",
+                hint: "psmcfa, mhs, or vcf",
             },
             FormField {
                 label: "MHS bin",
                 value: "100".to_string(),
-                hint: "Only for mhs",
+                hint: "Used for mhs/vcf",
             },
             FormField {
                 label: "Mu",
@@ -399,6 +419,7 @@ impl App {
         fields[FIELD_INPUT_FORMAT].value = match cli.input_format {
             InputFormat::Psmcfa => "psmcfa".to_string(),
             InputFormat::Mhs => "mhs".to_string(),
+            InputFormat::Vcf => "vcf".to_string(),
         };
         fields[FIELD_MHS_BIN_SIZE].value = cli.mhs_bin_size.to_string();
         fields[FIELD_MU].value = cli.mu.to_string();
@@ -466,10 +487,10 @@ impl App {
             .field_value(FIELD_INPUT_FORMAT)
             .trim()
             .to_ascii_lowercase();
-        self.fields[FIELD_INPUT_FORMAT].value = if v == "mhs" {
-            "psmcfa".to_string()
-        } else {
-            "mhs".to_string()
+        self.fields[FIELD_INPUT_FORMAT].value = match v.as_str() {
+            "psmcfa" => "mhs".to_string(),
+            "mhs" => "vcf".to_string(),
+            _ => "psmcfa".to_string(),
         };
     }
 
@@ -590,7 +611,8 @@ fn parse_input_format_field(v: &str) -> Result<InputFormat> {
     match s.as_str() {
         "psmcfa" => Ok(InputFormat::Psmcfa),
         "mhs" => Ok(InputFormat::Mhs),
-        _ => bail!("Input fmt must be psmcfa or mhs"),
+        "vcf" => Ok(InputFormat::Vcf),
+        _ => bail!("Input fmt must be psmcfa, mhs, or vcf"),
     }
 }
 
@@ -607,6 +629,7 @@ fn is_supported_input_file(path: &Path, fmt: InputFormat) -> bool {
                 || name.ends_with(".multihetsep")
                 || name.ends_with(".multihetsep.gz")
         }
+        InputFormat::Vcf => name.ends_with(".vcf") || name.ends_with(".vcf.gz"),
     }
 }
 
@@ -660,12 +683,25 @@ fn cli_to_args(cli: &Cli) -> Vec<String> {
         match cli.input_format {
             InputFormat::Psmcfa => "psmcfa",
             InputFormat::Mhs => "mhs",
+            InputFormat::Vcf => "vcf",
         }
         .to_string(),
     );
-    if cli.input_format == InputFormat::Mhs {
+    if matches!(cli.input_format, InputFormat::Mhs | InputFormat::Vcf) {
         args.push("--mhs-bin-size".to_string());
         args.push(cli.mhs_bin_size.to_string());
+    }
+    if let Some(sample) = &cli.vcf_sample {
+        args.push("--vcf-sample".to_string());
+        args.push(sample.clone());
+    }
+    for p in &cli.vcf_mask {
+        args.push("--vcf-mask".to_string());
+        args.push(p.display().to_string());
+    }
+    for p in &cli.vcf_negative_mask {
+        args.push("--vcf-negative-mask".to_string());
+        args.push(p.display().to_string());
     }
     if let Some(v) = &cli.pattern {
         args.push("--pattern".to_string());
@@ -1258,6 +1294,7 @@ fn render_picker(f: &mut Frame, app: &App) {
             match fmt {
                 InputFormat::Psmcfa => "Input picker [psmcfa]: Enter file=select, Enter dir=open",
                 InputFormat::Mhs => "Input picker [mhs]: Enter file=select, Enter dir=open",
+                InputFormat::Vcf => "Input picker [vcf]: Enter file=select, Enter dir=open",
             }
         }
         PickerMode::OutputDir => "Output directory picker: Enter dir=select",
@@ -1651,10 +1688,19 @@ fn run_inference_with_events(
     let format_name = match cli.input_format {
         InputFormat::Psmcfa => "psmcfa",
         InputFormat::Mhs => "mhs",
+        InputFormat::Vcf => "vcf",
     };
     let obs = match cli.input_format {
         InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
         InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
+        InputFormat::Vcf => read_vcf(
+            &input_file,
+            cli.batch_size,
+            cli.mhs_bin_size,
+            cli.vcf_sample.as_deref(),
+            &cli.vcf_mask,
+            &cli.vcf_negative_mask,
+        ),
     }
     .with_context(|| format!("failed to read {format_name} input"))?;
     send_event(
@@ -1779,10 +1825,12 @@ fn run_inference_with_events(
     let report_bin_size = match cli.input_format {
         InputFormat::Psmcfa => 100.0,
         InputFormat::Mhs => cli.mhs_bin_size as f64,
+        InputFormat::Vcf => cli.mhs_bin_size as f64,
     };
     let input_format_name = match cli.input_format {
         InputFormat::Psmcfa => "psmcfa",
         InputFormat::Mhs => "mhs",
+        InputFormat::Vcf => "vcf",
     };
 
     model.param_recalculate()?;
@@ -1983,12 +2031,21 @@ fn run_inference(cli: Cli) -> Result<()> {
     let format_name = match cli.input_format {
         InputFormat::Psmcfa => "psmcfa",
         InputFormat::Mhs => "mhs",
+        InputFormat::Vcf => "vcf",
     };
 
     let obs = if cli.no_progress {
         match cli.input_format {
             InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
             InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
+            InputFormat::Vcf => read_vcf(
+                &input_file,
+                cli.batch_size,
+                cli.mhs_bin_size,
+                cli.vcf_sample.as_deref(),
+                &cli.vcf_mask,
+                &cli.vcf_negative_mask,
+            ),
         }
         .with_context(|| format!("failed to read {format_name} input"))?
     } else {
@@ -1996,6 +2053,14 @@ fn run_inference(cli: Cli) -> Result<()> {
         let obs = match cli.input_format {
             InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
             InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
+            InputFormat::Vcf => read_vcf(
+                &input_file,
+                cli.batch_size,
+                cli.mhs_bin_size,
+                cli.vcf_sample.as_deref(),
+                &cli.vcf_mask,
+                &cli.vcf_negative_mask,
+            ),
         }
         .with_context(|| format!("failed to read {format_name} input"))?;
         pb.finish_with_message(format!("Reading {format_name} done"));
@@ -2054,10 +2119,12 @@ fn run_inference(cli: Cli) -> Result<()> {
     let report_bin_size = match cli.input_format {
         InputFormat::Psmcfa => 100.0,
         InputFormat::Mhs => cli.mhs_bin_size as f64,
+        InputFormat::Vcf => cli.mhs_bin_size as f64,
     };
     let input_format_name = match cli.input_format {
         InputFormat::Psmcfa => "psmcfa",
         InputFormat::Mhs => "mhs",
+        InputFormat::Vcf => "vcf",
     };
 
     model.param_recalculate()?;
