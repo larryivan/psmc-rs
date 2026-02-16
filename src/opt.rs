@@ -656,19 +656,31 @@ fn q_function_stats_dual(a: &[Vec<Dual>], em: &[Vec<Dual>], stats: &SufficientSt
     let n_params = a[0][0].grad.len();
     let n_states = a.len();
     let mut q = Dual::constant(0.0, n_params);
-    let ln = |v: &Dual| v.ln();
+    // Numerical guard:
+    // - skip exact zero-count terms so we never evaluate 0 * log(0)
+    // - add a tiny epsilon before log to keep AD stable near boundaries
+    let ln_safe = |v: &Dual| (v + 1e-300).ln();
     for i in 0..n_states {
         for j in 0..n_states {
             let c = stats.xi[(i, j)];
             if c != 0.0 {
-                q = &q + &(&ln(&a[i][j]) * c);
+                q = &q + &(&ln_safe(&a[i][j]) * c);
             }
         }
     }
     for k in 0..n_states {
-        q = &q + &(&ln(&em[0][k]) * stats.gobs[0][k]);
-        q = &q + &(&ln(&em[1][k]) * stats.gobs[1][k]);
-        q = &q + &(&ln(&em[2][k]) * stats.gobs[2][k]);
+        let c0 = stats.gobs[0][k];
+        if c0 != 0.0 {
+            q = &q + &(&ln_safe(&em[0][k]) * c0);
+        }
+        let c1 = stats.gobs[1][k];
+        if c1 != 0.0 {
+            q = &q + &(&ln_safe(&em[1][k]) * c1);
+        }
+        let c2 = stats.gobs[2][k];
+        if c2 != 0.0 {
+            q = &q + &(&ln_safe(&em[2][k]) * c2);
+        }
     }
     q
 }
@@ -727,6 +739,16 @@ pub fn m_step_lbfgs_with_progress(
 ) -> Result<Vec<f64>> {
     let mut xk = to_unconstrained(init_params, bounds)?;
     let (mut f0, mut gk) = eval_ad(model, stats, &xk, bounds, config.lambda)?;
+    let debug_mstep = std::env::var("PSMC_DEBUG_MSTEP")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    if debug_mstep {
+        eprintln!(
+            "M-step init: f0={:.6e}, gnorm={:.6e}",
+            f0,
+            norm(&gk)
+        );
+    }
 
     let mut s_hist: Vec<Vec<f64>> = Vec::new();
     let mut y_hist: Vec<Vec<f64>> = Vec::new();
@@ -749,6 +771,13 @@ pub fn m_step_lbfgs_with_progress(
             pb.set_message(format!("L-BFGS {}/{}", iter + 1, config.max_iters));
         }
         if norm(&gk) < config.tol_grad {
+            if debug_mstep {
+                eprintln!(
+                    "M-step converged by grad tol at iter {} (gnorm={:.6e})",
+                    iter,
+                    norm(&gk)
+                );
+            }
             break;
         }
         let mut q = gk.clone();
@@ -785,18 +814,102 @@ pub fn m_step_lbfgs_with_progress(
         let mut step = 1.0;
         let mut x_new = xk.clone();
         let mut accepted: Option<(f64, Vec<f64>)> = None;
-        for _ in 0..config.max_ls_steps {
+        for ls_iter in 0..config.max_ls_steps {
             for i in 0..xk.len() {
                 x_new[i] = xk[i] + step * r[i];
             }
             let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
+            if debug_mstep {
+                eprintln!(
+                    "  line-search iter {}: step={:.3e}, f_new={:.6e}, rhs={:.6e}",
+                    ls_iter + 1,
+                    step,
+                    f_new,
+                    f0 + config.line_search_c1 * step * gdotp
+                );
+            }
             if f_new <= f0 + config.line_search_c1 * step * gdotp {
                 accepted = Some((f_new, g_new));
                 break;
             }
             step *= 0.5;
         }
+        if accepted.is_none() {
+            // Fallback: AD gradients can be locally inconsistent in some regions due
+            // piecewise safeguards in the coalescent parameterization. Try reverse
+            // direction and accept any strict decrease.
+            let mut step_rev = 1.0;
+            for ls_iter in 0..config.max_ls_steps {
+                for i in 0..xk.len() {
+                    x_new[i] = xk[i] - step_rev * r[i];
+                }
+                let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
+                if debug_mstep {
+                    eprintln!(
+                        "  reverse-search iter {}: step={:.3e}, f_new={:.6e}, f0={:.6e}",
+                        ls_iter + 1,
+                        step_rev,
+                        f_new,
+                        f0
+                    );
+                }
+                if f_new.is_finite() && f_new < f0 {
+                    accepted = Some((f_new, g_new));
+                    if debug_mstep {
+                        eprintln!("  reverse-search accepted");
+                    }
+                    break;
+                }
+                step_rev *= 0.5;
+            }
+        }
+        if accepted.is_none() {
+            // Second fallback: coordinate pattern search around current point.
+            // This is cheap (small parameter count) and provides a robust escape
+            // when line-search along quasi-Newton directions fails.
+            let radii = [1e-3, 5e-4, 1e-4, 5e-5, 1e-5];
+            for radius in radii {
+                let mut best: Option<(f64, Vec<f64>, Vec<f64>)> = None;
+                for i in 0..xk.len() {
+                    for sign in [-1.0f64, 1.0f64] {
+                        let mut x_try = xk.clone();
+                        x_try[i] += sign * radius;
+                        let (f_try, g_try) = eval_ad(model, stats, &x_try, bounds, config.lambda)?;
+                        if !f_try.is_finite() {
+                            continue;
+                        }
+                        if f_try < f0 {
+                            match &best {
+                                Some((best_f, _, _)) if f_try >= *best_f => {}
+                                _ => best = Some((f_try, x_try, g_try)),
+                            }
+                        }
+                    }
+                }
+                if let Some((f_best, x_best, g_best)) = best {
+                    if debug_mstep {
+                        eprintln!(
+                            "  coordinate-search accepted: radius={:.3e}, f_new={:.6e}, f0={:.6e}",
+                            radius, f_best, f0
+                        );
+                    }
+                    accepted = Some((f_best, g_best));
+                    x_new = x_best;
+                    break;
+                } else if debug_mstep {
+                    eprintln!("  coordinate-search radius={:.3e}: no improving move", radius);
+                }
+            }
+        }
         let Some((f_new, g_new)) = accepted else {
+            if debug_mstep {
+                eprintln!(
+                    "M-step line search failed at iter {} (f0={:.6e}, gnorm={:.6e})",
+                    iter,
+                    f0,
+                    norm(&gk)
+                );
+            }
             break;
         };
         let mut s = vec![0.0; xk.len()];
@@ -819,6 +932,15 @@ pub fn m_step_lbfgs_with_progress(
         xk = x_new;
         gk = g_new;
         f0 = f_new;
+        if debug_mstep {
+            eprintln!(
+                "M-step iter {} accepted: f={:.6e}, gnorm={:.6e}, step={:.3e}",
+                iter + 1,
+                f0,
+                norm(&gk),
+                step
+            );
+        }
         if let Some(pb) = &pb {
             pb.inc(1);
         }
