@@ -4,11 +4,19 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (for example: v0.1.1)"
+        required: true
+        type: string
 
 jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -17,11 +25,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive_ext: tar.gz
             bin_name: psmc-rs
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             archive_ext: tar.gz
             bin_name: psmc-rs
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
             archive_ext: tar.gz
             bin_name: psmc-rs
@@ -32,6 +40,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -49,7 +60,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${RELEASE_TAG}"
           NAME="psmc-rs-${TAG}-${{ matrix.target }}"
           mkdir -p "dist/${NAME}"
           cp "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "dist/${NAME}/"
@@ -61,7 +72,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $tag = "${env:GITHUB_REF_NAME}"
+          $tag = "${env:RELEASE_TAG}"
           $name = "psmc-rs-$tag-${{ matrix.target }}"
           New-Item -ItemType Directory -Path "dist/$name" -Force | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "dist/$name/"
@@ -80,6 +91,8 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
     permissions:
       contents: write
     steps:
@@ -97,6 +110,7 @@ jobs:
       - name: Create release and upload assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
           generate_release_notes: true
           files: |
             dist/*.tar.gz

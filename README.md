@@ -59,6 +59,9 @@ After the tag push, CI automatically:
 - computes SHA256 checksums
 - creates a GitHub Release and uploads all assets
 
+If a tagged run fails and you need to retry without moving tags, run
+`Release` manually in GitHub Actions (`workflow_dispatch`) and provide the same tag (for example `v0.1.1`).
+
 ## Quick start
 
 ### Interactive TUI
