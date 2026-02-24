@@ -34,6 +34,31 @@ Install globally (optional):
 cargo install --path .
 ```
 
+## Release publishing (CI automatic)
+
+This repository has a GitHub Actions release workflow at:
+
+- `.github/workflows/release.yml`
+
+How to publish a new release:
+
+```bash
+# 1) bump Cargo.toml version and commit
+git add Cargo.toml Cargo.lock
+git commit -m "release: v0.1.1"
+
+# 2) create and push tag
+git tag v0.1.1
+git push origin main --tags
+```
+
+After the tag push, CI automatically:
+
+- builds `psmc-rs` on Linux/macOS/Windows
+- packages archives with README and LICENSE
+- computes SHA256 checksums
+- creates a GitHub Release and uploads all assets
+
 ## Quick start
 
 ### Interactive TUI
