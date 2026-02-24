@@ -284,8 +284,7 @@ Notes:
 
 - Reproducible manuscript experiments are organized under `experiment/`
 - See `experiment/README.md` for directory layout, notebooks, scripts, and output conventions
-- Main-text one-click notebook: `experiment/notebooks/main_text_6items.ipynb`
-- Supplementary one-click notebook: `experiment/notebooks/supplementary_S1_S5.ipynb`
+- Unified plotting notebook (all figures, no titles, no bootstrap plotting): `experiment/notebooks/all_plots_precomputed.ipynb`
 
 ## License
 

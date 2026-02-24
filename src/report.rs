@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -46,6 +46,20 @@ fn fmt_num(v: f64) -> String {
     }
 }
 
+fn echarts_script_tag() -> Result<String> {
+    if let Ok(js_path) = std::env::var("PSMC_ECHARTS_JS") {
+        let path = Path::new(&js_path);
+        let js = fs::read_to_string(path).with_context(|| {
+            format!(
+                "failed to read ECharts bundle from PSMC_ECHARTS_JS={}",
+                path.display()
+            )
+        })?;
+        return Ok(format!("<script>\n{}\n</script>", js));
+    }
+    Ok(r#"<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>"#.to_string())
+}
+
 pub fn default_html_path(output_json: &Path) -> std::path::PathBuf {
     output_json.with_extension("html")
 }
@@ -61,6 +75,7 @@ pub fn write_html_report(
     tmrca: Option<&TmrcaReportData>,
     bootstrap: Option<&BootstrapSummary>,
 ) -> Result<()> {
+    let echarts_script = echarts_script_tag()?;
     let lam_full = model.map_lam(&model.lam)?;
     let t = model.compute_t(0.1);
     let n0 = model.theta / (4.0 * model.mu * bin_size);
@@ -815,7 +830,7 @@ pub fn write_html_report(
     __TMRCA_PANEL__
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  __ECHARTS_SCRIPT__
   <script>
     const series = __SERIES_JSON__;
     const STYLE_KEY = "psmc_report_style_v2";
@@ -1170,7 +1185,8 @@ pub fn write_html_report(
         .replace("__META_ROWS__", &meta_rows)
         .replace("__TMRCA_PANEL__", &tmrca_panel)
         .replace("__TMRCA_SCRIPT__", &tmrca_script)
-        .replace("__SERIES_JSON__", &series_json);
+        .replace("__SERIES_JSON__", &series_json)
+        .replace("__ECHARTS_SCRIPT__", &echarts_script);
     fs::write(output_html, html)?;
     Ok(())
 }

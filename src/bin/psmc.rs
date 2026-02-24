@@ -2251,8 +2251,11 @@ fn run_inference(cli: Cli) -> Result<()> {
 }
 
 fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {
-    let span = (hi - lo).abs().max(1.0);
-    let tol = span * 1e-6;
+    // Use a very tight tolerance so "near bound" reflects a true optimizer
+    // saturation, not ordinary values in wide ranges (e.g. lam in [1e-6, 1e6]).
+    let span = (hi - lo).abs();
+    let scale = v.abs().max(lo.abs()).max(hi.abs()).max(1.0);
+    let tol = (span * 1e-12).max(scale * 1e-12).max(f64::EPSILON * 16.0);
     ((v - lo).abs() <= tol, (v - hi).abs() <= tol)
 }
 

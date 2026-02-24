@@ -1,0 +1,5 @@
+sample_id,species,rmse_log10_ne_rs_vs_c
+HomoSapiens,Homo sapiens (Papuan Highlands),0.0009473857756251876
+HLemySub1,Emydura subglobosa,0.008562525979229756
+HLhydTec1,Hydromedusa tectifera,0.010727405151000619
+HLpelCas1,Pelusios castaneus,0.017057105294728005
