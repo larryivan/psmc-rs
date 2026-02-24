@@ -743,11 +743,7 @@ pub fn m_step_lbfgs_with_progress(
         .map(|v| v == "1")
         .unwrap_or(false);
     if debug_mstep {
-        eprintln!(
-            "M-step init: f0={:.6e}, gnorm={:.6e}",
-            f0,
-            norm(&gk)
-        );
+        eprintln!("M-step init: f0={:.6e}, gnorm={:.6e}", f0, norm(&gk));
     }
 
     let mut s_hist: Vec<Vec<f64>> = Vec::new();
@@ -897,7 +893,10 @@ pub fn m_step_lbfgs_with_progress(
                     x_new = x_best;
                     break;
                 } else if debug_mstep {
-                    eprintln!("  coordinate-search radius={:.3e}: no improving move", radius);
+                    eprintln!(
+                        "  coordinate-search radius={:.3e}: no improving move",
+                        radius
+                    );
                 }
             }
         }

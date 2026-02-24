@@ -57,7 +57,10 @@ fn echarts_script_tag() -> Result<String> {
         })?;
         return Ok(format!("<script>\n{}\n</script>", js));
     }
-    Ok(r#"<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>"#.to_string())
+    Ok(
+        r#"<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>"#
+            .to_string(),
+    )
 }
 
 pub fn default_html_path(output_json: &Path) -> std::path::PathBuf {
