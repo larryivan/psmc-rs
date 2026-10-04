@@ -83,3 +83,121 @@ fn zero_iterations_leave_an_empty_history() {
     assert!(history.loglike.is_empty());
     assert_eq!(history.params.len(), 1);
 }
+
+mod options {
+    use super::*;
+    use psmc_rs::em::{EmOptions, EmProgressEvent, em_train_with_options};
+    use psmc_rs::hmm::{Cancelled, EStepPhase};
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn model() -> PsmcModel {
+        PsmcModel::new(15.0, 22, 0.01, 0.002, 2.5e-8, Some("4+5*3+4".into())).unwrap()
+    }
+
+    fn assert_cancelled(err: &anyhow::Error) {
+        assert!(err.is::<Cancelled>(), "{err:#}");
+        assert!(err.to_string().contains("cancel"), "{err}");
+    }
+
+    #[test]
+    fn cancelled_before_training() {
+        let (rows, starts) = data();
+        let mut m = model();
+        let cancel = AtomicBool::new(true);
+        let opts = EmOptions {
+            cancel: Some(&cancel),
+            ..EmOptions::default()
+        };
+        let err = em_train_with_options(&mut m, &rows, &starts, 3, &config(), opts).unwrap_err();
+        assert_cancelled(&err);
+    }
+
+    #[test]
+    fn cancelled_during_an_e_step_keeps_the_last_completed_iteration() {
+        let (rows, starts) = data();
+        let mut one_iter = model();
+        em_train(&mut one_iter, &rows, &starts, 1, &config()).unwrap();
+
+        let mut m = model();
+        let cancel = AtomicBool::new(false);
+        let mut events = Vec::new();
+        let mut cb = |ev: EmProgressEvent| {
+            if let EmProgressEvent::IterStart { iter: 2, .. } = ev {
+                cancel.store(true, Ordering::Relaxed);
+            }
+            events.push(ev);
+        };
+        let opts = EmOptions {
+            on_progress: Some(&mut cb),
+            cancel: Some(&cancel),
+            ..EmOptions::default()
+        };
+        let err = em_train_with_options(&mut m, &rows, &starts, 5, &config(), opts).unwrap_err();
+        assert_cancelled(&err);
+        assert!(err.to_string().contains("iteration 2"), "{err}");
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            EmProgressEvent::MStep { iter: 2, .. } | EmProgressEvent::IterStart { iter: 3, .. }
+        )));
+        assert_eq!(m.theta.to_bits(), one_iter.theta.to_bits());
+        assert_eq!(m.rho.to_bits(), one_iter.rho.to_bits());
+        assert_eq!(m.lam, one_iter.lam);
+        assert_eq!(m.transition_matrix(), one_iter.transition_matrix());
+    }
+
+    #[test]
+    fn cancelled_between_e_and_m_step() {
+        let (rows, starts) = data();
+        let mut m = model();
+        let cancel = AtomicBool::new(false);
+        let mut m_steps = 0usize;
+        let mut cb = |ev: EmProgressEvent| match ev {
+            EmProgressEvent::EStep {
+                phase: EStepPhase::Backward,
+                done,
+                total,
+                ..
+            } if done == total => cancel.store(true, Ordering::Relaxed),
+            EmProgressEvent::MStep { .. } => m_steps += 1,
+            _ => {}
+        };
+        let opts = EmOptions {
+            on_progress: Some(&mut cb),
+            cancel: Some(&cancel),
+            ..EmOptions::default()
+        };
+        let err = em_train_with_options(&mut m, &rows, &starts, 3, &config(), opts).unwrap_err();
+        assert_cancelled(&err);
+        assert_eq!(m_steps, 0, "the M-step ran after cancellation");
+    }
+
+    #[test]
+    fn thread_pool_and_callback_do_not_change_the_fit() {
+        let (rows, starts) = data();
+        let mut a = model();
+        let ha = em_train(&mut a, &rows, &starts, 3, &config()).unwrap();
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap();
+        let mut b = model();
+        let mut n_events = 0usize;
+        let mut cb = |_: EmProgressEvent| n_events += 1;
+        let opts = EmOptions {
+            on_progress: Some(&mut cb),
+            thread_pool: Some(&pool),
+            ..EmOptions::default()
+        };
+        let hb = em_train_with_options(&mut b, &rows, &starts, 3, &config(), opts).unwrap();
+        assert!(n_events > 0);
+        let bits = |h: &psmc_rs::em::EmHistory| {
+            h.loglike
+                .iter()
+                .flat_map(|(x, y)| [x.to_bits(), y.to_bits()])
+                .chain(h.params.iter().flatten().map(|v| v.to_bits()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(bits(&ha), bits(&hb));
+    }
+}
