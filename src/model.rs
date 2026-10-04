@@ -23,6 +23,12 @@ pub struct PsmcModel {
 }
 
 impl PsmcModel {
+    /// Build a model with flat λ and compute its HMM parameters.
+    ///
+    /// `n_steps` is C psmc's `n`: the model has `n_steps + 1` hidden states.
+    /// With a `pattern`, `n_steps` must equal [`n_steps_for_pattern`] of it;
+    /// for backward compatibility the state count (`n_steps + 1`) is also
+    /// accepted and silently converted.
     pub fn new(
         t_max: f64,
         n_steps: usize,
@@ -37,9 +43,9 @@ impl PsmcModel {
         };
         let mut n_steps_eff = n_steps;
         if let Some(spec) = &pattern_spec {
-            let n_states_from_pattern = spec.iter().map(|(nr, gl)| nr * gl).sum::<usize>();
-            if n_states_from_pattern == 0 {
-                bail!("pattern implies zero states");
+            let n_states_from_pattern = n_states_of_spec(spec);
+            if n_states_from_pattern < 2 {
+                bail!("pattern implies {n_states_from_pattern} state(s); at least 2 are needed");
             }
             let n_steps_from_pattern = n_states_from_pattern - 1;
             if n_steps == n_states_from_pattern {
@@ -54,8 +60,12 @@ impl PsmcModel {
                 );
             }
         }
+        if n_steps_eff == 0 {
+            bail!("n_steps must be at least 1 (the model needs at least 2 states)");
+        }
         let n_free = n_free_params(n_steps_eff, pattern_spec.as_deref());
         let lam = vec![1.0; n_free - 3];
+        let n_states = n_steps_eff + 1;
         let mut model = Self {
             n_steps: n_steps_eff,
             mu,
@@ -66,9 +76,9 @@ impl PsmcModel {
             lam,
             t_max,
             t: Vec::new(),
-            p_kl: Array2::zeros((n_steps + 1, n_steps + 1)),
-            em: Array2::zeros((3, n_steps + 1)),
-            sigma: vec![0.0; n_steps + 1],
+            p_kl: Array2::zeros((n_states, n_states)),
+            em: Array2::zeros((3, n_states)),
+            sigma: vec![0.0; n_states],
         };
         model.param_recalculate()?;
         Ok(model)
@@ -277,6 +287,21 @@ pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
         bail!("every observed bin is heterozygous; cannot initialise theta");
     }
     Ok(-(1.0 - n_het as f64 / n_observed as f64).ln())
+}
+
+/// `n_steps` (C psmc's `n`) implied by a `--pattern` such as `"4+25*2+4+6"`:
+/// the pattern lists `n_steps + 1` atomic intervals, so this is their count
+/// minus one. Errors on a malformed pattern or one with fewer than 2 intervals.
+pub fn n_steps_for_pattern(pattern: &str) -> Result<usize> {
+    let n_states = n_states_of_spec(&parse_pattern(pattern)?);
+    if n_states < 2 {
+        bail!("pattern {pattern:?} implies {n_states} state(s); at least 2 are needed");
+    }
+    Ok(n_states - 1)
+}
+
+fn n_states_of_spec(spec: &[(usize, usize)]) -> usize {
+    spec.iter().map(|(nr, gl)| nr * gl).sum()
 }
 
 fn n_free_params(n_steps: usize, spec: Option<&[(usize, usize)]>) -> usize {
