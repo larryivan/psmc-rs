@@ -89,7 +89,8 @@ directories, `diagnostic_figures/` and the `.tsv`/`.md` copies of the tables.
 
 ## Requirements
 
-- Rust stable (edition 2024, Rust 1.85 or later) for `psmc-rs`.
+- Rust stable, 1.88 or later, for `psmc-rs` (edition 2024 needs 1.85; the
+  locked dependencies of `ratatui` 0.30 need 1.88).
 - A C compiler and zlib for lh3/psmc.
 - Python 3.9 or later with the packages in `requirements.txt`. Drawing the
   figures needs only numpy, pandas and matplotlib; regenerating results also

@@ -48,7 +48,7 @@ Known limitations of the packaged results:
 - Python >= 3.9. Figures: `numpy`, `pandas`, `matplotlib`. Regenerating
   results additionally: `stdpopsim`, `msprime`, `tskit`, `psutil` (all listed
   in `experiment/requirements.txt`).
-- Regenerating results also needs Rust (stable, >= 1.85) and the original C
+- Regenerating results also needs Rust (stable, >= 1.88) and the original C
   psmc (lh3/psmc), built as in section 4.
 
 ## 3) Redraw the figures from the packaged results

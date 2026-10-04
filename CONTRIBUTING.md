@@ -23,7 +23,9 @@ fixes and code contributions are all welcome.
 
 ## Development setup
 
-You need a stable Rust toolchain, 1.85 or later (the crate uses edition 2024).
+You need a stable Rust toolchain, 1.88 or later. The crate uses edition 2024
+(Rust 1.85), and the locked dependencies of `ratatui` 0.30 (`instability`,
+`darling`, `time`) need 1.88.
 
 ```bash
 git clone https://github.com/larryivan/psmc-rs.git
