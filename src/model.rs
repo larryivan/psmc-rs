@@ -34,7 +34,8 @@ impl PsmcModel {
     /// `n_steps` is C psmc's `n`: the model has `n_steps + 1` hidden states.
     /// With a `pattern`, `n_steps` must equal [`n_steps_for_pattern`] of it;
     /// for backward compatibility the state count (`n_steps + 1`) is also
-    /// accepted and silently converted.
+    /// accepted and silently converted. Errors when there would be fewer
+    /// than 2 states or `t_max` is outside `(0, T_INF)`.
     pub fn new(
         t_max: f64,
         n_steps: usize,
@@ -170,6 +171,9 @@ impl PsmcModel {
         Ok(n0)
     }
 
+    /// The interval boundaries `t_0 = 0 < ... < t_n = t_max < t_{n+1} = T_INF`
+    /// (`n_steps + 2` values, in units of 2N0 generations), spaced
+    /// log-linearly with C psmc's `alpha` (`-l`, 0.1): C `psmc_update_intv`.
     pub fn compute_t(&self, alpha: f64) -> Vec<f64> {
         let beta = (1.0 + self.t_max / alpha).ln() / self.n_steps as f64;
         let mut t = Vec::with_capacity(self.n_steps + 2);
@@ -181,9 +185,20 @@ impl PsmcModel {
         t
     }
 
+    /// Expand per-group λ (as stored in `lam`) to one value per state.
+    /// Errors unless the result has `n_steps + 1` values.
     pub fn map_lam(&self, lam_grouped: &[f64]) -> Result<Vec<f64>> {
         match &self.pattern_spec {
-            None => Ok(lam_grouped.to_vec()),
+            None => {
+                if lam_grouped.len() != self.n_steps + 1 {
+                    bail!(
+                        "lam length {} does not match n_steps+1 {}",
+                        lam_grouped.len(),
+                        self.n_steps + 1
+                    );
+                }
+                Ok(lam_grouped.to_vec())
+            }
             Some(spec) => {
                 let expected = spec.iter().map(|(nr, _)| nr).sum::<usize>();
                 if lam_grouped.len() != expected {

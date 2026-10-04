@@ -80,6 +80,17 @@ fn ne_curve_rejects_meaningless_scales() {
 }
 
 #[test]
+fn ne_curve_reports_a_wrong_lam_length_instead_of_panicking() {
+    // Without a pattern, map_lam used to pass any length through.
+    let mut model = PsmcModel::new(15.0, 8, 0.0072, 0.0015, 2.5e-8, None).unwrap();
+    model.lam.pop();
+    assert!(model.map_lam(&model.lam).is_err());
+    assert!(model.ne_curve(100.0, 25.0).is_err());
+    model.lam.extend([1.0, 1.0]);
+    assert!(model.ne_curve(100.0, 25.0).is_err());
+}
+
+#[test]
 fn state_tmrca_years_scales_avg_t_and_stays_inside_each_interval() {
     let model = fitted_like_model();
     let (bin, gen_years) = (100.0, 25.0);
