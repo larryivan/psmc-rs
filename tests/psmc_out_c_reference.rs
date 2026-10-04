@@ -455,3 +455,17 @@ fn inconsistent_history_is_rejected() {
     assert!(PsmcRunInfo::from_history(&other, &fit.history, &fit.rows, &fit.row_starts).is_err());
     assert!(PsmcRunInfo::from_history(&fit.template, &fit.history, &fit.rows, &[true]).is_err());
 }
+
+/// Rewrites the psmc-rs `.psmc` files that `tests/psmc_out_plot.rs` runs
+/// through psmc_plot.pl's rules (see `tests/data/psmc_out/README.md`).
+#[test]
+#[ignore = "regenerates fixtures; run by tests/data/psmc_out/generate.sh"]
+fn regenerate_fixtures() {
+    for (pattern, name) in [
+        (Some("4+5*3+4"), "rs_4+5x3+4_N5.psmc"),
+        (None, "rs_23x1_N5.psmc"),
+    ] {
+        let text = psmc_text(&fit(pattern));
+        std::fs::write(Path::new(FIXTURES).join(name), text).unwrap();
+    }
+}

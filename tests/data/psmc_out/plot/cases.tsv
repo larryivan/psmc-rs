@@ -1,0 +1,13 @@
+# psmc_plot.pl runs whose outputs are in this directory (see ../README.md).
+# name	psmc_plot.pl options (besides -R)	input files, relative to tests/data
+c_4+5x3+4	-n 0 -m 1	c_reference/c_4+5x3+4_N5.psmc
+c_4+25x2+4+6	-n 0 -m 1	c_reference/c_4+25x2+4+6_N5.psmc
+c_23x1	-n 0 -m 1	psmc_out/c_23x1_N5.psmc
+rs_4+5x3+4	-n 0 -m 1	psmc_out/rs_4+5x3+4_N5.psmc
+rs_4+5x3+4_m5	-n 0	psmc_out/rs_4+5x3+4_N5.psmc
+rs_4+5x3+4_n3	-n 3	psmc_out/rs_4+5x3+4_N5.psmc
+rs_4+5x3+4_scaled	-n 0 -m 2 -L -u 1.25e-8 -g 29 -s 50	psmc_out/rs_4+5x3+4_N5.psmc
+rs_4+5x3+4_fnr	-n 0 -m 1 -N 0.2	psmc_out/rs_4+5x3+4_N5.psmc
+rs_23x1	-n 0 -m 1	psmc_out/rs_23x1_N5.psmc
+rs_23x1_n4_L	-n 4 -L	psmc_out/rs_23x1_N5.psmc
+combined	-n 0 -m 3	c_reference/c_4+5x3+4_N5.psmc psmc_out/rs_4+5x3+4_N5.psmc

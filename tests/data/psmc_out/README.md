@@ -1,10 +1,10 @@
 # `.psmc` output references
 
 Reference files for psmc-rs's C-compatible `.psmc` output (`src/psmc_out.rs`),
-read by the unit test in `src/psmc_out.rs` and by
-`tests/psmc_out_c_reference.rs`. `generate.sh` regenerates them:
+read by the unit test in `src/psmc_out.rs`, `tests/psmc_out_c_reference.rs`
+and `tests/psmc_out_plot.rs`. `generate.sh` regenerates them:
 
-    PSMC=/path/to/psmc ./generate.sh
+    PSMC=/path/to/psmc PSMC_PLOT=/path/to/psmc_plot.pl ./generate.sh
 
 Tools used for the committed files:
 
@@ -13,6 +13,9 @@ Tools used for the committed files:
   `../c_reference/README.md` (`cc -O1 cli.c core.c em.c khmm.c kmin.c main.c
   aux.c -lm -lz`, Apple clang 21, macOS arm64). Its version line reads
   `0.6.5-r74-dirty`, as in the other reference files.
+- `utils/psmc_plot.pl` of the same lh3/psmc checkout (its version 0.2.0),
+  run with perl 5.34.1. gnuplot is not needed: psmc_plot.pl writes the data
+  files it plots before it starts gnuplot, and `-R` keeps them.
 - Apple clang 21 and the macOS libc for `printf_probe.c`.
 
 ## Files
@@ -27,3 +30,19 @@ Tools used for the committed files:
   ../c_reference/papuan_chr1_3seg.psmcfa`, C psmc with one free lambda per
   state. psmc-rs writes this pattern for a model without `--pattern`; the C
   run shows that C psmc reads it and gives the output the tests compare with.
+- `rs_4+5x3+4_N5.psmc`, `rs_23x1_N5.psmc`: psmc-rs's output for the runs of
+  `../c_reference/c_4+5x3+4_N5.psmc` and `c_23x1_N5.psmc` (C's starting
+  point, 5 rounds, no smoothing penalty), written by
+  `cargo test --test psmc_out_c_reference -- --ignored regenerate_fixtures`.
+  They are inputs for psmc_plot.pl. The tests read them only through
+  psmc_plot.pl's rules, so they need regenerating (with `plot/`) only when
+  the output format changes, not when the fit does.
+- `plot/`: psmc_plot.pl's data files. For each line `name`, `options`,
+  `inputs` of `plot/cases.tsv`, `generate.sh` runs
+
+      perl psmc_plot.pl -R <options> plot/<name> <inputs, relative to tests/data>
+
+  and keeps `plot/<name>.<i>.txt`, the curve of data set `i` (one per input
+  run): years, N_e / 10^4, then the 4th to 6th `RS` columns, one line per
+  plotted state; and `plot/<name>.par`, the `PA` line of the plotted round of
+  data set 0. It deletes the gnuplot script `plot/<name>.gp`.
