@@ -10,6 +10,7 @@ main      ``outputs/{model}.rust.main.json`` and ``outputs/{model}.c.main.psmc``
 perf      ``PERF_REPEATS`` single-thread runs per model and tool under ``perf/``,
           summarised in ``tables/perf_raw_repeats.csv`` and
           ``tables/table_2_runtime_memory.csv`` (Figure 4 A/B and Table 2).
+          Only the rows of the timed models are replaced.
 
 The figures and Table 1 are drawn from these files by ``experiment/run.py``.
 
@@ -170,16 +171,39 @@ class Runner:
                 c = self.c(inp, self.perf / f"{key}.c.rep{rep:02d}.psmc")
                 rows.append({"model": key, "tool": "c", "rep": rep, "wall_sec": c["wall_sec"], "peak_rss_mb": c["peak_rss_mb"]})
 
+        # Replace only the timed models: a run with --models <subset> must not
+        # drop the other models' rows from Table 2.
         raw_path = self.tables / "perf_raw_repeats.csv"
-        write_csv(raw_path, ["model", "tool", "rep", "wall_sec", "peak_rss_mb"], rows)
-        summary = summarise_perf(rows)
         sum_path = self.tables / "table_2_runtime_memory.csv"
-        write_csv(
-            sum_path,
-            ["model", "tool", "wall_sec_mean", "wall_sec_std", "peak_rss_mb_mean", "peak_rss_mb_std"],
-            summary,
-        )
+        kept = sorted({r["model"] for r in read_csv_rows(sum_path)} - set(models))
+        write_csv(raw_path, RAW_FIELDS, merge_by_model(read_csv_rows(raw_path), rows, models))
+        write_csv(sum_path, SUMMARY_FIELDS, merge_by_model(read_csv_rows(sum_path), summarise_perf(rows), models))
+        if kept:
+            print(f"[perf] kept the earlier timings of: {', '.join(kept)}")
         print(f"saved table: {raw_path}, {sum_path}")
+
+
+RAW_FIELDS = ["model", "tool", "rep", "wall_sec", "peak_rss_mb"]
+SUMMARY_FIELDS = ["model", "tool", "wall_sec_mean", "wall_sec_std", "peak_rss_mb_mean", "peak_rss_mb_std"]
+
+
+def read_csv_rows(path: Path) -> List[Dict]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def merge_by_model(existing: List[Dict], new: List[Dict], models: List[str]) -> List[Dict]:
+    """``new`` plus the ``existing`` rows of models not in ``models``, in figure order (c before rust)."""
+    replaced = set(models)
+    merged = [r for r in existing if r.get("model") not in replaced] + list(new)
+
+    def key(r: Dict):
+        m = r["model"]
+        return (MODEL_ORDER.index(m) if m in MODEL_ORDER else len(MODEL_ORDER), m, r["tool"], int(r.get("rep") or 0))
+
+    return sorted(merged, key=key)
 
 
 def summarise_perf(rows: List[Dict]) -> List[Dict]:
@@ -218,7 +242,7 @@ def write_csv(path: Path, fields: List[str], rows: List[Dict]) -> None:
         w = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
         w.writeheader()
         for r in rows:
-            w.writerow({k: r[k] for k in fields})
+            w.writerow({k: r.get(k, "") for k in fields})
 
 
 def parse_list(value: str, valid, what: str) -> List[str]:

@@ -343,6 +343,30 @@ class MainTextRunner(unittest.TestCase):
         self.assertEqual(out[0]["peak_rss_mb_std"], 0.0)
 
 
+class MainTextPerf(FakeToolsCase):
+    def test_perf_for_a_subset_of_models_keeps_the_other_rows_of_table_2(self):
+        mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_perf")
+        runner = mt.Runner(self.tmp / "main", str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
+        runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
+        committed = ROOT / "experiment" / "runs" / "main_text" / "tables" / "table_2_runtime_memory.csv"
+        table_2 = runner.tables / committed.name
+        table_2.write_text(committed.read_text())
+        before = read_csv(table_2)
+        # The perf step needs psutil only for peak RSS; a stand-in is enough here.
+        stub = {} if has_module("psutil") else {"psutil": type(sys)("psutil")}
+        with mock.patch.object(mt, "PERF_REPEATS", 1), mock.patch.dict(sys.modules, stub):
+            with contextlib.redirect_stdout(io.StringIO()):
+                runner.perf_runs(["constant"])
+        after = read_csv(table_2)
+        self.assertEqual([(r["model"], r["tool"]) for r in after], [(r["model"], r["tool"]) for r in before])
+        self.assertEqual([r for r in after if r["model"] != "constant"], [r for r in before if r["model"] != "constant"])
+        new = [r for r in after if r["model"] == "constant"]
+        self.assertTrue(all(is_finite_number(r["wall_sec_mean"]) for r in new))
+        self.assertNotEqual(new, [r for r in before if r["model"] == "constant"])
+        raw = read_csv(runner.tables / "perf_raw_repeats.csv")
+        self.assertEqual(sorted((r["model"], r["tool"]) for r in raw), [("constant", "c"), ("constant", "rust")])
+
+
 @unittest.skipUnless(HAS_PLOT_DEPS, "numpy/pandas/matplotlib not installed")
 class SupplementaryRunner(unittest.TestCase):
     def setUp(self):
