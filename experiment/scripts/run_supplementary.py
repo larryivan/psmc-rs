@@ -480,18 +480,22 @@ def run_rust(
 
 
 def run_c(input_psmcfa: Path, output_psmc: Path, n_iter: int, bootstrap: bool = False):
-    cmd = [
-        str(C_PSMC_BIN),
-        f"-N{n_iter}",
-        f"-t{T_MAX}",
-        f"-r{RHO_T_RATIO}",
-        "-p",
-        PATTERN,
-    ]
-    if bootstrap:
-        cmd.append("-b")
-    cmd += ["-o", str(output_psmc), str(input_psmcfa)]
-    return run_cmd(cmd, cwd=ROOT)
+    def cmd_for(out: Path) -> List[str]:
+        cmd = [
+            str(C_PSMC_BIN),
+            f"-N{n_iter}",
+            f"-t{T_MAX}",
+            f"-r{RHO_T_RATIO}",
+            "-p",
+            PATTERN,
+        ]
+        if bootstrap:
+            cmd.append("-b")
+        return cmd + ["-o", str(out), str(input_psmcfa)]
+
+    # C psmc writes each round as it goes; staging keeps a partial file of an
+    # interrupted run away from output_psmc, where it would be reused.
+    return exp_common.run_staged(cmd_for, output_psmc, log_path=LOG_DIR / "commands.jsonl", cwd=ROOT)
 
 
 def parse_pattern_spec(pattern):
@@ -867,7 +871,7 @@ def run_s1_smooth_ablation(force: bool = False):
         inp = shared_input_path(key, SIM_LENGTH_BP)
         c_psmc = S1_DIR / "outputs" / f"{key}.c.C.psmc"
 
-        if force or not c_psmc.exists():
+        if force or not exp_common.c_psmc_complete(c_psmc, N_ITER):
             run_c(inp, c_psmc, n_iter=N_ITER)
 
         true_curve = true_curve_for_model(key)
@@ -879,7 +883,7 @@ def run_s1_smooth_ablation(force: bool = False):
         for lam in S1_SMOOTH_LAMBDAS:
             lam_tag = f"{lam:g}".replace("+", "").replace("/", "_")
             rust_json = S1_DIR / "outputs" / f"{key}.rust.lambda_{lam_tag}.json"
-            if force or not rust_json.exists():
+            if force or not exp_common.psmc_rs_output_ok(rust_json):
                 run_rust(inp, rust_json, n_iter=N_ITER, threads=RUST_THREADS_BASE, smooth_lambda=lam)
             xr, yr, _ = curve_from_json(rust_json)
             rust_curves[lam] = (xr, yr)
@@ -1038,7 +1042,7 @@ def run_s2_em_convergence(force: bool = False):
         inp = shared_input_path(key, SIM_LENGTH_BP)
 
         c_psmc = S2_DIR / "outputs" / f"{key}.c.trace.psmc"
-        if force or not c_psmc.exists():
+        if force or not exp_common.c_psmc_complete(c_psmc, N_ITER):
             run_c(inp, c_psmc, n_iter=N_ITER)
         c_df = parse_c_lk_trace(c_psmc)
         for _, r in c_df.iterrows():
@@ -1047,7 +1051,7 @@ def run_s2_em_convergence(force: bool = False):
         for it in range(1, N_ITER + 1):
             rust_json = S2_DIR / "outputs" / f"{key}.rust.iter{it:02d}.json"
             stamp = S2_DIR / "outputs" / f"{key}.rust.iter{it:02d}.loglike.txt"
-            if force or not rust_json.exists() or not stamp.exists():
+            if force or not exp_common.psmc_rs_output_ok(rust_json) or not stamp.exists():
                 rec = run_rust(inp, rust_json, n_iter=it, threads=RUST_THREADS_BASE, smooth_lambda=None)
                 lk = parse_rust_last_loglike((rec.get("stdout") or "") + "\n" + (rec.get("stderr") or ""))
                 if lk is None:
@@ -1315,11 +1319,11 @@ def run_s5_format_consistency(force: bool = False):
         p_mhs = S5_DIR / "outputs" / f"{key}.mhs.rust.json"
         p_vcf = S5_DIR / "outputs" / f"{key}.vcf.rust.json"
 
-        if force or not p_psmcfa.exists():
+        if force or not exp_common.psmc_rs_output_ok(p_psmcfa):
             run_rust(psmcfa_in, p_psmcfa, n_iter=N_ITER, input_format="psmcfa", threads=RUST_THREADS_BASE, smooth_lambda=None)
-        if force or not p_mhs.exists():
+        if force or not exp_common.psmc_rs_output_ok(p_mhs):
             run_rust(mhs_in, p_mhs, n_iter=N_ITER, input_format="mhs", mhs_bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE, smooth_lambda=None)
-        if force or not p_vcf.exists():
+        if force or not exp_common.psmc_rs_output_ok(p_vcf):
             run_rust(vcf_in, p_vcf, n_iter=N_ITER, input_format="vcf", mhs_bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE, smooth_lambda=None)
 
         x_psmcfa, y_psmcfa, params_psmcfa = curve_from_json(p_psmcfa)

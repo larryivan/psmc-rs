@@ -86,12 +86,17 @@ def run_samples(
         if not inp.exists():
             raise FileNotFoundError(f"input missing: {inp}")
         r_out, c_out = rust_json_path(out_dir, s), c_psmc_path(out_dir, s)
-        if force or not r_out.exists():
+        # Reuse only finished runs: an interrupted C psmc leaves fewer rounds.
+        if force or not exp_common.psmc_rs_output_ok(r_out):
             print(f"[run] psmc-rs {s.sid}", flush=True)
             exp_common.run_command(settings.rust_cmd(rust_bin, inp, r_out, mu=s.mu), log_path=log, cwd=exp_common.ROOT)
-        if force or not c_out.exists():
+        if force or not exp_common.c_psmc_complete(c_out, settings.n_iter):
+            if c_out.exists() and not force:
+                print(f"[run] {c_out.name} is not a finished {settings.n_iter}-iteration run; re-running")
             print(f"[run] C psmc {s.sid}", flush=True)
-            exp_common.run_command(settings.c_cmd(c_bin, inp, c_out), log_path=log, cwd=exp_common.ROOT)
+            exp_common.run_staged(
+                lambda tmp: settings.c_cmd(c_bin, inp, tmp), c_out, log_path=log, cwd=exp_common.ROOT
+            )
 
 
 def read_fit_summary(path: Path) -> Dict[str, Dict[str, str]]:

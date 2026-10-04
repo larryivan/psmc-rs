@@ -119,7 +119,11 @@ class Runner:
         return self.run(self.settings.rust_cmd(self.psmc_rs, inp, out_json, mu=MU), env=env)
 
     def c(self, inp: Path, out_psmc: Path) -> Dict:
-        return self.run(self.settings.c_cmd(self.c_psmc, inp, out_psmc))
+        # C psmc writes each round as it goes; stage it so that an interrupted
+        # run never leaves a partial file at out_psmc.
+        return exp_common.run_staged(
+            lambda tmp: self.settings.c_cmd(self.c_psmc, inp, tmp), out_psmc, log_path=self.log, cwd=exp_common.ROOT
+        )
 
     def require_inputs(self, models: List[str]) -> None:
         missing = [self.input_path(m) for m in models if not self.input_path(m).exists()]
@@ -136,10 +140,13 @@ class Runner:
             inp = self.input_path(key)
             rust_out = self.outputs / f"{key}.rust.main.json"
             c_out = self.outputs / f"{key}.c.main.psmc"
-            if force or not rust_out.exists():
+            # Reuse only finished runs: an interrupted C psmc leaves fewer rounds.
+            if force or not exp_common.psmc_rs_output_ok(rust_out):
                 print(f"[main] psmc-rs {key}", flush=True)
                 self.rust(inp, rust_out)
-            if force or not c_out.exists():
+            if force or not exp_common.c_psmc_complete(c_out, self.settings.n_iter):
+                if c_out.exists() and not force:
+                    print(f"[main] {c_out.name} is not a finished {self.settings.n_iter}-iteration run; re-running")
                 print(f"[main] C psmc {key}", flush=True)
                 self.c(inp, c_out)
 

@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "experiment" / "scripts"
@@ -44,6 +45,37 @@ def is_finite_number(value: str) -> bool:
         return math.isfinite(float(value))
     except ValueError:
         return False
+
+
+def c_rounds(path: Path) -> int:
+    return sum(1 for ln in path.read_text().splitlines() if ln == "//")
+
+
+class FakeToolsCase(unittest.TestCase):
+    """Runs the runners in-process against the stand-in tools of fixtures.py."""
+
+    N_ITER = 5
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name).resolve()
+        self.psmc_rs, self.c_psmc = fixtures.make_fake_tools(self.tmp / "bin")
+        self.calls_log = self.tmp / "calls.log"
+        env = mock.patch.dict(os.environ, {"N_ITER": str(self.N_ITER), "FAKE_TOOL_LOG": str(self.calls_log)})
+        env.start()
+        self.addCleanup(env.stop)
+        self.addCleanup(self._tmp.cleanup)
+
+    def calls(self, tool: str, output_name: str):
+        """Logged calls of ``tool`` whose output starts with ``output_name`` (staged names too)."""
+        if not self.calls_log.exists():
+            return []
+        out = []
+        for ln in self.calls_log.read_text().splitlines():
+            t, name, _ = ln.split()
+            if t == tool and name.startswith(output_name):
+                out.append(ln)
+        return out
 
 
 def load_module(path: Path, name: str):
@@ -172,6 +204,76 @@ class RealDataRunner(unittest.TestCase):
         for sid in ("HLemySub1", "HLhydTec1", "HLpelCas1"):
             self.assertEqual(after[sid], before[sid])
         self.assertAlmostEqual(float(after["HomoSapiens"]["rmse_log10_ne_rs_vs_c"]), 1.0, places=5)
+
+
+class InterruptedRuns(FakeToolsCase):
+    """C psmc writes every round as it goes; a partial output must never be reused."""
+
+    def setUp(self):
+        super().setUp()
+        self.rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_int")
+        self.sample = self.rd.SAMPLES[-1]
+        self.inputs = self.tmp / "in"
+        self.inputs.mkdir()
+        (self.inputs / self.sample.file).write_text(">chr1\nTTTTKTTTTK\n")
+        self.out = self.tmp / "real_data"
+        self.r_out = self.rd.rust_json_path(self.out, self.sample)
+        self.c_out = self.rd.c_psmc_path(self.out, self.sample)
+
+    def run_real_data(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.rd.run_samples([self.sample], self.out, str(self.psmc_rs), str(self.c_psmc), False, self.inputs)
+
+    def test_failed_c_run_leaves_no_output_behind(self):
+        with mock.patch.dict(os.environ, {"FAKE_C_ROUNDS": "3", "FAKE_C_EXIT": "130"}):
+            with self.assertRaises(RuntimeError):
+                self.run_real_data()
+        self.assertFalse(self.c_out.exists(), "a partial C output was left at the final path")
+
+    def test_incomplete_cached_c_output_is_run_again(self):
+        fixtures.write_rust_json(self.r_out)
+        fixtures.write_c_psmc(self.c_out, rounds=range(3))  # interrupted after round 2 of 5
+        self.run_real_data()
+        self.assertEqual(c_rounds(self.c_out), self.N_ITER + 1)
+        self.assertEqual(len(self.calls("c", self.c_out.name)), 1)
+        self.assertEqual(self.calls("psmc-rs", self.r_out.name), [], "a finished psmc-rs output is reused")
+        self.run_real_data()
+        self.assertEqual(len(self.calls("c", self.c_out.name)), 1, "a finished C output is reused")
+
+    def test_truncated_psmc_rs_output_is_run_again(self):
+        fixtures.write_rust_json(self.r_out)
+        self.r_out.write_text(self.r_out.read_text()[:40])
+        fixtures.write_c_psmc(self.c_out, rounds=range(self.N_ITER + 1))
+        self.run_real_data()
+        self.assertEqual(len(self.calls("psmc-rs", self.r_out.name)), 1)
+        self.assertEqual(self.calls("c", self.c_out.name), [])
+
+    def test_main_text_reruns_an_incomplete_c_output(self):
+        mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_int")
+        out = self.tmp / "main_text"
+        runner = mt.Runner(out, str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
+        runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
+        c_out = out / "outputs" / "constant.c.main.psmc"
+        fixtures.write_rust_json(out / "outputs" / "constant.rust.main.json")
+        fixtures.write_c_psmc(c_out, rounds=range(2))
+        with contextlib.redirect_stdout(io.StringIO()):
+            runner.main_runs(["constant"], force=False)
+        self.assertEqual(c_rounds(c_out), self.N_ITER + 1)
+        self.assertEqual(len(self.calls("c", c_out.name)), 1)
+
+    def test_supplementary_c_runs_are_staged(self):
+        rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_int")
+        rs.configure_paths(self.tmp / "supp")
+        rs.C_PSMC_BIN = self.c_psmc
+        out = self.tmp / "supp" / "s2_em" / "outputs" / "constant.c.trace.psmc"
+        with mock.patch.dict(os.environ, {"FAKE_C_ROUNDS": "2", "FAKE_C_EXIT": "1"}):
+            with self.assertRaises(RuntimeError), contextlib.redirect_stdout(io.StringIO()):
+                rs.run_c(self.inputs / self.sample.file, out, n_iter=self.N_ITER)
+        self.assertFalse(out.exists())
+        with contextlib.redirect_stdout(io.StringIO()):
+            rs.run_c(self.inputs / self.sample.file, out, n_iter=self.N_ITER)
+        self.assertEqual(c_rounds(out), self.N_ITER + 1)
+        self.assertEqual(list(out.parent.glob("*.partial")), [])
 
 
 class MainTextRunner(unittest.TestCase):

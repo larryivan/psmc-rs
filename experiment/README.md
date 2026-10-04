@@ -169,9 +169,13 @@ Both tools get the same EM settings:
 plus `--n-steps 64 --batch-size 300000 --mu <mu> --no-progress` for psmc-rs
 (`--mu` only scales the HTML report). `RHO_T_RATIO` must equal the psmc-rs
 default ratio, otherwise the two tools start from different parameters. The
-scripts skip runs whose output exists; `--force-run` (main text), `--force`
-(real data, supplementary) re-run them. Timing steps (`perf`, S3, S4) always
-re-run because cached outputs carry no timing.
+scripts reuse finished runs: a psmc-rs JSON that parses, and a C psmc output
+with exactly `N_ITER + 1` rounds. C psmc writes each round as it goes, so it
+writes to `<output>.partial`, which is renamed only when the run succeeds; an
+interrupted run therefore leaves no output, and an incomplete one (or one made
+with another `N_ITER`) is run again. `--force-run` (main text), `--force`
+(real data, supplementary) re-run everything. Timing steps (`perf`, S3, S4)
+always re-run because cached outputs carry no timing.
 
 Expect hours: on the 0.1 runs C psmc needed about 7.5 min and 5 GB RSS per
 500 Mb model (7.8 GB at 1 Gb in S3), psmc-rs about 5 min and 1.4 GB; `perf`

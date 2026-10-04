@@ -24,7 +24,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 try:
     import psutil
@@ -329,6 +329,64 @@ def run_command(
         print(err)
         raise RuntimeError(f"command failed: rc={proc.returncode}")
     return rec
+
+
+def run_staged(cmd_for: Callable[[Path], Sequence[str]], out: Path, **kwargs) -> Dict:
+    """Run ``cmd_for(tmp)`` and move ``tmp`` to ``out`` only if the command succeeds.
+
+    ``tmp`` is ``out`` plus a ``.partial`` suffix, in the same directory, so
+    ``out`` never holds the output of an interrupted or failed run. Used for
+    C psmc, which writes every EM round to its output as it goes. Keyword
+    arguments go to :func:`run_command`.
+    """
+    out = Path(out)
+    tmp = out.with_name(out.name + ".partial")
+    if tmp.exists():
+        tmp.unlink()
+    rec = run_command(cmd_for(tmp), **kwargs)
+    if rec["returncode"] == 0 and tmp.exists():
+        os.replace(tmp, out)
+    return rec
+
+
+def c_psmc_rounds(path: Path) -> int:
+    """Number of complete EM rounds (``RD`` blocks closed by ``//``) in a C psmc output."""
+    try:
+        text = Path(path).read_text()
+    except OSError:
+        return 0
+    rounds = 0
+    in_round = False
+    for ln in text.splitlines():
+        if ln.startswith("RD\t"):
+            in_round = True
+        elif ln.startswith("//") and in_round:
+            rounds += 1
+            in_round = False
+    return rounds
+
+
+def c_psmc_complete(path: Path, n_iter: int) -> bool:
+    """Whether ``path`` holds a finished C psmc run of ``n_iter`` iterations.
+
+    A finished run has ``n_iter + 1`` rounds (round 0 is the starting point).
+    Fewer rounds mean an interrupted run, whose last round must not be taken
+    as the result; a different count means other settings.
+    """
+    return c_psmc_rounds(path) == n_iter + 1
+
+
+def psmc_rs_output_ok(path: Path) -> bool:
+    """Whether ``path`` is a readable psmc-rs parameter JSON.
+
+    psmc-rs writes the JSON once, after its last EM iteration, so a file that
+    parses is a finished run; an interrupted write leaves invalid JSON.
+    """
+    try:
+        params = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(params, dict) and all(k in params for k in ("theta", "rho", "lam", "n_steps", "t_max"))
 
 
 def require_modules(names: Sequence[str], purpose: str) -> None:

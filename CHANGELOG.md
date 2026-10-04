@@ -64,6 +64,11 @@ Library and CLI changes: to be completed at integration.
   second run into the same directory used to reuse the first run's outputs,
   write empty timings to `S3_memory_scaling_summary.csv` (Figure 4C) and then
   crash while plotting. The S3/S4 timing repeats are no longer tracked by git.
+- An interrupted experiment run no longer leaves a partial C psmc output that
+  the next run reuses (C psmc writes each EM round as it goes; the RMSE was
+  then computed from an early round without warning). C psmc now writes to
+  `<output>.partial`, renamed on success, and cached outputs are reused only
+  when they hold `N_ITER + 1` rounds (psmc-rs JSON: only when it parses).
 
 ### Known issues
 
