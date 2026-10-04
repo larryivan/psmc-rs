@@ -95,5 +95,29 @@ class PackagedTables(unittest.TestCase):
         self.assertIn("'HomoSapiens': 'Homo sapiens (Papuan Highlands, chr1)'", src)
 
 
+class Documentation(unittest.TestCase):
+    def test_no_machine_specific_paths_in_docs_or_entry_points(self):
+        exp = ROOT / "experiment"
+        files = list(exp.rglob("*.md")) + [exp / "run.py", exp / "requirements.txt"]
+        for f in files:
+            text = f.read_text(encoding="utf-8")
+            for needle in ("/Users/", "/home/", "miniforge"):
+                self.assertFalse(needle in text, f"{f.relative_to(ROOT)} contains {needle!r}")
+
+    def test_readme_documents_every_pipeline_stage(self):
+        text = (ROOT / "experiment" / "README.md").read_text(encoding="utf-8")
+        for needle in (
+            "### 1. Simulate",
+            "### 2. Run psmc-rs and C psmc",
+            "### 3. Tables",
+            "### 4. Figures",
+            "cc -O1 -o psmc cli.c core.c em.c khmm.c kmin.c main.c aux.c -lm -lz",
+            "must be regenerated after the 0.2 fixes",
+            "S5_format_consistency.csv",
+            "chr1",
+        ):
+            self.assertIn(needle, text)
+
+
 if __name__ == "__main__":
     unittest.main()
