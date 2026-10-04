@@ -1,18 +1,12 @@
 use anyhow::{Context, Result, bail};
-use flate2::read::GzDecoder;
-use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::path::Path;
 
 use crate::io::Observations;
+use crate::io::common::{chunk_sequences, open_reader};
 
 fn read_to_string(path: &Path) -> Result<String> {
-    let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
-    let mut reader: Box<dyn Read> = if path.extension().map(|e| e == "gz").unwrap_or(false) {
-        Box::new(GzDecoder::new(file))
-    } else {
-        Box::new(BufReader::new(file))
-    };
+    let mut reader = open_reader(path)?;
     let mut content = String::new();
     reader
         .read_to_string(&mut content)
@@ -62,45 +56,12 @@ fn parse_sequences(content: &str) -> Result<Vec<Vec<u8>>> {
     Ok(seqs)
 }
 
-fn chunk_sequences(seqs: Vec<Vec<u8>>, batch_size: Option<usize>) -> Result<Observations> {
-    let mut rows = Vec::new();
-    let mut row_starts = Vec::new();
-
-    match batch_size {
-        None => {
-            for seq in seqs {
-                if seq.is_empty() {
-                    continue;
-                }
-                rows.push(seq);
-                row_starts.push(true);
-            }
-        }
-        Some(batch) => {
-            if batch == 0 {
-                bail!("batch_size must be > 0");
-            }
-            for seq in seqs {
-                if seq.is_empty() {
-                    continue;
-                }
-                for (i, chunk) in seq.chunks(batch).enumerate() {
-                    rows.push(chunk.to_vec());
-                    row_starts.push(i == 0);
-                }
-            }
-        }
-    }
-
-    if rows.is_empty() {
-        bail!("no valid observations found in psmcfa input");
-    }
-
-    Ok(Observations { rows, row_starts })
-}
-
 pub fn read_psmcfa(path: &Path, batch_size: Option<usize>) -> Result<Observations> {
     let content = read_to_string(path)?;
     let seqs = parse_sequences(&content)?;
-    chunk_sequences(seqs, batch_size)
+    chunk_sequences(
+        seqs,
+        batch_size,
+        "no valid observations found in psmcfa input",
+    )
 }

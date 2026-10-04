@@ -1,126 +1,12 @@
 use anyhow::{Context, Result, bail};
-use flate2::read::GzDecoder;
 use std::cmp::{max, min};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
-
-const N_RATIO: f64 = 0.9;
+use crate::io::common::{Binner, chunk_sequences, open_reader};
 
 type Interval = (u64, u64); // inclusive [start, end], 1-based
-
-#[derive(Debug, Clone, Default)]
-struct BinAcc {
-    len: usize,
-    n_n: usize,
-    has_k: bool,
-}
-
-fn flush_full_bin(seq: &mut Vec<u8>, bin: &mut BinAcc, bin_size: usize) {
-    if bin.len != bin_size {
-        return;
-    }
-    let sym = if (bin.n_n as f64) / (bin_size as f64) > N_RATIO {
-        2
-    } else if bin.has_k {
-        1
-    } else {
-        0
-    };
-    seq.push(sym);
-    *bin = BinAcc::default();
-}
-
-fn flush_tail_bin(seq: &mut Vec<u8>, bin: &mut BinAcc, bin_size: usize) {
-    if bin.len == 0 {
-        return;
-    }
-    let sym = if (bin.n_n as f64) / (bin_size as f64) > N_RATIO {
-        2
-    } else if bin.has_k {
-        1
-    } else {
-        0
-    };
-    seq.push(sym);
-    *bin = BinAcc::default();
-}
-
-fn add_run_t(seq: &mut Vec<u8>, mut n: u64, bin: &mut BinAcc, bin_size: usize) {
-    while n > 0 {
-        let room = (bin_size - bin.len) as u64;
-        let take = n.min(room);
-        bin.len += take as usize;
-        n -= take;
-        flush_full_bin(seq, bin, bin_size);
-    }
-}
-
-fn add_run_n(seq: &mut Vec<u8>, mut n: u64, bin: &mut BinAcc, bin_size: usize) {
-    while n > 0 {
-        let room = (bin_size - bin.len) as u64;
-        let take = n.min(room);
-        bin.len += take as usize;
-        bin.n_n += take as usize;
-        n -= take;
-        flush_full_bin(seq, bin, bin_size);
-    }
-}
-
-fn add_k(seq: &mut Vec<u8>, bin: &mut BinAcc, bin_size: usize) {
-    bin.len += 1;
-    bin.has_k = true;
-    flush_full_bin(seq, bin, bin_size);
-}
-
-fn chunk_sequences(seqs: Vec<Vec<u8>>, batch_size: Option<usize>) -> Result<Observations> {
-    let mut rows = Vec::new();
-    let mut row_starts = Vec::new();
-
-    match batch_size {
-        None => {
-            for seq in seqs {
-                if seq.is_empty() {
-                    continue;
-                }
-                rows.push(seq);
-                row_starts.push(true);
-            }
-        }
-        Some(batch) => {
-            if batch == 0 {
-                bail!("batch_size must be > 0");
-            }
-            for seq in seqs {
-                if seq.is_empty() {
-                    continue;
-                }
-                for (i, chunk) in seq.chunks(batch).enumerate() {
-                    rows.push(chunk.to_vec());
-                    row_starts.push(i == 0);
-                }
-            }
-        }
-    }
-
-    if rows.is_empty() {
-        bail!("no valid segregating sites found in VCF input");
-    }
-    Ok(Observations { rows, row_starts })
-}
-
-fn open_reader(path: &Path) -> Result<Box<dyn BufRead>> {
-    let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
-    let reader: Box<dyn Read> = if path.extension().map(|e| e == "gz").unwrap_or(false) {
-        Box::new(GzDecoder::new(file))
-    } else {
-        Box::new(file)
-    };
-    Ok(Box::new(BufReader::new(reader)))
-}
 
 fn merge_intervals(mut xs: Vec<Interval>) -> Vec<Interval> {
     if xs.is_empty() {
@@ -529,8 +415,7 @@ pub fn read_vcf(
     let mut masks = MaskEngine::new(mask_paths, negative_mask_paths)?;
 
     let mut seqs = Vec::<Vec<u8>>::new();
-    let mut cur_seq = Vec::<u8>::new();
-    let mut cur_bin = BinAcc::default();
+    let mut binner = Binner::new(bin_size);
     let mut cur_chrom: Option<String> = None;
 
     let mut prev_scan_pos: u64 = 0;
@@ -591,16 +476,15 @@ pub fn read_vcf(
         };
         if is_new_chrom {
             if cur_chrom.is_some() {
-                flush_tail_bin(&mut cur_seq, &mut cur_bin, bin_size);
-                if !cur_seq.is_empty() {
-                    seqs.push(std::mem::take(&mut cur_seq));
+                let seq = binner.finish();
+                if !seq.is_empty() {
+                    seqs.push(seq);
                 }
             }
             cur_chrom = Some(chrom.to_string());
             prev_scan_pos = 0;
             prev_emit_pos = 0;
             called_since_emit = 0;
-            cur_bin = BinAcc::default();
         }
 
         if pos <= prev_scan_pos {
@@ -652,22 +536,26 @@ pub fn read_vcf(
 
         let n_uncalled = delta - called_since_emit;
         let n_called_non_variant = called_since_emit - 1;
-        add_run_n(&mut cur_seq, n_uncalled, &mut cur_bin, bin_size);
-        add_run_t(&mut cur_seq, n_called_non_variant, &mut cur_bin, bin_size);
-        add_k(&mut cur_seq, &mut cur_bin, bin_size);
+        binner.add_missing(n_uncalled);
+        binner.add_called(n_called_non_variant);
+        binner.add_het();
 
         prev_emit_pos = pos;
         called_since_emit = 0;
         emitted_rows += 1;
     }
 
-    flush_tail_bin(&mut cur_seq, &mut cur_bin, bin_size);
-    if !cur_seq.is_empty() {
-        seqs.push(cur_seq);
+    let seq = binner.finish();
+    if !seq.is_empty() {
+        seqs.push(seq);
     }
 
     if emitted_rows == 0 {
         bail!("no segregating callable diploid sites found in VCF input");
     }
-    chunk_sequences(seqs, batch_size)
+    chunk_sequences(
+        seqs,
+        batch_size,
+        "no valid segregating sites found in VCF input",
+    )
 }
