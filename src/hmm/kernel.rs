@@ -4,6 +4,10 @@
 //! The state dimension is padded to a multiple of [`TILE`] with zero
 //! probabilities, so every loop runs over whole tiles. Padded states never
 //! receive mass: their emission, prior and transition entries are zero.
+//!
+//! PSMC transition matrices are semiseparable (see [`Semiseparable`]), which
+//! makes the forward and backward steps O(n) instead of O(n²); other
+//! matrices use the dense kernels.
 
 use ndarray::Array2;
 
@@ -220,6 +224,143 @@ fn sum(v: &[f64]) -> f64 {
     s
 }
 
+/// Blocks of [`TILE`] states covered by the semiseparable kernel's stack scratch.
+const MAX_SEMISEP_BLOCKS: usize = 64;
+
+/// Largest relative difference between a transition probability and its
+/// semiseparable reconstruction for the structure to be used. PSMC matrices
+/// reconstruct to within a few ulp (measured: < 1e-15).
+const SEMISEP_TOL: f64 = 1e-13;
+
+/// A transition matrix whose strictly lower and strictly upper triangles
+/// are each rank one: `a[k][m] = f[k] g[m]` for `m < k`, `h[k] j[m]` for
+/// `m > k`, and `d[k]` on the diagonal.
+///
+/// PSMC's matrix has this form (in `PsmcModel::param_recalculate`, row `k`
+/// is `tmp3_k * q[m]` with `q[m] = tmp_k * q_aux[m]` below the diagonal and
+/// `(alpha[m] - alpha[m + 1]) * tmp2_k` above it), so a product with a
+/// vector needs only one prefix sum and one suffix sum. The factors are
+/// recovered from the matrix itself and accepted only if every entry is
+/// reproduced to [`SEMISEP_TOL`].
+#[derive(Debug, Clone)]
+struct Semiseparable {
+    f: Vec<f64>,
+    g: Vec<f64>,
+    h: Vec<f64>,
+    j: Vec<f64>,
+    d: Vec<f64>,
+}
+
+impl Semiseparable {
+    /// The factors of `a` (padded to `np` with zeros), or `None` if `a` is
+    /// not semiseparable to within [`SEMISEP_TOL`] (or has negative,
+    /// non-finite or underflowed reference entries).
+    fn detect(a: &Array2<f64>, np: usize) -> Option<Self> {
+        let n = a.nrows();
+        if np / TILE > MAX_SEMISEP_BLOCKS || a.iter().any(|v| !(v.is_finite() && *v >= 0.0)) {
+            return None;
+        }
+        let mut s = Self {
+            f: vec![0.0; np],
+            g: vec![0.0; np],
+            h: vec![0.0; np],
+            j: vec![0.0; np],
+            d: vec![0.0; np],
+        };
+        for k in 0..n {
+            s.d[k] = a[(k, k)];
+        }
+        if n < 2 {
+            return Some(s);
+        }
+        // Reference row and column of each triangle: the last row and first
+        // column span the lower triangle, the first row and last column the upper.
+        let lower_ref = a[(n - 1, 0)];
+        let upper_ref = a[(0, n - 1)];
+        if !(lower_ref.is_normal() && upper_ref.is_normal()) {
+            return None;
+        }
+        for m in 0..n - 1 {
+            s.g[m] = a[(n - 1, m)];
+            s.j[m + 1] = a[(0, m + 1)];
+        }
+        for k in 1..n {
+            s.f[k] = a[(k, 0)] / lower_ref;
+            s.h[k - 1] = a[(k - 1, n - 1)] / upper_ref;
+        }
+        for k in 0..n {
+            for m in 0..n {
+                let approx = match m.cmp(&k) {
+                    std::cmp::Ordering::Less => s.f[k] * s.g[m],
+                    std::cmp::Ordering::Greater => s.h[k] * s.j[m],
+                    std::cmp::Ordering::Equal => continue,
+                };
+                let exact = a[(k, m)];
+                // Entries are finite and non-negative here, so no NaN arises.
+                if (approx - exact).abs() > SEMISEP_TOL * exact {
+                    return None;
+                }
+            }
+        }
+        Some(s)
+    }
+}
+
+/// `y[i] = p[i] * sum_{l > i} x[l] q[l] + r[i] * sum_{l < i} x[l] s[l] + d[i] x[i]`.
+///
+/// The sums are scanned per block of [`TILE`] entries and the block totals
+/// are then scanned and added, which keeps the dependency chains short. All
+/// terms are non-negative, so the reordering costs no accuracy.
+#[inline(always)]
+fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64], y: &mut [f64]) {
+    let nb = x.len() / TILE;
+    assert!(nb <= MAX_SEMISEP_BLOCKS && x.len() == nb * TILE);
+    assert!([p.len(), q.len(), r.len(), s.len(), d.len(), y.len()] == [x.len(); 6]);
+    let tile =
+        |v: &[f64], b: usize| -> [f64; TILE] { v[b * TILE..(b + 1) * TILE].try_into().unwrap() };
+    let mut suffix = [0.0f64; MAX_SEMISEP_BLOCKS];
+    let mut prefix = [0.0f64; MAX_SEMISEP_BLOCKS];
+    // In-block exclusive suffix sums of x*q (kept in y) and block totals.
+    for b in 0..nb {
+        let (xb, qb, sb) = (tile(x, b), tile(q, b), tile(s, b));
+        let yb = &mut y[b * TILE..(b + 1) * TILE];
+        let mut acc = 0.0;
+        for t in (0..TILE).rev() {
+            yb[t] = acc;
+            acc += xb[t] * qb[t];
+        }
+        suffix[b] = acc;
+        let mut acc = 0.0;
+        for t in 0..TILE {
+            acc += xb[t] * sb[t];
+        }
+        prefix[b] = acc;
+    }
+    // Exclusive scans of the block totals.
+    let mut carry = 0.0;
+    for v in suffix[..nb].iter_mut().rev() {
+        let t = *v;
+        *v = carry;
+        carry += t;
+    }
+    let mut carry = 0.0;
+    for v in prefix[..nb].iter_mut() {
+        let t = *v;
+        *v = carry;
+        carry += t;
+    }
+    for b in 0..nb {
+        let (xb, pb, rb, sb, db) = (tile(x, b), tile(p, b), tile(r, b), tile(s, b), tile(d, b));
+        let yb = &mut y[b * TILE..(b + 1) * TILE];
+        let mut acc = prefix[b];
+        for t in 0..TILE {
+            let after = yb[t] + suffix[b];
+            yb[t] = pb[t] * after + rb[t] * acc + db[t] * xb[t];
+            acc += xb[t] * sb[t];
+        }
+    }
+}
+
 /// Model parameters laid out for the per-site recursions.
 #[derive(Debug, Clone)]
 pub(crate) struct Kernel {
@@ -231,6 +372,7 @@ pub(crate) struct Kernel {
     at: Vec<f64>,
     em: [Vec<f64>; 3],
     pi: Vec<f64>,
+    semi: Option<Semiseparable>,
 }
 
 impl Kernel {
@@ -263,6 +405,31 @@ impl Kernel {
             at: at_pad,
             em: [em_row(0), em_row(1), em_row(2)],
             pi: pi_pad,
+            semi: Semiseparable::detect(a, np),
+        }
+    }
+
+    /// Whether the O(n) semiseparable kernel is in use.
+    #[cfg(test)]
+    fn is_semiseparable(&self) -> bool {
+        self.semi.is_some()
+    }
+
+    /// `out = Aᵀ x`.
+    #[inline(always)]
+    fn transpose_mul(&self, x: &[f64], out: &mut [f64]) {
+        match &self.semi {
+            Some(s) => semisep_mul(x, &s.g, &s.f, &s.j, &s.h, &s.d, out),
+            None => vec_mat(x, &self.a, self.np, out),
+        }
+    }
+
+    /// `out = A x`.
+    #[inline(always)]
+    fn mul(&self, x: &[f64], out: &mut [f64]) {
+        match &self.semi {
+            Some(s) => semisep_mul(x, &s.h, &s.j, &s.f, &s.g, &s.d, out),
+            None => vec_mat(x, &self.at, self.np, out),
         }
     }
 
@@ -289,7 +456,7 @@ impl Kernel {
     /// `out = e(o) ∘ (Aᵀ prev)`, normalised; returns the normaliser.
     #[inline]
     pub(crate) fn forward(&self, prev: &[f64], o: u8, out: &mut [f64]) -> f64 {
-        vec_mat(prev, &self.a, self.np, out);
+        self.transpose_mul(prev, out);
         let em = &self.em[o as usize];
         for (d, &e) in out.iter_mut().zip(em) {
             *d *= e;
@@ -312,7 +479,7 @@ impl Kernel {
         for ((d, &b), &e) in w.iter_mut().zip(beta).zip(em) {
             *d = e * b * scale;
         }
-        vec_mat(w, &self.at, self.np, beta_prev);
+        self.mul(w, beta_prev);
     }
 
     /// `m[i][j] += sum_b u[b][i] * w[b][j]` over `rows` rows of `u` and `w`
@@ -340,4 +507,94 @@ fn normalise(v: &mut [f64]) -> f64 {
         *d *= inv;
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PsmcModel;
+    use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng};
+
+    fn psmc_kernel(rng: &mut SmallRng, n_steps: usize, pattern: Option<&str>) -> Kernel {
+        // Large rho makes param_recalculate produce negative diagonal
+        // entries (not a probability matrix); those fall back to dense.
+        let theta = 10f64.powf(rng.gen_range(-5.0..-1.0));
+        let rho = theta * 10f64.powf(rng.gen_range(-2.0..0.3));
+        let mut m = PsmcModel::new(
+            rng.gen_range(5.0..30.0),
+            n_steps,
+            theta,
+            rho,
+            2.5e-8,
+            pattern.map(String::from),
+        )
+        .unwrap();
+        for l in m.lam.iter_mut() {
+            *l = 10f64.powf(rng.gen_range(-1.0..1.0));
+        }
+        m.param_recalculate().unwrap();
+        Kernel::new(m.prior_matrix(), m.transition_matrix(), m.emission_matrix())
+    }
+
+    fn max_rel(a: &[f64], b: &[f64]) -> f64 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| if x == y { 0.0 } else { ((x - y) / y).abs() })
+            .fold(0.0, f64::max)
+    }
+
+    #[test]
+    fn psmc_matrices_use_the_semiseparable_kernel() {
+        let mut rng = SmallRng::seed_from_u64(7);
+        for (n_steps, pattern) in [
+            (1, None),
+            (22, Some("4+5*3+4")),
+            (63, Some("4+25*2+4+6")),
+            (99, None),
+        ] {
+            for _ in 0..20 {
+                let k = psmc_kernel(&mut rng, n_steps, pattern);
+                assert!(k.is_semiseparable(), "n_steps {n_steps}");
+                let np = k.np();
+                let mut x = vec![0.0; np];
+                for v in &mut x[..k.n_states()] {
+                    *v = rng.gen_range(0.0..1.0);
+                }
+                let (mut fast, mut dense) = (vec![0.0; np], vec![0.0; np]);
+                k.transpose_mul(&x, &mut fast);
+                vec_mat(&x, &k.a, np, &mut dense);
+                assert!(max_rel(&fast, &dense) < 1e-13, "Aᵀx, n_steps {n_steps}");
+                k.mul(&x, &mut fast);
+                vec_mat(&x, &k.at, np, &mut dense);
+                assert!(max_rel(&fast, &dense) < 1e-13, "Ax, n_steps {n_steps}");
+                assert!(fast[k.n_states()..].iter().all(|v| *v == 0.0));
+            }
+        }
+    }
+
+    #[test]
+    fn other_matrices_use_the_dense_kernel() {
+        let mut rng = SmallRng::seed_from_u64(8);
+        let n = 12;
+        let pi = vec![1.0 / n as f64; n];
+        let em = Array2::from_elem((3, n), 0.5);
+        let mut a = Array2::from_shape_fn((n, n), |_| rng.gen_range(0.01..1.0));
+        for mut row in a.rows_mut() {
+            let s: f64 = row.sum();
+            row.mapv_inplace(|v| v / s);
+        }
+        assert!(!Kernel::new(&pi, &a, &em).is_semiseparable());
+
+        // A PSMC matrix with one entry perturbed beyond rounding.
+        let mut k = psmc_kernel(&mut rng, 11, None);
+        let mut a = Array2::from_shape_fn((12, 12), |(i, j)| k.a[i * k.np() + j]);
+        a[(5, 2)] *= 1.0 + 1e-10;
+        k = Kernel::new(&pi, &a, &em);
+        assert!(!k.is_semiseparable());
+
+        // An underflowed reference entry falls back too.
+        a[(11, 0)] = 0.0;
+        assert!(!Kernel::new(&pi, &a, &em).is_semiseparable());
+    }
 }
