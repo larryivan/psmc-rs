@@ -121,20 +121,26 @@ pub enum QcCode {
     /// site: a quarter at C psmc's starting ratio θ/ρ = 4, and every `K` bin
     /// holds at least one site ([`super::QcReport::expected_recombinations`]
     /// computes C's number). 1,000 `K` bins thus mean roughly 250
-    /// recombinations (more when bins hold several sites). Under a constant population size the default pattern
-    /// `4+25*2+4+6` (28 free λ) spreads them unevenly: the most recent group
-    /// gets 3.6% and the oldest 0.005% of the segments, and only 13 of the 28
-    /// groups reach 10. Fewer `K` bins leave most parameters undetermined.
+    /// recombinations (more when bins hold several sites), spread unevenly
+    /// over the parameters under a constant population size. With the
+    /// pattern psmc's README uses for human data, `4+25*2+4+6` (28 free λ),
+    /// the most recent group gets 3.6% and the oldest 0.005% of the
+    /// segments, and only 13 of the 28 groups reach 10. With C psmc's
+    /// default pattern `4+5*3+4` (7 free λ), 5 of the 7 groups reach 10;
+    /// with one λ per interval, which psmc-rs fits when no pattern is given
+    /// (65 at 64 steps), none does. Fewer `K` bins leave most parameters
+    /// undetermined.
     FewHets,
     /// Less than [`MIN_CALLED_BASES`] of called sequence (warning).
     ///
     /// PSMC was developed and tested on whole genomes (Li & Durbin 2011:
     /// gigabases per human genome). By the count in [`QcCode::FewHets`], 100
     /// Mb at human heterozygosity (1e-3 per bp, 1e5 heterozygous sites, about
-    /// 25,000 recombinations) give every group of the default pattern but the
-    /// oldest at least 10 recombinations under a constant size; at 30 Mb the
-    /// second-oldest group gets about 5. Species with lower heterozygosity
-    /// need more sequence.
+    /// 25,000 recombinations) give every group of `4+25*2+4+6` but the
+    /// oldest, every group of `4+5*3+4` and 55 of 65 single intervals at
+    /// least 10 recombinations under a constant size; at 30 Mb the
+    /// second-oldest group of `4+25*2+4+6` gets about 5. Species with lower
+    /// heterozygosity need more sequence.
     TooShort,
     /// More than [`SHORT_SEQUENCES_MAX_FRACTION`] of the bins lie in
     /// sequences shorter than 1 Mb ([`super::SHORT_SEQUENCE_BASES`]) or than
@@ -607,7 +613,7 @@ fn few_hets(report: &QcReport) -> Option<Finding> {
         format!(
             "Only {} heterozygous (K) bins, fewer than {}{recomb}. psmc's documentation \
              asks for about 10 recombinations in the intervals of each free parameter, and \
-             the default pattern 4+25*2+4+6 has 28 of them.",
+             the pattern its README uses for human data, 4+25*2+4+6, has 28 of them.",
             count(k),
             count(MIN_HET_BINS),
         ),

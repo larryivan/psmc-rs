@@ -11,20 +11,22 @@ use psmc_rs::qc::{
 use std::fs;
 
 /// Share of the segments (C's sigma, the stationary state distribution) in
-/// each parameter group of the default pattern 4+25*2+4+6, at C psmc's
-/// starting model (λ = 1, t_max = 15, θ/ρ = 4).
-fn default_pattern_group_shares(theta: f64) -> Vec<f64> {
+/// each parameter group of `pattern` (groups of `sizes` intervals; one group
+/// per interval without a pattern), at C psmc's starting model (λ = 1,
+/// t_max = 15, θ/ρ = 4). Also checks that the model has one free λ per group.
+fn group_shares(theta: f64, pattern: Option<&str>, n_steps: usize, sizes: &[usize]) -> Vec<f64> {
     let model = PsmcModel::new(
         15.0,
-        63,
+        n_steps,
         theta,
         theta / 4.0,
         2.5e-8,
-        Some("4+25*2+4+6".to_string()),
+        pattern.map(str::to_string),
     )
     .unwrap();
+    // n_free_params counts θ, ρ and t_max besides the λ.
+    assert_eq!(model.n_free_params() - 3, sizes.len(), "{pattern:?}");
     let sigma = model.prior_matrix();
-    let sizes: Vec<usize> = [4].into_iter().chain([2; 25]).chain([4, 6]).collect();
     assert_eq!(sizes.iter().sum::<usize>(), sigma.len());
     let mut start = 0;
     sizes
@@ -37,6 +39,12 @@ fn default_pattern_group_shares(theta: f64) -> Vec<f64> {
         .collect()
 }
 
+/// The pattern psmc's README uses for human data, 4+25*2+4+6 (28 free λ).
+fn human_pattern_shares(theta: f64) -> Vec<f64> {
+    let sizes: Vec<usize> = [4].into_iter().chain([2; 25]).chain([4, 6]).collect();
+    group_shares(theta, Some("4+25*2+4+6"), 63, &sizes)
+}
+
 /// Groups that get at least 10 of `n_recomb` recombinations.
 fn groups_reaching_10(shares: &[f64], n_recomb: f64) -> usize {
     shares.iter().filter(|&&s| n_recomb * s >= 10.0).count()
@@ -46,7 +54,7 @@ fn groups_reaching_10(shares: &[f64], n_recomb: f64) -> usize {
 fn few_hets_and_too_short_figures() {
     // Human-like 1e-3 per bp at 100 bp bins.
     let theta = 0.1;
-    let shares = default_pattern_group_shares(theta);
+    let shares = human_pattern_shares(theta);
     assert_eq!(shares.len(), 28);
     // "the most recent group gets 3.6% and the oldest 0.005%".
     assert!((0.0355..0.0375).contains(&shares[0]), "{}", shares[0]);
@@ -55,19 +63,36 @@ fn few_hets_and_too_short_figures() {
     // "1,000 K bins mean roughly 250 recombinations ... only 13 of the 28
     // groups reach 10": with one het site per K bin, 1,000 / theta called bins.
     let called = (1000.0 / -(-theta).exp_m1()) as u64;
-    let n = initial_recombinations(called, theta, 4.0);
-    assert!((240.0..260.0).contains(&n), "{n}");
-    assert_eq!(groups_reaching_10(&shares, n), 13);
+    let few = initial_recombinations(called, theta, 4.0);
+    assert!((240.0..260.0).contains(&few), "{few}");
+    assert_eq!(groups_reaching_10(&shares, few), 13);
 
     // "100 Mb at human heterozygosity (1e5 het sites, about 25,000
-    // recombinations) give every group but the oldest at least 10".
+    // recombinations) give every group of 4+25*2+4+6 but the oldest ... at
+    // least 10".
     let n = initial_recombinations(1_000_000, theta, 4.0);
     assert!((24_000.0..25_500.0).contains(&n), "{n}");
     assert_eq!(groups_reaching_10(&shares, n), 27);
     assert!(n * shares[27] < 10.0);
-    // "at 30 Mb the second-oldest group gets about 5".
-    let n = initial_recombinations(300_000, theta, 4.0);
-    assert!((4.5..5.5).contains(&(n * shares[26])), "{}", n * shares[26]);
+    // "at 30 Mb the second-oldest group of 4+25*2+4+6 gets about 5".
+    let thirty = initial_recombinations(300_000, theta, 4.0);
+    let second_oldest = thirty * shares[26];
+    assert!((4.5..5.5).contains(&second_oldest), "{second_oldest}");
+
+    // "With C psmc's default pattern 4+5*3+4 (7 free λ), 5 of the 7 groups
+    // reach 10" at 1,000 K bins; "every group of 4+5*3+4" does at 100 Mb.
+    let sizes: Vec<usize> = [4].into_iter().chain([3; 5]).chain([4]).collect();
+    let c_default = group_shares(theta, Some("4+5*3+4"), 22, &sizes);
+    assert_eq!(c_default.len(), 7);
+    assert_eq!(groups_reaching_10(&c_default, few), 5);
+    assert_eq!(groups_reaching_10(&c_default, n), 7);
+
+    // "with one λ per interval, which psmc-rs fits when no pattern is given
+    // (65 at 64 steps), none does"; "55 of 65 single intervals" reach 10 at
+    // 100 Mb.
+    let per_interval = group_shares(theta, None, 64, &[1; 65]);
+    assert_eq!(groups_reaching_10(&per_interval, few), 0);
+    assert_eq!(groups_reaching_10(&per_interval, n), 55);
 }
 
 #[test]

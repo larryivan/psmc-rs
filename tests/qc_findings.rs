@@ -223,6 +223,15 @@ fn few_hets_threshold() {
         "{}",
         f.message
     );
+    // 4+25*2+4+6 is psmc's suggestion for human data, not a default (C
+    // psmc's is 4+5*3+4).
+    assert!(
+        f.message
+            .contains("the pattern its README uses for human data, 4+25*2+4+6, has 28 of them"),
+        "{}",
+        f.message
+    );
+    assert!(!f.message.contains("default"), "{}", f.message);
 
     let r = qc100(&data(&[("chr1", 2_000_000, 1000, 0)]));
     assert_eq!(find(&r, QcCode::FewHets), None);
