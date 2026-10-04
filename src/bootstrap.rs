@@ -1,13 +1,19 @@
 use anyhow::{Context, Result, bail};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rayon::prelude::*;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, PoisonError};
 
+use crate::em::em_train;
 use crate::io::Observations;
-use crate::model::PsmcModel;
+use crate::io::common::chunk_sequences;
+use crate::model::{PsmcModel, initial_theta};
+use crate::opt::MStepConfig;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BootstrapCurvePoint {
@@ -306,6 +312,176 @@ pub fn sample_sequences_block_bootstrap(
         out.push(sampled);
     }
     Ok(out)
+}
+
+/// Fresh starting model for one bootstrap replicate, built the way C
+/// `psmc -b` initialises every run: the template's pattern, `n_steps` and
+/// `mu`; the configured initial `t_max` (not a fitted one); θ0 =
+/// [`initial_theta`] of the replicate's own rows; ρ0 = θ0 / `tr_ratio`; every
+/// λ = 1.
+///
+/// Starting from the full-data fit instead would not re-run the estimator
+/// whose sampling variability the bootstrap is meant to measure.
+pub fn replicate_initial_model(
+    template: &PsmcModel,
+    rows: &[Vec<u8>],
+    t_max: f64,
+    tr_ratio: f64,
+) -> Result<PsmcModel> {
+    check_fresh_start(t_max, tr_ratio)?;
+    let theta0 = initial_theta(rows)?;
+    PsmcModel::new(
+        t_max,
+        template.n_steps,
+        theta0,
+        theta0 / tr_ratio,
+        template.mu,
+        template.pattern.clone(),
+    )
+}
+
+fn check_fresh_start(t_max: f64, tr_ratio: f64) -> Result<()> {
+    if !(t_max.is_finite() && t_max > 0.0) {
+        bail!("bootstrap t_max must be a positive number, got {t_max}");
+    }
+    if !(tr_ratio.is_finite() && tr_ratio > 0.0) {
+        bail!("bootstrap theta/rho ratio must be a positive number, got {tr_ratio}");
+    }
+    Ok(())
+}
+
+/// Settings for [`run_bootstrap`].
+#[derive(Debug, Clone)]
+pub struct BootstrapConfig {
+    /// Number of bootstrap replicates.
+    pub replicates: usize,
+    /// Trunk size in bins for [`split_for_bootstrap`] (`splitfa`'s argument).
+    pub trunk_size: usize,
+    /// Base seed: replicate `i` (0-based) draws from [`replicate_rng`]`(seed, i)`.
+    pub seed: u64,
+    /// EM iterations per replicate; C reuses the main run's `-N`.
+    pub em_iters: usize,
+    /// θ0/ρ0 ratio of each replicate's fresh start (C `-r`). Use the ratio
+    /// the main fit started from.
+    pub tr_ratio: f64,
+    /// Initial `t_max` of each replicate's fresh start (C `-t`): the
+    /// configured value, not the main fit's estimate.
+    pub t_max: f64,
+    /// Optional row length within a trunk (see [`sequences_to_observations`]).
+    /// Rows of one trunk stay one HMM chain, so this only bounds memory.
+    pub batch_size: Option<usize>,
+    /// When set, each fitted replicate is saved there as
+    /// `replicate_NNN.json` (1-based, see [`replicate_json_path`]); the
+    /// directory is created if needed.
+    pub out_dir: Option<PathBuf>,
+}
+
+impl Default for BootstrapConfig {
+    /// C psmc's defaults (`-N30 -r4 -t15`, `splitfa` trunk 500,000) with 100
+    /// replicates and seed 42.
+    fn default() -> Self {
+        Self {
+            replicates: 100,
+            trunk_size: DEFAULT_BOOTSTRAP_TRUNK,
+            seed: 42,
+            em_iters: 30,
+            tr_ratio: 4.0,
+            t_max: 15.0,
+            batch_size: None,
+            out_dir: None,
+        }
+    }
+}
+
+/// Run a PSMC bootstrap the way C psmc's documented procedure does
+/// (`splitfa`, then one `psmc -b` per replicate) and return the fitted
+/// replicate models in replicate order.
+///
+/// `seqs` are the whole input sequences (e.g. from [`rows_to_sequences`]).
+/// They are cut once with [`split_for_bootstrap`]; each replicate then draws
+/// trunks with [`resample_chunks`] using [`replicate_rng`]`(cfg.seed, i)`,
+/// treats every drawn trunk as an independent sequence, starts from
+/// [`replicate_initial_model`] and runs `cfg.em_iters` EM iterations with
+/// `mstep_cfg` (progress output forced off).
+///
+/// Replicates run in parallel on the current rayon pool. Each one depends
+/// only on its inputs and `(cfg.seed, i)`, so results do not depend on the
+/// thread count or on scheduling. Each replicate in flight holds its own copy
+/// of the resampled data and its own E-step buffers, so peak memory grows with
+/// the number of threads.
+///
+/// `cancel` is checked before each replicate starts; once it is set, the
+/// remaining replicates are skipped and an error is returned. `on_done(n)` is
+/// called from the worker threads once per finished replicate, with `n` the
+/// number finished so far. The calls are serialised, so `n` goes 1, 2, 3, …
+/// in call order and the last call of a successful run has
+/// `n == cfg.replicates`; other workers wait while it runs, so keep it cheap.
+pub fn run_bootstrap(
+    seqs: &[Vec<u8>],
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+    mstep_cfg: &MStepConfig,
+    cancel: Option<&AtomicBool>,
+    on_done: &(dyn Fn(usize) + Sync),
+) -> Result<Vec<PsmcModel>> {
+    if cfg.replicates == 0 {
+        return Ok(Vec::new());
+    }
+    if cfg.trunk_size == 0 {
+        bail!("bootstrap trunk_size must be > 0");
+    }
+    if cfg.batch_size == Some(0) {
+        bail!("batch_size must be > 0");
+    }
+    check_fresh_start(cfg.t_max, cfg.tr_ratio)?;
+    let chunks = split_for_bootstrap(seqs, cfg.trunk_size);
+    if chunks.is_empty() {
+        bail!("bootstrap input has no data");
+    }
+    if let Some(dir) = &cfg.out_dir {
+        fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create bootstrap directory {dir:?}"))?;
+    }
+
+    let mut rep_cfg = mstep_cfg.clone();
+    rep_cfg.progress = false;
+    let is_cancelled = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
+    // Count and report under one lock so calls arrive in order: with a
+    // separate atomic counter, the worker holding count n + 1 could report
+    // before the one holding n, and a progress display would step backwards.
+    let finished = Mutex::new(0usize);
+
+    (0..cfg.replicates)
+        .into_par_iter()
+        .map(|rep| -> Result<PsmcModel> {
+            if is_cancelled() {
+                bail!("cancelled by user");
+            }
+            let fit = || -> Result<PsmcModel> {
+                let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
+                let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
+                let mut model =
+                    replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?;
+                em_train(
+                    &mut model,
+                    &obs.rows,
+                    &obs.row_starts,
+                    cfg.em_iters,
+                    &rep_cfg,
+                )?;
+                model.param_recalculate()?;
+                if let Some(dir) = &cfg.out_dir {
+                    model.save_params(&replicate_json_path(dir, rep + 1))?;
+                }
+                Ok(model)
+            };
+            let model = fit().with_context(|| format!("bootstrap replicate {}", rep + 1))?;
+            let mut n = finished.lock().unwrap_or_else(PoisonError::into_inner);
+            *n += 1;
+            on_done(*n);
+            Ok(model)
+        })
+        .collect()
 }
 
 fn model_curve(model: &PsmcModel, bin_size: f64, gen_years: f64) -> Result<(Vec<f64>, Vec<f64>)> {
