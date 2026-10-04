@@ -2,10 +2,11 @@
 //!
 //! ```text
 //! cargo run --release --example bench_estep -- INPUT.psmcfa [--threads N] [--reps R]
-//!     [--pattern P] [--install] [--loglike]
+//!     [--pattern P] [--install] [--loglike | --tmrca OUT.tsv[.gz]]
 //! ```
 //!
-//! `--loglike` times the forward-only `log_likelihood` instead of the E-step.
+//! `--loglike` times the forward-only `log_likelihood` instead of the E-step;
+//! `--tmrca` times posterior TMRCA decoding written to `OUT`.
 //! `--threads` sizes the global rayon pool (default: rayon's default). With
 //! `--install` the E-step runs inside `ThreadPool::install`, the way bootstrap
 //! replicates and a per-run `--threads` pool call it. Each repetition prints the
@@ -15,7 +16,7 @@
 //! `/usr/bin/time -v` (Linux). The alpha-cache budget follows
 //! `PSMC_ALPHA_CACHE_MB`.
 
-use psmc_rs::hmm::{EStepResult, e_step_streaming, log_likelihood};
+use psmc_rs::hmm::{EStepResult, e_step_streaming, log_likelihood, write_tmrca_posterior_tsv};
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::{PsmcModel, initial_theta};
 use std::path::PathBuf;
@@ -28,6 +29,7 @@ struct Args {
     pattern: String,
     install: bool,
     loglike: bool,
+    tmrca: Option<PathBuf>,
 }
 
 fn parse_args() -> Args {
@@ -39,6 +41,7 @@ fn parse_args() -> Args {
         pattern: "4+25*2+4+6".to_string(),
         install: false,
         loglike: false,
+        tmrca: None,
     };
     let mut input = None;
     while let Some(a) = it.next() {
@@ -48,11 +51,12 @@ fn parse_args() -> Args {
             "--pattern" => args.pattern = it.next().expect("--pattern needs a value"),
             "--install" => args.install = true,
             "--loglike" => args.loglike = true,
+            "--tmrca" => args.tmrca = it.next().map(PathBuf::from),
             _ => input = Some(PathBuf::from(a)),
         }
     }
     args.input = input.expect(
-        "usage: bench_estep INPUT.psmcfa [--threads N] [--reps R] [--pattern P] [--install] [--loglike]",
+        "usage: bench_estep INPUT.psmcfa [--threads N] [--reps R] [--pattern P] [--install] [--loglike | --tmrca OUT]",
     );
     args
 }
@@ -122,6 +126,24 @@ fn main() {
     );
 
     let run = || {
+        if let Some(out) = &args.tmrca {
+            let t = model.compute_t(0.1);
+            let years: Vec<f64> = t[..=model.n_steps].iter().map(|v| v * 1e4).collect();
+            let data = write_tmrca_posterior_tsv(
+                model.prior_matrix(),
+                model.transition_matrix(),
+                model.emission_matrix(),
+                &obs.rows,
+                &obs.row_starts,
+                &years,
+                out,
+                false,
+                20_000,
+            )
+            .expect("TMRCA decoding failed");
+            let mass: f64 = data.state_mass.iter().sum();
+            return (mass, 0);
+        }
         if args.loglike {
             let loglike = log_likelihood(
                 model.prior_matrix(),

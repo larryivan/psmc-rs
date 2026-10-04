@@ -482,6 +482,24 @@ impl Kernel {
         self.mul(w, beta_prev);
     }
 
+    /// Like [`Kernel::backward`], with `scale = 1 / sum(e(o) ∘ beta)`.
+    /// Used where only the direction of beta matters (posterior decoding).
+    #[inline]
+    pub(crate) fn backward_normalised(
+        &self,
+        beta: &[f64],
+        o: u8,
+        w: &mut [f64],
+        beta_prev: &mut [f64],
+    ) {
+        let em = &self.em[o as usize];
+        for ((d, &b), &e) in w.iter_mut().zip(beta).zip(em) {
+            *d = e * b;
+        }
+        normalise(w);
+        self.mul(w, beta_prev);
+    }
+
     /// `m[i][j] += sum_b u[b][i] * w[b][j]` over `rows` rows of `u` and `w`
     /// (each row `np` long). With `u` the forward vectors at sites `t - 1`
     /// and `w` the backward weights at sites `t`, `a[i][j] * m[i][j]` is the

@@ -356,3 +356,110 @@ pub(crate) fn e_step(
     drop(reservation);
     Ok(())
 }
+
+/// Checkpoints for posterior decoding of one sequence.
+pub(crate) struct DecodeCheckpoints {
+    /// Forward vector before each segment (row 0 unused).
+    alpha: Vec<f64>,
+    /// Backward vector, normalised to sum 1, at the last site of each segment.
+    beta: Vec<f64>,
+}
+
+/// Forward and backward checkpoint passes for posterior decoding; the two
+/// passes are independent and run concurrently.
+pub(crate) fn decode_checkpoints(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ctx: &Ctx<'_>,
+) -> Result<DecodeCheckpoints> {
+    let np = k.np();
+    let (fwd, bwd) = rayon::join(
+        || -> Result<Vec<f64>> {
+            let mut ws = Workspace::new(np);
+            forward_pass(k, seq, &mut ws, true, None, ctx)?;
+            Ok(ws.ckpt)
+        },
+        || -> Result<Vec<f64>> {
+            let n_seg = seq.n_segments();
+            let mut out = vec![0.0; n_seg * np];
+            let mut obs = [0u8; K];
+            let mut w = vec![0.0; np];
+            let mut beta = vec![0.0; np];
+            let mut beta_next = vec![0.0; np];
+            beta[..k.n_states()].fill(1.0);
+            for s in (0..n_seg).rev() {
+                ctx.check_cancel()?;
+                out[s * np..(s + 1) * np].copy_from_slice(&beta);
+                let (start, len) = seq.segment(s);
+                seq.read(start, &mut obs[..len]);
+                for t in (usize::from(s == 0)..len).rev() {
+                    k.backward_normalised(&beta, obs[t], &mut w, &mut beta_next);
+                    std::mem::swap(&mut beta, &mut beta_next);
+                }
+                ctx.progress
+                    .backward
+                    .fetch_add(len as u64, Ordering::Relaxed);
+            }
+            Ok(out)
+        },
+    );
+    Ok(DecodeCheckpoints {
+        alpha: fwd?,
+        beta: bwd?,
+    })
+}
+
+/// Posterior state probabilities of the sites of segment `s`, written as
+/// rows of `post` (`np` per site; padded entries are zero).
+pub(crate) fn segment_posteriors(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ckpt: &DecodeCheckpoints,
+    s: usize,
+    ws: &mut Workspace,
+    post: &mut [f64],
+) -> Result<()> {
+    let np = ws.np;
+    let (start, len) = seq.segment(s);
+    let Workspace {
+        obs,
+        rows,
+        c,
+        w,
+        beta,
+        beta_next,
+        ..
+    } = ws;
+    let obs = &mut obs[..len];
+    seq.read(start, obs);
+    recompute_segment(k, s, obs, &ckpt.alpha, rows, c);
+    beta.copy_from_slice(&ckpt.beta[s * np..(s + 1) * np]);
+    for t in (0..len).rev() {
+        let alpha_t = &rows[(t + 1) * np..(t + 2) * np];
+        let p = &mut post[t * np..(t + 1) * np];
+        let mut norm = 0.0;
+        for ((d, &a), &b) in p.iter_mut().zip(alpha_t).zip(beta.iter()) {
+            *d = a * b;
+            norm += *d;
+        }
+        if norm.is_nan() || norm <= 0.0 {
+            bail!("normalization factor is zero in TMRCA posterior");
+        }
+        let inv = 1.0 / norm;
+        for d in p.iter_mut() {
+            *d *= inv;
+        }
+        if t > 0 {
+            k.backward_normalised(beta, obs[t], &mut w[..np], beta_next);
+            std::mem::swap(beta, beta_next);
+        }
+    }
+    Ok(())
+}
+
+/// Observation classes of segment `s` (for writers that need them alongside posteriors).
+pub(crate) fn segment_obs(seq: &SeqObs<'_>, s: usize, out: &mut Vec<u8>) {
+    let (start, len) = seq.segment(s);
+    out.resize(len, 0);
+    seq.read(start, out);
+}

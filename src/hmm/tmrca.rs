@@ -1,35 +1,27 @@
 //! Posterior TMRCA decoding written as a per-site TSV.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use ndarray::Array2;
+use rayon::prelude::*;
+use std::fmt::Write as _;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use super::TmrcaReportData;
+use super::fb::{self, Ctx, Progress, SeqObs, Workspace};
+use super::kernel::Kernel;
+use super::sched::Plan;
+use super::{AlphaCacheBudget, CHECKPOINT_STRIDE, TmrcaReportData, validate};
 use crate::progress;
 
-#[inline]
-fn obs_to_idx(v: u8) -> usize {
-    if v == 0 {
-        0
-    } else if v == 1 {
-        1
-    } else {
-        2
-    }
-}
+/// Segments decoded and formatted per parallel task (and per gzip member).
+const SEGMENTS_PER_BLOCK: usize = 8;
+/// Blocks held in memory at once while writing in order.
+const BLOCKS_PER_WINDOW: usize = 64;
 
-#[inline]
-fn obs_to_char(v: u8) -> char {
-    if v == 0 {
-        'T'
-    } else if v == 1 {
-        'K'
-    } else {
-        'N'
-    }
-}
+const HEADER: &str = "seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\ttmrca_q025_years\ttmrca_q975_years\tpmax\tentropy\n";
 
 #[inline]
 fn quantile_from_probs(probs: &[f64], state_years: &[f64], q: f64) -> f64 {
@@ -48,79 +40,154 @@ fn quantile_from_probs(probs: &[f64], state_years: &[f64], q: f64) -> f64 {
     state_years.last().copied().unwrap_or(0.0)
 }
 
-#[inline]
-fn matvec_row_major(src: &[f64], a_row: &[f64], dst: &mut [f64]) {
-    let n_states = src.len();
-    debug_assert_eq!(dst.len(), n_states);
-    dst.fill(0.0);
-    for i in 0..n_states {
-        let s = src[i];
-        let row = &a_row[i * n_states..(i + 1) * n_states];
-        let mut k = 0usize;
-        while k + 4 <= n_states {
-            dst[k] += s * row[k];
-            dst[k + 1] += s * row[k + 1];
-            dst[k + 2] += s * row[k + 2];
-            dst[k + 3] += s * row[k + 3];
-            k += 4;
-        }
-        while k < n_states {
-            dst[k] += s * row[k];
-            k += 1;
-        }
+fn obs_char(class: u8) -> char {
+    match class {
+        0 => 'T',
+        1 => 'K',
+        _ => 'N',
     }
 }
 
+/// Output sink: plain text, or gzip when the path ends in `.gz`.
+enum Sink {
+    Plain(BufWriter<File>),
+    /// Blocks are compressed in parallel into independent gzip members and
+    /// concatenated (a valid multi-member gzip file, like bgzip output).
+    Gzip(BufWriter<File>),
+}
+
+impl Sink {
+    fn create(path: &Path) -> Result<Self> {
+        let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
+        let w = BufWriter::new(file);
+        let gz = path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
+        Ok(if gz { Self::Gzip(w) } else { Self::Plain(w) })
+    }
+
+    fn is_gzip(&self) -> bool {
+        matches!(self, Self::Gzip(_))
+    }
+
+    /// Bytes ready to append: the text itself, or a gzip member of it.
+    fn encode(gzip: bool, text: String) -> Result<Vec<u8>> {
+        if !gzip {
+            return Ok(text.into_bytes());
+        }
+        let mut enc = GzEncoder::new(Vec::with_capacity(text.len() / 4), Compression::default());
+        enc.write_all(text.as_bytes())?;
+        Ok(enc.finish()?)
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<()> {
+        match self {
+            Self::Plain(w) | Self::Gzip(w) => w.write_all(bytes)?,
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<()> {
+        match self {
+            Self::Plain(mut w) | Self::Gzip(mut w) => w.flush()?,
+        }
+        Ok(())
+    }
+}
+
+struct BlockOut {
+    bytes: Vec<u8>,
+    state_mass: Vec<f64>,
+    samples: Vec<[f64; 5]>,
+}
+
+struct SeqInfo<'a> {
+    seq: SeqObs<'a>,
+    seq_id: usize,
+    global_offset: usize,
+}
+
+/// Decode segments `segs` of one sequence: posterior summaries per site,
+/// formatted as TSV lines.
 #[allow(clippy::too_many_arguments)]
-fn forward_fill_row(
-    pi: &[f64],
-    a_row: &[f64],
-    em_rows: &[Vec<f64>; 3],
-    obs_row: &[u8],
-    start_prev: Option<&[f64]>,
-    alpha_row: &mut [f64],
-    c_norm: &mut [f64],
-    tmp: &mut [f64],
-) -> Result<()> {
-    let s_max = obs_row.len();
-    let n_states = pi.len();
-    for t in 0..s_max {
-        let obs = obs_to_idx(obs_row[t]);
-        let em_obs = &em_rows[obs];
-
-        let mut norm = 0.0f64;
-        if t == 0 && start_prev.is_none() {
-            for k in 0..n_states {
-                let v = pi[k] * em_obs[k];
-                tmp[k] = v;
-                norm += v;
+fn decode_block(
+    k: &Kernel,
+    info: &SeqInfo<'_>,
+    ckpt: &fb::DecodeCheckpoints,
+    segs: std::ops::Range<usize>,
+    years: &[f64],
+    stride: usize,
+    gzip: bool,
+    scratch: &mut (Workspace, Vec<f64>, Vec<u8>),
+) -> Result<BlockOut> {
+    let (ws, post, obs) = scratch;
+    let n = k.n_states();
+    let np = k.np();
+    let mut text = String::with_capacity(segs.len() * CHECKPOINT_STRIDE * 140);
+    let mut state_mass = vec![0.0f64; n];
+    let mut samples = Vec::new();
+    for s in segs {
+        fb::segment_posteriors(k, &info.seq, ckpt, s, ws, post)?;
+        fb::segment_obs(&info.seq, s, obs);
+        let (start, _) = info.seq.segment(s);
+        for (t, &o) in obs.iter().enumerate() {
+            let p = &post[t * np..t * np + n];
+            let mut mean = 0.0f64;
+            let mut max_p = -1.0f64;
+            let mut max_k = 0usize;
+            let mut entropy = 0.0f64;
+            for (kk, &pk) in p.iter().enumerate() {
+                state_mass[kk] += pk;
+                mean += pk * years[kk];
+                if pk > max_p {
+                    max_p = pk;
+                    max_k = kk;
+                }
+                if pk > 0.0 {
+                    entropy -= pk * pk.ln();
+                }
             }
-        } else {
-            let src = if t == 0 {
-                start_prev.expect("checked is_some above")
-            } else {
-                &alpha_row[(t - 1) * n_states..t * n_states]
-            };
-            matvec_row_major(src, a_row, tmp);
-            for k in 0..n_states {
-                let v = tmp[k] * em_obs[k];
-                tmp[k] = v;
-                norm += v;
+            let map_years = years[max_k];
+            let q025 = quantile_from_probs(p, years, 0.025);
+            let q975 = quantile_from_probs(p, years, 0.975);
+            let seq_bin = start + t;
+            let global_bin = info.global_offset + seq_bin;
+            writeln!(
+                text,
+                "{}\t{}\t{}\t{}\t{}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
+                info.seq_id,
+                seq_bin,
+                global_bin,
+                obs_char(o),
+                max_k,
+                map_years,
+                mean,
+                q025,
+                q975,
+                max_p,
+                entropy,
+            )
+            .expect("writing to a String cannot fail");
+            if global_bin.is_multiple_of(stride) {
+                samples.push([global_bin as f64, mean, map_years, q025, q975]);
             }
-        }
-
-        if norm <= 0.0 {
-            bail!("normalization factor is zero in forward pass");
-        }
-        c_norm[t] = norm;
-        let alpha_t = &mut alpha_row[t * n_states..(t + 1) * n_states];
-        for k in 0..n_states {
-            alpha_t[k] = tmp[k] / norm;
         }
     }
-    Ok(())
+    Ok(BlockOut {
+        bytes: Sink::encode(gzip, text)?,
+        state_mass,
+        samples,
+    })
 }
 
+/// Posterior decoding of the time to the most recent common ancestor, one
+/// TSV line per bin (gzip-compressed when `out_path` ends in `.gz`).
+///
+/// `tmrca_years[k]` is the time assigned to state `k`. Memory is bounded:
+/// each sequence keeps forward and backward checkpoints every
+/// [`CHECKPOINT_STRIDE`] sites, and blocks of segments are decoded in parallel
+/// and written in order. Returns summaries for the HTML report (at most about
+/// `max_points` sampled bins; 0 samples every bin).
 #[allow(clippy::too_many_arguments)]
 pub fn write_tmrca_posterior_tsv(
     pi: &[f64],
@@ -133,23 +200,8 @@ pub fn write_tmrca_posterior_tsv(
     progress_enabled: bool,
     max_points: usize,
 ) -> Result<TmrcaReportData> {
-    let n_rows = rows.len();
+    validate(pi, a, em, rows, row_starts)?;
     let n_states = pi.len();
-    if n_rows == 0 {
-        bail!("empty input rows for TMRCA posterior");
-    }
-    if row_starts.len() != n_rows {
-        bail!("row_starts length mismatch");
-    }
-    if !row_starts[0] {
-        bail!("row_starts[0] must be true");
-    }
-    if a.nrows() != n_states || a.ncols() != n_states {
-        bail!("transition matrix shape mismatch");
-    }
-    if em.nrows() < 3 || em.ncols() != n_states {
-        bail!("emission matrix shape mismatch");
-    }
     if tmrca_years.len() != n_states {
         bail!(
             "tmrca_years length {} != n_states {}",
@@ -157,282 +209,96 @@ pub fn write_tmrca_posterior_tsv(
             n_states
         );
     }
-    for (i, row) in rows.iter().enumerate() {
-        if row.is_empty() {
-            bail!("empty observation row at index {i}");
-        }
-    }
-
-    let total_sites: usize = rows.iter().map(Vec::len).sum();
-    let max_row_len = rows.iter().map(Vec::len).max().unwrap_or(0);
-    let mut alpha_row_buf = vec![0.0f64; max_row_len * n_states];
-    let mut c_norm_buf = vec![0.0f64; max_row_len];
-    let mut tmp = vec![0.0f64; n_states];
-    let mut beta = vec![1.0f64; n_states];
-    let mut beta_new = vec![0.0f64; n_states];
-    let mut emit_beta = vec![0.0f64; n_states];
-
-    let mut a_row = vec![0.0f64; n_states * n_states];
-    for i in 0..n_states {
-        for j in 0..n_states {
-            a_row[i * n_states + j] = a[(i, j)];
-        }
-    }
-    let em_rows = [em.row(0).to_vec(), em.row(1).to_vec(), em.row(2).to_vec()];
-
-    let pb_prep = if progress_enabled && total_sites > 0 {
-        Some(progress::bar_raw(total_sites as u64, "TMRCA", "prep"))
-    } else {
-        None
-    };
-
-    let mut row_prev_alpha: Vec<Option<Vec<f64>>> = vec![None; n_rows];
-    let mut prev_end = vec![0.0f64; n_states];
-    for (r, obs_row) in rows.iter().enumerate() {
-        let s_max = obs_row.len();
-        let alpha_row = &mut alpha_row_buf[..s_max * n_states];
-        let c_norm = &mut c_norm_buf[..s_max];
-        if !row_starts[r] {
-            row_prev_alpha[r] = Some(prev_end.clone());
-        }
-        let start_prev = row_prev_alpha[r].as_deref();
-        forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
-        )?;
-        prev_end.copy_from_slice(&alpha_row[(s_max - 1) * n_states..s_max * n_states]);
-        if let Some(pb) = &pb_prep {
-            pb.inc(s_max as u64);
-        }
-    }
-    if let Some(pb) = pb_prep {
-        pb.finish_with_message("TMRCA prep done");
-    }
-
-    let pb_back = if progress_enabled && total_sites > 0 {
-        Some(progress::bar_raw(total_sites as u64, "TMRCA", "backward"))
-    } else {
-        None
-    };
-
-    let mut row_end_beta: Vec<Vec<f64>> = vec![vec![1.0f64; n_states]; n_rows];
-    beta.fill(1.0);
-    for r_rev in 0..n_rows {
-        let r = n_rows - 1 - r_rev;
-        row_end_beta[r].copy_from_slice(&beta);
-
-        let obs_row = &rows[r];
-        let s_max = obs_row.len();
-        let alpha_row = &mut alpha_row_buf[..s_max * n_states];
-        let c_norm = &mut c_norm_buf[..s_max];
-        let start_prev = row_prev_alpha[r].as_deref();
-        forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
-        )?;
-
-        for t_rev in 0..s_max {
-            let t = s_max - 1 - t_rev;
-            if t == 0 && row_starts[r] {
-                continue;
-            }
-            let obs = obs_to_idx(obs_row[t]);
-            let norm_t = c_norm[t];
-            let inv_norm_t = 1.0 / norm_t;
-            let em_obs = &em_rows[obs];
-            for j in 0..n_states {
-                emit_beta[j] = em_obs[j] * beta[j];
-            }
-            for i in 0..n_states {
-                let a_i = &a_row[i * n_states..(i + 1) * n_states];
-                let mut acc = 0.0;
-                for j in 0..n_states {
-                    acc += a_i[j] * emit_beta[j];
-                }
-                beta_new[i] = acc * inv_norm_t;
-            }
-            std::mem::swap(&mut beta, &mut beta_new);
-        }
-
-        if row_starts[r] {
-            beta.fill(1.0);
-        }
-        if let Some(pb) = &pb_back {
-            pb.inc(s_max as u64);
-        }
-    }
-    if let Some(pb) = pb_back {
-        pb.finish_with_message("TMRCA backward done");
-    }
-
-    let mut row_seq_id = vec![0usize; n_rows];
-    let mut row_seq_offset = vec![0usize; n_rows];
-    let mut seq_id = 0usize;
-    let mut seq_offset = 0usize;
-    let mut seq_count = 0usize;
-    for r in 0..n_rows {
-        if row_starts[r] {
-            if r == 0 {
-                seq_id = 0;
-                seq_count = 1;
-            } else {
-                seq_id += 1;
-                seq_count += 1;
-            }
-            seq_offset = 0;
-        }
-        row_seq_id[r] = seq_id;
-        row_seq_offset[r] = seq_offset;
-        seq_offset += rows[r].len();
-    }
-
-    let pb_out = if progress_enabled && total_sites > 0 {
-        Some(progress::bar_raw(total_sites as u64, "TMRCA", "write"))
-    } else {
-        None
-    };
-
-    let file = File::create(out_path)?;
-    let mut writer = BufWriter::new(file);
-    writer.write_all(
-        b"seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\ttmrca_q025_years\ttmrca_q975_years\tpmax\tentropy\n",
-    )?;
-
-    let mut state_mass = vec![0.0f64; n_states];
-    let mut global_bin = 0usize;
+    let kernel = Kernel::new(pi, a, em);
+    let np = kernel.np();
+    let plan = Plan::new(rows, row_starts);
+    let total_sites = plan.total_sites as usize;
     let stride = if max_points == 0 {
         1
     } else {
         total_sites.div_ceil(max_points).max(1)
     };
-    let mut sampled_mean = Vec::<[f64; 2]>::new();
-    let mut sampled_map = Vec::<[f64; 2]>::new();
-    let mut sampled_lo = Vec::<[f64; 2]>::new();
-    let mut sampled_hi = Vec::<[f64; 2]>::new();
+    let progress = Progress::default();
+    let budget = AlphaCacheBudget::new(0);
+    let ctx = Ctx {
+        cancel: None,
+        progress: &progress,
+        budget: &budget,
+    };
+    let pb = (progress_enabled && total_sites > 0)
+        .then(|| progress::bar_raw(total_sites as u64, "TMRCA", "posterior"));
 
-    for (r, obs_row) in rows.iter().enumerate() {
-        let s_max = obs_row.len();
-        let alpha_row = &mut alpha_row_buf[..s_max * n_states];
-        let c_norm = &mut c_norm_buf[..s_max];
-        let start_prev = row_prev_alpha[r].as_deref();
-        forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
-        )?;
-        beta.copy_from_slice(&row_end_beta[r]);
+    let mut sink = Sink::create(out_path)?;
+    let gzip = sink.is_gzip();
+    sink.write(&Sink::encode(gzip, HEADER.to_string())?)?;
 
-        let mut mean_years = vec![0.0f64; s_max];
-        let mut map_years = vec![0.0f64; s_max];
-        let mut q025_years = vec![0.0f64; s_max];
-        let mut q975_years = vec![0.0f64; s_max];
-        let mut map_state = vec![0usize; s_max];
-        let mut pmax_vals = vec![0.0f64; s_max];
-        let mut entropy_vals = vec![0.0f64; s_max];
-
-        for t_rev in 0..s_max {
-            let t = s_max - 1 - t_rev;
-            let obs = obs_to_idx(obs_row[t]);
-            let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
-
-            let mut gamma_norm = 0.0f64;
-            for k in 0..n_states {
-                let g = alpha_t[k] * beta[k];
-                tmp[k] = g;
-                gamma_norm += g;
-            }
-            if gamma_norm <= 0.0 {
-                bail!("normalization factor is zero in TMRCA posterior");
-            }
-            let inv_gamma_norm = 1.0 / gamma_norm;
-
-            let mut mean = 0.0f64;
-            let mut max_p = -1.0f64;
-            let mut max_k = 0usize;
-            let mut entropy = 0.0f64;
-            for k in 0..n_states {
-                let p = tmp[k] * inv_gamma_norm;
-                tmp[k] = p;
-                state_mass[k] += p;
-                mean += p * tmrca_years[k];
-                if p > max_p {
-                    max_p = p;
-                    max_k = k;
+    let mut state_mass = vec![0.0f64; n_states];
+    let mut samples: Vec<[f64; 5]> = Vec::new();
+    let mut global_offset = 0usize;
+    for (seq_id, seq_rows) in plan.seqs.iter().enumerate() {
+        let info = SeqInfo {
+            seq: SeqObs::new(&rows[seq_rows.clone()]),
+            seq_id,
+            global_offset,
+        };
+        let ckpt = fb::decode_checkpoints(&kernel, &info.seq, &ctx)?;
+        let n_seg = info.seq.n_segments();
+        let n_blocks = n_seg.div_ceil(SEGMENTS_PER_BLOCK);
+        for w0 in (0..n_blocks).step_by(BLOCKS_PER_WINDOW) {
+            let w1 = (w0 + BLOCKS_PER_WINDOW).min(n_blocks);
+            let outs = (w0..w1)
+                .into_par_iter()
+                .map_init(
+                    || {
+                        (
+                            Workspace::new(np),
+                            vec![0.0; CHECKPOINT_STRIDE * np],
+                            Vec::new(),
+                        )
+                    },
+                    |scratch, b| {
+                        let segs =
+                            b * SEGMENTS_PER_BLOCK..((b + 1) * SEGMENTS_PER_BLOCK).min(n_seg);
+                        decode_block(
+                            &kernel,
+                            &info,
+                            &ckpt,
+                            segs,
+                            tmrca_years,
+                            stride,
+                            gzip,
+                            scratch,
+                        )
+                    },
+                )
+                .collect::<Result<Vec<_>>>()?;
+            for out in outs {
+                sink.write(&out.bytes)?;
+                for (d, s) in state_mass.iter_mut().zip(&out.state_mass) {
+                    *d += *s;
                 }
-                if p > 0.0 {
-                    entropy -= p * p.ln();
-                }
+                samples.extend_from_slice(&out.samples);
             }
-            mean_years[t] = mean;
-            map_state[t] = max_k;
-            map_years[t] = tmrca_years[max_k];
-            q025_years[t] = quantile_from_probs(&tmp[..n_states], tmrca_years, 0.025);
-            q975_years[t] = quantile_from_probs(&tmp[..n_states], tmrca_years, 0.975);
-            pmax_vals[t] = max_p;
-            entropy_vals[t] = entropy;
-
-            if t == 0 && row_starts[r] {
-                continue;
+            if let Some(pb) = &pb {
+                let done = (w1 * SEGMENTS_PER_BLOCK * CHECKPOINT_STRIDE).min(info.seq.len());
+                pb.set_position((global_offset + done) as u64);
             }
-            let norm_t = c_norm[t];
-            let inv_norm_t = 1.0 / norm_t;
-            let em_obs = &em_rows[obs];
-            for j in 0..n_states {
-                emit_beta[j] = em_obs[j] * beta[j];
-            }
-            for i in 0..n_states {
-                let a_i = &a_row[i * n_states..(i + 1) * n_states];
-                let mut acc = 0.0;
-                for j in 0..n_states {
-                    acc += a_i[j] * emit_beta[j];
-                }
-                beta_new[i] = acc * inv_norm_t;
-            }
-            std::mem::swap(&mut beta, &mut beta_new);
         }
-
-        for t in 0..s_max {
-            let seq_bin = row_seq_offset[r] + t;
-            let obs_ch = obs_to_char(obs_row[t]);
-            writeln!(
-                writer,
-                "{}\t{}\t{}\t{}\t{}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
-                row_seq_id[r],
-                seq_bin,
-                global_bin,
-                obs_ch,
-                map_state[t],
-                map_years[t],
-                mean_years[t],
-                q025_years[t],
-                q975_years[t],
-                pmax_vals[t],
-                entropy_vals[t],
-            )?;
-
-            if global_bin.is_multiple_of(stride) {
-                sampled_mean.push([global_bin as f64, mean_years[t]]);
-                sampled_map.push([global_bin as f64, map_years[t]]);
-                sampled_lo.push([global_bin as f64, q025_years[t]]);
-                sampled_hi.push([global_bin as f64, q975_years[t]]);
-            }
-            global_bin += 1;
-        }
-
-        if let Some(pb) = &pb_out {
-            pb.inc(s_max as u64);
-        }
+        global_offset += info.seq.len();
     }
-    writer.flush()?;
-
-    if let Some(pb) = pb_out {
-        pb.finish_with_message("TMRCA write done");
+    sink.finish()?;
+    if let Some(pb) = pb {
+        pb.finish_with_message("TMRCA done");
     }
 
     Ok(TmrcaReportData {
-        sampled_mean,
-        sampled_map,
-        sampled_lo,
-        sampled_hi,
+        sampled_mean: samples.iter().map(|s| [s[0], s[1]]).collect(),
+        sampled_map: samples.iter().map(|s| [s[0], s[2]]).collect(),
+        sampled_lo: samples.iter().map(|s| [s[0], s[3]]).collect(),
+        sampled_hi: samples.iter().map(|s| [s[0], s[4]]).collect(),
         state_mass,
         state_years: tmrca_years.to_vec(),
         total_sites,
-        seq_count,
+        seq_count: plan.seqs.len(),
     })
 }
