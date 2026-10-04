@@ -469,9 +469,12 @@ fn compute_params_dual(
         let sum_re = sum_t.re;
         let tau_re = tau[k].re;
         if !avg_re.is_finite() || avg_re < sum_re || avg_re > (sum_re + tau_re) {
+            // (tau * alpha[k+1]) / denom, in C's (and param_recalculate's)
+            // order: the cancellation in lak - term magnifies any rounding
+            // difference.
             let denom = &alpha[k] - &alpha[k + 1];
-            let term = &alpha[k + 1] / &denom;
-            avg_t = &sum_t + &(&lak - &(&tau[k] * &term));
+            let term = &(&tau[k] * &alpha[k + 1]) / &denom;
+            avg_t = &sum_t + &(&lak - &term);
         }
 
         let tmp = &ak1 / &cpik;
@@ -882,39 +885,106 @@ mod tests {
     const LAYOUTS: [(usize, Option<&str>); 3] =
         [(10, None), (22, Some("4+5*3+4")), (63, Some("4+25*2+4+6"))];
 
+    /// A model drawn from the whole region the M-step can reach: ρ and t_max
+    /// up to (near) their bounds and λ over six decades, so that the average
+    /// time falls back to the interval's conditional mean for k < n.
+    fn wide_random_model(rng: &mut Rng, n_steps: usize, pattern: Option<&str>) -> PsmcModel {
+        let theta = rng.log_uniform(1e-5, 1.0);
+        let rho = rng.log_uniform(1e-6, 5.0);
+        let t_max = rng.log_uniform(1.0, 200.0);
+        let mut model = PsmcModel::new(
+            t_max,
+            n_steps,
+            theta,
+            rho,
+            2.5e-8,
+            pattern.map(str::to_string),
+        )
+        .unwrap();
+        for lam in model.lam.iter_mut() {
+            *lam = rng.log_uniform(1e-3, 1e3);
+        }
+        model.param_recalculate().unwrap();
+        model
+    }
+
+    /// States whose average time is the fallback (the interval's conditional
+    /// mean coalescent time) rather than the log formula.
+    fn fallback_states(model: &PsmcModel) -> Vec<usize> {
+        let n = model.n_steps;
+        let (t, lam) = (&model.t, model.map_lam(&model.lam).unwrap());
+        let mut alpha = vec![1.0; n + 2];
+        for k in 1..=n {
+            alpha[k] = alpha[k - 1] * (-(t[k] - t[k - 1]) / lam[k - 1]).exp();
+        }
+        alpha[n + 1] = 0.0;
+        let avg = model.avg_t();
+        (0..=n)
+            .filter(|&k| {
+                let tau = t[k + 1] - t[k];
+                let mean = t[k] + lam[k] - tau * alpha[k + 1] / (alpha[k] - alpha[k + 1]);
+                (avg[k] - mean).abs() <= 1e-9 * mean.abs()
+            })
+            .collect()
+    }
+
+    /// Asserts that `compute_params_dual`'s values are bit-identical to
+    /// `param_recalculate`'s (NaN where it gives NaN).
+    fn assert_dual_values_equal(model: &PsmcModel) {
+        let n = model.n_steps;
+        let pattern = model.pattern.as_deref();
+        let params = pack_params(model);
+        let n_vars = params.len();
+        let vars: Vec<Dual> = (0..n_vars)
+            .map(|i| Dual::variable(params[i], n_vars, i))
+            .collect();
+        let lam_full = expand_lam_dual(&vars[3..], model.pattern_spec(), n).unwrap();
+        let (a, em) = compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
+        let same = |x: f64, y: f64| x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan());
+        // Same operations in the same order, so equal to the bit.
+        for ((k, l), v) in model.p_kl.indexed_iter() {
+            assert!(
+                same(a[k][l].re, *v),
+                "{pattern:?} theta={} rho={} t_max={} lam={:?} p_kl[{k}][{l}]: {} vs {v}",
+                model.theta,
+                model.rho,
+                model.t_max,
+                model.lam,
+                a[k][l].re
+            );
+        }
+        for ((b, k), v) in model.em.indexed_iter() {
+            assert!(
+                same(em[b][k].re, *v),
+                "{pattern:?} theta={} rho={} t_max={} lam={:?} em[{b}][{k}]: {} vs {v}",
+                model.theta,
+                model.rho,
+                model.t_max,
+                model.lam,
+                em[b][k].re
+            );
+        }
+    }
+
     #[test]
     fn dual_values_equal_param_recalculate() {
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+        let mut inner_fallbacks = 0;
         for (n, pattern) in LAYOUTS {
             for _ in 0..10 {
-                let model = random_model(&mut rng, n, pattern);
-                let params = pack_params(&model);
-                let n_vars = params.len();
-                let vars: Vec<Dual> = (0..n_vars)
-                    .map(|i| Dual::variable(params[i], n_vars, i))
-                    .collect();
-                let lam_full = expand_lam_dual(&vars[3..], model.pattern_spec(), n).unwrap();
-                let (a, em) =
-                    compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
-                // Same operations in the same order, so equal to the bit.
-                for ((k, l), v) in model.p_kl.indexed_iter() {
-                    assert_eq!(
-                        a[k][l].re.to_bits(),
-                        v.to_bits(),
-                        "{pattern:?} p_kl[{k}][{l}]: {} vs {v}",
-                        a[k][l].re
-                    );
-                }
-                for ((b, k), v) in model.em.indexed_iter() {
-                    assert_eq!(
-                        em[b][k].re.to_bits(),
-                        v.to_bits(),
-                        "{pattern:?} em[{b}][{k}]: {} vs {v}",
-                        em[b][k].re
-                    );
-                }
+                assert_dual_values_equal(&random_model(&mut rng, n, pattern));
+            }
+            for _ in 0..60 {
+                let model = wide_random_model(&mut rng, n, pattern);
+                inner_fallbacks += fallback_states(&model).iter().filter(|&&k| k < n).count();
+                assert_dual_values_equal(&model);
             }
         }
+        // The fallback branch of the average time must be exercised.
+        assert!(
+            inner_fallbacks >= 20,
+            "fallbacks exercised for k < n: {inner_fallbacks}"
+        );
     }
 
     /// Sufficient statistics of an E-step on a random sequence drawn with
