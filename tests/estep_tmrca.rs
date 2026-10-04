@@ -442,6 +442,22 @@ struct Input {
 }
 
 fn input(seed: u64) -> Input {
+    input_with_lengths(seed, &[3 * K + 5, 1, K - 1, K, K + 1, 2000])
+}
+
+/// Many short sequences around a long one that spans several windows of
+/// work units, plus lengths at the unit size (8 segments) and just past it.
+fn many_sequences_input(seed: u64) -> Input {
+    let mut rng = SmallRng::seed_from_u64(seed ^ 0x5eed);
+    let mut lens: Vec<usize> = (0..150).map(|_| rng.gen_range(1..=300)).collect();
+    lens.extend([8 * K, 8 * K + 1, 4 * K, 4 * K, 4 * K + 1, 3 * K]);
+    lens.push(70 * 8 * K + 37);
+    lens.extend((0..120).map(|_| rng.gen_range(1..=300)));
+    lens.extend([3000, 1, 2 * 8 * K]);
+    input_with_lengths(seed, &lens)
+}
+
+fn input_with_lengths(seed: u64, lens: &[usize]) -> Input {
     let mut rng = SmallRng::seed_from_u64(seed);
     let theta = rng.gen_range(1e-3..2e-2);
     let mut model = PsmcModel::new(
@@ -465,10 +481,7 @@ fn input(seed: u64) -> Input {
 
     let mut rows = Vec::new();
     let mut row_starts = Vec::new();
-    for (i, len) in [3 * K + 5, 1, K - 1, K, K + 1, 2000]
-        .into_iter()
-        .enumerate()
-    {
+    for (i, &len) in lens.iter().enumerate() {
         let mut seq: Vec<u8> = (0..len)
             .map(|_| u8::from(rng.gen_bool(theta * 2.0)))
             .collect();
@@ -546,61 +559,90 @@ fn assert_points_close(got: &[[f64; 2]], want: &[[f64; 2]], tol: f64, what: &str
 
 // ---- tests ------------------------------------------------------------------
 
+/// The writer's output agrees with the reference implementation's.
+fn assert_matches_reference(inp: &Input, what: &str) {
+    let (p_new, p_ref) = (
+        tmp_path(&format!("{what}_new.tsv")),
+        tmp_path(&format!("{what}_ref.tsv")),
+    );
+    let got = write_new(inp, &p_new);
+    let want = reference_tmrca(
+        inp.model.prior_matrix(),
+        inp.model.transition_matrix(),
+        inp.model.emission_matrix(),
+        &inp.rows,
+        &inp.row_starts,
+        &inp.years,
+        &p_ref,
+        500,
+    )
+    .unwrap();
+    let (t_new, t_ref) = (read_text(&p_new), read_text(&p_ref));
+    let _ = std::fs::remove_file(&p_new);
+    let _ = std::fs::remove_file(&p_ref);
+
+    let (l_new, l_ref): (Vec<&str>, Vec<&str>) = (t_new.lines().collect(), t_ref.lines().collect());
+    assert_eq!(l_new.len(), l_ref.len(), "{what}: line count");
+    assert_eq!(l_new[0], l_ref[0], "header");
+    for (a, b) in l_new.iter().zip(&l_ref).skip(1) {
+        let (ca, cb): (Vec<&str>, Vec<&str>) = (a.split('\t').collect(), b.split('\t').collect());
+        assert_eq!(ca.len(), 11);
+        // seq_id, seq_bin, global_bin, obs, map_state, MAP and quantile
+        // years are discrete; mean, pmax and entropy are printed to 9
+        // significant digits, so allow a difference in the last digit.
+        for col in [0, 1, 2, 3, 4, 5, 7, 8] {
+            assert_eq!(ca[col], cb[col], "{what}: column {col}\n{a}\n{b}");
+        }
+        for col in [6, 9, 10] {
+            let (x, y): (f64, f64) = (ca[col].parse().unwrap(), cb[col].parse().unwrap());
+            assert!(
+                rel(x, y) <= 1e-7 || (x - y).abs() < 1e-12,
+                "{what}: column {col}\n{a}\n{b}"
+            );
+        }
+    }
+
+    assert_eq!(got.total_sites, want.total_sites);
+    assert_eq!(got.seq_count, want.seq_count);
+    assert_eq!(got.state_years, want.state_years);
+    assert_points_close(&got.sampled_mean, &want.sampled_mean, 1e-12, "mean");
+    assert_points_close(&got.sampled_map, &want.sampled_map, 0.0, "map");
+    assert_points_close(&got.sampled_lo, &want.sampled_lo, 0.0, "q025");
+    assert_points_close(&got.sampled_hi, &want.sampled_hi, 0.0, "q975");
+    for (g, w) in got.state_mass.iter().zip(&want.state_mass) {
+        assert!(rel(*g, *w) <= 1e-10, "{what}: state mass {g} vs {w}");
+    }
+}
+
 #[test]
 fn matches_reference_implementation() {
     for seed in 0..3 {
-        let inp = input(seed);
-        let (p_new, p_ref) = (tmp_path("new.tsv"), tmp_path("ref.tsv"));
-        let got = write_new(&inp, &p_new);
-        let want = reference_tmrca(
-            inp.model.prior_matrix(),
-            inp.model.transition_matrix(),
-            inp.model.emission_matrix(),
-            &inp.rows,
-            &inp.row_starts,
-            &inp.years,
-            &p_ref,
-            500,
-        )
-        .unwrap();
-        let (t_new, t_ref) = (read_text(&p_new), read_text(&p_ref));
-        let _ = std::fs::remove_file(&p_new);
-        let _ = std::fs::remove_file(&p_ref);
-
-        let (l_new, l_ref): (Vec<&str>, Vec<&str>) =
-            (t_new.lines().collect(), t_ref.lines().collect());
-        assert_eq!(l_new.len(), l_ref.len(), "seed {seed}: line count");
-        assert_eq!(l_new[0], l_ref[0], "header");
-        for (a, b) in l_new.iter().zip(&l_ref).skip(1) {
-            let (ca, cb): (Vec<&str>, Vec<&str>) =
-                (a.split('\t').collect(), b.split('\t').collect());
-            assert_eq!(ca.len(), 11);
-            // seq_id, seq_bin, global_bin, obs, map_state, MAP and quantile
-            // years are discrete; mean, pmax and entropy are printed to 9
-            // significant digits, so allow a difference in the last digit.
-            for col in [0, 1, 2, 3, 4, 5, 7, 8] {
-                assert_eq!(ca[col], cb[col], "seed {seed}: column {col}\n{a}\n{b}");
-            }
-            for col in [6, 9, 10] {
-                let (x, y): (f64, f64) = (ca[col].parse().unwrap(), cb[col].parse().unwrap());
-                assert!(
-                    rel(x, y) <= 1e-7 || (x - y).abs() < 1e-12,
-                    "seed {seed}: column {col}\n{a}\n{b}"
-                );
-            }
-        }
-
-        assert_eq!(got.total_sites, want.total_sites);
-        assert_eq!(got.seq_count, want.seq_count);
-        assert_eq!(got.state_years, want.state_years);
-        assert_points_close(&got.sampled_mean, &want.sampled_mean, 1e-12, "mean");
-        assert_points_close(&got.sampled_map, &want.sampled_map, 0.0, "map");
-        assert_points_close(&got.sampled_lo, &want.sampled_lo, 0.0, "q025");
-        assert_points_close(&got.sampled_hi, &want.sampled_hi, 0.0, "q975");
-        for (g, w) in got.state_mass.iter().zip(&want.state_mass) {
-            assert!(rel(*g, *w) <= 1e-10, "state mass {g} vs {w}");
-        }
+        assert_matches_reference(&input(seed), &format!("seed{seed}"));
     }
+}
+
+/// Short sequences are decoded whole, several per task, and a long one in
+/// blocks from checkpoints carried across windows of tasks; both must agree
+/// with the reference and give the same bytes for any thread count.
+#[test]
+fn many_sequences_match_reference_for_any_thread_count() {
+    let inp = many_sequences_input(3);
+    assert!(inp.row_starts.iter().filter(|s| **s).count() > 250);
+    assert_matches_reference(&inp, "many");
+    let mut outputs = Vec::new();
+    for threads in [1, 3] {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        let path = tmp_path(&format!("many_threads{threads}.tsv"));
+        let data = pool.install(|| write_new(&inp, &path));
+        outputs.push((std::fs::read(&path).unwrap(), data));
+        let _ = std::fs::remove_file(&path);
+    }
+    assert!(outputs[0].0 == outputs[1].0, "output bytes differ");
+    assert_eq!(outputs[0].1.state_mass, outputs[1].1.state_mass);
+    assert_eq!(outputs[0].1.sampled_mean, outputs[1].1.sampled_mean);
 }
 
 #[test]

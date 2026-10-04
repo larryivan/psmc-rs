@@ -247,6 +247,8 @@ fn forward_pass(
 
 /// Recompute the forward vectors of segment `s` from its checkpoint into
 /// `rows` (row 0: the vector before the segment) and the normalisers into `c`.
+/// For `s == 0` the recursion starts at the first site, needs no checkpoint,
+/// and `obs` may run past the first segment.
 fn recompute_segment(
     k: &Kernel,
     s: usize,
@@ -369,7 +371,8 @@ pub(crate) fn e_step(
 pub(crate) struct DecodeCheckpoints {
     /// Forward vector before each segment (row 0 unused).
     alpha: Vec<f64>,
-    /// Backward vector, normalised to sum 1, at the last site of each segment.
+    /// Backward vector at the last site of each segment, up to a constant
+    /// factor (all ones for the last segment).
     beta: Vec<f64>,
 }
 
@@ -417,16 +420,52 @@ pub(crate) fn decode_checkpoints(
     })
 }
 
-/// Posterior state probabilities of the sites of segment `s`, written as
-/// rows of `post` (`np` per site; padded entries are zero).
-pub(crate) fn segment_posteriors(
+/// Walk backward over sites `0..obs.len()`, turning forward vectors into
+/// posterior state probabilities in place: row `t + 1` of `rows` holds the
+/// forward vector of site `t` on entry and its posterior on return. `beta` is
+/// the normalised backward vector of the last site; `beta_next` and `w` are
+/// scratch.
+fn posteriors_in_place<'b>(
+    k: &Kernel,
+    obs: &[u8],
+    rows: &mut [f64],
+    mut beta: &'b mut [f64],
+    mut beta_next: &'b mut [f64],
+    w: &mut [f64],
+) -> Result<()> {
+    let np = k.np();
+    for t in (0..obs.len()).rev() {
+        let p = &mut rows[(t + 1) * np..(t + 2) * np];
+        let mut norm = 0.0;
+        for (d, &b) in p.iter_mut().zip(beta.iter()) {
+            *d *= b;
+            norm += *d;
+        }
+        if norm.is_nan() || norm <= 0.0 {
+            bail!("normalization factor is zero in TMRCA posterior");
+        }
+        let inv = 1.0 / norm;
+        for d in p.iter_mut() {
+            *d *= inv;
+        }
+        if t > 0 {
+            k.backward_normalised(beta, obs[t], w, beta_next);
+            std::mem::swap(&mut beta, &mut beta_next);
+        }
+    }
+    Ok(())
+}
+
+/// Posterior state probabilities of the sites of segment `s`, from the
+/// checkpoints. Returns the segment's observation classes and its
+/// posteriors (`np` values per site, padded entries zero), both held in `ws`.
+pub(crate) fn segment_posteriors<'w>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ckpt: &DecodeCheckpoints,
     s: usize,
-    ws: &mut Workspace,
-    post: &mut [f64],
-) -> Result<()> {
+    ws: &'w mut Workspace,
+) -> Result<(&'w [u8], &'w [f64])> {
     let np = ws.np;
     let (start, len) = seq.segment(s);
     let Workspace {
@@ -440,34 +479,47 @@ pub(crate) fn segment_posteriors(
     } = ws;
     let obs = &mut obs[..len];
     seq.read(start, obs);
+    let obs: &'w [u8] = obs;
     recompute_segment(k, s, obs, &ckpt.alpha, rows, c);
     beta.copy_from_slice(&ckpt.beta[s * np..(s + 1) * np]);
-    for t in (0..len).rev() {
-        let alpha_t = &rows[(t + 1) * np..(t + 2) * np];
-        let p = &mut post[t * np..(t + 1) * np];
-        let mut norm = 0.0;
-        for ((d, &a), &b) in p.iter_mut().zip(alpha_t).zip(beta.iter()) {
-            *d = a * b;
-            norm += *d;
-        }
-        if norm.is_nan() || norm <= 0.0 {
-            bail!("normalization factor is zero in TMRCA posterior");
-        }
-        let inv = 1.0 / norm;
-        for d in p.iter_mut() {
-            *d *= inv;
-        }
-        if t > 0 {
-            k.backward_normalised(beta, obs[t], &mut w[..np], beta_next);
-            std::mem::swap(beta, beta_next);
-        }
-    }
-    Ok(())
+    posteriors_in_place(k, obs, rows, beta, beta_next, &mut w[..np])?;
+    Ok((obs, &rows[np..(len + 1) * np]))
 }
 
-/// Observation classes of segment `s` (for writers that need them alongside posteriors).
-pub(crate) fn segment_obs(seq: &SeqObs<'_>, s: usize, out: &mut Vec<u8>) {
-    let (start, len) = seq.segment(s);
-    out.resize(len, 0);
-    seq.read(start, out);
+/// Like [`segment_posteriors`] for every site of `seq` at once, from its full
+/// forward rows instead of checkpoints: one forward and one backward pass,
+/// with bit-identical results (the same recursions run on the same inputs).
+/// For short sequences: `ws` grows to hold `seq.len() + 1` forward vectors.
+pub(crate) fn sequence_posteriors<'w>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ws: &'w mut Workspace,
+) -> Result<(&'w [u8], &'w [f64])> {
+    let np = ws.np;
+    let len = seq.len();
+    let Workspace {
+        obs,
+        rows,
+        c,
+        w,
+        beta,
+        beta_next,
+        ..
+    } = ws;
+    if obs.len() < len {
+        obs.resize(len, 0);
+        c.resize(len, 0.0);
+        rows.resize((len + 1) * np, 0.0);
+    }
+    let obs = &mut obs[..len];
+    seq.read(0, obs);
+    let obs: &'w [u8] = obs;
+    recompute_segment(k, 0, obs, &[], rows, c);
+    for &ct in &c[..len] {
+        check_norm(ct)?;
+    }
+    beta[..k.n_states()].fill(1.0);
+    beta[k.n_states()..].fill(0.0);
+    posteriors_in_place(k, obs, rows, beta, beta_next, &mut w[..np])?;
+    Ok((obs, &rows[np..(len + 1) * np]))
 }
