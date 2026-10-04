@@ -1,9 +1,13 @@
-//! Input quality control: metrics of a binned PSMC input.
+//! Input quality control: metrics, warnings and recommendations for a binned
+//! PSMC input.
 //!
 //! [`analyze`] turns the bins of a loaded dataset ([`QcInput`]) into a
 //! [`QcReport`]: T/K/N counts, θ0 (C psmc's starting value), called length,
 //! the sequence length distribution and missing-data runs, for the whole input
-//! and for each sequence. The report serialises to JSON with serde.
+//! and for each sequence, plus [`Finding`]s: warnings and notes with a stable
+//! [`QcCode`], the measured numbers and a recommendation. The rationale of
+//! each check is documented on its code. The report serialises to JSON with
+//! serde.
 //!
 //! Bins follow the psmcfa convention: 0 = `T` (called, no heterozygous site),
 //! 1 = `K` (at least one heterozygous site), anything else = `N` (missing).
@@ -13,11 +17,18 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::ops::Range;
 
+mod checks;
+mod fmt;
 mod stats;
 
+pub use checks::{
+    Finding, HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES,
+    MIN_HET_BINS, QcCode, SHORT_SEQUENCES_MAX_FRACTION, Severity,
+};
+
 pub use stats::{
-    bootstrap_trunks_of, het_per_site, initial_recombinations, max_bin_size_for_share,
-    multi_het_share, n50, theta0_per_bin,
+    bootstrap_trunks_of, het_per_site, initial_recombinations, largest_trunk_within,
+    max_bin_size_for_share, multi_het_share, n50, theta0_per_bin,
 };
 
 /// Share of `K` bins holding two or more heterozygous sites
@@ -86,6 +97,10 @@ impl QcSeq {
 pub struct QcContext {
     /// Input format, e.g. `"psmcfa"`, `"vcf"` or `"mhs"`; shown as is.
     pub input_format: Option<String>,
+    /// A VCF was read in mask mode without a positive (callable-sites) mask,
+    /// so every position without a record counted as called homozygous
+    /// ([`QcCode::VariantsOnlyNoMask`]).
+    pub variants_only_no_mask: bool,
 }
 
 /// What [`analyze`] looks at.
@@ -283,6 +298,8 @@ pub struct QcReport {
     /// C psmc's round-0 `n_recomb` for the whole input
     /// ([`initial_recombinations`] at [`DEFAULT_TR_RATIO`]).
     pub expected_recombinations: Option<f64>,
+    /// Warnings and notes: warnings first, then in [`QcCode`] order.
+    pub findings: Vec<Finding>,
     /// Per-sequence metrics: every sequence when there are at most
     /// [`MAX_SEQUENCE_ROWS`], otherwise the longest ones. Always in input
     /// order.
@@ -292,6 +309,18 @@ pub struct QcReport {
 }
 
 impl QcReport {
+    /// Whether any finding is a warning.
+    pub fn has_warnings(&self) -> bool {
+        self.findings
+            .iter()
+            .any(|f| f.severity == Severity::Warning)
+    }
+
+    /// The finding with this code, if any.
+    pub fn finding(&self, code: QcCode) -> Option<&Finding> {
+        self.findings.iter().find(|f| f.code == code)
+    }
+
     /// The report as pretty-printed JSON.
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("a QC report always serialises")
@@ -574,7 +603,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         }
     });
 
-    Ok(QcReport {
+    let mut report = QcReport {
         input_format: input.context.input_format.clone(),
         bin_size,
         bootstrap_trunk_bins: input.bootstrap_trunk_bins,
@@ -585,9 +614,13 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         longest_missing_run,
         saturation,
         expected_recombinations,
+        findings: Vec::new(),
         sequences,
         omitted,
-    })
+    };
+    let seq_bins: Vec<u64> = counts.iter().map(Counts::bins).collect();
+    report.findings = checks::run(input, &report, &seq_bins);
+    Ok(report)
 }
 
 fn length_stats(counts: &[Counts], trunk: u64, total_bins: u64) -> LengthStats {

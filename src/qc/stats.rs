@@ -66,6 +66,25 @@ pub fn bootstrap_trunks_of(len: u64, trunk: u64) -> u64 {
     full + u64::from(len > full * trunk)
 }
 
+/// Largest trunk size (in bins) at which sequences shorter than one trunk
+/// hold at most `max_fraction` (in `[0, 1)`) of all bins, given the
+/// sequence lengths in bins: the length of the sequence at which the running
+/// total, shortest first, first exceeds that share. 0 when there are no bins.
+pub fn largest_trunk_within(lengths: &[u64], max_fraction: f64) -> u64 {
+    let mut sorted = lengths.to_vec();
+    sorted.sort_unstable();
+    let total: u128 = sorted.iter().map(|&l| u128::from(l)).sum();
+    let limit = max_fraction * total as f64;
+    let mut cum: u128 = 0;
+    for &len in &sorted {
+        cum += u128::from(len);
+        if cum as f64 > limit {
+            return len;
+        }
+    }
+    sorted.last().copied().unwrap_or(0)
+}
+
 /// Per-site heterozygosity `h` implied by a share `p` of heterozygous bins
 /// among called bins of `bin_size` sites, when every site is heterozygous
 /// independently with probability `h`: a bin is `K` unless all its sites are

@@ -1,0 +1,398 @@
+//! Every QC warning, triggered and not triggered at its threshold.
+
+use psmc_rs::qc::{
+    Finding, HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES,
+    MIN_HET_BINS, QcCode, QcContext, QcInput, QcReport, QcSeq, SATURATION_TARGET_SHARE,
+    SATURATION_WARN_SHARE, SHORT_SEQUENCES_MAX_FRACTION, Severity, analyze, het_per_site,
+    largest_trunk_within, max_bin_size_for_share, multi_het_share,
+};
+
+/// Sequences given as (name, T, K, N) bin counts, laid out K..., T..., N....
+struct Data {
+    rows: Vec<Vec<u8>>,
+    starts: Vec<bool>,
+    seqs: Vec<QcSeq>,
+}
+
+fn data(spec: &[(&str, usize, usize, usize)]) -> Data {
+    let mut d = Data {
+        rows: Vec::new(),
+        starts: Vec::new(),
+        seqs: Vec::new(),
+    };
+    for &(name, t, k, n) in spec {
+        let mut row = vec![1u8; k];
+        row.resize(k + t, 0);
+        row.resize(k + t + n, 2);
+        d.seqs.push(QcSeq::new(name, row.len()));
+        d.rows.push(row);
+        d.starts.push(true);
+    }
+    d
+}
+
+fn qc(d: &Data, bin_size: usize, trunk: usize, context: QcContext) -> QcReport {
+    analyze(&QcInput {
+        rows: &d.rows,
+        row_starts: &d.starts,
+        seqs: &d.seqs,
+        bin_size,
+        bootstrap_trunk_bins: trunk,
+        context,
+    })
+}
+
+fn qc100(d: &Data) -> QcReport {
+    qc(d, 100, 0, QcContext::default())
+}
+
+fn find(r: &QcReport, code: QcCode) -> Option<&Finding> {
+    r.findings.iter().find(|f| f.code == code)
+}
+
+fn severity(r: &QcReport, code: QcCode) -> Option<Severity> {
+    find(r, code).map(|f| f.severity)
+}
+
+#[test]
+fn codes_serialise_to_their_stable_names() {
+    for &code in QcCode::ALL {
+        let json = serde_json::to_value(code).unwrap();
+        assert_eq!(json, code.as_str());
+    }
+    let names: Vec<&str> = QcCode::ALL.iter().map(|c| c.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "VARIANTS_ONLY_NO_MASK",
+            "HIGH_MISSING",
+            "BIN_SATURATION",
+            "FEW_HETS",
+            "TOO_SHORT",
+            "SHORT_SEQUENCES"
+        ]
+    );
+    assert_eq!(serde_json::to_value(Severity::Info).unwrap(), "info");
+    assert_eq!(serde_json::to_value(Severity::Warning).unwrap(), "warning");
+    assert_eq!(Severity::Warning.as_str(), "warning");
+}
+
+#[test]
+fn variants_only_no_mask() {
+    let d = data(&[("chr1", 2_000_000, 5_000, 10)]);
+    assert_eq!(severity(&qc100(&d), QcCode::VariantsOnlyNoMask), None);
+    let ctx = QcContext {
+        variants_only_no_mask: true,
+        ..QcContext::default()
+    };
+    let r = qc(&d, 100, 0, ctx);
+    let f = find(&r, QcCode::VariantsOnlyNoMask).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(f.message.contains("0.00050%"), "{}", f.message);
+    assert!(f.recommendation.contains("--vcf-mask"));
+    assert!(f.recommendation.contains("bcftools call -c"));
+}
+
+#[test]
+fn high_missing_thresholds() {
+    assert_eq!(
+        (HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION),
+        (0.25, 0.5)
+    );
+    // 1,000 bins, the given number missing.
+    let missing = |n: usize| qc100(&data(&[("chr1", 1000 - n - 100, 100, n)]));
+    assert_eq!(severity(&missing(250), QcCode::HighMissing), None);
+    assert_eq!(
+        severity(&missing(251), QcCode::HighMissing),
+        Some(Severity::Info)
+    );
+    assert_eq!(
+        severity(&missing(500), QcCode::HighMissing),
+        Some(Severity::Info)
+    );
+    let r = missing(501);
+    let f = find(&r, QcCode::HighMissing).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(
+        f.message.starts_with("50.1% of bins are missing"),
+        "{}",
+        f.message
+    );
+    assert!(
+        f.message.contains("only 49.9 kb of sequence"),
+        "{}",
+        f.message
+    );
+    assert!(f.recommendation.contains("25%"));
+}
+
+#[test]
+fn high_missing_reports_uncalled_sites_when_known() {
+    let mut d = data(&[("chr1", 300, 100, 600)]);
+    d.seqs[0].extent_bases = Some(100_000);
+    d.seqs[0].called_bases = Some(30_000);
+    let r = qc100(&d);
+    let f = find(&r, QcCode::HighMissing).unwrap();
+    assert!(
+        f.message.contains("; 70.0% of sites are uncalled"),
+        "{}",
+        f.message
+    );
+}
+
+/// K fraction at which the multi-het share reaches `share`, by bisection.
+fn het_fraction_at_share(share: f64, bin_size: usize) -> f64 {
+    let (mut lo, mut hi) = (0.0f64, 1.0f64);
+    for _ in 0..200 {
+        let mid = 0.5 * (lo + hi);
+        if multi_het_share(het_per_site(mid, bin_size), bin_size) > share {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    lo
+}
+
+#[test]
+fn bin_saturation_threshold() {
+    assert_eq!(
+        (SATURATION_WARN_SHARE, SATURATION_TARGET_SHARE),
+        (0.10, 0.05)
+    );
+    let called = 1_000_000usize;
+    let p = het_fraction_at_share(SATURATION_WARN_SHARE, 100);
+    let k_below = (p * called as f64).floor() as usize;
+    for (k, fires) in [(k_below, false), (k_below + 1, true)] {
+        let r = qc100(&data(&[("chr1", called - k, k, 0)]));
+        let share = r.saturation.as_ref().unwrap().multi_het_share;
+        assert_eq!(share > SATURATION_WARN_SHARE, fires, "k {k}: share {share}");
+        assert_eq!(find(&r, QcCode::BinSaturation).is_some(), fires, "k {k}");
+    }
+
+    let r = qc100(&data(&[("chr1", called - k_below - 1, k_below + 1, 0)]));
+    let f = find(&r, QcCode::BinSaturation).unwrap();
+    let h = het_per_site((k_below + 1) as f64 / called as f64, 100);
+    let best = max_bin_size_for_share(h, SATURATION_TARGET_SHARE).unwrap();
+    assert!((40..60).contains(&best), "{best}");
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(f.message.contains("At 100 bp per bin"), "{}", f.message);
+    assert!(f.message.contains("about 10.0% of K bins"), "{}", f.message);
+    assert!(
+        f.recommendation
+            .contains(&format!("at {best} bp per bin or less")),
+        "{}",
+        f.recommendation
+    );
+    assert!(f.recommendation.contains(&format!("fq2psmcfa -s {best}")));
+}
+
+#[test]
+fn share_grows_with_the_het_fraction() {
+    // The threshold search above relies on this.
+    for s in [2usize, 10, 100, 1000] {
+        let mut prev = 0.0;
+        for i in 1..1000 {
+            let f = multi_het_share(het_per_site(i as f64 / 1000.0, s), s);
+            assert!(f >= prev, "s {s}, p {}", i as f64 / 1000.0);
+            prev = f;
+        }
+    }
+}
+
+#[test]
+fn few_hets_threshold() {
+    assert_eq!(MIN_HET_BINS, 1000);
+    let r = qc100(&data(&[("chr1", 2_000_000, 999, 0)]));
+    let f = find(&r, QcCode::FewHets).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(
+        f.message
+            .starts_with("Only 999 heterozygous (K) bins, fewer than 1,000")
+    );
+    // C psmc's round-0 n_recomb for these data.
+    let n = r.expected_recombinations.unwrap();
+    assert!((n - 249.75).abs() < 0.1, "{n}");
+    assert!(
+        f.message.contains("about 250 recombinations"),
+        "{}",
+        f.message
+    );
+
+    let r = qc100(&data(&[("chr1", 2_000_000, 1000, 0)]));
+    assert_eq!(find(&r, QcCode::FewHets), None);
+}
+
+#[test]
+fn too_short_threshold_on_bins() {
+    assert_eq!(MIN_CALLED_BASES, 100_000_000);
+    // 100 bp bins: 1,000,000 called bins are exactly 100 Mb; N bins do not count.
+    let r = qc100(&data(&[("chr1", 990_000, 10_000, 5_000)]));
+    assert_eq!(find(&r, QcCode::TooShort), None);
+    let r = qc100(&data(&[("chr1", 989_999, 10_000, 5_000)]));
+    let f = find(&r, QcCode::TooShort).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(
+        f.message
+            .starts_with("Only 99.9 Mb of called sequence (bases in called bins)"),
+        "{}",
+        f.message
+    );
+}
+
+#[test]
+fn too_short_prefers_the_loaders_site_count() {
+    let mut d = data(&[("chr1", 990_000, 10_000, 0)]);
+    d.seqs[0].called_bases = Some(99_999_999);
+    let r = qc100(&d);
+    let f = find(&r, QcCode::TooShort).unwrap();
+    assert!(f.message.contains("(called sites)"), "{}", f.message);
+    d.seqs[0].called_bases = Some(100_000_000);
+    assert_eq!(find(&qc100(&d), QcCode::TooShort), None);
+}
+
+#[test]
+fn short_sequences_below_1mb() {
+    assert_eq!(SHORT_SEQUENCES_MAX_FRACTION, 0.20);
+    // Two 9,999-bin sequences (999,900 bp) and one long one; at 100 bp per bin
+    // 1 Mb is 10,000 bins. 19,998 / (4 * 19,998 + 19,998) is exactly 20%.
+    let with_long = |long: usize| {
+        data(&[
+            ("a", 9_999, 0, 0),
+            ("long", long, 0, 0),
+            ("b", 9_000, 999, 0),
+        ])
+    };
+    let r = qc100(&with_long(79_992));
+    assert_eq!(r.lengths.below_1mb.fraction, 0.2);
+    assert_eq!(find(&r, QcCode::ShortSequences), None);
+    let r = qc100(&with_long(79_991));
+    let f = find(&r, QcCode::ShortSequences).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(
+        f.message
+            .starts_with("20.0% of bins lie in 2 sequences shorter than 1 Mb"),
+        "{}",
+        f.message
+    );
+    assert!(
+        f.recommendation
+            .contains("drop sequences shorter than 1 Mb")
+    );
+    assert!(!f.message.contains("trunk"));
+}
+
+#[test]
+fn short_sequences_use_the_loaders_extent() {
+    // 10,000 bins look like 1 Mb, but the sequence spans 999,999 bases.
+    let mut d = data(&[("a", 10_000, 0, 0), ("long", 30_000, 0, 0)]);
+    assert_eq!(find(&qc100(&d), QcCode::ShortSequences), None);
+    d.seqs[0].extent_bases = Some(999_999);
+    let r = qc100(&d);
+    assert_eq!(r.lengths.below_1mb.sequences, 1);
+    assert!(find(&r, QcCode::ShortSequences).is_some());
+}
+
+#[test]
+fn short_sequences_below_the_trunk() {
+    let trunk = 50_000;
+    // All sequences are longer than 1 Mb (10,000 bins).
+    let with_long = |long: usize| data(&[("long", long, 0, 0), ("short", 49_999, 0, 0)]);
+    let r = qc(&with_long(199_996), 100, trunk, QcContext::default());
+    assert_eq!(r.lengths.below_trunk.as_ref().unwrap().fraction, 0.2);
+    assert_eq!(find(&r, QcCode::ShortSequences), None);
+
+    let r = qc(&with_long(199_995), 100, trunk, QcContext::default());
+    let f = find(&r, QcCode::ShortSequences).unwrap();
+    assert!(
+        f.message.starts_with(
+            "20.0% of bins lie in 1 sequences shorter than the bootstrap trunk (50,000 bins)"
+        ),
+        "{}",
+        f.message
+    );
+    assert!(!f.message.contains("1 Mb"));
+    assert!(
+        f.recommendation
+            .contains("a trunk of at most 49,999 bins keeps at least 80.0% of bins"),
+        "{}",
+        f.recommendation
+    );
+
+    // No bootstrap planned: no trunk check.
+    let r = qc(&with_long(10_000), 100, 0, QcContext::default());
+    assert_eq!(find(&r, QcCode::ShortSequences), None);
+}
+
+#[test]
+fn largest_trunk_within_is_the_largest_that_keeps_the_share() {
+    let share_below = |lens: &[u64], trunk: u64| {
+        let total: u64 = lens.iter().sum();
+        lens.iter().filter(|&&l| l < trunk).sum::<u64>() as f64 / total as f64
+    };
+    let mut state = 12345u64;
+    for _ in 0..500 {
+        let n = 1 + (state % 12) as usize;
+        let lens: Vec<u64> = (0..n)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                1 + (state >> 33) % 50
+            })
+            .collect();
+        for &frac in &[0.0, 0.1, 0.2, 0.5, 0.9] {
+            let t = largest_trunk_within(&lens, frac);
+            assert!(share_below(&lens, t) <= frac, "{lens:?} {frac}: {t}");
+            assert!(share_below(&lens, t + 1) > frac, "{lens:?} {frac}: {t}");
+        }
+    }
+    assert_eq!(largest_trunk_within(&[5, 5, 5, 5, 5], 0.2), 5);
+    assert_eq!(largest_trunk_within(&[], 0.2), 0);
+}
+
+#[test]
+fn clean_input_has_no_findings() {
+    // 3 Gb at 100 bp bins would be slow to build; 150 Mb in 1.5M-bin
+    // chromosomes is enough: no missing data, 5% K bins (share ~2.5%).
+    let spec: Vec<(String, usize, usize, usize)> = (1..=10)
+        .map(|i| (format!("chr{i}"), 142_500, 7_500, 0))
+        .collect();
+    let spec: Vec<(&str, usize, usize, usize)> = spec
+        .iter()
+        .map(|(n, t, k, m)| (n.as_str(), *t, *k, *m))
+        .collect();
+    let r = qc(&data(&spec), 100, 50_000, QcContext::default());
+    assert!(r.findings.is_empty(), "{:#?}", r.findings);
+    assert!(!r.has_warnings());
+}
+
+#[test]
+fn warnings_come_first() {
+    // Info-level missingness (30%), few hets, no mask; the one sequence is
+    // exactly 1 Mb, which is not short.
+    let d = data(&[("chr1", 6_500, 500, 3_000)]);
+    let ctx = QcContext {
+        variants_only_no_mask: true,
+        ..QcContext::default()
+    };
+    let r = qc(&d, 100, 0, ctx);
+    let got: Vec<(QcCode, Severity)> = r.findings.iter().map(|f| (f.code, f.severity)).collect();
+    assert_eq!(
+        got,
+        [
+            (QcCode::VariantsOnlyNoMask, Severity::Warning),
+            (QcCode::FewHets, Severity::Warning),
+            (QcCode::TooShort, Severity::Warning),
+            (QcCode::HighMissing, Severity::Info),
+        ]
+    );
+    assert!(r.has_warnings());
+    assert_eq!(
+        r.finding(QcCode::HighMissing).unwrap().severity,
+        Severity::Info
+    );
+
+    let v: serde_json::Value = serde_json::from_str(&r.to_json()).unwrap();
+    assert_eq!(v["findings"][0]["code"], "VARIANTS_ONLY_NO_MASK");
+    assert_eq!(v["findings"][3]["severity"], "info");
+    assert!(v["findings"][3]["recommendation"].is_string());
+}
