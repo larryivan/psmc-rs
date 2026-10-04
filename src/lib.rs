@@ -5,6 +5,7 @@ pub mod io;
 pub mod model;
 pub mod opt;
 pub mod progress;
+pub mod psmc_out;
 pub mod qc;
 pub mod report;
 pub mod utils;
