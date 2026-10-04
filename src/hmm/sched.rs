@@ -153,6 +153,15 @@ impl<'a> Reporter<'a> {
     }
 }
 
+impl Drop for Reporter<'_> {
+    fn drop(&mut self) {
+        // Still set only if the work failed or was cancelled.
+        if let Some(bar) = self.bar.take() {
+            bar.abandon();
+        }
+    }
+}
+
 /// Sends a completion message when dropped, so the progress pump also learns
 /// about work items that unwind.
 struct DoneGuard(mpsc::Sender<()>);

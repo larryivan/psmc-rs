@@ -63,6 +63,27 @@ fn cancelled_before_start() {
 }
 
 #[test]
+fn cancelled_with_progress_bars() {
+    let m = model();
+    let (rows, starts) = data(&[1000, 2000, 3000]);
+    let cancel = AtomicBool::new(true);
+    let err = e_step_with_options(
+        m.prior_matrix(),
+        m.transition_matrix(),
+        m.emission_matrix(),
+        &rows,
+        &starts,
+        EStepOptions {
+            progress_bars: true,
+            cancel: Some(&cancel),
+            ..EStepOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert_cancelled(err);
+}
+
+#[test]
 fn cancelled_while_running() {
     // One long sequence, cancelled once the forward pass is under way: this
     // must be noticed inside the sequence, not only between sequences.
