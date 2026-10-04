@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: "If you use psmc-rs, please cite it using the metadata below, together with the original PSMC paper listed under references."
+title: "psmc-rs: a Rust implementation of the Pairwise Sequentially Markovian Coalescent (PSMC)"
+type: software
+authors:
+  # TODO(author): add `given-names` and `family-names`; they are deliberately
+  # left out rather than guessed.
+  # TODO(author): add `orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"`.
+  - alias: larryivanhan
+repository-code: "https://github.com/larryivan/psmc-rs"
+license: MIT
+# TODO(release): add `version` and `date-released` when a release is tagged,
+# and a `doi` once the software is archived (e.g. on Zenodo).
+abstract: >-
+  psmc-rs reimplements Heng Li's PSMC (Pairwise Sequentially Markovian
+  Coalescent) in Rust. It infers the history of effective population size
+  from a single diploid genome, reads psmcfa, multihetsep and VCF input,
+  supports block-bootstrap confidence intervals and TMRCA posterior decoding,
+  and writes JSON parameters and an interactive HTML report. Its results are
+  checked against the original C implementation.
+keywords:
+  - population genetics
+  - demographic inference
+  - coalescent
+  - hidden Markov model
+  - PSMC
+  - effective population size
+  - Rust
+references:
+  - type: article
+    title: "Inference of human population history from individual whole-genome sequences"
+    authors:
+      - family-names: Li
+        given-names: Heng
+      - family-names: Durbin
+        given-names: Richard
+    journal: Nature
+    volume: 475
+    start: 493
+    end: 496
+    year: 2011
+    doi: 10.1038/nature10231

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Usage documentation
+    url: https://github.com/larryivan/psmc-rs#readme
+    about: Input formats, CLI options and outputs. For questions not answered there, open a blank issue.
+  - name: Reproducing the manuscript results
+    url: https://github.com/larryivan/psmc-rs/blob/master/experiment/README.md
+    about: How the figures and tables are regenerated (simulation, psmc-rs and C psmc runs, plotting).
+  - name: Contributing guide
+    url: https://github.com/larryivan/psmc-rs/blob/master/CONTRIBUTING.md
+    about: Build, test and pull-request guidelines.
