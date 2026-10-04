@@ -11,6 +11,7 @@
 //! only `fq2psmcfa`'s per-sequence output filter (at least 10,000 called
 //! bases, making up at least 20% of the sequence) is left to the caller,
 //! which gets the counts it needs in [`ConsensusSeq`].
+//! [`crate::io::input::load`] applies it ([`crate::io::input::SeqFilter`]).
 //!
 //! # vcf2fq
 //!
@@ -997,6 +998,11 @@ impl Chrom {
             het_sites: self.het.take(),
         })
     }
+}
+
+/// Whether INFO has a value vcf2fq reads as FQ.
+pub(crate) fn info_has_fq(info: &[u8]) -> bool {
+    scan_info(info).fq.is_some()
 }
 
 /// The SNP/reference test of vcf2fq.

@@ -1,0 +1,841 @@
+//! One loader for every input format, shared by inference, conversion and QC.
+//!
+//! [`load`] reads a psmcfa, multihetsep or VCF file into binned
+//! [`Observations`] plus what QC and the writers need: per-sequence counts,
+//! the sequences the output filter dropped and why, a per-format summary and,
+//! on request, the heterozygous sites with their multihetsep `nr_called`.
+//!
+//! A VCF is read in one of two modes ([`VcfMode`]): `Consensus` reproduces the
+//! classic `bcftools call -c | vcfutils.pl vcf2fq | fq2psmcfa` pipeline from an
+//! all-sites VCF ([`crate::io::consensus`]), `Mask` classifies the genotypes
+//! of one sample against callable masks ([`crate::io::vcf`]). `Auto` picks one
+//! from the first records ([`detect_vcf_mode`]).
+//!
+//! Every VCF mode and multihetsep input then go through `fq2psmcfa`'s
+//! per-sequence output filter ([`SeqFilter`]). psmcfa input is not filtered:
+//! the tool that wrote it already did.
+
+use anyhow::{Context, Result, bail};
+use serde::Serialize;
+use std::borrow::Cow;
+use std::cmp::Ordering;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
+
+use crate::io::Observations;
+use crate::io::common::{HetCall, chunk_sequences, open_reader};
+use crate::io::consensus::{
+    ConsensusFilters, ConsensusOptions, ConsensusSummary, info_has_fq, read_vcf_consensus,
+};
+use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs};
+use crate::io::psmcfa::read_psmcfa_records;
+use crate::io::vcf::{VcfOptions, VcfSummary, no_het_snp_message, read_vcf_seqs};
+
+/// Input file formats.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum InputFormat {
+    /// PSMC's binned FASTA (`fq2psmcfa` output).
+    Psmcfa,
+    /// MSMC's multihetsep.
+    Mhs,
+    /// VCF (plain, gzip or bgzip).
+    Vcf,
+}
+
+impl InputFormat {
+    /// Lowercase name, as on the command line.
+    pub fn name(self) -> &'static str {
+        match self {
+            InputFormat::Psmcfa => "psmcfa",
+            InputFormat::Mhs => "mhs",
+            InputFormat::Vcf => "vcf",
+        }
+    }
+
+    /// Guess the format from the content (gzip is decoded first): a VCF starts
+    /// with `##fileformat=VCF` or `#CHROM`, a psmcfa file with `>` (or `@`)
+    /// after optional blank lines, and anything else is taken as multihetsep.
+    pub fn sniff(path: &Path) -> Result<InputFormat> {
+        let mut reader = open_reader(path)?;
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            if reader
+                .read_until(b'\n', &mut line)
+                .with_context(|| format!("failed to read {path:?}"))?
+                == 0
+            {
+                bail!("{path:?} is empty, so its format cannot be recognised");
+            }
+            let s = line.trim_ascii();
+            if s.is_empty() {
+                continue;
+            }
+            return Ok(
+                if s.starts_with(b"##fileformat=VCF") || s.starts_with(b"#CHROM") {
+                    InputFormat::Vcf
+                } else if s[0] == b'>' || s[0] == b'@' {
+                    InputFormat::Psmcfa
+                } else {
+                    InputFormat::Mhs
+                },
+            );
+        }
+    }
+}
+
+/// How a VCF is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+pub enum VcfMode {
+    /// Pick `Consensus` or `Mask` from the first records ([`detect_vcf_mode`]).
+    #[default]
+    Auto,
+    /// An all-sites VCF from `bcftools call -c`, read like `vcfutils.pl
+    /// vcf2fq` and `fq2psmcfa` ([`crate::io::consensus`]).
+    Consensus,
+    /// The genotypes of one sample plus callable masks ([`crate::io::vcf`]).
+    Mask,
+}
+
+impl VcfMode {
+    /// Lowercase name.
+    pub fn name(self) -> &'static str {
+        match self {
+            VcfMode::Auto => "auto",
+            VcfMode::Consensus => "consensus",
+            VcfMode::Mask => "mask",
+        }
+    }
+}
+
+/// Data records [`detect_vcf_mode`] inspects at most.
+pub const MODE_DETECTION_RECORDS: u64 = 10_000;
+
+/// The mode a VCF is read in, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VcfModeChoice {
+    /// `Consensus` or `Mask`, never `Auto`.
+    pub mode: VcfMode,
+    /// Whether the mode was requested rather than detected.
+    pub forced: bool,
+    /// One sentence for the user.
+    pub reason: String,
+    /// Data records inspected by the detection (0 when forced).
+    pub inspected: u64,
+    /// Of those, records with ALT `.`.
+    pub alt_dot: u64,
+    /// Of those, records with INFO/FQ.
+    pub alt_dot_with_fq: u64,
+}
+
+/// The [`VcfMode::Auto`] rule. Of the first [`MODE_DETECTION_RECORDS`] data
+/// records, if at least 50% have ALT `.` the file is an all-sites VCF: it is
+/// read in consensus mode when at least 90% of those carry INFO/FQ (as
+/// `bcftools call -c` writes), and is an error otherwise, because only the
+/// consensus caller's FQ tells vcf2fq how reliable a reference call is. Any
+/// other VCF (variants only) is read in mask mode.
+pub fn detect_vcf_mode(path: &Path) -> Result<VcfModeChoice> {
+    let mut reader = open_reader(path)?;
+    let mut line = Vec::new();
+    let (mut inspected, mut alt_dot, mut with_fq) = (0u64, 0u64, 0u64);
+    while inspected < MODE_DETECTION_RECORDS {
+        line.clear();
+        if reader
+            .read_until(b'\n', &mut line)
+            .with_context(|| format!("failed to read VCF {path:?}"))?
+            == 0
+        {
+            break;
+        }
+        if line.first() == Some(&b'#') || line.trim_ascii().is_empty() {
+            continue;
+        }
+        let mut cols = line.trim_ascii_end().split(|&b| b == b'\t');
+        let (Some(alt), Some(info)) = (cols.nth(4), cols.nth(2)) else {
+            continue;
+        };
+        inspected += 1;
+        if alt == b"." {
+            alt_dot += 1;
+            with_fq += u64::from(info_has_fq(info));
+        }
+    }
+    let choice = |mode, reason: String| VcfModeChoice {
+        mode,
+        forced: false,
+        reason,
+        inspected,
+        alt_dot,
+        alt_dot_with_fq: with_fq,
+    };
+    if inspected == 0 {
+        return Ok(choice(
+            VcfMode::Mask,
+            "mask mode: the VCF has no data records".to_string(),
+        ));
+    }
+    if 2 * alt_dot < inspected {
+        return Ok(choice(
+            VcfMode::Mask,
+            format!(
+                "mask mode: {alt_dot} of the first {inspected} records have ALT '.', so this is \
+                 a variants-only VCF"
+            ),
+        ));
+    }
+    if 10 * with_fq >= 9 * alt_dot {
+        return Ok(choice(
+            VcfMode::Consensus,
+            format!(
+                "consensus mode: {alt_dot} of the first {inspected} records have ALT '.' and \
+                 {with_fq} of those carry INFO/FQ, as in an all-sites VCF from 'bcftools call -c'"
+            ),
+        ));
+    }
+    bail!(
+        "{path:?} looks like an all-sites VCF ({alt_dot} of the first {inspected} records have \
+         ALT '.'), but only {with_fq} of those carry INFO/FQ, which the consensus mode \
+         (vcfutils.pl vcf2fq) needs to tell reliable reference calls from unreliable ones. \
+         Rerun the caller as 'bcftools call -c' (the classic PSMC pipeline), or provide a \
+         callable mask and force mask mode, which reads the genotypes"
+    )
+}
+
+/// `fq2psmcfa`'s per-sequence output filter: a sequence is kept when at least
+/// `min_good_bases` of its positions are called and they make up at least
+/// `min_good_fraction` of the sequence. 0 disables either test.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SeqFilter {
+    /// `fq2psmcfa -g`, default 10000.
+    pub min_good_bases: u64,
+    /// Default 0.2 (fixed in `fq2psmcfa`).
+    pub min_good_fraction: f64,
+}
+
+impl Default for SeqFilter {
+    fn default() -> Self {
+        Self {
+            min_good_bases: 10_000,
+            min_good_fraction: 0.2,
+        }
+    }
+}
+
+impl SeqFilter {
+    /// A filter that keeps every non-empty sequence.
+    pub const DISABLED: SeqFilter = SeqFilter {
+        min_good_bases: 0,
+        min_good_fraction: 0.0,
+    };
+
+    /// Why a sequence of `extent` positions with `good` called ones is
+    /// dropped, or `None` when it is kept. The fraction is compared as
+    /// `fq2psmcfa` compares it, in double precision.
+    pub fn verdict(&self, good: u64, extent: u64) -> Option<DropReason> {
+        let few_good_bases = good < self.min_good_bases;
+        // An empty sequence gives NaN, which fails the test as in C.
+        let ratio = good as f64 / extent as f64;
+        let low_good_fraction = self.min_good_fraction > 0.0
+            && matches!(
+                ratio.partial_cmp(&self.min_good_fraction),
+                None | Some(Ordering::Less)
+            );
+        (few_good_bases || low_good_fraction).then_some(DropReason::Filter {
+            few_good_bases,
+            low_good_fraction,
+        })
+    }
+}
+
+/// Options for [`load`].
+#[derive(Debug, Clone)]
+pub struct InputOptions {
+    /// The file format; `None` recognises it from the content
+    /// ([`InputFormat::sniff`]).
+    pub format: Option<InputFormat>,
+    /// Bases per bin for multihetsep and VCF input (`fq2psmcfa -s`); psmcfa
+    /// input is already binned.
+    pub bin_size: usize,
+    /// Split each sequence into HMM rows of at most this many bins, chained in
+    /// one HMM sequence ([`chunk_sequences`]).
+    pub batch_size: Option<usize>,
+    /// Multihetsep: the two haplotypes ([`MhsOptions::pair`]).
+    pub mhs_pair: (usize, usize),
+    /// VCF: how to read it (default [`VcfMode::Auto`]).
+    pub vcf_mode: VcfMode,
+    /// VCF mask mode: the sample to read ([`VcfOptions::sample`]). Consensus
+    /// mode reads INFO only, but a name that the header lacks is still an
+    /// error.
+    pub sample: Option<String>,
+    /// VCF: callable masks ([`VcfOptions::masks`]); in consensus mode they
+    /// are an optional extra filter.
+    pub masks: Vec<PathBuf>,
+    /// VCF: masks of positions to exclude.
+    pub negative_masks: Vec<PathBuf>,
+    /// VCF mask mode: [`VcfOptions::keep_filtered`].
+    pub keep_filtered: bool,
+    /// VCF mask mode: [`VcfOptions::to_contig_end`]. Consensus sequences end
+    /// at their last record, as in vcf2fq.
+    pub to_contig_end: bool,
+    /// VCF consensus mode: the vcf2fq and fq2psmcfa thresholds.
+    pub consensus: ConsensusFilters,
+    /// The output filter for VCF and multihetsep input.
+    pub filter: SeqFilter,
+    /// Collect [`Dataset::het_sites`] (VCF and multihetsep input).
+    pub collect_het_sites: bool,
+}
+
+impl Default for InputOptions {
+    fn default() -> Self {
+        let vcf = VcfOptions::default();
+        Self {
+            format: None,
+            bin_size: 100,
+            batch_size: None,
+            mhs_pair: MhsOptions::default().pair,
+            vcf_mode: VcfMode::Auto,
+            sample: None,
+            masks: Vec::new(),
+            negative_masks: Vec::new(),
+            keep_filtered: vcf.keep_filtered,
+            to_contig_end: vcf.to_contig_end,
+            consensus: ConsensusFilters::default(),
+            filter: SeqFilter::default(),
+            collect_het_sites: false,
+        }
+    }
+}
+
+/// One kept sequence, in the order of [`Dataset::obs`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SeqInfo {
+    /// The psmcfa record name, VCF chromosome or multihetsep first column.
+    pub name: String,
+    /// Bins of the sequence (over all of its rows).
+    pub n_bins: usize,
+    /// Positions the sequence covers (`1..=extent`), when the input has them.
+    pub extent: Option<u64>,
+    /// Of those, positions called (heterozygous or not).
+    pub called: Option<u64>,
+    /// Heterozygous positions.
+    pub het_sites: Option<u64>,
+}
+
+/// Why a sequence is not in [`Dataset::obs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum DropReason {
+    /// The sequence has no bins (an empty psmcfa record, or a VCF chromosome
+    /// with no base).
+    Empty,
+    /// [`SeqFilter`] rejected it, for one or both reasons.
+    Filter {
+        /// Fewer called positions than [`SeqFilter::min_good_bases`].
+        few_good_bases: bool,
+        /// Called positions below [`SeqFilter::min_good_fraction`] of the
+        /// sequence.
+        low_good_fraction: bool,
+    },
+}
+
+/// A sequence of the input that was dropped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DroppedSeq {
+    pub name: String,
+    pub n_bins: usize,
+    /// Positions the sequence covers, when the input has them.
+    pub extent: Option<u64>,
+    /// Called positions.
+    pub good: Option<u64>,
+    pub reason: DropReason,
+}
+
+impl DroppedSeq {
+    /// One line for the user, e.g. `chrM: 16569 bases, 0 called (< 10000)`.
+    pub fn describe(&self, filter: &SeqFilter) -> String {
+        match self.reason {
+            DropReason::Empty => format!("{}: empty", self.name),
+            DropReason::Filter {
+                few_good_bases,
+                low_good_fraction,
+            } => {
+                let good = self.good.unwrap_or(0);
+                let extent = self.extent.unwrap_or(0);
+                let mut why = Vec::new();
+                if few_good_bases {
+                    why.push(format!("< {}", filter.min_good_bases));
+                }
+                if low_good_fraction {
+                    why.push(format!(
+                        "< {}% of its length",
+                        filter.min_good_fraction * 100.0
+                    ));
+                }
+                format!(
+                    "{}: {extent} bases, {good} called ({})",
+                    self.name,
+                    why.join(", ")
+                )
+            }
+        }
+    }
+}
+
+/// psmcfa input counts, as C psmc reports them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct PsmcfaSummary {
+    /// Records in the file.
+    pub records: usize,
+    /// Records without any bin (not analysed).
+    pub empty_records: usize,
+    /// Bins over all records.
+    pub bins: u64,
+    /// Non-missing bins (C psmc's `sum_L`).
+    pub called_bins: u64,
+    /// Heterozygous bins (C psmc's `sum_n`).
+    pub het_bins: u64,
+}
+
+/// The mode-specific part of [`VcfInputSummary`].
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum VcfDetails {
+    /// Filter counts, depth statistics and warnings of consensus mode.
+    Consensus(ConsensusSummary),
+    /// Genotype and mask counts of mask mode.
+    Mask(VcfSummary),
+}
+
+/// What [`load`] read from a VCF.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct VcfInputSummary {
+    /// The mode the VCF was read in, and why.
+    pub mode: VcfModeChoice,
+    pub details: VcfDetails,
+    /// Mask mode: whether records with a FILTER other than PASS were used
+    /// ([`InputOptions::keep_filtered`]).
+    pub keep_filtered: bool,
+}
+
+/// Per-format summary of the input.
+// One value per load, so the size of the VCF variant does not matter.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum SourceSummary {
+    Psmcfa(PsmcfaSummary),
+    Mhs(MhsSummary),
+    Vcf(VcfInputSummary),
+}
+
+impl SourceSummary {
+    /// The input format this summary belongs to.
+    pub fn format(&self) -> InputFormat {
+        match self {
+            SourceSummary::Psmcfa(_) => InputFormat::Psmcfa,
+            SourceSummary::Mhs(_) => InputFormat::Mhs,
+            SourceSummary::Vcf(_) => InputFormat::Vcf,
+        }
+    }
+}
+
+/// A heterozygous site, for multihetsep output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct HetSite {
+    /// Index into [`Dataset::seqs`].
+    pub seq: u32,
+    /// 1-based position.
+    pub pos: u64,
+    /// Called positions since the previous heterozygous site of the same
+    /// sequence (exclusive) up to and including this one, as
+    /// `generate_multihetsep.py` counts them (but restarting with each
+    /// sequence).
+    pub nr_called: u64,
+    /// The two alleles: in GT order for VCF mask mode (phased order for a
+    /// phased GT), REF then ALT in consensus mode, and the pair's alleles in
+    /// the first ordering for multihetsep input.
+    pub alleles: [u8; 2],
+}
+
+/// Everything [`load`] read.
+#[derive(Debug, Clone)]
+pub struct Dataset {
+    /// The kept sequences as HMM rows. Empty when every sequence was dropped
+    /// ([`Dataset::ensure_usable`] turns that into an error).
+    pub obs: Observations,
+    /// One entry per kept sequence, in the order of `obs`.
+    pub seqs: Vec<SeqInfo>,
+    /// Sequences of the input that are not in `obs`, in input order.
+    pub dropped: Vec<DroppedSeq>,
+    /// What the input held, per format.
+    pub source: SourceSummary,
+    /// Heterozygous sites of the kept sequences, in order, when
+    /// [`InputOptions::collect_het_sites`] was set and the input has
+    /// positions (not psmcfa).
+    pub het_sites: Option<Vec<HetSite>>,
+    /// The output filter that was applied (`None` for psmcfa input).
+    pub filter: Option<SeqFilter>,
+}
+
+impl Dataset {
+    /// Each kept sequence with its bins (rows of one sequence joined).
+    pub fn sequences(&self) -> Vec<(&SeqInfo, Cow<'_, [u8]>)> {
+        let mut out = Vec::with_capacity(self.seqs.len());
+        let rows = &self.obs.rows;
+        let mut i = 0;
+        for info in &self.seqs {
+            let mut j = i + 1;
+            while j < rows.len() && !self.obs.row_starts[j] {
+                j += 1;
+            }
+            let bins = if j == i + 1 {
+                Cow::Borrowed(rows[i].as_slice())
+            } else {
+                Cow::Owned(rows[i..j].concat())
+            };
+            out.push((info, bins));
+            i = j;
+        }
+        out
+    }
+
+    /// Bins over all kept sequences.
+    pub fn n_bins(&self) -> usize {
+        self.obs.rows.iter().map(Vec::len).sum()
+    }
+
+    /// Heterozygous bins over all kept sequences.
+    pub fn het_bins(&self) -> usize {
+        self.obs.rows.iter().flatten().filter(|&&b| b == 1).count()
+    }
+
+    /// Warnings worth showing to the user about how the input was read.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = match &self.source {
+            SourceSummary::Vcf(v) => match &v.details {
+                VcfDetails::Consensus(c) => c.warnings(),
+                VcfDetails::Mask(m) => m.warnings(),
+            },
+            _ => Vec::new(),
+        };
+        let filtered: Vec<&DroppedSeq> = self
+            .dropped
+            .iter()
+            .filter(|d| matches!(d.reason, DropReason::Filter { .. }))
+            .collect();
+        if let (Some(filter), false) = (&self.filter, filtered.is_empty()) {
+            let shown: Vec<String> = filtered
+                .iter()
+                .take(5)
+                .map(|d| d.describe(filter))
+                .collect();
+            let more = if filtered.len() > 5 { "; ..." } else { "" };
+            out.push(format!(
+                "{} sequence(s) dropped because fewer than {} of their positions, or less than \
+                 {}% of them, are called (fq2psmcfa's output filter): {}{more}",
+                filtered.len(),
+                filter.min_good_bases,
+                filter.min_good_fraction * 100.0,
+                shown.join("; ")
+            ));
+        }
+        if !self.obs.rows.is_empty() && self.het_bins() == 0 {
+            out.push("no bin is heterozygous, so PSMC cannot be fitted to this input".to_string());
+        }
+        out
+    }
+
+    /// Fail unless the data can be analysed: at least one sequence is left and
+    /// at least one bin is heterozygous.
+    pub fn ensure_usable(&self) -> Result<()> {
+        if self.obs.rows.is_empty() {
+            let mut msg = format!(
+                "no sequence of the {} input is left to analyse",
+                self.source.format().name()
+            );
+            if let Some(filter) = &self.filter {
+                let shown: Vec<String> = self
+                    .dropped
+                    .iter()
+                    .take(5)
+                    .map(|d| d.describe(filter))
+                    .collect();
+                if !shown.is_empty() {
+                    let more = if self.dropped.len() > 5 { "; ..." } else { "" };
+                    msg.push_str(&format!(
+                        ": the output filter (at least {} called positions making up at least \
+                         {}% of the sequence, as in fq2psmcfa) dropped {} sequence(s) ({}{more}); \
+                         lower or disable it for small test data",
+                        filter.min_good_bases,
+                        filter.min_good_fraction * 100.0,
+                        self.dropped.len(),
+                        shown.join("; "),
+                    ));
+                }
+            }
+            bail!("{msg}");
+        }
+        if self.het_bins() == 0 {
+            if let SourceSummary::Vcf(VcfInputSummary {
+                details: VcfDetails::Mask(m),
+                keep_filtered,
+                ..
+            }) = &self.source
+                && m.het_snps == 0
+            {
+                bail!("{}", no_het_snp_message(m, *keep_filtered));
+            }
+            bail!(
+                "no bin of the {} input is heterozygous, so PSMC cannot be fitted",
+                self.source.format().name()
+            );
+        }
+        Ok(())
+    }
+}
+
+/// One sequence as a reader produced it, before the output filter.
+struct RawSeq {
+    name: String,
+    bins: Vec<u8>,
+    extent: Option<u64>,
+    called: Option<u64>,
+    het: Option<u64>,
+    het_sites: Vec<HetCall>,
+}
+
+/// Read `path` into a [`Dataset`]; see the module docs.
+///
+/// Fails on unreadable or malformed input. A file whose sequences are all
+/// dropped, or that has no heterozygous bin, loads fine: QC wants to report
+/// it, and [`Dataset::ensure_usable`] makes it an error for inference.
+pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
+    if opts.batch_size == Some(0) {
+        bail!("batch_size must be > 0");
+    }
+    let format = match opts.format {
+        Some(f) => f,
+        None => InputFormat::sniff(path)?,
+    };
+    let (raw, source, filter) = match format {
+        InputFormat::Psmcfa => {
+            let (raw, summary) = load_psmcfa(path)?;
+            (raw, SourceSummary::Psmcfa(summary), None)
+        }
+        InputFormat::Mhs => {
+            let mhs_opts = MhsOptions {
+                bin_size: opts.bin_size,
+                batch_size: opts.batch_size,
+                pair: opts.mhs_pair,
+            };
+            let (seqs, summary) = read_mhs_seqs(path, &mhs_opts, opts.collect_het_sites)
+                .with_context(|| format!("failed to read multihetsep {path:?}"))?;
+            let raw = seqs
+                .into_iter()
+                .map(|s| RawSeq {
+                    name: s.name,
+                    bins: s.bins,
+                    extent: Some(s.extent),
+                    called: Some(s.called),
+                    het: Some(s.n_het),
+                    het_sites: s.het_sites,
+                })
+                .collect();
+            (raw, SourceSummary::Mhs(summary), Some(opts.filter))
+        }
+        InputFormat::Vcf => {
+            let (raw, summary) = load_vcf(path, opts)?;
+            (raw, SourceSummary::Vcf(summary), Some(opts.filter))
+        }
+    };
+    let collect = opts.collect_het_sites && format != InputFormat::Psmcfa;
+
+    let mut kept_bins = Vec::new();
+    let mut seqs = Vec::new();
+    let mut dropped = Vec::new();
+    let mut het_sites = collect.then(Vec::new);
+    for s in raw {
+        let reason = if s.bins.is_empty() {
+            Some(DropReason::Empty)
+        } else {
+            match (&filter, s.called, s.extent) {
+                (Some(f), Some(good), Some(extent)) => f.verdict(good, extent),
+                _ => None,
+            }
+        };
+        if let Some(reason) = reason {
+            dropped.push(DroppedSeq {
+                name: s.name,
+                n_bins: s.bins.len(),
+                extent: s.extent,
+                good: s.called,
+                reason,
+            });
+            continue;
+        }
+        if let Some(sites) = het_sites.as_mut() {
+            let seq = u32::try_from(seqs.len()).context("too many sequences")?;
+            sites.extend(s.het_sites.iter().map(|h| HetSite {
+                seq,
+                pos: h.pos,
+                nr_called: h.nr_called,
+                alleles: h.alleles,
+            }));
+        }
+        seqs.push(SeqInfo {
+            name: s.name,
+            n_bins: s.bins.len(),
+            extent: s.extent,
+            called: s.called,
+            het_sites: s.het,
+        });
+        kept_bins.push(s.bins);
+    }
+    let obs = if kept_bins.is_empty() {
+        Observations {
+            rows: Vec::new(),
+            row_starts: Vec::new(),
+        }
+    } else {
+        chunk_sequences(kept_bins, opts.batch_size, "no observations")?
+    };
+    Ok(Dataset {
+        obs,
+        seqs,
+        dropped,
+        source,
+        het_sites,
+        filter,
+    })
+}
+
+fn load_psmcfa(path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)> {
+    let records = read_psmcfa_records(path)?;
+    if records.is_empty() {
+        bail!(
+            "no psmcfa records found in {path:?}: each sequence must start with a '>name' header \
+             line"
+        );
+    }
+    let mut summary = PsmcfaSummary {
+        records: records.len(),
+        ..PsmcfaSummary::default()
+    };
+    let raw = records
+        .into_iter()
+        .map(|r| {
+            summary.empty_records += usize::from(r.seq.is_empty());
+            summary.bins += r.seq.len() as u64;
+            summary.called_bins += r.n_called() as u64;
+            summary.het_bins += r.n_het() as u64;
+            RawSeq {
+                name: r.name,
+                bins: r.seq,
+                extent: None,
+                called: None,
+                het: None,
+                het_sites: Vec::new(),
+            }
+        })
+        .collect();
+    Ok((raw, summary))
+}
+
+/// The sample names of a VCF header, or `None` without a `#CHROM` line.
+fn vcf_samples(path: &Path) -> Result<Option<Vec<String>>> {
+    let mut reader = open_reader(path)?;
+    let mut line = Vec::new();
+    loop {
+        line.clear();
+        if reader
+            .read_until(b'\n', &mut line)
+            .with_context(|| format!("failed to read VCF {path:?}"))?
+            == 0
+            || line.first() != Some(&b'#')
+        {
+            return Ok(None);
+        }
+        if line.starts_with(b"#CHROM") {
+            let text = String::from_utf8_lossy(line.trim_ascii_end());
+            return Ok(Some(text.split('\t').skip(9).map(str::to_string).collect()));
+        }
+    }
+}
+
+fn load_vcf(path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, VcfInputSummary)> {
+    let choice = match opts.vcf_mode {
+        VcfMode::Auto => detect_vcf_mode(path)?,
+        mode => VcfModeChoice {
+            mode,
+            forced: true,
+            reason: format!("{} mode was requested", mode.name()),
+            inspected: 0,
+            alt_dot: 0,
+            alt_dot_with_fq: 0,
+        },
+    };
+    if choice.mode == VcfMode::Consensus {
+        if let Some(name) = &opts.sample {
+            let samples = vcf_samples(path)?.unwrap_or_default();
+            if !samples.iter().any(|s| s == name) {
+                bail!("VCF sample '{name}' not found in header");
+            }
+        }
+        let copts = ConsensusOptions {
+            bin_size: opts.bin_size,
+            filters: opts.consensus,
+            masks: opts.masks.clone(),
+            negative_masks: opts.negative_masks.clone(),
+            collect_het_sites: opts.collect_het_sites,
+        };
+        let read = read_vcf_consensus(path, &copts)
+            .with_context(|| format!("failed to read VCF {path:?} in consensus mode"))?;
+        let raw = read
+            .seqs
+            .into_iter()
+            .map(|s| RawSeq {
+                name: s.name,
+                bins: s.bins,
+                extent: Some(s.bases),
+                called: Some(s.good_bases),
+                het: Some(s.het_bases),
+                het_sites: s.het_sites,
+            })
+            .collect();
+        let summary = VcfInputSummary {
+            mode: choice,
+            details: VcfDetails::Consensus(read.summary),
+            keep_filtered: false,
+        };
+        return Ok((raw, summary));
+    }
+    let vopts = VcfOptions {
+        bin_size: opts.bin_size,
+        batch_size: opts.batch_size,
+        sample: opts.sample.clone(),
+        masks: opts.masks.clone(),
+        negative_masks: opts.negative_masks.clone(),
+        keep_filtered: opts.keep_filtered,
+        to_contig_end: opts.to_contig_end,
+    };
+    let (seqs, mut summary) = read_vcf_seqs(path, &vopts, opts.collect_het_sites)
+        .with_context(|| format!("failed to read VCF {path:?} in mask mode"))?;
+    summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
+    summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
+    let raw = seqs
+        .into_iter()
+        .map(|s| RawSeq {
+            name: s.name,
+            bins: s.bins,
+            extent: Some(s.extent),
+            called: Some(s.called),
+            het: Some(s.n_het),
+            het_sites: s.het_sites,
+        })
+        .collect();
+    Ok((
+        raw,
+        VcfInputSummary {
+            mode: choice,
+            details: VcfDetails::Mask(summary),
+            keep_filtered: opts.keep_filtered,
+        },
+    ))
+}

@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 
 use crate::io::Observations;
-use crate::io::common::{Binner, chunk_sequences, open_reader};
+use crate::io::common::{Binner, HetCall, HetTracker, chunk_sequences, open_reader};
 
 /// Options for [`read_mhs_with`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +69,7 @@ fn classify(haps: &[u8], i: usize, j: usize) -> PairCall {
 /// Classify the pair `(i, j)` at a row from its alleles column: heterozygous
 /// or homozygous when every ordering agrees, missing when the orderings
 /// disagree (the phase of unphased samples decides) or an allele is unknown.
+/// Also returns the pair's alleles in the first ordering.
 ///
 /// `file_haps` is the haplotype count of the file's first row and that row's
 /// number; the first call sets it, and every later row must match it.
@@ -77,7 +78,7 @@ fn pair_call(
     (i, j): (usize, usize),
     row_no: usize,
     file_haps: &mut Option<(usize, usize)>,
-) -> Result<PairCall> {
+) -> Result<(PairCall, [u8; 2])> {
     let mut orders = split_orders(alleles);
     let Some(first) = orders.next() else {
         bail!("invalid mhs row {row_no}: no allele ordering in '{alleles}'");
@@ -104,7 +105,9 @@ fn pair_call(
             hi as u128 + 1
         );
     }
-    let mut call = classify(first.as_bytes(), i, j);
+    let haps = first.as_bytes();
+    let pair_alleles = [haps[i], haps[j]];
+    let mut call = classify(haps, i, j);
     let mut segregating = has_two_alleles(first);
     for order in orders {
         if order.len() != n_haps {
@@ -119,7 +122,7 @@ fn pair_call(
     if !segregating {
         bail!("invalid mhs row {row_no}: alleles must describe a segregating site");
     }
-    Ok(call)
+    Ok((call, pair_alleles))
 }
 
 /// Read a multihetsep file with default [`MhsOptions`] except for `batch_size`
@@ -169,11 +172,78 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 /// character per haplotype, and `generate_multihetsep.py` widens the row of an
 /// indel (it joins multi-character VCF alleles), which would shift the pair.
 pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
-    let MhsOptions {
-        bin_size,
-        batch_size,
-        pair,
-    } = *opts;
+    let (seqs, _) = read_mhs_seqs(path, opts, false)?;
+    chunk_sequences(
+        seqs.into_iter().map(|s| s.bins).collect(),
+        opts.batch_size,
+        "no valid mhs rows found in input",
+    )
+}
+
+/// Counts over a whole multihetsep file, for the selected pair.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct MhsSummary {
+    /// Data rows.
+    pub rows: u64,
+    /// Haplotypes per allele ordering (from the first row).
+    pub haplotypes: usize,
+    /// Rows where the pair is heterozygous.
+    pub het_rows: u64,
+    /// Rows where the pair is homozygous (the site segregates elsewhere).
+    pub hom_rows: u64,
+    /// Rows where the pair is missing (phase-dependent or unknown allele).
+    pub missing_rows: u64,
+    /// Sites before each row that `nr_called` leaves uncalled.
+    pub uncalled_sites: u64,
+}
+
+/// One chromosome of a multihetsep file, binned for the selected pair.
+#[derive(Debug, Clone)]
+pub(crate) struct MhsSeq {
+    pub name: String,
+    pub bins: Vec<u8>,
+    /// Position of the last row: the sequence covers `1..=extent`.
+    pub extent: u64,
+    /// Sites binned as called for the pair.
+    pub called: u64,
+    /// Rows where the pair is heterozygous.
+    pub n_het: u64,
+    /// The heterozygous sites, when they were asked for.
+    pub het_sites: Vec<HetCall>,
+}
+
+struct MhsChrom {
+    name: String,
+    binner: Binner,
+    prev_pos: u64,
+    called: u64,
+    n_het: u64,
+    het: HetTracker,
+}
+
+impl MhsChrom {
+    fn finish(mut self) -> MhsSeq {
+        MhsSeq {
+            name: self.name,
+            bins: self.binner.finish(),
+            extent: self.prev_pos,
+            called: self.called,
+            n_het: self.n_het,
+            het_sites: self.het.take(),
+        }
+    }
+}
+
+/// Read every chromosome of a multihetsep file as [`read_mhs_with`] does,
+/// without chunking. With `collect_het`, each sequence carries the sites
+/// where the pair is heterozygous, with `nr_called` counted over the sites
+/// binned as called for the pair.
+pub(crate) fn read_mhs_seqs(
+    path: &Path,
+    opts: &MhsOptions,
+    collect_het: bool,
+) -> Result<(Vec<MhsSeq>, MhsSummary)> {
+    let MhsOptions { bin_size, pair, .. } = *opts;
     if bin_size == 0 {
         bail!("mhs bin_size must be > 0");
     }
@@ -188,12 +258,10 @@ pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
     let mut reader = open_reader(path)?;
     let mut line = String::new();
     let mut row_no = 0usize;
-    let mut n_rows = 0usize;
+    let mut summary = MhsSummary::default();
 
-    let mut seqs: Vec<Vec<u8>> = Vec::new();
-    let mut binner = Binner::new(bin_size);
-    let mut cur_chrom: Option<String> = None;
-    let mut prev_pos: u64 = 0;
+    let mut seqs: Vec<MhsSeq> = Vec::new();
+    let mut cur: Option<MhsChrom> = None;
     let mut file_haps = None;
 
     loop {
@@ -238,50 +306,69 @@ pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
             bail!("invalid mhs row {row_no}: nr_called must be > 0");
         }
 
-        if cur_chrom.as_deref() != Some(chrom) {
-            if cur_chrom.is_some() {
-                let seq = binner.finish();
-                if !seq.is_empty() {
-                    seqs.push(seq);
-                }
+        if cur.as_ref().is_none_or(|c| c.name != chrom) {
+            if let Some(done) = cur.take() {
+                seqs.push(done.finish());
             }
-            cur_chrom = Some(chrom.to_string());
-            prev_pos = 0;
+            cur = Some(MhsChrom {
+                name: chrom.to_string(),
+                binner: Binner::new(bin_size),
+                prev_pos: 0,
+                called: 0,
+                n_het: 0,
+                het: HetTracker::new(collect_het),
+            });
         }
+        let c = cur.as_mut().expect("chromosome state was just set");
 
-        if pos <= prev_pos {
+        if pos <= c.prev_pos {
             bail!("invalid mhs row {row_no}: pos must increase within chromosome");
         }
-        let delta = pos - prev_pos;
+        let delta = pos - c.prev_pos;
         if called > delta {
             bail!(
                 "invalid mhs row {row_no}: nr_called ({called}) cannot exceed distance ({delta})"
             );
         }
-        let call = pair_call(alleles, pair, row_no, &mut file_haps)?;
+        let (call, pair_alleles) = pair_call(alleles, pair, row_no, &mut file_haps)?;
 
         // Of the `delta` sites up to and including this row, `called` are
         // callable; the uncalled ones go first (see the doc comment).
-        binner.add_missing(delta - called);
-        binner.add_called(called - 1);
+        c.binner.add_missing(delta - called);
+        c.binner.add_called(called - 1);
+        c.het.called(called - 1);
+        c.called += called - 1;
+        summary.uncalled_sites += delta - called;
         match call {
-            PairCall::Het => binner.add_het(),
-            PairCall::Hom => binner.add_called(1),
-            PairCall::Missing => binner.add_missing(1),
+            PairCall::Het => {
+                c.binner.add_het();
+                c.het.het(pos, pair_alleles);
+                c.called += 1;
+                c.n_het += 1;
+                summary.het_rows += 1;
+            }
+            PairCall::Hom => {
+                c.binner.add_called(1);
+                c.het.called(1);
+                c.called += 1;
+                summary.hom_rows += 1;
+            }
+            PairCall::Missing => {
+                c.binner.add_missing(1);
+                summary.missing_rows += 1;
+            }
         }
 
-        prev_pos = pos;
-        n_rows += 1;
+        c.prev_pos = pos;
+        summary.rows += 1;
     }
 
-    if n_rows == 0 {
+    if summary.rows == 0 {
         bail!("no valid mhs rows found in input");
     }
-
-    let seq = binner.finish();
-    if !seq.is_empty() {
-        seqs.push(seq);
+    if let Some(done) = cur.take() {
+        seqs.push(done.finish());
     }
-
-    chunk_sequences(seqs, batch_size, "no valid mhs rows found in input")
+    summary.haplotypes = file_haps.map_or(0, |(n, _)| n);
+    Ok((seqs, summary))
 }

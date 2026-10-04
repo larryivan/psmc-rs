@@ -1,5 +1,6 @@
 pub mod common;
 pub mod consensus;
+pub mod input;
 pub mod mhs;
 pub mod params;
 pub mod psmcfa;

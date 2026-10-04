@@ -39,7 +39,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
-use crate::io::common::{Binner, chunk_sequences, open_reader};
+use crate::io::common::{Binner, HetCall, HetTracker, chunk_sequences, open_reader};
 
 pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
 
@@ -399,7 +399,7 @@ impl Default for VcfOptions {
 }
 
 /// What [`read_vcf_with`] read, for reporting and sanity warnings.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct VcfSummary {
     /// Data records (non-header lines).
     pub records: u64,
@@ -572,8 +572,9 @@ enum Genotype {
     Missing,
     /// Identical allele strings, or a haploid call.
     Hom,
-    /// Allele strings differ and each is a single A/C/G/T.
-    HetSnp,
+    /// Allele strings differ and each is a single A/C/G/T: the first allele
+    /// of the GT and the first one that differs from it, in GT order.
+    HetSnp([u8; 2]),
     /// Allele strings differ and one is an indel, `*` or symbolic allele.
     HetOther,
 }
@@ -611,7 +612,7 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
         return Ok(Genotype::Missing);
     }
     let mut first: Option<&[u8]> = None;
-    let mut all_same = true;
+    let mut second: Option<&[u8]> = None;
     let mut all_bases = true;
     for a in gt.split(|&b| b == b'/' || b == b'|') {
         if a == b"." {
@@ -634,53 +635,66 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
         all_bases &= is_base(al);
         match first {
             None => first = Some(al),
-            Some(f) => all_same &= f.eq_ignore_ascii_case(al),
+            Some(f) if second.is_none() && !f.eq_ignore_ascii_case(al) => second = Some(al),
+            Some(_) => {}
         }
     }
     // Comparing allele strings rather than indices keeps e.g. `1/2` with
     // ALT `C,C` homozygous.
-    Ok(if all_same {
-        Genotype::Hom
-    } else if all_bases {
-        Genotype::HetSnp
-    } else {
-        Genotype::HetOther
+    Ok(match (first, second) {
+        (Some(a), Some(b)) if all_bases => Genotype::HetSnp([a[0], b[0]]),
+        (_, Some(_)) => Genotype::HetOther,
+        _ => Genotype::Hom,
     })
 }
 
-/// Classify one record: its class at POS and, for a heterozygous non-SNP, the
-/// last position of its REF span (all of which become missing).
+/// What one record says about its position.
+struct Class {
+    site: Site,
+    /// For a heterozygous non-SNP, the last position of its REF span (all of
+    /// which becomes missing).
+    span_end: Option<u64>,
+    /// For a heterozygous SNP, its two alleles in GT order.
+    alleles: Option<[u8; 2]>,
+}
+
+/// Classify one record.
 fn classify(
     rec: &Record<'_>,
     keep_filtered: bool,
     row_no: usize,
     s: &mut VcfSummary,
-) -> Result<(Site, Option<u64>)> {
+) -> Result<Class> {
+    let class = |site, span_end, alleles| Class {
+        site,
+        span_end,
+        alleles,
+    };
     if rec.filter != b"PASS" && rec.filter != b"." {
         s.filtered_records += 1;
         if !keep_filtered {
-            return Ok((Site::Missing, None));
+            return Ok(class(Site::Missing, None, None));
         }
     }
     Ok(match genotype(rec, row_no)? {
         Genotype::Missing => {
             s.missing_genotypes += 1;
-            (Site::Missing, None)
+            class(Site::Missing, None, None)
         }
         Genotype::Hom => {
             s.hom_calls += 1;
-            (Site::Hom, None)
+            class(Site::Hom, None, None)
         }
-        Genotype::HetSnp => {
+        Genotype::HetSnp(alleles) => {
             s.het_snp_records += 1;
-            (Site::Het, None)
+            class(Site::Het, None, Some(alleles))
         }
         // Not a SNP: which bases differ is unknown, so the whole REF allele
         // is unreliable for a model of point mutations.
         Genotype::HetOther => {
             s.het_non_snp_records += 1;
             let span_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
-            (Site::Missing, Some(span_end))
+            class(Site::Missing, Some(span_end), None)
         }
     })
 }
@@ -689,6 +703,8 @@ struct Pending {
     pos: u64,
     site: Site,
     n_records: u64,
+    /// Alleles of the first heterozygous SNP record at `pos`.
+    alleles: Option<[u8; 2]>,
 }
 
 /// Streams the per-base states of one chromosome, in position order, into a
@@ -708,6 +724,10 @@ struct ChromBuilder {
     last_pos: u64,
     /// Where the sequence ends when it does not end at the last record.
     contig_len: Option<u64>,
+    /// Missing positions emitted so far.
+    missing: u64,
+    het: HetTracker,
+    n_het: u64,
 }
 
 impl ChromBuilder {
@@ -716,6 +736,7 @@ impl ChromBuilder {
         uncallable: Vec<Interval>,
         contig_len: Option<u64>,
         bin_size: usize,
+        collect_het: bool,
     ) -> Self {
         Self {
             name: name.to_vec(),
@@ -727,12 +748,21 @@ impl ChromBuilder {
             pending: None,
             last_pos: 0,
             contig_len,
+            missing: 0,
+            het: HetTracker::new(collect_het),
+            n_het: 0,
         }
     }
 
     fn missing(&mut self, n: u64, s: &mut VcfSummary) {
         self.binner.add_missing(n);
+        self.missing += n;
         s.missing_sites += n;
+    }
+
+    fn called(&mut self, n: u64) {
+        self.binner.add_called(n);
+        self.het.called(n);
     }
 
     /// Whether `pos` is callable. Calls must come with non-decreasing `pos`.
@@ -773,7 +803,7 @@ impl ChromBuilder {
             match self.uncallable.get(self.next_unc) {
                 Some(&(us, ue)) if us <= to => {
                     if us > a {
-                        self.binner.add_called(us - a);
+                        self.called(us - a);
                         a = us;
                     }
                     let e = min(ue, to);
@@ -781,7 +811,7 @@ impl ChromBuilder {
                     a = e + 1;
                 }
                 _ => {
-                    self.binner.add_called(to - a + 1);
+                    self.called(to - a + 1);
                     break;
                 }
             }
@@ -809,44 +839,71 @@ impl ChromBuilder {
             Site::Missing => self.missing(1, s),
             Site::Het => {
                 self.binner.add_het();
+                let alleles = p.alleles.expect("a heterozygous site has SNP alleles");
+                self.het.het(p.pos, alleles);
+                self.n_het += 1;
                 s.het_snps += 1;
             }
-            Site::Hom => self.binner.add_called(1),
+            Site::Hom => self.called(1),
         }
         self.cursor = p.pos + 1;
     }
 
     /// Add a record; `pos` must not be smaller than any earlier record's.
-    fn add_record(&mut self, pos: u64, site: Site, span_end: Option<u64>, s: &mut VcfSummary) {
+    fn add_record(&mut self, pos: u64, class: Class, s: &mut VcfSummary) {
         match self.pending.as_mut() {
             Some(p) if p.pos == pos => {
-                p.site = max(p.site, site);
+                p.site = max(p.site, class.site);
                 p.n_records += 1;
+                p.alleles = p.alleles.or(class.alleles);
             }
             _ => {
                 self.flush_pending(s);
                 self.fill_gap(pos - 1, s);
                 self.pending = Some(Pending {
                     pos,
-                    site,
+                    site: class.site,
                     n_records: 1,
+                    alleles: class.alleles,
                 });
             }
         }
-        if let Some(e) = span_end {
+        if let Some(e) = class.span_end {
             self.miss_until = max(self.miss_until, e);
         }
         self.last_pos = pos;
     }
 
-    /// Emit everything up to the end of the sequence and return its bins.
-    fn finish(&mut self, s: &mut VcfSummary) -> Vec<u8> {
+    /// Emit everything up to the end of the sequence and return it.
+    fn finish(mut self, s: &mut VcfSummary) -> VcfSeq {
         let end = self.contig_len.unwrap_or(self.last_pos);
         self.flush_pending(s);
         self.fill_gap(end, s);
         s.sites += end;
-        self.binner.finish()
+        VcfSeq {
+            name: lossy(&self.name).into_owned(),
+            bins: self.binner.finish(),
+            extent: end,
+            called: end - self.missing,
+            n_het: self.n_het,
+            het_sites: self.het.take(),
+        }
     }
+}
+
+/// One chromosome as read by [`read_vcf_seqs`].
+#[derive(Debug, Clone)]
+pub(crate) struct VcfSeq {
+    pub name: String,
+    pub bins: Vec<u8>,
+    /// Positions `1..=extent` make up the sequence.
+    pub extent: u64,
+    /// Positions classified as called (heterozygous or homozygous).
+    pub called: u64,
+    /// Heterozygous SNP positions.
+    pub n_het: u64,
+    /// The heterozygous sites, when they were asked for.
+    pub het_sites: Vec<HetCall>,
 }
 
 /// `(ID, length)` of a `##contig=<ID=...,length=...,...>` header line. A
@@ -890,6 +947,52 @@ fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
 /// as in any `bcftools sort`ed or indexed VCF. POS, and the `##contig` lengths
 /// that are used, must not exceed 2^36.
 pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
+    let (seqs, mut summary) = read_vcf_seqs(path, opts, false)?;
+    if summary.het_snps == 0 {
+        bail!("{}", no_het_snp_message(&summary, opts.keep_filtered));
+    }
+    summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
+    summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
+    let obs = chunk_sequences(
+        seqs.into_iter().map(|s| s.bins).collect(),
+        opts.batch_size,
+        "no valid segregating sites found in VCF input",
+    )?;
+    Ok(VcfRead { obs, summary })
+}
+
+/// The error text for a VCF without any usable heterozygous SNP.
+pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> String {
+    let mut hint = String::new();
+    // Filtered records are not classified, so `het_snp_records` cannot
+    // show the heterozygous calls among them.
+    if summary.filtered_records > 0 && !keep_filtered {
+        hint.push_str(&format!(
+            "; {} records have a FILTER other than PASS or '.' and are treated as \
+             missing: keep them with --vcf-keep-filtered if the filter does not \
+             apply to this analysis",
+            summary.filtered_records
+        ));
+    }
+    if let Some(h) = summary.chroms_outside_mask_hint() {
+        hint.push_str(&format!("; {h}"));
+    }
+    format!(
+        "no heterozygous SNP at a callable position found in VCF input ({} records, \
+         {} heterozygous SNP records, {} outside the callable set){hint}",
+        summary.records, summary.het_snp_records, summary.records_outside_mask
+    )
+}
+
+/// Read every chromosome of one sample of a VCF, as [`read_vcf_with`] does,
+/// without chunking, without the check for heterozygous SNPs, and without
+/// filling in [`VcfSummary::sequences`] and [`VcfSummary::bins`]. With
+/// `collect_het`, each sequence carries its heterozygous sites.
+pub(crate) fn read_vcf_seqs(
+    path: &Path,
+    opts: &VcfOptions,
+    collect_het: bool,
+) -> Result<(Vec<VcfSeq>, VcfSummary)> {
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
     }
@@ -906,7 +1009,7 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     let mut contig_lens = HashMap::<Vec<u8>, u64>::new();
     let mut finished_chroms = HashSet::<Vec<u8>>::new();
     let mut cur: Option<ChromBuilder> = None;
-    let mut seqs = Vec::<Vec<u8>>::new();
+    let mut seqs = Vec::<VcfSeq>::new();
 
     loop {
         line.clear();
@@ -936,9 +1039,9 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
         summary.records += 1;
 
         if cur.as_ref().is_none_or(|c| c.name != rec.chrom) {
-            if let Some(mut done) = cur.take() {
+            if let Some(done) = cur.take() {
+                finished_chroms.insert(done.name.clone());
                 seqs.push(done.finish(&mut summary));
-                finished_chroms.insert(done.name);
             }
             if finished_chroms.contains(rec.chrom) {
                 bail!(
@@ -980,6 +1083,7 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
                 uncallable,
                 contig_len,
                 opts.bin_size,
+                collect_het,
             ));
         }
         let chrom = cur.as_mut().expect("chromosome state was just set");
@@ -1002,44 +1106,13 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
                 len
             );
         }
-        let (site, span_end) = classify(&rec, opts.keep_filtered, row_no, &mut summary)?;
-        chrom.add_record(rec.pos, site, span_end, &mut summary);
+        let class = classify(&rec, opts.keep_filtered, row_no, &mut summary)?;
+        chrom.add_record(rec.pos, class, &mut summary);
     }
-    if let Some(mut done) = cur.take() {
+    if let Some(done) = cur.take() {
         seqs.push(done.finish(&mut summary));
     }
-
-    if summary.het_snps == 0 {
-        let mut hint = String::new();
-        // Filtered records are not classified, so `het_snp_records` cannot
-        // show the heterozygous calls among them.
-        if summary.filtered_records > 0 && !opts.keep_filtered {
-            hint.push_str(&format!(
-                "; {} records have a FILTER other than PASS or '.' and are treated as \
-                 missing: keep them with --vcf-keep-filtered if the filter does not \
-                 apply to this analysis",
-                summary.filtered_records
-            ));
-        }
-        if let Some(h) = summary.chroms_outside_mask_hint() {
-            hint.push_str(&format!("; {h}"));
-        }
-        bail!(
-            "no heterozygous SNP at a callable position found in VCF input ({} records, \
-             {} heterozygous SNP records, {} outside the callable set){hint}",
-            summary.records,
-            summary.het_snp_records,
-            summary.records_outside_mask
-        );
-    }
-    summary.sequences = seqs.iter().filter(|s| !s.is_empty()).count();
-    summary.bins = seqs.iter().map(Vec::len).sum();
-    let obs = chunk_sequences(
-        seqs,
-        opts.batch_size,
-        "no valid segregating sites found in VCF input",
-    )?;
-    Ok(VcfRead { obs, summary })
+    Ok((seqs, summary))
 }
 
 /// [`read_vcf_with`] with the default options for everything not given here.
