@@ -189,6 +189,12 @@ pub struct QcContext {
     pub consensus: Option<ConsensusStats>,
     /// Sequences the loader left out, by reason.
     pub dropped: Vec<DroppedSequences>,
+    /// Free λ parameters the fit will estimate, when known: C psmc's
+    /// `n_free_lambdas`, the number of groups in the pattern, or one per
+    /// interval (`n_steps + 1`) without a pattern. [`QcCode::FewHets`] then
+    /// gives the recombinations per parameter of this fit rather than of
+    /// psmc's human pattern.
+    pub free_lambdas: Option<usize>,
 }
 
 /// What [`analyze`] looks at.

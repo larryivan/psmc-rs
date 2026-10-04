@@ -129,7 +129,10 @@ pub enum QcCode {
     /// default pattern `4+5*3+4` (7 free λ), 5 of the 7 groups reach 10;
     /// with one λ per interval, which psmc-rs fits when no pattern is given
     /// (65 at 64 steps), none does. Fewer `K` bins leave most parameters
-    /// undetermined.
+    /// undetermined. Given [`super::QcContext::free_lambdas`], the message
+    /// divides C's expected recombinations by the fit's own parameter count;
+    /// the oldest group usually gets far fewer than that average (less than
+    /// a tenth of it in each of the three patterns above).
     FewHets,
     /// Less than [`MIN_CALLED_BASES`] of called sequence (warning).
     ///
@@ -320,7 +323,7 @@ pub(super) fn run(
         variants_only_no_mask(input, report),
         high_missing(report),
         bin_saturation(report),
-        few_hets(report),
+        few_hets(input, report),
         too_short(report),
         short_sequences(report, &seq_bins),
         sex_or_organelle(report, seqs, &mut named),
@@ -596,24 +599,37 @@ fn bin_saturation(report: &QcReport) -> Option<Finding> {
     ))
 }
 
-fn few_hets(report: &QcReport) -> Option<Finding> {
+fn few_hets(input: &QcInput, report: &QcReport) -> Option<Finding> {
     let k = report.totals.k_bins;
     if k >= MIN_HET_BINS {
         return None;
     }
-    let recomb = report.expected_recombinations.map_or(String::new(), |n| {
+    let expected = report.expected_recombinations;
+    let recomb = expected.map_or(String::new(), |n| {
         format!(
             "; C psmc's starting model expects about {} recombinations in these data",
             count(n.round() as u64)
         )
     });
+    let parameters = match (input.context.free_lambdas.filter(|&n| n > 0), expected) {
+        (Some(n), Some(r)) => format!(
+            "this fit has {} of them, about {} recombinations each on average (the oldest \
+             intervals usually get far fewer)",
+            count(n as u64),
+            sig(r / n as f64, 2)
+        ),
+        (Some(n), None) => format!("this fit has {} of them", count(n as u64)),
+        (None, _) => {
+            "the pattern its README uses for human data, 4+25*2+4+6, has 28 of them".to_string()
+        }
+    };
     Some(Finding::new(
         QcCode::FewHets,
         Severity::Warning,
         format!(
             "Only {} heterozygous (K) bins, fewer than {}{recomb}. psmc's documentation \
              asks for about 10 recombinations in the intervals of each free parameter, and \
-             the pattern its README uses for human data, 4+25*2+4+6, has 28 of them.",
+             {parameters}.",
             count(k),
             count(MIN_HET_BINS),
         ),

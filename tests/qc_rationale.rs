@@ -93,6 +93,15 @@ fn few_hets_and_too_short_figures() {
     let per_interval = group_shares(theta, None, 64, &[1; 65]);
     assert_eq!(groups_reaching_10(&per_interval, few), 0);
     assert_eq!(groups_reaching_10(&per_interval, n), 55);
+
+    // FEW_HETS with QcContext::free_lambdas: "the oldest group usually gets
+    // far fewer than that average (less than a tenth of it in each of the
+    // three patterns above)".
+    for shares in [&shares, &c_default, &per_interval] {
+        let average = 1.0 / shares.len() as f64;
+        let oldest = *shares.last().unwrap();
+        assert!(oldest < 0.1 * average, "{oldest} vs {average}");
+    }
 }
 
 #[test]

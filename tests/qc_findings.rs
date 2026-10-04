@@ -233,6 +233,47 @@ fn few_hets_threshold() {
     );
     assert!(!f.message.contains("default"), "{}", f.message);
 
+    // With the fit's own count: 249.75 / 65 = 3.84 and 249.75 / 28 = 8.92
+    // recombinations per free parameter.
+    let d = data(&[("chr1", 2_000_000, 999, 0)]);
+    for (lambdas, quoted) in [(65, "3.8"), (28, "8.9")] {
+        let ctx = QcContext {
+            free_lambdas: Some(lambdas),
+            ..QcContext::default()
+        };
+        let r = qc(&d, 100, 0, ctx);
+        let f = find(&r, QcCode::FewHets).unwrap();
+        let expected = format!(
+            "each free parameter, and this fit has {lambdas} of them, about {quoted} \
+             recombinations each on average (the oldest intervals usually get far fewer)."
+        );
+        assert!(f.message.ends_with(&expected), "{}", f.message);
+        assert!(!f.message.contains("4+25*2+4+6"), "{}", f.message);
+    }
+    // No called bin is T, so theta0 and the expected recombinations are
+    // undefined: only the count is quoted. A count of 0 means unknown.
+    let all_k = data(&[("chr1", 0, 10, 0)]);
+    let with = |lambdas| {
+        let ctx = QcContext {
+            free_lambdas: Some(lambdas),
+            ..QcContext::default()
+        };
+        find(&qc(&all_k, 100, 0, ctx), QcCode::FewHets)
+            .unwrap()
+            .message
+            .clone()
+    };
+    assert!(
+        with(7).ends_with("and this fit has 7 of them."),
+        "{}",
+        with(7)
+    );
+    assert!(
+        with(0).ends_with("4+25*2+4+6, has 28 of them."),
+        "{}",
+        with(0)
+    );
+
     let r = qc100(&data(&[("chr1", 2_000_000, 1000, 0)]));
     assert_eq!(find(&r, QcCode::FewHets), None);
 }
