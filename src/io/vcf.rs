@@ -980,10 +980,20 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     }
 
     if summary.het_snps == 0 {
-        let hint = summary
-            .chroms_outside_mask_hint()
-            .map(|h| format!("; {h}"))
-            .unwrap_or_default();
+        let mut hint = String::new();
+        // Filtered records are not classified, so `het_snp_records` cannot
+        // show the heterozygous calls among them.
+        if summary.filtered_records > 0 && !opts.keep_filtered {
+            hint.push_str(&format!(
+                "; {} records have a FILTER other than PASS or '.' and are treated as \
+                 missing: keep them with --vcf-keep-filtered if the filter does not \
+                 apply to this analysis",
+                summary.filtered_records
+            ));
+        }
+        if let Some(h) = summary.chroms_outside_mask_hint() {
+            hint.push_str(&format!("; {h}"));
+        }
         bail!(
             "no heterozygous SNP at a callable position found in VCF input ({} records, \
              {} heterozygous SNP records, {} outside the callable set){hint}",

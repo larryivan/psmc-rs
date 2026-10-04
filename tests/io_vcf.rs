@@ -505,6 +505,55 @@ fn read_vcf_reports_chromosomes_the_mask_does_not_mention() {
 }
 
 #[test]
+fn read_vcf_no_het_snp_error_points_at_filtered_records() {
+    // A pipeline that puts a non-PASS label on every record: the het SNPs are
+    // there, but all of them are filtered. The error must say so rather than
+    // claim the VCF has no heterozygous SNP records.
+    let vcf = write_vcf(
+        "vcf_all_filtered",
+        &[
+            "chr1 5 A C LowQual 0/1",
+            "chr1 7 A G PASS 0/0",
+            "chr1 9 A C LowQual 0/1",
+        ],
+    );
+    let opts = VcfOptions {
+        bin_size: 1,
+        ..VcfOptions::default()
+    };
+    let err = read_vcf_with(&vcf, &opts).expect_err("every het SNP is filtered");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("no heterozygous SNP")
+            && msg.contains("2 records have a FILTER other than PASS")
+            && msg.contains("--vcf-keep-filtered"),
+        "unexpected error: {msg}"
+    );
+
+    let kept = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            keep_filtered: true,
+            ..opts
+        },
+    )
+    .expect("filtered het SNPs are used when kept");
+    assert_eq!(kept.summary.het_snps, 2);
+
+    // Without filtered records the hint stays out of the message.
+    let unfiltered = write_vcf("vcf_no_het", &["chr1 5 A C PASS 0/0"]);
+    let err = read_vcf(&unfiltered, None, 1, None, &[], &[]).expect_err("no het SNP");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("no heterozygous SNP") && !msg.contains("FILTER"),
+        "unexpected error: {msg}"
+    );
+
+    let _ = fs::remove_file(vcf);
+    let _ = fs::remove_file(unfiltered);
+}
+
+#[test]
 fn read_vcf_summary_counts_records_by_kind() {
     let vcf = write_vcf(
         "vcf_summary",
