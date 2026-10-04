@@ -5,7 +5,7 @@ use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, MAX_FILTER_FRACTION, MIN_MEAN_DEPTH,
-    QcCode, QcContext, QcInput, QcReport, Severity, analyze,
+    QcCode, QcContext, QcInput, QcReport, Severity, analyze, render_text,
 };
 use std::fs;
 use std::path::PathBuf;
@@ -172,6 +172,51 @@ fn depth_above_max_is_unknown_inside_the_open_class() {
         (d.quantiles, d.below_min_fraction, d.above_max_fraction),
         (None, None, None)
     );
+}
+
+#[test]
+fn depth_below_min_is_unknown_inside_the_open_class() {
+    // 41 classes: depths 0-39 exact, 20 positions in the open class 40+.
+    let mut ctx = consensus(20.0, &[]);
+    for (min_depth, below) in [
+        (39, Some(2190.0 / 2220.0)),
+        (40, Some(2200.0 / 2220.0)),
+        // From 41 on, the open class may hold depths on either side.
+        (41, None),
+        (60, None),
+    ] {
+        ctx.consensus.as_mut().unwrap().depth.min_depth = Some(min_depth);
+        let r = qc(ctx.clone());
+        assert_eq!(
+            r.depth.as_ref().unwrap().below_min_fraction,
+            below,
+            "min_depth {min_depth}"
+        );
+    }
+
+    // Every position in the open class 9+, minimum depth 20: nothing is
+    // known to lie below it.
+    let mut histogram = vec![0u64; 9];
+    histogram.push(1_000);
+    let r = qc(QcContext {
+        consensus: Some(ConsensusStats {
+            depth: DepthStats {
+                mean: 30.0,
+                median: 30.0,
+                min_depth: Some(20),
+                max_depth: Some(60),
+                histogram,
+            },
+            total_bases: 1_000,
+            filters: Vec::new(),
+        }),
+        ..QcContext::default()
+    });
+    let d = r.depth.as_ref().unwrap();
+    assert_eq!((d.below_min_fraction, d.above_max_fraction), (None, None));
+    let text = render_text(&r);
+    let line = text.lines().find(|l| l.contains("Read depth")).unwrap();
+    assert!(!line.contains("below"), "{line}");
 }
 
 #[test]

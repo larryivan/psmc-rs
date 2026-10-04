@@ -367,7 +367,9 @@ pub struct DepthReport {
     /// depth reaching each share); a value in the open last class is a lower
     /// bound. `None` without a histogram.
     pub quantiles: Option<[u32; 4]>,
-    /// Share of positions below `min_depth`, from the histogram.
+    /// Share of positions below `min_depth`, from the histogram; `None` when
+    /// the histogram's open last class does not tell (`min_depth` at least
+    /// the histogram's length).
     pub below_min_fraction: Option<f64>,
     /// Share of positions above `max_depth`; `None` when the histogram's
     /// open last class does not tell.
@@ -388,10 +390,12 @@ impl DepthReport {
         let quantiles = (total > 0).then(|| {
             [0.05, 0.25, 0.75, 0.95].map(|q| stats::histogram_quantile(h, q).unwrap_or(0))
         });
+        // Classes 0..len-1 are exact and the last one holds every depth from
+        // len-1 up, so it lies wholly at or above `lo` only when lo <= len-1.
         let below_min = c
             .depth
             .min_depth
-            .filter(|_| total > 0)
+            .filter(|&lo| total > 0 && (lo as usize) < h.len())
             .map(|lo| share(h.iter().take(lo as usize).sum()));
         let above_max = c
             .depth
