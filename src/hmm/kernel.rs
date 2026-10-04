@@ -224,8 +224,9 @@ fn sum(v: &[f64]) -> f64 {
     s
 }
 
-/// Blocks of [`TILE`] states covered by the semiseparable kernel's stack scratch.
-const MAX_SEMISEP_BLOCKS: usize = 64;
+/// Blocks of [`TILE`] states covered by the semiseparable kernel's stack
+/// scratch (up to 256 states; larger models use the dense kernels).
+const MAX_SEMISEP_BLOCKS: usize = 32;
 
 /// Largest relative difference between a transition probability and its
 /// semiseparable reconstruction for the structure to be used. PSMC matrices
@@ -306,37 +307,61 @@ impl Semiseparable {
     }
 }
 
+#[inline(always)]
+fn fmadd(a: f64, b: f64, c: f64) -> f64 {
+    // One instruction on aarch64 and on x86-64 builds with FMA; elsewhere
+    // `mul_add` would be a libm call.
+    #[cfg(any(target_arch = "aarch64", target_feature = "fma"))]
+    {
+        a.mul_add(b, c)
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_feature = "fma")))]
+    {
+        a * b + c
+    }
+}
+
 /// `y[i] = p[i] * sum_{l > i} x[l] q[l] + r[i] * sum_{l < i} x[l] s[l] + d[i] x[i]`.
 ///
-/// The sums are scanned per block of [`TILE`] entries and the block totals
-/// are then scanned and added, which keeps the dependency chains short. All
-/// terms are non-negative, so the reordering costs no accuracy.
+/// Each block of [`TILE`] entries first gets the terms of its own entries
+/// (two short scans, independent across blocks); the scanned block totals
+/// are then added in one elementwise pass. All terms are non-negative, so
+/// the order of summation costs no accuracy.
 #[inline(always)]
 fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64], y: &mut [f64]) {
-    let nb = x.len() / TILE;
-    assert!(nb <= MAX_SEMISEP_BLOCKS && x.len() == nb * TILE);
-    assert!([p.len(), q.len(), r.len(), s.len(), d.len(), y.len()] == [x.len(); 6]);
+    let n = x.len();
+    let nb = n / TILE;
+    assert!(nb <= MAX_SEMISEP_BLOCKS && n == nb * TILE);
+    let (p, q, r, s, d, y) = (&p[..n], &q[..n], &r[..n], &s[..n], &d[..n], &mut y[..n]);
     let tile =
         |v: &[f64], b: usize| -> [f64; TILE] { v[b * TILE..(b + 1) * TILE].try_into().unwrap() };
     let mut suffix = [0.0f64; MAX_SEMISEP_BLOCKS];
     let mut prefix = [0.0f64; MAX_SEMISEP_BLOCKS];
-    // In-block exclusive suffix sums of x*q (kept in y) and block totals.
     for b in 0..nb {
-        let (xb, qb, sb) = (tile(x, b), tile(q, b), tile(s, b));
-        let yb = &mut y[b * TILE..(b + 1) * TILE];
+        let (xb, pb, qb, rb, sb, db) = (
+            tile(x, b),
+            tile(p, b),
+            tile(q, b),
+            tile(r, b),
+            tile(s, b),
+            tile(d, b),
+        );
+        let yb: &mut [f64; TILE] = (&mut y[b * TILE..(b + 1) * TILE]).try_into().unwrap();
         let mut acc = 0.0;
         for t in (0..TILE).rev() {
-            yb[t] = acc;
-            acc += xb[t] * qb[t];
+            yb[t] = pb[t] * acc;
+            acc = fmadd(xb[t], qb[t], acc);
         }
         suffix[b] = acc;
         let mut acc = 0.0;
         for t in 0..TILE {
-            acc += xb[t] * sb[t];
+            yb[t] = fmadd(rb[t], acc, fmadd(db[t], xb[t], yb[t]));
+            acc = fmadd(xb[t], sb[t], acc);
         }
         prefix[b] = acc;
     }
-    // Exclusive scans of the block totals.
+    // Exclusive scans of the block totals: what the later (earlier) blocks
+    // contribute to every entry of a block.
     let mut carry = 0.0;
     for v in suffix[..nb].iter_mut().rev() {
         let t = *v;
@@ -349,14 +374,11 @@ fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64],
         *v = carry;
         carry += t;
     }
-    for b in 0..nb {
-        let (xb, pb, rb, sb, db) = (tile(x, b), tile(p, b), tile(r, b), tile(s, b), tile(d, b));
-        let yb = &mut y[b * TILE..(b + 1) * TILE];
-        let mut acc = prefix[b];
+    for (b, yb) in y.chunks_exact_mut(TILE).enumerate() {
+        let (pb, rb) = (tile(p, b), tile(r, b));
+        let (cs, cp) = (suffix[b], prefix[b]);
         for t in 0..TILE {
-            let after = yb[t] + suffix[b];
-            yb[t] = pb[t] * after + rb[t] * acc + db[t] * xb[t];
-            acc += xb[t] * sb[t];
+            yb[t] = fmadd(pb[t], cs, fmadd(rb[t], cp, yb[t]));
         }
     }
 }
