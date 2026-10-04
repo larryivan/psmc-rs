@@ -1,0 +1,7 @@
+name	vcf2fq	fq2psmcfa	input
+default	vcf2fq 	fq2psmcfa 	allsites.vcf.gz
+depth	vcf2fq -d 10 -D 60	fq2psmcfa -g 1000 -s 50	allsites.vcf.gz
+mq_window	vcf2fq -Q 30 -l 10	fq2psmcfa -q 20 -g 500 -s 10	allsites.vcf.gz
+per_base	vcf2fq -d 1 -D 1000 -Q 0 -l 1	fq2psmcfa -q 0 -g 0 -s 1	allsites.vcf.gz
+auto	vcf2fq -d 9 -D 57	fq2psmcfa -g 2000	allsites.vcf.gz
+unmodified_chr3	vcf2fq -d 3	fq2psmcfa -g 100 -s 20	allsites_chr3_unmodified.vcf.gz
