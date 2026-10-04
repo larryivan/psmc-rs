@@ -334,25 +334,44 @@ fn invalid_settings_are_rejected() {
     assert!(run_bootstrap(&[], &t, &config(2, 1000, 1), &mstep(), None, &no_progress).is_err());
 }
 
+/// Largest relative difference between the parameters of two models.
+fn max_rel_diff(a: &PsmcModel, b: &PsmcModel) -> f64 {
+    let pa = [a.theta, a.rho, a.t_max]
+        .into_iter()
+        .chain(a.lam.iter().copied());
+    let pb = [b.theta, b.rho, b.t_max]
+        .into_iter()
+        .chain(b.lam.iter().copied());
+    pa.zip(pb)
+        .map(|(x, y)| ((x - y) / x).abs())
+        .fold(0.0, f64::max)
+}
+
+/// `batch_size` cuts each trunk into rows of one HMM chain, so after an EM
+/// iteration the fits may differ only by rounding: the E-step in a worker
+/// caches forward probabilities in single precision except at row
+/// boundaries (measured: up to 1.1e-5 relative here). Starting a new chain
+/// at every 300-bin row instead moves them by about 0.35.
 #[test]
-fn batch_size_only_changes_row_layout() {
+fn batch_size_keeps_each_trunk_one_chain() {
     let seqs = reference_seqs(4000);
     let t = fitted_template();
     let plain =
-        run_bootstrap(&seqs, &t, &config(2, 1000, 0), &mstep(), None, &no_progress).unwrap();
+        run_bootstrap(&seqs, &t, &config(2, 1000, 1), &mstep(), None, &no_progress).unwrap();
     let batched = run_bootstrap(
         &seqs,
         &t,
         &BootstrapConfig {
             batch_size: Some(300),
-            ..config(2, 1000, 0)
+            ..config(2, 1000, 1)
         },
         &mstep(),
         None,
         &no_progress,
     )
     .unwrap();
-    let a: Vec<_> = plain.iter().map(params).collect();
-    let b: Vec<_> = batched.iter().map(params).collect();
-    assert_eq!(a, b);
+    for (rep, (a, b)) in plain.iter().zip(&batched).enumerate() {
+        let diff = max_rel_diff(a, b);
+        assert!(diff < 1e-3, "replicate {rep}: relative difference {diff:e}");
+    }
 }
