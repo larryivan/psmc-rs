@@ -22,6 +22,12 @@ const _: () = assert!(TILE.is_multiple_of(ROW_TILE));
 #[inline(always)]
 fn vec_mat(x: &[f64], m: &[f64], np: usize, y: &mut [f64]) {
     assert!(np.is_multiple_of(TILE) && x.len() == np && m.len() == np * np && y.len() == np);
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: the lengths were checked above.
+    unsafe {
+        neon::vec_mat(x.as_ptr(), m.as_ptr(), np, y.as_mut_ptr())
+    }
+    #[cfg(not(target_arch = "aarch64"))]
     portable::vec_mat(x, m, np, y)
 }
 
@@ -31,12 +37,125 @@ fn vec_mat(x: &[f64], m: &[f64], np: usize, y: &mut [f64]) {
 fn outer_accumulate(u: &[f64], w: &[f64], rows: usize, np: usize, n: usize, m: &mut [f64]) {
     assert!(np.is_multiple_of(TILE) && n <= np);
     assert!(u.len() >= rows * np && w.len() >= rows * np && m.len() == np * np);
+    #[cfg(target_arch = "aarch64")]
+    // SAFETY: the lengths were checked above.
+    unsafe {
+        neon::outer_accumulate(u.as_ptr(), w.as_ptr(), rows, np, n, m.as_mut_ptr())
+    }
+    #[cfg(not(target_arch = "aarch64"))]
     portable::outer_accumulate(u, w, rows, np, n, m)
 }
 
+#[cfg(target_arch = "aarch64")]
+mod neon {
+    //! NEON kernels. Fused multiply-adds are explicit, and every product has
+    //! enough independent accumulators (16) to cover the FMA latency.
+
+    use super::ROW_TILE;
+    use std::arch::aarch64::*;
+
+    /// Columns `col..col + 2V` of `y = xᵀ m`, with rows interleaved over `P`
+    /// accumulator sets that are added at the end.
+    #[inline(always)]
+    unsafe fn vec_mat_tile<const V: usize, const P: usize>(
+        x: *const f64,
+        m: *const f64,
+        np: usize,
+        col: usize,
+        y: *mut f64,
+    ) {
+        unsafe {
+            let mut acc = [[vdupq_n_f64(0.0); V]; P];
+            let mut r = 0;
+            while r < np {
+                for (p, acc_p) in acc.iter_mut().enumerate() {
+                    let s = vld1q_dup_f64(x.add(r + p));
+                    let row = m.add((r + p) * np + col);
+                    for (v, a) in acc_p.iter_mut().enumerate() {
+                        *a = vfmaq_f64(*a, s, vld1q_f64(row.add(2 * v)));
+                    }
+                }
+                r += P;
+            }
+            for v in 0..V {
+                let mut t = acc[0][v];
+                for acc_p in &acc[1..] {
+                    t = vaddq_f64(t, acc_p[v]);
+                }
+                vst1q_f64(y.add(col + 2 * v), t);
+            }
+        }
+    }
+
+    /// `np` must be a multiple of 8; `x`, `y` hold `np` values, `m` `np * np`.
+    #[inline(always)]
+    pub(super) unsafe fn vec_mat(x: *const f64, m: *const f64, np: usize, y: *mut f64) {
+        unsafe {
+            let mut col = 0;
+            while col + 16 <= np {
+                vec_mat_tile::<8, 2>(x, m, np, col, y);
+                col += 16;
+            }
+            if col < np {
+                vec_mat_tile::<4, 4>(x, m, np, col, y);
+            }
+        }
+    }
+
+    /// See [`super::outer_accumulate`]; micro-tiles of 4 rows by 8 columns.
+    #[inline(always)]
+    pub(super) unsafe fn outer_accumulate(
+        u: *const f64,
+        w: *const f64,
+        rows: usize,
+        np: usize,
+        n: usize,
+        m: *mut f64,
+    ) {
+        const _: () = assert!(ROW_TILE == 4);
+        unsafe {
+            let mut i0 = 0;
+            while i0 < n {
+                let mut j0 = 0;
+                while j0 < np {
+                    let mut acc = [[vdupq_n_f64(0.0); 4]; 4];
+                    for b in 0..rows {
+                        let up = u.add(b * np + i0);
+                        let u01 = vld1q_f64(up);
+                        let u23 = vld1q_f64(up.add(2));
+                        let wp = w.add(b * np + j0);
+                        let wv = [
+                            vld1q_f64(wp),
+                            vld1q_f64(wp.add(2)),
+                            vld1q_f64(wp.add(4)),
+                            vld1q_f64(wp.add(6)),
+                        ];
+                        for c in 0..4 {
+                            acc[0][c] = vfmaq_laneq_f64::<0>(acc[0][c], wv[c], u01);
+                            acc[1][c] = vfmaq_laneq_f64::<1>(acc[1][c], wv[c], u01);
+                            acc[2][c] = vfmaq_laneq_f64::<0>(acc[2][c], wv[c], u23);
+                            acc[3][c] = vfmaq_laneq_f64::<1>(acc[3][c], wv[c], u23);
+                        }
+                    }
+                    for (r, acc_r) in acc.iter().enumerate() {
+                        let mp = m.add((i0 + r) * np + j0);
+                        for (c, a) in acc_r.iter().enumerate() {
+                            let p = mp.add(2 * c);
+                            vst1q_f64(p, vaddq_f64(vld1q_f64(p), *a));
+                        }
+                    }
+                    j0 += 8;
+                }
+                i0 += ROW_TILE;
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "aarch64"))]
 mod portable {
-    //! Plain Rust kernels (no FMA: `mul_add` would be a libm call on x86-64
-    //! builds without the `fma` target feature).
+    //! Plain Rust kernels for other targets (no FMA: `mul_add` would be a
+    //! libm call on x86-64 builds without the `fma` target feature).
 
     use super::{ROW_TILE, TILE};
 
