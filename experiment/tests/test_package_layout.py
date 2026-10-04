@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import shutil
 import subprocess
 import unittest
@@ -58,6 +59,26 @@ class IgnoreRules(unittest.TestCase):
     def test_output_directories_exist_in_a_clone(self):
         for d in ("main_text", "real_data"):
             self.assertTrue((RUNS / d / "outputs" / ".gitkeep").exists(), d)
+
+
+class PackagedTables(unittest.TestCase):
+    FIT = RUNS / "real_data" / "tables" / "real_data_rust_vs_c_fit_summary.csv"
+
+    def rows(self, path: Path):
+        with path.open(newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+    def test_fit_summary_paths_are_repository_relative(self):
+        for r in self.rows(self.FIT):
+            for col in ("rust_json", "c_psmc"):
+                self.assertFalse(Path(r[col]).is_absolute(), f"{r['sample_id']} {col}: {r[col]}")
+                self.assertTrue(r[col].startswith("experiment/runs/real_data/outputs/"), r[col])
+
+    def test_no_table_contains_machine_specific_paths(self):
+        for table in RUNS.glob("*/tables/*.csv"):
+            text = table.read_text(encoding="utf-8")
+            for needle in ("/Users/", "/home/", "C:\\"):
+                self.assertFalse(needle in text, f"{table.relative_to(ROOT)} contains {needle!r}")
 
 
 if __name__ == "__main__":
