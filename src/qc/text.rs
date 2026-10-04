@@ -252,7 +252,16 @@ fn metrics(out: &mut String, r: &QcReport) {
     if let Some(d) = &r.depth {
         let mut depth = format!("mean {}x, median {}x", sig(d.mean, 3), sig(d.median, 3));
         if let Some([p05, _, _, p95]) = d.quantiles {
-            let _ = write!(depth, ", 5-95% {p05}-{p95}x");
+            // A quantile in the open last class is only a lower bound.
+            let open = d.histogram.len().saturating_sub(1);
+            let q = |p: u32| {
+                if p as usize == open {
+                    format!("{p}+")
+                } else {
+                    p.to_string()
+                }
+            };
+            let _ = write!(depth, ", 5-95% {}-{}x", q(p05), q(p95));
         }
         match (d.min_depth, d.max_depth) {
             (Some(lo), Some(hi)) => {

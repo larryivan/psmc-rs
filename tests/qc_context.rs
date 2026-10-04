@@ -196,14 +196,21 @@ fn depth_below_min_is_unknown_inside_the_open_class() {
 
     // Every position in the open class 9+, minimum depth 20: nothing is
     // known to lie below it.
-    let mut histogram = vec![0u64; 9];
-    histogram.push(1_000);
+    let (r, line) = depth_line([vec![0; 9], vec![1_000]].concat(), 20);
+    let d = r.depth.as_ref().unwrap();
+    assert_eq!((d.below_min_fraction, d.above_max_fraction), (None, None));
+    assert!(!line.contains("below"), "{line}");
+}
+
+/// The report and its "Read depth" text line for `histogram` (last class
+/// open) and `min_depth`, with a maximum depth of 60.
+fn depth_line(histogram: Vec<u64>, min_depth: u32) -> (QcReport, String) {
     let r = qc(QcContext {
         consensus: Some(ConsensusStats {
             depth: DepthStats {
                 mean: 30.0,
                 median: 30.0,
-                min_depth: Some(20),
+                min_depth: Some(min_depth),
                 max_depth: Some(60),
                 histogram,
             },
@@ -212,11 +219,26 @@ fn depth_below_min_is_unknown_inside_the_open_class() {
         }),
         ..QcContext::default()
     });
-    let d = r.depth.as_ref().unwrap();
-    assert_eq!((d.below_min_fraction, d.above_max_fraction), (None, None));
-    let text = render_text(&r);
-    let line = text.lines().find(|l| l.contains("Read depth")).unwrap();
-    assert!(!line.contains("below"), "{line}");
+    let line = render_text(&r)
+        .lines()
+        .find(|l| l.contains("Read depth"))
+        .unwrap()
+        .to_string();
+    (r, line)
+}
+
+#[test]
+fn depth_quantiles_in_the_open_class_are_lower_bounds() {
+    // All 1,000 positions in the open class 9+.
+    let (r, line) = depth_line([vec![0; 9], vec![1_000]].concat(), 5);
+    assert_eq!(r.depth.as_ref().unwrap().quantiles, Some([9; 4]));
+    assert!(line.contains("5-95% 9+-9+x;"), "{line}");
+    // 100 positions at each depth 5-9 and 100 at 10 or more: only the 95%
+    // quantile (570 of 600) lies in the open class.
+    let (r, line) = depth_line([vec![0; 5], vec![100; 5], vec![100]].concat(), 5);
+    assert_eq!(r.depth.as_ref().unwrap().quantiles, Some([5, 6, 9, 10]));
+    assert!(line.contains("5-95% 5-10+x;"), "{line}");
+    assert!(line.contains("(0.0% below)"), "{line}");
 }
 
 #[test]
