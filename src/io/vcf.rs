@@ -1,12 +1,36 @@
+//! VCF input for one diploid sample.
+//!
+//! The reader produces exactly the binned sequence that `fq2psmcfa -s <bin>`
+//! produces from a per-base consensus of the selected sample: every position
+//! of a chromosome is classified as a called homozygous site, a heterozygous
+//! SNP or missing, and the positions are binned with the `fq2psmcfa` rule
+//! (see [`Binner`]).
+//!
+//! A position is missing if it lies outside the callable set (see
+//! [`VcfOptions::masks`]) or if one of its records leaves the genotype unknown
+//! (a missing or partial `GT`). Otherwise it is heterozygous if one of its
+//! records has a heterozygous genotype, and a called homozygous site in every
+//! other case, including positions without any record. A record that leaves
+//! the genotype unknown makes its whole REF span `POS..POS+len(REF)-1` missing.
+//!
+//! The file is streamed, and the work is proportional to the number of records
+//! and mask intervals plus the number of output bins, never to the genome
+//! length: runs of positions between records are emitted straight from the
+//! mask intervals.
+
 use anyhow::{Context, Result, bail};
 use std::cmp::{max, min};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
 use crate::io::common::{Binner, chunk_sequences, open_reader};
 
 type Interval = (u64, u64); // inclusive [start, end], 1-based
+
+/// Largest accepted POS. Far beyond any real chromosome, it keeps
+/// `POS + len(REF)` and run lengths clear of `u64` overflow.
+const MAX_POS: u64 = 1 << 60;
 
 fn merge_intervals(mut xs: Vec<Interval>) -> Vec<Interval> {
     if xs.is_empty() {
@@ -86,36 +110,21 @@ fn subtract_intervals(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
     out
 }
 
-fn overlap_len(intervals: &[Interval], start: u64, end: u64) -> u64 {
-    if intervals.is_empty() || start > end {
-        return 0;
-    }
-    let mut lo = 0usize;
-    let mut hi = intervals.len();
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if intervals[mid].1 < start {
-            lo = mid + 1;
-        } else {
-            hi = mid;
+/// Positions `>= 1` not covered by the sorted, merged `intervals`.
+fn complement_intervals(intervals: &[Interval]) -> Vec<Interval> {
+    let mut out = Vec::with_capacity(intervals.len() + 1);
+    let mut next = 1u64;
+    for &(s, e) in intervals {
+        if s > next {
+            out.push((next, s - 1));
         }
-    }
-
-    let mut total = 0u64;
-    let mut i = lo;
-    while i < intervals.len() {
-        let (s, e) = intervals[i];
-        if s > end {
-            break;
+        if e == u64::MAX {
+            return out;
         }
-        let ov_s = max(s, start);
-        let ov_e = min(e, end);
-        if ov_s <= ov_e {
-            total += ov_e - ov_s + 1;
-        }
-        i += 1;
+        next = max(next, e + 1);
     }
-    total
+    out.push((next, u64::MAX));
+    out
 }
 
 #[derive(Debug, Clone, Default)]
@@ -252,20 +261,12 @@ fn parse_mask_file(path: &Path) -> Result<MaskFile> {
     Ok(out)
 }
 
-#[derive(Debug, Clone)]
-enum MaskMode {
-    AllCallable,
-    AllExceptNegative,
-    PositiveIntersection,
-}
-
+/// The callable set: the intersection of the positive masks (every position
+/// when there is none) minus the union of the negative masks.
 #[derive(Debug, Clone)]
 struct MaskEngine {
-    mode: MaskMode,
     positives: Vec<MaskFile>,
     negatives: MaskFile,
-    pos_cache: HashMap<String, Vec<Interval>>, // final callable intervals for chrom
-    neg_cache: HashMap<String, Vec<Interval>>, // negative intervals for chrom
 }
 
 impl MaskEngine {
@@ -275,102 +276,43 @@ impl MaskEngine {
             positives.push(parse_mask_file(p)?);
         }
         let negatives = MaskFile::union_from(negative_mask_paths)?;
-        let mode = if positives.is_empty() {
-            if negatives.is_empty() {
-                MaskMode::AllCallable
-            } else {
-                MaskMode::AllExceptNegative
-            }
-        } else {
-            MaskMode::PositiveIntersection
-        };
         Ok(Self {
-            mode,
             positives,
             negatives,
-            pos_cache: HashMap::new(),
-            neg_cache: HashMap::new(),
         })
     }
 
-    fn negative_for_chrom(&mut self, chrom: &str) -> &[Interval] {
-        if !self.neg_cache.contains_key(chrom) {
-            let v = self.negatives.intervals_for_chrom(chrom);
-            self.neg_cache.insert(chrom.to_string(), v);
-        }
-        self.neg_cache.get(chrom).map(Vec::as_slice).unwrap_or(&[])
+    fn has_positive(&self) -> bool {
+        !self.positives.is_empty()
     }
 
-    fn callable_for_chrom(&mut self, chrom: &str) -> &[Interval] {
-        if !self.pos_cache.contains_key(chrom) {
-            let mut cur = self.positives[0].intervals_for_chrom(chrom);
-            for m in &self.positives[1..] {
-                let rhs = m.intervals_for_chrom(chrom);
-                cur = intersect_intervals(&cur, &rhs);
-                if cur.is_empty() {
-                    break;
-                }
+    /// False when some positive mask has no row that applies to `chrom`,
+    /// which leaves the whole chromosome uncallable.
+    fn mentions_chrom(&self, chrom: &str) -> bool {
+        self.positives
+            .iter()
+            .all(|m| !m.global.is_empty() || m.by_chrom.contains_key(chrom))
+    }
+
+    /// Sorted, merged positions of `chrom` that are outside the callable set.
+    fn uncallable_for_chrom(&self, chrom: &str) -> Vec<Interval> {
+        let neg = if self.negatives.is_empty() {
+            Vec::new()
+        } else {
+            self.negatives.intervals_for_chrom(chrom)
+        };
+        let Some((first, rest)) = self.positives.split_first() else {
+            return neg;
+        };
+        let mut callable = first.intervals_for_chrom(chrom);
+        for m in rest {
+            if callable.is_empty() {
+                break;
             }
-            let neg = self.negative_for_chrom(chrom);
-            let final_intervals = subtract_intervals(&cur, neg);
-            self.pos_cache.insert(chrom.to_string(), final_intervals);
+            callable = intersect_intervals(&callable, &m.intervals_for_chrom(chrom));
         }
-        self.pos_cache.get(chrom).map(Vec::as_slice).unwrap_or(&[])
+        complement_intervals(&subtract_intervals(&callable, &neg))
     }
-
-    fn count_callable(&mut self, chrom: &str, start: u64, end: u64) -> u64 {
-        if start > end {
-            return 0;
-        }
-        match self.mode {
-            MaskMode::AllCallable => end - start + 1,
-            MaskMode::AllExceptNegative => {
-                let len = end - start + 1;
-                let neg = self.negative_for_chrom(chrom);
-                len.saturating_sub(overlap_len(neg, start, end))
-            }
-            MaskMode::PositiveIntersection => {
-                let pos = self.callable_for_chrom(chrom);
-                overlap_len(pos, start, end)
-            }
-        }
-    }
-
-    fn is_callable(&mut self, chrom: &str, pos: u64) -> bool {
-        self.count_callable(chrom, pos, pos) > 0
-    }
-}
-
-fn parse_gt(format_field: &str, sample_field: &str) -> Option<(usize, usize)> {
-    let mut gt_index = None;
-    for (i, key) in format_field.split(':').enumerate() {
-        if key == "GT" {
-            gt_index = Some(i);
-            break;
-        }
-    }
-    let idx = gt_index?;
-    let gt = sample_field.split(':').nth(idx)?;
-    if gt == "." || gt == "./." || gt == ".|." {
-        return None;
-    }
-    let parts: Vec<&str> = gt.split(['/', '|']).collect();
-    if parts.len() != 2 {
-        return None;
-    }
-    if parts[0] == "." || parts[1] == "." {
-        return None;
-    }
-    let a0 = parts[0].parse::<usize>().ok()?;
-    let a1 = parts[1].parse::<usize>().ok()?;
-    Some((a0, a1))
-}
-
-fn allele_from_index<'a>(ref_allele: &'a str, alt_field: &'a str, idx: usize) -> Option<&'a str> {
-    if idx == 0 {
-        return Some(ref_allele);
-    }
-    alt_field.split(',').nth(idx - 1)
 }
 
 fn resolve_sample_index(header_fields: &[&str], sample_name: Option<&str>) -> Result<usize> {
@@ -395,6 +337,549 @@ fn resolve_sample_index(header_fields: &[&str], sample_name: Option<&str>) -> Re
     )
 }
 
+/// Options for [`read_vcf_with`].
+#[derive(Debug, Clone)]
+pub struct VcfOptions {
+    /// Number of bases per output bin (`fq2psmcfa -s`).
+    pub bin_size: usize,
+    /// Split each sequence into HMM rows of at most this many bins.
+    pub batch_size: Option<usize>,
+    /// Sample column to read; required when the VCF has several samples.
+    pub sample: Option<String>,
+    /// Callable-site masks. A position is callable when every positive mask
+    /// contains it (every position is callable when there is none) and no
+    /// negative mask does. Rows with 3 or more columns are BED
+    /// (`chrom start end`, 0-based half-open) and apply to that chromosome;
+    /// rows with exactly 2 columns are `start end`, 1-based inclusive, and
+    /// apply to every chromosome.
+    pub masks: Vec<PathBuf>,
+    /// Masks of positions to exclude, in the same formats as `masks`.
+    pub negative_masks: Vec<PathBuf>,
+}
+
+impl Default for VcfOptions {
+    fn default() -> Self {
+        Self {
+            bin_size: 100,
+            batch_size: None,
+            sample: None,
+            masks: Vec::new(),
+            negative_masks: Vec::new(),
+        }
+    }
+}
+
+/// What [`read_vcf_with`] read, for reporting and sanity warnings.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VcfSummary {
+    /// Data records (non-header lines).
+    pub records: u64,
+    /// Heterozygous SNP positions that reached the output as heterozygous
+    /// sites (callable and not overridden by a missing record).
+    pub het_snps: u64,
+    /// Records with a heterozygous SNP genotype, used or not.
+    pub het_snp_records: u64,
+    /// Records with a homozygous (including hom-alt) or haploid genotype.
+    pub hom_calls: u64,
+    /// Records with a missing or partial genotype (`.`, `./.`, `./1`, no GT).
+    pub missing_genotypes: u64,
+    /// Records whose POS lies outside the callable set.
+    pub records_outside_mask: u64,
+    /// Positions carrying more than one record.
+    pub multi_record_positions: u64,
+    /// Output sequences (chromosomes with at least one record).
+    pub sequences: usize,
+    /// Output bins over all sequences.
+    pub bins: usize,
+    /// Positions covered by the output sequences.
+    pub sites: u64,
+    /// Of `sites`, the positions classified as missing.
+    pub missing_sites: u64,
+    /// Whether a positive (callable) mask was given. Without one, every
+    /// position without a record counts as a called homozygous site.
+    pub positive_mask: bool,
+    /// Chromosomes with records that some positive mask has no row for, so
+    /// that they are entirely missing (usually a naming mismatch such as
+    /// `chr1` against `1`).
+    pub chroms_outside_mask: Vec<String>,
+}
+
+impl VcfSummary {
+    /// Warnings worth showing to the user about how the input was read.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if !self.positive_mask {
+            out.push(
+                "no callable mask (--vcf-mask) was given, so every position without a VCF \
+                 record counts as a called homozygous site; for a variants-only VCF (the \
+                 GATK/bcftools default) this hides all missing data and biases theta and \
+                 the Ne estimates low. Pass a callable-sites BED with --vcf-mask, or use an \
+                 all-sites VCF."
+                    .to_string(),
+            );
+        }
+        if let Some(hint) = self.chroms_outside_mask_hint() {
+            out.push(hint);
+        }
+        out
+    }
+
+    fn chroms_outside_mask_hint(&self) -> Option<String> {
+        let names = &self.chroms_outside_mask;
+        if names.is_empty() {
+            return None;
+        }
+        let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+        let more = if names.len() > 5 { ", ..." } else { "" };
+        Some(format!(
+            "the callable mask has no interval on {} VCF chromosome(s) ({shown}{more}), \
+             which are therefore entirely missing; check that the chromosome names in \
+             the mask match the VCF (e.g. 'chr1' vs '1')",
+            names.len()
+        ))
+    }
+}
+
+/// The result of [`read_vcf_with`].
+#[derive(Debug, Clone)]
+pub struct VcfRead {
+    pub obs: Observations,
+    pub summary: VcfSummary,
+}
+
+/// Per-position class, in precedence order: a position takes the largest
+/// class among its records, its mask state and any covering REF span.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Site {
+    Hom,
+    Het,
+    Missing,
+}
+
+/// The columns of a data line that the reader needs, borrowed from the line.
+struct Record<'a> {
+    chrom: &'a [u8],
+    pos: u64,
+    ref_allele: &'a [u8],
+    alt: &'a [u8],
+    format: &'a [u8],
+    sample: &'a [u8],
+}
+
+fn lossy(b: &[u8]) -> std::borrow::Cow<'_, str> {
+    String::from_utf8_lossy(b)
+}
+
+fn parse_u64(b: &[u8]) -> Option<u64> {
+    // 19 digits always fit in a u64.
+    if b.is_empty() || b.len() > 19 {
+        return None;
+    }
+    let mut v = 0u64;
+    for &c in b {
+        if !c.is_ascii_digit() {
+            return None;
+        }
+        v = v * 10 + u64::from(c - b'0');
+    }
+    Some(v)
+}
+
+fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<'_>> {
+    let mut it = line.split(|&b| b == b'\t');
+    let mut cols: [&[u8]; 10] = [&[]; 10];
+    for slot in cols.iter_mut() {
+        *slot = it
+            .next()
+            .with_context(|| format!("invalid VCF row {row_no}: expected >= 10 columns"))?;
+    }
+    let sample = if sample_idx == 0 {
+        cols[9]
+    } else {
+        it.nth(sample_idx - 1).with_context(|| {
+            format!(
+                "invalid VCF row {}: missing sample column index {}",
+                row_no,
+                9 + sample_idx
+            )
+        })?
+    };
+    let pos = parse_u64(cols[1])
+        .with_context(|| format!("invalid VCF row {}: bad POS '{}'", row_no, lossy(cols[1])))?;
+    if pos == 0 {
+        bail!("invalid VCF row {}: POS must be >= 1", row_no);
+    }
+    if pos > MAX_POS {
+        bail!("invalid VCF row {}: POS {} is out of range", row_no, pos);
+    }
+    Ok(Record {
+        chrom: cols[0],
+        pos,
+        ref_allele: cols[3],
+        alt: cols[4],
+        format: cols[8],
+        sample,
+    })
+}
+
+enum Genotype {
+    /// Missing or partial (`.`, `./.`, `./1`), or no GT field.
+    Missing,
+    /// Identical allele strings, or a haploid call.
+    Hom,
+    /// Allele strings differ.
+    Het,
+}
+
+fn allele<'a>(rec: &Record<'a>, idx: usize) -> Option<&'a [u8]> {
+    if idx == 0 {
+        return Some(rec.ref_allele);
+    }
+    if rec.alt == b"." {
+        return None;
+    }
+    rec.alt.split(|&b| b == b',').nth(idx - 1)
+}
+
+fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
+    let Some(gt_idx) = rec.format.split(|&b| b == b':').position(|k| k == b"GT") else {
+        return Ok(Genotype::Missing);
+    };
+    let Some(gt) = rec.sample.split(|&b| b == b':').nth(gt_idx) else {
+        return Ok(Genotype::Missing);
+    };
+    // VCF 4.4 allows an explicit phasing prefix on the first allele.
+    let gt = gt
+        .strip_prefix(b"|")
+        .or(gt.strip_prefix(b"/"))
+        .unwrap_or(gt);
+    if gt.is_empty() {
+        return Ok(Genotype::Missing);
+    }
+    let mut first: Option<&[u8]> = None;
+    let mut all_same = true;
+    for a in gt.split(|&b| b == b'/' || b == b'|') {
+        if a == b"." {
+            return Ok(Genotype::Missing);
+        }
+        let idx = parse_u64(a)
+            .with_context(|| format!("invalid VCF row {}: bad GT '{}'", row_no, lossy(gt)))?;
+        let al = usize::try_from(idx)
+            .ok()
+            .and_then(|i| allele(rec, i))
+            .with_context(|| {
+                format!(
+                    "invalid VCF row {}: GT '{}' refers to allele {} but ALT is '{}'",
+                    row_no,
+                    lossy(gt),
+                    idx,
+                    lossy(rec.alt)
+                )
+            })?;
+        match first {
+            None => first = Some(al),
+            Some(f) => all_same &= f.eq_ignore_ascii_case(al),
+        }
+    }
+    // Comparing allele strings rather than indices keeps e.g. `1/2` with
+    // ALT `C,C` homozygous.
+    Ok(if all_same {
+        Genotype::Hom
+    } else {
+        Genotype::Het
+    })
+}
+
+/// Classify one record: its class at POS and, when it leaves the genotype
+/// unknown, the last position of its REF span (all of which become missing).
+fn classify(rec: &Record<'_>, row_no: usize, s: &mut VcfSummary) -> Result<(Site, Option<u64>)> {
+    let span_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
+    Ok(match genotype(rec, row_no)? {
+        Genotype::Missing => {
+            s.missing_genotypes += 1;
+            (Site::Missing, Some(span_end))
+        }
+        Genotype::Hom => {
+            s.hom_calls += 1;
+            (Site::Hom, None)
+        }
+        Genotype::Het => {
+            s.het_snp_records += 1;
+            (Site::Het, None)
+        }
+    })
+}
+
+struct Pending {
+    pos: u64,
+    site: Site,
+    n_records: u64,
+}
+
+/// Streams the per-base states of one chromosome, in position order, into a
+/// [`Binner`]. Positions before `cursor` are binned; the records at `pending`
+/// may still be joined by further records at the same POS.
+struct ChromBuilder {
+    name: Vec<u8>,
+    binner: Binner,
+    /// Sorted, merged positions outside the callable set.
+    uncallable: Vec<Interval>,
+    /// First entry of `uncallable` that can still reach `cursor` or beyond.
+    next_unc: usize,
+    cursor: u64,
+    /// Positions up to here are missing because of an earlier REF span.
+    miss_until: u64,
+    pending: Option<Pending>,
+    last_pos: u64,
+}
+
+impl ChromBuilder {
+    fn new(name: &[u8], uncallable: Vec<Interval>, bin_size: usize) -> Self {
+        Self {
+            name: name.to_vec(),
+            binner: Binner::new(bin_size),
+            uncallable,
+            next_unc: 0,
+            cursor: 1,
+            miss_until: 0,
+            pending: None,
+            last_pos: 0,
+        }
+    }
+
+    fn missing(&mut self, n: u64, s: &mut VcfSummary) {
+        self.binner.add_missing(n);
+        s.missing_sites += n;
+    }
+
+    /// Whether `pos` is callable. Calls must come with non-decreasing `pos`.
+    fn is_callable(&mut self, pos: u64) -> bool {
+        while self
+            .uncallable
+            .get(self.next_unc)
+            .is_some_and(|&(_, e)| e < pos)
+        {
+            self.next_unc += 1;
+        }
+        !self
+            .uncallable
+            .get(self.next_unc)
+            .is_some_and(|&(start, _)| start <= pos)
+    }
+
+    /// Emit the positions `cursor..=to`, none of which has a record.
+    fn fill_gap(&mut self, to: u64, s: &mut VcfSummary) {
+        if to < self.cursor {
+            return;
+        }
+        let mut a = self.cursor;
+        self.cursor = to + 1;
+        if self.miss_until >= a {
+            let e = min(to, self.miss_until);
+            self.missing(e - a + 1, s);
+            a = e + 1;
+        }
+        while a <= to {
+            while self
+                .uncallable
+                .get(self.next_unc)
+                .is_some_and(|&(_, e)| e < a)
+            {
+                self.next_unc += 1;
+            }
+            match self.uncallable.get(self.next_unc) {
+                Some(&(us, ue)) if us <= to => {
+                    if us > a {
+                        self.binner.add_called(us - a);
+                        a = us;
+                    }
+                    let e = min(ue, to);
+                    self.missing(e - a + 1, s);
+                    a = e + 1;
+                }
+                _ => {
+                    self.binner.add_called(to - a + 1);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn flush_pending(&mut self, s: &mut VcfSummary) {
+        let Some(p) = self.pending.take() else {
+            return;
+        };
+        debug_assert_eq!(self.cursor, p.pos);
+        let callable = self.is_callable(p.pos);
+        if !callable {
+            s.records_outside_mask += p.n_records;
+        }
+        if p.n_records > 1 {
+            s.multi_record_positions += 1;
+        }
+        let site = if !callable || p.pos <= self.miss_until {
+            Site::Missing
+        } else {
+            p.site
+        };
+        match site {
+            Site::Missing => self.missing(1, s),
+            Site::Het => {
+                self.binner.add_het();
+                s.het_snps += 1;
+            }
+            Site::Hom => self.binner.add_called(1),
+        }
+        self.cursor = p.pos + 1;
+    }
+
+    /// Add a record; `pos` must not be smaller than any earlier record's.
+    fn add_record(&mut self, pos: u64, site: Site, span_end: Option<u64>, s: &mut VcfSummary) {
+        match self.pending.as_mut() {
+            Some(p) if p.pos == pos => {
+                p.site = max(p.site, site);
+                p.n_records += 1;
+            }
+            _ => {
+                self.flush_pending(s);
+                self.fill_gap(pos - 1, s);
+                self.pending = Some(Pending {
+                    pos,
+                    site,
+                    n_records: 1,
+                });
+            }
+        }
+        if let Some(e) = span_end {
+            self.miss_until = max(self.miss_until, e);
+        }
+        self.last_pos = pos;
+    }
+
+    /// Emit everything up to `end` and return the binned sequence.
+    fn finish(&mut self, end: u64, s: &mut VcfSummary) -> Vec<u8> {
+        self.flush_pending(s);
+        self.fill_gap(end, s);
+        s.sites += end;
+        self.binner.finish()
+    }
+}
+
+/// Read one sample of a VCF into binned observations; see the module docs for
+/// how positions are classified.
+///
+/// Each chromosome with at least one record becomes one sequence covering
+/// positions `1..=` its last record's POS; chromosomes without records produce
+/// no sequence. Records must be sorted by position within a chromosome
+/// (several records at one POS are combined), and each chromosome must form
+/// one contiguous block, as in any `bcftools sort`ed or indexed VCF.
+pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
+    let masks = MaskEngine::new(&opts.masks, &opts.negative_masks)?;
+    let mut summary = VcfSummary {
+        positive_mask: masks.has_positive(),
+        ..VcfSummary::default()
+    };
+
+    let mut reader = open_reader(path)?;
+    let mut line = Vec::<u8>::new();
+    let mut row_no = 0usize;
+    let mut sample_idx: Option<usize> = None;
+    let mut finished_chroms = HashSet::<Vec<u8>>::new();
+    let mut cur: Option<ChromBuilder> = None;
+    let mut seqs = Vec::<Vec<u8>>::new();
+
+    loop {
+        line.clear();
+        let n = reader
+            .read_until(b'\n', &mut line)
+            .with_context(|| format!("failed to read VCF {path:?}"))?;
+        if n == 0 {
+            break;
+        }
+        row_no += 1;
+        let s = line.trim_ascii();
+        if s.is_empty() {
+            continue;
+        }
+        if s[0] == b'#' {
+            if s.starts_with(b"#CHROM") {
+                let header = lossy(s);
+                let fields: Vec<&str> = header.split('\t').collect();
+                sample_idx = Some(resolve_sample_index(&fields, opts.sample.as_deref())?);
+            }
+            continue;
+        }
+        let idx = sample_idx.with_context(|| "VCF header '#CHROM' not found before records")?;
+        let rec = parse_record(s, idx, row_no)?;
+        summary.records += 1;
+
+        if cur.as_ref().is_none_or(|c| c.name != rec.chrom) {
+            if let Some(mut done) = cur.take() {
+                let end = done.last_pos;
+                seqs.push(done.finish(end, &mut summary));
+                finished_chroms.insert(done.name);
+            }
+            if finished_chroms.contains(rec.chrom) {
+                bail!(
+                    "invalid VCF row {}: chromosome '{}' appears again after another \
+                     chromosome; the VCF must be sorted (e.g. with bcftools sort)",
+                    row_no,
+                    lossy(rec.chrom)
+                );
+            }
+            let name = lossy(rec.chrom);
+            if !masks.mentions_chrom(&name) {
+                summary.chroms_outside_mask.push(name.to_string());
+            }
+            let uncallable = masks.uncallable_for_chrom(&name);
+            cur = Some(ChromBuilder::new(rec.chrom, uncallable, opts.bin_size));
+        }
+        let chrom = cur.as_mut().expect("chromosome state was just set");
+        if rec.pos < chrom.last_pos {
+            bail!(
+                "invalid VCF row {}: POS {} on '{}' comes after POS {}; the VCF must be \
+                 sorted by position (e.g. with bcftools sort)",
+                row_no,
+                rec.pos,
+                lossy(rec.chrom),
+                chrom.last_pos
+            );
+        }
+        let (site, span_end) = classify(&rec, row_no, &mut summary)?;
+        chrom.add_record(rec.pos, site, span_end, &mut summary);
+    }
+    if let Some(mut done) = cur.take() {
+        let end = done.last_pos;
+        seqs.push(done.finish(end, &mut summary));
+    }
+
+    if summary.het_snps == 0 {
+        let hint = summary
+            .chroms_outside_mask_hint()
+            .map(|h| format!("; {h}"))
+            .unwrap_or_default();
+        bail!(
+            "no heterozygous SNP at a callable position found in VCF input ({} records, \
+             {} heterozygous SNP records, {} outside the callable set){hint}",
+            summary.records,
+            summary.het_snp_records,
+            summary.records_outside_mask
+        );
+    }
+    summary.sequences = seqs.iter().filter(|s| !s.is_empty()).count();
+    summary.bins = seqs.iter().map(Vec::len).sum();
+    let obs = chunk_sequences(
+        seqs,
+        opts.batch_size,
+        "no valid segregating sites found in VCF input",
+    )?;
+    Ok(VcfRead { obs, summary })
+}
+
+/// [`read_vcf_with`] with the default options for everything not given here.
 pub fn read_vcf(
     path: &Path,
     batch_size: Option<usize>,
@@ -403,159 +888,12 @@ pub fn read_vcf(
     mask_paths: &[PathBuf],
     negative_mask_paths: &[PathBuf],
 ) -> Result<Observations> {
-    if bin_size == 0 {
-        bail!("vcf bin_size must be > 0");
-    }
-
-    let mut reader = open_reader(path)?;
-    let mut line = String::new();
-    let mut row_no = 0usize;
-
-    let mut sample_idx: Option<usize> = None;
-    let mut masks = MaskEngine::new(mask_paths, negative_mask_paths)?;
-
-    let mut seqs = Vec::<Vec<u8>>::new();
-    let mut binner = Binner::new(bin_size);
-    let mut cur_chrom: Option<String> = None;
-
-    let mut prev_scan_pos: u64 = 0;
-    let mut prev_emit_pos: u64 = 0;
-    let mut called_since_emit: u64 = 0;
-    let mut emitted_rows = 0usize;
-
-    loop {
-        line.clear();
-        let n = reader
-            .read_line(&mut line)
-            .with_context(|| format!("failed to read VCF {path:?}"))?;
-        if n == 0 {
-            break;
-        }
-        row_no += 1;
-        let s = line.trim();
-        if s.is_empty() {
-            continue;
-        }
-        if s.starts_with("##") {
-            continue;
-        }
-        if s.starts_with("#CHROM") {
-            let fields: Vec<&str> = s.split('\t').collect();
-            sample_idx = Some(resolve_sample_index(&fields, sample_name)?);
-            continue;
-        }
-        if s.starts_with('#') {
-            continue;
-        }
-        let idx = sample_idx.with_context(|| "VCF header '#CHROM' not found before records")?;
-
-        let fields: Vec<&str> = s.split('\t').collect();
-        if fields.len() < 10 {
-            bail!("invalid VCF row {}: expected >= 10 columns", row_no);
-        }
-        let sample_col = 9 + idx;
-        if fields.len() <= sample_col {
-            bail!(
-                "invalid VCF row {}: missing sample column index {}",
-                row_no,
-                sample_col
-            );
-        }
-
-        let chrom = fields[0];
-        let pos: u64 = fields[1]
-            .parse()
-            .with_context(|| format!("invalid VCF row {}: bad POS '{}'", row_no, fields[1]))?;
-        if pos == 0 {
-            bail!("invalid VCF row {}: POS must be >= 1", row_no);
-        }
-
-        let is_new_chrom = match &cur_chrom {
-            None => true,
-            Some(c) => c != chrom,
-        };
-        if is_new_chrom {
-            if cur_chrom.is_some() {
-                let seq = binner.finish();
-                if !seq.is_empty() {
-                    seqs.push(seq);
-                }
-            }
-            cur_chrom = Some(chrom.to_string());
-            prev_scan_pos = 0;
-            prev_emit_pos = 0;
-            called_since_emit = 0;
-        }
-
-        if pos <= prev_scan_pos {
-            bail!(
-                "invalid VCF row {}: POS must increase within chromosome",
-                row_no
-            );
-        }
-
-        let called_between = masks.count_callable(chrom, prev_scan_pos + 1, pos);
-        called_since_emit = called_since_emit.saturating_add(called_between);
-        prev_scan_pos = pos;
-
-        let format_field = fields[8];
-        let sample_field = fields[sample_col];
-        let Some((a0_idx, a1_idx)) = parse_gt(format_field, sample_field) else {
-            continue;
-        };
-        let ref_allele = fields[3];
-        let alt_field = fields[4];
-        let Some(a0) = allele_from_index(ref_allele, alt_field, a0_idx) else {
-            continue;
-        };
-        let Some(a1) = allele_from_index(ref_allele, alt_field, a1_idx) else {
-            continue;
-        };
-        // Treat genotypes as heterozygous only if final allele strings differ.
-        // This avoids false K sites when different ALT indices map to identical bases.
-        if a0 == a1 {
-            continue;
-        }
-        if !masks.is_callable(chrom, pos) {
-            continue;
-        }
-
-        let delta = pos - prev_emit_pos;
-        if called_since_emit == 0 {
-            // Current segregating site should contribute at least one callable base.
-            continue;
-        }
-        if called_since_emit > delta {
-            bail!(
-                "invalid derived mhs row at VCF row {}: nr_called ({}) exceeds distance ({})",
-                row_no,
-                called_since_emit,
-                delta
-            );
-        }
-
-        let n_uncalled = delta - called_since_emit;
-        let n_called_non_variant = called_since_emit - 1;
-        binner.add_missing(n_uncalled);
-        binner.add_called(n_called_non_variant);
-        binner.add_het();
-
-        prev_emit_pos = pos;
-        called_since_emit = 0;
-        emitted_rows += 1;
-    }
-
-    let seq = binner.finish();
-    if !seq.is_empty() {
-        seqs.push(seq);
-    }
-
-    if emitted_rows == 0 {
-        bail!("no segregating callable diploid sites found in VCF input");
-    }
-    chunk_sequences(
-        seqs,
+    let opts = VcfOptions {
+        bin_size,
         batch_size,
-        "no valid segregating sites found in VCF input",
-    )
+        sample: sample_name.map(str::to_string),
+        masks: mask_paths.to_vec(),
+        negative_masks: negative_mask_paths.to_vec(),
+    };
+    Ok(read_vcf_with(path, &opts)?.obs)
 }
