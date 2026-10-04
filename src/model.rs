@@ -37,6 +37,9 @@ pub struct PsmcModel {
     pub p_kl: Array2<f64>,
     pub em: Array2<f64>,
     pub sigma: Vec<f64>,
+    // C's normalisers, kept in step with `sigma` by `param_recalculate`.
+    c_pi: f64,
+    c_sigma: f64,
 }
 
 impl PsmcModel {
@@ -105,6 +108,8 @@ impl PsmcModel {
             p_kl: Array2::zeros((n_states, n_states)),
             em: Array2::zeros((3, n_states)),
             sigma: vec![0.0; n_states],
+            c_pi: f64::NAN,
+            c_sigma: f64::NAN,
         };
         model.param_recalculate()?;
         Ok(model)
@@ -317,8 +322,36 @@ impl PsmcModel {
         self.p_kl = p_kl;
         self.em = e;
         self.sigma = sigma;
+        self.c_pi = c_pi;
+        self.c_sigma = c_sigma;
 
         Ok(())
+    }
+
+    /// C psmc's `C_pi`: `sum_k lambda_k (alpha_k - alpha_{k+1})`, the mean
+    /// coalescence time in units of 2N0 generations under the λ history.
+    /// C prints it on the `MM C_pi:` line of each `.psmc` round.
+    ///
+    /// Like `sigma`, it is the value of the last
+    /// [`param_recalculate`](Self::param_recalculate) (which
+    /// [`new`](Self::new) runs), not recomputed from the current parameters.
+    pub fn c_pi(&self) -> f64 {
+        self.c_pi
+    }
+
+    /// C psmc's `C_sigma = 1 / (C_pi rho) + 1/2`, the normaliser of the
+    /// initial distribution `sigma`. Set by
+    /// [`param_recalculate`](Self::param_recalculate), like
+    /// [`c_pi`](Self::c_pi).
+    pub fn c_sigma(&self) -> f64 {
+        self.c_sigma
+    }
+
+    /// C psmc's `n_recomb = sum_L / C_sigma` for `sum_l` non-missing bins
+    /// (C's `sum_L`), printed on the `MM ... n_recomb:` line; C scales the
+    /// `RS` lines' fourth column, `n_recomb * sigma_k`, by it.
+    pub fn n_recomb(&self, sum_l: u64) -> f64 {
+        sum_l as f64 / self.c_sigma
     }
 
     /// Per-state average coalescent time, in units of 2N0 generations: for
@@ -550,5 +583,67 @@ fn parse_pattern(pattern: &str) -> Result<Vec<(usize, usize)>> {
         None => {
             bail!("pattern {pattern:?} implies too many states; at most {MAX_STATES} are supported")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `C_pi` from its definition, written independently of `coalescent`:
+    /// the integral of the survival function `exp(-int_0^t ds / lambda(s))`.
+    fn c_pi_direct(model: &PsmcModel) -> f64 {
+        let t = model.compute_t(0.1);
+        let lam = model.map_lam(&model.lam).unwrap();
+        let mut survival = 1.0;
+        let mut sum = 0.0;
+        for k in 0..=model.n_steps {
+            let leaving = if k == model.n_steps {
+                0.0
+            } else {
+                survival * (-(t[k + 1] - t[k]) / lam[k]).exp()
+            };
+            sum += lam[k] * (survival - leaving);
+            survival = leaving;
+        }
+        sum
+    }
+
+    #[test]
+    fn normalisers_match_their_definitions() {
+        let mut model =
+            PsmcModel::new(15.0, 22, 0.05, 0.0125, 2.5e-8, Some("4+5*3+4".into())).unwrap();
+        model
+            .lam
+            .copy_from_slice(&[0.4, 2.5, 0.9, 7.0, 0.05, 1.3, 30.0]);
+        model.param_recalculate().unwrap();
+
+        let c_pi = c_pi_direct(&model);
+        assert!(
+            (model.c_pi() - c_pi).abs() <= 1e-12 * c_pi,
+            "{} vs {c_pi}",
+            model.c_pi()
+        );
+        assert_eq!(model.c_sigma(), 1.0 / (model.c_pi() * model.rho) + 0.5);
+        assert_eq!(model.n_recomb(150_947), 150_947.0 / model.c_sigma());
+        // C_sigma normalises sigma.
+        let total: f64 = model.sigma.iter().sum();
+        assert!((total - 1.0).abs() < 1e-12, "sum of sigma = {total}");
+    }
+
+    #[test]
+    fn normalisers_follow_param_recalculate() {
+        let mut model = PsmcModel::new(15.0, 10, 0.05, 0.0125, 2.5e-8, None).unwrap();
+        // With every lambda = 1 the survival function is exp(-t): C_pi = 1.
+        assert!((model.c_pi() - 1.0).abs() < 1e-12, "{}", model.c_pi());
+        let (c_pi, c_sigma) = (model.c_pi(), model.c_sigma());
+
+        model.rho *= 2.0;
+        model.lam[3] = 5.0;
+        assert_eq!((model.c_pi(), model.c_sigma()), (c_pi, c_sigma));
+        model.param_recalculate().unwrap();
+        assert!((model.c_pi() - c_pi_direct(&model)).abs() < 1e-12 * model.c_pi());
+        assert_ne!(model.c_pi(), c_pi);
+        assert_eq!(model.c_sigma(), 1.0 / (model.c_pi() * model.rho) + 0.5);
     }
 }
