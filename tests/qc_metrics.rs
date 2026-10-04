@@ -68,6 +68,7 @@ fn per_sequence_metrics_match_hand_counts() {
     assert_eq!(s.called_bases, Some(520));
     assert_eq!(s.het_sites, Some(4));
     close(s.site_het_per_kb.unwrap(), 4000.0 / 520.0);
+    close(s.uncalled_site_fraction.unwrap(), 1.0 - 520.0 / 850.0);
     assert_eq!(s.length_bases, 850);
     // N N | N crosses the row boundary: one run of 3.
     assert_eq!(s.longest_missing_run_bins, 3);
@@ -77,8 +78,13 @@ fn per_sequence_metrics_match_hand_counts() {
     close(s.theta0_per_bin.unwrap(), -(5f64 / 6.0).ln());
     assert_eq!(s.called_bases_from_bins, 600);
     assert_eq!(
-        (s.called_bases, s.het_sites, s.site_het_per_kb),
-        (None, None, None)
+        (
+            s.called_bases,
+            s.het_sites,
+            s.site_het_per_kb,
+            s.uncalled_site_fraction
+        ),
+        (None, None, None, None)
     );
     assert_eq!(s.length_bases, 900);
     assert_eq!(s.longest_missing_run_bins, 2);
@@ -132,6 +138,20 @@ fn site_counts_add_up_when_every_sequence_has_them() {
     assert_eq!(r.totals.called_bases, Some(1100));
     assert_eq!(r.totals.het_sites, Some(5));
     close(r.totals.site_het_per_kb.unwrap(), 5000.0 / 1100.0);
+    // chr2 has no extent: 9 bins of 100 bp.
+    close(
+        r.totals.uncalled_site_fraction.unwrap(),
+        1.0 - 1100.0 / 1750.0,
+    );
+    close(
+        r.sequences[1].stats.uncalled_site_fraction.unwrap(),
+        1.0 - 580.0 / 900.0,
+    );
+
+    // More called sites than the extent: clamped to none uncalled.
+    seqs[0].called_bases = Some(900);
+    let r = analyze(&input(&rows, &starts, &seqs, 0));
+    assert_eq!(r.sequences[0].stats.uncalled_site_fraction, Some(0.0));
 }
 
 #[test]

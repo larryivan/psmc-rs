@@ -5,8 +5,8 @@ use psmc_rs::PsmcModel;
 use psmc_rs::io::common::Binner;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use psmc_rs::qc::{
-    HEMIZYGOUS_MIN_EXPECTED_HET_BINS, QcContext, QcInput, REFERENCE_MIN_CALLED_BASES, analyze,
-    initial_recombinations, theta0_per_bin,
+    HEMIZYGOUS_MIN_EXPECTED_HET_BINS, QcCode, QcContext, QcInput, QcSeq,
+    REFERENCE_MIN_CALLED_BASES, Severity, analyze, initial_recombinations, theta0_per_bin,
 };
 use std::fs;
 
@@ -149,6 +149,118 @@ fn missing_sites_inside_called_bins_lower_theta() {
     let (a, b) = (theta(full.finish()), theta(holey.finish()));
     // About 0.2 vs 0.08 per bin.
     assert!(b < 0.5 * a, "{a} vs {b}");
+}
+
+/// The uncalled-site share and the N-bin share of one sequence of 100 bp
+/// bins, given as runs of (sites, missing).
+fn missing_shares(runs: impl IntoIterator<Item = (u64, bool)>) -> (f64, f64) {
+    let mut binner = Binner::new(100);
+    let (mut len, mut uncalled) = (0u64, 0u64);
+    for (run, missing) in runs {
+        if missing {
+            binner.add_missing(run);
+            uncalled += run;
+        } else {
+            binner.add_called(run);
+        }
+        len += run;
+    }
+    let rows = vec![binner.finish()];
+    let mut seq = QcSeq::new("chr1", rows[0].len());
+    seq.extent_bases = Some(len);
+    seq.called_bases = Some(len - uncalled);
+    let t = analyze(&QcInput {
+        rows: &rows,
+        row_starts: &[true],
+        seqs: &[seq],
+        bin_size: 100,
+        bootstrap_trunk_bins: 0,
+        context: QcContext::default(),
+    })
+    .totals;
+    (t.uncalled_site_fraction.unwrap(), t.missing_fraction)
+}
+
+#[test]
+fn n_bin_share_bounds_the_uncalled_site_share() {
+    // HIGH_MISSING: every N bin has more than 90% of its sites uncalled, so
+    // 0.9 times the N share is a lower bound on the uncalled share, for
+    // clustered and scattered missing data alike.
+    let mut state = 99u64;
+    let mut next = |n: u64| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 33) % n
+    };
+    for _ in 0..300 {
+        let (max_run, missing_pct) = (1 + next(400), next(101));
+        let target = 1_000 + next(50_000);
+        let mut runs = Vec::new();
+        let mut len = 0;
+        while len < target {
+            let run = 1 + next(max_run);
+            runs.push((run, next(100) < missing_pct));
+            len += run;
+        }
+        let (uncalled, n_share) = missing_shares(runs);
+        assert!(uncalled >= 0.9 * n_share, "{uncalled} vs {n_share}");
+    }
+    // Nearly reached when every bin has 91 of 100 sites uncalled.
+    let (uncalled, n_share) = missing_shares([(91, true), (9, false)].repeat(1_000));
+    assert_eq!(n_share, 1.0);
+    assert!((uncalled - 0.91).abs() < 1e-12, "{uncalled}");
+}
+
+#[test]
+fn scattered_missing_sites_are_caught_by_the_site_count() {
+    // HIGH_MISSING: 60% of 2 Mb missing at random leaves almost no N bin,
+    // so only the loader's site count shows the missing data, and the
+    // heterozygosity of the called sites shows the bias of the bins.
+    let mut state = 7u64;
+    let mut uniform = || {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        (state >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let mut binner = Binner::new(100);
+    let (mut called, mut hets) = (0u64, 0u64);
+    for _ in 0..2_000_000 {
+        let het = uniform() < 0.002;
+        if uniform() < 0.6 {
+            binner.add_missing(1);
+        } else if het {
+            binner.add_het();
+            (called, hets) = (called + 1, hets + 1);
+        } else {
+            binner.add_called(1);
+            called += 1;
+        }
+    }
+    let rows = vec![binner.finish()];
+    let mut seq = QcSeq::new("chr1", rows[0].len());
+    seq.extent_bases = Some(2_000_000);
+    seq.called_bases = Some(called);
+    seq.het_sites = Some(hets);
+    let r = analyze(&QcInput {
+        rows: &rows,
+        row_starts: &[true],
+        seqs: &[seq],
+        bin_size: 100,
+        bootstrap_trunk_bins: 0,
+        context: QcContext::default(),
+    });
+    let t = &r.totals;
+    assert_eq!(t.missing_bins, 0);
+    let uncalled = t.uncalled_site_fraction.unwrap();
+    assert!((0.59..0.61).contains(&uncalled), "{uncalled}");
+    let f = r.finding(QcCode::HighMissing).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    // About 0.8 het sites per kb from the bins against 2 in the called sites.
+    let (from_bins, from_sites) = (t.het_per_kb.unwrap(), t.site_het_per_kb.unwrap());
+    assert!((1.9..2.1).contains(&from_sites), "{from_sites}");
+    assert!(from_bins < 0.5 * from_sites, "{from_bins} vs {from_sites}");
 }
 
 #[test]

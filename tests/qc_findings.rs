@@ -138,11 +138,82 @@ fn high_missing_reports_uncalled_sites_when_known() {
     d.seqs[0].called_bases = Some(30_000);
     let r = qc100(&d);
     let f = find(&r, QcCode::HighMissing).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
     assert!(
-        f.message.contains("; 70.0% of sites are uncalled"),
+        f.message.starts_with(
+            "70.0% of sites are uncalled (30.0 kb called) and 60.0% of bins are missing (N: \
+             more than 90% of their sites uncalled)."
+        ),
         "{}",
         f.message
     );
+    // No heterozygous-site count, so no comparison with the bins.
+    assert!(!f.message.contains("per kb"), "{}", f.message);
+}
+
+#[test]
+fn high_missing_thresholds_on_uncalled_sites() {
+    // 1,000 called bins (no N) over 100 kb, of which `called` sites are
+    // called.
+    let with_called = |called: u64| {
+        let mut d = data(&[("chr1", 900, 100, 0)]);
+        d.seqs[0].extent_bases = Some(100_000);
+        d.seqs[0].called_bases = Some(called);
+        qc100(&d)
+    };
+    assert_eq!(severity(&with_called(75_000), QcCode::HighMissing), None);
+    assert_eq!(
+        severity(&with_called(74_999), QcCode::HighMissing),
+        Some(Severity::Info)
+    );
+    assert_eq!(
+        severity(&with_called(50_000), QcCode::HighMissing),
+        Some(Severity::Info)
+    );
+    assert_eq!(
+        severity(&with_called(49_999), QcCode::HighMissing),
+        Some(Severity::Warning)
+    );
+    // Without the loader's count only the N bins are seen.
+    let d = data(&[("chr1", 900, 100, 0)]);
+    assert_eq!(severity(&qc100(&d), QcCode::HighMissing), None);
+}
+
+#[test]
+fn high_missing_sees_uncalled_sites_scattered_over_called_bins() {
+    // 2,000,000 called bins, one in 12 K, no N bin; the loader saw 80 Mb of
+    // 200 Mb called and one heterozygous site per K bin.
+    let n = 2_000_000;
+    let mut d = data(&[("chr1", n - n / 12, n / 12, 0)]);
+    d.seqs[0].extent_bases = Some(200_000_000);
+    d.seqs[0].called_bases = Some(80_000_000);
+    d.seqs[0].het_sites = Some(n as u64 / 12);
+    let r = qc100(&d);
+    assert_eq!(r.totals.missing_fraction, 0.0);
+    assert!((r.totals.uncalled_site_fraction.unwrap() - 0.6).abs() < 1e-12);
+    let f = find(&r, QcCode::HighMissing).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    // theta0 = -ln(11/12) = 0.0870 per bin; 166,666 / 80 Mb = 2.08 per kb.
+    assert_eq!(
+        f.message,
+        "60.0% of sites are uncalled (80.0 Mb called) and 0.0% of bins are missing (N: more \
+         than 90% of their sites uncalled). A bin is called when just 10% of its sites are, \
+         so missing sites scattered along the genome leave partly called bins, which show \
+         fewer heterozygous sites and bias theta and Ne low; here the called bins imply 0.870 \
+         heterozygous sites per kb, against 2.08 per kb of called sites."
+    );
+    assert!(f.recommendation.contains("per-site filters"));
+}
+
+#[test]
+fn high_missing_takes_the_larger_of_the_two_shares() {
+    // 52% N bins (a warning on its own), but only 48% of sites uncalled:
+    // the N bins hold some called sites.
+    let mut d = data(&[("chr1", 380, 100, 520)]);
+    d.seqs[0].extent_bases = Some(100_000);
+    d.seqs[0].called_bases = Some(52_000);
+    let r = qc100(&d);
+    assert_eq!(severity(&r, QcCode::HighMissing), Some(Severity::Warning));
 }
 
 /// K fraction at which the multi-het share reaches `share`, by bisection.

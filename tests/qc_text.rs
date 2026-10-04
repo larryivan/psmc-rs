@@ -121,6 +121,31 @@ fn full_text_matches_the_reference_layout() {
 }
 
 #[test]
+fn called_length_shows_the_uncalled_site_share() {
+    let rows = vec![vec![0u8; 1_000]];
+    let mut seq = QcSeq::new("chr1", 1_000);
+    seq.extent_bases = Some(100_000);
+    seq.called_bases = Some(40_000);
+    seq.het_sites = Some(80);
+    let r = analyze(&QcInput {
+        rows: &rows,
+        row_starts: &[true],
+        seqs: &[seq],
+        bin_size: 100,
+        bootstrap_trunk_bins: 0,
+        context: QcContext::default(),
+    });
+    let text = render_text(&r);
+    let line = text.lines().find(|l| l.contains("Called length")).unwrap();
+    assert!(
+        line.ends_with(
+            "100 kb in called bins; 40.0 kb called sites (60.0% uncalled), 2.00 het sites per kb"
+        ),
+        "{line}"
+    );
+}
+
+#[test]
 fn warnings_come_before_notes() {
     let text = render_text(&report());
     let last_warning = text.rfind("\nWARNING ").unwrap();

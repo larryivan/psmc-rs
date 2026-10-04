@@ -21,10 +21,12 @@ pub const MIN_MEAN_DEPTH: f64 = 18.0;
 /// share of the bases.
 pub const MAX_FILTER_FRACTION: f64 = 0.30;
 
-/// `N` fraction above which [`QcCode::HighMissing`] is a warning.
+/// Share of `N` bins, or of uncalled sites when the loader counted them,
+/// above which [`QcCode::HighMissing`] is a warning.
 pub const HIGH_MISSING_WARN_FRACTION: f64 = 0.5;
 
-/// `N` fraction above which [`QcCode::HighMissing`] is reported as info:
+/// Share of `N` bins, or of uncalled sites when the loader counted them,
+/// above which [`QcCode::HighMissing`] is reported as info:
 /// Nadachowska-Brzyska et al. (2016, Mol Ecol 25:1058) recommend at most 25%
 /// missing data for PSMC.
 pub const HIGH_MISSING_INFO_FRACTION: f64 = 0.25;
@@ -91,16 +93,24 @@ pub enum QcCode {
     /// θ and Ne come out too low, while uncalled stretches look like long
     /// runs of recent common ancestry.
     VariantsOnlyNoMask,
-    /// Many bins are missing: more than [`HIGH_MISSING_WARN_FRACTION`]
-    /// (warning) or [`HIGH_MISSING_INFO_FRACTION`] (info).
+    /// Much of the input is missing: more than [`HIGH_MISSING_WARN_FRACTION`]
+    /// (warning) or [`HIGH_MISSING_INFO_FRACTION`] (info) of the bins are
+    /// `N`, or of the sites are uncalled
+    /// ([`super::BinStats::uncalled_site_fraction`], when the loader counted
+    /// called sites).
     ///
     /// `N` bins carry no information, so the effective input shrinks. Worse,
     /// the `fq2psmcfa` rule calls a bin as soon as 10% of its sites are
-    /// called, so heavy missingness also leaves many partly called `T`/`K`
-    /// bins; a partly called bin is less likely to show a heterozygous site,
-    /// which biases θ and Ne low. Missing data also concentrate in repeats
-    /// and divergent regions, so the remaining sites are not a random sample
-    /// of the genome.
+    /// called, so missing sites scattered along the genome (per-site depth
+    /// or quality filters) leave partly called `T`/`K` bins rather than `N`
+    /// bins: the `N` share then understates the missing data, and a partly
+    /// called bin is less likely to show a heterozygous site, which biases θ
+    /// and Ne low. Missing data also concentrate in repeats and divergent
+    /// regions, so the remaining sites are not a random sample of the
+    /// genome. Without site counts only the `N` share is known; as every `N`
+    /// bin has more than 90% of its sites uncalled, 0.9 times it is a lower
+    /// bound on the uncalled share, so the per-site thresholds apply to it
+    /// almost unchanged.
     HighMissing,
     /// More than [`SATURATION_WARN_SHARE`] of `K` bins are expected to hold
     /// two or more heterozygous sites (warning; see [`super::Saturation`]).
@@ -534,35 +544,54 @@ fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> 
 
 fn high_missing(report: &QcReport) -> Option<Finding> {
     let t = &report.totals;
-    let f = t.missing_fraction;
-    let severity = if f > HIGH_MISSING_WARN_FRACTION {
+    let bins = t.missing_fraction;
+    let sites = t.uncalled_site_fraction.zip(t.called_bases);
+    let missing = sites.map_or(bins, |(u, _)| u.max(bins));
+    let severity = if missing > HIGH_MISSING_WARN_FRACTION {
         Severity::Warning
-    } else if f > HIGH_MISSING_INFO_FRACTION {
+    } else if missing > HIGH_MISSING_INFO_FRACTION {
         Severity::Info
     } else {
         return None;
     };
-    let sites = match t.called_bases {
-        Some(called) if t.length_bases > 0 => format!(
-            "; {} of sites are uncalled",
-            pct(1.0 - called as f64 / t.length_bases as f64)
+    let message = match sites {
+        Some((uncalled, called)) => {
+            let het = match (t.het_per_kb, t.site_het_per_kb) {
+                (Some(from_bins), Some(from_sites)) => format!(
+                    "; here the called bins imply {} heterozygous sites per kb, against {} \
+                     per kb of called sites",
+                    sig(from_bins, 3),
+                    sig(from_sites, 3)
+                ),
+                _ => String::new(),
+            };
+            format!(
+                "{} of sites are uncalled ({} called) and {} of bins are missing (N: more \
+                 than 90% of their sites uncalled). A bin is called when just 10% of its \
+                 sites are, so missing sites scattered along the genome leave partly called \
+                 bins, which show fewer heterozygous sites and bias theta and Ne low{het}.",
+                pct(uncalled),
+                bases(called),
+                pct(bins),
+            )
+        }
+        None => format!(
+            "{} of bins are missing (N: more than 90% of their sites uncalled), so only {} \
+             of sequence is used. A bin is called when just 10% of its sites are, so heavy \
+             missingness also leaves partly called bins, which show fewer heterozygous sites \
+             and bias theta and Ne low.",
+            pct(bins),
+            bases(t.called_bases_from_bins),
         ),
-        _ => String::new(),
     };
     Some(Finding::new(
         QcCode::HighMissing,
         severity,
-        format!(
-            "{} of bins are missing (N: more than 90% of their sites uncalled){sites}, so \
-             only {} of sequence is used. A bin is called when just 10% of its sites are, \
-             so heavy missingness also leaves partly called bins, which show fewer \
-             heterozygous sites and bias theta and Ne low.",
-            pct(f),
-            bases(t.called_bases_from_bins),
-        ),
+        message,
         "Check what removes the data: depth and mapping-quality filters, a callable mask \
-         that does not match the chromosome names, or low coverage. Nadachowska-Brzyska \
-         et al. (2016) recommend at most 25% missing data for PSMC."
+         that does not match the chromosome names, or low coverage; per-site filters \
+         scatter the uncalled sites over called bins. Nadachowska-Brzyska et al. (2016) \
+         recommend at most 25% missing data for PSMC."
             .to_string(),
     ))
 }

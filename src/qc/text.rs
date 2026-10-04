@@ -163,6 +163,9 @@ fn metrics(out: &mut String, r: &QcReport) {
     let mut called = format!("{} in called bins", bases(t.called_bases_from_bins));
     if let Some(c) = t.called_bases {
         let _ = write!(called, "; {} called sites", bases(c));
+        if let Some(u) = t.uncalled_site_fraction {
+            let _ = write!(called, " ({} uncalled)", pct(u));
+        }
     }
     if let Some(h) = t.site_het_per_kb {
         let _ = write!(called, ", {} het sites per kb", sig(h, 3));

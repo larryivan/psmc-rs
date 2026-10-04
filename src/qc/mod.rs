@@ -251,6 +251,12 @@ pub struct BinStats {
     /// Called bases as counted by the loader, when it saw individual sites
     /// (for several sequences: only when every one has the count).
     pub called_bases: Option<u64>,
+    /// Share of the sites that are uncalled, `1 - called_bases /
+    /// length_bases` (0 if the loader counted more called sites than the
+    /// length). Unlike `missing_fraction` it also counts the uncalled sites
+    /// inside called bins. Without [`QcSeq::extent_bases`] the length is
+    /// `bins * bin_size`, which counts a partial last bin as full.
+    pub uncalled_site_fraction: Option<f64>,
     /// Heterozygous sites as counted by the loader, under the same rule.
     pub het_sites: Option<u64>,
     /// `het_sites / called_bases` per kilobase.
@@ -634,6 +640,10 @@ impl Counts {
             (Some(h), Some(c)) if c > 0 => Some(1000.0 * h as f64 / c as f64),
             _ => None,
         };
+        let uncalled = self
+            .called_bases
+            .filter(|_| self.length_bases > 0)
+            .map(|c| (1.0 - c as f64 / self.length_bases as f64).max(0.0));
         BinStats {
             bins,
             t_bins: self.t,
@@ -648,6 +658,7 @@ impl Counts {
             het_per_kb: theta_bp.map(|t| 1000.0 * t),
             called_bases_from_bins: called * bin_size as u64,
             called_bases: self.called_bases,
+            uncalled_site_fraction: uncalled,
             het_sites: self.het_sites,
             site_het_per_kb: site_het,
             length_bases: self.length_bases,
