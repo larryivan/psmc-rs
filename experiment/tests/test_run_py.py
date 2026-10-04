@@ -157,6 +157,7 @@ class Rendering(unittest.TestCase):
                 self.assertTrue(self.figure(repo, group, stem).exists(), stem)
         rmse = (repo / "experiment/runs/real_data/tables/figure_3_empirical_rmse_rs_vs_c.csv").read_text()
         self.assertEqual(len(rmse.strip().splitlines()), 5)
+        self.assertIn("Homo sapiens (Papuan Highlands, chr1)", rmse)
 
     def test_keep_going_draws_the_figures_whose_inputs_exist(self):
         repo = self.tmp / "repo"

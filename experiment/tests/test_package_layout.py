@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import shutil
 import subprocess
 import unittest
@@ -79,6 +80,19 @@ class PackagedTables(unittest.TestCase):
             text = table.read_text(encoding="utf-8")
             for needle in ("/Users/", "/home/", "C:\\"):
                 self.assertFalse(needle in text, f"{table.relative_to(ROOT)} contains {needle!r}")
+
+    def test_papuan_sample_is_labelled_as_chromosome_1_only(self):
+        # The packaged psmcfa holds one sequence, '>chr1' (2,487,383 bins).
+        psmcfa = ROOT / "experiment" / "real_data" / "Papuan_highlands_diploid.psmcfa"
+        with psmcfa.open(encoding="utf-8") as f:
+            headers = [ln.strip() for ln in f if ln.startswith(">")]
+        self.assertEqual(headers, [">chr1"])
+        for name in ("real_data_rust_vs_c_fit_summary.csv", "figure_3_empirical_rmse_rs_vs_c.csv"):
+            species = {r["sample_id"]: r["species"] for r in self.rows(RUNS / "real_data" / "tables" / name)}
+            self.assertIn("chr1", species["HomoSapiens"], name)
+        nb = json.loads((ROOT / "experiment/notebooks/all_plots_precomputed.ipynb").read_text(encoding="utf-8"))
+        src = "".join("".join(c["source"]) for c in nb["cells"])
+        self.assertIn("'HomoSapiens': 'Homo sapiens (Papuan Highlands, chr1)'", src)
 
 
 if __name__ == "__main__":

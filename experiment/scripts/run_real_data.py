@@ -51,7 +51,7 @@ SAMPLES: List[Sample] = [
     Sample(
         "HomoSapiens",
         "Papuan_highlands_diploid.psmcfa",
-        "Homo sapiens (Papuan Highlands, chr1 only)",
+        "Homo sapiens (Papuan Highlands, chr1)",
         1.25e-8,
         25.0,
     ),
