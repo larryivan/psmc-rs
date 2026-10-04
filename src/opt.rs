@@ -608,7 +608,7 @@ pub fn m_step_lbfgs_with_progress(
         .map(|v| v == "1")
         .unwrap_or(false);
     if debug_mstep {
-        eprintln!("M-step init: f0={:.6e}, gnorm={:.6e}", f0, norm(&gk));
+        eprintln!("M-step init: f0={:.15e}, gnorm={:.6e}", f0, norm(&gk));
     }
 
     let mut s_hist: Vec<Vec<f64>> = Vec::new();
@@ -682,7 +682,7 @@ pub fn m_step_lbfgs_with_progress(
             let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
             if debug_mstep {
                 eprintln!(
-                    "  line-search iter {}: step={:.3e}, f_new={:.6e}, rhs={:.6e}",
+                    "  line-search iter {}: step={:.3e}, f_new={:.15e}, rhs={:.15e}",
                     ls_iter + 1,
                     step,
                     f_new,
@@ -707,7 +707,7 @@ pub fn m_step_lbfgs_with_progress(
                 let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
                 if debug_mstep {
                     eprintln!(
-                        "  reverse-search iter {}: step={:.3e}, f_new={:.6e}, f0={:.6e}",
+                        "  reverse-search iter {}: step={:.3e}, f_new={:.15e}, f0={:.15e}",
                         ls_iter + 1,
                         step_rev,
                         f_new,
@@ -750,7 +750,7 @@ pub fn m_step_lbfgs_with_progress(
                 if let Some((f_best, x_best, g_best)) = best {
                     if debug_mstep {
                         eprintln!(
-                            "  coordinate-search accepted: radius={:.3e}, f_new={:.6e}, f0={:.6e}",
+                            "  coordinate-search accepted: radius={:.3e}, f_new={:.15e}, f0={:.15e}",
                             radius, f_best, f0
                         );
                     }
@@ -768,7 +768,7 @@ pub fn m_step_lbfgs_with_progress(
         let Some((f_new, g_new)) = accepted else {
             if debug_mstep {
                 eprintln!(
-                    "M-step line search failed at iter {} (f0={:.6e}, gnorm={:.6e})",
+                    "M-step line search failed at iter {} (f0={:.15e}, gnorm={:.6e})",
                     iter,
                     f0,
                     norm(&gk)
@@ -783,6 +783,7 @@ pub fn m_step_lbfgs_with_progress(
             y[i] = g_new[i] - gk[i];
         }
         let ys = dot(&y, &s);
+        let dx = norm(&s);
         if ys > 1e-12 {
             if s_hist.len() == config.lbfgs_m {
                 s_hist.remove(0);
@@ -798,11 +799,11 @@ pub fn m_step_lbfgs_with_progress(
         f0 = f_new;
         if debug_mstep {
             eprintln!(
-                "M-step iter {} accepted: f={:.6e}, gnorm={:.6e}, step={:.3e}",
+                "M-step iter {} accepted: f={:.15e}, gnorm={:.6e}, |dx|={:.3e}",
                 iter + 1,
                 f0,
                 norm(&gk),
-                step
+                dx
             );
         }
         if let Some(pb) = &pb {
