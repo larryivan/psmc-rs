@@ -73,6 +73,14 @@ fn history_records_loglike_before_and_after_each_iteration() {
     )
     .unwrap();
     assert_eq!(history.loglike[n_iter - 1].1.to_bits(), final_ll.to_bits());
+    assert_eq!(
+        history.final_loglike().map(f64::to_bits),
+        Some(final_ll.to_bits())
+    );
+    assert!(
+        history.final_loglike() > Some(history.loglike[n_iter - 1].0),
+        "the final log-likelihood is not the one entering the last iteration"
+    );
 }
 
 #[test]
@@ -82,6 +90,7 @@ fn zero_iterations_leave_an_empty_history() {
     let history = em_train(&mut model, &rows, &starts, 0, &config()).unwrap();
     assert!(history.loglike.is_empty());
     assert_eq!(history.params.len(), 1);
+    assert_eq!(history.final_loglike(), None);
 }
 
 mod options {

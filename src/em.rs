@@ -26,6 +26,15 @@ pub struct EmHistory {
     pub params: Vec<Vec<f64>>,
 }
 
+impl EmHistory {
+    /// Log-likelihood of the final parameters (the model EM returns), or
+    /// `None` after zero iterations. This is the second value of the last
+    /// iteration; the first is that of the parameters entering it.
+    pub fn final_loglike(&self) -> Option<f64> {
+        self.loglike.last().map(|&(_, after)| after)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum EmProgressEvent {
     IterStart {
