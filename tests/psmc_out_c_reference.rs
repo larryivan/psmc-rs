@@ -8,8 +8,12 @@
 //! a pattern only once the M-steps run to convergence, which the default
 //! cap of 100 iterations does not allow.
 //!
+//! A run of one round on many short sequences checks the header counts and
+//! round 0 on fragmented input.
+//!
 //! The C files are in `tests/data/c_reference` and, for the pattern-free
-//! model, `tests/data/psmc_out` (see the READMEs there).
+//! model and the short sequences, `tests/data/psmc_out` (see the READMEs
+//! there).
 
 use psmc_rs::em::EmHistory;
 use psmc_rs::io::psmcfa::read_psmcfa;
@@ -44,7 +48,13 @@ const CONVERGED_ITERS: usize = 1000;
 
 /// [`fit`] with at most `max_iters` L-BFGS iterations per M-step.
 fn fit_with(pattern: Option<&str>, max_iters: usize) -> Fit {
-    let obs = read_psmcfa(&Path::new(C_REF).join("papuan_chr1_3seg.psmcfa"), None).unwrap();
+    let psmcfa = Path::new(C_REF).join("papuan_chr1_3seg.psmcfa");
+    fit_file(&psmcfa, pattern, N_ITER, max_iters)
+}
+
+/// [`fit_with`] for `n_iter` rounds on `psmcfa`.
+fn fit_file(psmcfa: &Path, pattern: Option<&str>, n_iter: usize, max_iters: usize) -> Fit {
+    let obs = read_psmcfa(psmcfa, None).unwrap();
     let theta0 = initial_theta(&obs.rows).unwrap();
     let n_steps = pattern.map_or(22, |p| n_steps_for_pattern(p).unwrap());
     let template = PsmcModel::new(
@@ -63,7 +73,7 @@ fn fit_with(pattern: Option<&str>, max_iters: usize) -> Fit {
         max_iters,
         ..MStepConfig::default()
     };
-    let history = em_train(&mut model, &obs.rows, &obs.row_starts, N_ITER, &config).unwrap();
+    let history = em_train(&mut model, &obs.rows, &obs.row_starts, n_iter, &config).unwrap();
     Fit {
         template,
         history,
@@ -372,6 +382,26 @@ fn matches_c_psmc_output_with_converged_m_steps() {
         check_format(&ours, &c);
         check_rounds(&ours, &c, 2e-3);
     }
+}
+
+/// Many short sequences (`tests/data/psmc_out/fragmented.psmcfa`, 1,010 of
+/// 1 to 80 bins, some of one bin, some with every bin missing): the header
+/// counts them as C does and round 0 is C's. Round 1's LK is that of the
+/// same parameters; the effect of C's skipped last bins on the other E-step
+/// values is checked in `tests/em_c_reference.rs`.
+#[test]
+fn matches_c_psmc_output_on_fragments() {
+    let psmcfa = Path::new(FIXTURES).join("fragmented.psmcfa");
+    let max_iters = MStepConfig::default().max_iters;
+    let ours = psmc_text(&fit_file(&psmcfa, Some("4+5*3+4"), 1, max_iters));
+    let c = read(FIXTURES, "c_4+5x3+4_fragmented_N1.psmc");
+    check_format(&ours, &c);
+    assert!(ours.contains("\nMM\tn_seqs:1010, sum_L:35465, sum_n:1869\n"));
+    let (a, b) = (
+        parse_round(&round_lines(&ours, 1)),
+        parse_round(&round_lines(&c, 1)),
+    );
+    assert!((a.lk - b.lk).abs() < 1e-5, "LK {} vs {}", a.lk, b.lk);
 }
 
 #[test]

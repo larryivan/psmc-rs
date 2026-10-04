@@ -28,7 +28,10 @@
 //!
 //! The values differ from C's only where the methods differ: the M-step
 //! (L-BFGS here, Hooke-Jeeves in C) and its evaluation count (`IT`), the
-//! expected emission counts (C leaves out the last bin of each sequence, see
+//! expected emission counts (C leaves out the last bin of each sequence; this
+//! moves `QD` and `RI` by a relative amount of the order of the number of
+//! sequences per non-missing bin, negligible for chromosomes but percents
+//! for fragmented assemblies, see
 //! [`posterior_sigma`](crate::em::posterior_sigma)), and the `Version` line.
 //!
 //! C's M-step runs until its search converges, ours for at most

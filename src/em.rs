@@ -110,8 +110,21 @@ pub fn hmm_q0(stats: &SufficientStats) -> f64 {
 /// leaves out the last bin of each sequence. That is the only difference in
 /// the expectations behind C's `post_sigma`, `hmm_Q` and `hmm_Q0`: removing
 /// those bins' posteriors from `stats.gobs` reproduces C's first-round
-/// `post_sigma` and `QD` values on `tests/data/c_reference` to all 6 printed
-/// decimals (`tests/em_c_reference.rs`).
+/// `post_sigma` and `QD` values to all 6 printed decimals, on the 3
+/// sequences of `tests/data/c_reference` and on 1,010 sequences of 1 to 80
+/// bins (`tests/em_c_reference.rs`).
+///
+/// The size of the difference follows the share of the data in those bins.
+/// With `D` sequences ending in a non-missing bin and `sum_L` non-missing
+/// bins, each value differs from C's by at most `D / sum_L`, and the `QD`
+/// and `RI` of the round by a relative amount of the order of `D / sum_L`
+/// (0.5 to 2 times it, measured). For a few chromosome-length sequences this
+/// is negligible: 3 sequences of 150,947 bins in all (`D / sum_L` = 2e-5)
+/// move `post_sigma` by at most 2.4e-6 and `QD` by 4e-5. For a fragmented
+/// assembly it is not: on the 1,010 short sequences (`D / sum_L` = 2.5%)
+/// `QD` differs from C's by 3.5% and `RI` by 1.2%, so `psmc_plot.pl -n 0`,
+/// which plots the round with the smallest `RI` from round `-m` on, can pick
+/// a different round than for C's output.
 pub fn posterior_sigma(stats: &SufficientStats) -> Vec<f64> {
     let [e0, e1, _] = &stats.gobs;
     let counts: Vec<f64> = e0.iter().zip(e1).map(|(c0, c1)| c0 + c1).collect();

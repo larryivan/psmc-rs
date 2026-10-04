@@ -1,8 +1,9 @@
 # `.psmc` output references
 
 Reference files for psmc-rs's C-compatible `.psmc` output (`src/psmc_out.rs`),
-read by the unit test in `src/psmc_out.rs`, `tests/psmc_out_c_reference.rs`
-and `tests/psmc_out_plot.rs`. `generate.sh` regenerates them:
+read by the unit test in `src/psmc_out.rs`, `tests/psmc_out_c_reference.rs`,
+`tests/psmc_out_plot.rs` and `tests/em_c_reference.rs`. `generate.sh`
+regenerates them:
 
     PSMC=/path/to/psmc PSMC_PLOT=/path/to/psmc_plot.pl ./generate.sh
 
@@ -17,6 +18,8 @@ Tools used for the committed files:
   run with perl 5.34.1. gnuplot is not needed: psmc_plot.pl writes the data
   files it plots before it starts gnuplot, and `-R` keeps them.
 - Apple clang 21 and the macOS libc for `printf_probe.c`.
+- Python 3.14.6 for `fragment.py` (standard library only; its output does
+  not depend on the Python version).
 
 ## Files
 
@@ -30,6 +33,17 @@ Tools used for the committed files:
   ../c_reference/papuan_chr1_3seg.psmcfa`, C psmc with one free lambda per
   state. psmc-rs writes this pattern for a model without `--pattern`; the C
   run shows that C psmc reads it and gives the output the tests compare with.
+- `fragment.py`, `fragmented.psmcfa`: the first 20,000 bins of `seg1` and of
+  `seg2` of `../c_reference/papuan_chr1_3seg.psmcfa`, cut by `fragment.py`
+  into 1,010 records of 1 to 80 bins (lengths from a fixed linear
+  congruential generator), as in a highly fragmented assembly. 10 records
+  have one bin, 40 only missing bins, 117 end in a missing bin; 35,465 bins
+  are not missing. C's expectations leave out the last bin of each
+  sequence, which here is 2.5% of the data (see `posterior_sigma` in
+  `src/em.rs`).
+- `c_4+5x3+4_fragmented_N1.psmc`: `psmc -N1 -p "4+5*3+4" -o
+  c_4+5x3+4_fragmented_N1.psmc fragmented.psmcfa`, one round of C psmc on
+  the short records.
 - `rs_4+5x3+4_N5.psmc`, `rs_23x1_N5.psmc`: psmc-rs's output for the runs of
   `../c_reference/c_4+5x3+4_N5.psmc` and `c_23x1_N5.psmc` (C's starting
   point, 5 rounds, no smoothing penalty), written by
