@@ -19,12 +19,16 @@ use std::ops::Range;
 
 mod checks;
 mod fmt;
+mod names;
 mod stats;
 
 pub use checks::{
-    Finding, HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES,
-    MIN_HET_BINS, QcCode, SHORT_SEQUENCES_MAX_FRACTION, Severity,
+    Finding, HEMIZYGOUS_MAX_RATIO, HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS,
+    HET_OUTLIER_MIN_FOLD, HET_OUTLIER_MIN_SEQUENCES, HIGH_MISSING_INFO_FRACTION,
+    HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES, MIN_HET_BINS, QcCode, REFERENCE_MIN_CALLED_BASES,
+    SHORT_SEQUENCES_MAX_FRACTION, Severity,
 };
+pub use names::{SeqKind, classify_name};
 
 pub use stats::{
     bootstrap_trunks_of, het_per_site, initial_recombinations, largest_trunk_within,
@@ -252,6 +256,31 @@ impl Saturation {
     }
 }
 
+/// How [`HetReference`] was computed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReferenceMethod {
+    /// Median θ0 of the sequences with at least
+    /// [`REFERENCE_MIN_CALLED_BASES`] in called bins.
+    Median,
+    /// θ0 of all their bins together, when no sequence is that long.
+    Pooled,
+}
+
+/// The heterozygosity sequences are compared with: that of the sequences not
+/// named like sex chromosomes or organelles ([`classify_name`]).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HetReference {
+    /// θ0 per bin.
+    pub theta0_per_bin: f64,
+    /// The same per kb.
+    pub het_per_kb: f64,
+    /// Sequences it was computed from.
+    pub sequences: usize,
+    /// How it was computed.
+    pub method: ReferenceMethod,
+}
+
 /// Metrics of one sequence.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SequenceRow {
@@ -259,6 +288,10 @@ pub struct SequenceRow {
     pub index: usize,
     /// Sequence name.
     pub name: String,
+    /// Sex chromosome or organelle, judged by name ([`classify_name`]).
+    pub kind: Option<SeqKind>,
+    /// θ0 of this sequence over [`QcReport::het_reference`].
+    pub het_vs_reference: Option<f64>,
     /// Its metrics.
     #[serde(flatten)]
     pub stats: BinStats,
@@ -295,14 +328,17 @@ pub struct QcReport {
     pub longest_missing_run: Option<MissingRun>,
     /// Bin saturation of the whole input; `None` when no bin is called.
     pub saturation: Option<Saturation>,
+    /// Heterozygosity of the sequences not named like sex chromosomes or
+    /// organelles; `None` when they have no called bin.
+    pub het_reference: Option<HetReference>,
     /// C psmc's round-0 `n_recomb` for the whole input
     /// ([`initial_recombinations`] at [`DEFAULT_TR_RATIO`]).
     pub expected_recombinations: Option<f64>,
     /// Warnings and notes: warnings first, then in [`QcCode`] order.
     pub findings: Vec<Finding>,
     /// Per-sequence metrics: every sequence when there are at most
-    /// [`MAX_SEQUENCE_ROWS`], otherwise the longest ones. Always in input
-    /// order.
+    /// [`MAX_SEQUENCE_ROWS`], otherwise those named in findings and then the
+    /// longest ones, up to that many. Always in input order.
     pub sequences: Vec<SequenceRow>,
     /// The sequences not in `sequences`, if any.
     pub omitted: Option<OmittedSequences>,
@@ -435,6 +471,14 @@ impl Counts {
             longest_missing_run_bins: self.longest_run,
         }
     }
+}
+
+/// One analysed sequence, as the checks see it.
+pub(crate) struct SeqInfo {
+    index: usize,
+    name: String,
+    kind: Option<SeqKind>,
+    stats: BinStats,
 }
 
 /// One non-empty sequence of the input: its name, rows and loader facts.
@@ -578,16 +622,59 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         initial_recombinations(totals.t_bins + totals.k_bins, theta, DEFAULT_TR_RATIO)
     });
 
-    let shown = rows_to_show(&counts, MAX_SEQUENCE_ROWS);
-    let sequences = shown
+    let infos: Vec<SeqInfo> = spans
         .iter()
-        .map(|&i| SequenceRow {
-            index: i,
-            name: spans[i].name.to_string(),
-            stats: counts[i].stats(bin_size),
+        .zip(&counts)
+        .enumerate()
+        .map(|(index, (span, c))| SeqInfo {
+            index,
+            name: span.name.to_string(),
+            kind: classify_name(&span.name),
+            stats: c.stats(bin_size),
         })
         .collect();
-    let omitted = (shown.len() < counts.len()).then(|| {
+    let het_reference = het_reference(&infos, bin_size);
+
+    let mut report = QcReport {
+        input_format: input.context.input_format.clone(),
+        bin_size,
+        bootstrap_trunk_bins: input.bootstrap_trunk_bins,
+        n_sequences: counts.len(),
+        empty_sequences: input.seqs.iter().filter(|s| s.n_bins == 0).count(),
+        totals,
+        lengths,
+        longest_missing_run,
+        saturation,
+        het_reference,
+        expected_recombinations,
+        findings: Vec::new(),
+        sequences: Vec::new(),
+        omitted: None,
+    };
+    let (findings, named) = checks::run(input, &report, &infos);
+    report.findings = findings;
+
+    let shown = rows_to_show(&counts, &named, MAX_SEQUENCE_ROWS);
+    let reference = report.het_reference.as_ref().map(|r| r.theta0_per_bin);
+    report.sequences = shown
+        .iter()
+        .map(|&i| {
+            let info = &infos[i];
+            SequenceRow {
+                index: i,
+                name: info.name.clone(),
+                kind: info.kind,
+                het_vs_reference: info
+                    .stats
+                    .theta0_per_bin
+                    .zip(reference)
+                    .filter(|&(_, r)| r > 0.0)
+                    .map(|(t, r)| t / r),
+                stats: info.stats.clone(),
+            }
+        })
+        .collect();
+    report.omitted = (shown.len() < counts.len()).then(|| {
         let mut rest = Counts::empty_total();
         let mut keep = shown.iter().peekable();
         for (i, c) in counts.iter().enumerate() {
@@ -602,25 +689,33 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
             stats: rest.stats(bin_size),
         }
     });
-
-    let mut report = QcReport {
-        input_format: input.context.input_format.clone(),
-        bin_size,
-        bootstrap_trunk_bins: input.bootstrap_trunk_bins,
-        n_sequences: counts.len(),
-        empty_sequences: input.seqs.iter().filter(|s| s.n_bins == 0).count(),
-        totals,
-        lengths,
-        longest_missing_run,
-        saturation,
-        expected_recombinations,
-        findings: Vec::new(),
-        sequences,
-        omitted,
-    };
-    let seq_bins: Vec<u64> = counts.iter().map(Counts::bins).collect();
-    report.findings = checks::run(input, &report, &seq_bins);
     Ok(report)
+}
+
+/// See [`HetReference`].
+fn het_reference(infos: &[SeqInfo], bin_size: usize) -> Option<HetReference> {
+    let autosomes = || infos.iter().filter(|s| s.kind.is_none());
+    let mut long: Vec<f64> = autosomes()
+        .filter(|s| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
+        .filter_map(|s| s.stats.theta0_per_bin)
+        .collect();
+    let (theta, sequences, method) = if long.is_empty() {
+        let (t, k, n) = autosomes()
+            .filter(|s| s.stats.t_bins + s.stats.k_bins > 0)
+            .fold((0, 0, 0), |(t, k, n), s| {
+                (t + s.stats.t_bins, k + s.stats.k_bins, n + 1)
+            });
+        (theta0_per_bin(t, k)?, n, ReferenceMethod::Pooled)
+    } else {
+        let n = long.len();
+        (stats::median(&mut long), n, ReferenceMethod::Median)
+    };
+    Some(HetReference {
+        theta0_per_bin: theta,
+        het_per_kb: 1000.0 * theta / bin_size as f64,
+        sequences,
+        method,
+    })
 }
 
 fn length_stats(counts: &[Counts], trunk: u64, total_bins: u64) -> LengthStats {
@@ -658,15 +753,18 @@ fn length_stats(counts: &[Counts], trunk: u64, total_bins: u64) -> LengthStats {
 }
 
 /// Indices (ascending) of the sequences that get their own row: all of them
-/// up to `cap`, otherwise the `cap` with the most bins (earlier first on
-/// ties).
-fn rows_to_show(counts: &[Counts], cap: usize) -> Vec<usize> {
+/// up to `cap`, otherwise those in `named` (ascending; the first `cap` of
+/// them) and then the most bins (earlier first on ties).
+fn rows_to_show(counts: &[Counts], named: &[usize], cap: usize) -> Vec<usize> {
     if counts.len() <= cap {
         return (0..counts.len()).collect();
     }
-    let mut order: Vec<usize> = (0..counts.len()).collect();
-    order.sort_by(|&a, &b| counts[b].bins().cmp(&counts[a].bins()).then(a.cmp(&b)));
-    order.truncate(cap);
+    let mut keep = vec![false; counts.len()];
+    let mut order: Vec<usize> = named.iter().copied().take(cap).collect();
+    order.iter().for_each(|&i| keep[i] = true);
+    let mut rest: Vec<usize> = (0..counts.len()).filter(|&i| !keep[i]).collect();
+    rest.sort_by(|&a, &b| counts[b].bins().cmp(&counts[a].bins()).then(a.cmp(&b)));
+    order.extend(rest.into_iter().take(cap - order.len()));
     order.sort_unstable();
     order
 }

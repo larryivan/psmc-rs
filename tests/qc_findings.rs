@@ -69,7 +69,9 @@ fn codes_serialise_to_their_stable_names() {
             "BIN_SATURATION",
             "FEW_HETS",
             "TOO_SHORT",
-            "SHORT_SEQUENCES"
+            "SHORT_SEQUENCES",
+            "SEX_OR_ORGANELLE",
+            "HET_OUTLIER",
         ]
     );
     assert_eq!(serde_json::to_value(Severity::Info).unwrap(), "info");

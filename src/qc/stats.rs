@@ -85,6 +85,21 @@ pub fn largest_trunk_within(lengths: &[u64], max_fraction: f64) -> u64 {
     sorted.last().copied().unwrap_or(0)
 }
 
+/// Median of `xs` (the mean of the two middle values for an even count),
+/// sorting `xs` in place; NaN for an empty slice.
+pub(crate) fn median(xs: &mut [f64]) -> f64 {
+    if xs.is_empty() {
+        return f64::NAN;
+    }
+    xs.sort_unstable_by(f64::total_cmp);
+    let mid = xs.len() / 2;
+    if xs.len() % 2 == 1 {
+        xs[mid]
+    } else {
+        0.5 * (xs[mid - 1] + xs[mid])
+    }
+}
+
 /// Per-site heterozygosity `h` implied by a share `p` of heterozygous bins
 /// among called bins of `bin_size` sites, when every site is heterozygous
 /// independently with probability `h`: a bin is `K` unless all its sites are

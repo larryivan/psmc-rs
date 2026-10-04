@@ -6,8 +6,11 @@
 use serde::Serialize;
 
 use super::fmt::{bases, count, pct, sig};
+use super::names::SeqKind;
+use super::stats::median;
 use super::{
-    QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, largest_trunk_within,
+    QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, SeqInfo,
+    largest_trunk_within,
 };
 
 /// `N` fraction above which [`QcCode::HighMissing`] is a warning.
@@ -27,6 +30,38 @@ pub const MIN_CALLED_BASES: u64 = 100_000_000;
 /// [`QcCode::ShortSequences`] fires when more than this share of all bins
 /// lies in short sequences.
 pub const SHORT_SEQUENCES_MAX_FRACTION: f64 = 0.20;
+
+/// Sequences need at least this many bases in called bins to enter the
+/// autosomal reference heterozygosity ([`super::HetReference`]) and the
+/// [`QcCode::HetOutlier`] test: below it the `K` count of a sequence is too
+/// noisy (a 1 Mb sequence at 5% `K` bins has 500 of them, +-4.5%).
+pub const REFERENCE_MIN_CALLED_BASES: u64 = 1_000_000;
+
+/// A sex chromosome or organelle looks hemizygous below this ratio of its
+/// heterozygosity to the autosomal reference ([`QcCode::SexOrOrganelle`]).
+pub const HEMIZYGOUS_MAX_RATIO: f64 = 0.25;
+
+/// ... and only when the reference rate predicts at least this many `K` bins
+/// in it, so that the shortfall is not chance: seeing at most 2 where 10 are
+/// expected has a Poisson probability of 0.3%.
+pub const HEMIZYGOUS_MIN_EXPECTED_HET_BINS: f64 = 10.0;
+
+/// [`QcCode::HetOutlier`] flags a sequence whose log heterozygosity is more
+/// than this many median absolute deviations from the median. Iglewicz and
+/// Hoaglin's (1993) modified z-score cut-off of 3.5 is 3.5 / 0.6745 = 5.2 MAD.
+pub const HET_OUTLIER_MADS: f64 = 5.0;
+
+/// ... and at least this many times above or below the median, so that small
+/// differences between very uniform sequences (tiny MAD) are not flagged.
+pub const HET_OUTLIER_MIN_FOLD: f64 = 1.5;
+
+/// [`QcCode::HetOutlier`] needs at least this many sequences with
+/// [`REFERENCE_MIN_CALLED_BASES`], or the median and MAD mean little.
+pub const HET_OUTLIER_MIN_SEQUENCES: usize = 5;
+
+/// At most this many sequence names are listed in a message (all are in
+/// [`Finding::sequences`]).
+const MAX_LISTED: usize = 10;
 
 /// The kind of a [`Finding`]. The serialised names (`HIGH_MISSING`, ...) are
 /// stable and meant for scripts.
@@ -103,6 +138,40 @@ pub enum QcCode {
     /// unequal size, rather than trunks of the chosen size: the resampling
     /// is only as fine as the sequences allow.
     ShortSequences,
+    /// Sequences named like sex chromosomes or organelle genomes (info; see
+    /// [`super::classify_name`]); a warning when one looks hemizygous: its
+    /// heterozygosity is below [`HEMIZYGOUS_MAX_RATIO`] of the autosomal
+    /// reference ([`super::HetReference`]) while that reference predicts at
+    /// least [`HEMIZYGOUS_MIN_EXPECTED_HET_BINS`] `K` bins in it.
+    ///
+    /// PSMC models the two copies of one diploid genome sharing one
+    /// history. A hemizygous sequence (X or Y in males of XY species, Z or W
+    /// in females of ZW species, organelle genomes) has a single copy, so its
+    /// only heterozygous calls are errors: PSMC reads it as a long stretch of
+    /// recent common ancestry, which pulls θ down and adds a false signal of
+    /// recent coalescence (small recent Ne). Two-copy X and Z chromosomes are
+    /// expected near 3/4 of the autosomal heterozygosity with equal sex
+    /// ratios (often lower in practice) and still follow a different history
+    /// (effective size, mutation rate), which is why most PSMC analyses use
+    /// autosomes only; a single copy shows only genotyping errors, usually a
+    /// few percent of the autosomal level. A quarter separates the two.
+    SexOrOrganelle,
+    /// Sequences whose heterozygosity is far from the median of the others
+    /// (info): log θ more than [`HET_OUTLIER_MADS`] median absolute
+    /// deviations and at least [`HET_OUTLIER_MIN_FOLD`]-fold from the median,
+    /// among sequences with at least [`REFERENCE_MIN_CALLED_BASES`] in called
+    /// bins (sex chromosomes and organelles excluded), when there are at
+    /// least [`HET_OUTLIER_MIN_SEQUENCES`] of them.
+    ///
+    /// Median and MAD are not moved by the outliers themselves. Elevated
+    /// heterozygosity points to contamination, collapsed duplications or
+    /// copy-number variants (paralogous differences called as heterozygous)
+    /// or reference problems. Reduced heterozygosity points to sex-linked
+    /// scaffolds whose names do not say so (near zero when hemizygous, as on
+    /// the Z-linked scaffolds of a female bird), long runs of homozygosity
+    /// (inbreeding, which is real signal), deletions, or a mask that removed
+    /// most variable sites.
+    HetOutlier,
 }
 
 impl QcCode {
@@ -114,6 +183,8 @@ impl QcCode {
         Self::FewHets,
         Self::TooShort,
         Self::ShortSequences,
+        Self::SexOrOrganelle,
+        Self::HetOutlier,
     ];
 
     /// The stable name, as serialised (`HIGH_MISSING`, ...).
@@ -125,6 +196,8 @@ impl QcCode {
             Self::FewHets => "FEW_HETS",
             Self::TooShort => "TOO_SHORT",
             Self::ShortSequences => "SHORT_SEQUENCES",
+            Self::SexOrOrganelle => "SEX_OR_ORGANELLE",
+            Self::HetOutlier => "HET_OUTLIER",
         }
     }
 }
@@ -176,22 +249,199 @@ impl Finding {
     }
 }
 
-/// Run every check on `report` (computed from `input`); warnings first, then
-/// in [`QcCode`] order.
-pub(super) fn run(input: &QcInput, report: &QcReport, seq_bins: &[u64]) -> Vec<Finding> {
+/// Run every check on `report` (computed from `input`, with `seqs` holding
+/// every sequence); warnings first, then in [`QcCode`] order. Also returns
+/// the indices of the sequences the findings name, ascending.
+pub(super) fn run(
+    input: &QcInput,
+    report: &QcReport,
+    seqs: &[SeqInfo],
+) -> (Vec<Finding>, Vec<usize>) {
+    let seq_bins: Vec<u64> = seqs.iter().map(|s| s.stats.bins).collect();
+    let mut named = Vec::new();
     let mut out: Vec<Finding> = [
         variants_only_no_mask(input, report),
         high_missing(report),
         bin_saturation(report),
         few_hets(report),
         too_short(report),
-        short_sequences(report, seq_bins),
+        short_sequences(report, &seq_bins),
+        sex_or_organelle(report, seqs, &mut named),
+        het_outliers(report, seqs, &mut named),
     ]
     .into_iter()
     .flatten()
     .collect();
     out.sort_by_key(|f| (f.severity != Severity::Warning, f.code));
-    out
+    named.sort_unstable();
+    named.dedup();
+    (out, named)
+}
+
+/// `names` joined with commas, at most [`MAX_LISTED`] of them.
+fn listing(names: &[String]) -> String {
+    let mut s = names
+        .iter()
+        .take(MAX_LISTED)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if names.len() > MAX_LISTED {
+        s.push_str(&format!(" and {} more", names.len() - MAX_LISTED));
+    }
+    s
+}
+
+fn sex_or_organelle(
+    report: &QcReport,
+    seqs: &[SeqInfo],
+    named: &mut Vec<usize>,
+) -> Option<Finding> {
+    let flagged: Vec<&SeqInfo> = seqs.iter().filter(|s| s.kind.is_some()).collect();
+    if flagged.is_empty() {
+        return None;
+    }
+    let reference = report.het_reference.as_ref();
+    let mut hemizygous = Vec::new();
+    let mut described = Vec::new();
+    for s in &flagged {
+        named.push(s.index);
+        let kind = s.kind.map_or("", SeqKind::label);
+        let called_bins = s.stats.t_bins + s.stats.k_bins;
+        let judged = match (reference, s.stats.theta0_per_bin) {
+            (Some(r), Some(theta)) if r.theta0_per_bin > 0.0 => {
+                let ratio = theta / r.theta0_per_bin;
+                let expected_k = called_bins as f64 * -(-r.theta0_per_bin).exp_m1();
+                Some((ratio, expected_k))
+            }
+            _ => None,
+        };
+        let note = match judged {
+            Some((ratio, expected)) if expected >= HEMIZYGOUS_MIN_EXPECTED_HET_BINS => {
+                if ratio < HEMIZYGOUS_MAX_RATIO {
+                    hemizygous.push(s.name.clone());
+                    format!(
+                        "{}x the autosomal heterozygosity, hemizygous?",
+                        sig(ratio, 2)
+                    )
+                } else {
+                    format!("{}x the autosomal heterozygosity", sig(ratio, 2))
+                }
+            }
+            Some(_) => "too few called bins to judge".to_string(),
+            None if called_bins == 0 => "no called bins".to_string(),
+            None => "nothing to compare with".to_string(),
+        };
+        described.push(format!("{} ({kind}, {note})", s.name));
+    }
+    let names: Vec<String> = flagged.iter().map(|s| s.name.clone()).collect();
+    let (severity, consequence, advice) = if hemizygous.is_empty() {
+        (
+            Severity::Info,
+            "PSMC models one diploid history; sex chromosomes have their own effective \
+             size and mutation rate, and organelles have one copy and do not recombine."
+                .to_string(),
+            "Most PSMC analyses use autosomes only; consider excluding these sequences."
+                .to_string(),
+        )
+    } else {
+        (
+            Severity::Warning,
+            format!(
+                "{} {} far less heterozygous than the autosomes, as a single (hemizygous) \
+                 copy is; PSMC reads such a sequence as a long stretch of recent common \
+                 ancestry, which lowers theta and adds a false signal of small recent Ne.",
+                listing(&hemizygous),
+                if hemizygous.len() == 1 { "is" } else { "are" },
+            ),
+            format!(
+                "Exclude {} (keep autosomes only, e.g. by restricting the mask, VCF or \
+                 psmcfa to them).",
+                listing(&hemizygous)
+            ),
+        )
+    };
+    let mut f = Finding::new(
+        QcCode::SexOrOrganelle,
+        severity,
+        format!(
+            "{} {} named like a sex chromosome or organelle: {}. {consequence}",
+            count(flagged.len() as u64),
+            if flagged.len() == 1 {
+                "sequence is"
+            } else {
+                "sequences are"
+            },
+            listing(&described),
+        ),
+        advice,
+    );
+    f.sequences = names;
+    Some(f)
+}
+
+fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> Option<Finding> {
+    let eligible: Vec<(&SeqInfo, f64)> = seqs
+        .iter()
+        .filter(|s| s.kind.is_none())
+        .filter(|s| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
+        .filter_map(|s| s.stats.theta0_per_bin.map(|t| (s, t.ln())))
+        .collect();
+    if eligible.len() < HET_OUTLIER_MIN_SEQUENCES {
+        return None;
+    }
+    let mut logs: Vec<f64> = eligible.iter().map(|&(_, x)| x).collect();
+    let center = median(&mut logs);
+    if !center.is_finite() {
+        return None;
+    }
+    let mut deviations: Vec<f64> = eligible.iter().map(|&(_, x)| (x - center).abs()).collect();
+    let mad = median(&mut deviations);
+    let limit = (HET_OUTLIER_MADS * mad).max(HET_OUTLIER_MIN_FOLD.ln());
+    let mut outliers: Vec<(&SeqInfo, f64)> = eligible
+        .iter()
+        .filter(|&&(_, x)| (x - center).abs() > limit)
+        .map(|&(s, x)| (s, x - center))
+        .collect();
+    if outliers.is_empty() {
+        return None;
+    }
+    outliers.sort_by(|a, b| {
+        b.1.abs()
+            .total_cmp(&a.1.abs())
+            .then(a.0.index.cmp(&b.0.index))
+    });
+    let described: Vec<String> = outliers
+        .iter()
+        .map(|(s, d)| format!("{} ({}x)", s.name, sig(d.exp(), 2)))
+        .collect();
+    named.extend(outliers.iter().map(|(s, _)| s.index));
+    let bin_size = report.bin_size as f64;
+    let mut f = Finding::new(
+        QcCode::HetOutlier,
+        Severity::Info,
+        format!(
+            "{} of {} sequences with at least {} in called bins have a heterozygosity far \
+             from their median of {} per kb (more than {} MADs of log theta and {}-fold): \
+             {}.",
+            count(outliers.len() as u64),
+            count(eligible.len() as u64),
+            bases(REFERENCE_MIN_CALLED_BASES),
+            sig(1000.0 * center.exp() / bin_size, 3),
+            HET_OUTLIER_MADS,
+            HET_OUTLIER_MIN_FOLD,
+            listing(&described),
+        ),
+        "High heterozygosity can come from contamination, collapsed duplications or \
+         copy-number variants, or reference errors; low heterozygosity from sex-linked \
+         scaffolds (near zero when hemizygous), runs of homozygosity (inbreeding, a real \
+         signal), deletions or an over-strict mask. Check depth, mapping quality, the mask \
+         and the chromosome assignment of these sequences, and exclude any that are \
+         artefacts or hemizygous."
+            .to_string(),
+    );
+    f.sequences = outliers.iter().map(|(s, _)| s.name.clone()).collect();
+    Some(f)
 }
 
 fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> {
