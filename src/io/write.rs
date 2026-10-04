@@ -105,6 +105,17 @@ pub struct MultihetsepOptions {
 /// Write the heterozygous sites of `data` in `generate_multihetsep.py`'s
 /// single-sample layout: `chrom`, `pos`, `nr_called` and the two alleles,
 /// tab-separated, one heterozygous site per line.
+///
+/// For one chromosome of a single-sample VCF of PASS SNP calls and a callable
+/// mask, the output is byte for byte that of
+/// `generate_multihetsep.py --mask mask.bed.gz file.vcf.gz`. Elsewhere the
+/// script behaves differently: it writes rows for indels (alleles of several
+/// characters, which also widen the row, see [`crate::io::mhs::read_mhs_with`])
+/// where the loader treats a heterozygous indel as missing; it ignores FILTER
+/// and fails on missing genotypes; it gives a second record at one position
+/// `nr_called` 0; it reads mask rows without looking at their chromosome and
+/// counts `nr_called` across chromosomes, so it takes one chromosome per run;
+/// and past the end of a negative mask it treats every position as uncallable.
 pub fn write_multihetsep_to<W: Write + ?Sized>(
     out: &mut W,
     data: &Dataset,
