@@ -9,10 +9,12 @@ Tests that need optional packages (msprime, numpy, ...) skip when those are abse
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import csv
 import importlib.util
 import io
+import json
 import math
 import os
 import subprocess
@@ -158,6 +160,39 @@ class SharedHelpers(unittest.TestCase):
             fixtures.write_rust_json(rj, scale=10.0)
             shifted = self.ec.curve_from_json(rj, 2.5e-8, 25.0)
             self.assertAlmostEqual(self.ec.rmse_log10(c, shifted), 1.0, places=5)
+
+    @staticmethod
+    def notebook_lam_helpers():
+        """The notebook's own pattern helpers (pure Python), without running its plotting setup."""
+        nb = json.loads((ROOT / "experiment/notebooks/all_plots_precomputed.ipynb").read_text(encoding="utf-8"))
+        tree = ast.parse("".join(nb["cells"][0]["source"]))
+        wanted = {"parse_pattern_spec", "parse_pattern_spec_legacy", "expand_lam"}
+        tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+        scope: dict = {}
+        exec(compile(tree, "all_plots_precomputed.ipynb:cell0", "exec"), scope)
+        return scope
+
+    def test_expand_lam_matches_the_notebook_for_every_lam_length(self):
+        # Legacy psmc-rs read a plain pattern part `a` as a states of width 1:
+        # for 4+25*2+4+6 that is 4+25+4+6 = 39 values plus a trailing one.
+        nb = self.notebook_lam_helpers()
+
+        def outcome(fn, *args):
+            try:
+                return fn(*args)
+            except ValueError:
+                return "rejected"
+
+        pattern = fixtures.PATTERN
+        for n_steps in (63, 64):
+            for n in range(20, 70):
+                lam = [float(i + 1) for i in range(n)]
+                want = outcome(nb["expand_lam"], lam, n_steps, nb["parse_pattern_spec"](pattern), pattern)
+                got = outcome(self.ec.expand_lam, lam, n_steps, pattern)
+                self.assertEqual(got, want, f"n_steps={n_steps}, {n} lam values")
+        legacy = self.ec.expand_lam([float(i) for i in range(40)], 64, pattern)
+        self.assertEqual(legacy[:6], [0.0, 1.0, 2.0, 3.0, 4.0, 4.0])
+        self.assertEqual(len(legacy), 65)
 
 
 class RealDataRunner(unittest.TestCase):

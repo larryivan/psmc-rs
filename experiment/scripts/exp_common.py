@@ -480,7 +480,14 @@ def require_modules(names: Sequence[str], purpose: str) -> None:
 Curve = Tuple[List[float], List[float]]
 
 
-def _pattern_groups(pattern: Optional[str]) -> Optional[List[Tuple[int, int]]]:
+def _pattern_groups(pattern: Optional[str], *, legacy: bool = False) -> Optional[List[Tuple[int, int]]]:
+    """``(count, width)`` groups of a pattern such as ``4+25*2+4+6``.
+
+    C psmc reads a plain part ``a`` as one free parameter spanning ``a``
+    intervals. psmc-rs development builds before v0.1.1 read it as ``a``
+    parameters of width 1 (``legacy``), and their JSON files hold one value
+    per such parameter plus a trailing one.
+    """
     if pattern is None:
         return None
     out = []
@@ -491,6 +498,8 @@ def _pattern_groups(pattern: Optional[str]) -> Optional[List[Tuple[int, int]]]:
         if "*" in part:
             a, b = part.split("*", 1)
             out.append((int(a), int(b)))
+        elif legacy:
+            out.append((int(part), 1))
         else:
             out.append((1, int(part)))
     return out or None
@@ -514,11 +523,13 @@ def expand_lam(lam_grouped: Sequence[float], n_steps: int, pattern: Optional[str
         if len(lam) != n_steps + 1:
             raise ValueError(f"expanded lam length {len(lam)} != n_steps+1 ({n_steps + 1})")
         return lam
-    # Legacy files: `a*b` read as a states of width b, plus one trailing value.
-    if len(lam_grouped) == sum(a for a, _ in groups) + 1:
+    # Legacy files: `a*b` read as a states of width b, a plain `a` as a states
+    # of width 1, plus one trailing value.
+    legacy = _pattern_groups(pattern, legacy=True)
+    if len(lam_grouped) == sum(a for a, _ in legacy) + 1:
         lam = []
         idx = 0
-        for a, b in groups:
+        for a, b in legacy:
             for _ in range(a):
                 lam.extend([lam_grouped[idx]] * b)
                 idx += 1
