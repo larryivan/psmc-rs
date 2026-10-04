@@ -113,12 +113,18 @@ class Runner:
             print(f"[simulate] {key} length={SIM_LENGTH_BP:,}", flush=True)
             self.run(cmd)
 
+    def check_matched(self) -> None:
+        """Exit before any comparison run unless both tools start from the same theta/rho ratio."""
+        self.settings.check_psmc_rs(self.psmc_rs)
+
     def rust(self, inp: Path, out_json: Path) -> Dict:
+        self.check_matched()
         env = os.environ.copy()
         env["PSMC_ALPHA_CACHE_MB"] = str(ALPHA_CACHE_MB)
         return self.run(self.settings.rust_cmd(self.psmc_rs, inp, out_json, mu=MU), env=env)
 
     def c(self, inp: Path, out_psmc: Path) -> Dict:
+        self.check_matched()
         # C psmc writes each round as it goes; stage it so that an interrupted
         # run never leaves a partial file at out_psmc.
         return exp_common.run_staged(

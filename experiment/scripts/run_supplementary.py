@@ -334,6 +334,9 @@ def ensure_tools(require_c: bool = True) -> bool:
     has_c = C_PSMC_BIN is not None
     if not has_c:
         print("[warn] C psmc binary not found; C baseline runs are skipped")
+    elif require_c:
+        # The steps that compare with C need both tools to start from the same rho0.
+        exp_common.check_rho_ratio(PSMC_RS_BIN, RHO_T_RATIO)
     return has_c
 
 

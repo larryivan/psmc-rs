@@ -81,6 +81,7 @@ def run_samples(
     rust_bin = exp_common.resolve_psmc_rs(psmc_rs)
     c_bin = exp_common.resolve_c_psmc(c_psmc, required=True)
     print(f"[tool] psmc-rs: {rust_bin}\n[tool] C psmc: {c_bin}")
+    settings.check_psmc_rs(rust_bin)
     for s in samples:
         inp = input_dir / s.file
         if not inp.exists():

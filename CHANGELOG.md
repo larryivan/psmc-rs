@@ -32,7 +32,10 @@ Library and CLI changes: to be completed at integration.
 
 - The experiment scripts compare psmc-rs and C psmc from the same initial
   theta/rho ratio, 4 (C `-r4`, the psmc-rs 0.2 default `rho0 = theta0/4`);
-  the 0.1 results used 5 on both sides.
+  the 0.1 results used 5 on both sides. They need a psmc-rs build with the
+  0.2 default: before the first run compared with C they read the starting
+  ratio of the psmc-rs binary (zero-iteration run) and stop if it differs
+  from `RHO_T_RATIO`.
 - `run_supplementary.py` writes its quick-look figures to
   `diagnostic_figures/` instead of next to the manuscript figures, runs
   S2-S5 by default (S1, the smoothing ablation, on request) and simulates only

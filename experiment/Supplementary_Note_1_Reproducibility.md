@@ -94,7 +94,10 @@ python experiment/run.py                        # Table 1, all figures
 
 Both tools are run with matched settings: 20 EM iterations, `t_max = 15`,
 pattern `4+25*2+4+6`, initial theta/rho ratio 4, no psmc-rs smoothing, one
-psmc-rs thread. Each script logs every command with its wall time and peak
+psmc-rs thread. The ratio 4 is the psmc-rs 0.2 default (`rho0 = theta0/4`);
+the scripts check the psmc-rs binary's starting ratio before the first run
+compared with C psmc and stop if it differs (a 0.1 build starts from
+`theta0/5`). Each script logs every command with its wall time and peak
 memory to `experiment/runs/<part>/logs/commands.jsonl`. The full regeneration
 takes hours and up to about 8 GB of memory (C psmc on 1 Gb in S3); timing
 experiments should run on an otherwise idle machine. Commit the regenerated

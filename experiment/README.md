@@ -16,6 +16,9 @@ repository from its own path, so any working directory works.
   describes 0.1. The C psmc runs were made with
   `-r5` to match 0.1; for a matched comparison with 0.2 they are re-run with
   `-r4` (the scripts' default, `RHO_T_RATIO`), so regenerate both sides.
+  The scripts therefore need a psmc-rs build with the 0.2 default: they check
+  the starting ratio of the psmc-rs binary and stop if it is not
+  `RHO_T_RATIO` (a 0.1 build is refused unless `RHO_T_RATIO=5`).
 - **Inference outputs are not committed yet.** `runs/main_text/outputs/` and
   `runs/real_data/outputs/` (psmc-rs JSON, C `.psmc`), from which Figures 2
   and 3 and Table 1 are computed, were excluded by `.gitignore` and never
@@ -168,8 +171,11 @@ Both tools get the same EM settings:
 
 plus `--n-steps 64 --batch-size 300000 --mu <mu> --no-progress` for psmc-rs
 (`--mu` only scales the HTML report). `RHO_T_RATIO` must equal the psmc-rs
-default ratio, otherwise the two tools start from different parameters. The
-scripts reuse finished runs: a psmc-rs JSON that parses, and a C psmc output
+default ratio, otherwise the two tools start from different parameters.
+Before the first run that is compared with C psmc, the scripts read the
+starting `theta0/rho0` of the psmc-rs binary from a zero-iteration run on a
+tiny synthetic input and stop with an explanation if it differs from
+`RHO_T_RATIO`. The scripts reuse finished runs: a psmc-rs JSON that parses, and a C psmc output
 with exactly `N_ITER + 1` rounds. C psmc writes each round as it goes, so it
 writes to `<output>.partial`, which is renamed only when the run succeeds; an
 interrupted run therefore leaves no output, and an incomplete one (or one made

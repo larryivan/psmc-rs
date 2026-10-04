@@ -159,7 +159,7 @@ class MatchedSettings:
     off (C has none) and psmc-rs runs single-threaded for a fair runtime
     comparison. ``rho_t_ratio`` is C's ``-r``; it has to equal the psmc-rs
     default ``rho0 = theta0 / ratio``, which is 4 from psmc-rs 0.2 on (as in
-    lh3/psmc) and was 5 in psmc-rs 0.1.
+    lh3/psmc) and was 5 in psmc-rs 0.1. :meth:`check_psmc_rs` enforces this.
     """
 
     n_iter: int = 20
@@ -224,6 +224,60 @@ class MatchedSettings:
             str(out_psmc),
             str(inp),
         ]
+
+    def check_psmc_rs(self, psmc_rs: Path) -> None:
+        """Exit unless ``psmc_rs`` starts from the theta/rho ratio given to C psmc."""
+        check_rho_ratio(psmc_rs, self.rho_t_ratio)
+
+
+# 2,000 bins, one in 20 heterozygous: enough for psmc-rs to set theta0.
+_RATIO_PROBE_SEQ = ("T" * 19 + "K") * 100
+_RATIOS_CHECKED: set = set()
+
+
+def psmc_rs_default_rho_ratio(psmc_rs: Path) -> float:
+    """``theta0 / rho0`` that ``psmc_rs`` starts EM from when ``--rho0`` is not given.
+
+    psmc-rs has no version flag and the default changed between releases
+    (5 in 0.1, 4 from 0.2 on), so it is read from a zero-iteration run on a
+    small synthetic input, which writes the starting parameters.
+    """
+    with tempfile.TemporaryDirectory(prefix="psmc-rs-ratio-") as tmp:
+        inp = Path(tmp) / "probe.psmcfa"
+        seq = _RATIO_PROBE_SEQ
+        inp.write_text(">probe\n" + "\n".join(seq[i : i + 60] for i in range(0, len(seq), 60)) + "\n")
+        out = Path(tmp) / "probe.json"
+        res = subprocess.run(
+            [str(psmc_rs), str(inp), str(out), "0", "--no-progress"], capture_output=True, text=True
+        )
+        if res.returncode != 0 or not out.exists():
+            raise RuntimeError(
+                f"cannot read the starting theta/rho ratio of {psmc_rs}: a zero-iteration run "
+                f"failed (rc={res.returncode}).\n{res.stderr}"
+            )
+        params = json.loads(out.read_text())
+    return float(params["theta"]) / float(params["rho"])
+
+
+def check_rho_ratio(psmc_rs: Path, ratio: float) -> None:
+    """Exit unless ``psmc_rs`` defaults to ``rho0 = theta0 / ratio``, as C psmc with ``-r<ratio>``.
+
+    Otherwise the two tools start EM from different parameters and the
+    comparison is not matched. Each binary is probed once per process.
+    """
+    key = (str(psmc_rs), float(ratio))
+    if key in _RATIOS_CHECKED:
+        return
+    found = psmc_rs_default_rho_ratio(psmc_rs)
+    if not math.isclose(found, ratio, rel_tol=1e-6):
+        raise SystemExit(
+            f"error: {psmc_rs} starts EM from rho0 = theta0/{found:.6g}, but C psmc is run with "
+            f"-r{ratio:g} (RHO_T_RATIO), so the two tools would not start from the same parameters.\n"
+            "psmc-rs 0.2 uses rho0 = theta0/4, as lh3/psmc does; psmc-rs 0.1 used theta0/5. Use a "
+            "psmc-rs build with the 0.2 default, or set RHO_T_RATIO to the ratio above to compare "
+            "against this build (the packaged 0.1 results were made with RHO_T_RATIO=5)."
+        )
+    _RATIOS_CHECKED.add(key)
 
 
 def repo_relative(path: Path, root: Path = ROOT) -> str:

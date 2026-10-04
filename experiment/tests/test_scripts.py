@@ -276,6 +276,55 @@ class InterruptedRuns(FakeToolsCase):
         self.assertEqual(list(out.parent.glob("*.partial")), [])
 
 
+class RhoRatioGuard(FakeToolsCase):
+    """C psmc runs with -r RHO_T_RATIO; psmc-rs must default to the same rho0 = theta0/ratio."""
+
+    def setUp(self):
+        super().setUp()
+        self.inputs = self.tmp / "in"
+        self.inputs.mkdir()
+
+    def run_real_data(self, **env):
+        rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_ratio")
+        sample = rd.SAMPLES[-1]
+        (self.inputs / sample.file).write_text(">chr1\nTTTTKTTTTK\n")
+        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()):
+            rd.run_samples([sample], self.tmp / "out", str(self.psmc_rs), str(self.c_psmc), False, self.inputs)
+
+    def comparison_runs(self):
+        return [ln for ln in self.calls_log.read_text().splitlines() if not ln.startswith("psmc-rs probe")]
+
+    def test_mismatched_ratio_stops_before_any_run(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_real_data(FAKE_RHO_RATIO="5")
+        self.assertIn("theta0/5", str(cm.exception))
+        self.assertIn("RHO_T_RATIO", str(cm.exception))
+        self.assertEqual(self.comparison_runs(), [])
+
+    def test_matching_ratio_runs_both_tools(self):
+        self.run_real_data(FAKE_RHO_RATIO="5", RHO_T_RATIO="5")
+        self.assertEqual(sorted(ln.split()[0] for ln in self.comparison_runs()), ["c", "psmc-rs"])
+
+    def test_main_text_checks_before_running_c(self):
+        mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_ratio")
+        runner = mt.Runner(self.tmp / "main", str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
+        runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
+        fixtures.write_rust_json(runner.outputs / "constant.rust.main.json")
+        with mock.patch.dict(os.environ, {"FAKE_RHO_RATIO": "5"}), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                runner.main_runs(["constant"], force=False)
+        self.assertEqual(self.comparison_runs(), [])
+
+    def test_supplementary_checks_only_the_steps_that_compare_with_c(self):
+        rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_ratio")
+        rs.configure_paths(self.tmp / "supp")
+        rs.configure_tools(str(self.psmc_rs), str(self.c_psmc), None)
+        with mock.patch.dict(os.environ, {"FAKE_RHO_RATIO": "5"}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(rs.ensure_tools(require_c=False))  # S4, S5: psmc-rs only
+            with self.assertRaises(SystemExit):
+                rs.ensure_tools(require_c=True)  # S1-S3
+
+
 class MainTextRunner(unittest.TestCase):
     def test_perf_summary_uses_sample_sd_in_figure_order(self):
         mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_t")
