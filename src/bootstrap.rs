@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, bail};
-use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -38,8 +38,71 @@ pub fn replicate_json_path(dir: &Path, replicate_index_1based: usize) -> PathBuf
     dir.join(format!("replicate_{replicate_index_1based:03}.json"))
 }
 
-pub fn new_rng(seed: u64) -> SmallRng {
-    SmallRng::seed_from_u64(seed)
+/// Random number generator used for bootstrap resampling.
+///
+/// ChaCha8 is value-stable: the same seed yields the same stream on every
+/// platform and with every `rand_chacha` release, unlike `SmallRng`, whose
+/// algorithm depends on the pointer width and may change between `rand`
+/// versions.
+pub type BootstrapRng = ChaCha8Rng;
+
+const SPLITMIX64_GAMMA: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// SplitMix64 output function (Steele, Lea & Flood 2014).
+fn splitmix64_mix(mut z: u64) -> u64 {
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// Expand a 64-bit seed into a 256-bit ChaCha key: four consecutive outputs of
+/// a SplitMix64 generator started at `seed`, little-endian.
+fn expand_seed(seed: u64) -> [u8; 32] {
+    let mut state = seed;
+    let mut key = [0u8; 32];
+    for word in key.chunks_exact_mut(8) {
+        state = state.wrapping_add(SPLITMIX64_GAMMA);
+        word.copy_from_slice(&splitmix64_mix(state).to_le_bytes());
+    }
+    key
+}
+
+/// Seed of bootstrap replicate `replicate` (0-based): output number
+/// `replicate + 1` of a SplitMix64 generator started at `base_seed`.
+///
+/// Each replicate gets its own stream, so a replicate's data does not depend
+/// on how many threads run the replicates or in which order they finish.
+pub fn replicate_seed(base_seed: u64, replicate: usize) -> u64 {
+    let step = (replicate as u64)
+        .wrapping_add(1)
+        .wrapping_mul(SPLITMIX64_GAMMA);
+    splitmix64_mix(base_seed.wrapping_add(step))
+}
+
+/// Portable deterministic generator for `seed` (see [`BootstrapRng`]).
+pub fn new_rng(seed: u64) -> BootstrapRng {
+    ChaCha8Rng::from_seed(expand_seed(seed))
+}
+
+/// Generator of bootstrap replicate `replicate` (0-based) under `base_seed`.
+pub fn replicate_rng(base_seed: u64, replicate: usize) -> BootstrapRng {
+    new_rng(replicate_seed(base_seed, replicate))
+}
+
+/// Uniform index in `0..n` built from `next_u64` alone (Lemire's
+/// multiply-and-reject method), so the stream depends only on the generator
+/// and not on how a given `rand` release implements `gen_range`.
+fn uniform_index<R: Rng + ?Sized>(rng: &mut R, n: usize) -> usize {
+    assert!(n > 0, "cannot draw an index from an empty range");
+    let range = n as u64;
+    let mut m = u128::from(rng.next_u64()) * u128::from(range);
+    if (m as u64) < range {
+        let threshold = range.wrapping_neg() % range;
+        while (m as u64) < threshold {
+            m = u128::from(rng.next_u64()) * u128::from(range);
+        }
+    }
+    (m >> 64) as usize
 }
 
 pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Vec<u8>>> {
@@ -120,10 +183,12 @@ pub fn sequences_to_observations(
     Ok(Observations { rows, row_starts })
 }
 
+/// Within-sequence block bootstrap: each sequence is cut into blocks of
+/// `block_size` bins and rebuilt from blocks of that same sequence.
 pub fn sample_sequences_block_bootstrap(
     seqs: &[Vec<u8>],
     block_size: usize,
-    rng: &mut SmallRng,
+    rng: &mut impl Rng,
 ) -> Result<Vec<Vec<u8>>> {
     if block_size == 0 {
         bail!("bootstrap block_size must be > 0");
@@ -144,7 +209,7 @@ pub fn sample_sequences_block_bootstrap(
         let draw_n = seq.len().div_ceil(block_size);
         let mut sampled = Vec::<u8>::with_capacity(seq.len() + block_size);
         for _ in 0..draw_n {
-            let idx = rng.gen_range(0..blocks.len());
+            let idx = uniform_index(rng, blocks.len());
             sampled.extend_from_slice(blocks[idx]);
         }
         sampled.truncate(seq.len());

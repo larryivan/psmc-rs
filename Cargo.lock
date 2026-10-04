@@ -1070,6 +1070,7 @@ dependencies = [
  "indicatif",
  "ndarray",
  "rand",
+ "rand_chacha",
  "ratatui",
  "rayon",
  "serde",
