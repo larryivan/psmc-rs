@@ -1,0 +1,573 @@
+//! Input quality control: metrics of a binned PSMC input.
+//!
+//! [`analyze`] turns the bins of a loaded dataset ([`QcInput`]) into a
+//! [`QcReport`]: T/K/N counts, θ0 (C psmc's starting value), called length,
+//! the sequence length distribution and missing-data runs, for the whole input
+//! and for each sequence. The report serialises to JSON with serde.
+//!
+//! Bins follow the psmcfa convention: 0 = `T` (called, no heterozygous site),
+//! 1 = `K` (at least one heterozygous site), anything else = `N` (missing).
+
+use anyhow::{Result, bail};
+use serde::Serialize;
+use std::borrow::Cow;
+use std::ops::Range;
+
+mod stats;
+
+pub use stats::{bootstrap_trunks_of, initial_recombinations, n50, theta0_per_bin};
+
+/// Sequences shorter than this many bases are "short": below it, a sequence
+/// holds few long genealogical segments, which carry the information about
+/// recent times (see [`LengthStats::below_1mb`]).
+pub const SHORT_SEQUENCE_BASES: u64 = 1_000_000;
+
+/// C psmc's default initial θ0/ρ0 ratio (`-r 4`), used for
+/// [`QcReport::expected_recombinations`].
+pub const DEFAULT_TR_RATIO: f64 = 4.0;
+
+/// At most this many per-sequence rows are kept in [`QcReport::sequences`];
+/// the rest are summed in [`QcReport::omitted`].
+pub const MAX_SEQUENCE_ROWS: usize = 100;
+
+/// One sequence of the input, as the loader saw it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QcSeq {
+    /// Sequence name (psmcfa record name, VCF chromosome, ...).
+    pub name: String,
+    /// Number of bins of this sequence in [`QcInput::rows`].
+    pub n_bins: usize,
+    /// Bases the sequence spans, when the loader knows them; otherwise
+    /// `n_bins * bin_size` is used.
+    pub extent_bases: Option<u64>,
+    /// Called (non-missing) bases, when the loader saw individual sites.
+    pub called_bases: Option<u64>,
+    /// Heterozygous sites that reached the bins, when the loader saw
+    /// individual sites.
+    pub het_sites: Option<u64>,
+}
+
+impl QcSeq {
+    /// A sequence known only by its name and bin count.
+    pub fn new(name: impl Into<String>, n_bins: usize) -> Self {
+        Self {
+            name: name.into(),
+            n_bins,
+            extent_bases: None,
+            called_bases: None,
+            het_sites: None,
+        }
+    }
+}
+
+/// Facts about how the input was read, filled in by the loader where they
+/// apply.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct QcContext {
+    /// Input format, e.g. `"psmcfa"`, `"vcf"` or `"mhs"`; shown as is.
+    pub input_format: Option<String>,
+}
+
+/// What [`analyze`] looks at.
+#[derive(Debug, Clone)]
+pub struct QcInput<'a> {
+    /// HMM rows of bins (0 = T, 1 = K, other = N).
+    pub rows: &'a [Vec<u8>],
+    /// `true` where a row starts a new sequence; `false` continues the
+    /// previous one.
+    pub row_starts: &'a [bool],
+    /// The sequences of `rows`, in order. Sequences with 0 bins have no rows
+    /// and are only counted. When empty, the sequences are taken from
+    /// `row_starts` and named `seq1`, `seq2`, ...
+    pub seqs: &'a [QcSeq],
+    /// Bases per bin.
+    pub bin_size: usize,
+    /// Bootstrap trunk size in bins; 0 when no bootstrap is planned, which
+    /// skips the trunk metrics.
+    pub bootstrap_trunk_bins: usize,
+    /// Facts about how the input was read.
+    pub context: QcContext,
+}
+
+/// Bin counts and derived metrics of one sequence or of several.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct BinStats {
+    /// All bins.
+    pub bins: u64,
+    /// Called bins without a heterozygous site (`T`).
+    pub t_bins: u64,
+    /// Bins with at least one heterozygous site (`K`).
+    pub k_bins: u64,
+    /// Missing bins (`N`).
+    pub missing_bins: u64,
+    /// `t_bins / bins` (0 when there are no bins).
+    pub t_fraction: f64,
+    /// `k_bins / bins` (0 when there are no bins).
+    pub k_fraction: f64,
+    /// `missing_bins / bins` (0 when there are no bins).
+    pub missing_fraction: f64,
+    /// Share of called bins that are heterozygous, `K / (T + K)`.
+    pub het_bin_fraction: Option<f64>,
+    /// θ0 per bin, `-ln(1 - K/(T+K))`, as C psmc starts from
+    /// ([`theta0_per_bin`]).
+    pub theta0_per_bin: Option<f64>,
+    /// θ0 per base pair: `theta0_per_bin / bin_size`.
+    pub theta_per_bp: Option<f64>,
+    /// `theta_per_bp` per kilobase, i.e. heterozygous sites per kb.
+    pub het_per_kb: Option<f64>,
+    /// `(T + K) * bin_size`: bases in called bins. A called bin may still
+    /// hold up to 90% missing sites (the `fq2psmcfa` rule), so this can
+    /// exceed the called bases.
+    pub called_bases_from_bins: u64,
+    /// Called bases as counted by the loader, when it saw individual sites
+    /// (for several sequences: only when every one has the count).
+    pub called_bases: Option<u64>,
+    /// Heterozygous sites as counted by the loader, under the same rule.
+    pub het_sites: Option<u64>,
+    /// `het_sites / called_bases` per kilobase.
+    pub site_het_per_kb: Option<f64>,
+    /// Bases spanned ([`QcSeq::extent_bases`], else `bins * bin_size`).
+    pub length_bases: u64,
+    /// Longest run of consecutive `N` bins within one sequence.
+    pub longest_missing_run_bins: u64,
+}
+
+/// How many sequences, and how many bins, lie below a length limit.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ShortShare {
+    /// Sequences below the limit.
+    pub sequences: usize,
+    /// Bins in those sequences.
+    pub bins: u64,
+    /// `bins` as a fraction of all bins (0 when there are none).
+    pub fraction: f64,
+}
+
+/// Distribution of sequence lengths.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct LengthStats {
+    /// Sum of the sequence lengths ([`BinStats::length_bases`]).
+    pub total_bases: u64,
+    /// Longest sequence.
+    pub longest_bases: u64,
+    /// N50 of the sequence lengths ([`n50`]).
+    pub n50_bases: u64,
+    /// Number of sequences that reach half the total at the N50.
+    pub l50: usize,
+    /// Sequences shorter than [`SHORT_SEQUENCE_BASES`].
+    pub below_1mb: ShortShare,
+    /// Sequences with fewer bins than the bootstrap trunk; `None` when no
+    /// trunk size was given.
+    pub below_trunk: Option<ShortShare>,
+    /// Trunks the bootstrap cuts the input into ([`bootstrap_trunks_of`]);
+    /// `None` when no trunk size was given.
+    pub bootstrap_trunks: Option<u64>,
+}
+
+/// The longest run of `N` bins in the input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MissingRun {
+    /// Sequence holding the run.
+    pub sequence: String,
+    /// 0-based bin offset of the run's first bin in that sequence.
+    pub start_bin: u64,
+    /// Length of the run in bins.
+    pub bins: u64,
+    /// Length of the run in bases (`bins * bin_size`).
+    pub bases: u64,
+}
+
+/// Metrics of one sequence.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SequenceRow {
+    /// 0-based position of the sequence among the non-empty input sequences.
+    pub index: usize,
+    /// Sequence name.
+    pub name: String,
+    /// Its metrics.
+    #[serde(flatten)]
+    pub stats: BinStats,
+}
+
+/// Sequences left out of [`QcReport::sequences`], summed.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct OmittedSequences {
+    /// How many sequences were left out.
+    pub sequences: usize,
+    /// Their metrics, summed as for the whole input.
+    #[serde(flatten)]
+    pub stats: BinStats,
+}
+
+/// Everything [`analyze`] found.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct QcReport {
+    /// [`QcContext::input_format`].
+    pub input_format: Option<String>,
+    /// Bases per bin.
+    pub bin_size: usize,
+    /// Bootstrap trunk size in bins (0: none).
+    pub bootstrap_trunk_bins: usize,
+    /// Sequences with at least one bin.
+    pub n_sequences: usize,
+    /// Sequences listed with 0 bins (not otherwise analysed).
+    pub empty_sequences: usize,
+    /// Metrics of the whole input.
+    pub totals: BinStats,
+    /// Sequence length distribution.
+    pub lengths: LengthStats,
+    /// Longest run of `N` bins; `None` when no bin is missing.
+    pub longest_missing_run: Option<MissingRun>,
+    /// C psmc's round-0 `n_recomb` for the whole input
+    /// ([`initial_recombinations`] at [`DEFAULT_TR_RATIO`]).
+    pub expected_recombinations: Option<f64>,
+    /// Per-sequence metrics: every sequence when there are at most
+    /// [`MAX_SEQUENCE_ROWS`], otherwise the longest ones. Always in input
+    /// order.
+    pub sequences: Vec<SequenceRow>,
+    /// The sequences not in `sequences`, if any.
+    pub omitted: Option<OmittedSequences>,
+}
+
+impl QcReport {
+    /// The report as pretty-printed JSON.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("a QC report always serialises")
+    }
+}
+
+/// Raw counts of one sequence, before derived metrics.
+#[derive(Debug, Clone, Default)]
+struct Counts {
+    t: u64,
+    k: u64,
+    n: u64,
+    longest_run: u64,
+    longest_run_start: u64,
+    length_bases: u64,
+    called_bases: Option<u64>,
+    het_sites: Option<u64>,
+}
+
+impl Counts {
+    fn bins(&self) -> u64 {
+        self.t + self.k + self.n
+    }
+
+    /// Count the bins of one sequence, held in `rows`.
+    fn scan(rows: &[Vec<u8>]) -> Self {
+        let mut c = [0u64; 3];
+        let (mut run, mut best, mut best_end) = (0u64, 0u64, 0u64);
+        let mut pos = 0u64;
+        for row in rows {
+            for &b in row {
+                let class = usize::from(b.min(2));
+                c[class] += 1;
+                if class == 2 {
+                    run += 1;
+                    if run > best {
+                        best = run;
+                        best_end = pos;
+                    }
+                } else {
+                    run = 0;
+                }
+                pos += 1;
+            }
+        }
+        Self {
+            t: c[0],
+            k: c[1],
+            n: c[2],
+            longest_run: best,
+            longest_run_start: if best > 0 { best_end + 1 - best } else { 0 },
+            ..Self::default()
+        }
+    }
+
+    /// Add `other` (a further sequence) to these totals.
+    fn add(&mut self, other: &Counts) {
+        self.t += other.t;
+        self.k += other.k;
+        self.n += other.n;
+        self.longest_run = self.longest_run.max(other.longest_run);
+        self.length_bases += other.length_bases;
+        self.called_bases = self
+            .called_bases
+            .zip(other.called_bases)
+            .map(|(a, b)| a + b);
+        self.het_sites = self.het_sites.zip(other.het_sites).map(|(a, b)| a + b);
+    }
+
+    /// Neutral start for [`Counts::add`].
+    fn empty_total() -> Self {
+        Self {
+            called_bases: Some(0),
+            het_sites: Some(0),
+            ..Self::default()
+        }
+    }
+
+    fn stats(&self, bin_size: usize) -> BinStats {
+        let bins = self.bins();
+        let frac = |x: u64| {
+            if bins == 0 {
+                0.0
+            } else {
+                x as f64 / bins as f64
+            }
+        };
+        let called = self.t + self.k;
+        let theta0 = theta0_per_bin(self.t, self.k);
+        let theta_bp = theta0.map(|t| t / bin_size as f64);
+        let site_het = match (self.het_sites, self.called_bases) {
+            (Some(h), Some(c)) if c > 0 => Some(1000.0 * h as f64 / c as f64),
+            _ => None,
+        };
+        BinStats {
+            bins,
+            t_bins: self.t,
+            k_bins: self.k,
+            missing_bins: self.n,
+            t_fraction: frac(self.t),
+            k_fraction: frac(self.k),
+            missing_fraction: frac(self.n),
+            het_bin_fraction: (called > 0).then(|| self.k as f64 / called as f64),
+            theta0_per_bin: theta0,
+            theta_per_bp: theta_bp,
+            het_per_kb: theta_bp.map(|t| 1000.0 * t),
+            called_bases_from_bins: called * bin_size as u64,
+            called_bases: self.called_bases,
+            het_sites: self.het_sites,
+            site_het_per_kb: site_het,
+            length_bases: self.length_bases,
+            longest_missing_run_bins: self.longest_run,
+        }
+    }
+}
+
+/// One non-empty sequence of the input: its name, rows and loader facts.
+struct Span<'a> {
+    name: Cow<'a, str>,
+    rows: Range<usize>,
+    seq: Option<&'a QcSeq>,
+}
+
+/// Group `rows` into sequences and pair them with `seqs`.
+fn spans<'a>(input: &QcInput<'a>) -> Result<Vec<Span<'a>>> {
+    if input.bin_size == 0 {
+        bail!("QC: bin_size must be > 0");
+    }
+    if input.rows.len() != input.row_starts.len() {
+        bail!(
+            "QC: {} rows but {} row_starts",
+            input.rows.len(),
+            input.row_starts.len()
+        );
+    }
+    if input.row_starts.first() == Some(&false) {
+        bail!("QC: the first row must start a sequence (row_starts[0] is false)");
+    }
+    let mut groups: Vec<(Range<usize>, usize)> = Vec::new();
+    for (i, (row, &start)) in input.rows.iter().zip(input.row_starts).enumerate() {
+        match groups.last_mut() {
+            Some((range, bins)) if !start => {
+                range.end = i + 1;
+                *bins += row.len();
+            }
+            _ => groups.push((i..i + 1, row.len())),
+        }
+    }
+    groups.retain(|(_, bins)| *bins > 0);
+
+    if input.seqs.is_empty() {
+        return Ok(groups
+            .into_iter()
+            .enumerate()
+            .map(|(i, (rows, _))| Span {
+                name: Cow::Owned(format!("seq{}", i + 1)),
+                rows,
+                seq: None,
+            })
+            .collect());
+    }
+    let listed: Vec<&QcSeq> = input.seqs.iter().filter(|s| s.n_bins > 0).collect();
+    if listed.len() != groups.len() {
+        bail!(
+            "QC: {} non-empty sequences listed but the rows hold {}",
+            listed.len(),
+            groups.len()
+        );
+    }
+    groups
+        .into_iter()
+        .zip(listed)
+        .map(|((rows, bins), seq)| {
+            if seq.n_bins != bins {
+                bail!(
+                    "QC: sequence '{}' is listed with {} bins but its rows hold {bins}",
+                    seq.name,
+                    seq.n_bins
+                );
+            }
+            Ok(Span {
+                name: Cow::Borrowed(seq.name.as_str()),
+                rows,
+                seq: Some(seq),
+            })
+        })
+        .collect()
+}
+
+/// Analyse `input`; see [`try_analyze`].
+///
+/// # Panics
+///
+/// When `input` is inconsistent (see [`try_analyze`]).
+pub fn analyze(input: &QcInput) -> QcReport {
+    try_analyze(input).unwrap_or_else(|e| panic!("{e:#}"))
+}
+
+/// Analyse `input` into a [`QcReport`]. The output depends only on the input.
+///
+/// # Errors
+///
+/// When `bin_size` is 0, `rows` and `row_starts` differ in length, the first
+/// row continues a sequence, or `seqs` (when not empty) does not list the
+/// sequences of `rows` in order with their bin counts.
+pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
+    let spans = spans(input)?;
+    let bin_size = input.bin_size;
+    let counts: Vec<Counts> = spans
+        .iter()
+        .map(|span| {
+            let mut c = Counts::scan(&input.rows[span.rows.clone()]);
+            let seq = span.seq;
+            c.length_bases = seq
+                .and_then(|s| s.extent_bases)
+                .unwrap_or(c.bins() * bin_size as u64);
+            c.called_bases = seq.and_then(|s| s.called_bases);
+            c.het_sites = seq.and_then(|s| s.het_sites);
+            c
+        })
+        .collect();
+
+    let mut total = Counts::empty_total();
+    counts.iter().for_each(|c| total.add(c));
+    if counts.is_empty() {
+        total.called_bases = None;
+        total.het_sites = None;
+    }
+    let totals = total.stats(bin_size);
+
+    // The first sequence wins ties.
+    let longest_missing_run = counts
+        .iter()
+        .zip(&spans)
+        .fold(
+            None,
+            |best: Option<(&Counts, &Span)>, (c, span)| match best {
+                Some((b, _)) if b.longest_run >= c.longest_run => best,
+                _ if c.longest_run > 0 => Some((c, span)),
+                _ => best,
+            },
+        )
+        .map(|(c, span)| MissingRun {
+            sequence: span.name.to_string(),
+            start_bin: c.longest_run_start,
+            bins: c.longest_run,
+            bases: c.longest_run * bin_size as u64,
+        });
+
+    let lengths = length_stats(&counts, input.bootstrap_trunk_bins as u64, totals.bins);
+    let expected_recombinations = totals.theta0_per_bin.map(|theta| {
+        initial_recombinations(totals.t_bins + totals.k_bins, theta, DEFAULT_TR_RATIO)
+    });
+
+    let shown = rows_to_show(&counts, MAX_SEQUENCE_ROWS);
+    let sequences = shown
+        .iter()
+        .map(|&i| SequenceRow {
+            index: i,
+            name: spans[i].name.to_string(),
+            stats: counts[i].stats(bin_size),
+        })
+        .collect();
+    let omitted = (shown.len() < counts.len()).then(|| {
+        let mut rest = Counts::empty_total();
+        let mut keep = shown.iter().peekable();
+        for (i, c) in counts.iter().enumerate() {
+            if keep.peek() == Some(&&i) {
+                keep.next();
+            } else {
+                rest.add(c);
+            }
+        }
+        OmittedSequences {
+            sequences: counts.len() - shown.len(),
+            stats: rest.stats(bin_size),
+        }
+    });
+
+    Ok(QcReport {
+        input_format: input.context.input_format.clone(),
+        bin_size,
+        bootstrap_trunk_bins: input.bootstrap_trunk_bins,
+        n_sequences: counts.len(),
+        empty_sequences: input.seqs.iter().filter(|s| s.n_bins == 0).count(),
+        totals,
+        lengths,
+        longest_missing_run,
+        expected_recombinations,
+        sequences,
+        omitted,
+    })
+}
+
+fn length_stats(counts: &[Counts], trunk: u64, total_bins: u64) -> LengthStats {
+    let lengths: Vec<u64> = counts.iter().map(|c| c.length_bases).collect();
+    let (n50_bases, l50) = n50(&lengths);
+    let share = |below: &dyn Fn(&Counts) -> bool| {
+        let (sequences, bins) = counts
+            .iter()
+            .filter(|c| below(c))
+            .fold((0usize, 0u64), |(n, b), c| (n + 1, b + c.bins()));
+        ShortShare {
+            sequences,
+            bins,
+            fraction: if total_bins == 0 {
+                0.0
+            } else {
+                bins as f64 / total_bins as f64
+            },
+        }
+    };
+    LengthStats {
+        total_bases: lengths.iter().sum(),
+        longest_bases: lengths.iter().copied().max().unwrap_or(0),
+        n50_bases,
+        l50,
+        below_1mb: share(&|c| c.length_bases < SHORT_SEQUENCE_BASES),
+        below_trunk: (trunk > 0).then(|| share(&|c| c.bins() < trunk)),
+        bootstrap_trunks: (trunk > 0).then(|| {
+            counts
+                .iter()
+                .map(|c| bootstrap_trunks_of(c.bins(), trunk))
+                .sum()
+        }),
+    }
+}
+
+/// Indices (ascending) of the sequences that get their own row: all of them
+/// up to `cap`, otherwise the `cap` with the most bins (earlier first on
+/// ties).
+fn rows_to_show(counts: &[Counts], cap: usize) -> Vec<usize> {
+    if counts.len() <= cap {
+        return (0..counts.len()).collect();
+    }
+    let mut order: Vec<usize> = (0..counts.len()).collect();
+    order.sort_by(|&a, &b| counts[b].bins().cmp(&counts[a].bins()).then(a.cmp(&b)));
+    order.truncate(cap);
+    order.sort_unstable();
+    order
+}
