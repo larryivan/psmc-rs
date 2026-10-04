@@ -2,16 +2,28 @@
 .DS_Store
 __pycache__/
 
-# Experiment runtime artifacts (regenerable)
+# Experiment runtime artifacts (regenerable, large or machine-specific)
 /experiment/runs/**/inputs/*
 /experiment/runs/**/shared_inputs/*
 /experiment/runs/**/outputs/*
 /experiment/runs/**/perf/*
 /experiment/runs/**/logs/*
 /experiment/runs/**/bootstrap/*
+/experiment/runs/**/diagnostic_figures/
+# .tsv/.md copies of the CSV tables
+/experiment/runs/**/tables/*.tsv
+/experiment/runs/**/tables/*.md
 !/experiment/runs/**/inputs/.gitkeep
 !/experiment/runs/**/shared_inputs/.gitkeep
 !/experiment/runs/**/outputs/.gitkeep
 !/experiment/runs/**/perf/.gitkeep
 !/experiment/runs/**/logs/.gitkeep
 !/experiment/runs/**/bootstrap/.gitkeep
+
+# Inference outputs (psmc-rs JSON, C .psmc, S2 log-likelihood stamps) are
+# small text files the figures and tables are computed from: they are part of
+# the reproduction package and must be committed. HTML reports, TMRCA tables
+# and bootstrap directories next to them stay ignored.
+!/experiment/runs/**/outputs/*.json
+!/experiment/runs/**/outputs/*.psmc
+!/experiment/runs/**/outputs/*.loglike.txt
