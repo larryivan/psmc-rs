@@ -9,11 +9,11 @@
 //! and results do not depend on whether full rows were cached instead.
 
 use anyhow::{Result, bail};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use super::CHECKPOINT_STRIDE;
 use super::budget::AlphaCacheBudget;
 use super::kernel::Kernel;
+use super::{CHECKPOINT_STRIDE, Cancelled};
 
 const K: usize = CHECKPOINT_STRIDE;
 
@@ -85,8 +85,19 @@ pub(crate) struct Progress {
 
 /// What a per-sequence pass needs besides the model and the data.
 pub(crate) struct Ctx<'a> {
+    pub(crate) cancel: Option<&'a AtomicBool>,
     pub(crate) progress: &'a Progress,
     pub(crate) budget: &'a AlphaCacheBudget,
+}
+
+impl Ctx<'_> {
+    #[inline]
+    pub(crate) fn check_cancel(&self) -> Result<()> {
+        if self.cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            return Err(Cancelled.into());
+        }
+        Ok(())
+    }
 }
 
 /// Per-thread scratch buffers, reused across the sequences of one work item.
@@ -180,6 +191,7 @@ fn forward_pass(
     match full {
         Some(full) => {
             for s in 0..n_seg {
+                ctx.check_cancel()?;
                 let (start, len) = seq.segment(s);
                 seq.read(start, &mut ws.obs[..len]);
                 for (t, &o) in ws.obs[..len].iter().enumerate() {
@@ -208,6 +220,7 @@ fn forward_pass(
             let (a, b) = ws.rows.split_at_mut(np);
             let (mut prev, mut cur) = (a, &mut b[..np]);
             for s in 0..n_seg {
+                ctx.check_cancel()?;
                 let (start, len) = seq.segment(s);
                 seq.read(start, &mut ws.obs[..len]);
                 if checkpoints && s > 0 {
@@ -300,6 +313,7 @@ pub(crate) fn e_step(
     beta[..k.n_states()].fill(1.0);
     beta[k.n_states()..].fill(0.0);
     for s in (0..seq.n_segments()).rev() {
+        ctx.check_cancel()?;
         let (start, len) = seq.segment(s);
         let obs = &mut obs[..len];
         seq.read(start, obs);

@@ -11,6 +11,7 @@
 use anyhow::{Result, bail};
 use ndarray::Array2;
 use rayon::ThreadPool;
+use std::sync::atomic::AtomicBool;
 
 mod budget;
 mod fb;
@@ -66,6 +67,18 @@ pub struct TmrcaReportData {
     pub seq_count: usize,
 }
 
+/// The error returned when a computation is stopped through its cancellation flag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
 /// Options for [`e_step_with_options`] and [`log_likelihood_with_options`].
 pub struct EStepOptions<'a> {
     /// Draw progress bars on stderr.
@@ -75,6 +88,9 @@ pub struct EStepOptions<'a> {
     /// Called on the calling thread with forward, then backward progress;
     /// `done` increases within each phase.
     pub on_progress: Option<&'a mut dyn FnMut(EStepProgress)>,
+    /// Checked between sequences and every [`CHECKPOINT_STRIDE`] sites; once
+    /// set, the call stops and returns a [`Cancelled`] error.
+    pub cancel: Option<&'a AtomicBool>,
     /// Run the parallel work in this pool instead of the current one.
     pub thread_pool: Option<&'a ThreadPool>,
     /// Budget for caching full forward rows; `None` uses
@@ -88,6 +104,7 @@ impl Default for EStepOptions<'_> {
             progress_bars: false,
             label: "E",
             on_progress: None,
+            cancel: None,
             thread_pool: None,
             alpha_cache: None,
         }
@@ -197,6 +214,7 @@ pub fn e_step_with_options(
     let plan = Plan::new(rows, row_starts);
     let progress = Progress::default();
     let ctx = Ctx {
+        cancel: opts.cancel,
         progress: &progress,
         budget: budget_or_global(opts.alpha_cache),
     };
@@ -216,6 +234,7 @@ pub fn e_step_with_options(
             let mut ws = Workspace::new(np);
             let mut acc = Partial::new(np);
             for seq in &plan.seqs[plan.items[item].clone()] {
+                ctx.check_cancel()?;
                 fb::e_step(
                     &kernel,
                     &SeqObs::new(&rows[seq.clone()]),
@@ -258,7 +277,8 @@ pub fn log_likelihood(
     log_likelihood_with_options(pi, a, em, rows, row_starts, EStepOptions::default())
 }
 
-/// [`log_likelihood`] with progress (forward phase only) and thread-pool options.
+/// [`log_likelihood`] with progress (forward phase only), cancellation and
+/// thread-pool options.
 pub fn log_likelihood_with_options(
     pi: &[f64],
     a: &Array2<f64>,
@@ -273,6 +293,7 @@ pub fn log_likelihood_with_options(
     let plan = Plan::new(rows, row_starts);
     let progress = Progress::default();
     let ctx = Ctx {
+        cancel: opts.cancel,
         progress: &progress,
         budget: budget_or_global(opts.alpha_cache),
     };
@@ -292,6 +313,7 @@ pub fn log_likelihood_with_options(
             let mut ws = Workspace::new(np);
             let mut loglike = 0.0;
             for seq in &plan.seqs[plan.items[item].clone()] {
+                ctx.check_cancel()?;
                 loglike +=
                     fb::log_likelihood(&kernel, &SeqObs::new(&rows[seq.clone()]), &mut ws, &ctx)?;
             }
