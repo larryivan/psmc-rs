@@ -9,6 +9,17 @@ use crate::io::params::{PsmcParamsFile, save_params};
 /// [`PsmcModel::avg_t`]), and `t_max` must stay below it.
 pub const T_INF: f64 = 1000.0;
 
+/// The largest number of hidden states (`n_steps + 1`) a model may have.
+///
+/// C psmc's default pattern `4+5*3+4`, which the CLI also uses by default,
+/// has 23 states, and the psmc README's human pattern `4+25*2+4+6` has 64.
+/// The transition matrix is dense, with `(n_steps + 1)^2` entries (800 MB at
+/// this limit), and the E-step does that much work per bin, so larger models
+/// cannot be fitted anyway. The limit turns a typo such as an extra digit in
+/// a pattern into an error instead of an allocation that panics or exhausts
+/// memory.
+pub const MAX_STATES: usize = 10_000;
+
 #[derive(Debug, Clone)]
 pub struct PsmcModel {
     pub n_steps: usize,
@@ -35,7 +46,8 @@ impl PsmcModel {
     /// With a `pattern`, `n_steps` must equal [`n_steps_for_pattern`] of it;
     /// for backward compatibility the state count (`n_steps + 1`) is also
     /// accepted and silently converted. Errors when there would be fewer
-    /// than 2 states or `t_max` is outside `(0, T_INF)`.
+    /// than 2 or more than [`MAX_STATES`] states, or `t_max` is outside
+    /// `(0, T_INF)`.
     pub fn new(
         t_max: f64,
         n_steps: usize,
@@ -69,6 +81,12 @@ impl PsmcModel {
         }
         if n_steps_eff == 0 {
             bail!("n_steps must be at least 1 (the model needs at least 2 states)");
+        }
+        if n_steps_eff >= MAX_STATES {
+            bail!(
+                "n_steps must be at most {} (at most {MAX_STATES} states), got {n_steps_eff}",
+                MAX_STATES - 1
+            );
         }
         check_t_max(t_max)?;
         let n_free = n_free_params(n_steps_eff, pattern_spec.as_deref());
@@ -467,7 +485,8 @@ pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
 
 /// `n_steps` (C psmc's `n`) implied by a `--pattern` such as `"4+25*2+4+6"`:
 /// the pattern lists `n_steps + 1` atomic intervals, so this is their count
-/// minus one. Errors on a malformed pattern or one with fewer than 2 intervals.
+/// minus one. Errors on a malformed pattern or one with fewer than 2 or more
+/// than [`MAX_STATES`] intervals; [`PsmcModel::new`] rejects the same patterns.
 pub fn n_steps_for_pattern(pattern: &str) -> Result<usize> {
     let n_states = n_states_of_spec(&parse_pattern(pattern)?);
     if n_states < 2 {
@@ -523,8 +542,13 @@ fn parse_pattern(pattern: &str) -> Result<Vec<(usize, usize)>> {
     let n_states = out.iter().try_fold(0usize, |acc, &(nr, gl)| {
         nr.checked_mul(gl)?.checked_add(acc)
     });
-    if n_states.is_none() {
-        bail!("pattern {pattern:?} implies too many states");
+    match n_states {
+        Some(n) if n <= MAX_STATES => Ok(out),
+        Some(n) => {
+            bail!("pattern {pattern:?} implies {n} states; at most {MAX_STATES} are supported")
+        }
+        None => {
+            bail!("pattern {pattern:?} implies too many states; at most {MAX_STATES} are supported")
+        }
     }
-    Ok(out)
 }

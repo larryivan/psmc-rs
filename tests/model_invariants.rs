@@ -1,5 +1,5 @@
 use psmc_rs::PsmcModel;
-use psmc_rs::model::{T_INF, n_steps_for_pattern};
+use psmc_rs::model::{MAX_STATES, T_INF, n_steps_for_pattern};
 
 fn approx_eq(a: f64, b: f64, eps: f64) {
     assert!(
@@ -112,6 +112,50 @@ fn patterns_whose_state_count_overflows_are_errors_not_panics() {
             "{bad:?} should be rejected"
         );
         assert!(PsmcModel::new(15.0, 63, 1e-3, 2e-4, 2.5e-8, Some(bad)).is_err());
+    }
+}
+
+#[test]
+fn patterns_with_too_many_states_are_errors_not_panics() {
+    // State counts that fit in usize but not in a dense transition matrix: a
+    // typo (extra zeros) and usize::MAX. new used to panic allocating p_kl
+    // with the n_steps that n_steps_for_pattern returned for them.
+    for (bad, implied_n_steps) in [
+        ("4+25*2+4+6000000000", 6_000_000_057),
+        ("18446744073709551615", usize::MAX - 1),
+    ] {
+        let model = PsmcModel::new(
+            15.0,
+            implied_n_steps,
+            1e-3,
+            2e-4,
+            2.5e-8,
+            Some(bad.to_string()),
+        );
+        assert!(model.is_err(), "{bad:?} should be rejected");
+        let n_steps = n_steps_for_pattern(bad);
+        assert!(
+            n_steps.is_err(),
+            "{bad:?} should be rejected, got {n_steps:?}"
+        );
+    }
+}
+
+#[test]
+fn state_count_is_limited_to_max_states() {
+    assert_eq!(
+        n_steps_for_pattern(&MAX_STATES.to_string()).unwrap(),
+        MAX_STATES - 1
+    );
+    let over = (MAX_STATES + 1).to_string();
+    assert!(n_steps_for_pattern(&over).is_err());
+    assert!(PsmcModel::new(15.0, MAX_STATES, 1e-3, 2e-4, 2.5e-8, Some(over)).is_err());
+    // Without a pattern, n_steps = MAX_STATES means MAX_STATES + 1 states.
+    for n_steps in [MAX_STATES, usize::MAX] {
+        assert!(
+            PsmcModel::new(15.0, n_steps, 1e-3, 2e-4, 2.5e-8, None).is_err(),
+            "n_steps = {n_steps} should be rejected"
+        );
     }
 }
 
