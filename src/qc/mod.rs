@@ -15,7 +15,27 @@ use std::ops::Range;
 
 mod stats;
 
-pub use stats::{bootstrap_trunks_of, initial_recombinations, n50, theta0_per_bin};
+pub use stats::{
+    bootstrap_trunks_of, het_per_site, initial_recombinations, max_bin_size_for_share,
+    multi_het_share, n50, theta0_per_bin,
+};
+
+/// Share of `K` bins holding two or more heterozygous sites
+/// ([`Saturation::multi_het_share`]) above which bins are saturated.
+///
+/// It is twice [`SATURATION_TARGET_SHARE`], the level of the human data PSMC
+/// was designed for.
+pub const SATURATION_WARN_SHARE: f64 = 0.10;
+
+/// Share of `K` bins holding two or more heterozygous sites that a
+/// recommended bin size must stay below
+/// ([`Saturation::max_bin_size_below_target`]).
+///
+/// Li & Durbin (2011) chose 100 bp bins for human genomes, whose
+/// heterozygosity of about 1e-3 per bp puts 4.9% of `K` bins at two or more
+/// heterozygous sites ([`multi_het_share`]`(0.001, 100)`); 5% keeps a
+/// recommendation at that level.
+pub const SATURATION_TARGET_SHARE: f64 = 0.05;
 
 /// Sequences shorter than this many bases are "short": below it, a sequence
 /// holds few long genealogical segments, which carry the information about
@@ -177,6 +197,46 @@ pub struct MissingRun {
     pub bases: u64,
 }
 
+/// How many heterozygous sites the `K` bins hide.
+///
+/// PSMC's emission model only asks whether a bin holds at least one
+/// heterozygous site, so the bins discard how many each `K` bin holds. With
+/// per-site heterozygosity `h` constant along the genome, the share of `K`
+/// bins holding two or more follows from the observed `K` fraction alone
+/// ([`het_per_site`], [`multi_het_share`]).
+///
+/// Heterozygosity varies along a real genome with the TMRCA, and that only
+/// raises the share for the same `K` fraction, so these values are a lower
+/// bound. Writing `u = P(X >= 1)` and `v = 1 - u`, the binomial gives
+/// `P(X >= 2) = 1 - v - s v^((s-1)/s) + s v`, whose second derivative in `v`,
+/// `((s-1)/s) v^(-1/s - 1)`, is positive: `P(X >= 2)` is convex in `u`, so by
+/// Jensen's inequality a mixture of heterozygosities with mean `u` = the
+/// observed `K` fraction has at least the share computed at that mean.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Saturation {
+    /// Per-site heterozygosity implied by `K / (T + K)` at this bin size.
+    pub het_per_site: f64,
+    /// Expected share of `K` bins with two or more heterozygous sites.
+    pub multi_het_share: f64,
+    /// Largest bin size that would bring the share below
+    /// [`SATURATION_TARGET_SHARE`] at the same heterozygosity; `None` when
+    /// no bin size reaches it (no heterozygous bin).
+    pub max_bin_size_below_target: Option<usize>,
+}
+
+impl Saturation {
+    /// Saturation of bins of `bin_size` sites of which a share `p` of the
+    /// called ones is heterozygous.
+    pub fn from_het_fraction(p: f64, bin_size: usize) -> Self {
+        let h = het_per_site(p, bin_size);
+        Self {
+            het_per_site: h,
+            multi_het_share: multi_het_share(h, bin_size),
+            max_bin_size_below_target: max_bin_size_for_share(h, SATURATION_TARGET_SHARE),
+        }
+    }
+}
+
 /// Metrics of one sequence.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SequenceRow {
@@ -218,6 +278,8 @@ pub struct QcReport {
     pub lengths: LengthStats,
     /// Longest run of `N` bins; `None` when no bin is missing.
     pub longest_missing_run: Option<MissingRun>,
+    /// Bin saturation of the whole input; `None` when no bin is called.
+    pub saturation: Option<Saturation>,
     /// C psmc's round-0 `n_recomb` for the whole input
     /// ([`initial_recombinations`] at [`DEFAULT_TR_RATIO`]).
     pub expected_recombinations: Option<f64>,
@@ -480,6 +542,9 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         });
 
     let lengths = length_stats(&counts, input.bootstrap_trunk_bins as u64, totals.bins);
+    let saturation = totals
+        .het_bin_fraction
+        .map(|p| Saturation::from_het_fraction(p, bin_size));
     let expected_recombinations = totals.theta0_per_bin.map(|theta| {
         initial_recombinations(totals.t_bins + totals.k_bins, theta, DEFAULT_TR_RATIO)
     });
@@ -518,6 +583,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         totals,
         lengths,
         longest_missing_run,
+        saturation,
         expected_recombinations,
         sequences,
         omitted,

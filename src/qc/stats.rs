@@ -65,3 +65,76 @@ pub fn bootstrap_trunks_of(len: u64, trunk: u64) -> u64 {
     let full = (len - tail) / trunk + 1;
     full + u64::from(len > full * trunk)
 }
+
+/// Per-site heterozygosity `h` implied by a share `p` of heterozygous bins
+/// among called bins of `bin_size` sites, when every site is heterozygous
+/// independently with probability `h`: a bin is `K` unless all its sites are
+/// homozygous, so `p = 1 - (1-h)^s` and `h = 1 - (1-p)^(1/s)`.
+///
+/// `p` is clamped to `[0, 1]`.
+pub fn het_per_site(p: f64, bin_size: usize) -> f64 {
+    if p <= 0.0 {
+        return 0.0;
+    }
+    if p >= 1.0 {
+        return 1.0;
+    }
+    // 1 - exp(ln(1-p)/s), without cancellation for small p.
+    -((-p).ln_1p() / bin_size as f64).exp_m1()
+}
+
+/// Expected share of heterozygous bins that hold two or more heterozygous
+/// sites, for bins of `bin_size` sites that are each heterozygous
+/// independently with probability `h`.
+///
+/// The number of heterozygous sites in a bin is X ~ Binomial(s, h), so
+/// P(X >= 1) = 1 - (1-h)^s, P(X = 1) = s h (1-h)^(s-1), and the share is
+/// P(X >= 2 | X >= 1) = 1 - s h (1-h)^(s-1) / (1 - (1-h)^s).
+/// For small `h` it is close to `(s - 1) h / 2`. It is 0 for `h = 0` (the limit)
+/// or `s <= 1`, and 1 for `h = 1` with `s >= 2`.
+pub fn multi_het_share(h: f64, bin_size: usize) -> f64 {
+    if bin_size <= 1 || h <= 0.0 {
+        return 0.0;
+    }
+    if h >= 1.0 {
+        return 1.0;
+    }
+    let s = bin_size as f64;
+    let ln_hom = (-h).ln_1p();
+    let p_any = -(s * ln_hom).exp_m1();
+    let p_one = s * h * ((s - 1.0) * ln_hom).exp();
+    (1.0 - p_one / p_any).max(0.0)
+}
+
+/// Largest bin size whose [`multi_het_share`] at per-site heterozygosity `h`
+/// stays below `target` (in `(0, 1)`). The share grows with the bin size, and
+/// a 1-site bin never holds two sites, so the answer is at least 1. `None`
+/// when no practical bin size reaches `target` (`h` = 0, or `h` so small that
+/// it would take more than 2^52 sites).
+///
+/// # Panics
+///
+/// If `target` is not in `(0, 1)`.
+pub fn max_bin_size_for_share(h: f64, target: f64) -> Option<usize> {
+    assert!(target > 0.0 && target < 1.0, "target must be in (0, 1)");
+    const LIMIT: usize = 1 << 52;
+    let below = |s: usize| multi_het_share(h, s) < target;
+    let mut hi = 2usize;
+    while below(hi) {
+        if hi >= LIMIT {
+            return None;
+        }
+        hi *= 2;
+    }
+    // below(lo) holds (it does for 1) and below(hi) does not.
+    let mut lo = hi / 2;
+    while hi - lo > 1 {
+        let mid = lo + (hi - lo) / 2;
+        if below(mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(lo)
+}
