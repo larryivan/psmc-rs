@@ -1,3 +1,40 @@
+//! Bootstrap for PSMC curves, following C psmc.
+//!
+//! C psmc bootstraps in two steps. `utils/splitfa` cuts every input sequence
+//! into trunks (500,000 bins by default; a remainder shorter than 1.5 trunks
+//! stays in the last trunk). Each `psmc -b` run then draws trunks with
+//! replacement from the whole input until the original length is matched
+//! (`psmc_resamp`), treats every trunk as its own sequence, and fits from the
+//! usual fresh start. [`run_bootstrap`] does the same with
+//! [`split_for_bootstrap`], [`resample_chunks`] and
+//! [`replicate_initial_model`], running replicates in parallel. Replicate `i`
+//! draws from [`replicate_rng`]`(seed, i)`, so a seed reproduces a run on any
+//! platform and with any thread count.
+//!
+//! # How far to trust the bands
+//!
+//! The bootstrap measures how much the estimate moves when trunks are
+//! resampled. It misses the estimator's bias and tends to understate its
+//! sampling variability. `examples/bootstrap_calibration.rs` simulated 40
+//! sequences of 10,000 bins from a known `4+5*3+4` model (θ = 0.05 and
+//! ρ = 0.01 per bin) and fitted them with 20 EM iterations. Bootstrap SDs
+//! came from 30 replicates on each of 6 datasets, and the true sampling SD
+//! from 40 independent datasets. Results, for log10 Ne at 30 time points:
+//!
+//! - The bootstrap SD was a median 0.90 of the true SD with 500,000-bin
+//!   trunks (here, whole sequences) and 0.92 with 1,000-bin trunks. It was
+//!   below the true SD at 58% of time points. It fell to 0.74 at the oldest
+//!   times and to 0.75–0.91 at the most recent ones, and ranged from 0.74
+//!   to 1.06 between datasets.
+//! - The fits' median bias, 0.085, was half the true SD (0.168). The
+//!   bootstrap cannot see it.
+//! - The previous within-sequence scheme (50,000-bin blocks, replicates
+//!   started from the full fit) gave an SD of exactly 0, because no sequence
+//!   was longer than one block.
+//!
+//! Read the bands as a lower bound on the uncertainty, especially at the
+//! oldest and most recent times.
+
 use anyhow::{Context, Result, bail};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
