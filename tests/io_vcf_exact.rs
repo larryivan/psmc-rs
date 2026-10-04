@@ -87,6 +87,7 @@ struct Scenario {
     negative_masks: Vec<Vec<MaskRow>>,
     bin_size: usize,
     batch_size: Option<usize>,
+    keep_filtered: bool,
 }
 
 // ---------------------------------------------------------------- reference
@@ -144,14 +145,26 @@ fn paint(rows: &[MaskRow], chrom: &str, len: u64) -> Vec<bool> {
     covered
 }
 
-/// The class a record gives its POS, and whether its whole REF span is missing.
-fn record_class(rec: &Record, sample: usize) -> (State, bool) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    MissingGt,
+    Hom,
+    HetSnp,
+    HetOther,
+}
+
+fn is_filtered(rec: &Record) -> bool {
+    rec.filter != "PASS" && rec.filter != "."
+}
+
+/// What the selected sample's genotype says, ignoring FILTER.
+fn genotype_kind(rec: &Record, sample: usize) -> Kind {
     if rec.gt_first.is_none() {
-        return (State::Missing, true);
+        return Kind::MissingGt;
     }
     let indices: Vec<&str> = rec.gts[sample].split(['/', '|']).collect();
     if indices.contains(&".") {
-        return (State::Missing, true);
+        return Kind::MissingGt;
     }
     let alleles: Vec<String> = indices
         .iter()
@@ -166,9 +179,26 @@ fn record_class(rec: &Record, sample: usize) -> (State, bool) {
         })
         .collect();
     if alleles.iter().all(|a| *a == alleles[0]) {
-        (State::Hom, false)
+        Kind::Hom
+    } else if alleles
+        .iter()
+        .all(|a| ["A", "C", "G", "T"].contains(&a.as_str()))
+    {
+        Kind::HetSnp
     } else {
-        (State::Het, false)
+        Kind::HetOther
+    }
+}
+
+/// The class a record gives its POS, and whether its whole REF span is missing.
+fn record_class(rec: &Record, sample: usize, keep_filtered: bool) -> (State, bool) {
+    if is_filtered(rec) && !keep_filtered {
+        return (State::Missing, true);
+    }
+    match genotype_kind(rec, sample) {
+        Kind::MissingGt | Kind::HetOther => (State::Missing, true),
+        Kind::Hom => (State::Hom, false),
+        Kind::HetSnp => (State::Het, false),
     }
 }
 
@@ -195,7 +225,7 @@ fn reference_states(sc: &Scenario) -> Vec<Vec<State>> {
             }
         }
         for r in &recs {
-            let (class, span) = record_class(r, sc.sample);
+            let (class, span) = record_class(r, sc.sample, sc.keep_filtered);
             let p = r.pos as usize;
             st[p] = st[p].max(class);
             if span {
@@ -303,6 +333,7 @@ fn write_scenario(sc: &Scenario) -> (PathBuf, VcfOptions, Files) {
         sample: sc.name_sample.then(|| format!("s{}", sc.sample)),
         masks,
         negative_masks,
+        keep_filtered: sc.keep_filtered,
     };
     (vcf, opts, files)
 }
@@ -388,6 +419,21 @@ fn check(sc: &Scenario, ctx: &str) -> bool {
     assert_eq!(s.bins, seqs.iter().map(Vec::len).sum::<usize>(), "{ctx}");
     assert_eq!(s.records, sc.records.len() as u64, "{ctx}: records");
     assert_eq!(s.positive_mask, !sc.masks.is_empty(), "{ctx}");
+
+    let n_filtered = sc.records.iter().filter(|r| is_filtered(r)).count() as u64;
+    assert_eq!(s.filtered_records, n_filtered, "{ctx}: filtered_records");
+    let n_kind = |kind: Kind| -> u64 {
+        sc.records
+            .iter()
+            .filter(|r| {
+                (sc.keep_filtered || !is_filtered(r)) && genotype_kind(r, sc.sample) == kind
+            })
+            .count() as u64
+    };
+    assert_eq!(s.missing_genotypes, n_kind(Kind::MissingGt), "{ctx}");
+    assert_eq!(s.hom_calls, n_kind(Kind::Hom), "{ctx}: hom_calls");
+    assert_eq!(s.het_snp_records, n_kind(Kind::HetSnp), "{ctx}");
+    assert_eq!(s.het_non_snp_records, n_kind(Kind::HetOther), "{ctx}");
     true
 }
 
@@ -600,6 +646,7 @@ fn random_scenario(seed: u64) -> Scenario {
         negative_masks,
         bin_size: rng.pick(&[1, 7, 100]),
         batch_size: rng.pick(&[None, None, Some(1), Some(3), Some(40)]),
+        keep_filtered: rng.chance(0.3),
     }
 }
 
@@ -670,6 +717,7 @@ fn audit_scenario(seed: u64, missing: impl Fn(&mut Rng, u64) -> Vec<bool>) -> Sc
         negative_masks: vec![],
         bin_size: 100,
         batch_size: None,
+        keep_filtered: false,
     }
 }
 

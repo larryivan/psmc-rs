@@ -206,6 +206,81 @@ fn read_vcf_missing_genotype_is_a_missing_site() {
 }
 
 #[test]
+fn read_vcf_het_non_snp_is_missing_not_heterozygous() {
+    // PSMC models point mutations: a heterozygous indel, spanning deletion or
+    // symbolic allele is not a het SNP, and its REF bases are unreliable.
+    let vcf = write_vcf(
+        "vcf_het_indel",
+        &[
+            "chr1 2 A AT PASS 0/1",
+            "chr1 4 ACG A PASS 0|1",
+            "chr1 8 A C,* PASS 1/2",
+            "chr1 9 A <DEL> PASS 0/1",
+            "chr1 10 a c PASS 0/1",
+            "chr1 11 A AT PASS 1/1",
+        ],
+    );
+    let read = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            bin_size: 1,
+            ..VcfOptions::default()
+        },
+    )
+    .expect("failed to parse VCF");
+    assert_eq!(read.obs.rows, vec![vec![0, 2, 0, 2, 2, 2, 0, 2, 2, 1, 0]]);
+    assert_eq!(read.summary.het_non_snp_records, 4);
+    assert_eq!(read.summary.het_snp_records, 1);
+    assert_eq!(read.summary.hom_calls, 1);
+
+    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
+    assert_eq!(obs.rows, read.obs.rows);
+    let _ = fs::remove_file(vcf);
+}
+
+#[test]
+fn read_vcf_filtered_records_are_missing_unless_kept() {
+    let vcf = write_vcf(
+        "vcf_filtered",
+        &[
+            "chr1 3 A C LowQual 0/1",
+            "chr1 5 A C PASS 0/1",
+            "chr1 6 ACG A q10;s50 0/0",
+            "chr1 9 A C . 0/1",
+        ],
+    );
+    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
+    assert_eq!(obs.rows, vec![vec![0, 0, 2, 0, 1, 2, 2, 2, 1]]);
+
+    let kept = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            bin_size: 1,
+            keep_filtered: true,
+            ..VcfOptions::default()
+        },
+    )
+    .expect("failed to parse VCF");
+    assert_eq!(kept.obs.rows, vec![vec![0, 0, 1, 0, 1, 0, 0, 0, 1]]);
+    assert_eq!(kept.summary.filtered_records, 2);
+    assert_eq!(kept.summary.het_snp_records, 3);
+    assert_eq!(kept.summary.hom_calls, 1);
+
+    let dropped = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            bin_size: 1,
+            ..VcfOptions::default()
+        },
+    )
+    .expect("failed to parse VCF");
+    assert_eq!(dropped.summary.filtered_records, 2);
+    assert_eq!(dropped.summary.het_snp_records, 2);
+    assert_eq!(dropped.summary.hom_calls, 0);
+    let _ = fs::remove_file(vcf);
+}
+
+#[test]
 fn read_vcf_rejects_unsorted_positions() {
     let vcf = write_vcf(
         "vcf_unsorted",

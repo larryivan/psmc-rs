@@ -7,11 +7,22 @@
 //! (see [`Binner`]).
 //!
 //! A position is missing if it lies outside the callable set (see
-//! [`VcfOptions::masks`]) or if one of its records leaves the genotype unknown
-//! (a missing or partial `GT`). Otherwise it is heterozygous if one of its
-//! records has a heterozygous genotype, and a called homozygous site in every
-//! other case, including positions without any record. A record that leaves
-//! the genotype unknown makes its whole REF span `POS..POS+len(REF)-1` missing.
+//! [`VcfOptions::masks`]) or if one of its records leaves the genotype unknown.
+//! Otherwise it is a heterozygous SNP if one of its records is, and a called
+//! homozygous site in every other case, including positions without any
+//! record. Per record, for the selected sample:
+//!
+//! - FILTER other than `PASS` or `.`: unknown, unless
+//!   [`VcfOptions::keep_filtered`] (then classified like any other record);
+//! - missing or partial `GT` (`.`, `./.`, `./1`), or no `GT`: unknown;
+//! - heterozygous (the allele strings differ) with every allele a single
+//!   `A`/`C`/`G`/`T` (any case): heterozygous SNP;
+//! - heterozygous with another allele (indel, `*`, symbolic `<...>`): unknown;
+//! - homozygous (identical allele strings, including hom-alt and homozygous
+//!   indels) or haploid: called homozygous.
+//!
+//! An unknown record makes its whole REF span `POS..POS+len(REF)-1` missing
+//! (`END` and `SVLEN` are not consulted).
 //!
 //! The file is streamed, and the work is proportional to the number of records
 //! and mask intervals plus the number of output bins, never to the genome
@@ -355,6 +366,9 @@ pub struct VcfOptions {
     pub masks: Vec<PathBuf>,
     /// Masks of positions to exclude, in the same formats as `masks`.
     pub negative_masks: Vec<PathBuf>,
+    /// Use records whose FILTER is neither `PASS` nor `.`; by default they
+    /// make their REF span missing.
+    pub keep_filtered: bool,
 }
 
 impl Default for VcfOptions {
@@ -365,6 +379,7 @@ impl Default for VcfOptions {
             sample: None,
             masks: Vec::new(),
             negative_masks: Vec::new(),
+            keep_filtered: false,
         }
     }
 }
@@ -383,6 +398,13 @@ pub struct VcfSummary {
     pub hom_calls: u64,
     /// Records with a missing or partial genotype (`.`, `./.`, `./1`, no GT).
     pub missing_genotypes: u64,
+    /// Records whose FILTER is neither `PASS` nor `.`. Unless
+    /// [`VcfOptions::keep_filtered`] is set they are missing and not counted
+    /// in the genotype counts.
+    pub filtered_records: u64,
+    /// Heterozygous records with an allele that is not a single base (indels,
+    /// `*`, symbolic alleles); their REF span is missing.
+    pub het_non_snp_records: u64,
     /// Records whose POS lies outside the callable set.
     pub records_outside_mask: u64,
     /// Positions carrying more than one record.
@@ -462,6 +484,7 @@ struct Record<'a> {
     pos: u64,
     ref_allele: &'a [u8],
     alt: &'a [u8],
+    filter: &'a [u8],
     format: &'a [u8],
     sample: &'a [u8],
 }
@@ -517,6 +540,7 @@ fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<
         pos,
         ref_allele: cols[3],
         alt: cols[4],
+        filter: cols[6],
         format: cols[8],
         sample,
     })
@@ -527,8 +551,17 @@ enum Genotype {
     Missing,
     /// Identical allele strings, or a haploid call.
     Hom,
-    /// Allele strings differ.
-    Het,
+    /// Allele strings differ and each is a single A/C/G/T.
+    HetSnp,
+    /// Allele strings differ and one is an indel, `*` or symbolic allele.
+    HetOther,
+}
+
+fn is_base(allele: &[u8]) -> bool {
+    matches!(
+        allele,
+        [b'A' | b'C' | b'G' | b'T' | b'a' | b'c' | b'g' | b't']
+    )
 }
 
 fn allele<'a>(rec: &Record<'a>, idx: usize) -> Option<&'a [u8]> {
@@ -558,6 +591,7 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
     }
     let mut first: Option<&[u8]> = None;
     let mut all_same = true;
+    let mut all_bases = true;
     for a in gt.split(|&b| b == b'/' || b == b'|') {
         if a == b"." {
             return Ok(Genotype::Missing);
@@ -576,6 +610,7 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
                     lossy(rec.alt)
                 )
             })?;
+        all_bases &= is_base(al);
         match first {
             None => first = Some(al),
             Some(f) => all_same &= f.eq_ignore_ascii_case(al),
@@ -585,27 +620,49 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
     // ALT `C,C` homozygous.
     Ok(if all_same {
         Genotype::Hom
+    } else if all_bases {
+        Genotype::HetSnp
     } else {
-        Genotype::Het
+        Genotype::HetOther
     })
 }
 
 /// Classify one record: its class at POS and, when it leaves the genotype
 /// unknown, the last position of its REF span (all of which become missing).
-fn classify(rec: &Record<'_>, row_no: usize, s: &mut VcfSummary) -> Result<(Site, Option<u64>)> {
-    let span_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
+fn classify(
+    rec: &Record<'_>,
+    keep_filtered: bool,
+    row_no: usize,
+    s: &mut VcfSummary,
+) -> Result<(Site, Option<u64>)> {
+    let unknown = (
+        Site::Missing,
+        Some(rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1),
+    );
+    if rec.filter != b"PASS" && rec.filter != b"." {
+        s.filtered_records += 1;
+        if !keep_filtered {
+            return Ok(unknown);
+        }
+    }
     Ok(match genotype(rec, row_no)? {
         Genotype::Missing => {
             s.missing_genotypes += 1;
-            (Site::Missing, Some(span_end))
+            unknown
         }
         Genotype::Hom => {
             s.hom_calls += 1;
             (Site::Hom, None)
         }
-        Genotype::Het => {
+        Genotype::HetSnp => {
             s.het_snp_records += 1;
             (Site::Het, None)
+        }
+        // Not a SNP: which bases differ is unknown, so the whole REF allele
+        // is unreliable for a model of point mutations.
+        Genotype::HetOther => {
+            s.het_non_snp_records += 1;
+            unknown
         }
     })
 }
@@ -848,7 +905,7 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
                 chrom.last_pos
             );
         }
-        let (site, span_end) = classify(&rec, row_no, &mut summary)?;
+        let (site, span_end) = classify(&rec, opts.keep_filtered, row_no, &mut summary)?;
         chrom.add_record(rec.pos, site, span_end, &mut summary);
     }
     if let Some(mut done) = cur.take() {
@@ -894,6 +951,7 @@ pub fn read_vcf(
         sample: sample_name.map(str::to_string),
         masks: mask_paths.to_vec(),
         negative_masks: negative_mask_paths.to_vec(),
+        ..VcfOptions::default()
     };
     Ok(read_vcf_with(path, &opts)?.obs)
 }
