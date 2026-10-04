@@ -13,6 +13,31 @@
 //!
 //! Bins follow the psmcfa convention: 0 = `T` (called, no heterozygous site),
 //! 1 = `K` (at least one heterozygous site), anything else = `N` (missing).
+//!
+//! ```
+//! use psmc_rs::qc::{QcCode, QcContext, QcInput, QcSeq, TextOptions, analyze, render_text_with};
+//!
+//! // chr1 is split into two rows of one HMM chain; chrM is one row.
+//! let rows = vec![vec![0, 1, 0, 2], vec![2, 0, 1], vec![0; 166]];
+//! let seqs = [QcSeq::new("chr1", 7), QcSeq::new("chrM", 166)];
+//! let report = analyze(&QcInput {
+//!     rows: &rows,
+//!     row_starts: &[true, false, true],
+//!     seqs: &seqs,
+//!     bin_size: 100,
+//!     bootstrap_trunk_bins: 0,
+//!     context: QcContext {
+//!         input_format: Some("psmcfa".to_string()),
+//!         ..QcContext::default()
+//!     },
+//! });
+//! assert_eq!(report.totals.k_bins, 2);
+//! assert_eq!(report.sequences[0].stats.longest_missing_run_bins, 2);
+//! assert!(report.finding(QcCode::SexOrOrganelle).is_some());
+//! println!("{}", render_text_with(&report, &TextOptions::brief()));
+//! let json = report.to_json();
+//! # assert!(json.contains("\"SEX_OR_ORGANELLE\""));
+//! ```
 
 use anyhow::{Result, bail};
 use serde::Serialize;
@@ -56,9 +81,9 @@ pub const SATURATION_WARN_SHARE: f64 = 0.10;
 /// recommendation at that level.
 pub const SATURATION_TARGET_SHARE: f64 = 0.05;
 
-/// Sequences shorter than this many bases are "short": below it, a sequence
-/// holds few long genealogical segments, which carry the information about
-/// recent times (see [`LengthStats::below_1mb`]).
+/// Sequences shorter than this many bases are short: their ends cut the long
+/// segments of recent common ancestry ([`QcCode::ShortSequences`],
+/// [`LengthStats::below_1mb`]).
 pub const SHORT_SEQUENCE_BASES: u64 = 1_000_000;
 
 /// C psmc's default initial θ0/ρ0 ratio (`-r 4`), used for

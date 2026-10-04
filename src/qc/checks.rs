@@ -29,10 +29,11 @@ pub const HIGH_MISSING_WARN_FRACTION: f64 = 0.5;
 /// missing data for PSMC.
 pub const HIGH_MISSING_INFO_FRACTION: f64 = 0.25;
 
-/// [`QcCode::FewHets`] fires below this many `K` bins.
+/// [`QcCode::FewHets`] fires below this many `K` bins (see there for why).
 pub const MIN_HET_BINS: u64 = 1_000;
 
-/// [`QcCode::TooShort`] fires below this many called bases.
+/// [`QcCode::TooShort`] fires below this many called bases (see there for
+/// why).
 pub const MIN_CALLED_BASES: u64 = 100_000_000;
 
 /// [`QcCode::ShortSequences`] fires when more than this share of all bins
@@ -49,9 +50,10 @@ pub const REFERENCE_MIN_CALLED_BASES: u64 = 1_000_000;
 /// heterozygosity to the autosomal reference ([`QcCode::SexOrOrganelle`]).
 pub const HEMIZYGOUS_MAX_RATIO: f64 = 0.25;
 
-/// ... and only when the reference rate predicts at least this many `K` bins
-/// in it, so that the shortfall is not chance: seeing at most 2 where 10 are
-/// expected has a Poisson probability of 0.3%.
+/// [`QcCode::SexOrOrganelle`] judges a sequence only when the autosomal rate
+/// predicts at least this many `K` bins in it, so that a shortfall is not
+/// chance: seeing at most 2 where 10 are expected has a Poisson probability
+/// of 0.3%.
 pub const HEMIZYGOUS_MIN_EXPECTED_HET_BINS: f64 = 10.0;
 
 /// [`QcCode::HetOutlier`] flags a sequence whose log heterozygosity is more
@@ -59,8 +61,9 @@ pub const HEMIZYGOUS_MIN_EXPECTED_HET_BINS: f64 = 10.0;
 /// Hoaglin's (1993) modified z-score cut-off of 3.5 is 3.5 / 0.6745 = 5.2 MAD.
 pub const HET_OUTLIER_MADS: f64 = 5.0;
 
-/// ... and at least this many times above or below the median, so that small
-/// differences between very uniform sequences (tiny MAD) are not flagged.
+/// [`QcCode::HetOutlier`] also requires a sequence to be at least this many
+/// times above or below the median, so that small differences between very
+/// uniform sequences (tiny MAD) are not flagged.
 pub const HET_OUTLIER_MIN_FOLD: f64 = 1.5;
 
 /// [`QcCode::HetOutlier`] needs at least this many sequences with
