@@ -35,18 +35,12 @@ fn split_orders(alleles: &str) -> impl Iterator<Item = &str> {
     alleles.split(',').map(str::trim).filter(|s| !s.is_empty())
 }
 
-// Same logic as generate_multihetsep.py:is_segregating
-fn is_segregating(alleles: &str) -> bool {
-    for order in split_orders(alleles) {
-        let mut it = order.chars();
-        let Some(first) = it.next() else {
-            continue;
-        };
-        if it.any(|c| c != first) {
-            return true;
-        }
-    }
-    false
+// A row is segregating when any ordering holds two different alleles, as in
+// generate_multihetsep.py:is_segregating.
+fn has_two_alleles(order: &str) -> bool {
+    let mut it = order.chars();
+    let first = it.next();
+    it.any(|c| Some(c) != first)
 }
 
 /// What one multihetsep row says about the selected pair of haplotypes.
@@ -111,6 +105,7 @@ fn pair_call(
         );
     }
     let mut call = classify(first.as_bytes(), i, j);
+    let mut segregating = has_two_alleles(first);
     for order in orders {
         if order.len() != n_haps {
             bail!("invalid mhs row {row_no}: allele orderings in '{alleles}' differ in length");
@@ -118,9 +113,10 @@ fn pair_call(
         if classify(order.as_bytes(), i, j) != call {
             call = PairCall::Missing;
         }
+        segregating = segregating || has_two_alleles(order);
     }
     // Official multihetsep rows are segregating variant sites.
-    if !is_segregating(alleles) {
+    if !segregating {
         bail!("invalid mhs row {row_no}: alleles must describe a segregating site");
     }
     Ok(call)
