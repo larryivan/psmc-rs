@@ -105,6 +105,91 @@ fn uniform_index<R: Rng + ?Sized>(rng: &mut R, n: usize) -> usize {
     (m >> 64) as usize
 }
 
+/// Default trunk size of [`split_for_bootstrap`], in bins: `splitfa`'s default
+/// of 500,000 psmcfa characters (50 Mb at 100 bp per bin).
+pub const DEFAULT_BOOTSTRAP_TRUNK: usize = 500_000;
+
+/// Cut sequences into bootstrap trunks exactly as psmc's `utils/splitfa` does.
+///
+/// Each sequence is cut into consecutive trunks of `trunk_size` bins, except
+/// that once fewer than `trunk_size * 3 / 2` bins (integer division, as in
+/// `splitfa`) remain from the current offset, the whole remainder becomes the
+/// last trunk. A sequence shorter than that limit is therefore kept whole.
+/// Empty sequences yield no trunks.
+///
+/// # Panics
+///
+/// If `trunk_size` is 0 (`splitfa` would loop forever).
+pub fn split_for_bootstrap(seqs: &[Vec<u8>], trunk_size: usize) -> Vec<Vec<u8>> {
+    assert!(trunk_size > 0, "bootstrap trunk_size must be > 0");
+    let tail_limit = trunk_size.saturating_mul(3) / 2;
+    let mut trunks = Vec::new();
+    for seq in seqs {
+        let mut start = 0;
+        while start < seq.len() {
+            if seq.len() - start < tail_limit {
+                trunks.push(seq[start..].to_vec());
+                break;
+            }
+            // tail_limit >= trunk_size, so a full trunk always fits here.
+            trunks.push(seq[start..start + trunk_size].to_vec());
+            start += trunk_size;
+        }
+    }
+    trunks
+}
+
+/// Indices of the trunks drawn by one psmc `-b` resampling (`psmc_resamp` in
+/// psmc's `aux.c`), given the trunk lengths.
+///
+/// `pick(n)` must return a uniform random index in `0..n`; it is called once
+/// per draw. A drawn trunk is kept if the running total stays at or below the
+/// original total, or if it overshoots by less than the deficit before the
+/// draw. Drawing stops at the first draw that would reach or pass the original
+/// total (whether or not that trunk was kept), so the resampled total differs
+/// from the original by at most half the longest trunk. The same trunk can be
+/// drawn more than once.
+pub fn resample_chunk_indices(
+    lengths: &[usize],
+    mut pick: impl FnMut(usize) -> usize,
+) -> Vec<usize> {
+    if lengths.is_empty() {
+        return Vec::new();
+    }
+    let target: i128 = lengths.iter().map(|&l| l as i128).sum();
+    let mut total: i128 = 0;
+    let mut drawn = Vec::new();
+    loop {
+        let idx = pick(lengths.len());
+        let len = lengths[idx] as i128;
+        // `tmp1` and `tmp2` in psmc_resamp.
+        let deficit = target - total;
+        let overshoot = total + len - target;
+        if overshoot <= 0 || (deficit > 0 && overshoot < deficit) {
+            drawn.push(idx);
+            total += len;
+        }
+        if deficit >= 0 && overshoot >= 0 {
+            break;
+        }
+    }
+    drawn
+}
+
+/// One bootstrap resample of `chunks` (normally the output of
+/// [`split_for_bootstrap`]) by psmc's `psmc_resamp` rule; see
+/// [`resample_chunk_indices`].
+///
+/// Each returned chunk is meant to be an independent sequence (its own HMM
+/// chain, `row_starts` true), as each `splitfa` record is in C psmc.
+pub fn resample_chunks(chunks: &[Vec<u8>], rng: &mut impl Rng) -> Vec<Vec<u8>> {
+    let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
+    resample_chunk_indices(&lengths, |n| uniform_index(rng, n))
+        .into_iter()
+        .map(|i| chunks[i].clone())
+        .collect()
+}
+
 pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Vec<u8>>> {
     if rows.is_empty() {
         bail!("cannot build sequences from empty rows");
@@ -183,8 +268,13 @@ pub fn sequences_to_observations(
     Ok(Observations { rows, row_starts })
 }
 
-/// Within-sequence block bootstrap: each sequence is cut into blocks of
+/// Legacy within-sequence block bootstrap: each sequence is cut into blocks of
 /// `block_size` bins and rebuilt from blocks of that same sequence.
+///
+/// Superseded by [`split_for_bootstrap`] + [`resample_chunks`], which follow
+/// C psmc. Here a sequence no longer than one block has a single block and
+/// comes back unchanged, so inputs made of short sequences or scaffolds get
+/// little or no resampling variance.
 pub fn sample_sequences_block_bootstrap(
     seqs: &[Vec<u8>],
     block_size: usize,
