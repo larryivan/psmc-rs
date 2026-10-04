@@ -1,4 +1,5 @@
 pub mod bootstrap;
+pub mod em;
 pub mod hmm;
 pub mod io;
 pub mod model;
@@ -7,4 +8,4 @@ pub mod progress;
 pub mod report;
 pub mod utils;
 
-pub use model::PsmcModel;
+pub use model::{PsmcModel, initial_theta};

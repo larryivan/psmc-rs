@@ -254,6 +254,31 @@ impl PsmcModel {
     }
 }
 
+/// Initial per-bin θ0 from the data, as in C `psmc_new_data`:
+/// θ0 = −ln(1 − K/L), where K counts heterozygous (`K`) bins and L counts
+/// non-missing bins.
+pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
+    let mut n_het = 0usize;
+    let mut n_observed = 0usize;
+    for row in rows {
+        for &v in row {
+            if v == 1 {
+                n_het += 1;
+            }
+            if v != 2 {
+                n_observed += 1;
+            }
+        }
+    }
+    if n_observed == 0 {
+        bail!("no observed (non-N) sites found in input");
+    }
+    if n_het == n_observed {
+        bail!("every observed bin is heterozygous; cannot initialise theta");
+    }
+    Ok(-(1.0 - n_het as f64 / n_observed as f64).ln())
+}
+
 fn n_free_params(n_steps: usize, spec: Option<&[(usize, usize)]>) -> usize {
     match spec {
         None => 4 + n_steps,

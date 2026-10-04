@@ -21,7 +21,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use psmc_rs::PsmcModel;
 use psmc_rs::bootstrap::{
     default_bootstrap_dir, new_rng, replicate_json_path, rows_to_sequences,
     sample_sequences_block_bootstrap, sequences_to_observations, summarize_bootstrap_models,
@@ -37,6 +36,7 @@ use psmc_rs::opt::{
 };
 use psmc_rs::progress;
 use psmc_rs::report::{default_html_path, write_html_report};
+use psmc_rs::{PsmcModel, initial_theta};
 
 const MAX_LOG_LINES: usize = 3_000;
 
@@ -1721,30 +1721,10 @@ fn run_inference_with_events(
         )),
     );
 
-    let mut count_k = 0usize;
-    let mut total_observed = 0usize;
-    for row in &obs.rows {
-        for v in row {
-            if *v == 1 {
-                count_k += 1;
-            }
-            if *v != 2 {
-                total_observed += 1;
-            }
-        }
-    }
-    if total_observed == 0 {
-        bail!("no observed (non-N) sites found in input");
-    }
-
-    let theta0 = cli.theta0.unwrap_or_else(|| {
-        let frac = (count_k as f64) / (total_observed as f64);
-        if frac >= 1.0 {
-            f64::INFINITY
-        } else {
-            -(1.0 - frac).ln()
-        }
-    });
+    let theta0 = match cli.theta0 {
+        Some(v) => v,
+        None => initial_theta(&obs.rows)?,
+    };
     let rho0 = cli.rho0.unwrap_or_else(|| theta0 / 5.0);
     let pattern = cli.pattern.clone();
     let mut model = PsmcModel::new(cli.t_max, cli.n_steps, theta0, rho0, cli.mu, pattern)?;
@@ -2067,30 +2047,10 @@ fn run_inference(cli: Cli) -> Result<()> {
         obs
     };
 
-    let mut count_k = 0usize;
-    let mut total_observed = 0usize;
-    for row in &obs.rows {
-        for v in row {
-            if *v == 1 {
-                count_k += 1;
-            }
-            if *v != 2 {
-                total_observed += 1;
-            }
-        }
-    }
-    if total_observed == 0 {
-        bail!("no observed (non-N) sites found in input");
-    }
-
-    let theta0 = cli.theta0.unwrap_or_else(|| {
-        let frac = (count_k as f64) / (total_observed as f64);
-        if frac >= 1.0 {
-            f64::INFINITY
-        } else {
-            -(1.0 - frac).ln()
-        }
-    });
+    let theta0 = match cli.theta0 {
+        Some(v) => v,
+        None => initial_theta(&obs.rows)?,
+    };
     let rho0 = cli.rho0.unwrap_or_else(|| theta0 / 5.0);
 
     let mut model = PsmcModel::new(cli.t_max, cli.n_steps, theta0, rho0, cli.mu, pattern)?;
