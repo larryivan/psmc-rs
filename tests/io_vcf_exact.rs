@@ -638,6 +638,12 @@ fn random_mask(rng: &mut Rng, chroms: &[String], lens: &[u64], negative: bool) -
 }
 
 fn random_scenario(seed: u64) -> Scenario {
+    random_scenario_with(seed, (20, 2500), &[0.002, 0.02, 0.2, 0.9])
+}
+
+/// A random scenario whose chromosomes span `span` bases (before the
+/// `##contig` tail) with one of `densities` records per base.
+fn random_scenario_with(seed: u64, span: (u64, u64), densities: &[f64]) -> Scenario {
     let mut rng = Rng(seed);
     let n_chroms = rng.range(1, 3) as usize;
     let chroms: Vec<String> = (0..n_chroms).map(|i| format!("chr{}", i + 1)).collect();
@@ -647,8 +653,8 @@ fn random_scenario(seed: u64) -> Scenario {
     let mut lens = Vec::new();
     let mut contig_len = Vec::new();
     for ci in 0..n_chroms {
-        let span = rng.range(20, 2500);
-        let density = rng.pick(&[0.002, 0.02, 0.2, 0.9]);
+        let span = rng.range(span.0, span.1);
+        let density = rng.pick(densities);
         let mut positions = Vec::new();
         for p in 1..=span {
             if rng.chance(density) {
@@ -814,4 +820,147 @@ fn audit_50pct_missing_in_50kb_blocks() {
             .collect()
     });
     check_audit(&sc, "50% missing in 50 kb blocks");
+}
+
+// ------------------------------------------------------- C fq2psmcfa check
+
+/// IUPAC code of a heterozygous pair of bases.
+fn iupac(a: u8, b: u8) -> u8 {
+    match (a.min(b), a.max(b)) {
+        (b'A', b'C') => b'M',
+        (b'A', b'G') => b'R',
+        (b'A', b'T') => b'W',
+        (b'C', b'G') => b'S',
+        (b'C', b'T') => b'Y',
+        (b'G', b'T') => b'K',
+        pair => panic!("not a heterozygous base pair: {pair:?}"),
+    }
+}
+
+/// The sample's per-base consensus as FASTA: an uppercase base for a called
+/// homozygous site, the IUPAC code of the two alleles for a heterozygous SNP
+/// and N for a missing site.
+fn consensus_fasta(sc: &Scenario, states: &[Vec<State>]) -> String {
+    let mut out = String::new();
+    let with_records = (0..sc.chroms.len()).filter(|&ci| sc.extent(ci).is_some());
+    for (ci, st) in with_records.zip(states) {
+        let mut seq: Vec<u8> = st
+            .iter()
+            .enumerate()
+            .map(|(p, s)| match s {
+                State::Missing => b'N',
+                _ => b"ACGT"[p % 4],
+            })
+            .collect();
+        for r in sc.records.iter().filter(|r| r.chrom == ci) {
+            let p = r.pos as usize;
+            if st[p] != State::Het || record_class(r, sc.sample, sc.keep_filtered).0 != State::Het {
+                continue;
+            }
+            let alleles: Vec<u8> = r.gts[sc.sample]
+                .split(['/', '|'])
+                .map(|i| match i.parse::<usize>().unwrap() {
+                    0 => r.reference.as_bytes()[0],
+                    i => r.alts[i - 1].as_bytes()[0],
+                })
+                .map(|b| b.to_ascii_uppercase())
+                .collect();
+            seq[p] = iupac(alleles[0], alleles[1]);
+        }
+        writeln!(out, ">{}", sc.chroms[ci]).unwrap();
+        for line in seq[1..].chunks(60) {
+            out.push_str(std::str::from_utf8(line).unwrap());
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// `(name, bins)` of each sequence of a psmcfa file, with T/K/N as 0/1/2.
+fn parse_psmcfa(text: &str) -> Vec<(String, Vec<u8>)> {
+    let mut out: Vec<(String, Vec<u8>)> = Vec::new();
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix('>') {
+            out.push((name.to_string(), Vec::new()));
+        } else if let Some((_, bins)) = out.last_mut() {
+            bins.extend(line.trim().bytes().map(|c| match c {
+                b'T' => 0,
+                b'K' => 1,
+                b'N' => 2,
+                _ => panic!("unexpected psmcfa symbol {c}"),
+            }));
+        }
+    }
+    out
+}
+
+/// Cross-check with the real tool: write the per-base consensus of long
+/// random scenarios as FASTA, run the C `fq2psmcfa -s <bin>` on it and
+/// compare its output with the reader's. Run with
+/// `FQ2PSMCFA=/path/to/fq2psmcfa cargo test --test io_vcf_exact -- --ignored`.
+#[test]
+#[ignore = "needs the C fq2psmcfa from lh3/psmc in $FQ2PSMCFA"]
+fn reader_matches_c_fq2psmcfa_on_the_consensus() {
+    let exe = std::env::var("FQ2PSMCFA").expect("set FQ2PSMCFA to an fq2psmcfa binary");
+    let (mut sequences, mut dropped) = (0, 0);
+    let mut by_symbol = [0usize; 3];
+    for seed in 0..8 {
+        let mut sc = random_scenario_with(1000 + seed, (150_000, 300_000), &[0.002, 0.01, 0.05]);
+        sc.batch_size = None;
+        for bin_size in [100, 37] {
+            sc.bin_size = bin_size;
+            let ctx = format!("seed {} bin {bin_size}", 1000 + seed);
+            let states = reference_states(&sc);
+            let fasta = unique_temp_path("consensus", "fa");
+            fs::write(&fasta, consensus_fasta(&sc, &states)).expect("failed to write FASTA");
+            let run = std::process::Command::new(&exe)
+                .arg("-s")
+                .arg(bin_size.to_string())
+                .arg(&fasta)
+                .output()
+                .expect("failed to run fq2psmcfa");
+            let _ = fs::remove_file(&fasta);
+            assert!(run.status.success(), "{ctx}: fq2psmcfa failed");
+            let from_c = parse_psmcfa(&String::from_utf8(run.stdout).unwrap());
+
+            if !states.iter().flatten().any(|&s| s == State::Het) {
+                continue;
+            }
+            let (vcf, opts, _files) = write_scenario(&sc);
+            let read = read_vcf_with(&vcf, &opts).unwrap_or_else(|e| panic!("{ctx}: {e:#}"));
+            let names = (0..sc.chroms.len())
+                .filter(|&ci| sc.extent(ci).is_some())
+                .map(|ci| &sc.chroms[ci]);
+            for ((name, row), st) in names.zip(&read.obs.rows).zip(&states) {
+                match from_c.iter().find(|(n, _)| n == name) {
+                    Some((_, c_bins)) => {
+                        assert_same_bins(
+                            std::slice::from_ref(row),
+                            std::slice::from_ref(c_bins),
+                            &format!("{ctx} {name}"),
+                        );
+                        sequences += 1;
+                        for &b in c_bins {
+                            by_symbol[b as usize] += 1;
+                        }
+                    }
+                    None => {
+                        // fq2psmcfa drops sequences with < 10000 or < 20% good bases.
+                        let good = st[1..].iter().filter(|&&s| s != State::Missing).count();
+                        assert!(
+                            good < 10_000 || good * 5 < st.len() - 1,
+                            "{ctx}: fq2psmcfa dropped {name} with {good} good bases"
+                        );
+                        dropped += 1;
+                    }
+                }
+            }
+        }
+    }
+    let [t, k, n] = by_symbol;
+    eprintln!(
+        "compared {sequences} sequences ({t} T, {k} K, {n} N bins) with the C fq2psmcfa; \
+         {dropped} sequences rightly dropped by it"
+    );
+    assert!(sequences >= 20, "only {sequences} sequences compared");
 }
