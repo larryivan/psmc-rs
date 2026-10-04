@@ -1,17 +1,18 @@
 //! The EM driver: alternate a full forward-backward E-step with an L-BFGS M-step.
 
 use anyhow::Result;
+use ndarray::Array2;
 use rayon::ThreadPool;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::hmm::{
-    Cancelled, EStepOptions, EStepPhase, EStepProgress, e_step_with_options,
+    Cancelled, EStepOptions, EStepPhase, EStepProgress, SufficientStats, e_step_with_options,
     log_likelihood_with_options,
 };
 use crate::model::PsmcModel;
 use crate::opt::{
-    MStepConfig, MStepProgress, bounds_from_config, m_step_lbfgs, m_step_lbfgs_with_progress,
-    pack_params, unpack_params,
+    MStepConfig, MStepProgress, bounds_from_config, m_step_lbfgs_with_outcome, pack_params,
+    unpack_params,
 };
 use crate::progress;
 
@@ -24,6 +25,16 @@ pub struct EmHistory {
     pub loglike: Vec<(f64, f64)>,
     /// Parameters before the first iteration and after each one.
     pub params: Vec<Vec<f64>>,
+    /// Per iteration: the posterior state distribution over the non-missing
+    /// bins of its E-step ([`posterior_sigma`]), C psmc's `post_sigma`.
+    pub post_sigma: Vec<Vec<f64>>,
+    /// Per iteration: C psmc's EM Q, [`hmm_q`] minus [`hmm_q0`] of its
+    /// E-step's expectations, at the parameters entering and leaving its
+    /// M-step (C's `QD` line). Both are at most 0. The smoothing penalty
+    /// the M-step also weighs (`MStepConfig::lambda`) is not included.
+    pub q: Vec<(f64, f64)>,
+    /// Per iteration: evaluations of the M-step objective (C's `IT` line).
+    pub mstep_evaluations: Vec<usize>,
 }
 
 impl EmHistory {
@@ -33,6 +44,79 @@ impl EmHistory {
     pub fn final_loglike(&self) -> Option<f64> {
         self.loglike.last().map(|&(_, after)| after)
     }
+}
+
+/// C psmc's `hmm_Q` before it subtracts `Q0`: the expected complete-data
+/// log-likelihood of the emissions of symbols 0 (`T`) and 1 (`K`) and of the
+/// transitions,
+///
+/// `sum_k (E_0[k] ln e_0[k] + E_1[k] ln e_1[k]) + sum_{k,l} A[k][l] ln a[k][l]`,
+///
+/// with the expected counts `E = stats.gobs` and `A = stats.xi` and the
+/// probabilities `e = emission` and `a = transition`. Like C, it leaves out
+/// the missing symbol (whose emission probability is 1) and the initial
+/// state. It is `-inf` when any of these probabilities is not positive, where
+/// C returns `-1e300`.
+pub fn hmm_q(transition: &Array2<f64>, emission: &Array2<f64>, stats: &SufficientStats) -> f64 {
+    let mut sum = 0.0;
+    for (b, counts) in stats.gobs[..2].iter().enumerate() {
+        for (k, &count) in counts.iter().enumerate() {
+            let p = emission[(b, k)];
+            if p <= 0.0 {
+                return f64::NEG_INFINITY;
+            }
+            sum += count * p.ln();
+        }
+    }
+    for (&count, &p) in stats.xi.iter().zip(transition.iter()) {
+        if p <= 0.0 {
+            return f64::NEG_INFINITY;
+        }
+        sum += count * p.ln();
+    }
+    sum
+}
+
+/// C psmc's `hmm_Q0`: the largest value [`hmm_q`] takes for the expected
+/// counts `stats` over all emission and transition probabilities, reached at
+/// `e_b[k] = E_b[k] / (E_0[k] + E_1[k])` and `a[k][l] = A[k][l] / sum_l A[k][l]`.
+/// C's Q is `hmm_q - hmm_q0`, so it is at most 0.
+///
+/// A zero count contributes 0, the limit of `x ln x`; C instead adds 1e-25
+/// to every count, which changes the value by less than 1e-20.
+pub fn hmm_q0(stats: &SufficientStats) -> f64 {
+    fn x_ln_x_over(x: f64, total: f64) -> f64 {
+        if x == 0.0 { 0.0 } else { x * (x / total).ln() }
+    }
+    let [e0, e1, _] = &stats.gobs;
+    let mut sum = 0.0;
+    for (&c0, &c1) in e0.iter().zip(e1) {
+        let total = c0 + c1;
+        sum += x_ln_x_over(c0, total) + x_ln_x_over(c1, total);
+    }
+    for row in stats.xi.rows() {
+        let total: f64 = row.sum();
+        for &count in row {
+            sum += x_ln_x_over(count, total);
+        }
+    }
+    sum
+}
+
+/// C psmc's `post_sigma`: the posterior distribution of the hidden state over
+/// the non-missing bins of an E-step, `(E_0[k] + E_1[k]) / sum_l (E_0[l] + E_1[l])`.
+///
+/// The expected emission counts here cover every bin, while C's `hmm_expect`
+/// leaves out the last bin of each sequence. That is the only difference in
+/// the expectations behind C's `post_sigma`, `hmm_Q` and `hmm_Q0`: removing
+/// those bins' posteriors from `stats.gobs` reproduces C's first-round
+/// `post_sigma` and `QD` values on `tests/data/c_reference` to all 6 printed
+/// decimals (`tests/em_c_reference.rs`).
+pub fn posterior_sigma(stats: &SufficientStats) -> Vec<f64> {
+    let [e0, e1, _] = &stats.gobs;
+    let counts: Vec<f64> = e0.iter().zip(e1).map(|(c0, c1)| c0 + c1).collect();
+    let total: f64 = counts.iter().sum();
+    counts.into_iter().map(|c| c / total).collect()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -140,6 +224,9 @@ pub fn em_train_with_options(
     let mut history = EmHistory {
         loglike: Vec::with_capacity(n_iter),
         params: Vec::with_capacity(n_iter + 1),
+        post_sigma: Vec::with_capacity(n_iter),
+        q: Vec::with_capacity(n_iter),
+        mstep_evaluations: Vec::with_capacity(n_iter),
     };
     let mut params = pack_params(model);
     history.params.push(params.clone());
@@ -203,8 +290,10 @@ pub fn em_train_with_options(
         }
         history.loglike.push((e.loglike, f64::NAN));
         let stats = e.stats;
+        let q0 = hmm_q0(&stats);
+        let q_before = hmm_q(model.transition_matrix(), model.emission_matrix(), &stats) - q0;
         check_cancel(iter + 1)?;
-        let params_opt = if let Some(cb_outer) = on_progress.as_mut() {
+        let outcome = if let Some(cb_outer) = on_progress.as_mut() {
             let mut map_ms = |ev: MStepProgress| {
                 (*cb_outer)(EmProgressEvent::MStep {
                     iter: iter + 1,
@@ -213,16 +302,20 @@ pub fn em_train_with_options(
                     total: ev.total,
                 });
             };
-            m_step_lbfgs_with_progress(model, &stats, &params, &bounds, config, Some(&mut map_ms))?
+            m_step_lbfgs_with_outcome(model, &stats, &params, &bounds, config, Some(&mut map_ms))?
         } else {
-            m_step_lbfgs(model, &stats, &params, &bounds, config)?
+            m_step_lbfgs_with_outcome(model, &stats, &params, &bounds, config, None)?
         };
-        params = params_opt.clone();
+        params = outcome.params;
         unpack_params(model, &params)?;
         // Keep the model's matrices in step with its parameters, also when
         // a later cancellation ends training early.
         model.param_recalculate()?;
         history.params.push(params.clone());
+        let q_after = hmm_q(model.transition_matrix(), model.emission_matrix(), &stats) - q0;
+        history.post_sigma.push(posterior_sigma(&stats));
+        history.q.push((q_before, q_after));
+        history.mstep_evaluations.push(outcome.evaluations);
 
         if let Some(pb) = &pb_em {
             pb.inc(1);
