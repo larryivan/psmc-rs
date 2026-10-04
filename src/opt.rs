@@ -559,6 +559,13 @@ fn q_function_stats_dual(a: &[Vec<Dual>], em: &[Vec<Dual>], stats: &SufficientSt
     q
 }
 
+// Calls of `eval_ad` on this thread, for checking `MStepOutcome::evaluations`
+// (the M-step runs on the calling thread).
+#[cfg(test)]
+thread_local! {
+    static EVAL_AD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn eval_ad(
     base_model: &PsmcModel,
     stats: &SufficientStats,
@@ -566,6 +573,8 @@ fn eval_ad(
     bounds: &[Bounds],
     lambda: f64,
 ) -> Result<(f64, Vec<f64>)> {
+    #[cfg(test)]
+    EVAL_AD_CALLS.with(|c| c.set(c.get() + 1));
     let n = params.len();
     let vars: Vec<Dual> = (0..n).map(|i| Dual::variable(params[i], n, i)).collect();
     let constrained = from_unconstrained_dual(&vars, bounds)?;
@@ -609,10 +618,59 @@ pub fn m_step_lbfgs_with_progress(
     init_params: &[f64],
     bounds: &[Bounds],
     config: &MStepConfig,
-    mut on_progress: Option<&mut dyn FnMut(MStepProgress)>,
+    on_progress: Option<&mut dyn FnMut(MStepProgress)>,
 ) -> Result<Vec<f64>> {
+    m_step_lbfgs_with_outcome(model, stats, init_params, bounds, config, on_progress)
+        .map(|outcome| outcome.params)
+}
+
+/// The result of [`m_step_lbfgs_with_outcome`].
+#[derive(Debug, Clone)]
+pub struct MStepOutcome {
+    /// The new parameters, in the order of `init_params`: θ, ρ, t_max, then
+    /// the free λ.
+    pub params: Vec<f64>,
+    /// Evaluations of the objective (with its gradient), the first one at
+    /// `init_params` included. C psmc prints its M-step's count of
+    /// objective evaluations on the `IT` line of its `.psmc` output.
+    pub evaluations: usize,
+}
+
+/// The objective of the M-step, counting its evaluations.
+struct Objective<'a> {
+    model: &'a PsmcModel,
+    stats: &'a SufficientStats,
+    bounds: &'a [Bounds],
+    lambda: f64,
+    evaluations: usize,
+}
+
+impl Objective<'_> {
+    fn eval(&mut self, x: &[f64]) -> Result<(f64, Vec<f64>)> {
+        self.evaluations += 1;
+        eval_ad(self.model, self.stats, x, self.bounds, self.lambda)
+    }
+}
+
+/// [`m_step_lbfgs_with_progress`], also returning how many times the
+/// objective was evaluated.
+pub fn m_step_lbfgs_with_outcome(
+    model: &PsmcModel,
+    stats: &SufficientStats,
+    init_params: &[f64],
+    bounds: &[Bounds],
+    config: &MStepConfig,
+    mut on_progress: Option<&mut dyn FnMut(MStepProgress)>,
+) -> Result<MStepOutcome> {
+    let mut objective = Objective {
+        model,
+        stats,
+        bounds,
+        lambda: config.lambda,
+        evaluations: 0,
+    };
     let mut xk = to_unconstrained(init_params, bounds)?;
-    let (mut f0, mut gk) = eval_ad(model, stats, &xk, bounds, config.lambda)?;
+    let (mut f0, mut gk) = objective.eval(&xk)?;
     let debug_mstep = std::env::var("PSMC_DEBUG_MSTEP")
         .map(|v| v == "1")
         .unwrap_or(false);
@@ -696,7 +754,7 @@ pub fn m_step_lbfgs_with_progress(
             for i in 0..xk.len() {
                 x_new[i] = xk[i] + step * r[i];
             }
-            let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
+            let (f_new, g_new) = objective.eval(&x_new)?;
             if debug_mstep {
                 eprintln!(
                     "  line-search iter {}: step={:.3e}, f_new={:.15e}, rhs={:.15e}",
@@ -721,7 +779,7 @@ pub fn m_step_lbfgs_with_progress(
                 for i in 0..xk.len() {
                     x_new[i] = xk[i] - step_rev * r[i];
                 }
-                let (f_new, g_new) = eval_ad(model, stats, &x_new, bounds, config.lambda)?;
+                let (f_new, g_new) = objective.eval(&x_new)?;
                 if debug_mstep {
                     eprintln!(
                         "  reverse-search iter {}: step={:.3e}, f_new={:.15e}, f0={:.15e}",
@@ -752,7 +810,7 @@ pub fn m_step_lbfgs_with_progress(
                     for sign in [-1.0f64, 1.0f64] {
                         let mut x_try = xk.clone();
                         x_try[i] += sign * radius;
-                        let (f_try, g_try) = eval_ad(model, stats, &x_try, bounds, config.lambda)?;
+                        let (f_try, g_try) = objective.eval(&x_try)?;
                         if !f_try.is_finite() {
                             continue;
                         }
@@ -837,7 +895,10 @@ pub fn m_step_lbfgs_with_progress(
         pb.finish_with_message("M-step done");
     }
 
-    from_unconstrained(&xk, bounds)
+    Ok(MStepOutcome {
+        params: from_unconstrained(&xk, bounds)?,
+        evaluations: objective.evaluations,
+    })
 }
 
 #[cfg(test)]
@@ -1069,5 +1130,70 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Runs the M-step; returns its outcome, the number of iterations it
+    /// reported as done and the number of `eval_ad` calls it made.
+    fn counted_m_step(
+        model: &PsmcModel,
+        stats: &SufficientStats,
+        config: &MStepConfig,
+    ) -> (MStepOutcome, usize, usize) {
+        let bounds = bounds_from_config(model, config);
+        let mut done = 0;
+        let mut on_progress = |p: MStepProgress| done = p.done;
+        let calls_before = EVAL_AD_CALLS.with(|c| c.get());
+        let outcome = m_step_lbfgs_with_outcome(
+            model,
+            stats,
+            &pack_params(model),
+            &bounds,
+            config,
+            Some(&mut on_progress),
+        )
+        .unwrap();
+        let calls = EVAL_AD_CALLS.with(|c| c.get()) - calls_before;
+        (outcome, done, calls)
+    }
+
+    #[test]
+    fn outcome_counts_objective_evaluations() {
+        let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+        let model = random_model(&mut rng, 22, Some("4+5*3+4"));
+        let stats = random_stats(&mut rng, &model, 20_000);
+        let base = MStepConfig {
+            progress: false,
+            ..MStepConfig::default()
+        };
+
+        // Without iterations only the starting point is evaluated.
+        let config = MStepConfig {
+            max_iters: 0,
+            ..base.clone()
+        };
+        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
+        assert_eq!((outcome.evaluations, done, calls), (1, 0, 1));
+
+        // A one-trial line search fails often enough to reach the reverse
+        // and coordinate searches, whose evaluations count too.
+        let config = MStepConfig {
+            max_iters: 12,
+            max_ls_steps: 1,
+            ..base.clone()
+        };
+        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
+        assert_eq!(outcome.evaluations, calls);
+        assert!(
+            calls > 1 + 2 * done,
+            "{calls} evaluations, {done} iterations"
+        );
+
+        // The default search; the parameters are those of m_step_lbfgs.
+        let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
+        assert_eq!(outcome.evaluations, calls);
+        assert!(calls > done, "{calls} evaluations, {done} iterations");
+        let bounds = bounds_from_config(&model, &base);
+        let params = m_step_lbfgs(&model, &stats, &pack_params(&model), &bounds, &base).unwrap();
+        assert_eq!(outcome.params, params);
     }
 }
