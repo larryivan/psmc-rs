@@ -148,8 +148,33 @@ fn rel(a: f64, b: f64) -> f64 {
     ((a - b) / b).abs()
 }
 
+/// `line` with its values blanked out but their printed precision kept: a
+/// run of digits after a decimal point becomes as many `d`s, any other run
+/// of digits one `#`. Two lines of the same shape print the same fields
+/// with the same `printf` conversions.
+fn shape(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let (mut in_digits, mut in_fraction) = (false, false);
+    for c in line.chars() {
+        if c.is_ascii_digit() {
+            if in_fraction {
+                out.push('d');
+            } else if !in_digits {
+                out.push('#');
+            }
+            in_digits = true;
+        } else {
+            out.push(c);
+            in_digits = false;
+            in_fraction = c == '.';
+        }
+    }
+    out
+}
+
 /// Checks the format: line tags in C's order, the header (but `Version`)
-/// and round 0 identical to C's.
+/// and round 0 identical to C's, and every line of the later rounds printed
+/// with C's conversions (see [`shape`]).
 fn check_format(ours: &str, c: &str) {
     fn tags(text: &str) -> Vec<&str> {
         text.lines().map(tag).collect()
@@ -172,6 +197,24 @@ fn check_format(ours: &str, c: &str) {
         }
     }
     assert_eq!(round_lines(ours, 0), round_lines(c, 0), "round 0 differs");
+
+    for (a, b) in ours.lines().zip(c.lines()).skip(h_c.len()) {
+        assert_eq!(shape(a), shape(b), "{a:?} is not printed like {b:?}");
+    }
+}
+
+#[test]
+fn shapes_keep_the_printed_precision() {
+    assert_eq!(shape("RI\t0.1017096683"), "RI\t#.dddddddddd");
+    assert_eq!(shape("RI\tinf"), "RI\tinf");
+    assert_eq!(shape("IT\t7002"), "IT\t#");
+    assert_eq!(
+        shape("QD\t-93.804750 -> -33.557910"),
+        "QD\t-#.dddddd -> -#.dddddd"
+    );
+    assert_eq!(shape("RS\t12\t1.25\t140.538959"), "RS\t#\t#.dd\t#.dddddd");
+    assert_eq!(shape("PA\t4+5*3+4 0.050078200"), "PA\t#+#*#+# #.ddddddddd");
+    assert_ne!(shape("RI\t0.101710"), shape("RI\t0.1017096683"));
 }
 
 /// Checks rounds 1.. against C's within the tolerances of a fit whose
@@ -403,7 +446,26 @@ fn rounds_report_the_em_history() {
     // write_psmc_from_history is write_psmc of these.
     let mut out = Vec::new();
     write_psmc(&mut out, &info, &rounds).unwrap();
-    assert_eq!(String::from_utf8(out).unwrap(), psmc_text(&fit));
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(text, psmc_text(&fit));
+
+    // The printed IT and RI lines are the rounds' values.
+    let lines: Vec<&str> = text.lines().collect();
+    for r in &rounds[1..] {
+        let rd = lines
+            .iter()
+            .position(|&l| l == format!("RD\t{}", r.round))
+            .unwrap();
+        assert_eq!(
+            lines[rd - 1],
+            format!("IT\t{}", h.mstep_evaluations[r.round - 1])
+        );
+        let ri = round_lines(&text, r.round)
+            .into_iter()
+            .find_map(|l| l.strip_prefix("RI\t"))
+            .unwrap();
+        assert_eq!(ri, format!("{:.10}", r.relative_information()));
+    }
 
     // The template may also be the fitted model: only its layout is used.
     let mut fitted = fit.template.clone();
