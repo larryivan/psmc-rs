@@ -131,6 +131,58 @@ impl Binner {
     }
 }
 
+/// A heterozygous site found by a reader, with multihetsep's `nr_called`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HetCall {
+    /// 1-based position.
+    pub pos: u64,
+    /// Called sites since the previous heterozygous site of the sequence
+    /// (exclusive) up to and including this one.
+    pub nr_called: u64,
+    pub alleles: [u8; 2],
+}
+
+/// Follows the called sites of one sequence, in position order, and records
+/// its heterozygous sites with their `nr_called` when `collect` is set.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct HetTracker {
+    collect: bool,
+    called_since: u64,
+    sites: Vec<HetCall>,
+}
+
+impl HetTracker {
+    pub fn new(collect: bool) -> Self {
+        Self {
+            collect,
+            ..Self::default()
+        }
+    }
+
+    /// `n` called sites that are not heterozygous.
+    pub fn called(&mut self, n: u64) {
+        self.called_since += n;
+    }
+
+    /// One called heterozygous site.
+    pub fn het(&mut self, pos: u64, alleles: [u8; 2]) {
+        if self.collect {
+            self.sites.push(HetCall {
+                pos,
+                nr_called: self.called_since + 1,
+                alleles,
+            });
+        }
+        self.called_since = 0;
+    }
+
+    /// The recorded sites; the tracker starts over for the next sequence.
+    pub fn take(&mut self) -> Vec<HetCall> {
+        self.called_since = 0;
+        std::mem::take(&mut self.sites)
+    }
+}
+
 /// Turn whole sequences into HMM rows. With `batch_size`, long sequences are
 /// split into chunks that stay connected in one HMM chain (`row_starts` is
 /// `true` only for the first chunk of each sequence). Empty sequences are dropped.

@@ -41,14 +41,14 @@ use std::path::{Path, PathBuf};
 use crate::io::Observations;
 use crate::io::common::{Binner, chunk_sequences, open_reader};
 
-type Interval = (u64, u64); // inclusive [start, end], 1-based
+pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
 
 /// Largest accepted POS and `##contig` length: 2^36, about 68.7 Gb, several
 /// times longer than any known chromosome. The work and memory of a sequence
 /// grow with its length (687M bins at the default bin size for this one), so
 /// without a bound a single bad POS or header line makes the reader allocate
 /// bins until memory runs out.
-const MAX_POS: u64 = 1 << 36;
+pub(crate) const MAX_POS: u64 = 1 << 36;
 
 fn merge_intervals(mut xs: Vec<Interval>) -> Vec<Interval> {
     if xs.is_empty() {
@@ -282,13 +282,13 @@ fn parse_mask_file(path: &Path) -> Result<MaskFile> {
 /// The callable set: the intersection of the positive masks (every position
 /// when there is none) minus the union of the negative masks.
 #[derive(Debug, Clone)]
-struct MaskEngine {
+pub(crate) struct MaskEngine {
     positives: Vec<MaskFile>,
     negatives: MaskFile,
 }
 
 impl MaskEngine {
-    fn new(mask_paths: &[PathBuf], negative_mask_paths: &[PathBuf]) -> Result<Self> {
+    pub(crate) fn new(mask_paths: &[PathBuf], negative_mask_paths: &[PathBuf]) -> Result<Self> {
         let mut positives = Vec::<MaskFile>::new();
         for p in mask_paths {
             positives.push(parse_mask_file(p)?);
@@ -300,20 +300,20 @@ impl MaskEngine {
         })
     }
 
-    fn has_positive(&self) -> bool {
+    pub(crate) fn has_positive(&self) -> bool {
         !self.positives.is_empty()
     }
 
     /// False when some positive mask has no row that applies to `chrom`,
     /// which leaves the whole chromosome uncallable.
-    fn mentions_chrom(&self, chrom: &str) -> bool {
+    pub(crate) fn mentions_chrom(&self, chrom: &str) -> bool {
         self.positives
             .iter()
             .all(|m| !m.global.is_empty() || m.by_chrom.contains_key(chrom))
     }
 
     /// Sorted, merged positions of `chrom` that are outside the callable set.
-    fn uncallable_for_chrom(&self, chrom: &str) -> Vec<Interval> {
+    pub(crate) fn uncallable_for_chrom(&self, chrom: &str) -> Vec<Interval> {
         let neg = if self.negatives.is_empty() {
             Vec::new()
         } else {
