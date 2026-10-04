@@ -83,3 +83,24 @@ fn e_step_streaming_contiguous_rows_keeps_sequence_chain() {
     let xi_sum: f64 = out.stats.xi.iter().sum();
     approx_eq(xi_sum, (total_len - 1) as f64, 1e-5);
 }
+
+#[test]
+fn e_step_rejects_non_finite_normalisers() {
+    // NaN parameters (e.g. from a failed M-step) must not turn into a NaN
+    // log-likelihood silently.
+    let model = PsmcModel::new(15.0, 4, 1e-3, 2e-4, 2.5e-8, None).expect("model init failed");
+    let mut em = model.emission_matrix().clone();
+    em[(0, 2)] = f64::NAN;
+    let rows = vec![vec![0u8, 1, 0, 2, 1, 0]];
+    let err = e_step_streaming(
+        model.prior_matrix(),
+        model.transition_matrix(),
+        &em,
+        &rows,
+        &[true],
+        false,
+        "E",
+    )
+    .expect_err("a NaN emission probability must be an error");
+    assert!(err.to_string().contains("normalization factor"), "{err}");
+}
