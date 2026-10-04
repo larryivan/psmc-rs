@@ -137,65 +137,43 @@ impl PsmcModel {
         }
     }
 
+    /// Recompute the time grid `t` and the HMM parameters (`sigma`, `p_kl`,
+    /// `em`) from `theta`, `rho`, `t_max` and `lam`; a port of C
+    /// `psmc_update_hmm`.
     pub fn param_recalculate(&mut self) -> Result<()> {
-        let t = self.compute_t(0.1);
+        let Coalescent {
+            t,
+            lam,
+            tau,
+            alpha,
+            c_pi,
+            c_sigma,
+            cpi,
+            sigma,
+            avg_t,
+        } = self.coalescent()?;
         let n = self.n_steps;
-        let lam = self.map_lam(&self.lam)?;
-        if lam.len() != n + 1 {
-            bail!(
-                "expanded lam length {} does not match n_steps+1 {}",
-                lam.len(),
-                n + 1
-            );
-        }
 
-        let mut alpha = vec![0.0f64; n + 2];
-        let mut tau = vec![0.0f64; n + 1];
         let mut beta = vec![0.0f64; n + 1];
-        let mut sigma = vec![0.0f64; n + 1];
         let mut q_aux = vec![0.0f64; n];
         let mut q = vec![f64::NAN; n + 1];
         let mut e = Array2::zeros((3, n + 1));
         let mut p_kl = Array2::zeros((n + 1, n + 1));
-
-        for k in 0..=n {
-            tau[k] = t[k + 1] - t[k];
-        }
-
-        alpha[0] = 1.0;
-        for k in 1..=n {
-            alpha[k] = alpha[k - 1] * (-tau[k - 1] / lam[k - 1]).exp();
-        }
-        alpha[n + 1] = 0.0;
 
         beta[0] = 0.0;
         for k in 1..=n {
             beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
         }
 
-        let mut c_pi = 0.0;
-        for i in 0..=n {
-            c_pi += lam[i] * (alpha[i] - alpha[i + 1]);
-        }
-        let c_sigma = 1.0 / (c_pi * self.rho) + 0.5;
-
         for m in 0..n {
             q_aux[m] = (alpha[m] - alpha[m + 1]) * (beta[m] - lam[m] / alpha[m]) + tau[m];
         }
 
-        let mut sum_t = 0.0;
         for k in 0..=n {
             let ak1 = alpha[k] - alpha[k + 1];
             let lak = lam[k];
-
-            let cpik = ak1 * (sum_t + lak) - alpha[k + 1] * tau[k];
+            let cpik = cpi[k];
             let pik = cpik / c_pi;
-            sigma[k] = (ak1 / (c_pi * self.rho) + pik / 2.0) / c_sigma;
-
-            let mut avg_t = -(1.0 - pik / (c_sigma * sigma[k])).ln() / self.rho;
-            if !avg_t.is_finite() || avg_t < sum_t || avg_t > sum_t + tau[k] {
-                avg_t = sum_t + (lak - tau[k] * alpha[k + 1] / (alpha[k] - alpha[k + 1]));
-            }
 
             let tmp = ak1 / cpik;
             for m in 0..k {
@@ -218,12 +196,10 @@ impl PsmcModel {
             }
             p_kl[(k, k)] = tmp3 * q[k] + (1.0 - tmp3);
 
-            let exp_term = (-self.theta * avg_t).exp();
+            let exp_term = (-self.theta * avg_t[k]).exp();
             e[(0, k)] = exp_term;
             e[(1, k)] = 1.0 - exp_term;
             e[(2, k)] = 1.0;
-
-            sum_t += tau[k];
         }
 
         self.t = t;
@@ -232,6 +208,94 @@ impl PsmcModel {
         self.sigma = sigma;
 
         Ok(())
+    }
+
+    /// Per-state average coalescent time, in units of 2N0 generations: for
+    /// each state k, the time in `[t_k, t_{k+1}]` that the emission
+    /// probability `em[(0, k)] = exp(-theta * avg_t[k])` is evaluated at.
+    ///
+    /// This is C `psmc_avg_t` (the `TC` column of `psmc -d`) without the
+    /// divergence-time term, including its fallback to the conditional mean
+    /// coalescent time of the interval when the log formula leaves it. It is
+    /// computed from the current parameters, so it matches `em` exactly
+    /// whenever `param_recalculate` has run since they last changed.
+    ///
+    /// # Panics
+    ///
+    /// If `lam` does not have the length the pattern requires (an invariant
+    /// `PsmcModel::new` establishes).
+    pub fn avg_t(&self) -> Vec<f64> {
+        self.coalescent()
+            .expect("lam length does not match the model's pattern")
+            .avg_t
+    }
+
+    /// Quantities of C `psmc_update_hmm` that depend only on the interval
+    /// structure; shared by `param_recalculate` and `avg_t` so that the two
+    /// cannot disagree. Names follow the C code.
+    fn coalescent(&self) -> Result<Coalescent> {
+        let t = self.compute_t(0.1);
+        let n = self.n_steps;
+        let lam = self.map_lam(&self.lam)?;
+        if lam.len() != n + 1 {
+            bail!(
+                "expanded lam length {} does not match n_steps+1 {}",
+                lam.len(),
+                n + 1
+            );
+        }
+
+        let mut tau = vec![0.0f64; n + 1];
+        for k in 0..=n {
+            tau[k] = t[k + 1] - t[k];
+        }
+
+        let mut alpha = vec![0.0f64; n + 2];
+        alpha[0] = 1.0;
+        for k in 1..=n {
+            alpha[k] = alpha[k - 1] * (-tau[k - 1] / lam[k - 1]).exp();
+        }
+        alpha[n + 1] = 0.0;
+
+        let mut c_pi = 0.0;
+        for i in 0..=n {
+            c_pi += lam[i] * (alpha[i] - alpha[i + 1]);
+        }
+        let c_sigma = 1.0 / (c_pi * self.rho) + 0.5;
+
+        let mut cpi = vec![0.0f64; n + 1];
+        let mut sigma = vec![0.0f64; n + 1];
+        let mut avg_t = vec![0.0f64; n + 1];
+        let mut sum_t = 0.0;
+        for k in 0..=n {
+            let ak1 = alpha[k] - alpha[k + 1];
+            let lak = lam[k];
+
+            let cpik = ak1 * (sum_t + lak) - alpha[k + 1] * tau[k];
+            let pik = cpik / c_pi;
+            sigma[k] = (ak1 / (c_pi * self.rho) + pik / 2.0) / c_sigma;
+
+            let mut avg = -(1.0 - pik / (c_sigma * sigma[k])).ln() / self.rho;
+            if !avg.is_finite() || avg < sum_t || avg > sum_t + tau[k] {
+                avg = sum_t + (lak - tau[k] * alpha[k + 1] / (alpha[k] - alpha[k + 1]));
+            }
+            cpi[k] = cpik;
+            avg_t[k] = avg;
+
+            sum_t += tau[k];
+        }
+
+        Ok(Coalescent {
+            t,
+            lam,
+            tau,
+            alpha,
+            c_pi,
+            c_sigma,
+            cpi,
+            sigma,
+            avg_t,
+        })
     }
 
     pub fn save_params(&self, path: &std::path::Path) -> Result<()> {
@@ -262,6 +326,22 @@ impl PsmcModel {
     pub fn pattern_spec(&self) -> Option<&[(usize, usize)]> {
         self.pattern_spec.as_deref()
     }
+}
+
+/// See [`PsmcModel::coalescent`].
+struct Coalescent {
+    t: Vec<f64>,
+    /// λ expanded to one value per state.
+    lam: Vec<f64>,
+    tau: Vec<f64>,
+    alpha: Vec<f64>,
+    c_pi: f64,
+    c_sigma: f64,
+    /// `C_pi * pi_k`: the integral of t times the coalescent density over
+    /// interval k (C `cpik`).
+    cpi: Vec<f64>,
+    sigma: Vec<f64>,
+    avg_t: Vec<f64>,
 }
 
 /// Initial per-bin θ0 from the data, as in C `psmc_new_data`:
