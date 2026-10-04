@@ -30,12 +30,17 @@ use sched::{Plan, Reporter};
 /// per segment and the backward pass recomputes one segment at a time.
 pub const CHECKPOINT_STRIDE: usize = 128;
 
+/// Expected sufficient statistics of one E-step.
 #[derive(Debug, Clone)]
 pub struct SufficientStats {
+    /// `gobs[o][k]`: expected number of sites with observation class `o`
+    /// (0 = `T`, 1 = `K`, 2 = `N`) in state `k`.
     pub gobs: [Vec<f64>; 3],
+    /// `xi[(k, l)]`: expected number of `k -> l` transitions.
     pub xi: Array2<f64>,
 }
 
+/// Result of an E-step: statistics and the log-likelihood of the observations.
 #[derive(Debug)]
 pub struct EStepResult {
     pub stats: SufficientStats,
@@ -155,6 +160,8 @@ fn collect_in_order<T>(results: Vec<Result<T>>) -> Result<Vec<T>> {
     results.into_iter().collect()
 }
 
+/// The E-step with default options; draws progress bars labelled `label`
+/// when `progress_enabled`. See [`e_step_with_options`].
 pub fn e_step_streaming(
     pi: &[f64],
     a: &Array2<f64>,
@@ -167,6 +174,7 @@ pub fn e_step_streaming(
     e_step_streaming_with_progress(pi, a, em, rows, row_starts, progress_enabled, label, None)
 }
 
+/// [`e_step_streaming`] with a progress callback. See [`e_step_with_options`].
 #[allow(clippy::too_many_arguments)]
 pub fn e_step_streaming_with_progress(
     pi: &[f64],
