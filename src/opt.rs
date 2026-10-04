@@ -213,6 +213,12 @@ pub struct MStepConfig {
     pub lambda: f64,
     pub line_search_c1: f64,
     pub max_ls_steps: usize,
+    /// Stop when the norm of the gradient of the objective (in the
+    /// unconstrained coordinates) falls below this. It is absolute and the
+    /// gradient grows with the number of bins. In practice the M-step ends at
+    /// `max_iters` (100 by default) well before either this or the precision
+    /// of the objective is reached: in the last iterations it still lowers
+    /// the objective by about 1e-11 to 1e-7 relative per iteration.
     pub tol_grad: f64,
     pub progress: bool,
     pub theta_lo: f64,
