@@ -13,6 +13,14 @@ use super::{
     largest_trunk_within,
 };
 
+/// [`QcCode::Depth`] warns below this mean read depth (Nadachowska-Brzyska
+/// et al. 2016 recommend at least 18x for PSMC).
+pub const MIN_MEAN_DEPTH: f64 = 18.0;
+
+/// [`QcCode::Depth`] warns when one consensus filter removes more than this
+/// share of the bases.
+pub const MAX_FILTER_FRACTION: f64 = 0.30;
+
 /// `N` fraction above which [`QcCode::HighMissing`] is a warning.
 pub const HIGH_MISSING_WARN_FRACTION: f64 = 0.5;
 
@@ -172,6 +180,40 @@ pub enum QcCode {
     /// (inbreeding, which is real signal), deletions, or a mask that removed
     /// most variable sites.
     HetOutlier,
+    /// Multihetsep input, where uncalled sites have no positions (info).
+    ///
+    /// Multihetsep gives, for each segregating site, how many sites since
+    /// the previous one were called, but not where the uncalled ones are.
+    /// The reader places them together at the start of each interval
+    /// ([`crate::io::mhs::read_mhs_with`]). Called and heterozygous sites
+    /// keep their numbers and the heterozygous sites their positions, but a
+    /// bin is `N` only when more than 90% of its sites are uncalled, so
+    /// moving the uncalled sites changes which bins are `N`, `T` or `K`
+    /// compared with `fq2psmcfa` on the same calls. VCF input with a callable
+    /// mask bins exactly.
+    ApproxMissingPlacement,
+    /// Consensus-mode read depth (warning): mean depth below
+    /// [`MIN_MEAN_DEPTH`], or one filter removing more than
+    /// [`MAX_FILTER_FRACTION`] of the bases.
+    ///
+    /// Calling a heterozygous site takes reads from both alleles: with `d`
+    /// reads both appear with probability 1 - 2^(1-d) (94% at 5 reads,
+    /// before the caller's own thresholds), so at low depth heterozygous
+    /// sites are lost and θ and Ne come out low. Nadachowska-Brzyska et al.
+    /// (2016, Mol Ecol 25:1058) found PSMC curves to shift at low coverage
+    /// and recommend at least 18x. psmc's README suggests minimum and maximum
+    /// depths of a third and twice the mean (`vcf2fq -d`, `-D`). A filter that
+    /// alone removes more than 30% of the bases usually has a threshold that
+    /// does not fit the data (a depth window too narrow for the coverage, a
+    /// mapping-quality cut-off too strict for the reference), and it shrinks
+    /// and biases the called set as in [`QcCode::HighMissing`].
+    Depth,
+    /// The loader left out whole sequences (info), counted by reason.
+    ///
+    /// The metrics cover only the sequences that were kept, so a dropped
+    /// chromosome (for example one whose name the mask does not match) would
+    /// otherwise go unnoticed.
+    DroppedSequences,
 }
 
 impl QcCode {
@@ -185,6 +227,9 @@ impl QcCode {
         Self::ShortSequences,
         Self::SexOrOrganelle,
         Self::HetOutlier,
+        Self::ApproxMissingPlacement,
+        Self::Depth,
+        Self::DroppedSequences,
     ];
 
     /// The stable name, as serialised (`HIGH_MISSING`, ...).
@@ -198,6 +243,9 @@ impl QcCode {
             Self::ShortSequences => "SHORT_SEQUENCES",
             Self::SexOrOrganelle => "SEX_OR_ORGANELLE",
             Self::HetOutlier => "HET_OUTLIER",
+            Self::ApproxMissingPlacement => "APPROX_MISSING_PLACEMENT",
+            Self::Depth => "DEPTH",
+            Self::DroppedSequences => "DROPPED_SEQUENCES",
         }
     }
 }
@@ -268,6 +316,9 @@ pub(super) fn run(
         short_sequences(report, &seq_bins),
         sex_or_organelle(report, seqs, &mut named),
         het_outliers(report, seqs, &mut named),
+        approx_missing_placement(input),
+        depth(report),
+        dropped_sequences(report),
     ]
     .into_iter()
     .flatten()
@@ -644,5 +695,109 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
         Severity::Warning,
         format!("{}.", parts.join("; ")),
         advice.join(" "),
+    ))
+}
+
+fn approx_missing_placement(input: &QcInput) -> Option<Finding> {
+    if !input.context.approximate_missing_placement {
+        return None;
+    }
+    Some(Finding::new(
+        QcCode::ApproxMissingPlacement,
+        Severity::Info,
+        "Multihetsep gives the number of called sites between variant rows but not their \
+         positions, so the uncalled sites of each interval were placed together at its \
+         start. Called and heterozygous sites keep their counts, but which bins are missing \
+         (more than 90% of sites uncalled) depends on that placement, so the T/K/N bins can \
+         differ from fq2psmcfa binning of the same calls."
+            .to_string(),
+        "For exact binning, read the VCF with its callable-sites mask instead.".to_string(),
+    ))
+}
+
+fn depth(report: &QcReport) -> Option<Finding> {
+    let d = report.depth.as_ref()?;
+    let mut problems = Vec::new();
+    let mut advice = Vec::new();
+    if d.mean < MIN_MEAN_DEPTH {
+        problems.push(format!(
+            "Mean read depth is {}x, below the {}x that Nadachowska-Brzyska et al. (2016) \
+             recommend for PSMC: at low depth heterozygous sites are often called \
+             homozygous, which biases theta and Ne low.",
+            sig(d.mean, 3),
+            MIN_MEAN_DEPTH
+        ));
+        advice.push(
+            "Sequence deeper if possible; otherwise read the curve as a lower bound on \
+             heterozygosity and compare it with a deeper sample."
+                .to_string(),
+        );
+    }
+    let heavy: Vec<&super::FilterShare> = d
+        .filters
+        .iter()
+        .filter(|f| f.fraction > MAX_FILTER_FRACTION)
+        .collect();
+    if !heavy.is_empty() {
+        let list: Vec<String> = heavy
+            .iter()
+            .map(|f| format!("'{}' {}", f.name, pct(f.fraction)))
+            .collect();
+        problems.push(format!(
+            "Single filters removed more than {} of the {} bases: {}.",
+            pct(MAX_FILTER_FRACTION),
+            count(d.total_bases),
+            list.join(", ")
+        ));
+        let thresholds = match (d.min_depth, d.max_depth) {
+            (Some(lo), Some(hi)) => format!(" (now {lo}-{hi} at a mean of {}x)", sig(d.mean, 3)),
+            _ => String::new(),
+        };
+        advice.push(format!(
+            "Check those filters' thresholds against the data: psmc's README suggests \
+             depth limits of a third and twice the mean depth{thresholds}; a strict \
+             mapping-quality cut-off removes much of a divergent reference."
+        ));
+    }
+    if problems.is_empty() {
+        return None;
+    }
+    Some(Finding::new(
+        QcCode::Depth,
+        Severity::Warning,
+        problems.join(" "),
+        advice.join(" "),
+    ))
+}
+
+fn dropped_sequences(report: &QcReport) -> Option<Finding> {
+    if report.dropped.is_empty() {
+        return None;
+    }
+    let total: usize = report.dropped.iter().map(|d| d.count).sum();
+    let reasons: Vec<String> = report
+        .dropped
+        .iter()
+        .map(|d| match d.bases {
+            Some(b) => format!("{} {} ({})", count(d.count as u64), d.reason, bases(b)),
+            None => format!("{} {}", count(d.count as u64), d.reason),
+        })
+        .collect();
+    Some(Finding::new(
+        QcCode::DroppedSequences,
+        Severity::Info,
+        format!(
+            "{} {} left out of the analysis: {}.",
+            count(total as u64),
+            if total == 1 {
+                "sequence was"
+            } else {
+                "sequences were"
+            },
+            reasons.join("; ")
+        ),
+        "Check that these sequences were meant to be left out (for example, chromosome \
+         names in the mask or VCF that do not match)."
+            .to_string(),
     ))
 }

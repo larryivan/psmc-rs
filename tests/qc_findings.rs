@@ -72,6 +72,9 @@ fn codes_serialise_to_their_stable_names() {
             "SHORT_SEQUENCES",
             "SEX_OR_ORGANELLE",
             "HET_OUTLIER",
+            "APPROX_MISSING_PLACEMENT",
+            "DEPTH",
+            "DROPPED_SEQUENCES",
         ]
     );
     assert_eq!(serde_json::to_value(Severity::Info).unwrap(), "info");

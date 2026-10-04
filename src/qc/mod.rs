@@ -25,8 +25,8 @@ mod stats;
 pub use checks::{
     Finding, HEMIZYGOUS_MAX_RATIO, HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS,
     HET_OUTLIER_MIN_FOLD, HET_OUTLIER_MIN_SEQUENCES, HIGH_MISSING_INFO_FRACTION,
-    HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES, MIN_HET_BINS, QcCode, REFERENCE_MIN_CALLED_BASES,
-    SHORT_SEQUENCES_MAX_FRACTION, Severity,
+    HIGH_MISSING_WARN_FRACTION, MAX_FILTER_FRACTION, MIN_CALLED_BASES, MIN_HET_BINS,
+    MIN_MEAN_DEPTH, QcCode, REFERENCE_MIN_CALLED_BASES, SHORT_SEQUENCES_MAX_FRACTION, Severity,
 };
 pub use names::{SeqKind, classify_name};
 
@@ -95,6 +95,54 @@ impl QcSeq {
     }
 }
 
+/// Read depth seen by a consensus-mode (all-sites) conversion.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct DepthStats {
+    /// Mean depth over the positions considered.
+    pub mean: f64,
+    /// Median depth.
+    pub median: f64,
+    /// Smallest depth a site needed to be called (`vcf2fq -d`), if any.
+    pub min_depth: Option<u32>,
+    /// Largest depth a site could have to be called (`vcf2fq -D`), if any.
+    pub max_depth: Option<u32>,
+    /// `histogram[d]` positions with depth `d`; the last entry counts every
+    /// depth from its index up.
+    pub histogram: Vec<u64>,
+}
+
+/// Bases removed by one consensus filter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct FilterCount {
+    /// Filter name, e.g. `"min depth"` or `"mapping quality"`.
+    pub name: String,
+    /// Bases it removed (a base failing several filters counts for each).
+    pub bases: u64,
+}
+
+/// What a consensus-mode conversion saw.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct ConsensusStats {
+    /// Read depth.
+    pub depth: DepthStats,
+    /// Positions the filters were applied to: the denominator of their
+    /// shares.
+    pub total_bases: u64,
+    /// Bases each filter removed.
+    pub filters: Vec<FilterCount>,
+}
+
+/// Sequences the loader left out, for one reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DroppedSequences {
+    /// Why, e.g. `"without any called site"`.
+    pub reason: String,
+    /// How many sequences.
+    pub count: usize,
+    /// Their total length, when known.
+    pub bases: Option<u64>,
+}
+
 /// Facts about how the input was read, filled in by the loader where they
 /// apply.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -105,6 +153,13 @@ pub struct QcContext {
     /// so every position without a record counted as called homozygous
     /// ([`QcCode::VariantsOnlyNoMask`]).
     pub variants_only_no_mask: bool,
+    /// Uncalled sites were placed by assumption, as for multihetsep input
+    /// ([`QcCode::ApproxMissingPlacement`]).
+    pub approximate_missing_placement: bool,
+    /// Depth and filter statistics of a consensus-mode conversion.
+    pub consensus: Option<ConsensusStats>,
+    /// Sequences the loader left out, by reason.
+    pub dropped: Vec<DroppedSequences>,
 }
 
 /// What [`analyze`] looks at.
@@ -256,6 +311,91 @@ impl Saturation {
     }
 }
 
+/// One consensus filter's share of the bases.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FilterShare {
+    /// Filter name.
+    pub name: String,
+    /// Bases it removed.
+    pub bases: u64,
+    /// `bases / total_bases` (0 when there are none).
+    pub fraction: f64,
+}
+
+/// Read depth of a consensus-mode conversion, with what the histogram
+/// implies.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DepthReport {
+    /// Mean depth, as given.
+    pub mean: f64,
+    /// Median depth, as given.
+    pub median: f64,
+    /// Minimum depth for a call, as given.
+    pub min_depth: Option<u32>,
+    /// Maximum depth for a call, as given.
+    pub max_depth: Option<u32>,
+    /// Depth quantiles 5%, 25%, 75% and 95% from the histogram (the smallest
+    /// depth reaching each share); a value in the open last class is a lower
+    /// bound. `None` without a histogram.
+    pub quantiles: Option<[u32; 4]>,
+    /// Share of positions below `min_depth`, from the histogram.
+    pub below_min_fraction: Option<f64>,
+    /// Share of positions above `max_depth`; `None` when the histogram's
+    /// open last class does not tell.
+    pub above_max_fraction: Option<f64>,
+    /// The histogram, as given.
+    pub histogram: Vec<u64>,
+    /// Positions the filters were applied to.
+    pub total_bases: u64,
+    /// Each filter's share.
+    pub filters: Vec<FilterShare>,
+}
+
+impl DepthReport {
+    fn new(c: &ConsensusStats) -> Self {
+        let h = &c.depth.histogram;
+        let total: u64 = h.iter().sum();
+        let share = |n: u64| n as f64 / total as f64;
+        let quantiles = (total > 0).then(|| {
+            [0.05, 0.25, 0.75, 0.95].map(|q| stats::histogram_quantile(h, q).unwrap_or(0))
+        });
+        let below_min = c
+            .depth
+            .min_depth
+            .filter(|_| total > 0)
+            .map(|lo| share(h.iter().take(lo as usize).sum()));
+        let above_max = c
+            .depth
+            .max_depth
+            .filter(|&hi| total > 0 && (hi as usize) + 1 < h.len())
+            .map(|hi| share(h.iter().skip(hi as usize + 1).sum()));
+        Self {
+            mean: c.depth.mean,
+            median: c.depth.median,
+            min_depth: c.depth.min_depth,
+            max_depth: c.depth.max_depth,
+            quantiles,
+            below_min_fraction: below_min,
+            above_max_fraction: above_max,
+            histogram: h.clone(),
+            total_bases: c.total_bases,
+            filters: c
+                .filters
+                .iter()
+                .map(|f| FilterShare {
+                    name: f.name.clone(),
+                    bases: f.bases,
+                    fraction: if c.total_bases == 0 {
+                        0.0
+                    } else {
+                        f.bases as f64 / c.total_bases as f64
+                    },
+                })
+                .collect(),
+        }
+    }
+}
+
 /// How [`HetReference`] was computed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -331,6 +471,10 @@ pub struct QcReport {
     /// Heterozygosity of the sequences not named like sex chromosomes or
     /// organelles; `None` when they have no called bin.
     pub het_reference: Option<HetReference>,
+    /// Read depth and filters of a consensus-mode conversion.
+    pub depth: Option<DepthReport>,
+    /// Sequences the loader left out, by reason.
+    pub dropped: Vec<DroppedSequences>,
     /// C psmc's round-0 `n_recomb` for the whole input
     /// ([`initial_recombinations`] at [`DEFAULT_TR_RATIO`]).
     pub expected_recombinations: Option<f64>,
@@ -646,6 +790,8 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         longest_missing_run,
         saturation,
         het_reference,
+        depth: input.context.consensus.as_ref().map(DepthReport::new),
+        dropped: input.context.dropped.clone(),
         expected_recombinations,
         findings: Vec::new(),
         sequences: Vec::new(),

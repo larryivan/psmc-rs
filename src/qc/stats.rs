@@ -85,6 +85,24 @@ pub fn largest_trunk_within(lengths: &[u64], max_fraction: f64) -> u64 {
     sorted.last().copied().unwrap_or(0)
 }
 
+/// The smallest depth `d` such that the classes `0..=d` of `histogram` hold
+/// at least a share `q` of its total; `None` when the histogram is empty.
+pub(crate) fn histogram_quantile(histogram: &[u64], q: f64) -> Option<u32> {
+    let total: u64 = histogram.iter().sum();
+    if total == 0 {
+        return None;
+    }
+    let target = q * total as f64;
+    let mut cum = 0u64;
+    for (d, &n) in histogram.iter().enumerate() {
+        cum += n;
+        if cum as f64 >= target && cum > 0 {
+            return Some(d as u32);
+        }
+    }
+    Some(histogram.len() as u32 - 1)
+}
+
 /// Median of `xs` (the mean of the two middle values for an even count),
 /// sorting `xs` in place; NaN for an empty slice.
 pub(crate) fn median(xs: &mut [f64]) -> f64 {
