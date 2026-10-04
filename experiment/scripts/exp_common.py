@@ -13,15 +13,18 @@ paths. Tool locations follow one rule everywhere:
 
 from __future__ import annotations
 
+import bisect
 import json
+import math
 import os
 import shlex
 import shutil
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 try:
     import psutil
@@ -96,6 +99,131 @@ def resolve_c_psmc(cli_value: Optional[str], *, required: bool) -> Optional[Path
     if required:
         raise FileNotFoundError(f"C psmc binary not found.\n\n{C_PSMC_BUILD_HELP}")
     return None
+
+
+# Simulated demographic models shared by run_main_text.py and run_supplementary.py.
+# Times are in units of 4*N0 generations and sizes are ratios to N0 (ms convention);
+# simulate_msprime_to_psmcfa.py converts them to generations.
+MODELS: Dict[str, Dict] = {
+    "constant": {
+        "title": "Constant",
+        "sim_model": "constant",
+        "sim_ne": 10_000.0,
+        "sim_seed": 42,
+        "true_kind": "constant",
+        "true_params": {"ne": 10_000.0},
+    },
+    "bottleneck": {
+        "title": "Bottleneck",
+        "sim_model": "bottleneck",
+        "sim_ne": 20_000.0,
+        "sim_seed": 43,
+        "true_kind": "ms_piecewise",
+        "true_params": {
+            "ne0": 20_000.0,
+            "events": [(0.01, 0.05), (0.015, 0.5), (0.05, 0.25), (0.5, 0.5)],
+        },
+    },
+    "expansion": {
+        "title": "Expansion",
+        "sim_model": "expansion",
+        "sim_ne": 10_000.0,
+        "sim_seed": 44,
+        "true_kind": "ms_piecewise",
+        "true_params": {
+            "ne0": 10_000.0,
+            "events": [(0.01, 0.1), (0.06, 1.0), (0.2, 0.5), (1.0, 1.0), (2.0, 2.0)],
+        },
+    },
+    "zigzag": {
+        "title": "Zigzag",
+        "sim_model": "sim2_zigzag",
+        "sim_ne": 1_000.0,
+        "sim_seed": 45,
+        "true_kind": "ms_piecewise",
+        "true_params": {
+            "ne0": 1_000.0,
+            "events": [(0.1, 5.0), (0.6, 20.0), (2.0, 5.0), (10.0, 10.0), (20.0, 5.0)],
+        },
+    },
+}
+MODEL_ORDER = ["constant", "bottleneck", "expansion", "zigzag"]
+
+
+@dataclass(frozen=True)
+class MatchedSettings:
+    """EM settings applied identically to psmc-rs and C psmc.
+
+    Defaults are the manuscript settings; each field can be overridden through
+    the environment variable named in :meth:`from_env`. psmc-rs smoothing is
+    off (C has none) and psmc-rs runs single-threaded for a fair runtime
+    comparison. ``rho_t_ratio`` is C's ``-r``; it has to equal the psmc-rs
+    default ``rho0 = theta0 / ratio``, which is 4 from psmc-rs 0.2 on (as in
+    lh3/psmc) and was 5 in psmc-rs 0.1.
+    """
+
+    n_iter: int = 20
+    t_max: float = 15.0
+    n_steps: int = 64
+    pattern: str = "4+25*2+4+6"
+    rho_t_ratio: int = 4
+    batch_size: int = 300_000
+    smooth_lambda: float = 0.0
+    threads: int = 1
+
+    @classmethod
+    def from_env(cls) -> "MatchedSettings":
+        env = os.environ
+        d = cls()
+        return cls(
+            n_iter=int(env.get("N_ITER", d.n_iter)),
+            t_max=float(env.get("T_MAX", d.t_max)),
+            n_steps=int(env.get("N_STEPS", d.n_steps)),
+            pattern=env.get("PATTERN", d.pattern),
+            rho_t_ratio=int(env.get("RHO_T_RATIO", d.rho_t_ratio)),
+            batch_size=int(env.get("BATCH_SIZE", d.batch_size)),
+            smooth_lambda=float(env.get("SMOOTH_LAMBDA", d.smooth_lambda)),
+            threads=int(env.get("RUST_THREADS", d.threads)),
+        )
+
+    def rust_cmd(
+        self, psmc_rs: Path, inp: Path, out_json: Path, *, mu: float, extra: Sequence[str] = ()
+    ) -> List[str]:
+        return [
+            str(psmc_rs),
+            str(inp),
+            str(out_json),
+            str(self.n_iter),
+            "--t-max",
+            str(self.t_max),
+            "--n-steps",
+            str(self.n_steps),
+            "--pattern",
+            self.pattern,
+            "--mu",
+            str(mu),
+            "--smooth-lambda",
+            str(self.smooth_lambda),
+            "--batch-size",
+            str(self.batch_size),
+            "--threads",
+            str(self.threads),
+            "--no-progress",
+            *extra,
+        ]
+
+    def c_cmd(self, c_psmc: Path, inp: Path, out_psmc: Path) -> List[str]:
+        return [
+            str(c_psmc),
+            f"-N{self.n_iter}",
+            f"-t{self.t_max}",
+            f"-r{self.rho_t_ratio}",
+            "-p",
+            self.pattern,
+            "-o",
+            str(out_psmc),
+            str(inp),
+        ]
 
 
 def repo_relative(path: Path, root: Path = ROOT) -> str:
@@ -221,3 +349,121 @@ def require_modules(names: Sequence[str], purpose: str) -> None:
             f"Install them with:\n    {sys.executable} -m pip install {' '.join(missing)}\n"
             "(see experiment/requirements.txt for the full list)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Ne(t) curves. Same definitions as the plotting notebook, without numpy.
+# ---------------------------------------------------------------------------
+
+Curve = Tuple[List[float], List[float]]
+
+
+def _pattern_groups(pattern: Optional[str]) -> Optional[List[Tuple[int, int]]]:
+    if pattern is None:
+        return None
+    out = []
+    for part in str(pattern).split("+"):
+        part = part.strip()
+        if not part:
+            continue
+        if "*" in part:
+            a, b = part.split("*", 1)
+            out.append((int(a), int(b)))
+        else:
+            out.append((1, int(part)))
+    return out or None
+
+
+def expand_lam(lam_grouped: Sequence[float], n_steps: int, pattern: Optional[str]) -> List[float]:
+    """Expand one lambda per free parameter to one per time interval (n_steps + 1)."""
+    lam_grouped = [float(x) for x in lam_grouped]
+    groups = _pattern_groups(pattern)
+    if groups is None:
+        if len(lam_grouped) != n_steps + 1:
+            raise ValueError(f"lam length {len(lam_grouped)} != n_steps+1 ({n_steps + 1})")
+        return lam_grouped
+    if len(lam_grouped) == sum(nr for nr, _ in groups):
+        lam = []
+        idx = 0
+        for nr, gl in groups:
+            for _ in range(nr):
+                lam.extend([lam_grouped[idx]] * gl)
+                idx += 1
+        if len(lam) != n_steps + 1:
+            raise ValueError(f"expanded lam length {len(lam)} != n_steps+1 ({n_steps + 1})")
+        return lam
+    # Legacy files: `a*b` read as a states of width b, plus one trailing value.
+    if len(lam_grouped) == sum(a for a, _ in groups) + 1:
+        lam = []
+        idx = 0
+        for a, b in groups:
+            for _ in range(a):
+                lam.extend([lam_grouped[idx]] * b)
+                idx += 1
+        lam.append(lam_grouped[-1])
+        if len(lam) != n_steps + 1:
+            raise ValueError(f"expanded legacy lam length {len(lam)} != n_steps+1 ({n_steps + 1})")
+        return lam
+    raise ValueError("grouped lam length mismatch with pattern")
+
+
+def curve_from_json(path: Path, mu: float, gen_years: float, bin_size: int = 100) -> Curve:
+    """Ne(years) step curve from a psmc-rs parameter JSON."""
+    params = json.loads(Path(path).read_text())
+    theta = float(params["theta"])
+    n_steps = int(params["n_steps"])
+    t_max = float(params["t_max"])
+    lam = expand_lam(params["lam"], n_steps, params.get("pattern"))
+    alpha = 0.1
+    beta = math.log(1 + t_max / alpha) / n_steps
+    t = [alpha * (math.exp(beta * k) - 1.0) for k in range(n_steps)] + [t_max]
+    n0 = theta / (4.0 * mu * bin_size)
+    xs = [tk * 2.0 * gen_years * n0 for tk in t] + [1e8]
+    ys = [lk * n0 for lk in lam] + [lam[-1] * n0]
+    return xs, ys
+
+
+def curve_from_c_psmc(path: Path, mu: float, gen_years: float, bin_size: int = 100) -> Curve:
+    """Ne(years) step curve from the last complete round of a C psmc output."""
+    blocks = []
+    cur = None
+    for ln in Path(path).read_text().splitlines():
+        if ln.startswith("RD\t"):
+            if cur is not None:
+                blocks.append(cur)
+            cur = {"tr": None, "pa": None, "rs": []}
+        elif cur is not None and ln.startswith("TR\t"):
+            _, th, rh = ln.split("\t")[:3]
+            cur["tr"] = (float(th), float(rh))
+        elif cur is not None and ln.startswith("PA\t"):
+            cur["pa"] = ln
+        elif cur is not None and ln.startswith("RS\t"):
+            f = ln.split("\t")
+            cur["rs"].append((int(f[1]), float(f[2]), float(f[3])))
+    if cur is not None:
+        blocks.append(cur)
+    best = next((b for b in reversed(blocks) if b["pa"] and b["tr"] is not None and b["rs"]), None)
+    if best is None:
+        raise ValueError(f"cannot parse valid block in {path}")
+    n0 = best["tr"][0] / (4.0 * mu * bin_size)
+    xs = [2.0 * n0 * tk * gen_years for _, tk, _ in best["rs"]] + [1e8]
+    ys = [n0 * lk for _, _, lk in best["rs"]]
+    ys.append(ys[-1])
+    return xs, ys
+
+
+def step_value(xs: Sequence[float], ys: Sequence[float], xq: float) -> float:
+    idx = bisect.bisect_right(xs, xq) - 1
+    return float(ys[max(0, min(idx, len(ys) - 1))])
+
+
+def rmse_log10(a: Curve, b: Curve, x_min: float = 1e3, x_max: float = 1e8, n: int = 500) -> float:
+    """RMSE of log10 Ne between two step curves on a log-spaced grid of years."""
+    lo, hi = math.log10(x_min), math.log10(x_max)
+    total = 0.0
+    for i in range(n):
+        x = 10 ** (lo + (hi - lo) * i / (n - 1))
+        va = max(step_value(a[0], a[1], x), 1e-12)
+        vb = max(step_value(b[0], b[1], x), 1e-12)
+        total += (math.log10(va) - math.log10(vb)) ** 2
+    return math.sqrt(total / n)

@@ -153,50 +153,8 @@ def _parse_float_list(env_name: str, default_csv: str) -> List[float]:
 
 S1_SMOOTH_LAMBDAS = sorted(set(_parse_float_list("S1_SMOOTH_LAMBDAS", "0,1e-5,1e-4,1e-3,1e-2")))
 
-MODELS: Dict[str, Dict] = {
-    "constant": {
-        "title": "Constant",
-        "sim_model": "constant",
-        "sim_ne": 10_000.0,
-        "sim_seed": 42,
-        "true_kind": "constant",
-        "true_params": {"ne": 10_000.0},
-    },
-    "bottleneck": {
-        "title": "Bottleneck",
-        "sim_model": "bottleneck",
-        "sim_ne": 20_000.0,
-        "sim_seed": 43,
-        "true_kind": "ms_piecewise",
-        "true_params": {
-            "ne0": 20_000.0,
-            "events": [(0.01, 0.05), (0.015, 0.5), (0.05, 0.25), (0.5, 0.5)],
-        },
-    },
-    "expansion": {
-        "title": "Expansion",
-        "sim_model": "expansion",
-        "sim_ne": 10_000.0,
-        "sim_seed": 44,
-        "true_kind": "ms_piecewise",
-        "true_params": {
-            "ne0": 10_000.0,
-            "events": [(0.01, 0.1), (0.06, 1.0), (0.2, 0.5), (1.0, 1.0), (2.0, 2.0)],
-        },
-    },
-    "zigzag": {
-        "title": "Zigzag",
-        "sim_model": "sim2_zigzag",
-        "sim_ne": 1_000.0,
-        "sim_seed": 45,
-        "true_kind": "ms_piecewise",
-        "true_params": {
-            "ne0": 1_000.0,
-            "events": [(0.1, 5.0), (0.6, 20.0), (2.0, 5.0), (10.0, 10.0), (20.0, 5.0)],
-        },
-    },
-}
-MODEL_ORDER = ["constant", "bottleneck", "expansion", "zigzag"]
+MODELS: Dict[str, Dict] = exp_common.MODELS
+MODEL_ORDER = exp_common.MODEL_ORDER
 
 COLORS = {
     "true": "#3B82F6",
