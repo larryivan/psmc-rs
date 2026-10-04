@@ -27,3 +27,8 @@ lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+# The numerical tests (C equivalence, simulation checks) run full EM fits;
+# optimise them while keeping debug assertions and overflow checks on.
+[profile.test]
+opt-level = 2
