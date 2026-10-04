@@ -156,7 +156,8 @@ mod neon {
     }
 }
 
-#[cfg(not(target_arch = "aarch64"))]
+// Compiled everywhere so that the aarch64 build tests it against NEON.
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 mod portable {
     //! Plain Rust kernels for other targets (no FMA: `mul_add` would be a
     //! libm call on x86-64 builds without the `fma` target feature).
@@ -616,6 +617,40 @@ mod tests {
                 assert!(max_rel(&fast, &dense) < 1e-13, "Ax, n_steps {n_steps}");
                 assert!(fast[k.n_states()..].iter().all(|v| *v == 0.0));
             }
+        }
+    }
+
+    /// The portable kernels (used on targets other than aarch64) agree with
+    /// the dispatched ones.
+    #[test]
+    fn portable_kernels_match() {
+        let mut rng = SmallRng::seed_from_u64(9);
+        for np in [8, 16, 24, 64] {
+            let n = np - 3;
+            let x: Vec<f64> = (0..np)
+                .map(|i| if i < n { rng.gen_range(0.0..1.0) } else { 0.0 })
+                .collect();
+            let m: Vec<f64> = (0..np * np).map(|_| rng.gen_range(0.0..1.0)).collect();
+            let (mut fast, mut plain) = (vec![0.0; np], vec![0.0; np]);
+            vec_mat(&x, &m, np, &mut fast);
+            portable::vec_mat(&x, &m, np, &mut plain);
+            assert!(max_rel(&fast, &plain) < 1e-13, "vec_mat np={np}");
+
+            let rows = 37;
+            let u: Vec<f64> = (0..rows * np)
+                .map(|i| {
+                    if i % np < n {
+                        rng.gen_range(0.0..1.0)
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            let w: Vec<f64> = (0..rows * np).map(|_| rng.gen_range(0.0..1.0)).collect();
+            let (mut fast, mut plain) = (vec![1.0; np * np], vec![1.0; np * np]);
+            outer_accumulate(&u, &w, rows, np, n, &mut fast);
+            portable::outer_accumulate(&u, &w, rows, np, n, &mut plain);
+            assert!(max_rel(&fast, &plain) < 1e-13, "outer_accumulate np={np}");
         }
     }
 
