@@ -5,9 +5,11 @@
 //! sequence's checkpoints, or a group of consecutive short sequences, each
 //! decoded whole. Within a window, the checkpoint passes of the sequences
 //! that need them run in parallel, then all units are decoded in parallel;
-//! the previous window is written meanwhile. Units depend only on the input,
-//! and every site's line is computed the same way in either kind of unit, so
-//! the output does not depend on the thread count.
+//! the previous window is written meanwhile. A sequence longer than a window
+//! has its checkpoint passes run earlier instead, alongside the decoding of
+//! the output before it. Units depend only on the input, and every site's
+//! line is computed the same way in either kind of unit, so the output does
+//! not depend on the thread count.
 
 use anyhow::{Context, Result, bail};
 use flate2::Compression;
@@ -35,6 +37,10 @@ const SEGMENTS_PER_BLOCK: usize = 8;
 const UNIT_SITES: usize = SEGMENTS_PER_BLOCK * CHECKPOINT_STRIDE;
 /// Work units per window: the units decoded in parallel before being written.
 const UNITS_PER_WINDOW: usize = 64;
+/// Sites in a full window. The checkpoint passes of a sequence longer than
+/// this run while the output before it is decoded, instead of in its first
+/// window, where only two threads would have work.
+const WINDOW_SITES: usize = UNITS_PER_WINDOW * UNIT_SITES;
 
 const HEADER: &str = "seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\ttmrca_q025_years\ttmrca_q975_years\tpmax\tentropy\n";
 
@@ -230,14 +236,14 @@ struct Window {
     end_site: usize,
 }
 
-/// The next window of at most [`UNITS_PER_WINDOW`] units, or `None` at the end.
-/// `seq_start[i]` is the first site of sequence `i`; the last entry is the total.
-fn next_window(seq_start: &[usize], cur: &mut Cursor) -> Option<Window> {
-    let n_seqs = seq_start.len() - 1;
+/// The next window of at most [`UNITS_PER_WINDOW`] units from sequences
+/// before `stop`, or `None` once the cursor reaches `stop`. `seq_start[i]`
+/// is the first site of sequence `i`; the last entry is the total.
+fn next_window(seq_start: &[usize], cur: &mut Cursor, stop: usize) -> Option<Window> {
     let mut units = Vec::new();
     let mut ckpt_seqs = Vec::new();
     let mut group_sites = 0;
-    while cur.seq < n_seqs {
+    while cur.seq < stop {
         let len = seq_start[cur.seq + 1] - seq_start[cur.seq];
         if len <= UNIT_SITES {
             if let Some(Unit::Short { seqs }) = units.last_mut()
@@ -514,6 +520,42 @@ impl Decoder<'_> {
         };
         Ok((outs, next))
     }
+
+    /// The first sequence from `from` on with more than [`WINDOW_SITES`]
+    /// sites, or the number of sequences.
+    fn next_big(&self, from: usize) -> usize {
+        let n_seqs = self.seq_start.len() - 1;
+        (from..n_seqs)
+            .find(|&i| self.seq_start[i + 1] - self.seq_start[i] > WINDOW_SITES)
+            .unwrap_or(n_seqs)
+    }
+
+    /// Decode the windows from `cursor` up to sequence `stop`, writing each
+    /// one while the next is decoded. The last window's output is left in
+    /// `decoded`, to be written by the caller.
+    fn run_span(
+        &self,
+        cursor: &mut Cursor,
+        stop: usize,
+        carried: &mut Option<(usize, DecodeCheckpoints)>,
+        output: &mut Output,
+        decoded: &mut Option<(Vec<UnitOut>, usize)>,
+    ) -> Result<()> {
+        while let Some(w) = next_window(&self.seq_start, cursor, stop) {
+            let (written, next) = rayon::join(
+                || match decoded.take() {
+                    Some((outs, end_site)) => output.append(outs, end_site),
+                    None => Ok(()),
+                },
+                || self.decode_window(&w, carried.take()),
+            );
+            written?;
+            let (outs, keep) = next?;
+            *carried = keep;
+            *decoded = Some((outs, w.end_site));
+        }
+        Ok(())
+    }
 }
 
 /// The file being written and the report summaries, in output order.
@@ -611,30 +653,32 @@ pub fn write_tmrca_posterior_tsv(
             .then(|| progress::bar_raw(total_sites as u64, "TMRCA", "posterior")),
     };
 
+    // The output is decoded in spans that end at each sequence longer than a
+    // window; the checkpoint passes of that sequence run alongside the span.
+    // At most two such sequences have checkpoints in memory.
+    let n_seqs = dec.plan.seqs.len();
     let mut cursor = Cursor::default();
-    let mut carried = None;
-    let mut decoded: Option<(Vec<UnitOut>, usize)> = None;
+    let mut carried: Option<(usize, DecodeCheckpoints)> = None;
+    let mut decoded = None;
     loop {
-        let window = next_window(&dec.seq_start, &mut cursor);
-        let (written, next) = rayon::join(
-            || match decoded.take() {
-                Some((outs, end_site)) => output.append(outs, end_site),
-                None => Ok(()),
-            },
+        let ready = carried.as_ref().is_some_and(|(s, _)| *s == cursor.seq);
+        let stop = dec.next_big(cursor.seq + usize::from(ready));
+        let (span, ahead) = rayon::join(
+            || dec.run_span(&mut cursor, stop, &mut carried, &mut output, &mut decoded),
             || -> Result<_> {
-                let Some(w) = window else {
-                    return Ok(None);
-                };
-                let (outs, keep) = dec.decode_window(&w, carried.take())?;
-                carried = keep;
-                Ok(Some((outs, w.end_site)))
+                (stop < n_seqs)
+                    .then(|| fb::decode_checkpoints(&dec.kernel, &dec.seq(stop), &dec.ctx))
+                    .transpose()
             },
         );
-        written?;
-        match next? {
-            Some(d) => decoded = Some(d),
+        span?;
+        match ahead? {
+            Some(c) => carried = Some((stop, c)),
             None => break,
         }
+    }
+    if let Some((outs, end_site)) = decoded.take() {
+        output.append(outs, end_site)?;
     }
     let Output {
         sink,
@@ -673,42 +717,51 @@ mod tests {
         s
     }
 
-    /// Walks every window and checks that the units cover each site once, in
-    /// order, within the size limits. Returns the number of units per window.
+    /// Walks every window, in spans ending at each sequence longer than a
+    /// window as `write_tmrca_posterior_tsv` does, and checks that the units
+    /// cover each site once, in order, within the size limits. Returns the
+    /// number of units per window.
     fn check_windows(lens: &[usize]) -> Vec<usize> {
         let seq_start = starts(lens);
+        let n = lens.len();
+        let stops = (0..n).filter(|&i| lens[i] > WINDOW_SITES).chain([n]);
         let mut cur = Cursor::default();
         let mut next_site = 0;
-        let mut continued: Option<usize> = None;
+        let mut continued: Option<usize>;
         let mut sizes = Vec::new();
-        while let Some(w) = next_window(&seq_start, &mut cur) {
-            assert!(w.units.len() <= UNITS_PER_WINDOW);
-            if let Some(seq) = continued {
-                assert_eq!(w.ckpt_seqs.first(), Some(&seq), "carried checkpoints");
-            }
-            for u in &w.units {
-                match u {
-                    Unit::Short { seqs } => {
-                        assert!(!seqs.is_empty());
-                        assert_eq!(seq_start[seqs.start], next_site);
-                        assert!(seq_start[seqs.end] - seq_start[seqs.start] <= UNIT_SITES);
-                        next_site = seq_start[seqs.end];
-                    }
-                    Unit::Long { seq, ckpt, segs } => {
-                        assert!(lens[*seq] > UNIT_SITES);
-                        assert_eq!(w.ckpt_seqs[*ckpt], *seq);
-                        assert!(!segs.is_empty() && segs.len() <= SEGMENTS_PER_BLOCK);
-                        assert_eq!(seq_start[*seq] + segs.start * K, next_site);
-                        next_site = (seq_start[*seq] + segs.end * K).min(seq_start[*seq + 1]);
+        for stop in stops {
+            // A span starting at a long sequence uses its prefetched checkpoints.
+            continued = (cur.seq < stop && lens[cur.seq] > WINDOW_SITES).then_some(cur.seq);
+            while let Some(w) = next_window(&seq_start, &mut cur, stop) {
+                assert!(w.units.len() <= UNITS_PER_WINDOW);
+                if let Some(seq) = continued {
+                    assert_eq!(w.ckpt_seqs.first(), Some(&seq), "carried checkpoints");
+                }
+                for u in &w.units {
+                    match u {
+                        Unit::Short { seqs } => {
+                            assert!(!seqs.is_empty() && seqs.end <= stop);
+                            assert_eq!(seq_start[seqs.start], next_site);
+                            assert!(seq_start[seqs.end] - seq_start[seqs.start] <= UNIT_SITES);
+                            next_site = seq_start[seqs.end];
+                        }
+                        Unit::Long { seq, ckpt, segs } => {
+                            assert!(lens[*seq] > UNIT_SITES && *seq < stop);
+                            assert_eq!(w.ckpt_seqs[*ckpt], *seq);
+                            assert!(!segs.is_empty() && segs.len() <= SEGMENTS_PER_BLOCK);
+                            assert_eq!(seq_start[*seq] + segs.start * K, next_site);
+                            next_site = (seq_start[*seq] + segs.end * K).min(seq_start[*seq + 1]);
+                        }
                     }
                 }
+                assert_eq!(w.end_site, next_site);
+                continued = w.continues.then(|| *w.ckpt_seqs.last().unwrap());
+                sizes.push(w.units.len());
             }
-            assert_eq!(w.end_site, next_site);
-            continued = w.continues.then(|| *w.ckpt_seqs.last().unwrap());
-            sizes.push(w.units.len());
+            assert_eq!((cur.seq, cur.seg), (stop, 0), "a span ends at its stop");
+            assert_eq!(next_site, seq_start[stop]);
+            assert_eq!(continued, None);
         }
-        assert_eq!(next_site, *seq_start.last().unwrap());
-        assert_eq!(continued, None);
         sizes
     }
 
@@ -836,5 +889,11 @@ mod tests {
             UNIT_SITES - 1,
             2,
         ]);
+        // Spans end at every sequence longer than a window, also when such
+        // sequences are adjacent or first; shorter ones are not stops.
+        assert_eq!(
+            check_windows(&[long, long, 5, WINDOW_SITES, long]),
+            vec![64, 1, 64, 64, 2, 64, 1]
+        );
     }
 }

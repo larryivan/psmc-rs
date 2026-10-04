@@ -445,13 +445,14 @@ fn input(seed: u64) -> Input {
     input_with_lengths(seed, &[3 * K + 5, 1, K - 1, K, K + 1, 2000])
 }
 
-/// Many short sequences around a long one that spans several windows of
+/// Many short sequences around two long ones that span several windows of
 /// work units, plus lengths at the unit size (8 segments) and just past it.
 fn many_sequences_input(seed: u64) -> Input {
     let mut rng = SmallRng::seed_from_u64(seed ^ 0x5eed);
     let mut lens: Vec<usize> = (0..150).map(|_| rng.gen_range(1..=300)).collect();
     lens.extend([8 * K, 8 * K + 1, 4 * K, 4 * K, 4 * K + 1, 3 * K]);
-    lens.push(70 * 8 * K + 37);
+    // Two adjacent sequences longer than a window of 64 units.
+    lens.extend([70 * 8 * K + 37, 65 * 8 * K + 3]);
     lens.extend((0..120).map(|_| rng.gen_range(1..=300)));
     lens.extend([3000, 1, 2 * 8 * K]);
     input_with_lengths(seed, &lens)
