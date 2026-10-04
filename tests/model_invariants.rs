@@ -104,6 +104,18 @@ fn n_steps_for_pattern_counts_atomic_intervals() {
 }
 
 #[test]
+fn patterns_whose_state_count_overflows_are_errors_not_panics() {
+    let max = usize::MAX;
+    for bad in [format!("{max}*2"), format!("{max}+1"), format!("3*{max}+4")] {
+        assert!(
+            n_steps_for_pattern(&bad).is_err(),
+            "{bad:?} should be rejected"
+        );
+        assert!(PsmcModel::new(15.0, 63, 1e-3, 2e-4, 2.5e-8, Some(bad)).is_err());
+    }
+}
+
+#[test]
 fn model_new_rejects_single_state_models() {
     // n_steps = 0 leaves one state whose time grid starts at t_max instead of
     // 0 (compute_t writes t[n] = t_max over t[0]); there is nothing to infer.

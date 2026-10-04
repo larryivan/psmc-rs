@@ -520,5 +520,11 @@ fn parse_pattern(pattern: &str) -> Result<Vec<(usize, usize)>> {
     if out.is_empty() {
         bail!("pattern is empty");
     }
+    let n_states = out.iter().try_fold(0usize, |acc, &(nr, gl)| {
+        nr.checked_mul(gl)?.checked_add(acc)
+    });
+    if n_states.is_none() {
+        bail!("pattern {pattern:?} implies too many states");
+    }
     Ok(out)
 }
