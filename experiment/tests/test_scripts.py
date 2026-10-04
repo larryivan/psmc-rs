@@ -148,6 +148,14 @@ class SharedHelpers(unittest.TestCase):
         self.assertEqual(rust[rust.index("--smooth-lambda") + 1], "0.0")
         self.assertEqual(rust[rust.index("--pattern") + 1], c[c.index("-p") + 1])
 
+    def test_bins_after_last_het(self):
+        rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_bins")
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "x.psmcfa"
+            for seq, want in (("TTKTT", 2), ("TTTTK", 0), ("TTTT", 4), ("K" + "T" * 70, 70)):
+                p.write_text("> chr1\n" + "\n".join(seq[i : i + 60] for i in range(0, len(seq), 60)) + "\n")
+                self.assertEqual(rs.bins_after_last_het(p), want, seq)
+
     def test_curves_from_both_tools_agree_on_identical_histories(self):
         with tempfile.TemporaryDirectory() as tmp:
             rj, cp = Path(tmp) / "a.json", Path(tmp) / "a.psmc"
@@ -467,6 +475,18 @@ class SupplementaryRunner(unittest.TestCase):
             cwd=self.tmp,
             env=env,
         )
+
+    @unittest.skipUnless(has_module("msprime"), "msprime not installed")
+    def test_s5_records_the_bins_only_the_psmcfa_has(self):
+        env = dict(self.env, SIM_LENGTH_BP="200000")
+        res = self.run_steps("S5", env)
+        self.assertEqual(res.returncode, 0, res.stderr[-3000:])
+        rows = {r["model"]: r for r in read_csv(self.out / "tables" / "S5_format_consistency.csv")}
+        self.assertEqual(sorted(rows), sorted(["constant", "bottleneck", "expansion", "zigzag"]))
+        for model, r in rows.items():
+            psmcfa = self.out / "s5_format" / "inputs" / f"{model}.200000bp.psmcfa"
+            seq = "".join(ln for ln in psmcfa.read_text().splitlines() if not ln.startswith(">"))
+            self.assertEqual(int(r["psmcfa_bins_after_last_het"]), len(seq) - 1 - seq.rindex("K"), model)
 
     def test_s3_rerun_keeps_its_timings(self):
         # A second run into the same directory used to find the outputs of the

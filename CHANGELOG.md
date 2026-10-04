@@ -80,7 +80,11 @@ Library and CLI changes: to be completed at integration.
   regenerated with the 0.2 fixes; the inference outputs behind Figures 2 and 3
   are not committed yet.
 - The zigzag row of `S5_format_consistency.csv` is exactly zero in every
-  column and must be regenerated before Supplementary Figure S2 is used.
+  column. This is not an artefact: S5's inputs differ only in the homozygous
+  bins after the last heterozygous site (multihetsep and VCF end there), and
+  the zigzag simulation has no such bins. The caption of Supplementary Figure
+  S2 should say so; `run_supplementary.py` now records the count in
+  `psmcfa_bins_after_last_het`.
 - The committed Figure 3 files still show the old Papuan panel title.
 
 ## [0.1.2] - 2026-02-24

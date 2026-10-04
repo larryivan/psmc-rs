@@ -5,7 +5,10 @@ S1: smoothness ablation (A/B/C); optional, not used by the current manuscript
 S2: EM convergence (log-likelihood vs iteration)
 S3: memory scaling by sequence length
 S4: Rust thread scaling (with ideal speedup line)
-S5: format consistency (psmcfa/mhs/vcf)
+S5: format consistency (psmcfa/mhs/vcf). The three inputs hold the same
+    simulation and differ only in the homozygous bins after the last
+    heterozygous site, which the psmcfa has and psmc-rs's multihetsep and VCF
+    readers drop; the table records their number per model.
 
 The tables land in ``<out-dir>/tables`` (default
 ``experiment/runs/supplementary/tables``), where
@@ -386,6 +389,17 @@ def _read_psmcfa_seq(path: Path) -> str:
             continue
         seq_parts.append(ln.strip())
     return "".join(seq_parts)
+
+
+def bins_after_last_het(psmcfa: Path) -> int:
+    """Bins after the last heterozygous (``K``) bin of a single-sequence psmcfa.
+
+    psmc-rs ends a multihetsep or VCF sequence at its last heterozygous site,
+    so in S5 these bins are part of the psmcfa input only: they are the one
+    difference between the three inputs, and S5 measures their effect.
+    """
+    seq = _read_psmcfa_seq(psmcfa)
+    return len(seq) - 1 - seq.rfind("K")
 
 
 def ensure_s4_parallel_input(force: bool = False) -> Path:
@@ -1352,6 +1366,8 @@ def run_s5_format_consistency(force: bool = False):
                 "rmse_curve_log10_mhs_vs_psmcfa": rmse_mhs,
                 "rmse_curve_log10_vcf_vs_psmcfa": rmse_vcf,
                 "rmse_curve_log10_vcf_vs_mhs": rmse_vcf_mhs,
+                # 0 means the three inputs are identical, so every column above is 0.
+                "psmcfa_bins_after_last_het": bins_after_last_het(psmcfa_in),
             }
         )
 

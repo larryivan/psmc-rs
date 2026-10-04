@@ -26,11 +26,25 @@ repository from its own path, so any working directory works.
   regenerating. Until then `run.py` lists them as missing together with the
   command that regenerates them, and `run.py --keep-going` draws the figures
   whose inputs are present (Figure 4 and Supplementary Figures S1-S3).
-- **`S5_format_consistency.csv` needs regeneration.** Its zigzag row is
-  exactly 0.0 in every column while the other models are not, which points to
-  a stale or mis-cached run rather than a real result (a 2 Mb smoke run of the
-  same code gives non-zero zigzag differences). Supplementary Figure S2 is
-  drawn from this table and must not be used until S5 is re-run.
+- **The zigzag row of `S5_format_consistency.csv` is exactly 0.0 by
+  construction, and stays 0.0 when S5 is re-run.** S5 writes one simulation
+  per model as psmcfa, multihetsep and VCF. The psmcfa covers the whole
+  500 Mb (5,000,000 bins of 100 bp), but psmc-rs's multihetsep and VCF
+  readers end a sequence at its last heterozygous site, so the homozygous
+  bins after it exist only in the psmcfa. They are the only difference
+  between the three inputs, so S5 measures their effect, not a disagreement
+  between readers: multihetsep and VCF agree exactly for every model (the
+  `vcf_vs_mhs` column is 0). In the zigzag simulation (seed 45) the last
+  heterozygous site, at position 499,999,906, falls in the final bin, so the
+  three inputs are identical and every column is 0. Checked with msprime
+  1.4.4: zigzag gives byte-identical psmc-rs output from the three files,
+  and the constant model drops 14 bins, after whose removal its psmcfa
+  output is byte-identical to the multihetsep one. Regenerated tables
+  record the count in `psmcfa_bins_after_last_het`. Like every psmc-rs
+  table, S5 is regenerated for 0.2, and the Figure S2 caption should
+  explain what it measures. To compare the readers on identical data
+  instead, trim the psmcfa to its last heterozygous bin; all differences
+  then vanish.
 - **The human sample is chromosome 1 only.**
   `real_data/Papuan_highlands_diploid.psmcfa` holds one sequence, `>chr1`,
   of 2,487,383 bins (about 249 Mb). The tables and the notebook now label it
@@ -148,7 +162,9 @@ python3 experiment/scripts/simulate_msprime_to_psmcfa.py --model bottleneck --ne
 seeds (identical files) in `runs/supplementary/shared_inputs/`, plus the
 constant model at 100, 250, 500 and 1000 Mb for S3, 8 zigzag contigs of 75 Mb
 (seeds 7400-7407) for S4, and, for S5, one msprime simulation per model
-(recombination rate 1.25e-8) written as psmcfa, multihetsep and VCF.
+(recombination rate 1.25e-8) written as psmcfa, multihetsep and VCF. The
+three S5 files differ only in the homozygous bins after the last
+heterozygous site (see "Read first").
 
 ### 2. Run psmc-rs and C psmc
 

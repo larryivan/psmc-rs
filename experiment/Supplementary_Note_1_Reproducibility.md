@@ -13,7 +13,7 @@ authors' machines. `experiment/README.md` gives the full details.
 | Simulated inputs (4 models x 500 Mb, S3/S4/S5 inputs) | not packaged (large) | `experiment/scripts/run_main_text.py --steps simulate`, `run_supplementary.py` |
 | psmc-rs and C psmc outputs for Figures 2 and 3 (`experiment/runs/{main_text,real_data}/outputs/`) | **not yet packaged**; must be regenerated and committed | `run_main_text.py --steps main`, `run_real_data.py` |
 | Runtime and memory tables (Table 2, S3, S4) | packaged (psmc-rs 0.1) | `run_main_text.py --steps perf`, `run_supplementary.py --steps S3,S4` |
-| EM-convergence and format-consistency tables (S2, S5) | packaged (psmc-rs 0.1); S5 must be regenerated | `run_supplementary.py --steps S2,S5` |
+| EM-convergence and format-consistency tables (S2, S5) | packaged (psmc-rs 0.1) | `run_supplementary.py --steps S2,S5` |
 | Table 1, Figure 3 RMSE table, all figures | packaged | `experiment/run.py` |
 
 Known limitations of the packaged results:
@@ -27,8 +27,16 @@ Known limitations of the packaged results:
   repository's `.gitignore` excluded them). Until they are, `run.py` reports
   them as missing and names the regeneration commands.
 - In `S5_format_consistency.csv` the zigzag row is exactly zero in every
-  column, unlike the other models; it is an artefact and Supplementary
-  Figure S2 must be redrawn after re-running S5.
+  column. This is the expected result, not an artefact, and re-running S5
+  reproduces it. psmc-rs reads a multihetsep or VCF sequence only up to its
+  last heterozygous site, so the three S5 inputs of a model differ only in
+  the homozygous 100 bp bins after that site, which only the psmcfa holds.
+  The zigzag simulation has its last heterozygous site in the final bin, so
+  its three inputs are identical. The other models drop a few bins (14 for
+  the constant model; trimming them from the psmcfa gives byte-identical
+  psmc-rs output). Regenerated tables record this count per model
+  (`psmcfa_bins_after_last_het`), and the caption of Supplementary Figure S2
+  should state what S5 measures.
 - The human sample (`Papuan_highlands_diploid.psmcfa`) contains chromosome 1
   only (one sequence, 2,487,383 bins of 100 bp) and is labelled accordingly.
 - The stdpopsim/msprime versions used for the 0.1 simulations were not
