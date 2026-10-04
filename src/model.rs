@@ -95,8 +95,79 @@ impl PsmcModel {
         n_free_params(self.n_steps, self.pattern_spec.as_deref())
     }
 
+    /// `theta / (4 mu)`: N0 only if `theta` were per base pair.
+    ///
+    /// The fitted `theta` is per *bin* (C psmc's θ0 for a psmcfa of 100-bp
+    /// bins), so this overstates N0 by the bin size. Equal to
+    /// `n0_for_bin(1.0)`.
+    #[deprecated(note = "theta is per bin; use n0_for_bin(bin_size)")]
     pub fn n0(&self) -> f64 {
         self.theta / (4.0 * self.mu)
+    }
+
+    /// Reference effective population size `N0 = theta / (4 mu bin_size)`,
+    /// with `theta` per bin, `mu` per base pair per generation and
+    /// `bin_size` in base pairs (100 for psmcfa input), as in psmc_plot.pl.
+    pub fn n0_for_bin(&self, bin_size: f64) -> f64 {
+        self.theta / (4.0 * self.mu * bin_size)
+    }
+
+    /// The population-size history on psmc_plot.pl's scales: one point
+    /// `[t_k * 2 N0 * gen_years, lambda_k * N0]` (years ago, effective size)
+    /// for each state `k = 0..=n_steps`, where the size is `lambda_k * N0`
+    /// from that time back to the next point. The first point has x = 0, so
+    /// callers drawing on a log axis must drop it.
+    ///
+    /// These are all the states, as `psmc_plot.pl -L` draws them. Without
+    /// `-L`, psmc_plot.pl leaves out the states that share the last state's
+    /// λ (the last group of the pattern, or only the last state of a model
+    /// without one), so its default curve does not show the oldest size.
+    ///
+    /// Errors when `bin_size` or `gen_years` is not positive and finite, when
+    /// N0 is not (`theta` or `mu` not positive), or when `lam` has a length
+    /// the pattern does not allow.
+    pub fn ne_curve(&self, bin_size: f64, gen_years: f64) -> Result<Vec<[f64; 2]>> {
+        let n0 = self.checked_n0(bin_size, gen_years)?;
+        let t = self.compute_t(0.1);
+        let lam = self.map_lam(&self.lam)?;
+        Ok((0..=self.n_steps)
+            .map(|k| [t[k] * 2.0 * n0 * gen_years, lam[k] * n0])
+            .collect())
+    }
+
+    /// Average coalescent time of each state ([`avg_t`](Self::avg_t)) in
+    /// years: `avg_t[k] * 2 N0 * gen_years`, the time to report for a
+    /// posterior over states (TMRCA output). Like `avg_t`, it lies inside
+    /// the state's interval of [`ne_curve`](Self::ne_curve)'s x values.
+    ///
+    /// # Panics
+    ///
+    /// Under the same conditions as [`avg_t`](Self::avg_t).
+    pub fn state_tmrca_years(&self, bin_size: f64, gen_years: f64) -> Vec<f64> {
+        let n0 = self.n0_for_bin(bin_size);
+        self.avg_t()
+            .into_iter()
+            .map(|a| a * 2.0 * n0 * gen_years)
+            .collect()
+    }
+
+    fn checked_n0(&self, bin_size: f64, gen_years: f64) -> Result<f64> {
+        if !(bin_size > 0.0 && bin_size.is_finite()) {
+            bail!("bin size must be positive and finite, got {bin_size}");
+        }
+        if !(gen_years > 0.0 && gen_years.is_finite()) {
+            bail!("generation time must be positive and finite, got {gen_years}");
+        }
+        let n0 = self.n0_for_bin(bin_size);
+        if !(n0 > 0.0 && n0.is_finite()) {
+            bail!(
+                "N0 = theta / (4 mu bin_size) = {n0} is not positive and finite \
+                 (theta = {}, mu = {})",
+                self.theta,
+                self.mu
+            );
+        }
+        Ok(n0)
     }
 
     pub fn compute_t(&self, alpha: f64) -> Vec<f64> {
