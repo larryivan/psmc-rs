@@ -5,6 +5,7 @@
 //! records, of called (non-N) bins and of heterozygous (K) bins.
 
 use psmc_rs::io::psmcfa::{PsmcfaRecord, parse_psmcfa, read_psmcfa_records};
+use std::io::BufReader;
 use std::path::Path;
 
 /// `(n_seqs, sum_L, sum_n)` as printed by C psmc.
@@ -113,6 +114,27 @@ fn truncated_fastq_quality_errors_where_c_stops_silently() {
     for input in [&b">s\nTK\n>t\nTTKT\n+\nII\n"[..], &b">s\nTK+"[..]] {
         let err = parse_psmcfa(input).expect_err("expected an error");
         assert!(format!("{err:#}").contains("FASTQ"), "{err:#}");
+    }
+}
+
+#[test]
+fn parsing_does_not_depend_on_read_boundaries() {
+    // The parser is fed one reader buffer at a time; tiny buffers put a
+    // boundary at every position of every header, CRLF and FASTQ block.
+    let extra: [&[u8]; 4] = [
+        b">e\n>s\nTK\n",
+        b">s\nTK\n>t\nTTKT\n+\nII\n",
+        b">s\nTK+",
+        b">s\r\nTK\r\n>t desc\r\nKT\r\n",
+    ];
+    let inputs = MATCHES_C.iter().map(|c| c.1).chain(extra);
+    for input in inputs {
+        let whole = parse_psmcfa(input).map_err(|e| format!("{e:#}"));
+        for cap in [1, 2, 3, 7] {
+            let reader = BufReader::with_capacity(cap, input);
+            let chunked = parse_psmcfa(reader).map_err(|e| format!("{e:#}"));
+            assert_eq!(chunked, whole, "capacity {cap}, input {input:?}");
+        }
     }
 }
 

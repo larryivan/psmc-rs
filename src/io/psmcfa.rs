@@ -5,7 +5,7 @@
 //! mapped through the `conv_table` of its `cli.c`.
 
 use anyhow::{Context, Result, bail};
-use std::io::BufRead;
+use std::io::{BufRead, ErrorKind};
 use std::path::Path;
 
 use crate::io::Observations;
@@ -242,13 +242,24 @@ impl Parser {
 /// - Records with an empty sequence are returned (C psmc counts them too).
 /// - A `+` in a sequence starts a FASTQ quality block, as in kseq. When that
 ///   block is truncated, C psmc silently stops reading; this returns an error.
+///
+/// The input is streamed through the reader's buffer, so memory use is that of
+/// the parsed bins (one byte each) rather than of the whole text.
 pub fn parse_psmcfa<R: BufRead>(mut reader: R) -> Result<Vec<PsmcfaRecord>> {
-    let mut content = Vec::new();
-    reader
-        .read_to_end(&mut content)
-        .context("failed to read psmcfa input")?;
     let mut parser = Parser::new();
-    parser.feed(&content);
+    loop {
+        let buf = match reader.fill_buf() {
+            Ok(buf) => buf,
+            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e).context("failed to read psmcfa input"),
+        };
+        if buf.is_empty() {
+            break;
+        }
+        parser.feed(buf);
+        let n = buf.len();
+        reader.consume(n);
+    }
     parser.finish()
 }
 
