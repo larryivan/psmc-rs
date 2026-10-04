@@ -60,6 +60,10 @@ Library and CLI changes: to be completed at integration.
   repository-relative), the experiment README and the UI-assets README.
 - The Papuan sample, which contains chromosome 1 only, is labelled
   "Homo sapiens (Papuan Highlands, chr1)" in the notebook and the tables.
+- `run_supplementary.py` S3 re-runs its timed runs every time, as S4 does. A
+  second run into the same directory used to reuse the first run's outputs,
+  write empty timings to `S3_memory_scaling_summary.csv` (Figure 4C) and then
+  crash while plotting. The S3/S4 timing repeats are no longer tracked by git.
 
 ### Known issues
 

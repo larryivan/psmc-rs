@@ -27,3 +27,7 @@ __pycache__/
 !/experiment/runs/**/outputs/*.json
 !/experiment/runs/**/outputs/*.psmc
 !/experiment/runs/**/outputs/*.loglike.txt
+# Except the S3/S4 timing repeats: only their timings, kept in the tables, are
+# used, and they are re-run every time.
+/experiment/runs/supplementary/s3_memory/outputs/*
+/experiment/runs/supplementary/s4_threads/outputs/*

@@ -66,8 +66,9 @@ experiment/
 Committed: `real_data/`, every `runs/*/tables/*.csv`, `runs/*/figures/`, and
 the small `runs/**/outputs/*.json`, `*.psmc` and `*.loglike.txt` files.
 Ignored as regenerable: simulated inputs (5 MB per 500 Mb model, more for
-VCF), timing repeats (`perf/`), logs, HTML reports, bootstrap directories,
-`diagnostic_figures/` and the `.tsv`/`.md` copies of the tables.
+VCF), timing repeats (`main_text/perf/`, `supplementary/s3_memory/outputs/`,
+`supplementary/s4_threads/outputs/`), logs, HTML reports, bootstrap
+directories, `diagnostic_figures/` and the `.tsv`/`.md` copies of the tables.
 
 ## Requirements
 

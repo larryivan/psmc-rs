@@ -1149,11 +1149,10 @@ def run_s3_memory_scaling(force: bool = False):
 
         inp = shared_input_path("constant", length_bp)
         for rep in range(1, S3_REPEATS + 1):
+            # Timings cannot be cached, so every repeat is run again (as in S4):
+            # reusing an existing output would leave its timing empty.
             rust_out = S3_DIR / "outputs" / f"constant.{length_mb}mb.rust.rep{rep:02d}.json"
-            if force or not rust_out.exists():
-                r = run_rust(inp, rust_out, n_iter=N_ITER, threads=1, smooth_lambda=None)
-            else:
-                r = {"wall_sec": np.nan, "peak_rss_mb": np.nan}
+            r = run_rust(inp, rust_out, n_iter=N_ITER, threads=1, smooth_lambda=None)
             rows.append(
                 {
                     "length_mb": length_mb,
@@ -1165,10 +1164,7 @@ def run_s3_memory_scaling(force: bool = False):
             )
 
             c_out = S3_DIR / "outputs" / f"constant.{length_mb}mb.c.rep{rep:02d}.psmc"
-            if force or not c_out.exists():
-                c = run_c(inp, c_out, n_iter=N_ITER)
-            else:
-                c = {"wall_sec": np.nan, "peak_rss_mb": np.nan}
+            c = run_c(inp, c_out, n_iter=N_ITER)
             rows.append(
                 {
                     "length_mb": length_mb,

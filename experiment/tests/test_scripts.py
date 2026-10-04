@@ -13,6 +13,8 @@ import contextlib
 import csv
 import importlib.util
 import io
+import math
+import os
 import subprocess
 import sys
 import tempfile
@@ -27,6 +29,21 @@ import fixtures  # noqa: E402
 
 def has_module(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
+
+
+HAS_PLOT_DEPS = all(has_module(m) for m in ("numpy", "pandas", "matplotlib"))
+
+
+def read_csv(path: Path):
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def is_finite_number(value: str) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except ValueError:
+        return False
 
 
 def load_module(path: Path, name: str):
@@ -173,6 +190,49 @@ class MainTextRunner(unittest.TestCase):
         self.assertAlmostEqual(out[0]["wall_sec_mean"], 2.0)
         self.assertAlmostEqual(out[0]["wall_sec_std"], 2 ** 0.5)
         self.assertEqual(out[0]["peak_rss_mb_std"], 0.0)
+
+
+@unittest.skipUnless(HAS_PLOT_DEPS, "numpy/pandas/matplotlib not installed")
+class SupplementaryRunner(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name).resolve()
+        self.psmc_rs, self.c_psmc = fixtures.make_fake_tools(self.tmp / "bin")
+        self.out = self.tmp / "supp"
+        self.env = dict(os.environ, N_ITER="2", MPLCONFIGDIR=str(self.tmp / "mpl"))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_steps(self, steps: str, env) -> subprocess.CompletedProcess:
+        return run_script(
+            SCRIPTS / "run_supplementary.py",
+            "--steps",
+            steps,
+            "--out-dir",
+            str(self.out),
+            "--psmc-rs",
+            str(self.psmc_rs),
+            "--c-psmc",
+            str(self.c_psmc),
+            cwd=self.tmp,
+            env=env,
+        )
+
+    def test_s3_rerun_keeps_its_timings(self):
+        # A second run into the same directory used to find the outputs of the
+        # first, skip the timed runs and write NaN timings.
+        inp = self.out / "shared_inputs" / "constant.1000000bp.psmcfa"
+        inp.parent.mkdir(parents=True)
+        inp.write_text(">chr1\nTTTTKTTTTK\n")
+        env = dict(self.env, S3_LENGTHS_MB="1", S3_REPEATS="2")
+        for attempt in (1, 2):
+            res = self.run_steps("S3", env)
+            self.assertEqual(res.returncode, 0, f"run {attempt}:\n{res.stderr[-3000:]}")
+            rows = read_csv(self.out / "tables" / "S3_memory_scaling_summary.csv")
+            self.assertEqual(sorted(r["tool"] for r in rows), ["c", "rust"])
+            for r in rows:
+                self.assertTrue(is_finite_number(r["wall_sec_mean"]), f"run {attempt}: {r}")
 
 
 @unittest.skipUnless(has_module("msprime"), "msprime not installed")
