@@ -672,7 +672,15 @@ pub fn m_step_lbfgs_with_progress(
         }
 
         let gdotp = dot(&gk, &r);
-        let mut step = 1.0;
+        // Without curvature pairs the direction is -g, whose length grows
+        // with the number of bins; start at unit length instead, so that the
+        // backtracking budget does not run out on large inputs.
+        let step0 = if s_hist.is_empty() {
+            (1.0 / norm(&gk)).min(1.0)
+        } else {
+            1.0
+        };
+        let mut step = step0;
         let mut x_new = xk.clone();
         let mut accepted: Option<(f64, Vec<f64>)> = None;
         for ls_iter in 0..config.max_ls_steps {
@@ -699,7 +707,7 @@ pub fn m_step_lbfgs_with_progress(
             // Fallback: AD gradients can be locally inconsistent in some regions due
             // piecewise safeguards in the coalescent parameterization. Try reverse
             // direction and accept any strict decrease.
-            let mut step_rev = 1.0;
+            let mut step_rev = step0;
             for ls_iter in 0..config.max_ls_steps {
                 for i in 0..xk.len() {
                     x_new[i] = xk[i] - step_rev * r[i];
