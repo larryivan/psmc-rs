@@ -887,8 +887,15 @@ mod tests {
 
     /// A model drawn from the whole region the M-step can reach: ρ and t_max
     /// up to (near) their bounds and λ over six decades, so that the average
-    /// time falls back to the interval's conditional mean for k < n.
-    fn wide_random_model(rng: &mut Rng, n_steps: usize, pattern: Option<&str>) -> PsmcModel {
+    /// time falls back to the interval's conditional mean both for k < n and
+    /// for the last state. With `huge_last`, the last λ exceeds
+    /// `T_INF - t_max`, where that fallback depends on `T_INF`.
+    fn wide_random_model(
+        rng: &mut Rng,
+        n_steps: usize,
+        pattern: Option<&str>,
+        huge_last: bool,
+    ) -> PsmcModel {
         let theta = rng.log_uniform(1e-5, 1.0);
         let rho = rng.log_uniform(1e-6, 5.0);
         let t_max = rng.log_uniform(1.0, 200.0);
@@ -903,6 +910,9 @@ mod tests {
         .unwrap();
         for lam in model.lam.iter_mut() {
             *lam = rng.log_uniform(1e-3, 1e3);
+        }
+        if huge_last {
+            *model.lam.last_mut().unwrap() = rng.log_uniform(900.0, 1e6);
         }
         model.param_recalculate().unwrap();
         model
@@ -969,21 +979,28 @@ mod tests {
     #[test]
     fn dual_values_equal_param_recalculate() {
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
-        let mut inner_fallbacks = 0;
+        let (mut inner_fallbacks, mut last_fallbacks) = (0, 0);
         for (n, pattern) in LAYOUTS {
             for _ in 0..10 {
                 assert_dual_values_equal(&random_model(&mut rng, n, pattern));
             }
-            for _ in 0..60 {
-                let model = wide_random_model(&mut rng, n, pattern);
-                inner_fallbacks += fallback_states(&model).iter().filter(|&&k| k < n).count();
+            for case in 0..60 {
+                let model = wide_random_model(&mut rng, n, pattern, case % 2 == 0);
+                for k in fallback_states(&model) {
+                    if k < n {
+                        inner_fallbacks += 1;
+                    } else if model.avg_t()[n] > T_INF {
+                        last_fallbacks += 1;
+                    }
+                }
                 assert_dual_values_equal(&model);
             }
         }
-        // The fallback branch of the average time must be exercised.
+        // Both fallback branches of the average time must be exercised, the
+        // last one beyond T_INF (where the value of T_INF matters).
         assert!(
-            inner_fallbacks >= 20,
-            "fallbacks exercised for k < n: {inner_fallbacks}"
+            inner_fallbacks >= 20 && last_fallbacks >= 20,
+            "fallbacks exercised: {inner_fallbacks} for k < n, {last_fallbacks} for k = n"
         );
     }
 
