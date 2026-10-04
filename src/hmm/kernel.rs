@@ -437,6 +437,12 @@ impl Kernel {
         self.semi.is_some()
     }
 
+    /// Whether a forward step is cheap enough that caching full forward rows
+    /// would not pay for its memory: true for the O(n) semiseparable kernel.
+    pub(crate) fn cheap_forward(&self) -> bool {
+        self.semi.is_some()
+    }
+
     /// `out = Aᵀ x`.
     #[inline(always)]
     fn transpose_mul(&self, x: &[f64], out: &mut [f64]) {

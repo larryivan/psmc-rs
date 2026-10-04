@@ -292,7 +292,15 @@ pub(crate) fn e_step(
     let np = ws.np;
     let len = seq.len();
     let full_bytes = ((len + 1) * np + len) * std::mem::size_of::<f64>();
-    let reservation = ctx.budget.try_reserve(full_bytes);
+    // With the O(n) kernel, recomputing a segment costs ~15% of a
+    // single-threaded E-step; keeping 8 * n bytes per site for that is not
+    // worth it (and its page faults and memory traffic make multi-threaded
+    // runs no faster).
+    let reservation = if k.cheap_forward() {
+        None
+    } else {
+        ctx.budget.try_reserve(full_bytes)
+    };
     let mut full = reservation.as_ref().map(|_| FullRows {
         alpha: vec![0.0; (len + 1) * np],
         c: vec![0.0; len],

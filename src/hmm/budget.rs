@@ -13,12 +13,17 @@ const DEFAULT_LIMIT_MB: usize = 2048;
 /// rest during the backward pass. Recomputed rows are bit-identical to stored
 /// ones, so the budget only trades memory for speed; results never depend on it.
 ///
+/// Rows are cached only where recomputing them is expensive, i.e. for
+/// transition matrices without PSMC's semiseparable structure (dense O(n²)
+/// steps). For PSMC models a forward step is O(n) and nothing is reserved.
+///
 /// Reservations are atomic, so concurrent E-steps (sequences processed in
 /// parallel, bootstrap replicates) together never exceed the limit.
 #[derive(Debug)]
 pub struct AlphaCacheBudget {
     limit: usize,
     used: AtomicUsize,
+    peak: AtomicUsize,
 }
 
 impl AlphaCacheBudget {
@@ -27,6 +32,7 @@ impl AlphaCacheBudget {
         Self {
             limit: limit_bytes,
             used: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
         }
     }
 
@@ -53,6 +59,11 @@ impl AlphaCacheBudget {
         self.used.load(Ordering::Relaxed)
     }
 
+    /// The most bytes reserved at any one time so far.
+    pub fn peak_bytes(&self) -> usize {
+        self.peak.load(Ordering::Relaxed)
+    }
+
     /// Reserve `bytes` if they fit; the reservation is returned on drop.
     pub(crate) fn try_reserve(&self, bytes: usize) -> Option<Reservation<'_>> {
         let mut cur = self.used.load(Ordering::Relaxed);
@@ -63,6 +74,7 @@ impl AlphaCacheBudget {
                 .compare_exchange_weak(cur, next, Ordering::AcqRel, Ordering::Relaxed)
             {
                 Ok(_) => {
+                    self.peak.fetch_max(next, Ordering::Relaxed);
                     return Some(Reservation {
                         budget: self,
                         bytes,

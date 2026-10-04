@@ -121,13 +121,33 @@ fn standard_input() -> Input {
     )
 }
 
+/// The standard input with the transition matrix perturbed (rows
+/// renormalised) so that it loses PSMC's semiseparable structure: the E-step
+/// then uses the dense kernels and caches full forward rows when the budget
+/// allows.
+fn dense_input() -> Input {
+    let mut inp = standard_input();
+    let mut rng = SmallRng::seed_from_u64(3);
+    for mut row in inp.a.rows_mut() {
+        row.mapv_inplace(|v| v * (1.0 + 1e-3 * rng.gen_range(0.0..1.0)));
+        let s: f64 = row.sum();
+        row.mapv_inplace(|v| v / s);
+    }
+    inp
+}
+
 #[test]
 fn thread_count_and_nesting_do_not_change_results() {
-    let inp = standard_input();
-    let reference = bits(&run(&inp));
+    for inp in [standard_input(), dense_input()] {
+        check_threads_and_nesting(&inp);
+    }
+}
+
+fn check_threads_and_nesting(inp: &Input) {
+    let reference = bits(&run(inp));
     for threads in [1, 2, 8] {
         let p = pool(threads);
-        let installed = p.install(|| run(&inp));
+        let installed = p.install(|| run(inp));
         assert_same(
             &installed,
             &reference,
@@ -135,7 +155,7 @@ fn thread_count_and_nesting_do_not_change_results() {
         );
         // Nested inside a parallel iterator, as bootstrap replicates call it.
         let nested: Vec<EStepResult> =
-            p.install(|| (0..3).into_par_iter().map(|_| run(&inp)).collect());
+            p.install(|| (0..3).into_par_iter().map(|_| run(inp)).collect());
         for e in &nested {
             assert_same(
                 e,
@@ -160,7 +180,8 @@ fn many_sequences_are_reduced_deterministically() {
 
 #[test]
 fn alpha_cache_budget_does_not_change_results() {
-    let inp = standard_input();
+    // Rows are cached only with the dense kernels, so use a dense model.
+    let inp = dense_input();
     let one_row = 8 * 64 * 800; // enough for the short sequences only
     let mut seen = Vec::new();
     for limit in [0, 1, one_row, usize::MAX] {
@@ -181,6 +202,10 @@ fn alpha_cache_budget_does_not_change_results() {
                 .unwrap()
             });
             assert_eq!(budget.used_bytes(), 0, "reservations must be released");
+            assert!(budget.peak_bytes() <= limit);
+            if limit == usize::MAX {
+                assert!(budget.peak_bytes() > 0, "full rows were never cached");
+            }
             seen.push((limit, threads, e));
         }
     }
@@ -251,4 +276,16 @@ fn log_likelihood_is_deterministic_and_matches_e_step() {
         });
         assert_eq!(ll.to_bits(), e.loglike.to_bits(), "{threads} threads");
     }
+}
+
+#[test]
+fn psmc_models_recompute_instead_of_caching_rows() {
+    let inp = standard_input();
+    let budget = AlphaCacheBudget::new(usize::MAX);
+    let opts = EStepOptions {
+        alpha_cache: Some(&budget),
+        ..EStepOptions::default()
+    };
+    e_step_with_options(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts, opts).unwrap();
+    assert_eq!(budget.peak_bytes(), 0);
 }
