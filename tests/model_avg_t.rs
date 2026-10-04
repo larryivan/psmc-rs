@@ -128,52 +128,95 @@ fn avg_t_matches_an_independent_computation() {
     }
 }
 
-/// `TC` lines (third column: avg_t * theta) of the original C psmc,
-/// 0.6.5-r74, built with -O1:
+/// Compare `avg_t * theta` with the `TC` lines (third column) printed by
+/// the original C psmc 0.6.5-r74 (built with -O1) for pattern 4+5*3+4 and
+/// t_max = 15:
 ///
 /// ```text
-/// printf '4+5*3+4\n1000 0.3 15 0.5 2.0 0.08 1.3 7.5 30.0 0.9\n' > par.txt
+/// printf '4+5*3+4\n<theta> <rho> 15 <lambda...>\n' > par.txt
 /// psmc -N0 -d -i par.txt tiny.psmcfa
 /// ```
 ///
-/// θ = 1000 only scales the printed times to keep more digits; ρ = 0.3 is
-/// large enough that the log formula fails in the late intervals, so the
-/// fallback is exercised too.
-const C_TC_AVG: [f64; 23] = [
-    12.698578,
-    41.532600,
-    77.734699,
-    123.184945,
-    180.752457,
-    252.680328,
-    343.086963,
-    441.387180,
-    576.088198,
-    743.859790,
-    1007.097662,
-    1295.942396,
-    1665.068617,
-    2156.829957,
-    2796.583867,
-    3677.158737,
-    4232.916567,
-    5341.963260,
-    6734.600979,
-    8166.023413,
-    10197.286497,
-    12716.787785,
-    15900.000000,
-];
-
-#[test]
-fn avg_t_matches_c_psmc_decode_output() {
+/// θ = 1000 only scales the printed times to keep more digits.
+fn check_against_c(rho: f64, lam: &[f64], c_tc_avg: &[f64; 23]) {
     let mut model =
-        PsmcModel::new(15.0, 22, 1000.0, 0.3, 2.5e-8, Some("4+5*3+4".to_string())).unwrap();
-    model.lam = vec![0.5, 2.0, 0.08, 1.3, 7.5, 30.0, 0.9];
+        PsmcModel::new(15.0, 22, 1000.0, rho, 2.5e-8, Some("4+5*3+4".to_string())).unwrap();
+    model.lam = lam.to_vec();
     model.param_recalculate().unwrap();
     let avg = model.avg_t();
-    for (k, c) in C_TC_AVG.iter().enumerate() {
+    for (k, c) in c_tc_avg.iter().enumerate() {
         let ours = avg[k] * model.theta;
         assert!((ours - c).abs() < 1e-6, "state {k}: {ours:.6} vs C {c:.6}");
     }
+}
+
+#[test]
+fn avg_t_matches_c_psmc_decode_output() {
+    // ρ = 0.3 is large enough that the log formula fails in the late
+    // intervals, so the fallback is exercised too.
+    check_against_c(
+        0.3,
+        &[0.5, 2.0, 0.08, 1.3, 7.5, 30.0, 0.9],
+        &[
+            12.698578,
+            41.532600,
+            77.734699,
+            123.184945,
+            180.752457,
+            252.680328,
+            343.086963,
+            441.387180,
+            576.088198,
+            743.859790,
+            1007.097662,
+            1295.942396,
+            1665.068617,
+            2156.829957,
+            2796.583867,
+            3677.158737,
+            4232.916567,
+            5341.963260,
+            6734.600979,
+            8166.023413,
+            10197.286497,
+            12716.787785,
+            15900.000000,
+        ],
+    );
+}
+
+#[test]
+fn avg_t_of_last_state_uses_c_infinity_bound() {
+    // C caps the last interval at PSMC_T_INF = 1000, so with λ_n = 2000 the
+    // log formula (about 2021.7) counts as out of range and C uses the
+    // conditional mean t_n + λ_n = 2015 (printing an ERROR line as it does).
+    check_against_c(
+        1e-4,
+        &[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2000.0],
+        &[
+            12.753240,
+            41.618335,
+            77.867299,
+            123.385697,
+            180.538703,
+            252.291996,
+            342.362500,
+            455.405951,
+            597.249728,
+            775.180954,
+            998.301556,
+            1277.963711,
+            1628.300585,
+            2066.868525,
+            2615.417870,
+            3300.811153,
+            4156.113075,
+            5221.894746,
+            6547.844877,
+            8493.603777,
+            10694.876889,
+            13459.995466,
+            2015000.000000,
+        ],
+    );
 }

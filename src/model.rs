@@ -3,6 +3,12 @@ use ndarray::Array2;
 
 use crate::io::params::{PsmcParamsFile, save_params};
 
+/// C psmc's `PSMC_T_INF`: the end of the last interval, `t[n_steps + 1]`,
+/// in units of 2N0 generations. It only matters as the upper bound that
+/// sends the last state's average time to its fallback (see
+/// [`PsmcModel::avg_t`]), and `t_max` must stay below it.
+pub const T_INF: f64 = 1000.0;
+
 #[derive(Debug, Clone)]
 pub struct PsmcModel {
     pub n_steps: usize,
@@ -63,6 +69,7 @@ impl PsmcModel {
         if n_steps_eff == 0 {
             bail!("n_steps must be at least 1 (the model needs at least 2 states)");
         }
+        check_t_max(t_max)?;
         let n_free = n_free_params(n_steps_eff, pattern_spec.as_deref());
         let lam = vec![1.0; n_free - 3];
         let n_states = n_steps_eff + 1;
@@ -99,7 +106,7 @@ impl PsmcModel {
             t.push(alpha * ((beta * k as f64).exp() - 1.0));
         }
         t.push(self.t_max);
-        t.push(1e300);
+        t.push(T_INF);
         t
     }
 
@@ -211,8 +218,9 @@ impl PsmcModel {
     }
 
     /// Per-state average coalescent time, in units of 2N0 generations: for
-    /// each state k, the time in `[t_k, t_{k+1}]` that the emission
-    /// probability `em[(0, k)] = exp(-theta * avg_t[k])` is evaluated at.
+    /// each state k, the time in `[t_k, t_{k+1}]` (`>= t_n` for the last
+    /// state) that the emission probability
+    /// `em[(0, k)] = exp(-theta * avg_t[k])` is evaluated at.
     ///
     /// This is C `psmc_avg_t` (the `TC` column of `psmc -d`) without the
     /// divergence-time term, including its fallback to the conditional mean
@@ -222,11 +230,12 @@ impl PsmcModel {
     ///
     /// # Panics
     ///
-    /// If `lam` does not have the length the pattern requires (an invariant
-    /// `PsmcModel::new` establishes).
+    /// If `param_recalculate` would fail: `lam` has a length the pattern
+    /// does not allow or `t_max` is outside `(0, T_INF)`, both of which
+    /// `PsmcModel::new` and the M-step bounds rule out.
     pub fn avg_t(&self) -> Vec<f64> {
         self.coalescent()
-            .expect("lam length does not match the model's pattern")
+            .expect("invalid model parameters (lam length or t_max)")
             .avg_t
     }
 
@@ -234,6 +243,7 @@ impl PsmcModel {
     /// structure; shared by `param_recalculate` and `avg_t` so that the two
     /// cannot disagree. Names follow the C code.
     fn coalescent(&self) -> Result<Coalescent> {
+        check_t_max(self.t_max)?;
         let t = self.compute_t(0.1);
         let n = self.n_steps;
         let lam = self.map_lam(&self.lam)?;
@@ -378,6 +388,13 @@ pub fn n_steps_for_pattern(pattern: &str) -> Result<usize> {
         bail!("pattern {pattern:?} implies {n_states} state(s); at least 2 are needed");
     }
     Ok(n_states - 1)
+}
+
+fn check_t_max(t_max: f64) -> Result<()> {
+    if !(t_max > 0.0 && t_max < T_INF) {
+        bail!("t_max must be in (0, {T_INF}), got {t_max}");
+    }
+    Ok(())
 }
 
 fn n_states_of_spec(spec: &[(usize, usize)]) -> usize {

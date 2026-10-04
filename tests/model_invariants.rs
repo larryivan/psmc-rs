@@ -1,5 +1,5 @@
 use psmc_rs::PsmcModel;
-use psmc_rs::model::n_steps_for_pattern;
+use psmc_rs::model::{T_INF, n_steps_for_pattern};
 
 fn approx_eq(a: f64, b: f64, eps: f64) {
     assert!(
@@ -120,4 +120,22 @@ fn legacy_state_count_shim_sizes_matrices_by_effective_n_steps() {
     assert_eq!(model.em.dim(), (3, 23));
     assert_eq!(model.sigma.len(), 23);
     assert_eq!(model.t.len(), 24);
+}
+
+#[test]
+fn time_grid_ends_at_c_infinity_and_t_max_must_stay_below_it() {
+    let model = PsmcModel::new(15.0, 6, 1e-3, 2e-4, 2.5e-8, None).unwrap();
+    assert_eq!(model.t[6], 15.0);
+    assert_eq!(model.t[7], T_INF);
+    assert_eq!(T_INF, 1000.0); // C psmc.h: #define PSMC_T_INF 1000.0
+
+    for bad in [0.0, -1.0, T_INF, 5000.0, f64::NAN, f64::INFINITY] {
+        assert!(
+            PsmcModel::new(bad, 6, 1e-3, 2e-4, 2.5e-8, None).is_err(),
+            "t_max = {bad} should be rejected"
+        );
+    }
+    let mut model = model;
+    model.t_max = 2000.0;
+    assert!(model.param_recalculate().is_err());
 }

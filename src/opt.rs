@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 
 use crate::hmm::SufficientStats;
-use crate::model::PsmcModel;
+use crate::model::{PsmcModel, T_INF};
 
 pub use crate::em::{EmHistory, EmProgressEvent, em_train, em_train_with_progress};
 use crate::progress;
@@ -403,7 +403,7 @@ fn compute_params_dual(
         t.push(tk);
     }
     t.push(t_max.clone());
-    t.push(Dual::constant(1e300, n_params));
+    t.push(Dual::constant(T_INF, n_params));
 
     let mut tau = vec![Dual::constant(0.0, n_params); n + 1];
     for k in 0..=n {
