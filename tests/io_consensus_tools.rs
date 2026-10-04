@@ -1,8 +1,7 @@
 //! Consensus mode against the real tools on random `bcftools call -c` style
 //! VCFs full of edge cases: `vcfutils.pl vcf2fq` (Perl) piped into the C
-//! `fq2psmcfa`, compared with `read_vcf_consensus` plus fq2psmcfa's output
-//! filter, sequence by sequence and bin by bin, with random options,
-//! including `-s 1 -g 0`, which compares every base.
+//! `fq2psmcfa`, compared byte for byte with `write_psmcfa(load(vcf))`, with
+//! random options, including `-s 1 -g 0`, which compares every base.
 //!
 //! Needs perl, bcftools' `vcfutils.pl` and lh3/psmc's `fq2psmcfa`:
 //!
@@ -13,10 +12,9 @@
 //!
 //! `CONSENSUS_FUZZ_CASES` sets the number of random files (default 300).
 
-use psmc_rs::io::consensus::{
-    ConsensusFilters, ConsensusOptions, DepthThresholds, read_vcf_consensus,
-};
-use psmc_rs::io::psmcfa::parse_psmcfa;
+use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
+use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode, load};
+use psmc_rs::io::write::write_psmcfa_to;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -390,14 +388,12 @@ fn run_tools(vcfutils: &Path, fq2psmcfa: &Path, vcf: &Path, o: &Opts) -> Tools {
     Tools::Output(psmcfa.stdout, empty)
 }
 
-/// Sequences as `(name, bins)`.
-type Seqs = Vec<(String, Vec<u8>)>;
-
-/// The reader's sequences that fq2psmcfa's output filter keeps.
-fn ours(vcf: &Path, o: &Opts) -> anyhow::Result<Seqs> {
-    let opts = ConsensusOptions {
+fn ours(vcf: &Path, o: &Opts) -> anyhow::Result<Vec<u8>> {
+    let opts = InputOptions {
+        format: Some(InputFormat::Vcf),
+        vcf_mode: VcfMode::Consensus,
         bin_size: o.s,
-        filters: ConsensusFilters {
+        consensus: ConsensusFilters {
             depth: DepthThresholds::Fixed {
                 min: o.d,
                 max: o.big_d,
@@ -406,30 +402,36 @@ fn ours(vcf: &Path, o: &Opts) -> anyhow::Result<Seqs> {
             indel_window: o.l,
             min_qual: o.q,
         },
-        ..ConsensusOptions::default()
+        filter: SeqFilter {
+            min_good_bases: o.g,
+            min_good_fraction: 0.2,
+        },
+        ..InputOptions::default()
     };
-    let read = read_vcf_consensus(vcf, &opts)?;
-    Ok(read
-        .seqs
-        .into_iter()
-        .filter(|s| s.good_bases as f64 / s.bases as f64 >= 0.2 && s.good_bases >= o.g)
-        .map(|s| (s.name, s.bins))
-        .collect())
+    let data = load(vcf, &opts)?;
+    let mut out = Vec::new();
+    let seqs = data.sequences();
+    write_psmcfa_to(
+        &mut out,
+        seqs.iter().map(|(i, b)| (i.name.as_str(), b.as_ref())),
+    )?;
+    Ok(out)
 }
 
-fn first_difference(a: &Seqs, b: &Seqs) -> String {
-    for (i, ((na, sa), (nb, sb))) in a.iter().zip(b).enumerate() {
-        if na != nb || sa != sb {
-            let j = sa.iter().zip(sb).position(|(x, y)| x != y);
-            return format!(
-                "sequence {i}: tools '{na}' ({} bins) vs ours '{nb}' ({} bins), first \
-                 differing bin {j:?}",
-                sa.len(),
-                sb.len()
-            );
-        }
-    }
-    format!("{} sequences vs {}", a.len(), b.len())
+fn first_difference(a: &[u8], b: &[u8]) -> String {
+    let i = a
+        .iter()
+        .zip(b)
+        .position(|(x, y)| x != y)
+        .unwrap_or(a.len().min(b.len()));
+    let lo = i.saturating_sub(80);
+    format!(
+        "at byte {i} (lengths {} vs {}):\n tools: {:?}\n ours:  {:?}",
+        a.len(),
+        b.len(),
+        String::from_utf8_lossy(&a[lo..(i + 40).min(a.len())]),
+        String::from_utf8_lossy(&b[lo..(i + 40).min(b.len())])
+    )
 }
 
 /// Hand-written files for the cases random files rarely reach.
@@ -494,8 +496,7 @@ fn fixed_cases() -> Vec<(&'static str, String, Opts)> {
 
 /// How the tools and the reader compared on one file.
 enum Agreement {
-    /// Identical sequences: the number of bins and the empty FASTQ records
-    /// removed.
+    /// Identical psmcfa: its length and the empty FASTQ records removed.
     Same(usize, usize),
     /// Both failed.
     BothFailed,
@@ -504,18 +505,13 @@ enum Agreement {
 fn compare(tools: (&Path, &Path), vcf: &Path, text: &str, o: &Opts, ctx: &str) -> Agreement {
     fs::write(vcf, text).unwrap();
     let outcome = match (run_tools(tools.0, tools.1, vcf, o), ours(vcf, o)) {
-        (Tools::Output(text, empty), Ok(got)) => {
-            let expected: Seqs = parse_psmcfa(text.as_slice())
-                .unwrap()
-                .into_iter()
-                .map(|r| (r.name, r.seq))
-                .collect();
+        (Tools::Output(expected, empty), Ok(got)) => {
             assert!(
                 expected == got,
                 "{ctx}: {}",
                 first_difference(&expected, &got)
             );
-            Agreement::Same(expected.iter().map(|(_, b)| b.len()).sum(), empty)
+            Agreement::Same(expected.len(), empty)
         }
         (Tools::Vcf2fqDied, Err(_)) => Agreement::BothFailed,
         (Tools::Vcf2fqDied, Ok(_)) => panic!("{ctx}: vcf2fq failed but the reader did not"),
@@ -549,7 +545,7 @@ fn consensus_mode_matches_vcf2fq_and_fq2psmcfa() {
     }
     assert_eq!(fixed_failed, 1, "only the window past the end fails");
 
-    let (mut compared, mut both_failed, mut empty_records, mut bins) = (0, 0, 0, 0usize);
+    let (mut compared, mut both_failed, mut empty_records, mut bytes) = (0, 0, 0, 0usize);
     for case in 0..cases {
         let mut rng = Rng(0xC0FFEE ^ case.wrapping_mul(0x9E37_79B9));
         let o = random_opts(&mut rng);
@@ -558,7 +554,7 @@ fn consensus_mode_matches_vcf2fq_and_fq2psmcfa() {
         let ctx = format!("case {case} {o:?} ({})", vcf.display());
         match compare(tools, &vcf, &text, &o, &ctx) {
             Agreement::Same(len, empty) => {
-                bins += len;
+                bytes += len;
                 empty_records += empty;
                 compared += 1;
             }
@@ -567,9 +563,9 @@ fn consensus_mode_matches_vcf2fq_and_fq2psmcfa() {
     }
     let _ = fs::remove_dir(&dir);
     eprintln!(
-        "{} fixed cases agreed; {compared} random VCFs gave identical sequences ({bins} bins; \
-         {empty_records} empty FASTQ records removed before fq2psmcfa); in {both_failed} \
-         more, vcf2fq and the reader both failed",
+        "{} fixed cases agreed; {compared} random VCFs gave byte-identical psmcfa ({bytes} \
+         bytes; {empty_records} empty FASTQ records removed before fq2psmcfa); in \
+         {both_failed} more, vcf2fq and the reader both failed",
         fixed_cases().len()
     );
     assert!(compared >= cases * 9 / 10);

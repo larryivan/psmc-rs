@@ -5,6 +5,7 @@ pub mod mhs;
 pub mod params;
 pub mod psmcfa;
 pub mod vcf;
+pub mod write;
 
 #[derive(Debug, Clone)]
 pub struct Observations {
