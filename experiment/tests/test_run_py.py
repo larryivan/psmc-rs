@@ -171,6 +171,25 @@ class Rendering(unittest.TestCase):
         for stem in self.STEMS["supplementary"]:
             self.assertTrue(self.figure(repo, "supplementary", stem).exists(), stem)
 
+    def test_keep_going_survives_a_fit_summary_missing_a_sample(self):
+        # run_real_data.py --samples <subset> can produce such a table; the
+        # Figure 3 cell then fails with ValueError, not FileNotFoundError.
+        repo = self.tmp / "repo"
+        run_py = make_package(repo, with_outputs=True)
+        fit = repo / "experiment/runs/real_data/tables/real_data_rust_vs_c_fit_summary.csv"
+        lines = fit.read_text().splitlines()
+        fit.write_text("\n".join(ln for ln in lines if not ln.startswith("HLpelCas1,")) + "\n")
+        res = run(run_py, "--keep-going", cwd=self.elsewhere)
+        self.assertEqual(res.returncode, 1, res.stderr[-3000:])
+        self.assertIn("missing sample_id: HLpelCas1", res.stderr)
+        self.assertIn("missing sample in fit summary: HLpelCas1", res.stderr)
+        self.assertNotIn("Traceback", res.stderr)
+        self.assertFalse(self.figure(repo, "real_data", "figure_3_empirical_genomes_rust_vs_c").exists())
+        for group, stems in self.STEMS.items():
+            for stem in stems:
+                if group != "real_data":
+                    self.assertTrue(self.figure(repo, group, stem).exists(), stem)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,7 +229,13 @@ def run_checks(keep_going: bool) -> bool:
 
 
 def execute_notebook(notebook_path: Path, keep_going: bool) -> List[str]:
-    """Execute the code cells; return the cells skipped for missing inputs (keep_going)."""
+    """Execute the code cells; return the cells that failed and were skipped (keep_going).
+
+    With keep_going any error in a figure cell skips that figure: missing or
+    incomplete inputs surface in many forms (FileNotFoundError, a sample
+    missing from a table, an unparsable output), and the checks have already
+    reported what is missing.
+    """
     if not notebook_path.exists():
         raise FileNotFoundError(f"notebook not found: {notebook_path}")
 
@@ -254,11 +260,11 @@ def execute_notebook(notebook_path: Path, keep_going: bool) -> List[str]:
         print(f"[plot] execute cell {i}: {title}")
         try:
             exec(compile(src, f"{notebook_path.name}:cell{i}", "exec"), scope, scope)
-        except FileNotFoundError as e:
+        except Exception as e:
             # The first cell defines the helpers every other cell needs.
             if not keep_going or first_code_cell:
                 raise
-            print(f"[plot] skipped cell {i} ({title}): {e}", file=sys.stderr)
+            print(f"[plot] skipped cell {i} ({title}): {type(e).__name__}: {e}", file=sys.stderr)
             skipped.append(title)
         finally:
             first_code_cell = False
@@ -278,7 +284,7 @@ def main() -> int:
     if not args.skip_plot:
         skipped = execute_notebook(nb, args.keep_going)
         if skipped:
-            print("[plot] figures not drawn (inputs missing): " + "; ".join(skipped), file=sys.stderr)
+            print("[plot] figures not drawn (see the errors above): " + "; ".join(skipped), file=sys.stderr)
             ok = False
 
     print("Done." if ok else "Done, with missing results (see above).")

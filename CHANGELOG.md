@@ -19,7 +19,8 @@ Library and CLI changes: to be completed at integration.
 - `experiment/requirements.txt` listing the Python packages of the
   reproduction package.
 - `experiment/run.py --keep-going` draws every figure whose inputs are present
-  and reports the rest.
+  and reports the rest (a figure whose code fails for any reason, such as a
+  sample missing from the fit summary, is skipped with its error).
 - `tests/c_equivalence.rs`: regression test against outputs of the original
   C psmc (lh3/psmc 0.6.5-r74).
 - Python tests for the reproduction package (`experiment/tests/`, run with
