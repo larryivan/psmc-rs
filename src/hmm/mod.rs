@@ -66,7 +66,7 @@ pub struct TmrcaReportData {
     pub seq_count: usize,
 }
 
-/// Options for [`e_step_with_options`].
+/// Options for [`e_step_with_options`] and [`log_likelihood_with_options`].
 pub struct EStepOptions<'a> {
     /// Draw progress bars on stderr.
     pub progress_bars: bool,
@@ -243,4 +243,66 @@ pub fn e_step_with_options(
         },
         loglike: total.loglike,
     })
+}
+
+/// Log-likelihood of the observations under the model (forward pass only).
+///
+/// Bit-identical to the `loglike` of [`e_step_with_options`] on the same input.
+pub fn log_likelihood(
+    pi: &[f64],
+    a: &Array2<f64>,
+    em: &Array2<f64>,
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
+) -> Result<f64> {
+    log_likelihood_with_options(pi, a, em, rows, row_starts, EStepOptions::default())
+}
+
+/// [`log_likelihood`] with progress (forward phase only) and thread-pool options.
+pub fn log_likelihood_with_options(
+    pi: &[f64],
+    a: &Array2<f64>,
+    em: &Array2<f64>,
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
+    opts: EStepOptions<'_>,
+) -> Result<f64> {
+    validate(pi, a, em, rows, row_starts)?;
+    let kernel = Kernel::new(pi, a, em);
+    let np = kernel.np();
+    let plan = Plan::new(rows, row_starts);
+    let progress = Progress::default();
+    let ctx = Ctx {
+        progress: &progress,
+        budget: budget_or_global(opts.alpha_cache),
+    };
+    let mut reporter = Reporter::new(
+        plan.total_sites,
+        false,
+        opts.progress_bars,
+        opts.label,
+        opts.on_progress,
+    );
+    let partials = sched::run(
+        plan.items.len(),
+        opts.thread_pool,
+        &mut reporter,
+        &progress,
+        |item| {
+            let mut ws = Workspace::new(np);
+            let mut loglike = 0.0;
+            for seq in &plan.seqs[plan.items[item].clone()] {
+                loglike +=
+                    fb::log_likelihood(&kernel, &SeqObs::new(&rows[seq.clone()]), &mut ws, &ctx)?;
+            }
+            Ok(loglike)
+        },
+    );
+    let partials = collect_in_order(partials)?;
+    sched::finish(&mut reporter, &progress);
+    let mut total = 0.0;
+    for p in partials {
+        total += p;
+    }
+    Ok(total)
 }

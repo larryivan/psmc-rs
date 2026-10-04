@@ -1,4 +1,4 @@
-//! Accuracy of the E-step against a reference: the
+//! Accuracy of the E-step and the log-likelihood against a reference: the
 //! straightforward f64 forward-backward of psmc-rs before the checkpointed
 //! engine (`e_step_sequence_no_cache` at commit ac53c53), copied below.
 //!
@@ -11,6 +11,7 @@ use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
     AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, e_step_with_options,
+    log_likelihood,
 };
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -440,4 +441,23 @@ fn e_step_matches_reference() {
         }
     }
     eprintln!("worst relative error {:.3e} ({})", worst.0, worst.1);
+}
+
+#[test]
+fn log_likelihood_matches_reference_and_e_step() {
+    for case in cases() {
+        let ll = log_likelihood(&case.pi, &case.a, &case.em, &case.rows, &case.row_starts)
+            .expect("log-likelihood failed");
+        let want = reference_e_step(&case.pi, &case.a, &case.em, &case.rows, &case.row_starts);
+        assert!(
+            loglike_err(ll, want.loglike, n_sites(&case)) <= REL_TOL,
+            "{}: {ll} vs reference {}",
+            case.name,
+            want.loglike
+        );
+        for cache_rows in [false, true] {
+            let e = e_step(&case, cache_rows);
+            assert_eq!(ll.to_bits(), e.loglike.to_bits(), "{}", case.name);
+        }
+    }
 }

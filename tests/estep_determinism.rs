@@ -7,7 +7,7 @@ use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
     AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, e_step_streaming,
-    e_step_with_options,
+    e_step_with_options, log_likelihood,
 };
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -238,5 +238,17 @@ fn progress_callback_and_explicit_pool_do_not_change_results() {
             &reference,
             &format!("{threads} threads, callback in worker"),
         );
+    }
+}
+
+#[test]
+fn log_likelihood_is_deterministic_and_matches_e_step() {
+    let inp = standard_input();
+    let e = run(&inp);
+    for threads in [1, 2, 8] {
+        let ll = pool(threads).install(|| {
+            log_likelihood(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts).unwrap()
+        });
+        assert_eq!(ll.to_bits(), e.loglike.to_bits(), "{threads} threads");
     }
 }

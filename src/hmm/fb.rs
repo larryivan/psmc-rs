@@ -257,6 +257,16 @@ fn recompute_segment(
     }
 }
 
+/// Log-likelihood of one sequence (forward pass only, nothing stored).
+pub(crate) fn log_likelihood(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ws: &mut Workspace,
+    ctx: &Ctx<'_>,
+) -> Result<f64> {
+    forward_pass(k, seq, ws, false, None, ctx)
+}
+
 /// Forward-backward over one sequence, adding its log-likelihood, expected
 /// emissions and transition sums to `acc`.
 pub(crate) fn e_step(
