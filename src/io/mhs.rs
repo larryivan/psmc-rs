@@ -218,8 +218,7 @@ pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
         let mut cols = trimmed.split_whitespace();
         let chrom = cols
             .next()
-            .with_context(|| format!("invalid mhs row {row_no}: missing chrom"))?
-            .to_string();
+            .with_context(|| format!("invalid mhs row {row_no}: missing chrom"))?;
         let pos_str = cols
             .next()
             .with_context(|| format!("invalid mhs row {row_no}: missing pos"))?;
@@ -243,18 +242,14 @@ pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
             bail!("invalid mhs row {row_no}: nr_called must be > 0");
         }
 
-        let is_new_chrom = match &cur_chrom {
-            None => true,
-            Some(c) => c != &chrom,
-        };
-        if is_new_chrom {
+        if cur_chrom.as_deref() != Some(chrom) {
             if cur_chrom.is_some() {
                 let seq = binner.finish();
                 if !seq.is_empty() {
                     seqs.push(seq);
                 }
             }
-            cur_chrom = Some(chrom);
+            cur_chrom = Some(chrom.to_string());
             prev_pos = 0;
         }
 
