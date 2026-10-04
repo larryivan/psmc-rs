@@ -35,12 +35,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    args = parse_args()
     try:
         import msprime  # type: ignore
     except ImportError:
         raise SystemExit("msprime is required. Please install it first.")
 
-    args = parse_args()
+    print(f"[versions] msprime={msprime.__version__}")
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
 

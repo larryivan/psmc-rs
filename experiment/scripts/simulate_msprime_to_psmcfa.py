@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Simulate diploid data with stdpopsim and write a PSMCFA file.
+"""Simulate diploid data with stdpopsim (msprime engine) and write a PSMCFA file.
 
 This script encodes windows as:
 - 'K' if at least one heterozygous site in the window
 - 'T' otherwise
+
+Requires stdpopsim >= 0.2 and msprime >= 1.0. The package versions are printed
+so that they end up in the calling script's command log.
 """
 
 import argparse
@@ -91,6 +94,7 @@ def write_psmcfa(path: Path, seq: str, header: str = "chr1") -> None:
     for i in range(0, len(seq), wrap):
         lines.append(seq[i : i + wrap] + "\n")
     data = "".join(lines)
+    path.parent.mkdir(parents=True, exist_ok=True)
     if path.suffix == ".gz":
         with gzip.open(path, "wt") as f:
             f.write(data)
@@ -243,6 +247,13 @@ def main() -> int:
         print("stdpopsim is required. Install with: pip install stdpopsim msprime tskit", file=sys.stderr)
         print(f"Import error: {e}", file=sys.stderr)
         return 1
+    try:
+        import msprime  # type: ignore
+
+        msprime_version = msprime.__version__
+    except Exception:
+        msprime_version = "unknown"
+    print(f"[versions] stdpopsim={stdpopsim.__version__} msprime={msprime_version}")
 
     if args.window <= 0:
         print("--window must be positive.", file=sys.stderr)

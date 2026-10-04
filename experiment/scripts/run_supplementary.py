@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
-"""Run supplementary experiments S1-S5 and export publication figures/tables.
+"""Run supplementary experiments S1-S5 and export the supplementary tables.
 
-S1: smoothness ablation (A/B/C)
+S1: smoothness ablation (A/B/C); optional, not used by the current manuscript
 S2: EM convergence (log-likelihood vs iteration)
 S3: memory scaling by sequence length
 S4: Rust thread scaling (with ideal speedup line)
 S5: format consistency (psmcfa/mhs/vcf)
+
+The tables land in ``<out-dir>/tables`` (default
+``experiment/runs/supplementary/tables``), where
+``experiment/notebooks/all_plots_precomputed.ipynb`` reads them. The quick-look
+figures drawn here go to ``<out-dir>/diagnostic_figures``; the manuscript
+figures are drawn by the notebook (``experiment/run.py``).
+
+Paths are resolved from this file, never from the working directory. Run
+parameters are read from environment variables (see the block below and
+``experiment/README.md``); tool locations from flags or environment variables.
 """
 
 from __future__ import annotations
@@ -15,12 +25,12 @@ import json
 import math
 import os
 import re
-import shlex
-import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import exp_common  # noqa: E402
 
 try:
     import matplotlib.pyplot as plt
@@ -37,24 +47,12 @@ except Exception as e:
     HAS_PY_DEPS = False
     PY_DEPS_ERROR = e
 
-try:
-    import psutil
 
-    HAS_PSUTIL = True
-except Exception:
-    HAS_PSUTIL = False
+ROOT = exp_common.ROOT
 
-
-def find_repo_root(start: Path) -> Path:
-    for p in [start, *start.parents]:
-        if (p / "Cargo.toml").exists() and (p / "src").exists():
-            return p
-    raise RuntimeError(f"Cannot locate psmc-rs root from {start}")
-
-
-ROOT = find_repo_root(Path.cwd().resolve())
-RUN_DIR = ROOT / "experiment" / "runs" / "supplementary"
-FIG_DIR = RUN_DIR / "figures"
+# Output locations; set by configure_paths() from --out-dir.
+RUN_DIR = exp_common.RUNS / "supplementary"
+FIG_DIR = RUN_DIR / "diagnostic_figures"
 TABLE_DIR = RUN_DIR / "tables"
 LOG_DIR = RUN_DIR / "logs"
 SHARED_INPUT_DIR = RUN_DIR / "shared_inputs"
@@ -64,42 +62,45 @@ S3_DIR = RUN_DIR / "s3_memory"
 S4_DIR = RUN_DIR / "s4_threads"
 S5_DIR = RUN_DIR / "s5_format"
 
-for d in (
-    RUN_DIR,
-    FIG_DIR,
-    TABLE_DIR,
-    LOG_DIR,
-    SHARED_INPUT_DIR,
-    S1_DIR,
-    S2_DIR,
-    S3_DIR,
-    S4_DIR,
-    S5_DIR,
-):
-    d.mkdir(parents=True, exist_ok=True)
 
-for d in (
-    S1_DIR / "outputs",
-    S2_DIR / "outputs",
-    S3_DIR / "outputs",
-    S4_DIR / "inputs",
-    S4_DIR / "outputs",
-    S5_DIR / "inputs",
-    S5_DIR / "outputs",
-):
-    d.mkdir(parents=True, exist_ok=True)
+def configure_paths(out_dir: Path) -> None:
+    """Point every output directory at ``out_dir`` and create them."""
+    global RUN_DIR, FIG_DIR, TABLE_DIR, LOG_DIR, SHARED_INPUT_DIR
+    global S1_DIR, S2_DIR, S3_DIR, S4_DIR, S5_DIR
+    RUN_DIR = Path(out_dir).resolve()
+    FIG_DIR = RUN_DIR / "diagnostic_figures"
+    TABLE_DIR = RUN_DIR / "tables"
+    LOG_DIR = RUN_DIR / "logs"
+    SHARED_INPUT_DIR = RUN_DIR / "shared_inputs"
+    S1_DIR = RUN_DIR / "s1_smooth"
+    S2_DIR = RUN_DIR / "s2_em"
+    S3_DIR = RUN_DIR / "s3_memory"
+    S4_DIR = RUN_DIR / "s4_threads"
+    S5_DIR = RUN_DIR / "s5_format"
+
+    for d in (
+        RUN_DIR,
+        FIG_DIR,
+        TABLE_DIR,
+        LOG_DIR,
+        SHARED_INPUT_DIR,
+        S1_DIR / "outputs",
+        S2_DIR / "outputs",
+        S3_DIR / "outputs",
+        S4_DIR / "inputs",
+        S4_DIR / "outputs",
+        S5_DIR / "inputs",
+        S5_DIR / "outputs",
+    ):
+        d.mkdir(parents=True, exist_ok=True)
 
 
-PSMC_RS_BIN = Path(os.environ.get("PSMC_RS_BIN", str(ROOT / "target" / "release" / "psmc-rs")))
-C_PSMC_BIN = Path(os.environ.get("C_PSMC_BIN", str(ROOT.parent / "psmc-master" / "psmc")))
-C_UTILS_DIR = Path(os.environ.get("C_UTILS_DIR", str(ROOT.parent / "psmc-master" / "utils")))
-SPLITFA_BIN = Path(os.environ.get("SPLITFA_BIN", str(C_UTILS_DIR / "splitfa")))
-SIM_SCRIPT = Path(
-    os.environ.get(
-        "SIM_SCRIPT",
-        str(ROOT / "experiment" / "scripts" / "simulate_msprime_to_psmcfa.py"),
-    )
-)
+# Tool locations; set by configure_tools() from flags / environment.
+PSMC_RS_BIN: Optional[Path] = None
+C_PSMC_BIN: Optional[Path] = None
+SIM_SCRIPT = Path(os.environ.get("SIM_SCRIPT", str(exp_common.SIM_SCRIPT_DEFAULT)))
+_PSMC_RS_ARG: Optional[str] = None
+_C_PSMC_ARG: Optional[str] = None
 
 MU = float(os.environ.get("MU", "2.5e-8"))
 GEN_YEARS = float(os.environ.get("GEN_YEARS", "25"))
@@ -108,7 +109,10 @@ N_ITER = int(os.environ.get("N_ITER", "20"))
 T_MAX = float(os.environ.get("T_MAX", "15"))
 N_STEPS = int(os.environ.get("N_STEPS", "64"))
 PATTERN = os.environ.get("PATTERN", "4+25*2+4+6")
-RHO_T_RATIO = int(os.environ.get("RHO_T_RATIO", "5"))
+# C `-r` (initial theta/rho ratio). It must equal the psmc-rs default rho0 =
+# theta0 / RHO_T_RATIO for a matched comparison: 4 for psmc-rs >= 0.2 and
+# lh3/psmc. The precomputed 0.1 tables used 5 (psmc-rs 0.1 used theta0 / 5).
+RHO_T_RATIO = int(os.environ.get("RHO_T_RATIO", "4"))
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "300000"))
 RUST_THREADS_BASE = int(os.environ.get("RUST_THREADS_BASE", "1"))
 ALPHA_CACHE_MB = int(os.environ.get("PSMC_ALPHA_CACHE_MB", "2048"))
@@ -118,7 +122,6 @@ SIM_WINDOW_BP = int(os.environ.get("SIM_WINDOW_BP", "100"))
 SIM_MUTATION = float(os.environ.get("SIM_MUTATION", str(MU)))
 SIM_RECOMB = os.environ.get("SIM_RECOMB", "").strip() or None
 
-PERF_REPEATS = int(os.environ.get("PERF_REPEATS", "10"))
 S3_REPEATS = int(os.environ.get("S3_REPEATS", "3"))
 THREAD_REPEATS = int(os.environ.get("THREAD_REPEATS", "3"))
 THREAD_LIST = [int(x.strip()) for x in os.environ.get("THREAD_LIST", "1,2,4,8").split(",") if x.strip()]
@@ -132,10 +135,6 @@ if os.environ.get("S3_INCLUDE_2000", "0") == "1" and 2000 not in S3_LENGTHS_MB:
     S3_LENGTHS_MB.append(2000)
 S3_LENGTHS_MB = sorted(set(S3_LENGTHS_MB))
 
-BOOTSTRAP_REPS = int(os.environ.get("BOOTSTRAP_REPS", "100"))
-BOOTSTRAP_ITERS = int(os.environ.get("BOOTSTRAP_ITERS", str(N_ITER)))
-BOOTSTRAP_BLOCK_SIZE = int(os.environ.get("BOOTSTRAP_BLOCK_SIZE", "50000"))
-BOOTSTRAP_SEED = int(os.environ.get("BOOTSTRAP_SEED", "42"))
 S5_FORMAT_VERSION = 2
 
 
@@ -304,8 +303,8 @@ def ensure_pydeps():
         setup_publication_style()
         return
     raise RuntimeError(
-        "Missing Python plotting dependencies. Install with: "
-        "pip install matplotlib numpy pandas msprime"
+        f"Missing Python dependencies ({PY_DEPS_ERROR}). Install them with: "
+        f"{sys.executable} -m pip install -r experiment/requirements.txt"
     ) from PY_DEPS_ERROR
 
 
@@ -329,7 +328,12 @@ def save_table_multi(df: pd.DataFrame, stem: str):
     p_md = TABLE_DIR / f"{stem}.md"
     df.to_csv(p_csv, index=False)
     df.to_csv(p_tsv, index=False, sep="\t")
-    p_md.write_text(df.to_markdown(index=False) + "\n", encoding="utf-8")
+    try:
+        p_md.write_text(df.to_markdown(index=False) + "\n", encoding="utf-8")
+    except ImportError:
+        # DataFrame.to_markdown needs the optional `tabulate` package.
+        print(f"saved table: {p_csv}, {p_tsv} (no .md: install tabulate)")
+        return
     print(f"saved table: {p_csv}, {p_tsv}, {p_md}")
 
 
@@ -340,118 +344,47 @@ def run_cmd(
     env: Optional[dict] = None,
     stdout_path: Optional[Path] = None,
 ):
-    t0 = time.perf_counter()
-
-    stdout_fh = None
-    if stdout_path is not None:
-        stdout_path.parent.mkdir(parents=True, exist_ok=True)
-        stdout_fh = open(stdout_path, "w", encoding="utf-8")
-
-    proc = subprocess.Popen(
-        list(cmd),
-        cwd=str(cwd) if cwd is not None else None,
-        stdout=stdout_fh if stdout_fh is not None else subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
+    return exp_common.run_command(
+        cmd,
+        log_path=LOG_DIR / "commands.jsonl",
+        cwd=cwd,
+        check=check,
         env=env,
+        stdout_path=stdout_path,
     )
 
-    peak_rss_mb = float("nan")
-    ps_proc = None
-    peak_bytes = 0
-    if HAS_PSUTIL:
-        try:
-            ps_proc = psutil.Process(proc.pid)
-        except Exception:
-            ps_proc = None
 
-    while proc.poll() is None:
-        if ps_proc is not None:
-            try:
-                rss = ps_proc.memory_info().rss
-                for ch in ps_proc.children(recursive=True):
-                    try:
-                        rss += ch.memory_info().rss
-                    except Exception:
-                        pass
-                if rss > peak_bytes:
-                    peak_bytes = rss
-            except Exception:
-                pass
-        time.sleep(0.02)
-
-    out, err = proc.communicate() if stdout_fh is None else ("", proc.stderr.read())
-    if stdout_fh is not None:
-        stdout_fh.close()
-
-    dt = time.perf_counter() - t0
-    if HAS_PSUTIL and ps_proc is not None:
-        peak_rss_mb = peak_bytes / (1024**2)
-
-    rec = {
-        "cmd": " ".join(shlex.quote(x) for x in cmd),
-        "returncode": proc.returncode,
-        "stdout": out,
-        "stderr": err,
-        "wall_sec": dt,
-        "peak_rss_mb": peak_rss_mb,
-    }
-
-    with (LOG_DIR / "commands.jsonl").open("a", encoding="utf-8") as f:
-        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-    if check and proc.returncode != 0:
-        print(rec["cmd"])
-        print("--- stdout ---")
-        print(out)
-        print("--- stderr ---")
-        print(err)
-        raise RuntimeError(f"command failed: rc={proc.returncode}")
-
-    return rec
+def configure_tools(psmc_rs: Optional[str], c_psmc: Optional[str], sim_script: Optional[str]) -> None:
+    """Record the tool locations requested on the command line (resolved lazily)."""
+    global _PSMC_RS_ARG, _C_PSMC_ARG, SIM_SCRIPT
+    _PSMC_RS_ARG = psmc_rs
+    _C_PSMC_ARG = c_psmc
+    if sim_script:
+        SIM_SCRIPT = Path(sim_script).expanduser().resolve()
 
 
 def ensure_tools(require_c: bool = True) -> bool:
+    global PSMC_RS_BIN, C_PSMC_BIN
     if not SIM_SCRIPT.exists():
         raise FileNotFoundError(f"simulation script missing: {SIM_SCRIPT}")
 
-    if not PSMC_RS_BIN.exists():
-        print("[build] cargo build --release")
-        run_cmd(["cargo", "build", "--release"], cwd=ROOT)
+    if PSMC_RS_BIN is None:
+        PSMC_RS_BIN = exp_common.resolve_psmc_rs(_PSMC_RS_ARG)
+    if C_PSMC_BIN is None:
+        C_PSMC_BIN = exp_common.resolve_c_psmc(_C_PSMC_ARG, required=require_c)
 
-    if not PSMC_RS_BIN.exists():
-        raise FileNotFoundError(f"psmc-rs binary not found: {PSMC_RS_BIN}")
-
-    has_c = C_PSMC_BIN.exists()
-    if require_c and not has_c:
-        raise FileNotFoundError(f"C psmc binary not found: {C_PSMC_BIN}")
+    has_c = C_PSMC_BIN is not None
     if not has_c:
-        print(f"[warn] C binary not found: {C_PSMC_BIN}")
+        print("[warn] C psmc binary not found; C baseline runs are skipped")
     return has_c
-
-
-def ensure_splitfa() -> Path:
-    if SPLITFA_BIN.exists():
-        return SPLITFA_BIN
-    splitfa_c = C_UTILS_DIR / "splitfa.c"
-    if not splitfa_c.exists():
-        raise FileNotFoundError(f"splitfa.c not found: {splitfa_c}")
-    print(f"[build] cc -O3 -I.. -o {SPLITFA_BIN} {splitfa_c} -lm -lz")
-    run_cmd(
-        ["cc", "-O3", "-I..", "-o", str(SPLITFA_BIN), str(splitfa_c), "-lm", "-lz"],
-        cwd=C_UTILS_DIR,
-    )
-    if not SPLITFA_BIN.exists():
-        raise RuntimeError("failed to build splitfa")
-    return SPLITFA_BIN
 
 
 def shared_input_path(model_key: str, length_bp: int) -> Path:
     return SHARED_INPUT_DIR / f"{model_key}.{length_bp}bp.psmcfa"
 
 
-def ensure_shared_inputs(length_bp: int, force: bool = False):
-    for key in MODEL_ORDER:
+def ensure_shared_inputs(length_bp: int, force: bool = False, models: Sequence[str] = ()):
+    for key in models or MODEL_ORDER:
         spec = MODELS[key]
         out_path = shared_input_path(key, length_bp)
         if out_path.exists() and not force:
@@ -1252,7 +1185,9 @@ def run_s3_memory_scaling(force: bool = False):
     rows = []
     for length_mb in S3_LENGTHS_MB:
         length_bp = int(length_mb * 1_000_000)
-        ensure_shared_inputs(length_bp, force=force)
+        # Only the constant model is timed; simulating the other three models
+        # at every length (up to 1 Gb each) would be wasted work.
+        ensure_shared_inputs(length_bp, force=force, models=("constant",))
 
         inp = shared_input_path("constant", length_bp)
         for rep in range(1, S3_REPEATS + 1):
@@ -1535,7 +1470,8 @@ def run_s5_format_consistency(force: bool = False):
     return tab
 
 
-def run_all(force: bool = False):
+def run_all(force: bool = False, out_dir: Optional[Path] = None):
+    configure_paths(out_dir or RUN_DIR)
     ensure_pydeps()
     s1 = run_s1_smooth_ablation(force=force)
     s2 = run_s2_em_convergence(force=force)
@@ -1555,22 +1491,42 @@ def parse_steps(s: str) -> List[str]:
 
 
 def main(argv: Optional[List[str]] = None):
-    p = argparse.ArgumentParser(description="Run supplementary experiments S1-S5")
-    p.add_argument("--steps", default="S1,S2,S3,S4,S5", help="Comma-separated steps (S1..S5)")
+    p = argparse.ArgumentParser(
+        description="Run supplementary experiments S1-S5",
+        epilog="Run parameters (N_ITER, SIM_LENGTH_BP, S3_LENGTHS_MB, THREAD_LIST, ...) "
+        "are read from environment variables; see experiment/README.md.",
+    )
+    p.add_argument(
+        "--steps",
+        default="S2,S3,S4,S5",
+        help="Comma-separated steps (S1..S5). Default: S2,S3,S4,S5, the tables the "
+        "manuscript uses; S1 (smoothing ablation) is optional.",
+    )
     p.add_argument("--force", action="store_true", help="Force rerun even if outputs already exist")
+    p.add_argument(
+        "--out-dir",
+        default=str(exp_common.RUNS / "supplementary"),
+        help="Output root (tables/, logs/, inputs and outputs). Default: experiment/runs/supplementary",
+    )
+    p.add_argument("--psmc-rs", help="psmc-rs binary (default: $PSMC_RS_BIN or target/release/psmc-rs)")
+    p.add_argument("--c-psmc", help="C psmc binary (default: $C_PSMC_BIN or `psmc` on PATH)")
+    p.add_argument(
+        "--sim-script",
+        help="Simulation script (default: $SIM_SCRIPT or experiment/scripts/simulate_msprime_to_psmcfa.py)",
+    )
     args = p.parse_args(argv)
 
     steps = parse_steps(args.steps)
+    configure_paths(Path(args.out_dir))
+    configure_tools(args.psmc_rs, args.c_psmc, args.sim_script)
 
     print("ROOT=", ROOT)
     print("RUN_DIR=", RUN_DIR)
-    print("PSMC_RS_BIN=", PSMC_RS_BIN)
-    print("C_PSMC_BIN=", C_PSMC_BIN)
+    print("SIM_SCRIPT=", SIM_SCRIPT)
     print("SIM_LENGTH_BP=", SIM_LENGTH_BP)
+    print("RHO_T_RATIO=", RHO_T_RATIO)
     print("S4_INPUT=", f"{S4_CONTIGS}x{S4_CONTIG_MB}Mb (seed_base={S4_SEED_BASE})")
     print("S5_FORMAT_VERSION=", S5_FORMAT_VERSION)
-    print("PERF_REPEATS=", PERF_REPEATS)
-    print("BOOTSTRAP_REPS=", BOOTSTRAP_REPS)
     print("steps=", steps)
 
     out = {}
@@ -1586,7 +1542,9 @@ def main(argv: Optional[List[str]] = None):
         elif s == "S5":
             out[s] = run_s5_format_consistency(force=args.force)
 
-    print("done. figures:")
+    print("PSMC_RS_BIN=", PSMC_RS_BIN)
+    print("C_PSMC_BIN=", C_PSMC_BIN)
+    print("done. diagnostic figures:")
     for pth in sorted(FIG_DIR.glob("*")):
         print(" -", pth)
     print("tables:")
