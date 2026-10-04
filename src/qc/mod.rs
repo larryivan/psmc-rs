@@ -7,7 +7,9 @@
 //! and for each sequence, plus [`Finding`]s: warnings and notes with a stable
 //! [`QcCode`], the measured numbers and a recommendation. The rationale of
 //! each check is documented on its code. The report serialises to JSON with
-//! serde.
+//! serde ([`QcReport::to_json`]) and renders as aligned text
+//! ([`render_text`], or [`render_text_with`] and [`TextOptions::brief`] for
+//! the short block printed before a fit).
 //!
 //! Bins follow the psmcfa convention: 0 = `T` (called, no heterozygous site),
 //! 1 = `K` (at least one heterozygous site), anything else = `N` (missing).
@@ -21,6 +23,7 @@ mod checks;
 mod fmt;
 mod names;
 mod stats;
+mod text;
 
 pub use checks::{
     Finding, HEMIZYGOUS_MAX_RATIO, HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS,
@@ -29,6 +32,7 @@ pub use checks::{
     MIN_MEAN_DEPTH, QcCode, REFERENCE_MIN_CALLED_BASES, SHORT_SEQUENCES_MAX_FRACTION, Severity,
 };
 pub use names::{SeqKind, classify_name};
+pub use text::{TextOptions, render_text, render_text_with};
 
 pub use stats::{
     bootstrap_trunks_of, het_per_site, initial_recombinations, largest_trunk_within,
