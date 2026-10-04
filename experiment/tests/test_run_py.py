@@ -1,0 +1,175 @@
+"""Tests for experiment/run.py and the plotting notebook it executes.
+
+Each test builds a throw-away copy of the reproduction package (run.py, the
+notebook and the committed tables) in a temporary directory, so nothing in the
+working tree is touched. Rendering tests skip without numpy/pandas/matplotlib.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import importlib.util
+import io
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+EXP = ROOT / "experiment"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(EXP / "scripts"))
+import fixtures  # noqa: E402
+import run_real_data  # noqa: E402
+
+MODELS = ("constant", "bottleneck", "expansion", "zigzag")
+HAS_PLOT_DEPS = all(importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "matplotlib"))
+
+
+def make_package(dest: Path, *, with_outputs: bool) -> Path:
+    """Copy run.py, the notebook and the committed tables into a fake repository."""
+    (dest / "src").mkdir(parents=True)
+    (dest / "Cargo.toml").write_text("")
+    (dest / "experiment" / "notebooks").mkdir(parents=True)
+    shutil.copy2(EXP / "run.py", dest / "experiment" / "run.py")
+    shutil.copy2(EXP / "notebooks" / "all_plots_precomputed.ipynb", dest / "experiment" / "notebooks")
+    for table in (EXP / "runs").glob("*/tables/*.csv"):
+        target = dest / table.relative_to(ROOT)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(table, target)
+    if with_outputs:
+        out = dest / "experiment" / "runs" / "main_text" / "outputs"
+        for i, m in enumerate(MODELS):
+            fixtures.write_rust_json(out / f"{m}.rust.main.json", scale=1.0 + 0.1 * i)
+            fixtures.write_c_psmc(out / f"{m}.c.main.psmc", scale=1.0 + 0.1 * i)
+        real = dest / "experiment" / "runs" / "real_data"
+        for s in run_real_data.SAMPLES:
+            fixtures.write_rust_json(real / "outputs" / f"{s.sid}.rust.json", theta=0.001)
+            fixtures.write_c_psmc(real / "outputs" / f"{s.sid}.c.psmc", theta=0.001)
+        with contextlib.redirect_stdout(io.StringIO()):
+            run_real_data.write_fit_summary(real, root=dest)
+    return dest / "experiment" / "run.py"
+
+
+def run(run_py: Path, *args: str, cwd: Path, env_extra=None) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env.pop("PSMC_RS_ROOT", None)
+    env.update(env_extra or {})
+    return subprocess.run(
+        [sys.executable, str(run_py), *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=900,
+    )
+
+
+class Checks(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name).resolve()
+        self.elsewhere = self.tmp / "elsewhere"
+        self.elsewhere.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_missing_outputs_name_the_command_that_regenerates_them(self):
+        run_py = make_package(self.tmp / "repo", with_outputs=False)
+        res = run(run_py, "--skip-plot", cwd=self.elsewhere)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("python3 experiment/scripts/run_main_text.py --steps simulate,main", res.stderr)
+        self.assertIn("missing: experiment/runs/main_text/outputs/constant.rust.main.json", res.stderr)
+        self.assertIn("python3 experiment/scripts/run_real_data.py", res.stderr)
+        self.assertNotIn("Traceback", res.stderr)
+
+    def test_check_needs_no_plotting_packages(self):
+        run_py = make_package(self.tmp / "repo", with_outputs=True)
+        stubs = self.tmp / "stubs"
+        stubs.mkdir()
+        for name in ("numpy", "pandas", "matplotlib"):
+            (stubs / f"{name}.py").write_text("raise ImportError('stubbed out by the test')\n")
+        res = run(run_py, "--skip-plot", cwd=self.elsewhere, env_extra={"PYTHONPATH": str(stubs)})
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("[check] required files and key tables are valid.", res.stdout)
+
+    def test_timing_tables_without_values_are_reported(self):
+        # What an S3 re-run that reused its outputs used to write.
+        run_py = make_package(self.tmp / "repo", with_outputs=True)
+        s3 = self.tmp / "repo/experiment/runs/supplementary/tables/S3_memory_scaling_summary.csv"
+        header = s3.read_text().splitlines()[0]
+        s3.write_text(header + "\n1,c,,,,\n1,rust,,,,\n")
+        res = run(run_py, "--skip-plot", cwd=self.elsewhere)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("S3_memory_scaling_summary.csv contains no finite", res.stderr)
+        self.assertIn("run_supplementary.py --steps S3", res.stderr)
+        self.assertNotIn("Traceback", res.stderr)
+
+    def test_missing_plotting_packages_are_named_for_this_interpreter(self):
+        run_py = make_package(self.tmp / "repo", with_outputs=True)
+        stubs = self.tmp / "stubs"
+        stubs.mkdir()
+        for name in ("pandas", "matplotlib"):
+            (stubs / f"{name}.py").write_text("raise ImportError('stubbed out by the test')\n")
+        res = run(run_py, "--skip-check", cwd=self.elsewhere, env_extra={"PYTHONPATH": str(stubs)})
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn(f"{sys.executable} cannot import: ", res.stderr)
+        self.assertIn("pandas, matplotlib", res.stderr)
+        self.assertIn(f"{sys.executable} -m pip install numpy pandas matplotlib", res.stderr)
+        self.assertNotIn("Traceback", res.stderr)
+
+
+@unittest.skipUnless(HAS_PLOT_DEPS, "numpy/pandas/matplotlib not installed")
+class Rendering(unittest.TestCase):
+    STEMS = {
+        "main_text": ("figure_2_simulated_equivalence", "figure_4_performance_scalability"),
+        "real_data": ("figure_3_empirical_genomes_rust_vs_c",),
+        "supplementary": (
+            "supplementary_figure_S1_em_convergence",
+            "supplementary_figure_S2_format_consistency",
+            "supplementary_figure_S3_interfaces",
+        ),
+    }
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name).resolve()
+        self.elsewhere = self.tmp / "elsewhere"
+        self.elsewhere.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def figure(self, repo: Path, group: str, stem: str) -> Path:
+        return repo / "experiment" / "runs" / group / "figures" / f"{stem}.png"
+
+    def test_all_figures_render_when_started_outside_the_repository(self):
+        repo = self.tmp / "repo"
+        run_py = make_package(repo, with_outputs=True)
+        res = run(run_py, cwd=self.elsewhere)
+        self.assertEqual(res.returncode, 0, res.stderr[-3000:])
+        for group, stems in self.STEMS.items():
+            for stem in stems:
+                self.assertTrue(self.figure(repo, group, stem).exists(), stem)
+        rmse = (repo / "experiment/runs/real_data/tables/figure_3_empirical_rmse_rs_vs_c.csv").read_text()
+        self.assertEqual(len(rmse.strip().splitlines()), 5)
+
+    def test_keep_going_draws_the_figures_whose_inputs_exist(self):
+        repo = self.tmp / "repo"
+        run_py = make_package(repo, with_outputs=False)
+        res = run(run_py, "--keep-going", cwd=self.elsewhere)
+        self.assertEqual(res.returncode, 1, res.stderr[-3000:])
+        self.assertIn("run_main_text.py --steps simulate,main", res.stderr)
+        self.assertFalse(self.figure(repo, "main_text", "figure_2_simulated_equivalence").exists())
+        self.assertFalse(self.figure(repo, "real_data", "figure_3_empirical_genomes_rust_vs_c").exists())
+        self.assertTrue(self.figure(repo, "main_text", "figure_4_performance_scalability").exists())
+        for stem in self.STEMS["supplementary"]:
+            self.assertTrue(self.figure(repo, "supplementary", stem).exists(), stem)
+
+
+if __name__ == "__main__":
+    unittest.main()
