@@ -404,6 +404,84 @@ fn read_vcf_rejects_a_record_beyond_the_contig_length() {
 }
 
 #[test]
+fn read_vcf_rejects_implausible_contig_lengths_and_positions() {
+    // 2^36 (68.7 Gb) is the limit. The huge bin size keeps the accepted cases
+    // (and the code before the limit, which let these lengths through) quick.
+    let opts = VcfOptions {
+        bin_size: 1 << 30,
+        ..VcfOptions::default()
+    };
+    let record = ["chr1 100 A C PASS 0/1"];
+    let with_length = |len: &str| {
+        let meta = format!("##contig=<ID=chr1,length={len}>");
+        write_vcf_with_meta("vcf_contig_cap", &[meta.as_str()], &record)
+    };
+
+    let at_limit = with_length("68719476736");
+    let read = read_vcf_with(&at_limit, &opts).expect("2^36 is accepted");
+    assert_eq!(
+        read.obs.rows,
+        vec![{
+            let mut row = vec![0; 64];
+            row[0] = 1;
+            row
+        }]
+    );
+
+    for (len, shown) in [
+        ("68719476737", "(68719476737)"),
+        (
+            "1000000000000000000000000",
+            "(a number of 20 or more digits)",
+        ),
+    ] {
+        let vcf = with_length(len);
+        let err = read_vcf_with(&vcf, &opts).expect_err("length above 2^36");
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("##contig length of 'chr1'")
+                && msg.contains(shown)
+                && msg.contains("supported maximum"),
+            "{len}: unexpected error: {msg}"
+        );
+        // Not extending to the contig end ignores the length.
+        let short = VcfOptions {
+            to_contig_end: false,
+            ..opts.clone()
+        };
+        let read = read_vcf_with(&vcf, &short).expect("length not used");
+        assert_eq!(read.obs.rows, vec![vec![1]]);
+        let _ = fs::remove_file(vcf);
+    }
+
+    // The case that used to run until memory ran out: 2^60 at the default
+    // bin size. A bad length on a chromosome without records is never used.
+    let meta = [
+        "##contig=<ID=chr1,length=1152921504606846976>",
+        "##contig=<ID=chr2,length=1152921504606846976>",
+        "##contig=<ID=chr3,length=50>",
+    ];
+    let vcf = write_vcf_with_meta("vcf_contig_huge", &meta, &["chr3 10 A C PASS 0/1"]);
+    let read = read_vcf(&vcf, None, 10, None, &[], &[]).expect("chr1 and chr2 have no records");
+    assert_eq!(read.rows, vec![vec![1, 0, 0, 0, 0]]);
+    let huge = write_vcf_with_meta("vcf_contig_huge2", &meta, &record);
+    let err = read_vcf(&huge, None, 100, None, &[], &[]).expect_err("2^60 is rejected");
+    assert!(format!("{err:#}").contains("supported maximum"), "{err:#}");
+
+    let far = write_vcf("vcf_pos_cap", &["chr1 68719476737 A C PASS 0/1"]);
+    let err = read_vcf_with(&far, &opts).expect_err("POS above 2^36");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("POS 68719476737 is beyond the supported maximum"),
+        "unexpected error: {msg}"
+    );
+
+    for p in [at_limit, vcf, huge, far] {
+        let _ = fs::remove_file(p);
+    }
+}
+
+#[test]
 fn read_vcf_rejects_unsorted_positions() {
     let vcf = write_vcf(
         "vcf_unsorted",

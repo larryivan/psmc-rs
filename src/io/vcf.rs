@@ -43,9 +43,12 @@ use crate::io::common::{Binner, chunk_sequences, open_reader};
 
 type Interval = (u64, u64); // inclusive [start, end], 1-based
 
-/// Largest accepted POS. Far beyond any real chromosome, it keeps
-/// `POS + len(REF)` and run lengths clear of `u64` overflow.
-const MAX_POS: u64 = 1 << 60;
+/// Largest accepted POS and `##contig` length: 2^36, about 68.7 Gb, several
+/// times longer than any known chromosome. The work and memory of a sequence
+/// grow with its length (687M bins at the default bin size for this one), so
+/// without a bound a single bad POS or header line makes the reader allocate
+/// bins until memory runs out.
+const MAX_POS: u64 = 1 << 36;
 
 fn merge_intervals(mut xs: Vec<Interval>) -> Vec<Interval> {
     if xs.is_empty() {
@@ -376,7 +379,8 @@ pub struct VcfOptions {
     /// End each sequence at its chromosome's `##contig` length, when the
     /// header gives one, instead of at the last record. The positions after
     /// the last record are then classified like any other (callable ->
-    /// homozygous, else missing), and a record beyond the length is an error.
+    /// homozygous, else missing). A record beyond the length, or a length
+    /// above 2^36 (no real chromosome comes close), is an error.
     pub to_contig_end: bool,
 }
 
@@ -545,7 +549,12 @@ fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<
         bail!("invalid VCF row {}: POS must be >= 1", row_no);
     }
     if pos > MAX_POS {
-        bail!("invalid VCF row {}: POS {} is out of range", row_no, pos);
+        bail!(
+            "invalid VCF row {}: POS {} is beyond the supported maximum {}",
+            row_no,
+            pos,
+            MAX_POS
+        );
     }
     Ok(Record {
         chrom: cols[0],
@@ -840,7 +849,9 @@ impl ChromBuilder {
     }
 }
 
-/// `(ID, length)` of a `##contig=<ID=...,length=...,...>` header line.
+/// `(ID, length)` of a `##contig=<ID=...,length=...,...>` header line. A
+/// length of 20 or more digits comes back as `u64::MAX`; the caller rejects
+/// lengths above [`MAX_POS`] for the chromosomes it extends.
 fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
     let body = line.strip_prefix(b"##contig=<")?;
     let body = body.strip_suffix(b">").unwrap_or(body);
@@ -856,10 +867,14 @@ fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
         if let Some(v) = field.strip_prefix(b"ID=") {
             id = Some(v);
         } else if let Some(v) = field.strip_prefix(b"length=") {
-            len = parse_u64(v);
+            len = if !v.is_empty() && v.iter().all(u8::is_ascii_digit) {
+                Some(parse_u64(v).unwrap_or(u64::MAX))
+            } else {
+                None
+            };
         }
     }
-    let len = len.filter(|&l| (1..=MAX_POS).contains(&l))?;
+    let len = len.filter(|&l| l > 0)?;
     Some((id?, len))
 }
 
@@ -872,7 +887,8 @@ fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
 /// record's POS otherwise. Chromosomes without records produce no sequence.
 /// Records must be sorted by position within a chromosome (several records at
 /// one POS are combined), and each chromosome must form one contiguous block,
-/// as in any `bcftools sort`ed or indexed VCF.
+/// as in any `bcftools sort`ed or indexed VCF. POS, and the `##contig` lengths
+/// that are used, must not exceed 2^36.
 pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
@@ -941,6 +957,20 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
             } else {
                 None
             };
+            if let Some(len) = contig_len.filter(|&len| len > MAX_POS) {
+                bail!(
+                    "invalid VCF header: the ##contig length of '{}' ({}) is beyond the \
+                     supported maximum {}; correct the header, or end each sequence at its \
+                     last record instead of the contig length",
+                    name,
+                    if len == u64::MAX {
+                        "a number of 20 or more digits".to_string()
+                    } else {
+                        len.to_string()
+                    },
+                    MAX_POS
+                );
+            }
             if contig_len.is_some() {
                 summary.contig_lengths_used.push(name.to_string());
             }
