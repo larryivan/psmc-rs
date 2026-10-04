@@ -821,3 +821,151 @@ pub fn m_step_lbfgs_with_progress(
 
     from_unconstrained(&xk, bounds)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hmm::e_step_streaming;
+
+    /// Deterministic xorshift64 in [0, 1).
+    struct Rng(u64);
+
+    impl Rng {
+        fn next(&mut self) -> f64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 11) as f64 / (1u64 << 53) as f64
+        }
+
+        fn log_uniform(&mut self, lo: f64, hi: f64) -> f64 {
+            (lo.ln() + (hi.ln() - lo.ln()) * self.next()).exp()
+        }
+    }
+
+    /// A model with random θ, ρ, t_max and λ; `param_recalculate` has run.
+    fn random_model(rng: &mut Rng, n_steps: usize, pattern: Option<&str>) -> PsmcModel {
+        let theta = rng.log_uniform(1e-4, 0.05);
+        let rho = theta * rng.log_uniform(0.05, 2.0);
+        let t_max = 5.0 + 30.0 * rng.next();
+        let mut model = PsmcModel::new(
+            t_max,
+            n_steps,
+            theta,
+            rho,
+            2.5e-8,
+            pattern.map(str::to_string),
+        )
+        .unwrap();
+        for lam in model.lam.iter_mut() {
+            *lam = rng.log_uniform(0.05, 20.0);
+        }
+        model.param_recalculate().unwrap();
+        model
+    }
+
+    const LAYOUTS: [(usize, Option<&str>); 3] =
+        [(10, None), (22, Some("4+5*3+4")), (63, Some("4+25*2+4+6"))];
+
+    #[test]
+    fn dual_values_equal_param_recalculate() {
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+        for (n, pattern) in LAYOUTS {
+            for _ in 0..10 {
+                let model = random_model(&mut rng, n, pattern);
+                let params = pack_params(&model);
+                let n_vars = params.len();
+                let vars: Vec<Dual> = (0..n_vars)
+                    .map(|i| Dual::variable(params[i], n_vars, i))
+                    .collect();
+                let lam_full = expand_lam_dual(&vars[3..], model.pattern_spec(), n).unwrap();
+                let (a, em) =
+                    compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
+                // Same operations in the same order, so equal to the bit.
+                for ((k, l), v) in model.p_kl.indexed_iter() {
+                    assert_eq!(
+                        a[k][l].re.to_bits(),
+                        v.to_bits(),
+                        "{pattern:?} p_kl[{k}][{l}]: {} vs {v}",
+                        a[k][l].re
+                    );
+                }
+                for ((b, k), v) in model.em.indexed_iter() {
+                    assert_eq!(
+                        em[b][k].re.to_bits(),
+                        v.to_bits(),
+                        "{pattern:?} em[{b}][{k}]: {} vs {v}",
+                        em[b][k].re
+                    );
+                }
+            }
+        }
+    }
+
+    /// Sufficient statistics of an E-step on a random sequence drawn with
+    /// roughly the model's heterozygosity and a few missing bins.
+    fn random_stats(rng: &mut Rng, model: &PsmcModel, n_bins: usize) -> SufficientStats {
+        let het = (1.0 - (-model.theta * 2.0).exp()).max(1e-3);
+        let row: Vec<u8> = (0..n_bins)
+            .map(|_| {
+                let u = rng.next();
+                if u < 0.02 {
+                    2
+                } else if u < 0.02 + het {
+                    1
+                } else {
+                    0
+                }
+            })
+            .collect();
+        e_step_streaming(
+            model.prior_matrix(),
+            model.transition_matrix(),
+            model.emission_matrix(),
+            &[row],
+            &[true],
+            false,
+            "E",
+        )
+        .unwrap()
+        .stats
+    }
+
+    #[test]
+    fn ad_gradient_matches_central_differences() {
+        let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+        let config = MStepConfig::default();
+        for (n, pattern) in LAYOUTS {
+            for lambda in [0.0, 1e-2] {
+                for _ in 0..3 {
+                    let model = random_model(&mut rng, n, pattern);
+                    let stats = random_stats(&mut rng, &model, 20_000);
+                    let bounds = bounds_from_config(&model, &config);
+                    let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                    let (_, grad) = eval_ad(&model, &stats, &x, &bounds, lambda).unwrap();
+                    let f = |x: &[f64]| eval_ad(&model, &stats, x, &bounds, lambda).unwrap().0;
+                    // Richardson-extrapolated central differences: O(h^4).
+                    let central = |i: usize, h: f64| {
+                        let (mut xp, mut xm) = (x.clone(), x.clone());
+                        xp[i] += h;
+                        xm[i] -= h;
+                        (f(&xp) - f(&xm)) / (2.0 * h)
+                    };
+                    let fd: Vec<f64> = (0..x.len())
+                        .map(|i| (4.0 * central(i, 5e-4) - central(i, 1e-3)) / 3.0)
+                        .collect();
+                    let scale = norm(&grad);
+                    for i in 0..x.len() {
+                        let rel = (grad[i] - fd[i]).abs() / grad[i].abs().max(1e-3 * scale);
+                        assert!(
+                            rel < 1e-6,
+                            "{pattern:?} lambda={lambda} d/dx[{i}]: AD {} vs FD {} (rel {rel:.2e})",
+                            grad[i],
+                            fd[i]
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
