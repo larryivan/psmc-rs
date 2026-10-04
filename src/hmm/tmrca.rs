@@ -38,21 +38,19 @@ const UNITS_PER_WINDOW: usize = 64;
 
 const HEADER: &str = "seq_id\tseq_bin\tglobal_bin\tobs\tmap_state\ttmrca_map_years\ttmrca_mean_years\ttmrca_q025_years\ttmrca_q975_years\tpmax\tentropy\n";
 
+/// The first state at which the cumulative posterior reaches `q` (the last
+/// state if rounding keeps the total below `q`).
 #[inline]
-fn quantile_from_probs(probs: &[f64], state_years: &[f64], q: f64) -> f64 {
-    debug_assert_eq!(probs.len(), state_years.len());
-    if probs.is_empty() {
-        return 0.0;
-    }
+fn quantile_state(probs: &[f64], q: f64) -> usize {
     let target = q.clamp(0.0, 1.0);
     let mut cdf = 0.0;
     for (k, p) in probs.iter().enumerate() {
         cdf += *p;
         if cdf >= target {
-            return state_years[k];
+            return k;
         }
     }
-    state_years.last().copied().unwrap_or(0.0)
+    probs.len().saturating_sub(1)
 }
 
 fn obs_char(class: u8) -> char {
@@ -61,6 +59,98 @@ fn obs_char(class: u8) -> char {
         1 => 'K',
         _ => 'N',
     }
+}
+
+/// Appends the decimal digits of `n`.
+fn push_usize(out: &mut String, mut n: usize) {
+    let mut buf = [0u8; 20];
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    out.push_str(std::str::from_utf8(&buf[i..]).expect("ASCII digits"));
+}
+
+/// Powers of ten that are exact in f64.
+const POW10: [f64; 23] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
+    1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
+];
+
+/// The nine significant digits and the decimal exponent of `v` as
+/// `{:.8e}` prints them, or `None` where this cheap method cannot be sure.
+///
+/// `v` is scaled into `[1e8, 1e9)` by one multiplication or division by an
+/// exact power of ten. That single rounding is at most 2^-53 relative, less
+/// than 1.2e-7 absolute, so rounding the scaled value to an integer gives the
+/// correctly rounded digits unless it lies within 1e-6 of a tie. Ties, zero,
+/// subnormal, negative and non-finite values, and exponents beyond the exact
+/// powers return `None`.
+#[inline]
+fn sci8_digits(v: f64) -> Option<(u64, i32)> {
+    if !(v.is_normal() && v > 0.0) {
+        return None;
+    }
+    let scale = |e10: i32| -> Option<f64> {
+        let k = 8 - e10;
+        let p = *POW10.get(k.unsigned_abs() as usize)?;
+        Some(if k >= 0 { v * p } else { v / p })
+    };
+    // floor(log10(v)) to within one, from the binary exponent (78913 / 2^18
+    // is log10(2) to 6 digits).
+    let e2 = ((v.to_bits() >> 52) & 0x7ff) as i32 - 1023;
+    let mut e10 = (e2 * 78913) >> 18;
+    let mut m = scale(e10)?;
+    if m < 1e8 {
+        e10 -= 1;
+        m = scale(e10)?;
+    } else if m >= 1e9 {
+        e10 += 1;
+        m = scale(e10)?;
+    }
+    if !(1e8..1e9).contains(&m) {
+        return None;
+    }
+    let floor = m.floor();
+    let frac = m - floor;
+    if (frac - 0.5).abs() < 1e-6 {
+        return None;
+    }
+    let mut digits = floor as u64 + u64::from(frac > 0.5);
+    if digits == 1_000_000_000 {
+        digits = 100_000_000;
+        e10 += 1;
+    }
+    Some((digits, e10))
+}
+
+/// Appends `v` exactly as `write!(out, "{v:.8e}")` would, usually without
+/// the standard formatter (which costs a few hundred ns per value and
+/// dominated the cost of a TSV line).
+fn push_sci8(out: &mut String, v: f64) {
+    let Some((digits, e10)) = sci8_digits(v) else {
+        write!(out, "{v:.8e}").expect("writing to a String cannot fail");
+        return;
+    };
+    let mut buf = [0u8; 10];
+    let mut d = digits;
+    for b in buf[2..].iter_mut().rev() {
+        *b = b'0' + (d % 10) as u8;
+        d /= 10;
+    }
+    buf[0] = b'0' + d as u8;
+    buf[1] = b'.';
+    out.push_str(std::str::from_utf8(&buf).expect("ASCII digits"));
+    out.push('e');
+    if e10 < 0 {
+        out.push('-');
+    }
+    push_usize(out, e10.unsigned_abs() as usize);
 }
 
 /// Output sink: plain text, or gzip when the path ends in `.gz`.
@@ -205,9 +295,27 @@ struct UnitOut {
     samples: Vec<[f64; 5]>,
 }
 
+/// The time of each state, as a number and as printed in the TSV.
+struct StateYears<'a> {
+    values: &'a [f64],
+    /// `values[k]` formatted as `{:.8e}`. The MAP and quantile columns are
+    /// always one of these, so they are formatted once rather than per line
+    /// (float formatting dominates the cost of writing a line).
+    text: Vec<String>,
+}
+
+impl<'a> StateYears<'a> {
+    fn new(values: &'a [f64]) -> Self {
+        Self {
+            values,
+            text: values.iter().map(|y| format!("{y:.8e}")).collect(),
+        }
+    }
+}
+
 /// Formats decoded sites as TSV lines and accumulates the summaries of one unit.
 struct UnitWriter<'a> {
-    years: &'a [f64],
+    years: &'a StateYears<'a>,
     stride: usize,
     text: String,
     state_mass: Vec<f64>,
@@ -215,12 +323,12 @@ struct UnitWriter<'a> {
 }
 
 impl<'a> UnitWriter<'a> {
-    fn new(years: &'a [f64], stride: usize, sites: usize) -> Self {
+    fn new(years: &'a StateYears<'a>, stride: usize, sites: usize) -> Self {
         Self {
             years,
             stride,
             text: String::with_capacity(sites * 140),
-            state_mass: vec![0.0; years.len()],
+            state_mass: vec![0.0; years.values.len()],
             samples: Vec::new(),
         }
     }
@@ -237,7 +345,7 @@ impl<'a> UnitWriter<'a> {
         post: &[f64],
         np: usize,
     ) {
-        let years = self.years;
+        let (years, years_text) = (self.years.values, &self.years.text);
         let n = years.len();
         for (t, &o) in obs.iter().enumerate() {
             let p = &post[t * np..t * np + n];
@@ -256,29 +364,39 @@ impl<'a> UnitWriter<'a> {
                     entropy -= pk * pk.ln();
                 }
             }
-            let map_years = years[max_k];
-            let q025 = quantile_from_probs(p, years, 0.025);
-            let q975 = quantile_from_probs(p, years, 0.975);
+            let k025 = quantile_state(p, 0.025);
+            let k975 = quantile_state(p, 0.975);
             let global_bin = global_bin + t;
-            writeln!(
-                self.text,
-                "{}\t{}\t{}\t{}\t{}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
-                seq_id,
-                seq_bin + t,
-                global_bin,
-                obs_char(o),
-                max_k,
-                map_years,
-                mean,
-                q025,
-                q975,
-                max_p,
-                entropy,
-            )
-            .expect("writing to a String cannot fail");
+            // Same text as "{}\t{}\t{}\t{}\t{}\t{:.8e}\t..." (see `push_sci8`).
+            let line = &mut self.text;
+            for v in [seq_id, seq_bin + t, global_bin] {
+                push_usize(line, v);
+                line.push('\t');
+            }
+            line.push(obs_char(o));
+            line.push('\t');
+            push_usize(line, max_k);
+            line.push('\t');
+            line.push_str(&years_text[max_k]);
+            line.push('\t');
+            push_sci8(line, mean);
+            line.push('\t');
+            line.push_str(&years_text[k025]);
+            line.push('\t');
+            line.push_str(&years_text[k975]);
+            line.push('\t');
+            push_sci8(line, max_p);
+            line.push('\t');
+            push_sci8(line, entropy);
+            line.push('\n');
             if global_bin.is_multiple_of(self.stride) {
-                self.samples
-                    .push([global_bin as f64, mean, map_years, q025, q975]);
+                self.samples.push([
+                    global_bin as f64,
+                    mean,
+                    years[max_k],
+                    years[k025],
+                    years[k975],
+                ]);
             }
         }
     }
@@ -299,7 +417,7 @@ struct Decoder<'a> {
     plan: Plan,
     /// First site of each sequence in the input; the last entry is the total.
     seq_start: Vec<usize>,
-    years: &'a [f64],
+    years: StateYears<'a>,
     stride: usize,
     gzip: bool,
     ctx: Ctx<'a>,
@@ -326,7 +444,7 @@ impl Decoder<'_> {
             Unit::Short { seqs } => self.seq_start[seqs.end] - self.seq_start[seqs.start],
             Unit::Long { segs, .. } => segs.len() * CHECKPOINT_STRIDE,
         };
-        let mut out = UnitWriter::new(self.years, self.stride, sites);
+        let mut out = UnitWriter::new(&self.years, self.stride, sites);
         self.with_workspace(|ws| -> Result<()> {
             match unit {
                 Unit::Short { seqs } => {
@@ -475,7 +593,7 @@ pub fn write_tmrca_posterior_tsv(
         rows,
         plan,
         seq_start,
-        years: tmrca_years,
+        years: StateYears::new(tmrca_years),
         stride,
         gzip,
         ctx: Ctx {
@@ -592,6 +710,91 @@ mod tests {
         assert_eq!(next_site, *seq_start.last().unwrap());
         assert_eq!(continued, None);
         sizes
+    }
+
+    fn assert_sci8(v: f64) {
+        let mut fast = String::new();
+        push_sci8(&mut fast, v);
+        assert_eq!(fast, format!("{v:.8e}"), "bits {:016x}", v.to_bits());
+    }
+
+    /// `push_sci8` must print exactly what `{:.8e}` prints, including where
+    /// rounding is closest to a tie and around powers of ten.
+    #[test]
+    fn push_sci8_matches_std_formatting() {
+        use rand::rngs::SmallRng;
+        use rand::{Rng, SeedableRng};
+        let mut rng = SmallRng::seed_from_u64(1);
+        let (mut in_range, mut fast_path) = (0, 0);
+        for _ in 0..300_000 {
+            // Any finite double, then the ranges the TSV uses.
+            let v = f64::from_bits(rng.r#gen::<u64>());
+            if v.is_finite() {
+                assert_sci8(v);
+            }
+            let v = 10f64.powf(rng.gen_range(-30.0..30.0));
+            assert_sci8(v);
+            // Exact powers of ten reach decimal exponents -14..=30 (and the
+            // first estimate of the exponent may be one too small).
+            if (1e-13..1e30).contains(&v) {
+                in_range += 1;
+                fast_path += usize::from(sci8_digits(v).is_some());
+            }
+            assert_sci8(rng.gen_range(0.0..1.0));
+        }
+        assert!(
+            fast_path + in_range / 1000 >= in_range,
+            "fast path taken for {fast_path} of {in_range} values"
+        );
+        for k in -25..=25 {
+            let p = 10f64.powi(k);
+            for _ in 0..500 {
+                // Halfway between two 9-digit values, and its neighbours.
+                let n: u64 = rng.gen_range(100_000_000..1_000_000_000);
+                let tie = (n as f64 + 0.5) * 10f64.powi(k - 8);
+                for d in 0..4u64 {
+                    assert_sci8(f64::from_bits(tie.to_bits() + d));
+                    assert_sci8(f64::from_bits(tie.to_bits() - d));
+                }
+            }
+            for d in 0..40u64 {
+                assert_sci8(f64::from_bits(p.to_bits() + d));
+                assert_sci8(f64::from_bits(p.to_bits() - d));
+                // Rounds up to the next power of ten.
+                let q = 9.999_999_995 * p;
+                assert_sci8(f64::from_bits(q.to_bits() + d));
+                assert_sci8(f64::from_bits(q.to_bits() - d));
+            }
+        }
+        // Exact ties among integers (1000000005 has ten digits).
+        for i in 0..20_000u64 {
+            assert_sci8((1_000_000_000 + 5 * i) as f64);
+            assert_sci8((999_990_000 + i) as f64);
+        }
+        for v in [
+            0.0,
+            -0.0,
+            1.0,
+            0.5,
+            -2.5e-17,
+            f64::MIN_POSITIVE,
+            5e-324,
+            f64::MAX,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+        ] {
+            assert_sci8(v);
+        }
+    }
+
+    #[test]
+    fn push_usize_matches_display() {
+        for n in [0, 1, 9, 10, 99, 100, 12_345, usize::MAX] {
+            let mut s = String::new();
+            push_usize(&mut s, n);
+            assert_eq!(s, n.to_string());
+        }
     }
 
     #[test]
