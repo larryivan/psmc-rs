@@ -198,7 +198,8 @@ fn read_vcf_combines_records_at_the_same_position() {
 #[test]
 fn read_vcf_missing_genotype_is_a_missing_site() {
     // A missing or partial genotype says nothing about the sample at that
-    // position (or, for a longer REF, at any base of the REF allele).
+    // position. It makes only POS missing, even for a longer REF: 7 and 8
+    // are positions without a record, so called homozygous.
     let vcf = write_vcf(
         "vcf_missing_gt",
         &[
@@ -211,7 +212,7 @@ fn read_vcf_missing_genotype_is_a_missing_site() {
         ],
     );
     let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.rows, vec![vec![0, 2, 2, 2, 1, 2, 2, 2, 1]]);
+    assert_eq!(obs.rows, vec![vec![0, 2, 2, 2, 1, 2, 0, 0, 1]]);
     let _ = fs::remove_file(vcf);
 }
 
@@ -259,8 +260,9 @@ fn read_vcf_filtered_records_are_missing_unless_kept() {
             "chr1 9 A C . 0/1",
         ],
     );
+    // A filtered record makes only its POS missing, whatever its REF length.
     let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.rows, vec![vec![0, 0, 2, 0, 1, 2, 2, 2, 1]]);
+    assert_eq!(obs.rows, vec![vec![0, 0, 2, 0, 1, 2, 0, 0, 1]]);
 
     let kept = read_vcf_with(
         &vcf,
@@ -287,6 +289,42 @@ fn read_vcf_filtered_records_are_missing_unless_kept() {
     assert_eq!(dropped.summary.filtered_records, 2);
     assert_eq!(dropped.summary.het_snp_records, 2);
     assert_eq!(dropped.summary.hom_calls, 0);
+    let _ = fs::remove_file(vcf);
+}
+
+#[test]
+fn read_vcf_unusable_long_record_does_not_hide_calls_inside_its_ref() {
+    // All-sites VCF: every position has a PASS record. A filtered deletion at
+    // 5 and a no-call deletion at 12 cover PASS calls (a het SNP at 9 and at
+    // 14). Those records carry no call, so only their own POS is missing and
+    // the PASS calls stand. A heterozygous deletion at 16 is a real call of
+    // an indel: its whole REF span is missing, including the het SNP at 18.
+    let mut records: Vec<String> = (1..=20).map(|p| format!("chr1 {p} A . PASS 0/0")).collect();
+    records[4] = "chr1 5 ACGTACGTAC A LowQual 0/0".to_string();
+    records[8] = "chr1 9 A C PASS 0/1".to_string();
+    records[11] = "chr1 12 ACGTA A PASS ./.".to_string();
+    records[13] = "chr1 14 A G PASS 1|0".to_string();
+    records[15] = "chr1 16 ACGT A PASS 0/1".to_string();
+    records[17] = "chr1 18 A T PASS 0/1".to_string();
+    records[19] = "chr1 20 A C PASS 0/1".to_string();
+    let records: Vec<&str> = records.iter().map(String::as_str).collect();
+    let vcf = write_vcf("vcf_all_sites_span", &records);
+
+    let read = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            bin_size: 1,
+            ..VcfOptions::default()
+        },
+    )
+    .expect("failed to parse VCF");
+    let bins: String = read.obs.rows[0]
+        .iter()
+        .map(|&b| b"TKN"[b as usize] as char)
+        .collect();
+    assert_eq!(bins, "TTTTNTTTKTTNTKTNNNNK");
+    assert_eq!(read.summary.het_snps, 3);
+    assert_eq!(read.summary.missing_sites, 6);
     let _ = fs::remove_file(vcf);
 }
 

@@ -209,13 +209,15 @@ fn genotype_kind(rec: &Record, sample: usize) -> Kind {
     }
 }
 
-/// The class a record gives its POS, and whether its whole REF span is missing.
+/// The class a record gives its POS, and whether its whole REF span is missing
+/// (only for a heterozygous non-SNP).
 fn record_class(rec: &Record, sample: usize, keep_filtered: bool) -> (State, bool) {
     if is_filtered(rec) && !keep_filtered {
-        return (State::Missing, true);
+        return (State::Missing, false);
     }
     match genotype_kind(rec, sample) {
-        Kind::MissingGt | Kind::HetOther => (State::Missing, true),
+        Kind::MissingGt => (State::Missing, false),
+        Kind::HetOther => (State::Missing, true),
         Kind::Hom => (State::Hom, false),
         Kind::HetSnp => (State::Het, false),
     }
@@ -389,15 +391,16 @@ fn assert_same_bins(got: &[Vec<u8>], want: &[Vec<u8>], ctx: &str) {
         .zip(&w)
         .position(|(a, b)| a != b)
         .unwrap_or(g.len().min(w.len()));
+    let lengths = |rows: &[Vec<u8>]| -> Vec<usize> { rows.iter().take(10).map(Vec::len).collect() };
     panic!(
         "{ctx}: {differ} of {} bins differ ({:.1}%), first at bin {first}; rows {} vs {} \
-         (lengths {:?} vs {:?})",
+         (first lengths {:?} vs {:?})",
         w.len(),
         100.0 * differ as f64 / w.len().max(1) as f64,
         got.len(),
         want.len(),
-        got.iter().map(Vec::len).collect::<Vec<_>>(),
-        want.iter().map(Vec::len).collect::<Vec<_>>(),
+        lengths(got),
+        lengths(want),
     );
 }
 

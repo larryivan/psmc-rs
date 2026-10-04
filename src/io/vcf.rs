@@ -7,22 +7,26 @@
 //! (see [`Binner`]).
 //!
 //! A position is missing if it lies outside the callable set (see
-//! [`VcfOptions::masks`]) or if one of its records leaves the genotype unknown.
-//! Otherwise it is a heterozygous SNP if one of its records is, and a called
-//! homozygous site in every other case, including positions without any
-//! record. Per record, for the selected sample:
+//! [`VcfOptions::masks`]), if one of its records leaves the genotype unknown,
+//! or if it lies in the REF span of a heterozygous non-SNP. Otherwise it is a
+//! heterozygous SNP if one of its records is, and a called homozygous site in
+//! every other case, including positions without any record. Per record, for
+//! the selected sample:
 //!
-//! - FILTER other than `PASS` or `.`: unknown, unless
+//! - FILTER other than `PASS` or `.`: POS is missing, unless
 //!   [`VcfOptions::keep_filtered`] (then classified like any other record);
-//! - missing or partial `GT` (`.`, `./.`, `./1`), or no `GT`: unknown;
+//! - missing or partial `GT` (`.`, `./.`, `./1`), or no `GT`: POS is missing;
 //! - heterozygous (the allele strings differ) with every allele a single
 //!   `A`/`C`/`G`/`T` (any case): heterozygous SNP;
-//! - heterozygous with another allele (indel, `*`, symbolic `<...>`): unknown;
+//! - heterozygous with another allele (indel, `*`, symbolic `<...>`): the
+//!   whole REF span `POS..POS+len(REF)-1` is missing (`END` and `SVLEN` are
+//!   not consulted);
 //! - homozygous (identical allele strings, including hom-alt and homozygous
 //!   indels) or haploid: called homozygous.
 //!
-//! An unknown record makes its whole REF span `POS..POS+len(REF)-1` missing
-//! (`END` and `SVLEN` are not consulted).
+//! A filtered or missing genotype does not reach past POS: the record carries
+//! no usable call, so the bases after POS keep their own records (in an
+//! all-sites VCF, possibly PASS heterozygous SNPs) or the mask's verdict.
 //!
 //! The file is streamed, and the work is proportional to the number of records
 //! and mask intervals plus the number of output bins, never to the genome
@@ -367,7 +371,7 @@ pub struct VcfOptions {
     /// Masks of positions to exclude, in the same formats as `masks`.
     pub negative_masks: Vec<PathBuf>,
     /// Use records whose FILTER is neither `PASS` nor `.`; by default they
-    /// make their REF span missing.
+    /// make their position missing.
     pub keep_filtered: bool,
     /// End each sequence at its chromosome's `##contig` length, when the
     /// header gives one, instead of at the last record. The positions after
@@ -635,28 +639,24 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
     })
 }
 
-/// Classify one record: its class at POS and, when it leaves the genotype
-/// unknown, the last position of its REF span (all of which become missing).
+/// Classify one record: its class at POS and, for a heterozygous non-SNP, the
+/// last position of its REF span (all of which become missing).
 fn classify(
     rec: &Record<'_>,
     keep_filtered: bool,
     row_no: usize,
     s: &mut VcfSummary,
 ) -> Result<(Site, Option<u64>)> {
-    let unknown = (
-        Site::Missing,
-        Some(rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1),
-    );
     if rec.filter != b"PASS" && rec.filter != b"." {
         s.filtered_records += 1;
         if !keep_filtered {
-            return Ok(unknown);
+            return Ok((Site::Missing, None));
         }
     }
     Ok(match genotype(rec, row_no)? {
         Genotype::Missing => {
             s.missing_genotypes += 1;
-            unknown
+            (Site::Missing, None)
         }
         Genotype::Hom => {
             s.hom_calls += 1;
@@ -670,7 +670,8 @@ fn classify(
         // is unreliable for a model of point mutations.
         Genotype::HetOther => {
             s.het_non_snp_records += 1;
-            unknown
+            let span_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
+            (Site::Missing, Some(span_end))
         }
     })
 }
