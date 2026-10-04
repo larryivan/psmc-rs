@@ -2,7 +2,9 @@
 
 use anyhow::Result;
 
-use crate::hmm::{EStepPhase, EStepProgress, e_step_streaming, e_step_streaming_with_progress};
+use crate::hmm::{
+    EStepPhase, EStepProgress, e_step_streaming, e_step_streaming_with_progress, log_likelihood,
+};
 use crate::model::PsmcModel;
 use crate::opt::{
     MStepConfig, MStepProgress, bounds_from_config, m_step_lbfgs, m_step_lbfgs_with_progress,
@@ -12,7 +14,12 @@ use crate::progress;
 
 #[derive(Debug)]
 pub struct EmHistory {
+    /// Per iteration: (log-likelihood of the parameters entering it, of the
+    /// parameters leaving it). The second value of iteration `i` equals the
+    /// first of iteration `i + 1`; the last one is the log-likelihood of the
+    /// final parameters.
     pub loglike: Vec<(f64, f64)>,
+    /// Parameters before the first iteration and after each one.
     pub params: Vec<Vec<f64>>,
 }
 
@@ -111,7 +118,11 @@ pub fn em_train_with_progress(
                 "E",
             )?
         };
-        let loglike_before = e.loglike;
+        // This E-step evaluates the parameters the previous iteration left.
+        if let Some(prev) = history.loglike.last_mut() {
+            prev.1 = e.loglike;
+        }
+        history.loglike.push((e.loglike, f64::NAN));
         let stats = e.stats;
         let params_opt = if let Some(cb_outer) = on_progress.as_mut() {
             let mut map_ms = |ev: MStepProgress| {
@@ -128,15 +139,23 @@ pub fn em_train_with_progress(
         };
         params = params_opt.clone();
         unpack_params(model, &params)?;
-        // Keep EM history shape stable without paying for a second full E-step.
-        let loglike_after = loglike_before;
-
-        history.loglike.push((loglike_before, loglike_after));
         history.params.push(params.clone());
 
         if let Some(pb) = &pb_em {
             pb.inc(1);
         }
+    }
+    if let Some(last) = history.loglike.last_mut() {
+        // Only the final parameters have not been evaluated yet: a forward
+        // pass suffices.
+        model.param_recalculate()?;
+        last.1 = log_likelihood(
+            model.prior_matrix(),
+            model.transition_matrix(),
+            model.emission_matrix(),
+            rows,
+            row_starts,
+        )?;
     }
     if let Some(pb) = pb_em {
         pb.finish_with_message("EM done");
