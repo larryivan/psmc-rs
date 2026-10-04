@@ -270,8 +270,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--c-psmc", help="C psmc binary (default: $C_PSMC_BIN or `psmc` on PATH)")
     p.add_argument(
         "--sim-script",
-        default=str(exp_common.SIM_SCRIPT_DEFAULT),
-        help="Simulation script (default: experiment/scripts/simulate_msprime_to_psmcfa.py)",
+        help="Simulation script (default: $SIM_SCRIPT or experiment/scripts/simulate_msprime_to_psmcfa.py)",
     )
     p.add_argument("--force-sim", action="store_true", help="Re-simulate inputs that already exist")
     p.add_argument("--force-run", action="store_true", help="Re-run main outputs that already exist")
@@ -279,7 +278,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     steps = parse_list(args.steps, STEPS, "step")
     models = parse_list(args.models, MODEL_ORDER, "model")
-    runner = Runner(Path(args.out_dir), args.psmc_rs, args.c_psmc, Path(args.sim_script).resolve())
+    runner = Runner(Path(args.out_dir), args.psmc_rs, args.c_psmc, exp_common.resolve_sim_script(args.sim_script))
     print(f"out_dir={runner.out_dir}")
     print(f"settings={runner.settings}")
 

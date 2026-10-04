@@ -343,6 +343,45 @@ class MainTextRunner(unittest.TestCase):
         self.assertEqual(out[0]["peak_rss_mb_std"], 0.0)
 
 
+class SimulationScriptLookup(unittest.TestCase):
+    """--sim-script > $SIM_SCRIPT > the packaged script, in both runners that simulate."""
+
+    FAKE_SIM = (
+        "import sys\n"
+        "out = sys.argv[sys.argv.index('--out') + 1]\n"
+        "open(out, 'w').write('>fake\\nTTTK\\n')\n"
+    )
+
+    def test_main_text_honours_the_environment_variable(self):
+        mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_sim")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            fake = tmp / "fake_sim.py"
+            fake.write_text(self.FAKE_SIM)
+            stubs = {m: type(sys)(m) for m in ("stdpopsim", "msprime") if not has_module(m)}
+            with mock.patch.dict(os.environ, {"SIM_SCRIPT": str(fake)}), mock.patch.dict(sys.modules, stubs):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    mt.main(["--steps", "simulate", "--models", "constant", "--out-dir", str(tmp / "out")])
+            self.assertEqual((tmp / "out" / "inputs" / "constant.psmcfa").read_text(), ">fake\nTTTK\n")
+
+    def test_flag_beats_environment_beats_default(self):
+        ec = load_module(SCRIPTS / "exp_common.py", "exp_common_sim")
+        with mock.patch.dict(os.environ, {"SIM_SCRIPT": "/env/sim.py"}):
+            self.assertEqual(ec.resolve_sim_script("/flag/sim.py"), Path("/flag/sim.py").resolve())
+            self.assertEqual(ec.resolve_sim_script(None), Path("/env/sim.py").resolve())
+        with mock.patch.dict(os.environ):
+            os.environ.pop("SIM_SCRIPT", None)
+            self.assertEqual(ec.resolve_sim_script(None), ec.SIM_SCRIPT_DEFAULT)
+
+    def test_supplementary_honours_the_environment_variable(self):
+        rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_sim")
+        with mock.patch.dict(os.environ, {"SIM_SCRIPT": "/env/sim.py"}):
+            rs.configure_tools(None, None, None)
+            self.assertEqual(rs.SIM_SCRIPT, Path("/env/sim.py").resolve())
+            rs.configure_tools(None, None, "/flag/sim.py")
+            self.assertEqual(rs.SIM_SCRIPT, Path("/flag/sim.py").resolve())
+
+
 class MainTextPerf(FakeToolsCase):
     def test_perf_for_a_subset_of_models_keeps_the_other_rows_of_table_2(self):
         mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_perf")

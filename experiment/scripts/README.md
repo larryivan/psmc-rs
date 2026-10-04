@@ -17,7 +17,8 @@ All scripts locate the repository from their own path, so they can be run from
 any working directory. Output locations are command-line arguments; tool
 locations follow `flag > environment variable > default` (`--psmc-rs` /
 `PSMC_RS_BIN`, default `target/release/psmc-rs`, built if missing;
-`--c-psmc` / `C_PSMC_BIN`, default `psmc` on `PATH`). Run parameters are
+`--c-psmc` / `C_PSMC_BIN`, default `psmc` on `PATH`; `--sim-script` /
+`SIM_SCRIPT`, default `simulate_msprime_to_psmcfa.py`). Run parameters are
 environment variables (`N_ITER`, `SIM_LENGTH_BP`, `PERF_REPEATS`, ...), listed
 in `experiment/README.md`. Every command, with its wall time and peak RSS, is
 appended to `<out-dir>/logs/commands.jsonl`.

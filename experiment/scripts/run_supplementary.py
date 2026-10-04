@@ -98,7 +98,7 @@ def configure_paths(out_dir: Path) -> None:
 # Tool locations; set by configure_tools() from flags / environment.
 PSMC_RS_BIN: Optional[Path] = None
 C_PSMC_BIN: Optional[Path] = None
-SIM_SCRIPT = Path(os.environ.get("SIM_SCRIPT", str(exp_common.SIM_SCRIPT_DEFAULT)))
+SIM_SCRIPT = exp_common.resolve_sim_script(None)
 _PSMC_RS_ARG: Optional[str] = None
 _C_PSMC_ARG: Optional[str] = None
 
@@ -317,8 +317,7 @@ def configure_tools(psmc_rs: Optional[str], c_psmc: Optional[str], sim_script: O
     global _PSMC_RS_ARG, _C_PSMC_ARG, SIM_SCRIPT
     _PSMC_RS_ARG = psmc_rs
     _C_PSMC_ARG = c_psmc
-    if sim_script:
-        SIM_SCRIPT = Path(sim_script).expanduser().resolve()
+    SIM_SCRIPT = exp_common.resolve_sim_script(sim_script)
 
 
 def ensure_tools(require_c: bool = True) -> bool:

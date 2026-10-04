@@ -9,6 +9,8 @@ paths. Tool locations follow one rule everywhere:
 * psmc-rs: ``--psmc-rs`` > ``$PSMC_RS_BIN`` > ``<repo>/target/release/psmc-rs``
   (built with ``cargo build --release`` when missing).
 * C psmc:  ``--c-psmc``  > ``$C_PSMC_BIN``  > ``psmc`` found on ``$PATH``.
+* simulation script: ``--sim-script`` > ``$SIM_SCRIPT`` >
+  ``experiment/scripts/simulate_msprime_to_psmcfa.py``.
 """
 
 from __future__ import annotations
@@ -83,6 +85,14 @@ def resolve_psmc_rs(cli_value: Optional[str], *, build: bool = True) -> Path:
             "Build it with `cargo build --release --locked` or pass --psmc-rs."
         )
     return PSMC_RS_DEFAULT
+
+
+def resolve_sim_script(cli_value: Optional[str]) -> Path:
+    """Locate the simulation script: flag, else ``$SIM_SCRIPT``, else the packaged one."""
+    explicit = cli_value or os.environ.get("SIM_SCRIPT")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return SIM_SCRIPT_DEFAULT
 
 
 def resolve_c_psmc(cli_value: Optional[str], *, required: bool) -> Optional[Path]:
