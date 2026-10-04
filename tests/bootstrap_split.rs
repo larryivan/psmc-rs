@@ -4,7 +4,7 @@
 //! `splitfa` binary (lh3/psmc 0.6.5-r74) on psmcfa files holding sequences of
 //! the listed lengths, with the listed trunk size.
 
-use psmc_rs::bootstrap::{DEFAULT_BOOTSTRAP_TRUNK, split_for_bootstrap};
+use psmc_rs::bootstrap::{DEFAULT_BOOTSTRAP_TRUNK, bootstrap_trunk_count, split_for_bootstrap};
 
 /// A sequence whose bins encode their position, so trunk contents can be checked.
 fn seq_of_len(len: usize, salt: usize) -> Vec<u8> {
@@ -154,4 +154,46 @@ fn empty_sequences_yield_no_trunks() {
 #[should_panic(expected = "trunk_size must be > 0")]
 fn zero_trunk_size_panics() {
     split_for_bootstrap(&[vec![0u8; 5]], 0);
+}
+
+#[test]
+fn trunk_count_matches_split() {
+    for trunk in [1, 2, 3, 7, 10] {
+        for a in 0..40 {
+            for b in [0, 1, 5, 17] {
+                let seqs = vec![seq_of_len(a, 0), seq_of_len(b, 1)];
+                let n = split_for_bootstrap(&seqs, trunk).len();
+                let want = if n >= 2 { Some(n) } else { None };
+                assert_eq!(
+                    bootstrap_trunk_count(&seqs, trunk).ok(),
+                    want,
+                    "lengths {a}, {b}, trunk {trunk}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn trunk_count_rejects_unusable_inputs() {
+    assert!(bootstrap_trunk_count(&[seq_of_len(5, 0)], 0).is_err());
+    assert!(bootstrap_trunk_count(&[], 10).is_err());
+    assert!(bootstrap_trunk_count(&[Vec::new(), Vec::new()], 10).is_err());
+    let err = bootstrap_trunk_count(&[seq_of_len(14, 0)], 10).unwrap_err();
+    assert!(err.to_string().contains("single trunk"), "{err}");
+    assert_eq!(bootstrap_trunk_count(&[seq_of_len(15, 0)], 10).unwrap(), 2);
+    assert_eq!(
+        bootstrap_trunk_count(&[seq_of_len(14, 0), seq_of_len(1, 1)], 10).unwrap(),
+        2
+    );
+}
+
+/// The error for a single trunk suggests a trunk size of at most 2/3 of the
+/// input; that size must always give at least two trunks.
+#[test]
+fn suggested_trunk_size_gives_two_trunks() {
+    for bins in 2..2000 {
+        let trunks = split_for_bootstrap(&[seq_of_len(bins, 0)], bins * 2 / 3);
+        assert!(trunks.len() >= 2, "{bins} bins");
+    }
 }

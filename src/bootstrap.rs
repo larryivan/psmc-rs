@@ -11,6 +11,16 @@
 //! draws from [`replicate_rng`]`(seed, i)`, so a seed reproduces a run on any
 //! platform and with any thread count.
 //!
+//! # Choosing the trunk size
+//!
+//! Replicates are built from whole trunks, so the trunk count bounds how much
+//! they can vary. A single trunk gives every replicate exactly the input and
+//! a spread of zero; C psmc would run that, [`run_bootstrap`] refuses it
+//! ([`bootstrap_trunk_count`]). A handful of trunks gives only a few distinct
+//! resamples and coarse bands. `splitfa`'s default (500,000 bins, 50 Mb at
+//! 100 bp per bin) gives roughly 60 trunks on a human genome; for a smaller
+//! input, pick a trunk size that still gives a few dozen trunks.
+//!
 //! # How far to trust the bands
 //!
 //! The bootstrap measures how much the estimate moves when trunks are
@@ -42,6 +52,7 @@ use rayon::prelude::*;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -165,21 +176,63 @@ pub const DEFAULT_BOOTSTRAP_TRUNK: usize = 500_000;
 /// If `trunk_size` is 0 (`splitfa` would loop forever).
 pub fn split_for_bootstrap(seqs: &[Vec<u8>], trunk_size: usize) -> Vec<Vec<u8>> {
     assert!(trunk_size > 0, "bootstrap trunk_size must be > 0");
+    seqs.iter()
+        .flat_map(|seq| trunk_ranges(seq.len(), trunk_size).map(|r| seq[r].to_vec()))
+        .collect()
+}
+
+/// Bin ranges of the trunks [`split_for_bootstrap`] cuts a sequence of `len`
+/// bins into.
+fn trunk_ranges(len: usize, trunk_size: usize) -> impl Iterator<Item = Range<usize>> {
     let tail_limit = trunk_size.saturating_mul(3) / 2;
-    let mut trunks = Vec::new();
-    for seq in seqs {
-        let mut start = 0;
-        while start < seq.len() {
-            if seq.len() - start < tail_limit {
-                trunks.push(seq[start..].to_vec());
-                break;
-            }
-            // tail_limit >= trunk_size, so a full trunk always fits here.
-            trunks.push(seq[start..start + trunk_size].to_vec());
-            start += trunk_size;
+    let mut start = 0;
+    std::iter::from_fn(move || {
+        if start >= len {
+            return None;
         }
+        // tail_limit >= trunk_size, so a full trunk always fits otherwise.
+        let end = if len - start < tail_limit {
+            len
+        } else {
+            start + trunk_size
+        };
+        let range = start..end;
+        start = end;
+        Some(range)
+    })
+}
+
+/// Number of trunks [`split_for_bootstrap`] cuts `seqs` into, checked to give
+/// a usable bootstrap. [`run_bootstrap`] runs this check first; a caller can
+/// run it before a long main fit to fail early or to report the count.
+///
+/// # Errors
+///
+/// If `trunk_size` is 0, if `seqs` hold no bins, or if they form a single
+/// trunk (one sequence shorter than 1.5 trunks). With one trunk every
+/// replicate redraws exactly the input, so the bootstrap spread would be zero
+/// whatever the data; C psmc runs such a bootstrap anyway, this refuses it.
+pub fn bootstrap_trunk_count(seqs: &[Vec<u8>], trunk_size: usize) -> Result<usize> {
+    if trunk_size == 0 {
+        bail!("bootstrap trunk_size must be > 0");
     }
-    trunks
+    let count: usize = seqs
+        .iter()
+        .map(|s| trunk_ranges(s.len(), trunk_size).count())
+        .sum();
+    match count {
+        0 => bail!("bootstrap input has no data"),
+        1 => {
+            let bins: usize = seqs.iter().map(Vec::len).sum();
+            bail!(
+                "bootstrap input of {bins} bins forms a single trunk at trunk size {trunk_size}, \
+                 so every replicate would refit the same data; use a trunk size of at most {} \
+                 bins (a few dozen trunks or more give smoother bands)",
+                (bins * 2 / 3).max(1)
+            )
+        }
+        n => Ok(n),
+    }
 }
 
 /// Indices of the trunks drawn by one psmc `-b` resampling (`psmc_resamp` in
@@ -435,6 +488,7 @@ impl Default for BootstrapConfig {
 /// replicate models in replicate order.
 ///
 /// `seqs` are the whole input sequences (e.g. from [`rows_to_sequences`]).
+/// They must form at least two trunks (see [`bootstrap_trunk_count`]).
 /// They are cut once with [`split_for_bootstrap`]; each replicate then draws
 /// trunks with [`resample_chunks`] using [`replicate_rng`]`(cfg.seed, i)`,
 /// treats every drawn trunk as an independent sequence, starts from
@@ -464,17 +518,12 @@ pub fn run_bootstrap(
     if cfg.replicates == 0 {
         return Ok(Vec::new());
     }
-    if cfg.trunk_size == 0 {
-        bail!("bootstrap trunk_size must be > 0");
-    }
+    bootstrap_trunk_count(seqs, cfg.trunk_size)?;
     if cfg.batch_size == Some(0) {
         bail!("batch_size must be > 0");
     }
     check_fresh_start(cfg.t_max, cfg.tr_ratio)?;
     let chunks = split_for_bootstrap(seqs, cfg.trunk_size);
-    if chunks.is_empty() {
-        bail!("bootstrap input has no data");
-    }
     if let Some(dir) = &cfg.out_dir {
         fs::create_dir_all(dir)
             .with_context(|| format!("failed to create bootstrap directory {dir:?}"))?;

@@ -188,6 +188,37 @@ fn short_sequences_give_replicate_variance() {
     }
 }
 
+/// One sequence shorter than 1.5 trunks forms a single trunk: every replicate
+/// would redraw the input unchanged, and the bands would have zero width.
+#[test]
+fn single_trunk_input_is_rejected() {
+    let one = vec![reference_seqs(50_000).remove(0)];
+    let template = fitted_template();
+    let err = run_bootstrap(
+        &one,
+        &template,
+        &config(3, DEFAULT_BOOTSTRAP_TRUNK, 1),
+        &mstep(),
+        None,
+        &no_progress,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(err.contains("single trunk"), "{err}");
+    assert!(err.contains("at most 33333 bins"), "{err}");
+
+    let models = run_bootstrap(
+        &one,
+        &template,
+        &config(3, 33_333, 0),
+        &mstep(),
+        None,
+        &no_progress,
+    )
+    .unwrap();
+    assert_eq!(models.len(), 3);
+}
+
 #[test]
 fn replicate_files_are_written() {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bootstrap_driver_out");
