@@ -79,6 +79,8 @@ enum MaskRow {
 #[derive(Clone, Debug)]
 struct Scenario {
     chroms: Vec<String>,
+    /// `##contig` length of each chromosome, if the header gives one.
+    contig_len: Vec<Option<u64>>,
     n_samples: usize,
     sample: usize,
     name_sample: bool,
@@ -88,6 +90,23 @@ struct Scenario {
     bin_size: usize,
     batch_size: Option<usize>,
     keep_filtered: bool,
+    to_contig_end: bool,
+}
+
+impl Scenario {
+    /// The last position of chromosome `ci`'s sequence, if it has records.
+    fn extent(&self, ci: usize) -> Option<u64> {
+        let last = self
+            .records
+            .iter()
+            .filter(|r| r.chrom == ci)
+            .map(|r| r.pos)
+            .max()?;
+        match self.contig_len[ci] {
+            Some(len) if self.to_contig_end => Some(len),
+            _ => Some(last),
+        }
+    }
 }
 
 // ---------------------------------------------------------------- reference
@@ -207,7 +226,7 @@ fn reference_states(sc: &Scenario) -> Vec<Vec<State>> {
     let mut out = Vec::new();
     for (ci, name) in sc.chroms.iter().enumerate() {
         let recs: Vec<&Record> = sc.records.iter().filter(|r| r.chrom == ci).collect();
-        let Some(len) = recs.iter().map(|r| r.pos).max() else {
+        let Some(len) = sc.extent(ci) else {
             continue;
         };
         let n = len as usize;
@@ -243,9 +262,14 @@ fn reference_states(sc: &Scenario) -> Vec<Vec<State>> {
 
 fn vcf_text(sc: &Scenario) -> String {
     let mut s = String::from("##fileformat=VCFv4.2\n");
-    for name in &sc.chroms {
-        writeln!(s, "##contig=<ID={name}>").unwrap();
+    for (name, len) in sc.chroms.iter().zip(&sc.contig_len) {
+        match len {
+            Some(len) => writeln!(s, "##contig=<ID={name},length={len}>").unwrap(),
+            None => writeln!(s, "##contig=<ID={name}>").unwrap(),
+        }
     }
+    // A contig without records yields no sequence.
+    s.push_str("##contig=<ID=chrEmpty,length=5000,assembly=\"test, v1\">\n");
     s.push_str("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT");
     for i in 0..sc.n_samples {
         write!(s, "\ts{i}").unwrap();
@@ -334,6 +358,7 @@ fn write_scenario(sc: &Scenario) -> (PathBuf, VcfOptions, Files) {
         masks,
         negative_masks,
         keep_filtered: sc.keep_filtered,
+        to_contig_end: sc.to_contig_end,
     };
     (vcf, opts, files)
 }
@@ -419,6 +444,18 @@ fn check(sc: &Scenario, ctx: &str) -> bool {
     assert_eq!(s.bins, seqs.iter().map(Vec::len).sum::<usize>(), "{ctx}");
     assert_eq!(s.records, sc.records.len() as u64, "{ctx}: records");
     assert_eq!(s.positive_mask, !sc.masks.is_empty(), "{ctx}");
+    let extended: Vec<&String> = sc
+        .chroms
+        .iter()
+        .zip(&sc.contig_len)
+        .filter(|(_, len)| sc.to_contig_end && len.is_some())
+        .map(|(name, _)| name)
+        .collect();
+    assert_eq!(
+        s.contig_lengths_used.iter().collect::<Vec<_>>(),
+        extended,
+        "{ctx}"
+    );
 
     let n_filtered = sc.records.iter().filter(|r| is_filtered(r)).count() as u64;
     assert_eq!(s.filtered_records, n_filtered, "{ctx}: filtered_records");
@@ -608,6 +645,7 @@ fn random_scenario(seed: u64) -> Scenario {
     let sample = rng.range(0, n_samples as u64 - 1) as usize;
     let mut records = Vec::new();
     let mut lens = Vec::new();
+    let mut contig_len = Vec::new();
     for ci in 0..n_chroms {
         let span = rng.range(20, 2500);
         let density = rng.pick(&[0.002, 0.02, 0.2, 0.9]);
@@ -623,7 +661,12 @@ fn random_scenario(seed: u64) -> Scenario {
         if positions.is_empty() {
             positions.push(rng.range(1, span));
         }
-        lens.push(*positions.last().unwrap());
+        let last = *positions.last().unwrap();
+        let tail = rng.range(2, 400);
+        let tail = rng.pick(&[0, 1, tail]);
+        let len = rng.chance(0.5).then_some(last + tail);
+        contig_len.push(len);
+        lens.push(len.unwrap_or(last));
         for p in positions {
             records.push(random_record(&mut rng, ci, p, n_samples, sample));
         }
@@ -638,6 +681,7 @@ fn random_scenario(seed: u64) -> Scenario {
         .collect();
     Scenario {
         chroms,
+        contig_len,
         n_samples,
         sample,
         name_sample: n_samples > 1 || rng.chance(0.5),
@@ -647,6 +691,7 @@ fn random_scenario(seed: u64) -> Scenario {
         bin_size: rng.pick(&[1, 7, 100]),
         batch_size: rng.pick(&[None, None, Some(1), Some(3), Some(40)]),
         keep_filtered: rng.chance(0.3),
+        to_contig_end: rng.chance(0.8),
     }
 }
 
@@ -709,6 +754,7 @@ fn audit_scenario(seed: u64, missing: impl Fn(&mut Rng, u64) -> Vec<bool>) -> Sc
     records.push(record(LEN, "C", "0/1"));
     Scenario {
         chroms: vec!["chr1".to_string()],
+        contig_len: vec![None],
         n_samples: 1,
         sample: 0,
         name_sample: false,
@@ -718,6 +764,7 @@ fn audit_scenario(seed: u64, missing: impl Fn(&mut Rng, u64) -> Vec<bool>) -> Sc
         bin_size: 100,
         batch_size: None,
         keep_filtered: false,
+        to_contig_end: true,
     }
 }
 

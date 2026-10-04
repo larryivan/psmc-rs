@@ -127,7 +127,17 @@ const HEADER: &str =
 /// Write a single-sample VCF whose records are given as
 /// `chrom pos ref alt filter gt`, whitespace separated.
 fn write_vcf(prefix: &str, records: &[&str]) -> PathBuf {
-    let mut text = String::from(HEADER);
+    write_vcf_with_meta(prefix, &[], records)
+}
+
+/// [`write_vcf`] with extra `##` meta lines, such as `##contig`.
+fn write_vcf_with_meta(prefix: &str, meta: &[&str], records: &[&str]) -> PathBuf {
+    let mut text = String::from("##fileformat=VCFv4.2\n");
+    for m in meta {
+        text.push_str(m);
+        text.push('\n');
+    }
+    text.push_str(HEADER.trim_start_matches("##fileformat=VCFv4.2\n"));
     for r in records {
         let c: Vec<&str> = r.split_whitespace().collect();
         assert_eq!(c.len(), 6, "bad test record {r:?}");
@@ -277,6 +287,81 @@ fn read_vcf_filtered_records_are_missing_unless_kept() {
     assert_eq!(dropped.summary.filtered_records, 2);
     assert_eq!(dropped.summary.het_snp_records, 2);
     assert_eq!(dropped.summary.hom_calls, 0);
+    let _ = fs::remove_file(vcf);
+}
+
+#[test]
+fn read_vcf_extends_sequences_to_the_contig_length() {
+    let meta = [
+        "##contig=<ID=chr1,length=40>",
+        "##contig=<ID=chr2,assembly=\"test, v1\",length=7>",
+        "##contig=<ID=chr3>",
+        "##contig=<ID=chrM,length=16569>",
+    ];
+    let records = [
+        "chr1 3 A C PASS 0/1",
+        "chr2 2 A C PASS 0/1",
+        "chr3 4 A C PASS 0/1",
+    ];
+    let vcf = write_vcf_with_meta("vcf_contig", &meta, &records);
+    // Callable: chr1 1-12, all of chr2 and chr3.
+    let mask = write_text(
+        "vcf_contig_bed",
+        "bed",
+        "chr1\t0\t12\nchr2\t0\t100\nchr3\t0\t100\n",
+    );
+
+    // chr1 runs to 40: bins 1-10 K, 11-20 T (8 missing), 21-30 and 31-40 N.
+    // chr3 has no length and ends at its last record; chrM has no records.
+    let obs = read_vcf(&vcf, None, 10, None, std::slice::from_ref(&mask), &[])
+        .expect("failed to parse VCF");
+    assert_eq!(obs.rows, vec![vec![1, 0, 2, 2], vec![1], vec![1]]);
+
+    let opts = VcfOptions {
+        bin_size: 10,
+        masks: vec![mask.clone()],
+        ..VcfOptions::default()
+    };
+    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
+    assert_eq!(read.summary.contig_lengths_used, vec!["chr1", "chr2"]);
+    assert_eq!(read.summary.sites, 40 + 7 + 4);
+    assert_eq!(read.summary.missing_sites, 28);
+
+    // Ending at the last record instead.
+    let opts = VcfOptions {
+        to_contig_end: false,
+        ..opts
+    };
+    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
+    assert_eq!(read.obs.rows, vec![vec![1], vec![1], vec![1]]);
+    assert!(read.summary.contig_lengths_used.is_empty());
+    assert_eq!(read.summary.sites, 3 + 2 + 4);
+
+    let _ = fs::remove_file(vcf);
+    let _ = fs::remove_file(mask);
+}
+
+#[test]
+fn read_vcf_rejects_a_record_beyond_the_contig_length() {
+    let vcf = write_vcf_with_meta(
+        "vcf_beyond_contig",
+        &["##contig=<ID=chr1,length=10>"],
+        &["chr1 5 A C PASS 0/1", "chr1 11 A C PASS 0/1"],
+    );
+    let err = read_vcf(&vcf, None, 5, None, &[], &[]).expect_err("POS 11 > length 10");
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("beyond the ##contig length 10"),
+        "unexpected error: {msg}"
+    );
+
+    let opts = VcfOptions {
+        bin_size: 5,
+        to_contig_end: false,
+        ..VcfOptions::default()
+    };
+    let read = read_vcf_with(&vcf, &opts).expect("lengths are ignored when not extending");
+    assert_eq!(read.obs.rows, vec![vec![1, 0, 1]]);
     let _ = fs::remove_file(vcf);
 }
 

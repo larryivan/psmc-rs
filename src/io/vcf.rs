@@ -369,6 +369,11 @@ pub struct VcfOptions {
     /// Use records whose FILTER is neither `PASS` nor `.`; by default they
     /// make their REF span missing.
     pub keep_filtered: bool,
+    /// End each sequence at its chromosome's `##contig` length, when the
+    /// header gives one, instead of at the last record. The positions after
+    /// the last record are then classified like any other (callable ->
+    /// homozygous, else missing), and a record beyond the length is an error.
+    pub to_contig_end: bool,
 }
 
 impl Default for VcfOptions {
@@ -380,6 +385,7 @@ impl Default for VcfOptions {
             masks: Vec::new(),
             negative_masks: Vec::new(),
             keep_filtered: false,
+            to_contig_end: true,
         }
     }
 }
@@ -424,6 +430,8 @@ pub struct VcfSummary {
     /// that they are entirely missing (usually a naming mismatch such as
     /// `chr1` against `1`).
     pub chroms_outside_mask: Vec<String>,
+    /// Chromosomes whose sequence was extended to their `##contig` length.
+    pub contig_lengths_used: Vec<String>,
 }
 
 impl VcfSummary {
@@ -688,10 +696,17 @@ struct ChromBuilder {
     miss_until: u64,
     pending: Option<Pending>,
     last_pos: u64,
+    /// Where the sequence ends when it does not end at the last record.
+    contig_len: Option<u64>,
 }
 
 impl ChromBuilder {
-    fn new(name: &[u8], uncallable: Vec<Interval>, bin_size: usize) -> Self {
+    fn new(
+        name: &[u8],
+        uncallable: Vec<Interval>,
+        contig_len: Option<u64>,
+        bin_size: usize,
+    ) -> Self {
         Self {
             name: name.to_vec(),
             binner: Binner::new(bin_size),
@@ -701,6 +716,7 @@ impl ChromBuilder {
             miss_until: 0,
             pending: None,
             last_pos: 0,
+            contig_len,
         }
     }
 
@@ -813,8 +829,9 @@ impl ChromBuilder {
         self.last_pos = pos;
     }
 
-    /// Emit everything up to `end` and return the binned sequence.
-    fn finish(&mut self, end: u64, s: &mut VcfSummary) -> Vec<u8> {
+    /// Emit everything up to the end of the sequence and return its bins.
+    fn finish(&mut self, s: &mut VcfSummary) -> Vec<u8> {
+        let end = self.contig_len.unwrap_or(self.last_pos);
         self.flush_pending(s);
         self.fill_gap(end, s);
         s.sites += end;
@@ -822,14 +839,39 @@ impl ChromBuilder {
     }
 }
 
+/// `(ID, length)` of a `##contig=<ID=...,length=...,...>` header line.
+fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
+    let body = line.strip_prefix(b"##contig=<")?;
+    let body = body.strip_suffix(b">").unwrap_or(body);
+    let (mut id, mut len) = (None, None);
+    let mut in_quotes = false;
+    // Split on the commas outside quoted values such as description="a, b".
+    for field in body.split(|&b| {
+        if b == b'"' {
+            in_quotes = !in_quotes;
+        }
+        b == b',' && !in_quotes
+    }) {
+        if let Some(v) = field.strip_prefix(b"ID=") {
+            id = Some(v);
+        } else if let Some(v) = field.strip_prefix(b"length=") {
+            len = parse_u64(v);
+        }
+    }
+    let len = len.filter(|&l| (1..=MAX_POS).contains(&l))?;
+    Some((id?, len))
+}
+
 /// Read one sample of a VCF into binned observations; see the module docs for
 /// how positions are classified.
 ///
 /// Each chromosome with at least one record becomes one sequence covering
-/// positions `1..=` its last record's POS; chromosomes without records produce
-/// no sequence. Records must be sorted by position within a chromosome
-/// (several records at one POS are combined), and each chromosome must form
-/// one contiguous block, as in any `bcftools sort`ed or indexed VCF.
+/// positions `1..=L`, where `L` is the chromosome's `##contig` length when
+/// [`VcfOptions::to_contig_end`] is set and the header gives one, and the last
+/// record's POS otherwise. Chromosomes without records produce no sequence.
+/// Records must be sorted by position within a chromosome (several records at
+/// one POS are combined), and each chromosome must form one contiguous block,
+/// as in any `bcftools sort`ed or indexed VCF.
 pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
@@ -844,6 +886,7 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     let mut line = Vec::<u8>::new();
     let mut row_no = 0usize;
     let mut sample_idx: Option<usize> = None;
+    let mut contig_lens = HashMap::<Vec<u8>, u64>::new();
     let mut finished_chroms = HashSet::<Vec<u8>>::new();
     let mut cur: Option<ChromBuilder> = None;
     let mut seqs = Vec::<Vec<u8>>::new();
@@ -866,6 +909,8 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
                 let header = lossy(s);
                 let fields: Vec<&str> = header.split('\t').collect();
                 sample_idx = Some(resolve_sample_index(&fields, opts.sample.as_deref())?);
+            } else if let Some((id, len)) = parse_contig_header(s) {
+                contig_lens.insert(id.to_vec(), len);
             }
             continue;
         }
@@ -875,8 +920,7 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
 
         if cur.as_ref().is_none_or(|c| c.name != rec.chrom) {
             if let Some(mut done) = cur.take() {
-                let end = done.last_pos;
-                seqs.push(done.finish(end, &mut summary));
+                seqs.push(done.finish(&mut summary));
                 finished_chroms.insert(done.name);
             }
             if finished_chroms.contains(rec.chrom) {
@@ -891,8 +935,21 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
             if !masks.mentions_chrom(&name) {
                 summary.chroms_outside_mask.push(name.to_string());
             }
+            let contig_len = if opts.to_contig_end {
+                contig_lens.get(rec.chrom).copied()
+            } else {
+                None
+            };
+            if contig_len.is_some() {
+                summary.contig_lengths_used.push(name.to_string());
+            }
             let uncallable = masks.uncallable_for_chrom(&name);
-            cur = Some(ChromBuilder::new(rec.chrom, uncallable, opts.bin_size));
+            cur = Some(ChromBuilder::new(
+                rec.chrom,
+                uncallable,
+                contig_len,
+                opts.bin_size,
+            ));
         }
         let chrom = cur.as_mut().expect("chromosome state was just set");
         if rec.pos < chrom.last_pos {
@@ -905,12 +962,20 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
                 chrom.last_pos
             );
         }
+        if let Some(len) = chrom.contig_len.filter(|&len| rec.pos > len) {
+            bail!(
+                "invalid VCF row {}: POS {} on '{}' is beyond the ##contig length {}",
+                row_no,
+                rec.pos,
+                lossy(rec.chrom),
+                len
+            );
+        }
         let (site, span_end) = classify(&rec, opts.keep_filtered, row_no, &mut summary)?;
         chrom.add_record(rec.pos, site, span_end, &mut summary);
     }
     if let Some(mut done) = cur.take() {
-        let end = done.last_pos;
-        seqs.push(done.finish(end, &mut summary));
+        seqs.push(done.finish(&mut summary));
     }
 
     if summary.het_snps == 0 {
