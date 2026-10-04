@@ -16,9 +16,9 @@ repository from its own path, so any working directory works.
   describes 0.1. The C psmc runs were made with
   `-r5` to match 0.1; for a matched comparison with 0.2 they are re-run with
   `-r4` (the scripts' default, `RHO_T_RATIO`), so regenerate both sides.
-  The scripts therefore need a psmc-rs build with the 0.2 default: they check
-  the starting ratio of the psmc-rs binary and stop if it is not
-  `RHO_T_RATIO` (a 0.1 build is refused unless `RHO_T_RATIO=5`).
+  So the scripts need a psmc-rs build with the 0.2 default: they check the
+  starting ratio of the psmc-rs binary and stop if it is not `RHO_T_RATIO`
+  (a 0.1 build is refused unless `RHO_T_RATIO=5`).
 - **Inference outputs are not committed yet.** `runs/main_text/outputs/` and
   `runs/real_data/outputs/` (psmc-rs JSON, C `.psmc`), from which Figures 2
   and 3 and Table 1 are computed, were excluded by `.gitignore` and never
@@ -33,8 +33,8 @@ repository from its own path, so any working directory works.
   readers end a sequence at its last heterozygous site, so the homozygous
   bins after it exist only in the psmcfa. They are the only difference
   between the three inputs, so S5 measures their effect, not a disagreement
-  between readers: multihetsep and VCF agree exactly for every model (the
-  `vcf_vs_mhs` column is 0). In the zigzag simulation (seed 45) the last
+  between readers: multihetsep and VCF agree exactly for every model
+  (`rmse_curve_log10_vcf_vs_mhs` is 0). In the zigzag simulation (seed 45) the last
   heterozygous site, at position 499,999,906, falls in the final bin, so the
   three inputs are identical and every column is 0. Checked with msprime
   1.4.4: zigzag gives byte-identical psmc-rs output from the three files,

@@ -73,6 +73,14 @@ Library and CLI changes: to be completed at integration.
   then computed from an early round without warning). C psmc now writes to
   `<output>.partial`, renamed on success, and cached outputs are reused only
   when they hold `N_ITER + 1` rounds (psmc-rs JSON: only when it parses).
+- `run_main_text.py --steps perf --models <subset>` replaces only those
+  models' rows of Table 2 instead of dropping the others, and
+  `run_real_data.py --samples <subset>` keeps the other samples' rows of the
+  fit summary.
+- `run_main_text.py` honours `$SIM_SCRIPT`, like `run_supplementary.py`.
+- `experiment/run.py` also checks the S3 and S4 timing tables for values.
+- The documented minimum Rust version is 1.88: the locked dependencies of
+  `ratatui` 0.30 need it, not just the 1.85 of edition 2024.
 
 ### Known issues
 
