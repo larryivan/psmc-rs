@@ -20,6 +20,7 @@ from a fresh start with the settings of the fits). Layout under
     boot/trunk<B>/repNN/replicate_NNN.psmc           every replicate's rounds (not committed)
     provenance/<job>.json                            one record per job
     tables/E5_*.csv                                  written by ``report E5``
+    figures/E5_fig6.pdf, .png                        drawn from the tables (figures/e5.py)
     logs/                                            runner and job logs (not committed)
 
 Every curve is read at the same times: the model's informative-window grid
@@ -71,7 +72,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from .. import config, demography, metrics, provenance, results, simulate, tools
+from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
@@ -87,6 +88,7 @@ TABLES = {
     "fits": "E5_fits.csv",
     "seeds": "E5_seeds.csv",
 }
+FIGURES = ("E5_fig6.pdf", "E5_fig6.png")
 WINDOWS = ("informative", "fixed")
 SUMMARY_CHECK_RTOL = 1e-9  # recomputed band vs psmc-rs's summary.json (full precision)
 MAIN_FIT_KEYS = ("theta", "rho", "t_max", "lam", "loglike")
@@ -148,6 +150,9 @@ class Layout:
 
     def table(self, key: str) -> Path:
         return self.root / "tables" / TABLES[key]
+
+    def figure(self, name: str) -> Path:
+        return self.root / "figures" / name
 
 
 def job_name(kind: str, model: str, r: int, trunk_bins: Optional[int] = None) -> str:
@@ -293,6 +298,19 @@ def jobs(ctx: Context) -> List[Job]:
                 ["numpy", "scipy"],
             )},
             description="E5 tables",
+        )
+    )
+    out.append(
+        Job(
+            id=f"{NAME}/figure",
+            command=[paths.python(), "-m", "experiment.pipeline.figures.e5", *ctx.profile_args()],
+            inputs=[*tables, lay.truth(1)],
+            outputs=[lay.figure(n) for n in FIGURES],
+            mem_gb=costs.report_gb,
+            est_seconds=costs.report_s,
+            settings={"e5": asdict(cfg)},
+            tools={"pipeline": provenance.python_identity(["figures/e5.py", "demography.py"], ["matplotlib", "numpy"])},
+            description="E5 figure (Fig 6)",
         )
     )
     return out
@@ -832,6 +850,6 @@ def report(ctx: Context) -> Dict[str, Path]:
 
 
 __all__ = [
-    "Layout", "NAME", "TABLES", "analyse", "band_stats", "calibration", "jobs", "report",
+    "Layout", "NAME", "TABLES", "FIGURES", "analyse", "band_stats", "calibration", "jobs", "report",
     "sampling_stats", "trunk_count",
 ]
