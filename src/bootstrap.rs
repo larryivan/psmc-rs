@@ -747,13 +747,18 @@ pub fn run_bootstrap_with_options(
     }
 }
 
-/// The points of [`PsmcModel::ne_curve`] that a log-scale plot can show
-/// (positive and finite), as x and y columns.
-fn model_curve(model: &PsmcModel, bin_size: f64, gen_years: f64) -> Result<(Vec<f64>, Vec<f64>)> {
+/// The points of [`PsmcModel::ne_curve`] with finite coordinates, a positive
+/// size and a time that `keep` accepts, as x and y columns.
+fn curve_points(
+    model: &PsmcModel,
+    bin_size: f64,
+    gen_years: f64,
+    keep: impl Fn(f64) -> bool,
+) -> Result<(Vec<f64>, Vec<f64>)> {
     let (xs, ys): (Vec<f64>, Vec<f64>) = model
         .ne_curve(bin_size, gen_years)?
         .into_iter()
-        .filter(|&[x, y]| x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0)
+        .filter(|&[x, y]| x.is_finite() && y.is_finite() && keep(x) && y > 0.0)
         .map(|[x, y]| (x, y))
         .unzip();
     if xs.is_empty() {
@@ -762,15 +767,29 @@ fn model_curve(model: &PsmcModel, bin_size: f64, gen_years: f64) -> Result<(Vec<
     Ok((xs, ys))
 }
 
+/// The points of [`PsmcModel::ne_curve`] that a log-scale plot can show
+/// (positive and finite), as x and y columns.
+fn model_curve(model: &PsmcModel, bin_size: f64, gen_years: f64) -> Result<(Vec<f64>, Vec<f64>)> {
+    curve_points(model, bin_size, gen_years, |x| x > 0.0)
+}
+
+/// [`PsmcModel::ne_curve`] as a step function for [`step_lookup`]: like
+/// [`model_curve`], but keeping the first point (x = 0), which carries the
+/// size of state 0. Without it, a time before the model's own first
+/// positive point would read the size of state 1, which differs from state
+/// 0's whenever the two have separate λ (no pattern, or a first pattern
+/// group of one interval).
+fn step_curve(model: &PsmcModel, bin_size: f64, gen_years: f64) -> Result<(Vec<f64>, Vec<f64>)> {
+    curve_points(model, bin_size, gen_years, |x| x >= 0.0)
+}
+
+/// The value at `x` of the step function that is `ys[k]` from `xs[k]` up to
+/// `xs[k + 1]` (and `ys[0]` before `xs[0]`).
 #[inline]
 fn step_lookup(xs: &[f64], ys: &[f64], x: f64) -> f64 {
     debug_assert!(!xs.is_empty() && xs.len() == ys.len());
     let pos = xs.partition_point(|v| *v <= x);
-    if pos == 0 {
-        ys[0]
-    } else {
-        ys[(pos - 1).min(ys.len() - 1)]
-    }
+    ys[pos.max(1) - 1]
 }
 
 fn quantile(vals: &mut [f64], q: f64) -> f64 {
@@ -797,7 +816,8 @@ fn quantile(vals: &mut [f64], q: f64) -> f64 {
 /// The 2.5%, 50% and 97.5% quantiles of the replicates' Ne at each
 /// positive time point of the main curve ([`PsmcModel::ne_curve`] at
 /// `bin_size` and `gen_years`); each replicate's curve is read as a step
-/// function. `block_size` and `seed` are recorded as given.
+/// function from its own time 0, where its state 0 begins. `block_size` and
+/// `seed` are recorded as given.
 pub fn summarize_bootstrap_models(
     main_model: &PsmcModel,
     bootstrap_models: &[PsmcModel],
@@ -815,7 +835,7 @@ pub fn summarize_bootstrap_models(
 
     let mut sample_mat = vec![vec![0.0f64; n_boot]; n_points];
     for (r, model) in bootstrap_models.iter().enumerate() {
-        let (x_rep, y_rep) = model_curve(model, bin_size, gen_years)?;
+        let (x_rep, y_rep) = step_curve(model, bin_size, gen_years)?;
         for i in 0..n_points {
             sample_mat[i][r] = step_lookup(&x_rep, &y_rep, x_main[i]);
         }
