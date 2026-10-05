@@ -2,7 +2,10 @@
 //!
 //! Data are simulated from a known PSMC model (pattern `4+5*3+4`): hidden
 //! states from the model's `sigma` and `p_kl`, emissions from `em`. Every fit
-//! is the same estimator: C-style fresh start, then `--iters` EM iterations.
+//! is the same estimator: C-style fresh start at θ0/`--tr-ratio`, then
+//! `--iters` EM iterations with smoothing weight `--smooth-lambda`. Both
+//! default to the CLI's defaults (4 and 0), so by default every fit, main or
+//! replicate, is the one `psmc-rs` makes with its default settings.
 //!
 //! * The *true* sampling SD of log10 Ne is the SD across fits to independently
 //!   simulated datasets.
@@ -18,14 +21,17 @@
 //! and of the per-point ratio bootstrap SD / true SD, pooled over base
 //! datasets, plus the same for a robust spread (IQR / 1.349).
 //!
-//! The defaults reproduce the numbers quoted in the `psmc_rs::bootstrap`
-//! module docs. That run fits 40 + 6 x 90 models and took about 20 minutes
-//! on 3 threads (about 200 MB).
+//! The default run fits 40 + 6 x 90 models and takes about 5 minutes on 4
+//! threads (under 50 MB); its tables do not depend on `--threads`. The
+//! numbers in the `psmc_rs::bootstrap` module docs were measured at an
+//! earlier commit with `--smooth-lambda 0.001 --tr-ratio 5`, the 0.1
+//! defaults.
 //!
 //! ```text
 //! cargo run --release --example bootstrap_calibration -- [--threads 3]
 //!     [--datasets 40] [--base 6] [--reps 30] [--seqs 40] [--len 10000]
 //!     [--iters 20] [--theta 0.05] [--trunks 500000,10000,1000]
+//!     [--tr-ratio 4] [--smooth-lambda 0]
 //! ```
 
 use anyhow::{Result, bail};
@@ -43,7 +49,8 @@ use std::time::Instant;
 const PATTERN: &str = "4+5*3+4";
 const N_STEPS: usize = 22;
 const T_MAX: f64 = 15.0;
-const TR_RATIO: f64 = 5.0;
+/// θ/ρ of the true model.
+const TRUE_TR_RATIO: f64 = 5.0;
 const MU: f64 = 2.5e-8;
 const BIN: f64 = 100.0;
 const GEN_YEARS: f64 = 25.0;
@@ -61,6 +68,10 @@ struct Args {
     iters: usize,
     theta: f64,
     trunks: Vec<usize>,
+    /// θ0/ρ0 of every fit's start (CLI `--tr-ratio`).
+    tr_ratio: f64,
+    /// Smoothing weight of every M-step (CLI `--smooth-lambda`).
+    smooth_lambda: f64,
 }
 
 fn parse_args() -> Result<Args> {
@@ -74,6 +85,8 @@ fn parse_args() -> Result<Args> {
         iters: 20,
         theta: 0.05,
         trunks: vec![500_000, 10_000, 1000],
+        tr_ratio: 4.0,
+        smooth_lambda: 0.0,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
     for pair in argv.chunks(2) {
@@ -90,6 +103,8 @@ fn parse_args() -> Result<Args> {
             "--iters" => a.iters = val.parse()?,
             "--theta" => a.theta = val.parse()?,
             "--trunks" => a.trunks = val.split(',').map(str::parse).collect::<Result<_, _>>()?,
+            "--tr-ratio" => a.tr_ratio = val.parse()?,
+            "--smooth-lambda" => a.smooth_lambda = val.parse()?,
             _ => bail!("unknown option {key}"),
         }
     }
@@ -104,7 +119,7 @@ fn true_model(theta: f64) -> Result<PsmcModel> {
         T_MAX,
         N_STEPS,
         theta,
-        theta / TR_RATIO,
+        theta / TRUE_TR_RATIO,
         MU,
         Some(PATTERN.to_string()),
     )?;
@@ -156,18 +171,19 @@ fn simulate(model: &PsmcModel, n_seqs: usize, len: usize, seed: u64) -> Vec<Vec<
         .collect()
 }
 
-fn mstep() -> MStepConfig {
+fn mstep(args: &Args) -> MStepConfig {
     MStepConfig {
         progress: false,
+        lambda: args.smooth_lambda,
         ..MStepConfig::default()
     }
 }
 
 /// The estimator: C-style fresh start, then EM.
-fn fit(seqs: &[Vec<u8>], template: &PsmcModel, iters: usize) -> Result<PsmcModel> {
+fn fit(seqs: &[Vec<u8>], template: &PsmcModel, args: &Args) -> Result<PsmcModel> {
     let starts = vec![true; seqs.len()];
-    let mut m = replicate_initial_model(template, seqs, T_MAX, TR_RATIO)?;
-    em_train(&mut m, seqs, &starts, iters, &mstep())?;
+    let mut m = replicate_initial_model(template, seqs, T_MAX, args.tr_ratio)?;
+    em_train(&mut m, seqs, &starts, args.iters, &mstep(args))?;
     m.param_recalculate()?;
     Ok(m)
 }
@@ -276,11 +292,15 @@ fn main() -> Result<()> {
     println!(
         "true model: pattern {PATTERN}, theta {} / bin, rho {} / bin, lambda {TRUE_LAMBDA:?}",
         args.theta,
-        args.theta / TR_RATIO
+        args.theta / TRUE_TR_RATIO
     );
     println!(
         "data: {} sequences x {} bins; {} EM iterations per fit; {} threads",
         args.seqs, args.len, args.iters, args.threads
+    );
+    println!(
+        "fits: start at theta0/{}, smoothing weight {}",
+        args.tr_ratio, args.smooth_lambda
     );
 
     let started = Instant::now();
@@ -289,7 +309,7 @@ fn main() -> Result<()> {
         .collect();
     let fits: Vec<PsmcModel> = datasets
         .par_iter()
-        .map(|seqs| fit(seqs, &truth, args.iters))
+        .map(|seqs| fit(seqs, &truth, &args))
         .collect::<Result<_>>()?;
     let curves: Vec<Vec<f64>> = fits
         .iter()
@@ -325,7 +345,7 @@ fn main() -> Result<()> {
                     sample_sequences_block_bootstrap(seqs, 50_000, &mut replicate_rng(7, rep))?;
                 let starts = vec![true; sampled.len()];
                 let mut m = main.clone();
-                em_train(&mut m, &sampled, &starts, args.iters, &mstep())?;
+                em_train(&mut m, &sampled, &starts, args.iters, &mstep(&args))?;
                 m.param_recalculate()?;
                 log10_ne_on_grid(&m, &grid)
             })
@@ -358,12 +378,12 @@ fn main() -> Result<()> {
                 trunk_size: trunk,
                 seed: 7,
                 em_iters: args.iters,
-                tr_ratio: TR_RATIO,
+                tr_ratio: args.tr_ratio,
                 t_max: T_MAX,
                 batch_size: None,
                 out_dir: None,
             };
-            let models = run_bootstrap(seqs, main, &cfg, &mstep(), None, &|_| {})?;
+            let models = run_bootstrap(seqs, main, &cfg, &mstep(&args), None, &|_| {})?;
             let reps: Vec<Vec<f64>> = models
                 .iter()
                 .map(|m| log10_ne_on_grid(m, &grid))
