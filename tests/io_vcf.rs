@@ -583,6 +583,64 @@ fn read_vcf_reports_chromosomes_the_mask_does_not_mention() {
 }
 
 #[test]
+fn read_vcf_says_separate_per_chromosome_masks_are_intersected() {
+    // One mask per chromosome, each given as its own --vcf-mask: every
+    // chromosome is in one mask and missing from the others.
+    let masks: Vec<PathBuf> = ["chr1", "chr2"]
+        .iter()
+        .map(|c| write_text("vcf_per_chrom_mask", "bed", &format!("{c}\t0\t1000\n")))
+        .collect();
+    let vcf = write_vcf(
+        "vcf_per_chrom_masks",
+        &["chr1 10 A C PASS 0/1", "chr2 20 A C PASS 0/1"],
+    );
+    let opts = VcfOptions {
+        bin_size: 10,
+        masks: masks.clone(),
+        ..VcfOptions::default()
+    };
+    let err = format!("{:#}", read_vcf_with(&vcf, &opts).unwrap_err());
+    assert!(
+        err.contains("(chr1, chr2) have intervals in some of the callable masks")
+            && err.contains("intersected")
+            && err.contains("concatenate"),
+        "{err}"
+    );
+    assert!(!err.contains("'chr1' vs '1'"), "{err}");
+
+    // With a third mask that covers both, and a chromosome no mask has.
+    let both = write_text(
+        "vcf_per_chrom_mask",
+        "bed",
+        "chr1\t0\t1000\nchr2\t0\t1000\n",
+    );
+    let vcf3 = write_vcf(
+        "vcf_per_chrom_masks3",
+        &[
+            "chr1 10 A C PASS 0/1",
+            "chr2 20 A C PASS 0/1",
+            "chrX 5 A C PASS 0/1",
+        ],
+    );
+    let opts = VcfOptions {
+        bin_size: 10,
+        masks: vec![masks[0].clone(), both.clone()],
+        ..VcfOptions::default()
+    };
+    let read = read_vcf_with(&vcf3, &opts).unwrap();
+    assert_eq!(read.summary.chroms_outside_some_masks, ["chr2"]);
+    assert_eq!(read.summary.chroms_outside_mask, ["chrX"]);
+    let warnings = read.summary.warnings();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(warnings[0].contains("(chrX)") && warnings[0].contains("'chr1' vs '1'"));
+    assert!(warnings[1].contains("(chr2)") && warnings[1].contains("intersected"));
+
+    for p in masks.iter().chain([&both, &vcf, &vcf3]) {
+        let _ = fs::remove_file(p);
+    }
+}
+
+#[test]
 fn read_vcf_no_het_snp_error_points_at_filtered_records() {
     // A pipeline that puts a non-PASS label on every record: the het SNPs are
     // there, but all of them are filtered. The error must say so rather than

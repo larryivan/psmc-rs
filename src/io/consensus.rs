@@ -94,7 +94,10 @@ use crate::io::common::{
     Binner, DepthCounter, HetCall, HetTracker, is_regular_file, open_reader, reopen_reader,
 };
 pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
-use crate::io::vcf::{Interval, MAX_POS, MaskEngine};
+use crate::io::vcf::{
+    Interval, MAX_POS, MaskCoverage, MaskEngine, list_names, outside_mask_hint,
+    outside_some_masks_hint,
+};
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -343,8 +346,11 @@ pub struct ConsensusSummary {
     pub depth: DepthStats,
     /// Whether callable masks were applied.
     pub masked: bool,
-    /// Chromosomes some positive mask has no row for.
+    /// Chromosomes no positive mask has a row for.
     pub chroms_outside_mask: Vec<String>,
+    /// Chromosomes some positive masks have rows for and others do not
+    /// (the masks are intersected, so they are entirely missing too).
+    pub chroms_outside_some_masks: Vec<String>,
     /// Chromosomes that appear in more than one block and so give several
     /// sequences of the same name.
     pub repeated_chroms: Vec<String>,
@@ -404,25 +410,9 @@ impl ConsensusSummary {
                 list_names(&self.discarded_chroms)
             ));
         }
-        if !self.chroms_outside_mask.is_empty() {
-            out.push(format!(
-                "the callable mask has no interval on {} VCF chromosome(s) ({}), which are \
-                 therefore entirely missing; check that the chromosome names in the mask match \
-                 the VCF (e.g. 'chr1' vs '1')",
-                self.chroms_outside_mask.len(),
-                list_names(&self.chroms_outside_mask)
-            ));
-        }
+        out.extend(outside_mask_hint(&self.chroms_outside_mask));
+        out.extend(outside_some_masks_hint(&self.chroms_outside_some_masks));
         out
-    }
-}
-
-fn list_names(names: &[String]) -> String {
-    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
-    if names.len() > 5 {
-        format!("{shown}, ...")
-    } else {
-        shown
     }
 }
 
@@ -1146,8 +1136,13 @@ pub(crate) fn read_consensus_from(
                 summary.repeated_chroms.push(name.to_string());
             }
             let uncallable = if summary.masked {
-                if first_block && !masks.mentions_chrom(name) {
-                    summary.chroms_outside_mask.push(name.to_string());
+                let outside = match masks.coverage(name) {
+                    MaskCoverage::Every => None,
+                    MaskCoverage::SomeMasks => Some(&mut summary.chroms_outside_some_masks),
+                    MaskCoverage::NoMask => Some(&mut summary.chroms_outside_mask),
+                };
+                if let (true, Some(list)) = (first_block, outside) {
+                    list.push(name.to_string());
                 }
                 masks.uncallable_for_chrom(name)
             } else {

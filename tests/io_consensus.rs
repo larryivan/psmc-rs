@@ -578,6 +578,37 @@ fn masks_are_an_optional_extra_filter() {
 }
 
 #[test]
+fn separate_per_chromosome_masks_are_reported_as_intersected() {
+    let mask_c = unique_temp_path("consensus_mask_c", "bed");
+    let mask_d = unique_temp_path("consensus_mask_d", "bed");
+    fs::write(&mask_c, "c\t0\t10\n").unwrap();
+    fs::write(&mask_d, "d\t0\t10\n").unwrap();
+    let o = ConsensusOptions {
+        masks: vec![mask_c.clone(), mask_d.clone()],
+        ..opts()
+    };
+    let records = [
+        good_run("c", 1, 2),
+        good_run("d", 1, 2),
+        good_run("e", 1, 2),
+    ]
+    .concat();
+    let s = read(&records, &o).unwrap().summary;
+    assert_eq!(s.chroms_outside_some_masks, ["c", "d"]);
+    assert_eq!(s.chroms_outside_mask, ["e"]);
+    let warnings = s.warnings();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert!(warnings[0].contains("(e)") && warnings[0].contains("'chr1' vs '1'"));
+    assert!(
+        warnings[1].contains("(c, d) have intervals in some of the callable masks")
+            && warnings[1].contains("intersected"),
+        "{warnings:?}"
+    );
+    let _ = fs::remove_file(mask_c);
+    let _ = fs::remove_file(mask_d);
+}
+
+#[test]
 fn chromosomes_outside_the_mask_and_repeated_ones_are_listed_once() {
     let mask = unique_temp_path("consensus_mask", "bed");
     fs::write(&mask, "b\t0\t10\n").unwrap();

@@ -374,6 +374,57 @@ fn parse_mask_file(path: &Path) -> Result<MaskFile> {
     MaskFile::union_from(std::slice::from_ref(&path.to_path_buf()))
 }
 
+/// Which positive masks have rows for a chromosome ([`MaskEngine::coverage`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MaskCoverage {
+    /// Every positive mask (or there is none).
+    Every,
+    /// Some positive masks, not all: the intersection of the masks is empty
+    /// there, as when per-chromosome masks are given as separate masks.
+    SomeMasks,
+    /// No positive mask: usually a naming mismatch (`chr1` against `1`).
+    NoMask,
+}
+
+/// The warning for VCF chromosomes that no positive mask has a row for.
+pub(crate) fn outside_mask_hint(names: &[String]) -> Option<String> {
+    (!names.is_empty()).then(|| {
+        format!(
+            "the callable mask has no interval on {} VCF chromosome(s) ({}), which are \
+             therefore entirely missing; check that the chromosome names in the mask match \
+             the VCF (e.g. 'chr1' vs '1')",
+            names.len(),
+            list_names(names)
+        )
+    })
+}
+
+/// The warning for VCF chromosomes that some positive masks have rows for
+/// and others do not.
+pub(crate) fn outside_some_masks_hint(names: &[String]) -> Option<String> {
+    (!names.is_empty()).then(|| {
+        format!(
+            "{} VCF chromosome(s) ({}) have intervals in some of the callable masks but not in \
+             the others, and are therefore entirely missing: the masks given with --vcf-mask \
+             are intersected (a position must be in every one). To combine per-chromosome \
+             masks, concatenate them into one file (e.g. cat mask_chr*.bed > mask.bed) and \
+             give that file once",
+            names.len(),
+            list_names(names)
+        )
+    })
+}
+
+/// Up to five names, comma-separated, then `...` if there are more.
+pub(crate) fn list_names(names: &[String]) -> String {
+    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+    if names.len() > 5 {
+        format!("{shown}, ...")
+    } else {
+        shown
+    }
+}
+
 /// The callable set: the intersection of the positive masks (every position
 /// when there is none) minus the union of the negative masks.
 #[derive(Debug, Clone)]
@@ -399,12 +450,21 @@ impl MaskEngine {
         !self.positives.is_empty()
     }
 
-    /// False when some positive mask has no row that applies to `chrom`,
-    /// which leaves the whole chromosome uncallable.
-    pub(crate) fn mentions_chrom(&self, chrom: &str) -> bool {
-        self.positives
+    /// How many of the positive masks have a row that applies to `chrom`.
+    /// Unless all of them do, the whole chromosome is uncallable.
+    pub(crate) fn coverage(&self, chrom: &str) -> MaskCoverage {
+        let with_rows = self
+            .positives
             .iter()
-            .all(|m| !m.global.is_empty() || m.by_chrom.contains_key(chrom))
+            .filter(|m| !m.global.is_empty() || m.by_chrom.contains_key(chrom))
+            .count();
+        if with_rows == self.positives.len() {
+            MaskCoverage::Every
+        } else if with_rows == 0 {
+            MaskCoverage::NoMask
+        } else {
+            MaskCoverage::SomeMasks
+        }
     }
 
     /// Sorted, merged positions of `chrom` that are outside the callable set.
@@ -536,10 +596,14 @@ pub struct VcfSummary {
     /// Whether a positive (callable) mask was given. Without one, every
     /// position without a record counts as a called homozygous site.
     pub positive_mask: bool,
-    /// Chromosomes with records that some positive mask has no row for, so
+    /// Chromosomes with records that no positive mask has a row for, so
     /// that they are entirely missing (usually a naming mismatch such as
     /// `chr1` against `1`).
     pub chroms_outside_mask: Vec<String>,
+    /// Chromosomes with records that some positive masks have rows for and
+    /// others do not, so that they are entirely missing too: the masks are
+    /// intersected (as when per-chromosome masks are given separately).
+    pub chroms_outside_some_masks: Vec<String>,
     /// Chromosomes whose sequence was extended to their `##contig` length.
     pub contig_lengths_used: Vec<String>,
     /// Read depth of the sample over all data records, for QC (the bins do
@@ -566,25 +630,18 @@ impl VcfSummary {
                     .to_string(),
             );
         }
-        if let Some(hint) = self.chroms_outside_mask_hint() {
-            out.push(hint);
-        }
+        out.extend(self.mask_coverage_hints());
         out
     }
 
-    fn chroms_outside_mask_hint(&self) -> Option<String> {
-        let names = &self.chroms_outside_mask;
-        if names.is_empty() {
-            return None;
-        }
-        let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
-        let more = if names.len() > 5 { ", ..." } else { "" };
-        Some(format!(
-            "the callable mask has no interval on {} VCF chromosome(s) ({shown}{more}), \
-             which are therefore entirely missing; check that the chromosome names in \
-             the mask match the VCF (e.g. 'chr1' vs '1')",
-            names.len()
-        ))
+    /// The warnings about chromosomes the callable masks leave out entirely.
+    fn mask_coverage_hints(&self) -> impl Iterator<Item = String> {
+        [
+            outside_mask_hint(&self.chroms_outside_mask),
+            outside_some_masks_hint(&self.chroms_outside_some_masks),
+        ]
+        .into_iter()
+        .flatten()
     }
 }
 
@@ -1126,7 +1183,7 @@ pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> S
             summary.filtered_records
         ));
     }
-    if let Some(h) = summary.chroms_outside_mask_hint() {
+    for h in summary.mask_coverage_hints() {
         hint.push_str(&format!("; {h}"));
     }
     format!(
@@ -1223,8 +1280,10 @@ pub(crate) fn read_vcf_seqs_from(
                 );
             }
             let name = utf8_chrom(rec.chrom, row_no)?;
-            if !masks.mentions_chrom(name) {
-                summary.chroms_outside_mask.push(name.to_string());
+            match masks.coverage(name) {
+                MaskCoverage::Every => {}
+                MaskCoverage::SomeMasks => summary.chroms_outside_some_masks.push(name.to_string()),
+                MaskCoverage::NoMask => summary.chroms_outside_mask.push(name.to_string()),
             }
             let contig_len = if opts.to_contig_end {
                 contig_lens.get(rec.chrom).copied()
