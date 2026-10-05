@@ -645,6 +645,20 @@ pub fn m_step_lbfgs_with_progress(
         .map(|outcome| outcome.params)
 }
 
+/// Why [`m_step_lbfgs_with_outcome`] stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MStepStop {
+    /// The norm of the gradient fell below [`MStepConfig::tol_grad`].
+    GradientTolerance,
+    /// No trial point lowered the objective: not the line search along the
+    /// L-BFGS direction, nor the one along its reverse, nor the coordinate
+    /// search. Near the optimum this means the objective cannot be lowered
+    /// at its precision; at the start, that it is not finite there.
+    LineSearchFailed,
+    /// [`MStepConfig::max_iters`] iterations ran.
+    MaxIters,
+}
+
 /// The result of [`m_step_lbfgs_with_outcome`].
 #[derive(Debug, Clone)]
 pub struct MStepOutcome {
@@ -653,8 +667,17 @@ pub struct MStepOutcome {
     pub params: Vec<f64>,
     /// Evaluations of the objective (with its gradient), the first one at
     /// `init_params` included. C psmc prints its M-step's count of
-    /// objective evaluations on the `IT` line of its `.psmc` output.
+    /// objective evaluations on the `IT` line of its `.psmc` output. A
+    /// failed search costs many evaluations, so this is no measure of how
+    /// close the M-step came to [`MStepConfig::max_iters`]; `iterations`
+    /// and `stop` are.
     pub evaluations: usize,
+    /// L-BFGS iterations, each of which moved the parameters to a lower
+    /// objective (at most [`MStepConfig::max_iters`]; 0 when the result is
+    /// `init_params`).
+    pub iterations: usize,
+    /// Why the search stopped.
+    pub stop: MStepStop,
 }
 
 /// The objective of the M-step, counting its evaluations.
@@ -702,6 +725,8 @@ pub fn m_step_lbfgs_with_outcome(
     let mut s_hist: Vec<Vec<f64>> = Vec::new();
     let mut y_hist: Vec<Vec<f64>> = Vec::new();
     let mut rho_hist: Vec<f64> = Vec::new();
+    let mut iterations = 0;
+    let mut stop = MStepStop::MaxIters;
 
     let pb = if config.progress {
         Some(progress::bar(config.max_iters as u64, "M", "L-BFGS"))
@@ -727,6 +752,7 @@ pub fn m_step_lbfgs_with_outcome(
                     norm(&gk)
                 );
             }
+            stop = MStepStop::GradientTolerance;
             break;
         }
         let mut q = gk.clone();
@@ -870,6 +896,7 @@ pub fn m_step_lbfgs_with_outcome(
                     norm(&gk)
                 );
             }
+            stop = MStepStop::LineSearchFailed;
             break;
         };
         let mut s = vec![0.0; xk.len()];
@@ -893,6 +920,7 @@ pub fn m_step_lbfgs_with_outcome(
         xk = x_new;
         gk = g_new;
         f0 = f_new;
+        iterations = iter + 1;
         if debug_mstep {
             eprintln!(
                 "M-step iter {} accepted: f={:.15e}, gnorm={:.6e}, |dx|={:.3e}",
@@ -919,6 +947,8 @@ pub fn m_step_lbfgs_with_outcome(
     Ok(MStepOutcome {
         params: from_unconstrained(&xk, bounds)?,
         evaluations: objective.evaluations,
+        iterations,
+        stop,
     })
 }
 
@@ -1219,6 +1249,7 @@ mod tests {
         };
         let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
         assert_eq!((outcome.evaluations, done, calls), (1, 0, 1));
+        assert_eq!((outcome.iterations, outcome.stop), (0, MStepStop::MaxIters));
 
         // A one-trial line search fails often enough to reach the reverse
         // and coordinate searches, whose evaluations count too.
@@ -1229,6 +1260,7 @@ mod tests {
         };
         let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
         assert_eq!(outcome.evaluations, calls);
+        assert_eq!(outcome.iterations, done);
         assert!(
             calls > 1 + 2 * done,
             "{calls} evaluations, {done} iterations"
@@ -1237,9 +1269,58 @@ mod tests {
         // The default search; the parameters are those of m_step_lbfgs.
         let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
         assert_eq!(outcome.evaluations, calls);
+        assert_eq!(outcome.iterations, done);
         assert!(calls > done, "{calls} evaluations, {done} iterations");
         let bounds = bounds_from_config(&model, &base);
         let params = m_step_lbfgs(&model, &stats, &pack_params(&model), &bounds, &base).unwrap();
         assert_eq!(outcome.params, params);
+    }
+
+    #[test]
+    fn outcome_says_why_the_m_step_stopped() {
+        let mut rng = Rng(0x0BAD_5EED_1234_5678);
+        let model = random_model(&mut rng, 22, Some("4+5*3+4"));
+        let stats = random_stats(&mut rng, &model, 20_000);
+        let base = MStepConfig {
+            progress: false,
+            ..MStepConfig::default()
+        };
+
+        // Any gradient is below an infinite tolerance: no step is taken.
+        let config = MStepConfig {
+            tol_grad: f64::INFINITY,
+            ..base.clone()
+        };
+        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
+        assert_eq!(outcome.stop, MStepStop::GradientTolerance);
+        assert_eq!((outcome.iterations, done, calls), (0, 0, 1));
+        // The start, up to the round trip through the unconstrained space.
+        for (a, b) in outcome.params.iter().zip(pack_params(&model)) {
+            assert!((a - b).abs() <= 1e-12 * b, "{a} vs {b}");
+        }
+
+        // A few iterations from a random start: the cap ends the search.
+        let config = MStepConfig {
+            max_iters: 3,
+            tol_grad: 0.0,
+            ..base.clone()
+        };
+        let (outcome, done, _) = counted_m_step(&model, &stats, &config);
+        assert_eq!(outcome.stop, MStepStop::MaxIters);
+        assert_eq!((outcome.iterations, done), (3, 3));
+
+        // Without a tolerance and a cap out of reach, the search runs until
+        // the objective cannot be lowered at its precision, after more
+        // evaluations than iterations.
+        let config = MStepConfig {
+            max_iters: 100_000,
+            tol_grad: 0.0,
+            ..base.clone()
+        };
+        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
+        assert_eq!(outcome.stop, MStepStop::LineSearchFailed);
+        assert_eq!(outcome.iterations, done);
+        assert!(done > 3 && done < 100_000, "{done} iterations");
+        assert!(calls > done + 20, "{calls} evaluations, {done} iterations");
     }
 }

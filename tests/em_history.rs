@@ -3,7 +3,7 @@
 
 use psmc_rs::em::{hmm_q, hmm_q0, posterior_sigma};
 use psmc_rs::hmm::{SufficientStats, e_step_streaming};
-use psmc_rs::opt::{MStepConfig, em_train};
+use psmc_rs::opt::{MStepConfig, MStepStop, em_train};
 use psmc_rs::{PsmcModel, initial_theta};
 
 fn data() -> (Vec<Vec<u8>>, Vec<bool>) {
@@ -74,6 +74,8 @@ fn check(lambda: f64) {
     assert_eq!(history.post_sigma.len(), n_iter);
     assert_eq!(history.q.len(), n_iter);
     assert_eq!(history.mstep_evaluations.len(), n_iter);
+    assert_eq!(history.mstep_iterations.len(), n_iter);
+    assert_eq!(history.mstep_stops.len(), n_iter);
 
     for i in 0..n_iter {
         // Recompute iteration i: its E-step runs at params[i], its M-step
@@ -113,6 +115,19 @@ fn check(lambda: f64) {
         assert!((total - 1.0).abs() < 1e-12, "iteration {i}: {total}");
         assert!(history.post_sigma[i].iter().all(|&p| p > 0.0));
         assert!(history.mstep_evaluations[i] > 1, "iteration {i}");
+        // Every M-step moved the parameters; it stopped at the cap exactly
+        // when it ran that many iterations.
+        let (iters, stop) = (history.mstep_iterations[i], history.mstep_stops[i]);
+        assert!(
+            (1..=config.max_iters).contains(&iters),
+            "iteration {i}: {iters}"
+        );
+        assert_eq!(
+            stop == MStepStop::MaxIters,
+            iters == config.max_iters,
+            "iteration {i}: {stop:?} after {iters}"
+        );
+        assert!(history.mstep_evaluations[i] > iters, "iteration {i}");
     }
 }
 
@@ -140,4 +155,6 @@ fn zero_iterations_record_nothing() {
     assert!(history.post_sigma.is_empty());
     assert!(history.q.is_empty());
     assert!(history.mstep_evaluations.is_empty());
+    assert!(history.mstep_iterations.is_empty());
+    assert!(history.mstep_stops.is_empty());
 }

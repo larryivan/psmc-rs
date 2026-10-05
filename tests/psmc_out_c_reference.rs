@@ -21,7 +21,7 @@ use common::psmc_text::{parse_round, round_lines, tag};
 use psmc_rs::em::EmHistory;
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::model::n_steps_for_pattern;
-use psmc_rs::opt::{MStepConfig, em_train};
+use psmc_rs::opt::{MStepConfig, MStepStop, em_train};
 use psmc_rs::psmc_out::{PsmcRunInfo, c_pattern, psmc_rounds, write_psmc, write_psmc_from_history};
 use psmc_rs::{PsmcModel, initial_theta};
 use std::path::Path;
@@ -47,7 +47,10 @@ fn fit(pattern: Option<&str>) -> Fit {
 
 /// An M-step iteration cap these runs stay below: their M-steps run until
 /// L-BFGS converges, as C's Hooke-Jeeves search runs until it converges.
-const CONVERGED_ITERS: usize = 1000;
+/// They take at most about 900 iterations, a number that moves by a few
+/// hundred with the last bits of the arithmetic (FMA or not), so the cap
+/// leaves a wide margin.
+const CONVERGED_ITERS: usize = 2000;
 
 /// [`fit`] with at most `max_iters` L-BFGS iterations per M-step.
 fn fit_with(pattern: Option<&str>, max_iters: usize) -> Fit {
@@ -314,12 +317,14 @@ fn matches_c_psmc_output_with_converged_m_steps() {
         (Some("4+25*2+4+6"), C_REF, "c_4+25x2+4+6_N5.psmc"),
     ] {
         let fit = fit_with(pattern, CONVERGED_ITERS);
-        // Each L-BFGS iteration evaluates the objective at least once, so
-        // no M-step reached the cap.
-        let evaluations = &fit.history.mstep_evaluations;
+        // Every M-step ended by its own criteria, not at the cap. (Their
+        // objective evaluations are no guide: a failed search alone costs
+        // about 300 here, and their count swings between about 200 and
+        // 1,800 with the last bits of the E-step's arithmetic.)
+        let (stops, iterations) = (&fit.history.mstep_stops, &fit.history.mstep_iterations);
         assert!(
-            evaluations.iter().all(|&n| n < CONVERGED_ITERS),
-            "{pattern:?}: {evaluations:?}"
+            stops.iter().all(|&s| s != MStepStop::MaxIters),
+            "{pattern:?}: {stops:?} after {iterations:?} iterations"
         );
         let ours = psmc_text(&fit);
         let c = read(dir, c_file);
@@ -483,6 +488,8 @@ fn inconsistent_history_is_rejected() {
         post_sigma: fit.history.post_sigma.clone(),
         q: fit.history.q.clone(),
         mstep_evaluations: fit.history.mstep_evaluations.clone(),
+        mstep_iterations: fit.history.mstep_iterations.clone(),
+        mstep_stops: fit.history.mstep_stops.clone(),
     };
     h.q.pop();
     assert!(psmc_rounds(&fit.template, &h, 150_947).is_err());

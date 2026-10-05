@@ -11,8 +11,8 @@ use crate::hmm::{
 };
 use crate::model::PsmcModel;
 use crate::opt::{
-    MStepConfig, MStepProgress, bounds_from_config, m_step_lbfgs_with_outcome, pack_params,
-    unpack_params,
+    MStepConfig, MStepProgress, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome,
+    pack_params, unpack_params,
 };
 use crate::progress;
 
@@ -35,6 +35,11 @@ pub struct EmHistory {
     pub q: Vec<(f64, f64)>,
     /// Per iteration: evaluations of the M-step objective (C's `IT` line).
     pub mstep_evaluations: Vec<usize>,
+    /// Per iteration: L-BFGS iterations of the M-step
+    /// ([`MStepOutcome::iterations`](crate::opt::MStepOutcome::iterations)).
+    pub mstep_iterations: Vec<usize>,
+    /// Per iteration: why the M-step stopped.
+    pub mstep_stops: Vec<MStepStop>,
 }
 
 impl EmHistory {
@@ -240,6 +245,8 @@ pub fn em_train_with_options(
         post_sigma: Vec::with_capacity(n_iter),
         q: Vec::with_capacity(n_iter),
         mstep_evaluations: Vec::with_capacity(n_iter),
+        mstep_iterations: Vec::with_capacity(n_iter),
+        mstep_stops: Vec::with_capacity(n_iter),
     };
     let mut params = pack_params(model);
     history.params.push(params.clone());
@@ -329,6 +336,8 @@ pub fn em_train_with_options(
         history.post_sigma.push(posterior_sigma(&stats));
         history.q.push((q_before, q_after));
         history.mstep_evaluations.push(outcome.evaluations);
+        history.mstep_iterations.push(outcome.iterations);
+        history.mstep_stops.push(outcome.stop);
 
         if let Some(pb) = &pb_em {
             pb.inc(1);
