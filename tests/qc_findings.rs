@@ -98,6 +98,40 @@ fn variants_only_no_mask() {
     assert!(f.message.contains("0.00050%"), "{}", f.message);
     assert!(f.recommendation.contains("--vcf-mask"));
     assert!(f.recommendation.contains("bcftools call -c"));
+
+    // A gVCF read without a mask: positions no block covers are missing,
+    // so the finding speaks of its reference blocks instead.
+    let r = qc(
+        &d,
+        100,
+        0,
+        QcContext {
+            variants_only_no_mask: true,
+            gvcf: true,
+            ..QcContext::default()
+        },
+    );
+    let f = find(&r, QcCode::VariantsOnlyNoMask).unwrap();
+    assert_eq!(f.severity, Severity::Warning);
+    assert!(
+        f.message
+            .starts_with("The gVCF was read without a callable-sites mask")
+            && f.message
+                .contains("reference block counts as called homozygous"),
+        "{}",
+        f.message
+    );
+    assert!(
+        !f.message.contains("every position without a record"),
+        "{}",
+        f.message
+    );
+    assert!(
+        f.recommendation.contains("from the gVCF's blocks")
+            && f.recommendation.contains("--vcf-mask"),
+        "{}",
+        f.recommendation
+    );
 }
 
 #[test]

@@ -254,3 +254,45 @@ fn options_of_the_other_vcf_mode_are_reported() {
         "{stderr}"
     );
 }
+
+/// A gVCF read without a mask gets the gVCF wording of
+/// VARIANTS_ONLY_NO_MASK: positions no block covers are missing there.
+#[test]
+fn a_gvcf_without_a_mask_is_reported_as_a_gvcf() {
+    let dir = TempDir::new("qc_gvcf");
+    let vcf = dir.path("sample.g.vcf");
+    fs::write(
+        &vcf,
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+         chr1\t1\t.\tG\t.\t.\t.\tEND=298;MIN_DP=1\tGT:DP\t0/0:1\n\
+         chr1\t299\t.\tA\tG\t50\t.\tDP=5\tGT:DP\t0/1:5\n\
+         chr1\t600\t.\tA\t.\t.\t.\tEND=899;MIN_DP=1\tGT:DP\t0/0:1\n",
+    )
+    .unwrap();
+    let json_path = dir.path("qc.json");
+    run_ok([
+        "qc",
+        vcf.to_str().unwrap(),
+        "--bin-size",
+        "10",
+        "--min-good-bases",
+        "0",
+        "--min-good-fraction",
+        "0",
+        "--json",
+        json_path.to_str().unwrap(),
+    ]);
+    let report = json(&json_path);
+    let finding = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["code"] == "VARIANTS_ONLY_NO_MASK")
+        .expect("VARIANTS_ONLY_NO_MASK");
+    let message = finding["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("The gVCF was read without a callable-sites mask"),
+        "{message}"
+    );
+}

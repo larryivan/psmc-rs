@@ -184,6 +184,10 @@ pub struct QcContext {
     /// so every position without a record counted as called homozygous
     /// ([`QcCode::VariantsOnlyNoMask`]).
     pub variants_only_no_mask: bool,
+    /// The VCF was read as a gVCF: positions that no record or block covers
+    /// are missing, but reference blocks count as called homozygous over
+    /// their span ([`QcCode::VariantsOnlyNoMask`] words its finding for it).
+    pub gvcf: bool,
     /// Uncalled sites were placed by assumption, as for multihetsep input
     /// ([`QcCode::ApproxMissingPlacement`]).
     pub approximate_missing_placement: bool,

@@ -418,6 +418,28 @@ fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
             "{warnings:?}"
         );
     }
+    // Without a mask, the gVCF warning stands alone: the generic one would
+    // say that positions without a record are called, which is not so here.
+    let data = load(
+        &vcf.0,
+        &InputOptions {
+            bin_size: 10,
+            filter: SeqFilter::DISABLED,
+            ..vcf_opts(VcfMode::Auto)
+        },
+    )
+    .unwrap();
+    let warnings = data.warnings();
+    assert!(
+        warnings.iter().any(|w| w.contains("is a gVCF")),
+        "{warnings:?}"
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.contains("every position without a VCF record counts")),
+        "{warnings:?}"
+    );
 }
 
 #[test]

@@ -115,7 +115,9 @@ pub enum QcCode {
     /// pulls θ and Ne down, and uncalled stretches look like long runs of
     /// recent common ancestry. A callable mask would also exclude repeats and
     /// collapsed duplications, whose false heterozygous calls push θ up, so
-    /// the net bias has no fixed direction.
+    /// the net bias has no fixed direction. A gVCF read without a mask gets
+    /// its own wording: positions no block covers are missing there, but
+    /// reference blocks count as called whatever their depth and quality.
     VariantsOnlyNoMask,
     /// Much of the input is missing: more than [`HIGH_MISSING_WARN_FRACTION`]
     /// (warning) or [`HIGH_MISSING_INFO_FRACTION`] (info) of the bins are
@@ -631,6 +633,29 @@ fn invalid_start(input: &QcInput, report: &QcReport) -> Option<Finding> {
 fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> {
     if !input.context.variants_only_no_mask {
         return None;
+    }
+    if input.context.gvcf {
+        return Some(Finding::new(
+            QcCode::VariantsOnlyNoMask,
+            Severity::Warning,
+            format!(
+                "The gVCF was read without a callable-sites mask. Positions that no record or \
+                 block covers are missing ({} of bins are missing), but every reference block \
+                 counts as called homozygous over its span, whatever its depth and genotype \
+                 quality: GATK writes stretches without reads as 0/0 blocks, which pulls theta \
+                 ({}) and Ne down, and blocks over repeats and collapsed duplications keep their \
+                 false heterozygous calls nearby, which pushes them up.",
+                pct(report.totals.missing_fraction),
+                report
+                    .totals
+                    .theta0_per_bin
+                    .map_or("n/a".to_string(), |t| format!("{} per bin", sig(t, 3))),
+            ),
+            "Make a callable-sites BED from the gVCF's blocks with depth and genotype-quality \
+             bounds, pass it with --vcf-mask, and give the variant records alone (`bcftools \
+             view -v snps,indels`); see docs/preprocessing.md, route B."
+                .to_string(),
+        ));
     }
     Some(Finding::new(
         QcCode::VariantsOnlyNoMask,

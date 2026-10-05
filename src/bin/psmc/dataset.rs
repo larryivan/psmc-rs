@@ -108,6 +108,7 @@ pub fn qc_report(
             }
             VcfDetails::Mask(m) => {
                 context.variants_only_no_mask = !m.positive_mask;
+                context.gvcf = m.read_as_gvcf;
                 if m.depth.records > 0 {
                     context.consensus = Some(ConsensusStats {
                         depth: DepthStats {

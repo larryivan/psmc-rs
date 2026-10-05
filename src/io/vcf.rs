@@ -658,13 +658,13 @@ impl VcfSummary {
     /// Without a positive mask, the first one says so.
     pub fn warnings(&self) -> Vec<String> {
         let mut out = Vec::new();
-        if !self.positive_mask {
+        if !self.positive_mask && !self.read_as_gvcf {
             out.push(
                 "no callable mask (--vcf-mask) was given, so every position without a VCF \
                  record counts as a called homozygous site; for a variants-only VCF (the \
-                 GATK/bcftools default) this hides all missing data and biases theta and \
-                 the Ne estimates low. Pass a callable-sites BED with --vcf-mask, or use an \
-                 all-sites VCF."
+                 GATK/bcftools default) this hides all missing data, which pulls theta and \
+                 Ne down, while false heterozygous calls that a mask would remove push them \
+                 up. Pass a callable-sites BED with --vcf-mask, or use an all-sites VCF."
                     .to_string(),
             );
         }
