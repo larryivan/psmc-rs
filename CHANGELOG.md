@@ -151,9 +151,9 @@ Reproduction package (`experiment/`):
   codes (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`,
   `BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`,
   `SEX_OR_ORGANELLE`, `HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`,
-  `DROPPED_SEQUENCES`) and recommendations. `--json`, `--strict` (exit 2 on a warning) and
-  `--bootstrap-block-size` (trunk checks). Every fit and conversion prints
-  the same report and `--qc-json` writes it.
+  `DROPPED_SEQUENCES`) and recommendations. `--json`, `--strict` (exit 2
+  on a warning) and `--bootstrap-block-size` (trunk checks). Every fit and
+  conversion prints the same report and `--qc-json` writes it.
 - `psmc-rs convert INPUT`: psmcfa as fq2psmcfa lays it out, and multihetsep
   as `generate_multihetsep.py` writes it, in one file or one per sequence
   (`--psmcfa`, `--multihetsep`, `--multihetsep-per-chrom`), gzip by name.
@@ -250,10 +250,10 @@ Reproduction package (`experiment/`):
 - CI: formatting and clippy with warnings denied (pinned to Rust 1.99.0),
   tests on Linux and macOS, a Rust 1.88 build, the Python tests of the
   reproduction package, and a `pipeline` job that checks the shell
-  scripts with shellcheck, runs the
-  end-to-end test with Ubuntu's bcftools and `vcfutils.pl` and with
-  `fq2psmcfa` built from lh3/psmc 0.6.5-r74, and runs the ignored tests
-  that compare consensus and mask mode with those tools.
+  scripts with shellcheck, runs the end-to-end test with Ubuntu's bcftools
+  and `vcfutils.pl` and with `fq2psmcfa` built from lh3/psmc 0.6.5-r74, and
+  runs the ignored tests that compare consensus and mask mode with those
+  tools.
 - Reproduction package: the simulation scripts and the supplementary-table
   runner deleted in 79ac364 are restored under `experiment/scripts/`, with
   new runners `run_main_text.py` and `run_real_data.py`;

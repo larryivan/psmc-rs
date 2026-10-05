@@ -40,7 +40,7 @@ cargo build --release        # optimised binary: target/release/psmc-rs
 Run the same checks as CI (`.github/workflows/ci.yml`):
 
 ```bash
-rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy   # once
+rustup toolchain install 1.99.0 --profile minimal -c rustfmt,clippy   # once
 cargo +1.99.0 fmt --all --check
 cargo +1.99.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked

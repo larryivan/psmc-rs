@@ -454,10 +454,10 @@ are replicates), a run summary (input, log-likelihood, pattern, parameters,
 N0, bin size, generation time, starting values, smoothing, M-step cap), the
 QC findings, metrics and per-sequence table, the bootstrap settings (and
 skipped replicates) with a coverage caveat, and, with `--tmrca-out`, TMRCA
-panels. Charts can be restyled
-and saved as PNG. The page loads ECharts from cdn.jsdelivr.net; for
-offline use set `PSMC_ECHARTS_JS` to a local `echarts.min.js` when running
-psmc-rs, which embeds it (without either, the page says so).
+panels. Charts can be restyled and saved as PNG. The page loads ECharts
+from cdn.jsdelivr.net; for offline use set `PSMC_ECHARTS_JS` to a local
+`echarts.min.js` when running psmc-rs, which embeds it (without either,
+the page says so).
 
 **.psmc for psmc_plot.pl.** The file follows C psmc's format line for line.
 It does not record the bin size, so give psmc_plot.pl the run's settings;
