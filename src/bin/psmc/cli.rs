@@ -242,7 +242,9 @@ pub struct InputArgs {
     #[arg(long, value_name = "I,J", default_value = "0,1", value_parser = parse_pair)]
     pub mhs_pair: (usize, usize),
 
-    /// VCF: the sample to read (required when the VCF has several)
+    /// VCF mask mode: the sample whose genotypes are read (required when the
+    /// VCF has several). Consensus mode reads INFO fields that bcftools
+    /// computes over all samples together, so give it a one-sample VCF
     #[arg(long, value_name = "NAME")]
     pub vcf_sample: Option<String>,
 
@@ -1069,6 +1071,27 @@ mod tests {
         // Defaults are never reported, even when spelt out.
         let defaults = input(&["--depth", "auto", "--mhs-pair", "0,1", "--min-qual", "10"]);
         assert!(defaults.ignored_flags(InputFormat::Psmcfa, None).is_empty());
+    }
+
+    /// Only mask mode selects a sample: consensus mode reads INFO fields,
+    /// which bcftools computes over every sample of the VCF.
+    #[test]
+    fn the_sample_help_names_the_mode_that_uses_it() {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        let mut commands = vec![&cmd];
+        commands.extend(cmd.get_subcommands());
+        for c in commands {
+            let help = c
+                .get_arguments()
+                .find(|a| a.get_id() == "vcf_sample")
+                .and_then(|a| a.get_help())
+                .unwrap()
+                .to_string();
+            assert!(help.starts_with("VCF mask mode: the sample"), "{help}");
+            assert!(help.contains("Consensus mode reads INFO fields"), "{help}");
+            assert!(help.contains("one-sample VCF"), "{help}");
+        }
     }
 
     #[test]
