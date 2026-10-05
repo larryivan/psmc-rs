@@ -383,6 +383,49 @@ fn replicates_carry_their_history_and_data_counts() {
     }
 }
 
+/// With `start`, every replicate starts from those parameters, as C psmc
+/// -i -b does, rather than from a fresh start.
+#[test]
+fn replicates_can_start_from_saved_parameters() {
+    let seqs = reference_seqs(3000);
+    let template = fitted_template();
+    let cfg = config(3, 1000, 1);
+    let opts = BootstrapOptions {
+        start: Some(&template),
+        ..BootstrapOptions::default()
+    };
+    let reps = run_bootstrap_with_options(&seqs, &template, &cfg, &mstep(), opts).unwrap();
+    let mut start = vec![template.theta, template.rho, template.t_max];
+    start.extend(&template.lam);
+    for (rep, r) in reps.iter().enumerate() {
+        assert_eq!(r.history.params[0], start, "replicate {rep}");
+        assert_ne!(
+            params(&r.model),
+            params(&template),
+            "replicate {rep} ran EM"
+        );
+    }
+    // The fresh start of the same replicates differs.
+    let fresh = run_bootstrap_with_options(
+        &seqs,
+        &template,
+        &cfg,
+        &mstep(),
+        BootstrapOptions::default(),
+    )
+    .unwrap();
+    assert_ne!(fresh[0].history.params[0], start);
+
+    // The start must have the template's layout.
+    let other = PsmcModel::new(15.0, 10, 0.01, 0.002, 2.5e-8, None).unwrap();
+    let opts = BootstrapOptions {
+        start: Some(&other),
+        ..BootstrapOptions::default()
+    };
+    let err = run_bootstrap_with_options(&seqs, &template, &cfg, &mstep(), opts).unwrap_err();
+    assert!(err.to_string().contains("n_steps 10"), "{err}");
+}
+
 /// `thread_pool` runs the replicates (and their callbacks) in that pool.
 #[test]
 fn replicates_run_in_the_given_pool() {

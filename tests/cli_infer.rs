@@ -2,6 +2,7 @@
 
 mod common;
 
+use common::psmc_text::parse_rounds;
 use common::{TempDir, json, run_err, run_ok, small_psmcfa};
 
 /// With neither --pattern nor --n-steps the model is C psmc's default, and
@@ -164,6 +165,62 @@ fn init_params_continues_a_saved_fit() {
         "0.01",
     ]);
     assert!(err.contains("cannot be used with"), "{err}");
+}
+
+/// With --init-params, the bootstrap replicates start from the saved
+/// parameters, as the main fit does (C psmc -i -b), not from flat lambdas.
+#[test]
+fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
+    let dir = TempDir::new("init_bootstrap");
+    fit_json(&dir, "two", "2", &[]);
+    let saved = dir.path("two.json");
+    let main_psmc = dir.path("main.psmc");
+    let out = dir.path("cont.json");
+    let o = common::run([
+        dir.path("in.psmcfa").to_str().unwrap(),
+        out.to_str().unwrap(),
+        "1",
+        "--no-progress",
+        "--init-params",
+        saved.to_str().unwrap(),
+        "--psmc-out",
+        main_psmc.to_str().unwrap(),
+        "--bootstrap",
+        "2",
+        "--bootstrap-block-size",
+        "1000",
+    ]);
+    assert!(o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "Warning: every bootstrap replicate starts from the parameters in {}",
+            saved.display()
+        )),
+        "{stderr}"
+    );
+    let main = parse_rounds(&std::fs::read_to_string(&main_psmc).unwrap());
+    let start = &main[0];
+    assert!(start.rs.iter().any(|rs| rs[1] != 1.0), "a fitted start");
+    for rep in 1..=2 {
+        let path = dir.path(&format!("cont.bootstrap/replicate_{rep:03}.psmc"));
+        let rounds = parse_rounds(&std::fs::read_to_string(path).unwrap());
+        assert_eq!(rounds.len(), 2, "replicate {rep}");
+        let first = &rounds[0];
+        assert_eq!(
+            (first.tr, first.mt),
+            (start.tr, start.mt),
+            "replicate {rep}"
+        );
+        let lambdas =
+            |r: &common::psmc_text::Round| -> Vec<f64> { r.rs.iter().map(|rs| rs[1]).collect() };
+        assert_eq!(lambdas(first), lambdas(start), "replicate {rep}");
+    }
+    let html = std::fs::read_to_string(out.with_extension("html")).unwrap();
+    assert!(html.contains(&format!(
+        "<tr><th>Replicates start from</th><td>the parameters in {}</td></tr>",
+        saved.display()
+    )));
 }
 
 /// The JSON of psmc-rs 0.1, without run metadata, is a valid start.

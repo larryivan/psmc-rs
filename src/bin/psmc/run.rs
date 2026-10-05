@@ -242,6 +242,17 @@ fn infer(
                  bins (seed {})",
                 plan.replicates, plan.em_iters, plan.trunk_size, plan.seed
             )));
+            if let Some(path) = &cli.init_params {
+                sink(Event::Warning(format!(
+                    "every bootstrap replicate starts from the parameters in {}, as the main fit \
+                     does (and C psmc -i -b); they were fitted to the whole input, so replicates \
+                     that run few EM iterations ({} here) stay close to them and the bands \
+                     understate the uncertainty further. For bands of the whole estimator, \
+                     bootstrap a fit from a fresh start",
+                    path.display(),
+                    plan.em_iters
+                )));
+            }
             if trunks < FEW_TRUNKS {
                 sink(Event::Warning(format!(
                     "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
@@ -286,8 +297,11 @@ fn infer(
         tr_ratio,
         model.t_max
     )));
-    // The replicates start where the main fit started, as C psmc -b does.
-    let start = (model.t_max, tr_ratio);
+    // The replicates start where the main fit started, as C psmc does: from
+    // a fresh start at its t_max and theta0/rho0 (-b), or from the saved
+    // parameters (-i with -b).
+    let fresh_start = (model.t_max, tr_ratio);
+    let saved_start = cli.init_params.is_some().then(|| model.clone());
 
     let mstep_config = MStepConfig {
         max_iters: cli.mstep_iters,
@@ -338,8 +352,8 @@ fn infer(
             trunk_size: plan.trunk_size,
             seed: plan.seed,
             em_iters: plan.em_iters,
-            t_max: start.0,
-            tr_ratio: start.1,
+            t_max: fresh_start.0,
+            tr_ratio: fresh_start.1,
             batch_size: cli.input.batch_size,
             out_dir: Some(plan.dir.clone()),
         };
@@ -347,6 +361,7 @@ fn infer(
             seqs,
             &model,
             &cfg,
+            saved_start.as_ref(),
             &mstep_config,
             (bin_size, cli.gen_years),
             cancel,
@@ -411,6 +426,7 @@ fn infer(
                 summary,
                 em_iters: plan.em_iters,
                 trunks: Some(*trunks),
+                started_from: cli.init_params.as_deref(),
             },
         ),
         tmrca: tmrca_report_data.as_ref(),
@@ -546,12 +562,14 @@ fn fit(
 }
 
 /// Run the bootstrap and write its files: each replicate's JSON and
-/// `.psmc` output, and the summary of the curves.
+/// `.psmc` output, and the summary of the curves. Replicates start from
+/// `start` when given, from the fresh start of `cfg` otherwise.
 #[allow(clippy::too_many_arguments)]
 fn bootstrap_stage(
     seqs: &[Vec<u8>],
     model: &PsmcModel,
     cfg: &BootstrapConfig,
+    start: Option<&PsmcModel>,
     mstep_config: &MStepConfig,
     (bin_size, gen_years): (f64, f64),
     cancel: &AtomicBool,
@@ -570,6 +588,7 @@ fn bootstrap_stage(
         cancel: Some(cancel),
         thread_pool: Some(pool),
         on_done: Some(&on_done),
+        start,
     };
     let replicates = run_bootstrap_with_options(seqs, model, cfg, mstep_config, opts)?;
     let dir = cfg

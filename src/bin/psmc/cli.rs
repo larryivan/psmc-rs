@@ -568,7 +568,7 @@ pub struct InferArgs {
 
     /// Bootstrap replicates to fit (0: none). As C psmc's bootstrap, each
     /// draws trunks of the input with replacement and is fitted from a fresh
-    /// start
+    /// start, or from the --init-params parameters when given (C psmc -i -b)
     #[arg(
         long,
         value_name = "N",

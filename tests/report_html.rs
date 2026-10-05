@@ -195,14 +195,18 @@ fn the_bootstrap_section_states_its_caveat() {
             summary: &summary,
             em_iters: 25,
             trunks: Some(61),
+            started_from: None,
         }),
         ..base(&m)
     });
     assert!(html.contains("<h2>Bootstrap</h2>"));
     assert!(html.contains("<tr><th>Trunk size (bins)</th><td>500,000</td></tr>"));
     assert!(html.contains("<tr><th>Trunks resampled</th><td>61</td></tr>"));
+    assert!(html.contains("<tr><th>Replicates start from</th><td>a fresh start</td></tr>"));
     assert!(html.contains("Read it as a lower bound on the uncertainty"));
     assert!(html.contains("0.90 to 0.92 of the true sampling standard deviation"));
+    assert!(html.contains("each fitted from a fresh start"));
+    assert!(!html.contains("C psmc -i -b"));
     let series = js_const(&html, "series");
     assert!(
         series
@@ -211,6 +215,34 @@ fn the_bootstrap_section_states_its_caveat() {
             .iter()
             .any(|s| s["name"] == "Bootstrap q2.5")
     );
+}
+
+/// Replicates that continue saved parameters (C psmc -i -b) say so, with
+/// the further caveat that brings.
+#[test]
+fn a_bootstrap_from_saved_parameters_says_so() {
+    let m = model();
+    let summary = BootstrapSummary {
+        n_replicates: 10,
+        block_size: 20_000,
+        seed: 42,
+        points: Vec::new(),
+    };
+    let html = render(&ReportData {
+        bootstrap: Some(BootstrapReport {
+            summary: &summary,
+            em_iters: 2,
+            trunks: Some(30),
+            started_from: Some(Path::new("fits/<old>.json")),
+        }),
+        ..base(&m)
+    });
+    assert!(html.contains(
+        "<tr><th>Replicates start from</th><td>the parameters in fits/&lt;old&gt;.json</td></tr>"
+    ));
+    assert!(html.contains("each fitted from the saved parameters the main fit continued"));
+    assert!(html.contains("the band understates the uncertainty further"));
+    assert!(!html.contains("each fitted from a fresh start"));
 }
 
 #[test]

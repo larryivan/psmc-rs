@@ -53,6 +53,9 @@ pub struct BootstrapReport<'a> {
     pub em_iters: usize,
     /// Trunks the input was cut into for resampling.
     pub trunks: Option<usize>,
+    /// The saved parameters every replicate started from (C psmc `-i` with
+    /// `-b`), or `None` for the usual fresh start.
+    pub started_from: Option<&'a Path>,
 }
 
 #[derive(Serialize)]
@@ -382,9 +385,22 @@ fn bootstrap_section(b: &BootstrapReport) -> String {
         &b.em_iters.to_string(),
     );
     row(&mut out, "Seed", &s.seed.to_string());
+    let start = match b.started_from {
+        Some(path) => format!("the parameters in {}", path.display()),
+        None => "a fresh start".to_string(),
+    };
+    row(&mut out, "Replicates start from", &escape_html(&start));
     out.push_str("</table>");
-    out.push_str(
-        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, each fitted from a fresh start on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations (documented in psmc-rs's bootstrap module), the bootstrap standard deviation of log10 Ne was a median 0.90 to 0.92 of the true sampling standard deviation, and 0.74 at the oldest times; the estimator's bias, about half that standard deviation, does not show in the band at all. Few trunks give coarse bands.</div>"#,
+    let (fitted, saved_note) = match b.started_from {
+        Some(_) => (
+            "each fitted from the saved parameters the main fit continued (as C psmc -i -b does)",
+            " Those parameters were fitted to the whole input, so replicates that run few iterations from them stay close to them, and the band understates the uncertainty further.",
+        ),
+        None => ("each fitted from a fresh start", ""),
+    };
+    let _ = write!(
+        out,
+        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, {fitted} on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations (documented in psmc-rs's bootstrap module), the bootstrap standard deviation of log10 Ne was a median 0.90 to 0.92 of the true sampling standard deviation, and 0.74 at the oldest times; the estimator's bias, about half that standard deviation, does not show in the band at all. Few trunks give coarse bands.{saved_note}</div>"#,
     );
     out.push_str("</div></section>");
     out

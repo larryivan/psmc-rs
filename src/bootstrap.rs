@@ -10,7 +10,9 @@
 //! [`replicate_initial_model`], running replicates in parallel. Replicate `i`
 //! draws from [`replicate_rng`]`(seed, i)`, so a seed reproduces the resampled
 //! data on any platform, and the fits with any thread count, batch size and
-//! alpha-cache budget.
+//! alpha-cache budget. A run that continues saved parameters (`psmc -i`)
+//! starts its replicates from those parameters too; see
+//! [`BootstrapOptions::start`].
 //!
 //! # Choosing the trunk size
 //!
@@ -550,6 +552,7 @@ pub fn run_bootstrap(
         cancel,
         thread_pool: None,
         on_done: Some(on_done),
+        start: None,
     };
     let replicates = run_bootstrap_with_options(seqs, template, cfg, mstep_cfg, opts)?;
     Ok(replicates.into_iter().map(|r| r.model).collect())
@@ -567,6 +570,16 @@ pub struct BootstrapOptions<'a> {
     /// Called once per finished replicate with the number finished so far,
     /// as `on_done` of [`run_bootstrap`].
     pub on_done: Option<&'a (dyn Fn(usize) + Sync)>,
+    /// Start every replicate from these parameters instead of the fresh
+    /// start of [`replicate_initial_model`] (`cfg.t_max` and `cfg.tr_ratio`
+    /// are then unused). This is what C psmc does when `-i` loads saved
+    /// parameters: every run, `-b` ones included, starts from them. Its
+    /// layout (`n_steps` and free lambdas) must be the template's.
+    ///
+    /// Parameters fitted to the whole input already hold what it says, so
+    /// replicates that run few iterations from them stay close to them, and
+    /// the bands understate the uncertainty more than those of a fresh start.
+    pub start: Option<&'a PsmcModel>,
 }
 
 /// The size of a replicate's resampled data, as C psmc's `MM` header line
@@ -607,7 +620,7 @@ impl ReplicateData {
 pub struct BootstrapReplicate {
     /// The fitted model, with its matrices recalculated.
     pub model: PsmcModel,
-    /// Its EM history, from the fresh start on.
+    /// Its EM history, from its starting parameters on.
     pub history: EmHistory,
     /// Its resampled data.
     pub data: ReplicateData,
@@ -626,8 +639,10 @@ impl BootstrapReplicate {
     }
 }
 
-/// [`run_bootstrap`] with a thread pool, returning each replicate's model,
-/// EM history and data counts (for its `.psmc` output), in replicate order.
+/// [`run_bootstrap`] with a thread pool and, optionally, saved starting
+/// parameters ([`BootstrapOptions::start`]), returning each replicate's
+/// model, EM history and data counts (for its `.psmc` output), in replicate
+/// order.
 pub fn run_bootstrap_with_options(
     seqs: &[Vec<u8>],
     template: &PsmcModel,
@@ -642,18 +657,33 @@ pub fn run_bootstrap_with_options(
     if cfg.batch_size == Some(0) {
         bail!("batch_size must be > 0");
     }
-    check_fresh_start(cfg.t_max, cfg.tr_ratio)?;
+    let BootstrapOptions {
+        cancel,
+        thread_pool,
+        on_done,
+        start,
+    } = opts;
+    match start {
+        Some(start) => {
+            if (start.n_steps, start.lam.len()) != (template.n_steps, template.lam.len()) {
+                bail!(
+                    "the bootstrap start has n_steps {} and {} free lambdas, the template {} and \
+                     {}",
+                    start.n_steps,
+                    start.lam.len(),
+                    template.n_steps,
+                    template.lam.len()
+                );
+            }
+        }
+        None => check_fresh_start(cfg.t_max, cfg.tr_ratio)?,
+    }
     let chunks = split_for_bootstrap(seqs, cfg.trunk_size);
     if let Some(dir) = &cfg.out_dir {
         fs::create_dir_all(dir)
             .with_context(|| format!("failed to create bootstrap directory {dir:?}"))?;
     }
 
-    let BootstrapOptions {
-        cancel,
-        thread_pool,
-        on_done,
-    } = opts;
     let mut rep_cfg = mstep_cfg.clone();
     rep_cfg.progress = false;
     let is_cancelled = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
@@ -670,7 +700,10 @@ pub fn run_bootstrap_with_options(
             let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
             let data = ReplicateData::of(&sampled);
             let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
-            let mut model = replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?;
+            let mut model = match start {
+                Some(start) => start.clone(),
+                None => replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?,
+            };
             let em_opts = EmOptions {
                 on_progress: None,
                 cancel,
