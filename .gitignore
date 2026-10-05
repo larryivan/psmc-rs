@@ -48,3 +48,7 @@ __pycache__/
 # (C psmc and its utilities, psmc-rs 0.1 built from e50d69d).
 /experiment/.runs-smoke/
 /experiment/.tools/
+# E5 (bootstrap calibration) keeps every bootstrap replicate's parameters
+# (replicate_NNN.json) and psmc-rs's summary; the replicates' .psmc files
+# (every EM round, about 0.1 MB each, a thousand of them) are not kept.
+/experiment/runs/E5/boot/**/replicate_*.psmc
