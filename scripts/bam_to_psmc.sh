@@ -72,7 +72,9 @@ PREFIX.html and PREFIX.psmc, and PREFIX.log (every command run).
 
 The VCF, QC reports, psmcfa and multihetsep files are written in a working
 directory next to them and renamed when complete, so an interrupted run
-leaves none of them half written; psmc-rs writes the fit's files itself. A
+leaves none of them half written; psmc-rs writes the fit's files itself.
+Ctrl+C or SIGTERM stops whatever runs (the calls, concat, qc, convert or
+the fit) at once and removes the working directory (exit 130 or 143). A
 rerun with the same inputs writes the same bytes to every output but the
 log, whatever --threads is. bcftools >= $MIN_BCFTOOLS and psmc-rs >=
 $MIN_PSMC_RS are required. See docs/preprocessing.md.
@@ -416,15 +418,23 @@ mkdir -p "$out_dir" || die "cannot create the output directory $out_dir"
 log_file=$log_path
 
 tmp=$(mktemp -d "$out_dir/.$base.tmp.XXXXXX") || die "cannot create a working directory in $out_dir"
+# The calling jobs running, and the step that run_step waits for.
 pids=()
 job_names=()
+child=""
 
+# On exit, and so on SIGINT and SIGTERM: stop what still runs, then remove
+# the working directory. Background jobs ignore SIGINT, so a Ctrl+C reaches
+# them only through this TERM; each calling job then stops its own mpileup
+# and call.
 cleanup() {
   local status=$?
   local p
-  for p in ${pids[@]+"${pids[@]}"}; do
-    pkill -TERM -P "$p" 2> /dev/null || true
+  for p in ${pids[@]+"${pids[@]}"} ${child:+"$child"}; do
     kill -TERM "$p" 2> /dev/null || true
+  done
+  for p in ${pids[@]+"${pids[@]}"} ${child:+"$child"}; do
+    wait "$p" 2> /dev/null || true
   done
   if [ "$keep_tmp" -eq 1 ]; then
     say "working directory kept: $tmp"
@@ -436,6 +446,19 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# Run a command in the background and wait for it. bash runs a trap only
+# once the foreground command has ended, so a long step run in the
+# foreground would hold off SIGTERM until it finished; a wait is cut short
+# at once, and cleanup stops the step.
+run_step() {
+  local s=0
+  "$@" &
+  child=$!
+  wait "$child" || s=$?
+  child=""
+  return "$s"
+}
 
 say "bam_to_psmc.sh $SCRIPT_VERSION: $command_line"
 say "bcftools $bcftools_version ($(command -v "$bcftools")), psmc-rs $psmc_rs_version ($(command -v "$psmc_rs"))"
@@ -453,14 +476,25 @@ fi
 
 mkdir -p "$tmp/regions" "$tmp/calls"
 
+# One calling job, run in the background. mpileup and call are joined by a
+# FIFO rather than a pipe so that the job knows both process IDs: when
+# cleanup stops the job, its trap stops them too, with no need for pkill.
 call_one() { # $1: number of the job, $2: index into ref_names
-  local n=$1 i=$2
-  local where=-T
+  local n=$1 i=$2 where=-T mp="" cl="" s=0
+  trap 'kill -TERM ${mp:+"$mp"} ${cl:+"$cl"} 2> /dev/null; exit 143' TERM
   [ "$indexed" -eq 0 ] || where=-R
   printf '%s\t1\t%s\n' "${ref_names[$i]}" "${ref_lengths[$i]}" > "$tmp/regions/$n.txt"
+  mkfifo "$tmp/calls/$n.fifo"
   "$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" -f "$ref" \
-    "$where" "$tmp/regions/$n.txt" "$bam" 2>> "$tmp/calls/$n.log" |
-    "$bcftools" call --no-version -c -Ob -o "$tmp/calls/$n.bcf" 2>> "$tmp/calls/$n.log"
+    "$where" "$tmp/regions/$n.txt" "$bam" 2>> "$tmp/calls/$n.log" > "$tmp/calls/$n.fifo" &
+  mp=$!
+  "$bcftools" call --no-version -c -Ob -o "$tmp/calls/$n.bcf" \
+    < "$tmp/calls/$n.fifo" 2>> "$tmp/calls/$n.log" &
+  cl=$!
+  wait "$mp" || s=$?
+  wait "$cl" || s=$?
+  rm -f "$tmp/calls/$n.fifo"
+  return "$s"
 }
 
 samples_checked=0
@@ -517,10 +551,10 @@ for i in "${selected[@]}"; do
   printf '%s\n' "$tmp/calls/$n.bcf" >> "$tmp/calls.txt"
 done
 log_cmd "$(quoted "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" -f "$tmp/calls.txt")"
-"$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" \
+run_step "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" \
   -f "$tmp/calls.txt" 2>> "$log_file" || die "bcftools concat failed (see $log_file)"
 log_cmd "$(quoted "$bcftools" index -t "$tmp/all.vcf.gz")"
-"$bcftools" index -t "$tmp/all.vcf.gz" 2>> "$log_file" || die "bcftools index failed (see $log_file)"
+run_step "$bcftools" index -t "$tmp/all.vcf.gz" 2>> "$log_file" || die "bcftools index failed (see $log_file)"
 records=$("$bcftools" index -n "$tmp/all.vcf.gz" 2>> "$log_file") ||
   die "cannot count the records of the VCF"
 [ "$records" -gt 0 ] ||
@@ -536,7 +570,7 @@ mv -f "$tmp/all.vcf.gz.tbi" "$vcf.tbi"
 
 qc=("$psmc_rs" qc "$vcf" "${common_input_opts[@]}" --json "$tmp/qc.json")
 log_cmd "$(quoted "${qc[@]}") > $(quoted "$tmp/qc.txt")"
-if ! "${qc[@]}" > "$tmp/qc.txt" 2> "$tmp/qc.err"; then
+if ! run_step "${qc[@]}" > "$tmp/qc.txt" 2> "$tmp/qc.err"; then
   cat "$tmp/qc.err" >> "$log_file"
   die "psmc-rs qc failed: $(cat "$tmp/qc.err")"
 fi
@@ -556,7 +590,7 @@ mkdir -p "$tmp/convert"
 conv=("$psmc_rs" convert "$vcf" "${common_input_opts[@]}" -q --psmcfa "$tmp/convert/out.psmcfa")
 [ "$multihetsep" -eq 0 ] || conv+=(--multihetsep-per-chrom "$tmp/convert/$base")
 log_cmd "$(quoted "${conv[@]}")"
-if ! "${conv[@]}" > "$tmp/convert.out" 2> "$tmp/convert.err"; then
+if ! run_step "${conv[@]}" > "$tmp/convert.out" 2> "$tmp/convert.err"; then
   cat "$tmp/convert.err" >> "$log_file"
   die "psmc-rs convert failed: $(cat "$tmp/convert.err")"
 fi
@@ -589,7 +623,7 @@ if [ -n "$run_iters" ]; then
   has_extra --no-progress || fit+=(--no-progress)
   fit+=(${extra[@]+"${extra[@]}"})
   log_cmd "$(quoted "${fit[@]}")"
-  if ! "${fit[@]}" > "$tmp/fit.out" 2> "$tmp/fit.err"; then
+  if ! run_step "${fit[@]}" > "$tmp/fit.out" 2> "$tmp/fit.err"; then
     cat "$tmp/fit.err" >> "$log_file"
     die "psmc-rs failed: $(tail -n 5 "$tmp/fit.err")"
   fi

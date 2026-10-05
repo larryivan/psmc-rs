@@ -17,7 +17,7 @@ in `/usr/bin` of Debian's and Ubuntu's package) and `fq2psmcfa` (built from
 `utils/fq2psmcfa.c` of lh3/psmc) default to the copies on `PATH`, and
 psmc-rs to `target/release/psmc-rs` (`PSMC_RS`). `E2E_WORK=DIR` keeps the
 files in DIR; `E2E_BASH=/bin/bash` runs the script with macOS's bash 3.2. It
-takes about 15 seconds.
+takes about half a minute.
 
 | File | What it is |
 | --- | --- |
@@ -80,6 +80,12 @@ of bases at quality 10, and 0.3% sequencing errors.
   variant records as the VCF. Without the mask, QC warns
   VARIANTS_ONLY_NO_MASK; with it, the warning is gone and recovery, `K` and
   `N` bins and the multihetsep rows meet the same thresholds as run 1.
-- Failures: no read passing `--min-mapq 255`, two samples in one file, and
-  SIGTERM while the calls run each end with an error and leave only the log
-  (no output file, no working directory, no running job).
+- Failures: no read passing `--min-mapq 255` and two samples in one file
+  each end with an error and leave only the log (no output file, no working
+  directory).
+- Interruptions, with a stand-in that never finishes: SIGTERM while the
+  calls run, with a `PATH` that has no `pkill`, `pgrep` or `ps`, leaves only
+  the log; SIGTERM to the script, and SIGINT to its process group (what
+  Ctrl+C sends), while the fit runs stop it within seconds (exit 143 and
+  130) and leave no fit output. In every case no working directory and no
+  process is left.

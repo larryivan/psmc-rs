@@ -305,39 +305,102 @@ run_script --bam "$work/two.sam" --ref "$sim/ref.fa" --out "$out/two" --chroms c
 grep -qF "the alignments hold 2 samples" "$work/two.err" || fail "$(cat "$work/two.err")"
 ok "two samples: error"
 
-# An interrupted run: mpileup never finishes, and the script is stopped
-# while it waits for it. Its jobs must go and nothing may be left.
+# Interrupted runs. A stand-in for one tool never finishes (a `sleep` with
+# a number of its own); the script is stopped while it waits for it, and
+# must exit at once, stop the stand-in and remove its working directory.
+#
+# interrupt NAME SIGNAL STATUS [VAR=VALUE...] -- SCRIPT_ARGS...
+# starts the script with prefix $out/NAME in its own process group, as an
+# interactive shell would (so that it does not ignore SIGINT); waits until
+# `sleep $sleeper` runs; sends SIGNAL to the script (or, for INT-group,
+# SIGINT to the whole group, as Ctrl+C in a terminal does); and checks the
+# exit status.
+interrupt() {
+  local name=$1 sig=$2 want=$3 spid s=0 tries=0 start envs=()
+  shift 3
+  while [ "$1" != -- ]; do
+    envs+=("$1")
+    shift
+  done
+  shift
+  set -m
+  env ${envs[@]+"${envs[@]}"} ${E2E_BASH:+"$E2E_BASH"} "$script" "$@" --out "$out/$name" \
+    2> "$work/$name.err" &
+  spid=$!
+  set +m
+  until pgrep -f "sleep $sleeper" > /dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -lt 300 ] || fail "$name: the run did not reach the stand-in ($(cat "$work/$name.err"))"
+    sleep 0.1
+  done
+  case "$sig" in
+    INT-group) kill -INT -- "-$spid" ;;
+    *) kill -"$sig" "$spid" ;;
+  esac
+  start=$SECONDS
+  while kill -0 "$spid" 2> /dev/null; do
+    if [ "$((SECONDS - start))" -ge 10 ]; then
+      pkill -f "sleep $sleeper" || true
+      wait "$spid" || true
+      fail "$name: the script was still running 10 s after $sig"
+    fi
+    sleep 0.1
+  done
+  wait "$spid" || s=$?
+  [ "$s" -eq "$want" ] || fail "$name: exit status $s after $sig, not $want"
+  sleep 0.5
+  if pgrep -f "sleep $sleeper" > /dev/null; then
+    pkill -f "sleep $sleeper" || true
+    fail "$name: the stand-in outlived the script"
+  fi
+  [ -z "$(find "$out" -name '.*tmp*')" ] || fail "$name: working directory left behind in $out"
+}
+
+# mpileup never finishes. The script runs with a PATH that holds what it
+# needs but no pkill, pgrep or ps, so that it cannot rely on them to stop
+# mpileup and call.
 real_bcftools=$(command -v bcftools)
+sleeper=987
 # The wrapper expands $1 and $@ itself.
 # shellcheck disable=SC2016
-printf '#!/bin/sh\nif [ "$1" = mpileup ]; then exec sleep 987; fi\nexec "%s" "$@"\n' \
-  "$real_bcftools" > "$work/slow-bcftools"
+printf '#!/bin/sh\nif [ "$1" = mpileup ]; then exec sleep %s; fi\nexec "%s" "$@"\n' \
+  "$sleeper" "$real_bcftools" > "$work/slow-bcftools"
 chmod +x "$work/slow-bcftools"
-if [ -n "${E2E_BASH:-}" ]; then
-  BCFTOOLS=$work/slow-bcftools "$E2E_BASH" "$script" --bam "$sim/aln.sam" --ref "$sim/ref.fa" \
-    --out "$out/int" --chroms chr2,chr3 --threads 2 2> "$work/int.err" &
-else
-  BCFTOOLS=$work/slow-bcftools "$script" --bam "$sim/aln.sam" --ref "$sim/ref.fa" \
-    --out "$out/int" --chroms chr2,chr3 --threads 2 2> "$work/int.err" &
-fi
-spid=$!
-tries=0
-until grep -q 'mpileup' "$out/int.log" 2> /dev/null && pgrep -f 'sleep 987' > /dev/null; do
-  tries=$((tries + 1))
-  [ "$tries" -lt 200 ] || fail "the interrupted run did not start"
-  sleep 0.1
+mkdir -p "$work/minbin"
+for tool in bash env awk basename cat cmp date dirname getconf grep head mkdir mkfifo mktemp \
+  mv nproc rm sed sleep sort tail tr wc; do
+  p=$(command -v "$tool" || true)
+  case "$p" in
+    /*) ln -sf "$p" "$work/minbin/$tool" ;;
+  esac
 done
-kill -TERM "$spid"
-s=0
-wait "$spid" || s=$?
-[ "$s" -eq 143 ] || fail "exit status $s after SIGTERM"
-sleep 0.5
-if pgrep -f 'sleep 987' > /dev/null; then
-  pkill -f 'sleep 987' || true
-  fail "the calling jobs outlived the script"
-fi
+for tool in pkill pgrep ps; do
+  [ ! -e "$work/minbin/$tool" ] || fail "minbin holds $tool"
+done
+interrupt int TERM 143 BCFTOOLS="$work/slow-bcftools" PATH="$work/minbin" -- \
+  --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr2,chr3 --threads 2
 [ -z "$(leftovers int)" ] || fail "outputs left: $(leftovers int)"
-[ -z "$(find "$out" -name '.*tmp*')" ] || fail "working directory left behind in $out"
-ok "SIGTERM while calling: exit 143, jobs stopped, only int.log written"
+ok "SIGTERM while calling, without pkill on PATH: exit 143, mpileup and call stopped, only int.log written"
+
+# The fit never finishes: SIGTERM to the script alone, and SIGINT to its
+# process group (Ctrl+C). The outputs made before the fit stay; the fit
+# writes none.
+sleeper=988
+# The wrapper expands $1 and $@ itself.
+# shellcheck disable=SC2016
+printf '#!/bin/sh\ncase "$1" in *.psmcfa) [ -f "$1" ] && exec sleep %s ;; esac\nexec "%s" "$@"\n' \
+  "$sleeper" "$PSMC_RS" > "$work/slow-psmc-rs"
+chmod +x "$work/slow-psmc-rs"
+for sig in TERM INT-group; do
+  name=fit-$sig
+  want=143
+  [ "$sig" = TERM ] || want=130
+  interrupt "$name" "$sig" "$want" -- --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr3 \
+    --run 2 --psmc-rs "$work/slow-psmc-rs"
+  left=$(leftovers "$name" | sed "s|^$out/$name||" | LC_ALL=C sort | tr '\n' ' ')
+  [ "$left" = ".psmcfa .qc.json .qc.txt .vcf.gz .vcf.gz.tbi " ] ||
+    fail "$name: outputs left: $left"
+done
+ok "SIGTERM while fitting, and SIGINT to the process group (Ctrl+C): exit 143 and 130 at once, the fit stopped, no fit output"
 
 printf '\nall end-to-end checks passed\n'
