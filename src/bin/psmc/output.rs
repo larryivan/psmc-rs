@@ -2,8 +2,8 @@
 //! their run metadata, C psmc's `.psmc` output, the bootstrap files and the
 //! QC JSON.
 
-use anyhow::{Context, Result};
-use std::fs::{self, File};
+use anyhow::{Context, Result, bail};
+use std::fs::{self, File, OpenOptions};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
@@ -122,4 +122,159 @@ pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
         return Ok(());
     }
     fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
+}
+
+/// Check, before any work, that a run can write its outputs: `files` (each
+/// named as the user gave it, such as `--psmc-out`) are distinct, none is
+/// the input or one of `dirs`, and each can be written in an existing
+/// directory; each of `dirs` is a directory or can be created. Otherwise a
+/// typo in a directory would only fail after the fit and the bootstrap,
+/// and two outputs of one name would overwrite each other.
+pub fn check_destinations(
+    input: &Path,
+    files: &[(&str, &Path)],
+    dirs: &[(&str, &Path)],
+) -> Result<()> {
+    let input = resolved(input);
+    let mut seen: Vec<(&str, &Path, PathBuf)> = Vec::new();
+    for &(what, path) in files.iter().chain(dirs) {
+        let at = resolved(path);
+        if at == input {
+            bail!(
+                "{what} {} is the input file; give it another name",
+                path.display()
+            );
+        }
+        if let Some((other, other_path, _)) = seen.iter().find(|(_, _, p)| *p == at) {
+            bail!(
+                "{other} {} and {what} {} are the same file; give them different names",
+                other_path.display(),
+                path.display()
+            );
+        }
+        seen.push((what, path, at));
+    }
+    for &(what, path) in files {
+        check_writable_file(path)
+            .with_context(|| format!("cannot write {what} {}", path.display()))?;
+    }
+    for &(what, path) in dirs {
+        check_creatable_dir(path)
+            .with_context(|| format!("cannot create {what} {}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// `path` with its directory resolved (symbolic links, `.` and `..`), so
+/// that two names of one file compare equal, also before it exists.
+fn resolved(path: &Path) -> PathBuf {
+    if let Ok(p) = fs::canonicalize(path) {
+        return p;
+    }
+    match (fs::canonicalize(parent_dir(path)), path.file_name()) {
+        (Ok(dir), Some(name)) => dir.join(name),
+        _ => std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()),
+    }
+}
+
+/// The directory `path` is in (`.` for a bare file name).
+pub fn parent_dir(path: &Path) -> &Path {
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    }
+}
+
+/// Whether the file `path` can be written, without changing it: an
+/// existing file is opened for appending, a new one created and removed.
+fn check_writable_file(path: &Path) -> Result<()> {
+    if path.is_dir() {
+        bail!("it is a directory");
+    }
+    let dir = parent_dir(path);
+    if !dir.is_dir() {
+        bail!("the directory {} does not exist", dir.display());
+    }
+    if path.exists() {
+        OpenOptions::new().append(true).open(path)?;
+    } else {
+        File::create_new(path)?;
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+/// Whether the directory `path` exists or can be created: its nearest
+/// existing ancestor must be a directory.
+fn check_creatable_dir(path: &Path) -> Result<()> {
+    let mut at = path;
+    loop {
+        if at.exists() {
+            if !at.is_dir() {
+                bail!("{} is not a directory", at.display());
+            }
+            return Ok(());
+        }
+        match at.parent() {
+            Some(up) if !up.as_os_str().is_empty() => at = up,
+            _ => return Ok(()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory of its own under the system temp dir.
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("psmc_rs_output_{name}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn destinations_must_be_distinct_writable_files() {
+        let dir = temp_dir("destinations");
+        let input = dir.join("in.psmcfa");
+        fs::write(&input, ">a\nT\n").unwrap();
+        let out = dir.join("fit.json");
+        let check = |files: &[(&str, &Path)], dirs: &[(&str, &Path)]| {
+            check_destinations(&input, files, dirs).map_err(|e| format!("{e:#}"))
+        };
+        let boot = dir.join("new/fit.bootstrap");
+        check(&[("OUTPUT", &out)], &[("--bootstrap-dir", &boot)]).unwrap();
+        // The check leaves no file behind.
+        assert!(!out.exists() && !dir.join("new").exists());
+        // An existing file is not changed.
+        fs::write(&out, "{}").unwrap();
+        check(&[("OUTPUT", &out)], &[]).unwrap();
+        assert_eq!(fs::read_to_string(&out).unwrap(), "{}");
+
+        // Two names of one file.
+        let other = dir.join("sub/../fit.json");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        let err = check(&[("OUTPUT", &out), ("--psmc-out", &other)], &[]).unwrap_err();
+        assert!(err.contains("are the same file"), "{err}");
+        let err = check(&[("--tmrca-out", &input)], &[]).unwrap_err();
+        assert!(err.contains("--tmrca-out"), "{err}");
+        assert!(err.contains("is the input file"), "{err}");
+        let err = check(&[("OUTPUT", &out)], &[("--bootstrap-dir", &out)]).unwrap_err();
+        assert!(err.contains("are the same file"), "{err}");
+
+        let missing = dir.join("nowhere/t.tsv");
+        let err = check(&[("--tmrca-out", &missing)], &[]).unwrap_err();
+        assert!(
+            err.starts_with(&format!("cannot write --tmrca-out {}", missing.display())),
+            "{err}"
+        );
+        assert!(err.contains("does not exist"), "{err}");
+        let err = check(&[("OUTPUT", &dir)], &[]).unwrap_err();
+        assert!(err.contains("is a directory"), "{err}");
+        let err = check(&[], &[("--bootstrap-dir", &input.join("boot"))]).unwrap_err();
+        assert!(err.contains("is not a directory"), "{err}");
+        let _ = fs::remove_dir_all(dir);
+    }
 }

@@ -223,6 +223,71 @@ fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
     )));
 }
 
+/// Outputs that cannot be written, or that would overwrite each other or
+/// the input, fail before the input is read, not after the fit.
+#[test]
+fn output_paths_are_checked_before_the_fit() {
+    let dir = TempDir::new("output_paths");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 3000);
+    let original = std::fs::read(&input).unwrap();
+    let out = dir.path("fit.json");
+    let fails = |output: &std::path::Path, extra: &[&str]| -> String {
+        let mut args = vec![
+            input.display().to_string(),
+            output.display().to_string(),
+            "2".to_string(),
+            "--no-progress".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let o = common::run(&args);
+        assert!(!o.status.success());
+        assert!(
+            o.stdout.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&o.stdout)
+        );
+        let stderr = String::from_utf8(o.stderr).unwrap();
+        // Nothing was read.
+        assert!(!stderr.contains("Input:"), "{stderr}");
+        stderr
+    };
+    let missing = dir.path("nowhere/t.tsv");
+    let err = fails(
+        &out,
+        &[
+            "--tmrca-out",
+            missing.to_str().unwrap(),
+            "--bootstrap",
+            "2",
+            "--bootstrap-block-size",
+            "1000",
+        ],
+    );
+    assert!(
+        err.contains(&format!("cannot write --tmrca-out {}", missing.display())),
+        "{err}"
+    );
+    assert!(err.contains("does not exist"), "{err}");
+    let err = fails(&dir.path("nowhere/fit.json"), &[]);
+    assert!(err.contains("cannot write OUTPUT"), "{err}");
+
+    let err = fails(&dir.path("fit.html"), &[]);
+    assert!(err.contains("ends in .html"), "{err}");
+    let err = fails(&out, &["--psmc-out", out.to_str().unwrap()]);
+    assert!(err.contains("are the same file"), "{err}");
+    let err = fails(&input, &[]);
+    assert!(err.contains("is the input file"), "{err}");
+    let err = fails(&out, &["--qc-json", input.to_str().unwrap()]);
+    assert!(err.contains("--qc-json"), "{err}");
+    assert!(err.contains("is the input file"), "{err}");
+
+    for name in ["fit.json", "fit.html", "fit.bootstrap", "nowhere"] {
+        assert!(!dir.path(name).exists(), "{name}");
+    }
+    assert_eq!(std::fs::read(&input).unwrap(), original);
+}
+
 /// The JSON of psmc-rs 0.1, without run metadata, is a valid start.
 #[test]
 fn init_params_reads_files_of_version_0_1() {

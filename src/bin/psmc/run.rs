@@ -29,8 +29,8 @@ use crate::dataset::{
     describe, ensure_usable, load_input, loader_warnings, qc_report, resolve_input_path,
 };
 use crate::output::{
-    FitRecord, is_stdout, save_fit, write_bootstrap_summary, write_main_psmc, write_qc_json,
-    write_replicate_psmc,
+    FitRecord, check_destinations, is_stdout, save_fit, write_bootstrap_summary, write_main_psmc,
+    write_qc_json, write_replicate_psmc,
 };
 
 /// A stage of the pipeline with a progress count.
@@ -196,6 +196,14 @@ fn infer(
             input_file.display()
         )));
     }
+    let report_html = default_html_path(&output_file);
+    check_outputs(
+        cli,
+        &input_file,
+        &output_file,
+        &report_html,
+        bootstrap.as_ref(),
+    )?;
     let data = read_input(&input_file, cli, sink)?;
     let obs = &data.obs;
 
@@ -397,7 +405,6 @@ fn infer(
         tmrca_report_data = Some(tmrca);
     }
 
-    let report_html = default_html_path(&output_file);
     let mut settings = vec![
         ("Starting theta0/rho0".to_string(), format!("{tr_ratio}")),
         (
@@ -446,6 +453,46 @@ fn infer(
         bootstrap_dir: bootstrap.map(|plan| plan.dir),
         final_loglike,
     })
+}
+
+/// Check the files and directories the run will write before reading the
+/// input (see [`check_destinations`]).
+fn check_outputs(
+    cli: &InferArgs,
+    input: &Path,
+    output: &Path,
+    report_html: &Path,
+    bootstrap: Option<&BootstrapPlan>,
+) -> Result<()> {
+    if output
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
+    {
+        bail!(
+            "OUTPUT {} ends in .html, but the HTML report is written to OUTPUT with the \
+             extension .html; name the parameters file .json",
+            output.display()
+        );
+    }
+    let mut files = vec![("OUTPUT", output), ("the HTML report", report_html)];
+    for (what, path) in [
+        ("--psmc-out", &cli.psmc_out),
+        ("--tmrca-out", &cli.tmrca_out),
+        ("--qc-json", &cli.qc_json),
+    ] {
+        if let Some(path) = path.as_deref().filter(|p| !is_stdout(p)) {
+            files.push((what, path));
+        }
+    }
+    let dir_name = match cli.bootstrap_dir {
+        Some(_) => "--bootstrap-dir",
+        None => "the bootstrap directory",
+    };
+    let dirs: Vec<(&str, &Path)> = bootstrap
+        .map(|plan| (dir_name, plan.dir.as_path()))
+        .into_iter()
+        .collect();
+    check_destinations(input, &files, &dirs)
 }
 
 /// The starting model of `--init-params`: the saved parameters, with the

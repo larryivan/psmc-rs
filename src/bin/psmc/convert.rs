@@ -12,7 +12,7 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{ConvertArgs, FormatArg};
 use crate::console::Console;
 use crate::dataset::{describe, load_input, loader_warnings, qc_report};
-use crate::output::{is_stdout, write_qc_json};
+use crate::output::{check_destinations, is_stdout, parent_dir, write_qc_json};
 use crate::run::{Event, qc_event};
 
 const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
@@ -29,6 +29,7 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     if want_sites && args.input.input_format == FormatArg::Psmcfa {
         bail!("{NO_SITES}");
     }
+    check_outputs(args)?;
     let mut opts = args.input.to_options();
     opts.collect_het_sites = want_sites;
     let data = load_input(&args.input_file, &opts)?;
@@ -117,6 +118,33 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Check the files `convert` will write before reading the input (see
+/// [`check_destinations`]); the per-sequence files need their directory.
+fn check_outputs(args: &ConvertArgs) -> Result<()> {
+    let mut files = Vec::new();
+    for (what, path) in [
+        ("--psmcfa", &args.psmcfa),
+        ("--multihetsep", &args.multihetsep),
+        ("--qc-json", &args.qc_json),
+    ] {
+        if let Some(path) = path.as_deref().filter(|p| !is_stdout(p)) {
+            files.push((what, path));
+        }
+    }
+    check_destinations(&args.input_file, &files, &[])?;
+    if let Some(prefix) = &args.multihetsep_per_chrom {
+        let dir = parent_dir(prefix);
+        if !dir.is_dir() {
+            bail!(
+                "cannot write --multihetsep-per-chrom {}: the directory {} does not exist",
+                prefix.display(),
+                dir.display()
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Heterozygous sites of `data`, of the sequences named `name` if given.

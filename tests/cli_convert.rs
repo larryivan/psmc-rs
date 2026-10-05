@@ -275,6 +275,41 @@ fn qc_json_on_stdout_is_the_only_stdout() {
     assert!(!stderr.contains("QC report: -"), "{stderr}");
 }
 
+/// Outputs that cannot be written fail before the input is read.
+#[test]
+fn output_paths_are_checked_before_reading() {
+    let dir = TempDir::new("convert_paths");
+    let input = dir.path("in.psmcfa");
+    fs::write(&input, ">a\nTTKT\n").unwrap();
+    let missing = dir.path("nowhere/out.psmcfa");
+    let err = run_err([
+        "convert",
+        input.to_str().unwrap(),
+        "--psmcfa",
+        missing.to_str().unwrap(),
+    ]);
+    assert!(err.contains("cannot write --psmcfa"), "{err}");
+    assert!(!err.contains("Input:"), "{err}");
+    let err = run_err([
+        "convert",
+        input.to_str().unwrap(),
+        "--psmcfa",
+        input.to_str().unwrap(),
+    ]);
+    assert!(err.contains("is the input file"), "{err}");
+    assert_eq!(fs::read_to_string(&input).unwrap(), ">a\nTTKT\n");
+    let err = run_err([
+        "convert",
+        route_a("allsites.vcf.gz").to_str().unwrap(),
+        "--multihetsep-per-chrom",
+        dir.path("nowhere/snps").to_str().unwrap(),
+    ]);
+    assert!(
+        err.contains("cannot write --multihetsep-per-chrom"),
+        "{err}"
+    );
+}
+
 /// Multihetsep can be binned, with a note that missing sites were placed by
 /// assumption.
 #[test]
