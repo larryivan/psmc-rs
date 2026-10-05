@@ -744,8 +744,28 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         return Ok(());
     }
 
+    // While the form can be edited, it takes every printable character
+    // (paths such as "results/run.json" hold the command letters), except
+    // Space on the format field, which cycles it.
+    let editing = app.page == TuiPage::Setup && app.running.is_none();
+    // Ctrl or Alt makes a command; both together is AltGr on Windows, which
+    // types characters such as '@'.
+    let plain =
+        key.modifiers.contains(KeyModifiers::CONTROL) == key.modifiers.contains(KeyModifiers::ALT);
+    if editing
+        && plain
+        && let KeyCode::Char(c) = key.code
+    {
+        if c == ' ' && app.selected == FIELD_INPUT_FORMAT {
+            app.toggle_input_format();
+        } else {
+            app.selected_field_mut().push(c);
+        }
+        return Ok(());
+    }
+
     match key.code {
-        KeyCode::Char('q') => {
+        KeyCode::Char('q') | KeyCode::Esc => {
             if app.running.is_some() {
                 app.status = "Stop running job first (x)".to_string();
             } else {
@@ -792,21 +812,11 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.open_picker(PickerMode::OutputDir)?;
             }
         }
-        KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') => {
-            if app.page == TuiPage::Setup
-                && app.running.is_none()
-                && app.selected == FIELD_INPUT_FORMAT
-            {
-                app.toggle_input_format();
-            }
+        KeyCode::Left | KeyCode::Right if editing && app.selected == FIELD_INPUT_FORMAT => {
+            app.toggle_input_format();
         }
-        KeyCode::Backspace => {
-            if app.page == TuiPage::Setup && app.running.is_none() {
-                app.selected_field_mut().pop();
-            }
-        }
-        KeyCode::Char(c) if app.page == TuiPage::Setup && app.running.is_none() => {
-            app.selected_field_mut().push(c);
+        KeyCode::Backspace if editing => {
+            app.selected_field_mut().pop();
         }
         _ => {}
     }
@@ -956,6 +966,86 @@ mod tests {
         set(&mut a, FIELD_INPUT_FORMAT, "bam");
         assert!(err(&a).contains("auto, psmcfa, mhs or vcf"));
         assert!(preview_cmdline(&a).starts_with("Invalid config"));
+    }
+
+    fn press(app: &mut App, code: KeyCode) {
+        handle_key(app, KeyEvent::new(code, KeyModifiers::NONE)).unwrap();
+    }
+
+    fn type_text(app: &mut App, text: &str) {
+        for c in text.chars() {
+            press(app, KeyCode::Char(c));
+        }
+    }
+
+    /// The form takes every printable character, the command letters
+    /// included; Space cycles the format field.
+    #[test]
+    fn typed_text_reaches_the_form() {
+        let mut a = app(&[]);
+        a.selected = FIELD_OUTPUT;
+        a.fields[FIELD_OUTPUT].value.clear();
+        type_text(&mut a, "results/req x.json");
+        assert_eq!(a.field_value(FIELD_OUTPUT), "results/req x.json");
+        assert!(!a.should_quit && a.running.is_none());
+        assert_eq!(a.page, TuiPage::Setup);
+        press(&mut a, KeyCode::Backspace);
+        assert_eq!(a.field_value(FIELD_OUTPUT), "results/req x.jso");
+
+        a.selected = FIELD_INPUT_FORMAT;
+        press(&mut a, KeyCode::Char(' '));
+        assert_eq!(a.field_value(FIELD_INPUT_FORMAT), "psmcfa");
+        press(&mut a, KeyCode::Right);
+        assert_eq!(a.field_value(FIELD_INPUT_FORMAT), "mhs");
+
+        // Ctrl chords are commands, not text.
+        a.selected = FIELD_INPUT;
+        a.logs.push_back("old".to_string());
+        handle_key(
+            &mut a,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
+        )
+        .unwrap();
+        assert!(a.logs.is_empty());
+        assert_eq!(a.field_value(FIELD_INPUT), "");
+        handle_key(
+            &mut a,
+            KeyEvent::new(
+                KeyCode::Char('@'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
+        )
+        .unwrap();
+        assert_eq!(a.field_value(FIELD_INPUT), "@");
+    }
+
+    /// Esc quits from the form; q quits from the other pages; neither while
+    /// a run is going, which x stops.
+    #[test]
+    fn quit_and_stop_keys() {
+        let mut a = app(&[]);
+        press(&mut a, KeyCode::Esc);
+        assert!(a.should_quit);
+
+        let mut a = app(&[]);
+        a.page = TuiPage::Result;
+        press(&mut a, KeyCode::Char('q'));
+        assert!(a.should_quit);
+
+        let mut a = app(&[]);
+        let stop = Arc::new(AtomicBool::new(false));
+        a.running = Some(RunningTask {
+            rx: mpsc::channel().1,
+            handle: thread::spawn(|| {}),
+            stop: Arc::clone(&stop),
+        });
+        a.page = TuiPage::Run;
+        press(&mut a, KeyCode::Char('q'));
+        press(&mut a, KeyCode::Esc);
+        assert!(!a.should_quit);
+        press(&mut a, KeyCode::Char('x'));
+        assert!(stop.load(Ordering::Relaxed));
+        assert_eq!(a.status, "Stopping...");
     }
 
     #[test]

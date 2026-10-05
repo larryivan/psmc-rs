@@ -445,7 +445,7 @@ pub(super) fn render_ui(f: &mut Frame, app: &App) {
     } else if app.running.is_some() {
         "Run: F1/F2/F3 switch pages  PgUp/PgDn scroll logs  x stop  q quit"
     } else {
-        "Setup: Tab/Shift+Tab select field  type edit  Ctrl+O input picker  Ctrl+D output dir picker  Space toggle fmt  F5 run"
+        "Setup: Tab/Shift+Tab select field  type edit  Ctrl+O input picker  Ctrl+D output dir picker  Space toggle fmt  F5 run  Esc quit"
     };
     let secondary = "Pages: F1 Setup | F2 Run | F3 Result";
     let footer = Paragraph::new(vec![
