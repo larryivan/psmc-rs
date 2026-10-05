@@ -151,9 +151,14 @@ where `type` is one of `fix`, `feat`, `perf`, `refactor`, `test`, `docs`,
 The tag starts `.github/workflows/release.yml`, which builds `psmc-rs` for
 Linux (x86-64), macOS (x86-64 and Apple silicon) and Windows (x86-64),
 packages each binary with `README.md` and `LICENSE`, and publishes the
-archives and their `.sha256` files as a GitHub release. If a run fails,
-re-run *Release* from the Actions tab (`workflow_dispatch`) with the same
-tag instead of moving it.
+archives, their `.sha256` files and `SHA256SUMS.txt` as a GitHub release.
+If a run fails, re-run *Release* from the Actions tab (`workflow_dispatch`)
+with the same tag instead of moving it. The Linux binary is linked with
+`cargo zigbuild` for the glibc in the job's `glibc` matrix entry (2.17),
+and `.github/scripts/check-linux-binary.sh` stops the release when it needs
+a newer glibc symbol, or when `--version` and a short fit do not run
+cleanly in CentOS 7, Rocky Linux 8 and Ubuntu 22.04 containers. Moving
+that floor means changing *Install* in `README.md` too.
 
 ## License
 

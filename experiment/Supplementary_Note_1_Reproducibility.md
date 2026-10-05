@@ -162,8 +162,14 @@ Tables:
 ## 6) Release archive integrity
 
 Each release archive is published with its SHA-256 checksum in
-`<archive>.sha256`. Check a downloaded archive next to it with:
+`<archive>.sha256`, and `SHA256SUMS.txt` lists the checksums of all
+archives. Check a downloaded `.tar.gz` archive, in the directory it was
+saved to, against either file:
 
 ```bash
 shasum -a 256 -c psmc-rs-<tag>-<target>.tar.gz.sha256   # or: sha256sum -c ...
+shasum -a 256 -c --ignore-missing SHA256SUMS.txt        # the archives present
 ```
+
+On Windows, compare the output of `Get-FileHash <archive>.zip` with the
+value in `<archive>.zip.sha256`.

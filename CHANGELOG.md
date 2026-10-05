@@ -268,7 +268,15 @@ Reproduction package (`experiment/`):
   (0.1's default), or with a first pattern group of one interval, states
   0 and 1 differ, and that first row could be wrong several-fold.
 - Release checksums named `dist/` paths, so `sha256sum -c` failed next to
-  the downloaded assets.
+  the downloaded assets, and the Windows `.sha256` line ended in CRLF,
+  whose CR macOS's `shasum -c` reads as part of the file name. The release
+  now checks every list against the assets before publishing.
+- The Linux release binary is linked against glibc 2.17 (with
+  cargo-zigbuild) and runs on CentOS and RHEL 7 and later. 0.1's was
+  linked against the build machine's glibc 2.39: it did not start before
+  glibc 2.34 (RHEL and Rocky 8, Ubuntu 20.04, Debian 11) and printed a
+  `GLIBC_2.39` warning on every run before 2.39. The release checks the
+  binary in CentOS 7, Rocky Linux 8 and Ubuntu 22.04 before publishing it.
 - Reproduction package: `run.py` no longer re-executes a hardcoded personal
   interpreter and explains how to regenerate missing results; the
   notebook and every script work from any directory and clone; small
