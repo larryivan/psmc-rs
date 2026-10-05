@@ -19,17 +19,18 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::borrow::Cow;
 use std::cmp::Ordering;
-use std::io::BufRead;
+use std::io::{BufRead, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
-use crate::io::common::{HetCall, chunk_sequences, open_reader};
+use crate::io::common::{HetCall, chunk_sequences, open_reader, reopen_reader};
 use crate::io::consensus::{
-    ConsensusFilters, ConsensusOptions, ConsensusSummary, info_has_fq, read_vcf_consensus,
+    ConsensusFilters, ConsensusOptions, ConsensusSummary, DepthBounds, DepthThresholds,
+    ensure_rereadable, info_has_fq, read_consensus_from, scan_depth_from,
 };
-use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs};
-use crate::io::psmcfa::read_psmcfa_records;
-use crate::io::vcf::{VcfOptions, VcfSummary, no_het_snp_message, read_vcf_seqs};
+use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
+use crate::io::psmcfa::parse_psmcfa;
+use crate::io::vcf::{VcfOptions, VcfSummary, no_het_snp_message, read_vcf_seqs_from};
 
 /// Input file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -56,30 +57,92 @@ impl InputFormat {
     /// with `##fileformat=VCF` or `#CHROM`, a psmcfa file with `>` (or `@`)
     /// after optional blank lines, and anything else is taken as multihetsep.
     pub fn sniff(path: &Path) -> Result<InputFormat> {
-        let mut reader = open_reader(path)?;
-        let mut line = Vec::new();
+        sniff_format(&mut Input::open(path)?, path)
+    }
+}
+
+/// [`InputFormat::sniff`] on the first lines of `input`.
+fn sniff_format(input: &mut Input, path: &Path) -> Result<InputFormat> {
+    loop {
+        let Some(line) = input.next_line(path)? else {
+            bail!("{path:?} is empty, so its format cannot be recognised");
+        };
+        let s = line.trim_ascii();
+        if s.is_empty() {
+            continue;
+        }
+        return Ok(
+            if s.starts_with(b"##fileformat=VCF") || s.starts_with(b"#CHROM") {
+                InputFormat::Vcf
+            } else if s[0] == b'>' || s[0] == b'@' {
+                InputFormat::Psmcfa
+            } else {
+                InputFormat::Mhs
+            },
+        );
+    }
+}
+
+/// The input of [`load`], opened once.
+///
+/// Recognising the format and the VCF mode reads the first lines of the
+/// input. They are kept, and [`Input::into_reader`] reads them again in front
+/// of the rest, so that the input is read only once: a pipe or FIFO (such as
+/// `/dev/stdin` or `<(bcftools call ...)`) cannot be opened a second time.
+struct Input {
+    reader: Box<dyn BufRead>,
+    /// Every byte read so far.
+    kept: Vec<u8>,
+}
+
+impl Input {
+    fn open(path: &Path) -> Result<Self> {
+        Ok(Self {
+            reader: open_reader(path)?,
+            kept: Vec::new(),
+        })
+    }
+
+    /// The next line, with its line end, or `None` at the end of the input.
+    fn next_line(&mut self, path: &Path) -> Result<Option<&[u8]>> {
+        let start = self.kept.len();
+        let n = self
+            .reader
+            .read_until(b'\n', &mut self.kept)
+            .with_context(|| format!("failed to read {path:?}"))?;
+        Ok((n > 0).then(|| &self.kept[start..]))
+    }
+
+    /// The sample names of the `#CHROM` line of a VCF header, or `None` when
+    /// a data line, a blank line or the end of the input comes first.
+    fn vcf_samples(&mut self, path: &Path) -> Result<Option<Vec<String>>> {
+        let mut start = 0;
         loop {
-            line.clear();
-            if reader
-                .read_until(b'\n', &mut line)
-                .with_context(|| format!("failed to read {path:?}"))?
-                == 0
-            {
-                bail!("{path:?} is empty, so its format cannot be recognised");
+            if start >= self.kept.len() && self.next_line(path)?.is_none() {
+                return Ok(None);
             }
-            let s = line.trim_ascii();
-            if s.is_empty() {
-                continue;
+            let end = self.kept[start..]
+                .iter()
+                .position(|&b| b == b'\n')
+                .map_or(self.kept.len(), |i| start + i);
+            let line = &self.kept[start..end];
+            if line.first() != Some(&b'#') {
+                return Ok(None);
             }
-            return Ok(
-                if s.starts_with(b"##fileformat=VCF") || s.starts_with(b"#CHROM") {
-                    InputFormat::Vcf
-                } else if s[0] == b'>' || s[0] == b'@' {
-                    InputFormat::Psmcfa
-                } else {
-                    InputFormat::Mhs
-                },
-            );
+            if line.starts_with(b"#CHROM") {
+                let text = String::from_utf8_lossy(line.trim_ascii_end());
+                return Ok(Some(text.split('\t').skip(9).map(str::to_string).collect()));
+            }
+            start = end + 1;
+        }
+    }
+
+    /// The whole input, from its first byte.
+    fn into_reader(self) -> Box<dyn BufRead> {
+        if self.kept.is_empty() {
+            self.reader
+        } else {
+            Box::new(Cursor::new(self.kept).chain(self.reader))
         }
     }
 }
@@ -111,6 +174,11 @@ impl VcfMode {
 /// Data records [`detect_vcf_mode`] inspects at most.
 pub const MODE_DETECTION_RECORDS: u64 = 10_000;
 
+/// Bytes of data records [`detect_vcf_mode`] reads at most. [`load`] keeps
+/// the lines it inspects in memory, so for VCFs with very many samples it
+/// inspects fewer than [`MODE_DETECTION_RECORDS`] records (at least one).
+pub const MODE_DETECTION_BYTES: usize = 64 << 20;
+
 /// The mode a VCF is read in, and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VcfModeChoice {
@@ -135,21 +203,21 @@ pub struct VcfModeChoice {
 /// consensus caller's FQ tells vcf2fq how reliable a reference call is. Any
 /// other VCF (variants only) is read in mask mode.
 pub fn detect_vcf_mode(path: &Path) -> Result<VcfModeChoice> {
-    let mut reader = open_reader(path)?;
-    let mut line = Vec::new();
+    detect_mode(&mut Input::open(path)?, path)
+}
+
+/// [`detect_vcf_mode`] on the next lines of `input`.
+fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
     let (mut inspected, mut alt_dot, mut with_fq) = (0u64, 0u64, 0u64);
-    while inspected < MODE_DETECTION_RECORDS {
-        line.clear();
-        if reader
-            .read_until(b'\n', &mut line)
-            .with_context(|| format!("failed to read VCF {path:?}"))?
-            == 0
-        {
+    let mut data_bytes = 0usize;
+    while inspected < MODE_DETECTION_RECORDS && data_bytes < MODE_DETECTION_BYTES {
+        let Some(line) = input.next_line(path)? else {
             break;
-        }
+        };
         if line.first() == Some(&b'#') || line.trim_ascii().is_empty() {
             continue;
         }
+        data_bytes += line.len();
         let mut cols = line.trim_ascii_end().split(|&b| b == b'\t');
         let (Some(alt), Some(info)) = (cols.nth(4), cols.nth(2)) else {
             continue;
@@ -603,6 +671,12 @@ struct RawSeq {
 
 /// Read `path` into a [`Dataset`]; see the module docs.
 ///
+/// The input is read once, so `path` may be a pipe or FIFO (`/dev/stdin`, a
+/// process substitution): the lines read to recognise the format and the VCF
+/// mode are kept in memory and read again. The one exception is
+/// [`DepthThresholds::Auto`] in consensus mode, which reads the file twice
+/// and so fails up front unless `path` is a regular file.
+///
 /// Fails on unreadable or malformed input. A file whose sequences are all
 /// dropped, or that has no heterozygous bin, loads fine: QC wants to report
 /// it, and [`Dataset::ensure_usable`] makes it an error for inference.
@@ -610,13 +684,14 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     if opts.batch_size == Some(0) {
         bail!("batch_size must be > 0");
     }
+    let mut input = Input::open(path)?;
     let format = match opts.format {
         Some(f) => f,
-        None => InputFormat::sniff(path)?,
+        None => sniff_format(&mut input, path)?,
     };
     let (raw, source, filter) = match format {
         InputFormat::Psmcfa => {
-            let (raw, summary) = load_psmcfa(path)?;
+            let (raw, summary) = load_psmcfa(input, path)?;
             (raw, SourceSummary::Psmcfa(summary), None)
         }
         InputFormat::Mhs => {
@@ -625,8 +700,9 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
                 batch_size: opts.batch_size,
                 pair: opts.mhs_pair,
             };
-            let (seqs, summary) = read_mhs_seqs(path, &mhs_opts, opts.collect_het_sites)
-                .with_context(|| format!("failed to read multihetsep {path:?}"))?;
+            let (seqs, summary) =
+                read_mhs_seqs_from(input.into_reader(), path, &mhs_opts, opts.collect_het_sites)
+                    .with_context(|| format!("failed to read multihetsep {path:?}"))?;
             let raw = seqs
                 .into_iter()
                 .map(|s| RawSeq {
@@ -641,7 +717,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
             (raw, SourceSummary::Mhs(summary), Some(opts.filter))
         }
         InputFormat::Vcf => {
-            let (raw, summary) = load_vcf(path, opts)?;
+            let (raw, summary) = load_vcf(input, path, opts)?;
             (raw, SourceSummary::Vcf(summary), Some(opts.filter))
         }
     };
@@ -706,8 +782,9 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     })
 }
 
-fn load_psmcfa(path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)> {
-    let records = read_psmcfa_records(path)?;
+fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)> {
+    let records =
+        parse_psmcfa(input.into_reader()).with_context(|| format!("failed to parse {path:?}"))?;
     if records.is_empty() {
         bail!(
             "no psmcfa records found in {path:?}: each sequence must start with a '>name' header \
@@ -738,30 +815,16 @@ fn load_psmcfa(path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)> {
     Ok((raw, summary))
 }
 
-/// The sample names of a VCF header, or `None` without a `#CHROM` line.
-fn vcf_samples(path: &Path) -> Result<Option<Vec<String>>> {
-    let mut reader = open_reader(path)?;
-    let mut line = Vec::new();
-    loop {
-        line.clear();
-        if reader
-            .read_until(b'\n', &mut line)
-            .with_context(|| format!("failed to read VCF {path:?}"))?
-            == 0
-            || line.first() != Some(&b'#')
-        {
-            return Ok(None);
-        }
-        if line.starts_with(b"#CHROM") {
-            let text = String::from_utf8_lossy(line.trim_ascii_end());
-            return Ok(Some(text.split('\t').skip(9).map(str::to_string).collect()));
-        }
+fn load_vcf(
+    mut input: Input,
+    path: &Path,
+    opts: &InputOptions,
+) -> Result<(Vec<RawSeq>, VcfInputSummary)> {
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
     }
-}
-
-fn load_vcf(path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, VcfInputSummary)> {
     let choice = match opts.vcf_mode {
-        VcfMode::Auto => detect_vcf_mode(path)?,
+        VcfMode::Auto => detect_mode(&mut input, path)?,
         mode => VcfModeChoice {
             mode,
             forced: true,
@@ -773,7 +836,7 @@ fn load_vcf(path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, VcfInputSu
     };
     if choice.mode == VcfMode::Consensus {
         if let Some(name) = &opts.sample {
-            let samples = vcf_samples(path)?.unwrap_or_default();
+            let samples = input.vcf_samples(path)?.unwrap_or_default();
             if !samples.iter().any(|s| s == name) {
                 bail!("VCF sample '{name}' not found in header");
             }
@@ -785,8 +848,26 @@ fn load_vcf(path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, VcfInputSu
             negative_masks: opts.negative_masks.clone(),
             collect_het_sites: opts.collect_het_sites,
         };
-        let read = read_vcf_consensus(path, &copts)
-            .with_context(|| format!("failed to read VCF {path:?} in consensus mode"))?;
+        let context = || format!("failed to read VCF {path:?} in consensus mode");
+        let (reader, bounds) = match opts.consensus.depth {
+            DepthThresholds::Fixed { min, max } => {
+                let bounds = DepthBounds {
+                    min,
+                    max,
+                    auto: false,
+                };
+                (input.into_reader(), bounds)
+            }
+            DepthThresholds::Auto => {
+                // The first pass reads the lines mode detection kept and the
+                // rest of the stream; the second one opens the file again.
+                ensure_rereadable(path)?;
+                let stats = scan_depth_from(input.into_reader(), path).with_context(context)?;
+                let bounds = DepthBounds::from_stats(&stats, path)?;
+                (reopen_reader(path)?, bounds)
+            }
+        };
+        let read = read_consensus_from(reader, path, &copts, bounds).with_context(context)?;
         let raw = read
             .seqs
             .into_iter()
@@ -815,8 +896,9 @@ fn load_vcf(path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, VcfInputSu
         keep_filtered: opts.keep_filtered,
         to_contig_end: opts.to_contig_end,
     };
-    let (seqs, mut summary) = read_vcf_seqs(path, &vopts, opts.collect_het_sites)
-        .with_context(|| format!("failed to read VCF {path:?} in mask mode"))?;
+    let (seqs, mut summary) =
+        read_vcf_seqs_from(input.into_reader(), path, &vopts, opts.collect_het_sites)
+            .with_context(|| format!("failed to read VCF {path:?} in mask mode"))?;
     summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
     summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
     let raw = seqs

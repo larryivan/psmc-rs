@@ -36,6 +36,7 @@
 use anyhow::{Context, Result, bail};
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
@@ -996,13 +997,25 @@ pub(crate) fn read_vcf_seqs(
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
     }
+    read_vcf_seqs_from(open_reader(path)?, path, opts, collect_het)
+}
+
+/// [`read_vcf_seqs`] over an opened input; `path` names it in messages.
+pub(crate) fn read_vcf_seqs_from(
+    mut reader: impl BufRead,
+    path: &Path,
+    opts: &VcfOptions,
+    collect_het: bool,
+) -> Result<(Vec<VcfSeq>, VcfSummary)> {
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
     let masks = MaskEngine::new(&opts.masks, &opts.negative_masks)?;
     let mut summary = VcfSummary {
         positive_mask: masks.has_positive(),
         ..VcfSummary::default()
     };
 
-    let mut reader = open_reader(path)?;
     let mut line = Vec::<u8>::new();
     let mut row_no = 0usize;
     let mut sample_idx: Option<usize> = None;

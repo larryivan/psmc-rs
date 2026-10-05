@@ -87,7 +87,7 @@ use std::collections::{HashSet, VecDeque};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
-use crate::io::common::{Binner, HetCall, HetTracker, open_reader};
+use crate::io::common::{Binner, HetCall, HetTracker, is_regular_file, open_reader, reopen_reader};
 use crate::io::vcf::{Interval, MAX_POS, MaskEngine};
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).
@@ -1013,7 +1013,11 @@ fn is_base_record(f: &[&[u8]; 8], info: &Info<'_>) -> bool {
 /// Mean, median and histogram of INFO/DP over the SNP/reference records of
 /// a VCF (one pass over the file), as used by [`DepthThresholds::Auto`].
 pub fn scan_depth(path: &Path) -> Result<DepthStats> {
-    let mut reader = open_reader(path)?;
+    scan_depth_from(open_reader(path)?, path)
+}
+
+/// [`scan_depth`] over an opened input; `path` names it in messages.
+pub(crate) fn scan_depth_from(mut reader: impl BufRead, path: &Path) -> Result<DepthStats> {
     let mut line = Vec::new();
     let mut counter = DepthCounter::default();
     let mut row_no = 0usize;
@@ -1053,33 +1057,94 @@ pub fn auto_depth_thresholds(mean: f64) -> (u64, u64) {
     )
 }
 
+/// The INFO/DP bounds of one read, fixed or chosen from the data.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DepthBounds {
+    pub min: u64,
+    pub max: u64,
+    /// Whether they come from [`DepthThresholds::Auto`].
+    pub auto: bool,
+}
+
+impl DepthBounds {
+    /// [`DepthThresholds::Auto`]'s bounds from the depths of a first pass.
+    pub(crate) fn from_stats(stats: &DepthStats, path: &Path) -> Result<Self> {
+        if stats.records == 0 {
+            bail!(
+                "cannot choose depth thresholds automatically: no SNP/reference record in \
+                 {path:?} has INFO/DP; give the thresholds explicitly"
+            );
+        }
+        let (min, max) = auto_depth_thresholds(stats.mean);
+        Ok(Self {
+            min,
+            max,
+            auto: true,
+        })
+    }
+}
+
+/// Fail unless `path` can be read twice, as [`DepthThresholds::Auto`] needs.
+pub(crate) fn ensure_rereadable(path: &Path) -> Result<()> {
+    if !is_regular_file(path) {
+        bail!(
+            "automatic depth thresholds need two passes over the VCF (the first one measures \
+             the mean depth), but {path:?} is not a regular file and can be read only once \
+             (a pipe or FIFO); give the depth thresholds explicitly, or write the VCF to a \
+             file first"
+        );
+    }
+    Ok(())
+}
+
 /// Read an all-sites VCF from `bcftools call -c` the way `vcfutils.pl vcf2fq`
 /// and `fq2psmcfa` read it; see the module docs.
+///
+/// [`DepthThresholds::Auto`] reads the file twice, so `path` must then be a
+/// regular file. Otherwise it is read once and may be a pipe or FIFO.
 pub fn read_vcf_consensus(path: &Path, opts: &ConsensusOptions) -> Result<ConsensusRead> {
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
     }
-    let mut summary = ConsensusSummary::default();
-    let filters = &opts.filters;
-    let (min_depth, max_depth) = match filters.depth {
-        DepthThresholds::Fixed { min, max } => (min, max),
-        DepthThresholds::Auto => {
-            let stats = scan_depth(path)?;
-            if stats.records == 0 {
-                bail!(
-                    "cannot choose depth thresholds automatically: no SNP/reference record in \
-                     {path:?} has INFO/DP; give the thresholds explicitly"
-                );
-            }
-            summary.auto_depth = true;
-            auto_depth_thresholds(stats.mean)
+    match opts.filters.depth {
+        DepthThresholds::Fixed { min, max } => {
+            let bounds = DepthBounds {
+                min,
+                max,
+                auto: false,
+            };
+            read_consensus_from(open_reader(path)?, path, opts, bounds)
         }
+        DepthThresholds::Auto => {
+            ensure_rereadable(path)?;
+            let bounds = DepthBounds::from_stats(&scan_depth(path)?, path)?;
+            read_consensus_from(reopen_reader(path)?, path, opts, bounds)
+        }
+    }
+}
+
+/// [`read_vcf_consensus`] over an opened input with the depth bounds already
+/// chosen (`opts.filters.depth` is not used); `path` names the input in
+/// messages.
+pub(crate) fn read_consensus_from(
+    mut reader: impl BufRead,
+    path: &Path,
+    opts: &ConsensusOptions,
+    bounds: DepthBounds,
+) -> Result<ConsensusRead> {
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
+    let filters = &opts.filters;
+    let mut summary = ConsensusSummary {
+        min_depth: bounds.min,
+        max_depth: bounds.max,
+        auto_depth: bounds.auto,
+        ..ConsensusSummary::default()
     };
-    summary.min_depth = min_depth;
-    summary.max_depth = max_depth;
     let t = Thresholds {
-        min_depth,
-        max_depth,
+        min_depth: bounds.min,
+        max_depth: bounds.max,
         min_mq: filters.min_mq,
         min_qual: filters.min_qual,
     };
@@ -1087,7 +1152,6 @@ pub fn read_vcf_consensus(path: &Path, opts: &ConsensusOptions) -> Result<Consen
     summary.masked = !opts.masks.is_empty() || !opts.negative_masks.is_empty();
     let l = filters.indel_window;
 
-    let mut reader = open_reader(path)?;
     let mut line = Vec::new();
     let mut row_no = 0usize;
     let mut depth = DepthCounter::default();

@@ -2,6 +2,7 @@
 //! binned into PSMC observations for one pair of haplotypes.
 
 use anyhow::{Context, Result, bail};
+use std::io::BufRead;
 use std::path::Path;
 
 use crate::io::Observations;
@@ -243,19 +244,33 @@ pub(crate) fn read_mhs_seqs(
     opts: &MhsOptions,
     collect_het: bool,
 ) -> Result<(Vec<MhsSeq>, MhsSummary)> {
-    let MhsOptions { bin_size, pair, .. } = *opts;
-    if bin_size == 0 {
+    check_options(opts)?;
+    read_mhs_seqs_from(open_reader(path)?, path, opts, collect_het)
+}
+
+fn check_options(opts: &MhsOptions) -> Result<()> {
+    if opts.bin_size == 0 {
         bail!("mhs bin_size must be > 0");
     }
-    if pair.0 == pair.1 {
+    if opts.pair.0 == opts.pair.1 {
         bail!(
             "mhs haplotype pair must name two different haplotypes, got ({},{})",
-            pair.0,
-            pair.1
+            opts.pair.0,
+            opts.pair.1
         );
     }
+    Ok(())
+}
 
-    let mut reader = open_reader(path)?;
+/// [`read_mhs_seqs`] over an opened input; `path` names it in messages.
+pub(crate) fn read_mhs_seqs_from(
+    mut reader: impl BufRead,
+    path: &Path,
+    opts: &MhsOptions,
+    collect_het: bool,
+) -> Result<(Vec<MhsSeq>, MhsSummary)> {
+    check_options(opts)?;
+    let MhsOptions { bin_size, pair, .. } = *opts;
     let mut line = String::new();
     let mut row_no = 0usize;
     let mut summary = MhsSummary::default();

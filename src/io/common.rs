@@ -4,7 +4,7 @@
 use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek};
 use std::path::Path;
 
 use crate::io::Observations;
@@ -18,6 +18,27 @@ use crate::io::Observations;
 /// block, which for current bgzip is often just the VCF header.
 pub fn open_reader(path: &Path) -> Result<Box<dyn BufRead>> {
     let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
+    decoding_reader(file, path)
+}
+
+/// Open `path` again, from its start, for another pass over it. Only regular
+/// files can be read twice ([`is_regular_file`]). The rewind matters for a
+/// path such as `/dev/stdin` redirected from a file, which macOS reopens at
+/// the offset where the previous pass stopped.
+pub(crate) fn reopen_reader(path: &Path) -> Result<Box<dyn BufRead>> {
+    let mut file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
+    file.rewind()
+        .with_context(|| format!("failed to rewind {path:?}"))?;
+    decoding_reader(file, path)
+}
+
+/// Whether `path` is a regular file, which, unlike a pipe, FIFO or terminal,
+/// can be read more than once.
+pub(crate) fn is_regular_file(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
+}
+
+fn decoding_reader(file: File, path: &Path) -> Result<Box<dyn BufRead>> {
     let mut buf = BufReader::new(file);
     let is_gzip = {
         let head = buf
