@@ -1,13 +1,59 @@
+//! The interactive HTML report of a fit: the Ne curve (with the bootstrap
+//! band), the run's settings, input QC, and the TMRCA panels.
+//!
+//! The charts use ECharts, loaded from a CDN unless `PSMC_ECHARTS_JS` names
+//! a local copy to embed; without it the report says how to fix that.
+
 use anyhow::{Context, Result};
 use serde::Serialize;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::Path;
 
 use crate::bootstrap::BootstrapSummary;
 use crate::hmm::TmrcaReportData;
+use crate::io::params::InputSummary;
 use crate::model::PsmcModel;
+use crate::qc::fmt::{count, pct, sig};
+use crate::qc::{QcReport, Severity};
 
-const REPORT_GEN_YEARS: f64 = 25.0;
+/// Everything [`write_html_report`] shows.
+pub struct ReportData<'a> {
+    /// The fitted model.
+    pub model: &'a PsmcModel,
+    /// Bases per bin, for the N0 and time scaling.
+    pub bin_size: f64,
+    /// Years per generation, for the time scaling.
+    pub gen_years: f64,
+    /// The input file (shown by name).
+    pub input_file: &'a Path,
+    /// The JSON output the report belongs to.
+    pub output_json: &'a Path,
+    /// The size of the input, when known.
+    pub input: Option<&'a InputSummary>,
+    /// EM iterations run.
+    pub n_iter: usize,
+    /// Log-likelihood of the fitted parameters (none after 0 iterations).
+    pub final_loglike: Option<f64>,
+    /// Further settings of the run to list, as (name, value).
+    pub settings: Vec<(String, String)>,
+    /// Input QC of the analysed data.
+    pub qc: Option<&'a QcReport>,
+    /// The bootstrap, if one was run.
+    pub bootstrap: Option<BootstrapReport<'a>>,
+    /// Posterior TMRCA decoding, if it was run.
+    pub tmrca: Option<&'a TmrcaReportData>,
+}
+
+/// The bootstrap section of a report.
+pub struct BootstrapReport<'a> {
+    /// The curve quantiles over the replicates.
+    pub summary: &'a BootstrapSummary,
+    /// EM iterations per replicate.
+    pub em_iters: usize,
+    /// Trunks the input was cut into for resampling.
+    pub trunks: Option<usize>,
+}
 
 #[derive(Serialize)]
 struct JsSeries {
@@ -29,10 +75,6 @@ fn escape_html(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
-}
-
-fn default_title() -> String {
-    "PSMC Inference Report".to_string()
 }
 
 fn fmt_num(v: f64) -> String {
@@ -63,61 +105,325 @@ fn echarts_script_tag() -> Result<String> {
     )
 }
 
+/// The report path for a JSON output: the same path with `.html`.
 pub fn default_html_path(output_json: &Path) -> std::path::PathBuf {
     output_json.with_extension("html")
 }
 
-pub fn write_html_report(
-    model: &PsmcModel,
-    input_file: &Path,
-    output_json: &Path,
-    output_html: &Path,
-    n_iter: usize,
-    input_format: &str,
-    bin_size: f64,
-    tmrca: Option<&TmrcaReportData>,
-    bootstrap: Option<&BootstrapSummary>,
-) -> Result<()> {
-    let echarts_script = echarts_script_tag()?;
-    let lam_full = model.map_lam(&model.lam)?;
-    let t = model.compute_t(0.1);
-    let n0 = model.theta / (4.0 * model.mu * bin_size);
+/// One `<tr>` of a two-column table; `value` is HTML.
+fn row(out: &mut String, name: &str, value: &str) {
+    let _ = writeln!(
+        out,
+        "<tr><th>{}</th><td>{value}</td></tr>",
+        escape_html(name)
+    );
+}
 
-    let mut main_data = Vec::with_capacity(model.n_steps + 1);
-    for k in 0..=model.n_steps {
-        let x = t[k] * 2.0 * n0 * REPORT_GEN_YEARS;
-        let y = lam_full[k] * n0;
-        if x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0 {
-            main_data.push([x, y]);
+/// The run summary table.
+fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) -> String {
+    let m = d.model;
+    let mut out = String::new();
+    row(&mut out, "psmc-rs", env!("CARGO_PKG_VERSION"));
+    row(
+        &mut out,
+        "Input",
+        &format!(
+            r#"<span class="mono">{}</span>"#,
+            escape_html(&d.input_file.display().to_string())
+        ),
+    );
+    row(
+        &mut out,
+        "Output JSON",
+        &format!(
+            r#"<span class="mono">{}</span>"#,
+            escape_html(&d.output_json.display().to_string())
+        ),
+    );
+    if let Some(i) = d.input {
+        let format = match &i.vcf_mode {
+            Some(mode) => format!("{} ({mode} mode)", i.format),
+            None => i.format.clone(),
+        };
+        row(&mut out, "Input format", &escape_html(&format));
+        row(
+            &mut out,
+            "Sequences",
+            &format!(
+                "{} analysed, {} left out",
+                count(i.sequences as u64),
+                count(i.dropped_sequences as u64)
+            ),
+        );
+        let share = |n: u64| {
+            if i.bins == 0 {
+                "0.0%".to_string()
+            } else {
+                pct(n as f64 / i.bins as f64)
+            }
+        };
+        row(
+            &mut out,
+            "Bins",
+            &format!(
+                "{} ({} heterozygous, {} missing)",
+                count(i.bins),
+                share(i.het_bins),
+                share(i.missing_bins)
+            ),
+        );
+    }
+    row(&mut out, "EM iterations", &d.n_iter.to_string());
+    row(
+        &mut out,
+        "Final log-likelihood",
+        &d.final_loglike
+            .map_or("-".to_string(), |ll| format!("{ll:.6}")),
+    );
+    row(
+        &mut out,
+        "Pattern",
+        &escape_html(
+            m.pattern
+                .as_deref()
+                .unwrap_or("none (one lambda per state)"),
+        ),
+    );
+    row(
+        &mut out,
+        "States / free lambdas",
+        &format!("{} / {}", m.n_steps + 1, m.lam.len()),
+    );
+    for (name, v) in [
+        ("theta (per bin)", m.theta),
+        ("rho (per bin)", m.rho),
+        ("t_max (2N0 generations)", m.t_max),
+        ("mu (per bp per generation)", m.mu),
+        ("N0", n0),
+        ("Bin size (bp)", d.bin_size),
+        ("Generation time (years)", d.gen_years),
+    ] {
+        row(&mut out, name, &fmt_num(v));
+    }
+    for (name, value) in &d.settings {
+        row(&mut out, name, &escape_html(value));
+    }
+    row(&mut out, "Curve points", &points.to_string());
+    let [(x_min, x_max), (y_min, y_max)] = ranges;
+    row(
+        &mut out,
+        "Time range (years)",
+        &format!("{} - {}", fmt_num(x_min), fmt_num(x_max)),
+    );
+    row(
+        &mut out,
+        "Ne range",
+        &format!("{} - {}", fmt_num(y_min), fmt_num(y_max)),
+    );
+    out
+}
+
+/// The input QC section: findings, then the key metrics and the
+/// per-sequence table.
+fn qc_section(r: &QcReport) -> String {
+    let mut out = String::new();
+    let warnings = r
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Warning)
+        .count();
+    let notes = r.findings.len() - warnings;
+    let _ = writeln!(
+        out,
+        r#"<section class="card"><div class="meta"><h2>Input QC</h2>
+<div class="qc-headline">{warnings} warning(s), {notes} note(s) on {} sequence(s), {} bins of {} bp</div>"#,
+        count(r.n_sequences as u64),
+        count(r.totals.bins),
+        r.bin_size
+    );
+    if r.findings.is_empty() {
+        out.push_str(r#"<div class="note">No warnings or notes.</div>"#);
+    } else {
+        out.push_str(r#"<ul class="findings">"#);
+        for f in &r.findings {
+            let sev = f.severity.as_str();
+            let _ = writeln!(
+                out,
+                r#"<li class="finding {sev}"><span class="badge {sev}">{sev}</span> <code>{}</code> {}<div class="rec">{}</div></li>"#,
+                f.code.as_str(),
+                escape_html(&f.message),
+                escape_html(&f.recommendation)
+            );
         }
+        out.push_str("</ul>");
     }
 
-    let y_min = main_data
+    out.push_str("<table>");
+    let t = &r.totals;
+    let opt = |v: Option<f64>, digits| v.map_or("n/a".to_string(), |v| sig(v, digits));
+    row(
+        &mut out,
+        "Bins T / K / N",
+        &format!(
+            "{} / {} / {}",
+            pct(t.t_fraction),
+            pct(t.k_fraction),
+            pct(t.missing_fraction)
+        ),
+    );
+    row(&mut out, "theta0 per bin", &opt(t.theta0_per_bin, 4));
+    row(&mut out, "Heterozygous sites per kb", &opt(t.het_per_kb, 3));
+    let called = match t.called_bases {
+        Some(n) => format!("{} bp (called sites)", count(n)),
+        None => format!("{} bp (in called bins)", count(t.called_bases_from_bins)),
+    };
+    row(&mut out, "Called length", &called);
+    row(
+        &mut out,
+        "N50 / L50",
+        &format!(
+            "{} bp / {}",
+            count(r.lengths.n50_bases),
+            count(r.lengths.l50 as u64)
+        ),
+    );
+    if let Some(run) = &r.longest_missing_run {
+        row(
+            &mut out,
+            "Longest missing run",
+            &format!("{} bins in {}", count(run.bins), escape_html(&run.sequence)),
+        );
+    }
+    if let Some(s) = &r.saturation {
+        row(
+            &mut out,
+            "K bins with 2+ het sites",
+            &format!("about {}", pct(s.multi_het_share)),
+        );
+    }
+    if let Some(n) = r.expected_recombinations {
+        row(
+            &mut out,
+            "Recombinations (C psmc's start)",
+            &format!("about {}", count(n.round() as u64)),
+        );
+    }
+    if let Some(trunks) = r.lengths.bootstrap_trunks {
+        row(&mut out, "Bootstrap trunks", &count(trunks));
+    }
+    if let Some(dp) = &r.depth {
+        let bounds = match (dp.min_depth, dp.max_depth) {
+            (Some(lo), Some(hi)) => format!(", calls kept at {lo}-{hi}"),
+            _ => String::new(),
+        };
+        row(
+            &mut out,
+            "Read depth",
+            &format!(
+                "mean {}, median {}{bounds}",
+                sig(dp.mean, 3),
+                sig(dp.median, 3)
+            ),
+        );
+    }
+    for d in &r.dropped {
+        row(
+            &mut out,
+            "Left out",
+            &format!("{} {}", count(d.count as u64), escape_html(&d.reason)),
+        );
+    }
+    out.push_str("</table>");
+
+    if !r.sequences.is_empty() {
+        let _ = writeln!(
+            out,
+            r#"<details><summary>Per-sequence metrics ({} of {})</summary><table class="seq-table">
+<tr><th>Sequence</th><th>Bins</th><th>K</th><th>N</th><th>Het/kb</th><th>vs others</th></tr>"#,
+            r.sequences.len(),
+            r.n_sequences
+        );
+        for s in &r.sequences {
+            let kind = s
+                .kind
+                .map_or(String::new(), |k| format!(" ({})", k.label()));
+            let _ = writeln!(
+                out,
+                "<tr><td>{}{kind}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                escape_html(&s.name),
+                count(s.stats.bins),
+                pct(s.stats.k_fraction),
+                pct(s.stats.missing_fraction),
+                opt(s.stats.het_per_kb, 3),
+                s.het_vs_reference
+                    .map_or("-".to_string(), |v| format!("{}x", sig(v, 2)))
+            );
+        }
+        out.push_str("</table></details>");
+    }
+    out.push_str("</div></section>");
+    out
+}
+
+/// The bootstrap section, with the coverage caveat measured in
+/// [`crate::bootstrap`].
+fn bootstrap_section(b: &BootstrapReport) -> String {
+    let s = b.summary;
+    let mut out =
+        String::from(r#"<section class="card"><div class="meta"><h2>Bootstrap</h2><table>"#);
+    row(&mut out, "Replicates", &count(s.n_replicates as u64));
+    row(&mut out, "Trunk size (bins)", &count(s.block_size as u64));
+    if let Some(n) = b.trunks {
+        row(&mut out, "Trunks resampled", &count(n as u64));
+    }
+    row(
+        &mut out,
+        "EM iterations per replicate",
+        &b.em_iters.to_string(),
+    );
+    row(&mut out, "Seed", &s.seed.to_string());
+    out.push_str("</table>");
+    out.push_str(
+        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, each fitted from a fresh start on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations (documented in psmc-rs's bootstrap module), the bootstrap standard deviation of log10 Ne was a median 0.90 to 0.92 of the true sampling standard deviation, and 0.74 at the oldest times; the estimator's bias, about half that standard deviation, does not show in the band at all. Few trunks give coarse bands.</div>"#,
+    );
+    out.push_str("</div></section>");
+    out
+}
+
+/// Write the report of `data` to `output_html`.
+pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
+    let model = data.model;
+    let echarts_script = echarts_script_tag()?;
+    let curve = model.ne_curve(data.bin_size, data.gen_years)?;
+    let n0 = model.n0_for_bin(data.bin_size);
+    let main_data: Vec<[f64; 2]> = curve
         .iter()
-        .map(|p| p[1])
-        .fold(f64::INFINITY, f64::min)
-        .max(1e-12);
-    let y_max = main_data
-        .iter()
-        .map(|p| p[1])
-        .fold(0.0f64, f64::max)
-        .max(y_min);
-    let x_min = main_data
-        .iter()
-        .map(|p| p[0])
-        .fold(f64::INFINITY, f64::min)
-        .max(1e-12);
-    let x_max = main_data
-        .iter()
-        .map(|p| p[0])
-        .fold(0.0f64, f64::max)
-        .max(x_min);
+        .copied()
+        .filter(|&[x, y]| x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0)
+        .collect();
+
+    let range = |i: usize| {
+        let lo = main_data
+            .iter()
+            .map(|p| p[i])
+            .fold(f64::INFINITY, f64::min)
+            .max(1e-12);
+        let hi = main_data
+            .iter()
+            .map(|p| p[i])
+            .fold(0.0f64, f64::max)
+            .max(lo);
+        (lo, hi)
+    };
+    let ranges = [range(0), range(1)];
+    let points = main_data.len();
 
     let mut series = vec![JsSeries {
-        name: "Rust estimate".to_string(),
+        name: "psmc-rs".to_string(),
         data: main_data,
     }];
-    if let Some(bs) = bootstrap {
+    if let Some(b) = &data.bootstrap {
+        let bs = b.summary;
         series.push(JsSeries {
             name: "Bootstrap q2.5".to_string(),
             data: bs.points.iter().map(|p| [p.x_years, p.ne_q025]).collect(),
@@ -133,83 +439,43 @@ pub fn write_html_report(
     }
     let series_json = serde_json::to_string(&series)?;
 
-    let title = default_title();
-    let input_name = input_file
+    let title = "PSMC Inference Report";
+    let input_name = data
+        .input_file
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("input");
-    let mut meta_rows = format!(
-        r#"
-<tr><th>Input</th><td class="mono">{}</td></tr>
-<tr><th>Output JSON</th><td class="mono">{}</td></tr>
-<tr><th>Input format</th><td>{}</td></tr>
-<tr><th>EM iterations</th><td>{}</td></tr>
-<tr><th>n_steps</th><td>{}</td></tr>
-<tr><th>theta</th><td>{}</td></tr>
-<tr><th>rho</th><td>{}</td></tr>
-<tr><th>t_max</th><td>{}</td></tr>
-<tr><th>mu</th><td>{}</td></tr>
-<tr><th>N0</th><td>{}</td></tr>
-<tr><th>bin size</th><td>{}</td></tr>
-<tr><th>gen years</th><td>{}</td></tr>
-<tr><th>curve points</th><td>{}</td></tr>
-<tr><th>x range (years)</th><td>{} - {}</td></tr>
-<tr><th>y range (Ne)</th><td>{} - {}</td></tr>
-"#,
-        escape_html(&input_file.display().to_string()),
-        escape_html(&output_json.display().to_string()),
-        escape_html(input_format),
-        n_iter,
-        model.n_steps,
-        fmt_num(model.theta),
-        fmt_num(model.rho),
-        fmt_num(model.t_max),
-        fmt_num(model.mu),
-        fmt_num(n0),
-        fmt_num(bin_size),
-        fmt_num(REPORT_GEN_YEARS),
-        model.n_steps + 1,
-        fmt_num(x_min),
-        fmt_num(x_max),
-        fmt_num(y_min),
-        fmt_num(y_max)
-    );
-    if let Some(bs) = bootstrap {
-        meta_rows.push_str(&format!(
-            r#"
-<tr><th>Bootstrap replicates</th><td>{}</td></tr>
-<tr><th>Bootstrap block size</th><td>{}</td></tr>
-<tr><th>Bootstrap seed</th><td>{}</td></tr>
-"#,
-            bs.n_replicates, bs.block_size, bs.seed
-        ));
-    }
+    let meta_rows = meta_rows(data, n0, ranges, points);
+    let qc_html = data.qc.map(qc_section).unwrap_or_default();
+    let bootstrap_html = data
+        .bootstrap
+        .as_ref()
+        .map(bootstrap_section)
+        .unwrap_or_default();
 
-    let (tmrca_panel, tmrca_script) = if let Some(tm) = tmrca {
+    let (tmrca_panel, tmrca_script) = if let Some(tm) = data.tmrca {
         let tmrca_mean_json = serde_json::to_string(&tm.sampled_mean)?;
         let tmrca_map_json = serde_json::to_string(&tm.sampled_map)?;
         let tmrca_lo_json = serde_json::to_string(&tm.sampled_lo)?;
         let tmrca_hi_json = serde_json::to_string(&tm.sampled_hi)?;
         let total_mass: f64 = tm.state_mass.iter().sum();
-        let mut state_bins = Vec::<TmrcaStateBin>::with_capacity(tm.state_mass.len());
-        for k in 0..tm.state_mass.len() {
-            let start_years = tm.state_years.get(k).copied().unwrap_or(k as f64);
-            let end_years = tm.state_years.get(k + 1).copied();
-            let mass = tm.state_mass[k];
-            let mass_pct = if total_mass > 0.0 {
-                100.0 * mass / total_mass
-            } else {
-                0.0
-            };
-            state_bins.push(TmrcaStateBin {
-                start_years,
-                end_years,
+        // Each state's interval of the time grid, in years.
+        let state_bins: Vec<TmrcaStateBin> = tm
+            .state_mass
+            .iter()
+            .enumerate()
+            .map(|(k, &mass)| TmrcaStateBin {
+                start_years: curve.get(k).map_or(f64::NAN, |p| p[0]),
+                end_years: curve.get(k + 1).map(|p| p[0]),
                 mass,
-                mass_pct,
-            });
-        }
+                mass_pct: if total_mass > 0.0 {
+                    100.0 * mass / total_mass
+                } else {
+                    0.0
+                },
+            })
+            .collect();
         let tmrca_state_bins_json = serde_json::to_string(&state_bins)?;
-
         let panel = format!(
             r#"
     <section class="card tmrca-card">
@@ -754,6 +1020,50 @@ pub fn write_html_report(
       color: #5d7289;
       font-size: 0.83rem;
     }
+    .offline {
+      padding: 14px 18px;
+      border-color: rgba(198, 40, 40, 0.45);
+      background: #fff4f2;
+      color: #7f1d1d;
+      font-size: 0.92rem;
+      line-height: 1.5;
+    }
+    .offline[hidden] { display: none; }
+    .qc-headline { color: #35506a; font-weight: 600; margin-bottom: 10px; }
+    .findings { list-style: none; margin: 0 0 14px; padding: 0; }
+    .finding {
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-radius: 12px;
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.7);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    .finding.warning { border-left: 4px solid #e65100; }
+    .finding.info { border-left: 4px solid #1e88e5; }
+    .finding .rec { margin-top: 6px; color: #4a637d; }
+    .badge {
+      display: inline-block;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #fff;
+    }
+    .badge.warning { background: #e65100; }
+    .badge.info { background: #1e88e5; }
+    details { margin-top: 12px; }
+    summary { cursor: pointer; font-weight: 600; color: #35506a; }
+    .seq-table th { width: auto; }
+    .caveat {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 243, 224, 0.8);
+      line-height: 1.5;
+    }
     @media (max-width: 900px) {
       .wrap { padding: 16px 10px 22px; }
       #chart { min-height: 360px; }
@@ -770,8 +1080,17 @@ pub fn write_html_report(
   <div class="wrap">
     <header class="hero">
       <h1>__TITLE__</h1>
-      <div class="sub">Input: __INPUT_NAME__ · Auto-generated from `psmc-rs` CLI · Interactive report with per-chart export.</div>
+      <div class="sub">Input: __INPUT_NAME__ · psmc-rs __VERSION__ · Interactive report with per-chart export.</div>
     </header>
+
+    <section class="card offline" id="echarts-missing" hidden>
+      <strong>The charts could not be drawn.</strong> This report loads its chart library,
+      ECharts, from cdn.jsdelivr.net, and it did not load (no network connection, or the site
+      is blocked). Open the report on a computer with internet access, or rerun psmc-rs with
+      the environment variable <code>PSMC_ECHARTS_JS</code> set to a local copy of
+      <code>echarts.min.js</code>, which is then embedded in the report. The tables below do
+      not need it.
+    </section>
 
     <section class="card control-card">
       <div class="control-grid">
@@ -830,11 +1149,19 @@ pub fn write_html_report(
       </div>
     </section>
 
+    __QC_SECTION__
+
+    __BOOTSTRAP_SECTION__
+
     __TMRCA_PANEL__
   </div>
 
   __ECHARTS_SCRIPT__
   <script>
+    if (typeof echarts === "undefined") {
+      document.getElementById("echarts-missing").hidden = false;
+      throw new Error("ECharts did not load; see the message at the top of the report.");
+    }
     const series = __SERIES_JSON__;
     const STYLE_KEY = "psmc_report_style_v2";
     const themes = {
@@ -955,7 +1282,7 @@ pub fn write_html_report(
         const key = String(name || "").toLowerCase();
         return series.find((s) => String(s.name || "").toLowerCase() === key);
       };
-      const sMain = findSeries("rust estimate");
+      const sMain = findSeries("psmc-rs");
       const sQ025 = findSeries("bootstrap q2.5");
       const sQ500 = findSeries("bootstrap median");
       const sQ975 = findSeries("bootstrap q97.5");
@@ -973,7 +1300,7 @@ pub fn write_html_report(
           })
         : [];
       const ciBandColor = rgba(palette.ci, 0.22);
-      const legendData = ["Rust estimate"];
+      const legendData = ["psmc-rs"];
       if (q500Data.length > 0) legendData.push("Bootstrap median");
       if (hasRibbon) legendData.push("Bootstrap 95% CI");
 
@@ -1023,7 +1350,7 @@ pub fn write_html_report(
         });
       }
       mainSeries.push({
-        name: "Rust estimate",
+        name: "psmc-rs",
         type: "line",
         data: mainData,
         step: stepValue,
@@ -1183,13 +1510,17 @@ pub fn write_html_report(
 "##;
 
     let html = template
-        .replace("__TITLE__", &escape_html(&title))
+        .replace("__TITLE__", &escape_html(title))
         .replace("__INPUT_NAME__", &escape_html(input_name))
+        .replace("__VERSION__", env!("CARGO_PKG_VERSION"))
         .replace("__META_ROWS__", &meta_rows)
+        .replace("__QC_SECTION__", &qc_html)
+        .replace("__BOOTSTRAP_SECTION__", &bootstrap_html)
         .replace("__TMRCA_PANEL__", &tmrca_panel)
         .replace("__TMRCA_SCRIPT__", &tmrca_script)
         .replace("__SERIES_JSON__", &series_json)
         .replace("__ECHARTS_SCRIPT__", &echarts_script);
-    fs::write(output_html, html)?;
+    fs::write(output_html, html)
+        .with_context(|| format!("failed to write {}", output_html.display()))?;
     Ok(())
 }

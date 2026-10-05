@@ -45,7 +45,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 mod checks;
-mod fmt;
+pub(crate) mod fmt;
 mod names;
 mod stats;
 mod text;

@@ -19,7 +19,7 @@ use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::io::vcf::read_vcf;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
-use psmc_rs::report::{default_html_path, write_html_report};
+use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
 use crate::cli::{Cli, InputFormat};
@@ -414,17 +414,27 @@ pub fn run_inference(
     model.save_params(&output_file)?;
 
     let report_html = default_html_path(&output_file);
-    write_html_report(
-        &model,
-        &input_file,
-        &output_file,
-        &report_html,
+    let report = ReportData {
+        model: &model,
+        bin_size: report_bin_size,
+        gen_years: 25.0,
+        input_file: &input_file,
+        output_json: &output_file,
+        input: None,
         n_iter,
-        format_name,
-        report_bin_size,
-        tmrca_report_data.as_ref(),
-        bootstrap_report_data.as_ref(),
-    )?;
+        final_loglike,
+        settings: vec![("Input format".to_string(), format_name.to_string())],
+        qc: None,
+        bootstrap: bootstrap_report_data
+            .as_ref()
+            .map(|summary| BootstrapReport {
+                summary,
+                em_iters: bootstrap_iters,
+                trunks: None,
+            }),
+        tmrca: tmrca_report_data.as_ref(),
+    };
+    write_html_report(&report_html, &report)?;
     sink(Event::Output(format!(
         "HTML report: {}",
         report_html.display()
