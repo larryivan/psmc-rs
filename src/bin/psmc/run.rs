@@ -217,15 +217,12 @@ fn infer(
     // Input QC, printed before the fit. A QC error is only reported, so
     // that it never stops a fit.
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
-    let qc = if obs.rows.is_empty() {
-        None
-    } else {
-        match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas)) {
-            Ok(report) => Some(report),
-            Err(e) => {
-                sink(Event::Warning(format!("input QC failed: {e:#}")));
-                None
-            }
+    // Also when no sequence is left: the report then says why.
+    let qc = match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas)) {
+        Ok(report) => Some(report),
+        Err(e) => {
+            sink(qc_failed(e, cli.qc_json.as_deref()));
+            None
         }
     };
     for line in loader_warnings(&data, qc.as_ref()) {
@@ -520,6 +517,15 @@ fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     }
     model.mu = cli.mu;
     Ok(model)
+}
+
+/// The warning of a QC report that could not be made, naming the QC JSON
+/// that is therefore not written.
+pub fn qc_failed(e: anyhow::Error, qc_json: Option<&Path>) -> Event {
+    let unwritten = qc_json.map_or(String::new(), |path| {
+        format!(", so {} is not written", path.display())
+    });
+    Event::Warning(format!("input QC failed{unwritten}: {e:#}"))
 }
 
 /// The QC report as an event: its text, and its warnings for `--quiet`.

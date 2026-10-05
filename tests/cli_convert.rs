@@ -343,11 +343,12 @@ fn multihetsep_converts_to_psmcfa_with_a_note() {
 }
 
 /// Like fq2psmcfa, convert writes an empty file when every sequence is
-/// filtered out, and says so.
+/// filtered out, and says so; the QC report says why.
 #[test]
 fn convert_writes_an_empty_file_when_everything_is_dropped() {
     let dir = TempDir::new("convert_empty");
     let out = dir.path("out.psmcfa");
+    let qc_json = dir.path("qc.json");
     let o = run([
         "convert",
         route_a("allsites.vcf.gz").to_str().unwrap(),
@@ -357,11 +358,26 @@ fn convert_writes_an_empty_file_when_everything_is_dropped() {
         "1000000",
         "--psmcfa",
         out.to_str().unwrap(),
+        "--qc-json",
+        qc_json.to_str().unwrap(),
     ]);
     assert!(o.status.success());
     let stderr = String::from_utf8(o.stderr).unwrap();
     assert!(stderr.contains("no sequence is left to write"), "{stderr}");
+    assert!(
+        stderr.contains("Input QC (vcf, consensus mode): 0 sequences"),
+        "{stderr}"
+    );
     assert_eq!(fs::read(&out).unwrap(), b"");
+    let qc = common::json(&qc_json);
+    assert_eq!(qc["n_sequences"], 0);
+    let codes: Vec<&str> = qc["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["code"].as_str().unwrap())
+        .collect();
+    assert!(codes.contains(&"DROPPED_SEQUENCES"), "{codes:?}");
 }
 
 /// Run convert on `bytes` written to its stdin through a pipe.

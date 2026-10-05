@@ -332,6 +332,41 @@ fn options_of_another_format_are_reported() {
     );
 }
 
+/// When the sequence filter leaves nothing, the fit fails, but the QC
+/// report asked for is written first and says why.
+#[test]
+fn qc_json_is_written_when_nothing_is_left_to_fit() {
+    let dir = TempDir::new("nothing_left");
+    let vcf = common::fixture("route_a/allsites.vcf.gz");
+    let qc_json = dir.path("qc.json");
+    let err = run_err([
+        vcf.to_str().unwrap(),
+        dir.path("fit.json").to_str().unwrap(),
+        "1",
+        "--no-progress",
+        "--depth",
+        "3:100000",
+        "--min-good-bases",
+        "1000000",
+        "--qc-json",
+        qc_json.to_str().unwrap(),
+    ]);
+    assert!(
+        err.contains("pass --min-good-bases 0 --min-good-fraction 0"),
+        "{err}"
+    );
+    let qc = json(&qc_json);
+    assert_eq!(qc["n_sequences"], 0);
+    assert!(
+        qc["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["code"] == "DROPPED_SEQUENCES")
+    );
+    assert!(!dir.path("fit.json").exists());
+}
+
 /// The JSON of psmc-rs 0.1, without run metadata, is a valid start.
 #[test]
 fn init_params_reads_files_of_version_0_1() {

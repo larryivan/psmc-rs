@@ -13,7 +13,7 @@ use crate::cli::{ConvertArgs, FormatArg};
 use crate::console::Console;
 use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
 use crate::output::{check_destinations, is_stdout, parent_dir, write_qc_json};
-use crate::run::{Event, qc_event};
+use crate::run::{Event, qc_event, qc_failed};
 
 const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
                         whether each holds a heterozygous site, not where. Convert the VCF or \
@@ -44,15 +44,12 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         sink(Event::Warning(line));
     }
 
-    let qc = if data.obs.rows.is_empty() {
-        None
-    } else {
-        match qc_report(&data, args.input.bin_size, 0, None) {
-            Ok(report) => Some(report),
-            Err(e) => {
-                sink(Event::Warning(format!("input QC failed: {e:#}")));
-                None
-            }
+    // Also when no sequence is left: the report then says why.
+    let qc = match qc_report(&data, args.input.bin_size, 0, None) {
+        Ok(report) => Some(report),
+        Err(e) => {
+            sink(qc_failed(e, args.qc_json.as_deref()));
+            None
         }
     };
     for line in loader_warnings(&data, qc.as_ref()) {
