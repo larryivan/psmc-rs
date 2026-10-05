@@ -454,7 +454,7 @@ pub struct ConvertArgs {
     pub qc_json: Option<PathBuf>,
 
     /// Print only results and warnings
-    #[arg(long, short = 'q')]
+    #[arg(long, short = 'q', help_heading = "Output")]
     pub quiet: bool,
 }
 
@@ -475,11 +475,11 @@ pub struct QcArgs {
 
     /// Check the input for a bootstrap with trunks of this many bins (the
     /// inference default is 500000)
-    #[arg(long, value_name = "BINS", value_parser = positive_usize)]
+    #[arg(long, value_name = "BINS", value_parser = positive_usize, help_heading = "Report")]
     pub bootstrap_block_size: Option<usize>,
 
     /// Exit with status 2 when the report has a warning
-    #[arg(long)]
+    #[arg(long, help_heading = "Report")]
     pub strict: bool,
 }
 
@@ -510,7 +510,7 @@ pub struct InferArgs {
     /// Worker threads for the E-step (sequences in parallel), the
     /// bootstrap and TMRCA decoding (default: one per core); results do not
     /// depend on it
-    #[arg(long, value_name = "N", value_parser = positive_usize)]
+    #[arg(long, value_name = "N", value_parser = positive_usize, help_heading = "Run")]
     pub threads: Option<usize>,
 
     /// Free-parameter pattern of the time intervals (C psmc -p); default
@@ -520,7 +520,7 @@ pub struct InferArgs {
 
     /// Number of time intervals minus one (C psmc's n; at most 9999);
     /// taken from --pattern, and checked against it when both are given
-    #[arg(long, help_heading = "Model")]
+    #[arg(long, value_name = "N", help_heading = "Model")]
     pub n_steps: Option<usize>,
 
     /// Initial t_max, in units of 2N0 generations (C psmc -t)
@@ -547,7 +547,7 @@ pub struct InferArgs {
     pub init_params: Option<PathBuf>,
 
     /// Mutation rate per base pair per generation, for scaling
-    #[arg(long, default_value_t = 2.5e-8, value_parser = positive_f64, help_heading = "Model")]
+    #[arg(long, default_value = "2.5e-8", value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
     /// Maximum L-BFGS iterations per M-step (C psmc's search runs to
@@ -596,12 +596,12 @@ pub struct InferArgs {
     pub bootstrap_dir: Option<PathBuf>,
 
     /// Do not draw progress bars
-    #[arg(long)]
+    #[arg(long, help_heading = "Run")]
     pub no_progress: bool,
 
     /// Print only results and warnings: no input description, model
     /// summary or QC report (QC warnings are still listed)
-    #[arg(long, short = 'q')]
+    #[arg(long, short = 'q', help_heading = "Run")]
     pub quiet: bool,
 
     /// Write the input QC report as JSON ('-' for stdout)
