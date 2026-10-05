@@ -226,14 +226,36 @@ mask, heterozygous where the sample's genotype is a heterozygous SNP, and a
 called homozygous site everywhere else in the mask; the bins then follow
 fq2psmcfa's rule exactly.
 
-### The variant calls
+### The chromosomes to analyse
 
-Any VCF of the sample's calls, sorted (`bcftools sort`), plain or
-compressed: GATK HaplotypeCaller and GenotypeGVCFs, DeepVariant, or
+Nothing in this route leaves out sex chromosomes or organelles by itself:
+the commands below call every sequence they are given, and psmc-rs fits
+every sequence of the VCF that the mask covers. Restrict them to the
+chromosomes you analyse, for the reasons given under
+[sex chromosomes and organelles](#sex-chromosomes-and-organelles). A
+regions file of `CHROM START END` rows (1-based, inclusive) does it; for a
+reference whose autosomes are `chr1` to `chr22`:
 
 ```sh
-bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -f ref.fa sample.bam \
-  | bcftools call -m -v -Oz -o variants.vcf.gz
+awk -v OFS='\t' '$1 ~ /^chr([1-9]|1[0-9]|2[0-2])$/ { print $1, 1, $2 }' ref.fa.fai > autosomes.txt
+```
+
+`bcftools mpileup -R autosomes.txt` then reads only those chromosomes of an
+indexed BAM or CRAM (for an unindexed file, `-T` streams it and keeps them),
+and `bcftools view -R autosomes.txt` takes them from an existing indexed
+VCF. Without this step a male's X chromosome is fitted with the autosomes
+(QC then warns `SEX_OR_ORGANELLE`). Measure the mean depth that the depth
+bounds below derive from on these chromosomes only.
+
+### The variant calls
+
+Any VCF of the sample's calls on those chromosomes, sorted (`bcftools
+sort`), plain or compressed: GATK HaplotypeCaller and GenotypeGVCFs,
+DeepVariant, or
+
+```sh
+bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -R autosomes.txt \
+  -f ref.fa sample.bam | bcftools call -m -v -Oz -o variants.vcf.gz
 ```
 
 In mask mode, for the selected sample (`--vcf-sample` when the VCF has
@@ -262,16 +284,17 @@ Common ways to make one:
   puts the sites with depth MIN to MAX in blocks of their own):
 
   ```sh
-  bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -f ref.fa sample.bam \
-    | bcftools call -m -g 8,51 -Oz -o sample.g.vcf.gz
+  bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -R autosomes.txt \
+    -f ref.fa sample.bam | bcftools call -m -g 8,51 -Oz -o sample.g.vcf.gz
   bcftools query -i 'FMT/DP>=8 && FMT/DP<=50' -f '%CHROM\t%POS0\t%END\n' \
     sample.g.vcf.gz > callable.bed
   bcftools view -v snps,indels -Oz -o variants.vcf.gz sample.g.vcf.gz
   ```
 
-  (8 and 50 are a third and twice a mean depth of 25.) With GATK, the same
-  idea applies to the output of `GenotypeGVCFs --include-non-variant-sites`
-  or to the gVCF itself, filtered on depth and genotype quality.
+  (8 and 50 are a third and twice a mean depth of 25 on the analysed
+  chromosomes.) With GATK, the same idea applies to the output of
+  `GenotypeGVCFs --include-non-variant-sites` or to the gVCF itself,
+  filtered on depth and genotype quality.
 - **mosdepth** (Pedersen & Quinlan 2018): `mosdepth --quantize` writes the
   runs of positions in each depth class to `PREFIX.quantized.bed.gz`,
   labelled with the names in the `MOSDEPTH_Q0`, `MOSDEPTH_Q1`, ...

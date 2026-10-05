@@ -98,9 +98,11 @@ of bases at quality 10, and 0.3% sequencing errors.
   cap of 250 reads; with the script's `-d 10000`, at most half of the
   repeat's bins may be `K` (mpileup's default made 20 of 25 `K`), and the
   psmcfa again equals vcf2fq | fq2psmcfa.
-- Route B of `docs/preprocessing.md` on the same reads: a gVCF from
-  `bcftools call -m -g`, its depth-banded blocks as the callable mask and its
-  variant records as the VCF. Without the mask, QC warns
+- Route B of `docs/preprocessing.md` on the same reads, with the guide's
+  commands: its `autosomes.txt` (chr1 to chr3 here) restricts `bcftools
+  mpileup -R` on the indexed reads, a gVCF from `bcftools call -m -g`
+  supplies its depth-banded blocks as the callable mask and its variant
+  records as the VCF. Without the mask, QC warns
   VARIANTS_ONLY_NO_MASK; with it, the warning is gone and recovery, `K` and
   `N` bins and the multihetsep rows meet the same thresholds as run 1.
 - Failures: no read passing `--min-mapq 255`, two samples in one file, and

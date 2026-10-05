@@ -396,13 +396,22 @@ ok "$name called by region and streamed, with the same psmcfa"
 # ---------------------------------------------------------------------------
 step "route B of docs/preprocessing.md: variant calls and a callable mask from a gVCF"
 
+# The guide's commands, on the indexed reads; the depth bounds are those of
+# run 1, whose VCF holds the same chromosomes but chrUn_scaffold1.
 b=$work/routeb
 mkdir -p "$b"
 read -r mean dmin dmax < <(python3 "$helpers" auto-depth "$p.vcf.gz")
-printf 'chr1\t1\t150000\nchr2\t1\t100000\nchr3\t1\t70000\n' > "$b/autosomes.txt"
-bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -f "$sim/ref.fa" -T "$b/autosomes.txt" \
-  "$sim/aln.sam" 2> /dev/null |
+# The guide's awk program, verbatim.
+# shellcheck disable=SC2016
+awk -v OFS='\t' '$1 ~ /^chr([1-9]|1[0-9]|2[0-2])$/ { print $1, 1, $2 }' "$sim/ref.fa.fai" \
+  > "$b/autosomes.txt"
+[ "$(cut -f 1 "$b/autosomes.txt" | tr '\n' ' ')" = "chr1 chr2 chr3 " ] ||
+  fail "autosomes.txt: $(cat "$b/autosomes.txt")"
+bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -R "$b/autosomes.txt" -f "$sim/ref.fa" \
+  "$sim/aln.sam.gz" 2> /dev/null |
   bcftools call -m -g "$dmin,$((dmax + 1))" -Oz -o "$b/sample.g.vcf.gz" 2> /dev/null
+contigs=$(bcftools query -f '%CHROM\n' "$b/sample.g.vcf.gz" | uniq | tr '\n' ' ')
+[ "$contigs" = "chr1 chr2 chr3 " ] || fail "the gVCF holds $contigs"
 bcftools query -i "FMT/DP>=$dmin && FMT/DP<=$dmax" -f '%CHROM\t%POS0\t%END\n' \
   "$b/sample.g.vcf.gz" > "$b/callable.bed" 2> /dev/null
 bcftools view -v snps,indels -Oz -o "$b/variants.vcf.gz" "$b/sample.g.vcf.gz" 2> /dev/null
