@@ -37,6 +37,22 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     if want_sites && format == InputFormat::Psmcfa {
         bail!("{NO_SITES}");
     }
+    // The per-sequence files are named after the sequences, so only now can
+    // they be checked against the input and the other outputs, before
+    // anything is written.
+    let per_chrom = match &args.multihetsep_per_chrom {
+        Some(prefix) => per_chrom_files(prefix, &data)?,
+        None => Vec::new(),
+    };
+    if !per_chrom.is_empty() {
+        let mut files = output_files(args);
+        files.extend(
+            per_chrom
+                .iter()
+                .map(|(_, path)| ("--multihetsep-per-chrom", path.as_path())),
+        );
+        check_destinations(&args.input_file, &files, &[])?;
+    }
     for line in describe(&data) {
         sink(Event::Info(line));
     }
@@ -97,32 +113,23 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
             het_sites(&data, None)
         )));
     }
-    if let Some(prefix) = &args.multihetsep_per_chrom {
-        let mut written = HashSet::new();
-        for seq in &data.seqs {
-            if !written.insert(seq.name.as_str()) {
-                // A repeated chromosome went into the file of its first
-                // block already.
-                continue;
-            }
-            let path = per_chrom_path(prefix, &seq.name)?;
-            let opts = MultihetsepOptions {
-                sequence: Some(seq.name.clone()),
-            };
-            write_multihetsep(&path, &data, &opts)?;
-            sink(Event::Output(format!(
-                "multihetsep: {} ({} heterozygous sites)",
-                path.display(),
-                het_sites(&data, Some(&seq.name))
-            )));
-        }
+    for (name, path) in &per_chrom {
+        let opts = MultihetsepOptions {
+            sequence: Some(name.clone()),
+        };
+        write_multihetsep(path, &data, &opts)?;
+        sink(Event::Output(format!(
+            "multihetsep: {} ({} heterozygous sites)",
+            path.display(),
+            het_sites(&data, Some(name))
+        )));
     }
     Ok(ExitCode::SUCCESS)
 }
 
-/// Check the files `convert` will write before reading the input (see
-/// [`check_destinations`]); the per-sequence files need their directory.
-fn check_outputs(args: &ConvertArgs) -> Result<()> {
+/// The files `convert` writes whose names are known before the input is
+/// read, as `(flag, path)`; a QC JSON on stdout is not a file.
+fn output_files(args: &ConvertArgs) -> Vec<(&'static str, &Path)> {
     let mut files = Vec::new();
     for (what, path) in [
         ("--psmcfa", &args.psmcfa),
@@ -136,7 +143,14 @@ fn check_outputs(args: &ConvertArgs) -> Result<()> {
     if let Some(path) = args.qc_json.as_deref().filter(|p| !is_stdout(p)) {
         files.push(("--qc-json", path));
     }
-    check_destinations(&args.input_file, &files, &[])?;
+    files
+}
+
+/// Check the files `convert` will write before reading the input (see
+/// [`check_destinations`]); the per-sequence files need their directory,
+/// and are checked by name once the input is read.
+fn check_outputs(args: &ConvertArgs) -> Result<()> {
+    check_destinations(&args.input_file, &output_files(args), &[])?;
     if let Some(prefix) = &args.multihetsep_per_chrom {
         if is_stdout(prefix) {
             usage_bail!("--multihetsep-per-chrom cannot be '-': {STDOUT_ONLY_QC}");
@@ -161,6 +175,18 @@ fn het_sites(data: &Dataset, name: Option<&str>) -> usize {
             .filter(|h| name.is_none_or(|n| data.seqs[h.seq as usize].name == n))
             .count()
     })
+}
+
+/// The per-sequence files of `--multihetsep-per-chrom PREFIX`: each name
+/// of `data`'s sequences once (the blocks of a repeated name share a file),
+/// with its path.
+fn per_chrom_files(prefix: &Path, data: &Dataset) -> Result<Vec<(String, PathBuf)>> {
+    let mut seen = HashSet::new();
+    data.seqs
+        .iter()
+        .filter(|seq| seen.insert(seq.name.as_str()))
+        .map(|seq| Ok((seq.name.clone(), per_chrom_path(prefix, &seq.name)?)))
+        .collect()
 }
 
 /// The file of sequence `name` under `--multihetsep-per-chrom PREFIX`:

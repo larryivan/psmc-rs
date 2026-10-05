@@ -93,6 +93,43 @@ fn qc_without_warnings_passes_strict() {
     assert!(!stdout.contains("WARNING"), "{stdout}");
 }
 
+/// --json is checked as inference and convert check their outputs, before
+/// the input is read: it may not be the input, and its directory must
+/// exist.
+#[test]
+fn the_json_path_is_checked_before_reading() {
+    let dir = TempDir::new("qc_json_path");
+    let input = dir.path("in.psmcfa");
+    let text = format!(">chr1\n{}\n", "TTTTKTTTTN".repeat(200));
+    fs::write(&input, &text).unwrap();
+    let o = run([
+        "qc",
+        input.to_str().unwrap(),
+        "--json",
+        input.to_str().unwrap(),
+    ]);
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert_eq!(o.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("--json"), "{stderr}");
+    assert!(stderr.contains("is the input file"), "{stderr}");
+    assert!(o.stdout.is_empty());
+    assert_eq!(fs::read_to_string(&input).unwrap(), text);
+
+    let missing = dir.path("nowhere/qc.json");
+    let o = run([
+        "qc",
+        input.to_str().unwrap(),
+        "--json",
+        missing.to_str().unwrap(),
+    ]);
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert_eq!(o.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("cannot write --json"), "{stderr}");
+    // Nothing was read: no report and no description of the input.
+    assert!(o.stdout.is_empty());
+    assert!(!stderr.contains("psmcfa:"), "{stderr}");
+}
+
 /// Options of the other VCF mode are named in a warning.
 #[test]
 fn options_of_the_other_vcf_mode_are_reported() {

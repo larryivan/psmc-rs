@@ -310,6 +310,75 @@ fn output_paths_are_checked_before_reading() {
     );
 }
 
+/// The files of --multihetsep-per-chrom are named after the sequences, so
+/// they are checked once the input is read, before anything is written:
+/// none may be the input (as when a pair is taken from MSMC-style
+/// per-chromosome files under their own prefix) or another output.
+#[test]
+fn per_chromosome_files_are_checked_before_writing() {
+    let dir = TempDir::new("per_chrom_names");
+    // Four haplotypes; --mhs-pair 2,3 takes the second sample.
+    let input = dir.path("sample.chr1.multihetsep");
+    let text = "chr1\t1000\t1000\tACAC\nchr1\t2500\t1500\tAAGT\n\
+                chr1\t3100\t600\tCCCG\nchr1\t5000\t1900\tTATA\n";
+    fs::write(&input, text).unwrap();
+    let convert = |extra: &[&str]| {
+        let mut args = vec![
+            "convert",
+            input.to_str().unwrap(),
+            "--mhs-pair",
+            "2,3",
+            "--min-good-bases",
+            "0",
+            "--min-good-fraction",
+            "0",
+        ];
+        args.extend_from_slice(extra);
+        let o = run(&args);
+        assert_eq!(o.status.code(), Some(2), "{extra:?}");
+        String::from_utf8(o.stderr).unwrap()
+    };
+    let prefix = dir.path("sample");
+    let err = convert(&["--multihetsep-per-chrom", prefix.to_str().unwrap()]);
+    assert!(
+        err.contains(&format!(
+            "--multihetsep-per-chrom {} is the input file",
+            input.display()
+        )),
+        "{err}"
+    );
+    assert_eq!(fs::read_to_string(&input).unwrap(), text);
+
+    // The per-chromosome file would replace another output, or the QC JSON,
+    // which is written first: nothing is written at all.
+    let pair = dir.path("pair");
+    let pair_chr1 = dir.path("pair.chr1.multihetsep");
+    for flag in ["--multihetsep", "--qc-json", "--psmcfa"] {
+        let err = convert(&[
+            flag,
+            pair_chr1.to_str().unwrap(),
+            "--multihetsep-per-chrom",
+            pair.to_str().unwrap(),
+        ]);
+        assert!(err.contains("are the same file"), "{flag}: {err}");
+        assert!(!pair_chr1.exists(), "{flag}");
+    }
+    let ok = run_ok([
+        "convert",
+        input.to_str().unwrap(),
+        "--mhs-pair",
+        "2,3",
+        "--min-good-bases",
+        "0",
+        "--min-good-fraction",
+        "0",
+        "--multihetsep-per-chrom",
+        pair.to_str().unwrap(),
+    ]);
+    assert!(ok.contains(&format!("multihetsep: {}", pair_chr1.display())));
+    assert!(fs::read_to_string(&pair_chr1).unwrap().contains("\tGT\n"));
+}
+
 /// Multihetsep can be binned, with a note that missing sites were placed by
 /// assumption.
 #[test]

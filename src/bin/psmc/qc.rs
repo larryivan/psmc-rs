@@ -8,7 +8,7 @@ use psmc_rs::qc::render_text;
 use crate::cli::QcArgs;
 use crate::console::{Console, print_err, print_out};
 use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
-use crate::output::{is_stdout, write_qc_json};
+use crate::output::{check_destinations, is_stdout, write_qc_json};
 use crate::run::Event;
 
 /// The exit status of `qc --strict` when the report has a warning.
@@ -19,6 +19,11 @@ pub const STRICT_FAILURE: u8 = 2;
 pub fn run(args: &QcArgs) -> Result<ExitCode> {
     let console = Console::new(false, false);
     let sink = |ev| console.emit(ev);
+    // As inference and convert do: the JSON must be writable and must not
+    // be the input, which is checked before it is read.
+    if let Some(path) = args.json.as_deref().filter(|p| !is_stdout(p)) {
+        check_destinations(&args.input_file, &[("--json", path)], &[])?;
+    }
     let data = load_input(&args.input_file, &args.input.to_options())?;
     for line in describe(&data) {
         sink(Event::Info(line));
