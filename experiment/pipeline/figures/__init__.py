@@ -4,8 +4,9 @@ Every figure is a module of this package with ``draw(source) -> Figure``
 (``source`` is a :class:`.data.Source`); :data:`FIGURES` lists them with the
 tables they read and the experiment directory they are written to:
 ``<runs>/<experiment>/figures/<name>.{pdf,svg,png}``. :func:`render` draws
-one and saves it with :func:`.style.save`; ``python -m
-experiment.pipeline.figures`` draws them.
+one and saves it with :func:`.style.save`. The experiment ``FIG``
+(``experiments/fig.py``) makes each figure a runner job whose inputs are its
+tables, and ``python -m experiment.pipeline.figures`` draws them directly.
 
 :mod:`.style` holds the shared style (type, sizes, colours, export),
 :mod:`.schemas` the tables the figures read, :mod:`.data` their readers and
