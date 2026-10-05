@@ -522,3 +522,45 @@ fn warnings_come_first() {
     assert_eq!(v["findings"][3]["severity"], "info");
     assert!(v["findings"][3]["recommendation"].is_string());
 }
+
+/// The summary stored with a fit lists the codes by severity and copies the
+/// key metrics.
+#[test]
+fn summary_lists_codes_and_key_metrics() {
+    // Few K bins (a warning) and placement by assumption (a note).
+    let d = data(&[("chr1", 3000, 40, 1500), ("chrM", 160, 0, 0)]);
+    let r = qc(
+        &d,
+        100,
+        0,
+        QcContext {
+            approximate_missing_placement: true,
+            ..QcContext::default()
+        },
+    );
+    let s = r.summary();
+    let codes = |sev: Severity| -> Vec<&str> {
+        r.findings
+            .iter()
+            .filter(|f| f.severity == sev)
+            .map(|f| f.code.as_str())
+            .collect()
+    };
+    assert_eq!(s.warnings, codes(Severity::Warning));
+    assert_eq!(s.notes, codes(Severity::Info));
+    assert!(s.warnings.iter().any(|c| c == "FEW_HETS"), "{s:?}");
+    assert!(
+        s.notes.iter().any(|c| c == "APPROX_MISSING_PLACEMENT"),
+        "{s:?}"
+    );
+    assert_eq!((s.sequences, s.bins), (2, 4700));
+    assert_eq!(s.missing_fraction, r.totals.missing_fraction);
+    assert_eq!(s.theta0_per_bin, r.totals.theta0_per_bin);
+    assert_eq!(s.het_per_kb, r.totals.het_per_kb);
+    assert_eq!(s.called_bases, 3200 * 100);
+    assert_eq!(s.n50_bases, r.lengths.n50_bases);
+
+    let back: psmc_rs::qc::QcSummary =
+        serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+    assert_eq!(back, s);
+}

@@ -40,7 +40,7 @@
 //! ```
 
 use anyhow::{Result, bail};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::Range;
 
@@ -550,6 +550,54 @@ impl QcReport {
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("a QC report always serialises")
     }
+
+    /// The finding codes and key metrics, for a fit's output file.
+    pub fn summary(&self) -> QcSummary {
+        let codes = |severity: Severity| {
+            self.findings
+                .iter()
+                .filter(|f| f.severity == severity)
+                .map(|f| f.code.as_str().to_string())
+                .collect()
+        };
+        let t = &self.totals;
+        QcSummary {
+            warnings: codes(Severity::Warning),
+            notes: codes(Severity::Info),
+            sequences: self.n_sequences,
+            bins: t.bins,
+            missing_fraction: t.missing_fraction,
+            theta0_per_bin: t.theta0_per_bin,
+            het_per_kb: t.het_per_kb,
+            called_bases: t.called_bases.unwrap_or(t.called_bases_from_bins),
+            n50_bases: self.lengths.n50_bases,
+        }
+    }
+}
+
+/// The codes of a [`QcReport`]'s findings and its key metrics
+/// ([`QcReport::summary`]), as stored with a fit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QcSummary {
+    /// Codes of the warnings ([`QcCode::as_str`]).
+    pub warnings: Vec<String>,
+    /// Codes of the notes.
+    pub notes: Vec<String>,
+    /// [`QcReport::n_sequences`].
+    pub sequences: usize,
+    /// [`BinStats::bins`] of the whole input.
+    pub bins: u64,
+    /// [`BinStats::missing_fraction`].
+    pub missing_fraction: f64,
+    /// [`BinStats::theta0_per_bin`].
+    pub theta0_per_bin: Option<f64>,
+    /// [`BinStats::het_per_kb`].
+    pub het_per_kb: Option<f64>,
+    /// Called length: [`BinStats::called_bases`] when the loader counted
+    /// sites, otherwise [`BinStats::called_bases_from_bins`].
+    pub called_bases: u64,
+    /// [`LengthStats::n50_bases`].
+    pub n50_bases: u64,
 }
 
 /// Raw counts of one sequence, before derived metrics.
