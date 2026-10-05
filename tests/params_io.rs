@@ -1,14 +1,14 @@
-use psmc_rs::io::params::{PsmcParamsFile, load_params, save_params};
+use psmc_rs::PsmcModel;
+use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, load};
+use psmc_rs::io::params::{InputSummary, PsmcParamsFile, RunMetadata, load_params, save_params};
+use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-/// A path no other test of this process uses: tests run in parallel, and
-/// the clock alone is too coarse to tell them apart.
 fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
 }
 
@@ -23,6 +23,7 @@ fn params_json_roundtrip() {
         n_steps: 4,
         mu: 2.5e-8,
         pattern: Some("2*2".to_string()),
+        run: RunMetadata::default(),
     };
 
     save_params(&path, &params).expect("failed to save params");
@@ -35,6 +36,170 @@ fn params_json_roundtrip() {
     assert_eq!(loaded.n_steps, params.n_steps);
     assert!((loaded.mu - params.mu).abs() < 1e-15);
     assert_eq!(loaded.pattern, params.pattern);
+    assert_eq!(loaded.run, RunMetadata::default());
+
+    // Without metadata the file holds the fields of psmc-rs 0.1 only.
+    let v: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["lam", "mu", "n_steps", "pattern", "rho", "t_max", "theta"]
+    );
 
     let _ = fs::remove_file(path);
+}
+
+#[test]
+fn run_metadata_round_trips_at_the_top_level() {
+    let path = unique_temp_path("psmc_params_meta", "json");
+    let params = PsmcParamsFile {
+        run: RunMetadata {
+            version: Some("0.2.0".to_string()),
+            n_iter: Some(2),
+            final_loglike: Some(-1234.5678901234567),
+            loglike: Some(vec![-1300.25, -1240.0, -1234.5678901234567]),
+            bin_size: Some(50),
+            gen_years: Some(29.0),
+            tr_ratio: Some(4.0),
+            smooth_lambda: Some(0.0),
+            input: Some(InputSummary {
+                format: "vcf".to_string(),
+                vcf_mode: Some("consensus".to_string()),
+                sequences: 1,
+                bins: 230,
+                het_bins: 7,
+                missing_bins: 12,
+                dropped_sequences: 2,
+            }),
+            qc: None,
+        },
+        ..PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into()))
+            .unwrap()
+            .params_file()
+    };
+    save_params(&path, &params).unwrap();
+    let loaded = load_params(&path).unwrap();
+    assert_eq!(loaded, params);
+
+    let v: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(v["final_loglike"], -1234.5678901234567);
+    assert_eq!(v["n_iter"], 2);
+    assert_eq!(v["input"]["vcf_mode"], "consensus");
+    assert!(v.get("qc").is_none(), "unknown fields are left out");
+    let _ = fs::remove_file(path);
+}
+
+/// A file written by psmc-rs 0.1 (no metadata) still loads.
+#[test]
+fn files_of_version_0_1_load() {
+    let text = r#"{
+  "theta": 0.0068,
+  "rho": 0.0014,
+  "lam": [1.5, 0.7, 2.0, 3.0, 1.0, 0.5, 4.0],
+  "t_max": 14.2,
+  "n_steps": 22,
+  "mu": 2.5e-8,
+  "pattern": "4+5*3+4"
+}"#;
+    let path = unique_temp_path("psmc_params_v01", "json");
+    fs::write(&path, text).unwrap();
+    let p = load_params(&path).unwrap();
+    let _ = fs::remove_file(path);
+    assert_eq!(p.run, RunMetadata::default());
+    let m = PsmcModel::from_params_file(&p).unwrap();
+    assert_eq!(m.lam, p.lam);
+    assert_eq!((m.theta, m.rho, m.t_max), (0.0068, 0.0014, 14.2));
+}
+
+#[test]
+fn a_saved_model_rebuilds_exactly() {
+    let mut m = PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into())).unwrap();
+    m.theta = 0.0072;
+    m.rho = 0.0013;
+    m.t_max = 17.25;
+    m.lam = vec![2.0, 0.5, 0.8, 1.6, 3.0, 6.0, 9.0];
+    m.param_recalculate().unwrap();
+
+    let back = PsmcModel::from_params_file(&m.params_file()).unwrap();
+    assert_eq!(back.lam, m.lam);
+    assert_eq!(back.sigma, m.sigma);
+    assert_eq!(back.p_kl, m.p_kl);
+    assert_eq!(back.em, m.em);
+
+    // Without a pattern every state has its own lambda.
+    let free = PsmcModel::new(15.0, 5, 0.01, 0.0025, 2.5e-8, None).unwrap();
+    let back = PsmcModel::from_params_file(&free.params_file()).unwrap();
+    assert_eq!(back.lam.len(), 6);
+}
+
+#[test]
+fn invalid_saved_models_are_rejected() {
+    let good = PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into()))
+        .unwrap()
+        .params_file();
+    let err = |p: PsmcParamsFile| {
+        PsmcModel::from_params_file(&p)
+            .map(|_| ())
+            .unwrap_err()
+            .to_string()
+    };
+    let msg = err(PsmcParamsFile {
+        lam: vec![1.0; 6],
+        ..good.clone()
+    });
+    assert!(
+        msg.contains("6 lambda values") && msg.contains("7 free"),
+        "{msg}"
+    );
+    assert!(
+        err(PsmcParamsFile {
+            n_steps: 30,
+            ..good.clone()
+        })
+        .contains("pattern implies n_steps=22")
+    );
+    assert!(
+        err(PsmcParamsFile {
+            theta: -1.0,
+            ..good.clone()
+        })
+        .contains("theta")
+    );
+    let mut bad_lam = good.clone();
+    bad_lam.lam[3] = f64::NAN;
+    assert!(err(bad_lam).contains("lambda"));
+    assert!(
+        err(PsmcParamsFile {
+            t_max: 2000.0,
+            ..good
+        })
+        .contains("t_max")
+    );
+}
+
+#[test]
+fn input_summary_counts_the_dataset() {
+    let path = unique_temp_path("psmc_params_input", "psmcfa");
+    fs::write(&path, ">a\nTTKTNNTT\n>empty\n>b\nKTTT\n").unwrap();
+    let opts = InputOptions {
+        format: Some(InputFormat::Psmcfa),
+        filter: SeqFilter::DISABLED,
+        ..InputOptions::default()
+    };
+    let data = load(&path, &opts).unwrap();
+    let _ = fs::remove_file(path);
+    let s = InputSummary::of(&data);
+    assert_eq!(
+        s,
+        InputSummary {
+            format: "psmcfa".to_string(),
+            vcf_mode: None,
+            sequences: 2,
+            bins: 12,
+            het_bins: 2,
+            missing_bins: 2,
+            dropped_sequences: 1,
+        }
+    );
 }

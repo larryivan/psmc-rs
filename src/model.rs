@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use ndarray::Array2;
 
-use crate::io::params::{PsmcParamsFile, save_params};
+use crate::io::params::{PsmcParamsFile, RunMetadata, save_params};
 
 /// C psmc's `PSMC_T_INF`: the end of the last interval, `t[n_steps + 1]`,
 /// in units of 2N0 generations. It only matters as the upper bound that
@@ -445,8 +445,16 @@ impl PsmcModel {
         })
     }
 
+    /// Save the parameters as JSON ([`params_file`](Self::params_file),
+    /// without run metadata).
     pub fn save_params(&self, path: &std::path::Path) -> Result<()> {
-        let params = PsmcParamsFile {
+        save_params(path, &self.params_file())
+    }
+
+    /// The parameters as [`PsmcParamsFile`] stores them, with empty run
+    /// metadata.
+    pub fn params_file(&self) -> PsmcParamsFile {
+        PsmcParamsFile {
             theta: self.theta,
             rho: self.rho,
             lam: self.lam.clone(),
@@ -454,8 +462,39 @@ impl PsmcModel {
             n_steps: self.n_steps,
             mu: self.mu,
             pattern: self.pattern.clone(),
-        };
-        save_params(path, &params)
+            run: RunMetadata::default(),
+        }
+    }
+
+    /// The model of saved parameters (for example a previous fit, to start
+    /// from as C psmc's `-i` does), with its HMM parameters computed.
+    ///
+    /// Errors when the layout is invalid (as for [`new`](Self::new)), when
+    /// `lam` does not have one value per free λ of that layout, or when a
+    /// parameter is not positive and finite.
+    pub fn from_params_file(p: &PsmcParamsFile) -> Result<Self> {
+        let mut model = Self::new(p.t_max, p.n_steps, p.theta, p.rho, p.mu, p.pattern.clone())?;
+        if p.lam.len() != model.lam.len() {
+            bail!(
+                "{} lambda values for a model with {} free lambdas (n_steps {}, pattern {})",
+                p.lam.len(),
+                model.lam.len(),
+                model.n_steps,
+                p.pattern.as_deref().unwrap_or("none")
+            );
+        }
+        let positive = |x: f64| x > 0.0 && x.is_finite();
+        for (name, v) in [("theta", p.theta), ("rho", p.rho), ("mu", p.mu)] {
+            if !positive(v) {
+                bail!("{name} must be positive and finite, got {v}");
+            }
+        }
+        if let Some(v) = p.lam.iter().find(|&&v| !positive(v)) {
+            bail!("lambda values must be positive and finite, got {v}");
+        }
+        model.lam.copy_from_slice(&p.lam);
+        model.param_recalculate()?;
+        Ok(model)
     }
 
     pub fn prior_matrix(&self) -> &[f64] {
