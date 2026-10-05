@@ -40,7 +40,7 @@ class Commands(unittest.TestCase):
         self.assertEqual(opts["--t-max"], "15")
         self.assertEqual(opts["--tr-ratio"], "5")
         self.assertEqual(opts["--smooth-lambda"], "0")
-        self.assertEqual(opts["--mstep-iters"], "100")
+        self.assertEqual(opts["--mstep-iters"], "1000")  # psmc-rs's default is 100; see config.Inference
         self.assertEqual(opts["--bin-size"], "100")
         self.assertEqual(opts["--mu"], "2.5e-08")
         self.assertEqual(opts["--gen-years"], "25")

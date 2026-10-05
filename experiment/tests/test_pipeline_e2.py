@@ -131,7 +131,7 @@ class Jobs(unittest.TestCase):
             self.assertIsNone(runner.fits_budget(j, budget), j.id)
         plan = runner.plan(runner.Graph(self.jobs, self.runs), budget)
         self.assertGreater(plan["E2"]["cpu_hours"], 20)
-        self.assertLess(plan["E2"]["finish_hours"], 8)
+        self.assertLess(plan["E2"]["finish_hours"], 12)
 
     def test_smoke_profile_fits_prefixes_written_by_a_job(self):
         jobs = {j.id: j for j in e2.jobs(fake_ctx(config.SMOKE, self.runs))}

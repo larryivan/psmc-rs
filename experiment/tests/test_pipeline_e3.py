@@ -82,7 +82,8 @@ class Plan(unittest.TestCase):
         c = setup_of(cfg, "c", 3000, 1).est_seconds
         self.assertGreater(c, 3000)
         one, eight = setup_of(cfg, "rs02", 3000, 1).est_seconds, setup_of(cfg, "rs02", 3000, 8).est_seconds
-        self.assertGreater(one / eight, 3)
+        self.assertGreater(one / eight, 2)  # the M-step runs on one thread
+        self.assertLess(setup_of(cfg, "rs02-default", 3000, 8).est_seconds, eight)
         # one 100 Mb chromosome: no parallel speed-up
         self.assertAlmostEqual(setup_of(cfg, "rs02", 100, 1).est_seconds, setup_of(cfg, "rs02", 100, 8).est_seconds)
 
@@ -100,7 +101,7 @@ class Jobs(unittest.TestCase):
         jobs = self.jobs(config.PRODUCTION)
         cfg = config.PRODUCTION.e3
         runs = [j for j in jobs.values() if j.name.startswith("run/")]
-        self.assertEqual(len(runs), 22 * cfg.repeats)
+        self.assertEqual(len(runs), (22 + 4 * 2) * cfg.repeats)  # and psmc-rs 0.2's default M-step on 1 and 8 threads
         self.assertEqual(len(jobs), len(runs) + 4 + 1)
         self.assertTrue(all(j.exclusive for j in runs))
         self.assertFalse(any(j.exclusive for j in jobs.values() if not j.name.startswith("run/")))
@@ -121,7 +122,7 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cmd[3], "25")
         self.assertNotIn("--tr-ratio", cmd)
         for opt, val in (("--pattern", "4+25*2+4+6"), ("--n-steps", "63"), ("--t-max", "15"),
-                         ("--smooth-lambda", "0"), ("--mstep-iters", "100"), ("--threads", "8")):
+                         ("--smooth-lambda", "0"), ("--mstep-iters", "1000"), ("--threads", "8")):
             self.assertEqual(cmd[cmd.index(opt) + 1], val)
         self.assertEqual(rs01.env, {"RAYON_NUM_THREADS": "8"})
         self.assertEqual(rs01.cores, config.Budget().cores)
@@ -131,6 +132,11 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--threads") + 1], "2")
         self.assertEqual(rs02.settings["repeat"], 1)
         self.assertEqual(set(rs02.tools), {"psmc-rs-0.2", "timing"})
+        self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "1000")
+        default = jobs["E3/run/rs02-default/3000Mb/t8/rep1"]
+        cmd = default.command[default.command.index("--") + 1 :]
+        self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "100")
+        self.assertEqual(default.settings["inference"]["mstep_iters"], 100)
 
     def test_simulation_jobs(self):
         jobs = self.jobs(config.PRODUCTION)
@@ -165,7 +171,7 @@ class Report(unittest.TestCase):
         ]}
         lay.truth(1).parent.mkdir(parents=True)
         lay.truth(1).write_text(json.dumps(truth))
-        walls = {"c": 10.0, "rs01": 4.0, "rs02": 1.0}
+        walls = {"c": 10.0, "rs01": 4.0, "rs02": 1.0, "rs02-default": 0.5}
         for run in e3.runs(cfg):
             u = run.setup
             fit = lay.fit(run)
@@ -177,7 +183,7 @@ class Report(unittest.TestCase):
                 scale = 1.001 if (u.tool == "rs02" and u.threads == 2 and run.repeat == 2) else 1.0
                 params = {"theta": last.pa["theta"], "rho": last.pa["rho"], "t_max": last.pa["t_max"], "n_steps": 63,
                           "pattern": "4+25*2+4+6", "lam": [x * scale for x in last.pa["lambdas"]]}
-                if u.tool == "rs02":
+                if u.tool in ("rs02", "rs02-default"):
                     params.update(n_iter=5, final_loglike=-25000.0, input={"bins": 150947, "het_bins": 7373})
                 fit.write_text(json.dumps(params))
             wall = walls[u.tool] / (1.6 if u.threads == 2 else 1.0) + 0.1 * run.repeat
@@ -192,7 +198,7 @@ class Report(unittest.TestCase):
             lay.timing(run).parent.mkdir(parents=True, exist_ok=True)
             lay.timing(run).write_text(json.dumps(timing))
             lay.record(run).parent.mkdir(parents=True, exist_ok=True)
-            tool = {"c": FAKE_C, "rs01": FAKE_RS01, "rs02": FAKE_RS02}[u.tool]
+            tool = {"c": FAKE_C, "rs01": FAKE_RS01, "rs02": FAKE_RS02, "rs02-default": FAKE_RS02}[u.tool]
             lay.record(run).write_text(json.dumps({"key": {"tools": {tool.name: tool.identity}}}))
         self.written = e3.report(Context(self.profile, self.runs))
 

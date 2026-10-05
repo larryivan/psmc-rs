@@ -241,7 +241,7 @@ def s2_jobs(ctx: Context) -> List[Job]:
     genome_mb = e1cfg.genome.length / 1e6
     bin_size = str(e1cfg.inference.bin_size)
     convert_s = costs.convert_s_base + costs.convert_s_per_mb * genome_mb
-    fit_s = gcosts.rs02_s_per_mb_iter * genome_mb * e1cfg.inference.n_iter / e1cfg.rs_threads + convert_s
+    fit_s = gcosts.rs02_seconds(genome_mb, e1cfg.inference, e1cfg.rs_threads) + convert_s
     out: List[Job] = []
     for model in e1cfg.models:
         vcf, mhs = e1lay.vcf(model, r), lay.s2_multihetsep(model, r)
@@ -586,7 +586,7 @@ def report_s1(ctx: Context) -> Dict[str, Path]:
     traces: List[Dict] = []
     for model in e1cfg.models:
         for r in range(1, e1cfg.replicates + 1):
-            rp = e1.load_replicate(e1lay, e1cfg, model, r)
+            rp = e1.load_replicate(e1lay, e1cfg, model, r, with_default=False)
             traces += A.trace_rows(model, r, rp.c, rp.rs_params, rp.rs, n)
     summary, agreement = [], []
     for model in e1cfg.models:

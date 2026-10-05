@@ -44,9 +44,13 @@ class Jobs(unittest.TestCase):
         self.jobs = e1.jobs(fake_ctx(config.SMOKE, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
 
-    def test_one_simulation_and_two_fits_per_replicate(self):
+    def test_one_simulation_and_three_fits_per_replicate(self):
         cfg = config.SMOKE.e1
-        self.assertEqual(len(self.jobs), len(cfg.models) * cfg.replicates * 3 + 1)
+        self.assertEqual(len(self.jobs), len(cfg.models) * cfg.replicates * 4 + 1)
+        default = self.by_id["E1/fit-rs-default/bottleneck/rep02"]
+        self.assertEqual(default.command[default.command.index("--mstep-iters") + 1], "100")
+        main = self.by_id["E1/fit-rs/bottleneck/rep02"]
+        self.assertEqual(main.command[main.command.index("--mstep-iters") + 1], "1000")
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E1/fit-c/bottleneck/rep02"], ["E1/sim/bottleneck/rep02"])
         self.assertEqual(g.deps["E1/fit-rs/bottleneck/rep02"], ["E1/sim/bottleneck/rep02"])
@@ -73,7 +77,7 @@ class Jobs(unittest.TestCase):
 
     def test_production_estimates(self):
         jobs = e1.jobs(fake_ctx(config.PRODUCTION, self.runs))
-        self.assertEqual(len(jobs), 4 * 10 * 3 + 1)
+        self.assertEqual(len(jobs), 4 * 10 * 4 + 1)
         c = next(j for j in jobs if j.id == "E1/fit-c/zigzag/rep10")
         self.assertLess(c.mem_gb, 1.0)  # one 50 Mb chromosome at a time
         plan = runner.plan(runner.Graph(jobs, self.runs), config.Budget())
@@ -114,6 +118,9 @@ class Tables(unittest.TestCase):
                 "input": {"bins": 150947, "het_bins": 7373},
             }
             lay.rs_json("bottleneck", r).write_text(json.dumps(params))
+            # psmc-rs's default M-step budget: 1.5 times the sizes of psmc-rs's fit
+            default = dict(params, lam=[x * 1.5 for x in params["lam"]])
+            lay.rs_default_json("bottleneck", r).write_text(json.dumps(default))
         self.written = e1.report(Context(self.profile, self.runs))
         self.lay = lay
 
@@ -126,6 +133,16 @@ class Tables(unittest.TestCase):
         self.assertEqual(len(t1), 1)
         self.assertEqual(t1[0]["replicates"], "2")
         self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_max"]), math.log10(2), places=12)
+
+    def test_default_mstep_budget_against_c_psmc(self):
+        rows = read_csv(self.lay.table("mstep"))
+        self.assertEqual([r["replicate"] for r in rows], ["1", "2"])
+        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_c"]), math.log10(1.5), places=9)
+        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_rs"]), math.log10(1.5), places=9)
+        self.assertEqual(float(rows[0]["theta_default_rel_c"]), 0.0)
+        self.assertEqual(rows[0]["mstep_iters_default"], "100")
+        t1 = read_csv(self.lay.table("table1"))[0]
+        self.assertGreater(float(t1["rmse_rs_default_vs_c_max"]), 0)
 
     def test_traces_count_iterations(self):
         rows = read_csv(self.lay.table("traces"))

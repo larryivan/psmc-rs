@@ -53,8 +53,24 @@ iterations, 78 jobs in about 15 s) in `experiment/.runs-smoke/`;
 **Inference.** Every fit, by either tool, uses the psmc README's human
 recipe: `psmc -N25 -t15 -r5 -p "4+25*2+4+6"`, which psmc-rs gets as
 `N_ITER 25 --pattern 4+25*2+4+6 --t-max 15 --tr-ratio 5 --smooth-lambda 0
---mstep-iters 100 --bin-size 100`, plus `--threads` per job. Simulations
+--mstep-iters 1000 --bin-size 100`, plus `--threads` per job. Simulations
 are scaled with mu = 2.5e-8 and g = 25.
+
+**M-step budget.** C psmc's Hooke-Jeeves search runs every M-step to
+convergence; psmc-rs's L-BFGS stops after `--mstep-iters` iterations, 100 by
+default, and after 25 EM iterations the two can then sit at different points
+of a flat likelihood surface. On simulated bottleneck genomes the RMSE of
+log10 Ne between psmc-rs and C psmc on the informative window was 0.156
+(40 Mb) and 0.046 (300 Mb) with the default, 3.6e-3 and 3.2e-3 with 200,
+and 2.9e-4 and 5.3e-5 with 1000 (largest differences 1.6, 0.17 and 1e-3
+log10 units). Every psmc-rs 0.2 fit therefore uses 1000. E1 also fits every
+genome with the default (`fit-rs-default`, `E1_mstep.csv`) and E3 times
+psmc-rs 0.2 with the default too (`rs02-default`), so that the paper can say
+what the default costs in agreement and gains in speed. The price is an
+M-step on one thread whose length varies between genomes: on 300 Mb and one
+thread, 37.5 s with 100, 80 s with 300 and 248 s with 1000 L-BFGS
+iterations, against 471 s for C psmc; on 40 Mb, 7 s and 166 s. It dominates
+the cost of E2's and E5's bootstraps and limits psmc-rs's thread scaling.
 
 **Simulation.** Direct msprime (no stdpopsim engine): `sim_ancestry` with
 the Hudson coalescent and a discrete genome for one diploid individual,

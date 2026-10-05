@@ -82,7 +82,7 @@ class Jobs(unittest.TestCase):
         self.assertFalse(any(j.startswith("E6/s4") for j in ids))  # E3 is not registered in setUp
         self.assertEqual({f"E6/{p}/figure" for p in ("s1", "s2", "s3")}, {j for j in ids if j.endswith("/figure")})
         s1 = set(self.graph.deps["E6/s1/report"])
-        self.assertEqual(s1, {j.id for j in self.e1_jobs if j.id.startswith(("E1/fit-", "E1/sim/"))})
+        self.assertEqual(s1, {j.id for j in self.e1_jobs if j.id.startswith(("E1/fit-c/", "E1/fit-rs/", "E1/sim/"))})
         self.assertEqual(self.graph.deps["E6/s2/convert-vcf/bottleneck/rep01"], ["E1/sim/bottleneck/rep01"])
         self.assertEqual(sorted(self.graph.deps["E6/s3/decode/bottleneck/rep01"]),
                          ["E1/fit-rs/bottleneck/rep01", "E1/sim/bottleneck/rep01"])

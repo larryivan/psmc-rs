@@ -178,9 +178,9 @@ def layout(ctx: Context) -> Layout:
 
 def bootstrap_seconds(costs: config.Costs, cfg: config.E5, genome_mb: float) -> float:
     """Expected wall time of one bootstrap run: its main fit, then the replicates in waves of ``threads``."""
-    one_fit = costs.rs02_s_per_mb_iter * genome_mb * cfg.inference.n_iter
     threads = cfg.bootstrap_threads
-    return one_fit * (1.0 / threads + math.ceil(cfg.bootstrap_replicates / threads))
+    main = costs.rs02_seconds(genome_mb, cfg.inference, threads)
+    return main + math.ceil(cfg.bootstrap_replicates / threads) * costs.rs02_seconds(genome_mb, cfg.inference)
 
 
 def jobs(ctx: Context) -> List[Job]:
@@ -200,7 +200,6 @@ def jobs(ctx: Context) -> List[Job]:
     }
     rs_tool = ctx.rs02()
     rs_ident = {rs_tool.name: rs_tool.identity}
-    fit_seconds = costs.rs02_s_per_mb_iter * genome_mb * cfg.inference.n_iter
     out: List[Job] = []
     for r in range(1, cfg.truth_replicates + 1):
         psmcfa = lay.psmcfa(r)
@@ -235,7 +234,7 @@ def jobs(ctx: Context) -> List[Job]:
                 outputs=[lay.fit_json(r)],
                 cores=cfg.rs_threads,
                 mem_gb=costs.rs02_gb,
-                est_seconds=fit_seconds / cfg.rs_threads,
+                est_seconds=costs.rs02_seconds(genome_mb, cfg.inference, cfg.rs_threads),
                 settings={"inference": inference, "scaling": scaling, "threads": cfg.rs_threads},
                 tools=rs_ident,
                 description=f"psmc-rs 0.2 on {model} genome {r}",

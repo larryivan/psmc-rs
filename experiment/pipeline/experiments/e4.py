@@ -424,7 +424,7 @@ def mask_jobs(ctx: Context, lay: Layout, sh: Shared, mask: str, r: int) -> List[
                 outputs=[lay.fit(mask, route, r)],
                 cores=cfg.rs_threads,
                 mem_gb=ec.fit_gb,
-                est_seconds=costs.rs02_s_per_mb_iter * mb * cfg.inference.n_iter / cfg.rs_threads,
+                est_seconds=costs.rs02_seconds(mb, cfg.inference, cfg.rs_threads),
                 settings={"inference": asdict(cfg.inference), "scaling": asdict(cfg.scaling),
                           "threads": cfg.rs_threads, "route": route, "mask": spec_settings},
                 tools=rs,

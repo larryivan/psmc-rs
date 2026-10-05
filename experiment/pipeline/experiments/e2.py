@@ -321,9 +321,9 @@ def below_trunk_fraction(lengths: Sequence[int], trunk: int) -> float:
     return sum(n for n in lengths if n < trunk) / total if total else 0.0
 
 
-def rs_seconds(costs: config.Costs, mb: float, n_iter: int, parallel: int) -> float:
-    """Estimated seconds of one psmc-rs fit run on ``parallel`` threads at once."""
-    return costs.rs02_s_per_mb_iter * mb * max(n_iter, 1) / max(parallel, 1)
+def rs_seconds(costs: config.Costs, mb: float, inference: config.Inference, parallel: int) -> float:
+    """Estimated seconds of one psmc-rs fit, or of one of ``parallel`` replicates fitted at once."""
+    return costs.rs02_seconds(mb, inference) / max(parallel, 1)
 
 
 def bootstrap_args(cfg: config.E2, genome: config.RealGenome, trunk: int, boot_dir: Path) -> List[str]:
@@ -392,7 +392,7 @@ def jobs(ctx: Context) -> List[Job]:
                 outputs=[lay.rs_json(sid), lay.rs_psmc(sid)],
                 cores=cfg.fit_threads,
                 mem_gb=costs.rs02_gb,
-                est_seconds=rs_seconds(costs, mb, n_iter, min(cfg.fit_threads, shape.sequences)),
+                est_seconds=costs.rs02_seconds(mb, cfg.inference, min(cfg.fit_threads, shape.sequences)),
                 settings={"inference": inference, "scaling": scaling, "threads": cfg.fit_threads},
                 tools=rs_ident,
                 description=f"psmc-rs 0.2 on {g.label}",
@@ -416,8 +416,8 @@ def jobs(ctx: Context) -> List[Job]:
                     outputs=outputs,
                     cores=cfg.rs_threads,
                     mem_gb=round(costs.rs02_gb * cfg.rs_threads, 2),  # one replicate per thread at once
-                    est_seconds=rs_seconds(costs, mb, n_iter, min(cfg.rs_threads, shape.sequences))
-                    + cfg.bootstrap_replicates * rs_seconds(costs, mb, n_iter, cfg.rs_threads),
+                    est_seconds=costs.rs02_seconds(mb, cfg.inference, min(cfg.rs_threads, shape.sequences))
+                    + cfg.bootstrap_replicates * rs_seconds(costs, mb, cfg.inference, cfg.rs_threads),
                     settings={
                         "inference": inference,
                         "scaling": scaling,

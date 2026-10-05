@@ -76,7 +76,7 @@ from __future__ import annotations
 import json
 import math
 import statistics
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -87,9 +87,11 @@ from .e1 import write_csv
 from .e3_run import genome_for, measure_args
 
 NAME = "E3"
-TOOL_ORDER = ("c", "rs01", "rs02")
-TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2"}
-TOOL_NAMES = {"c": "c-psmc", "rs01": "psmc-rs-0.1", "rs02": "psmc-rs-0.2"}  # tools.Tool.name
+TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
+TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2",
+               "rs02-default": "psmc-rs 0.2, default M-step budget"}
+TOOL_NAMES = {"c": "c-psmc", "rs01": "psmc-rs-0.1", "rs02": "psmc-rs-0.2", "rs02-default": "psmc-rs-0.2"}  # tools.Tool.name
+RS02 = ("rs02", "rs02-default")
 TABLES = {
     "table2": "E3_table2.csv",
     "runs": "E3_runs.csv",
@@ -110,7 +112,7 @@ C_PSMC_BUILD = "lh3/psmc 0.6.5-r74 built with -O1 (an -O2 build segfaults on mac
 class Setup:
     """One tool on one genome size with one thread count (repeated ``E3.repeats`` times)."""
 
-    tool: str  # "c", "rs01" or "rs02"
+    tool: str  # "c", "rs01", "rs02" or "rs02-default"
     size_mb: int
     threads: int
 
@@ -150,7 +152,14 @@ def setups(cfg: config.E3) -> List[Setup]:
     out |= {Setup("rs01", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs01_threads}
     out |= {Setup("rs02", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_threads}
     out |= {Setup("rs02", cfg.thread_scaling_size_mb, t) for t in cfg.thread_scaling_threads}
+    if cfg.default_mstep_iters != cfg.inference.mstep_iters:
+        out |= {Setup("rs02-default", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_default_threads}
     return sorted(out, key=lambda u: (TOOL_ORDER.index(u.tool), u.threads, u.size_mb))
+
+
+def inference_of(cfg: config.E3, tool: str) -> config.Inference:
+    """The inference settings a tool runs with: the experiments' recipe, or psmc-rs's default M-step budget."""
+    return replace(cfg.inference, mstep_iters=cfg.default_mstep_iters) if tool == "rs02-default" else cfg.inference
 
 
 def in_flight(cfg: config.E3, size_mb: int, threads: int) -> int:
@@ -180,7 +189,7 @@ def estimate_mb(cfg: config.E3, setup: Setup) -> float:
         if cached is not None:
             return base + cached * m.rs01_mb_per_mb_cache * chrom_mb + m.rs01_mb_per_mb_buffer * chrom_mb
         return base + in_flight(cfg, setup.size_mb, setup.threads) * m.rs01_mb_per_mb_buffer * chrom_mb
-    if setup.tool == "rs02":
+    if setup.tool in RS02:
         extra = in_flight(cfg, setup.size_mb, setup.threads) - 1
         return m.rs02_mb_base + m.rs02_mb_per_mb_input * setup.size_mb + m.rs02_mb_per_extra_thread * extra
     raise ValueError(f"unknown tool {setup.tool!r}")
@@ -196,6 +205,7 @@ def estimate_seconds(cfg: config.E3, setup: Setup) -> float:
         per = m.rs01_s_per_mb_iter if setup.tool == "rs01" else m.rs02_s_per_mb_iter
         speedup = 1.0 + (in_flight(cfg, setup.size_mb, setup.threads) - 1) * m.parallel_efficiency
         run = per * work / speedup
+        run += m.mstep_s_per_iter_1000 * cfg.inference.n_iter * inference_of(cfg, setup.tool).mstep_iters / 1000.0
         cached = rs01_caches(cfg, setup) if setup.tool == "rs01" else None
         if cached is not None:
             n = genome_for(cfg, setup.size_mb).n_chromosomes
@@ -207,6 +217,7 @@ SKIP_WHY = {
     "c": "C psmc holds the forward and backward matrices of its longest sequence ({chrom:g} Mb)",
     "rs01": "psmc-rs 0.1 caches forward variables and holds one forward buffer per sequence in work ({chrom:g} Mb each)",
     "rs02": "psmc-rs 0.2 holds the input and a buffer per thread",
+    "rs02-default": "psmc-rs 0.2 holds the input and a buffer per thread",
 }
 
 
@@ -314,7 +325,7 @@ def tool_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run) -> Tuple[t
         tool = rs01_tool(ctx)
         return tool, rs01_fit(tool, cfg.inference, cfg.scaling, inp, out, threads=u.threads)
     tool = ctx.rs02()
-    return tool, tools.rs02_fit(tool, cfg.inference, cfg.scaling, inp, out, threads=u.threads)
+    return tool, tools.rs02_fit(tool, inference_of(cfg, u.tool), cfg.scaling, inp, out, threads=u.threads)
 
 
 def measure_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run, tool_cmd: Sequence[str]) -> List[str]:
@@ -368,7 +379,7 @@ def jobs(ctx: Context) -> List[Job]:
         tool, cmd = tool_command(ctx, cfg, lay, run)
         settings = {
             "tool": u.tool, "size_mb": u.size_mb, "threads": u.threads, "repeat": run.repeat,
-            "inference": asdict(cfg.inference), "timing": asdict(cfg.timing),
+            "inference": asdict(inference_of(cfg, u.tool)), "timing": asdict(cfg.timing),
         }
         if u.tool != "c":
             settings["scaling"] = asdict(cfg.scaling)
@@ -443,7 +454,7 @@ def read_output(path: Path, tool: str, n_iter: int) -> Output:
                       pf.header.get("sum_L"), pf.header.get("sum_n"))
     params = results.read_rs_json(path)
     fit = results.fit_from_rs(params)
-    if tool == "rs02" and int(params.get("n_iter", -1)) != n_iter:
+    if tool in RS02 and int(params.get("n_iter", -1)) != n_iter:
         raise ValueError(f"{path}: n_iter {params.get('n_iter')}, expected {n_iter}")
     inp = params.get("input", {})
     loglike = params.get("final_loglike")
@@ -578,7 +589,8 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
                 "peak_rss_median_mb": rss.get(u),
                 "peak_rss_max_mb": max((r["peak_rss_mb"] for r in rs), default=None),
                 "speedup_vs_c": _ratio(medians.get(c_setup), med) if u.tool != "c" else None,
-                "speedup_vs_rs01_same_threads": _ratio(medians.get(rs01_setup), med) if u.tool == "rs02" else None,
+                "speedup_vs_rs01_same_threads": _ratio(medians.get(rs01_setup), med) if u.tool in RS02 else None,
+                "mstep_iters": inference_of(cfg, u.tool).mstep_iters if u.tool != "c" else None,
                 "c_rss_over_rss": _ratio(rss.get(c_setup), rss.get(u)) if u.tool != "c" else None,
                 "all_quiet": all(bool(r["quiet_before"]) for r in rs) if rs else None,
                 "max_other_cpu_share": max((r["other_cpu_share_during"] or 0.0 for r in rs), default=None),

@@ -9,6 +9,7 @@ identical settings), and finally writes the tables. Layout under
     truth/<model>/repNN.json                               seeds, counts, checksums, true Ne(t)
     fits/<model>/repNN.c.psmc                              C psmc, every round
     fits/<model>/repNN.rs.json, repNN.rs.psmc              psmc-rs 0.2 (JSON and .psmc)
+    fits/<model>/repNN.rs-default.json                     psmc-rs 0.2 with its default M-step budget
     provenance/<job>.json                                  one record per job
     tables/E1_*.csv                                        written by ``report E1``
     logs/                                                  runner and job logs (not committed)
@@ -24,6 +25,10 @@ Tables (``tables/``):
   rho, t_max and N0, RMSE against the truth, log-likelihoods, and the run's
   wall time, peak RSS and load (recorded, not used for timing claims).
 * ``E1_rs_vs_c.csv``: one row per model and replicate: the two tools compared.
+* ``E1_mstep.csv``: one row per model and replicate: psmc-rs with its default
+  M-step budget (``--mstep-iters 100``, ``E1.default_mstep_iters``) against C
+  psmc and against psmc-rs with the budget of every other fit (1000; see
+  :class:`.config.Inference`), its RMSE against the truth and its wall time.
 
 **Pattern-projected truth.** The first free lambda of ``4+25*2+4+6`` spans
 intervals 0-3 (about 0-28 ky for the zigzag model, whose window starts at
@@ -49,7 +54,7 @@ import csv
 import json
 import math
 import statistics
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -63,6 +68,7 @@ TABLES = {
     "table1": "E1_table1.csv",
     "replicates": "E1_replicates.csv",
     "pairs": "E1_rs_vs_c.csv",
+    "mstep": "E1_mstep.csv",
     "traces": "E1_traces.csv",
     "curves": "E1_curves.csv",
     "truth": "E1_truth.csv",
@@ -102,6 +108,9 @@ class Layout:
     def rs_psmc(self, model: str, r: int) -> Path:
         return self.root / "fits" / model / f"{rep(r)}.rs.psmc"
 
+    def rs_default_json(self, model: str, r: int) -> Path:
+        return self.root / "fits" / model / f"{rep(r)}.rs-default.json"
+
     def record(self, kind: str, model: str, r: int) -> Path:
         return self.root / "provenance" / kind / model / f"{rep(r)}.json"
 
@@ -111,6 +120,14 @@ class Layout:
 
 def job_id(kind: str, model: str, r: int) -> str:
     return f"{NAME}/{kind}/{model}/{rep(r)}"
+
+
+def default_inference(cfg: config.E1) -> Optional[config.Inference]:
+    """The inference settings of the fit with psmc-rs's default M-step budget, or None when there is none."""
+    m = cfg.default_mstep_iters
+    if m is None or m == cfg.inference.mstep_iters:
+        return None
+    return replace(cfg.inference, mstep_iters=m)
 
 
 def jobs(ctx: Context) -> List[Job]:
@@ -176,12 +193,29 @@ def jobs(ctx: Context) -> List[Job]:
                     outputs=[lay.rs_json(model, r), lay.rs_psmc(model, r)],
                     cores=cfg.rs_threads,
                     mem_gb=costs.rs02_gb,
-                    est_seconds=costs.rs02_s_per_mb_iter * genome_mb * cfg.inference.n_iter / cfg.rs_threads,
+                    est_seconds=costs.rs02_seconds(genome_mb, cfg.inference, cfg.rs_threads),
                     settings={"inference": inference, "scaling": scaling, "threads": cfg.rs_threads},
                     tools={rs_tool.name: rs_tool.identity},
                     description=f"psmc-rs 0.2 on {model} replicate {r}",
                 )
             )
+            default = default_inference(cfg)
+            if default is not None:
+                out.append(
+                    Job(
+                        id=job_id("fit-rs-default", model, r),
+                        command=tools.rs02_fit(rs_tool, default, cfg.scaling, psmcfa, lay.rs_default_json(model, r),
+                                               threads=cfg.rs_threads),
+                        inputs=[psmcfa],
+                        outputs=[lay.rs_default_json(model, r)],
+                        cores=cfg.rs_threads,
+                        mem_gb=costs.rs02_gb,
+                        est_seconds=costs.rs02_seconds(genome_mb, default, cfg.rs_threads),
+                        settings={"inference": asdict(default), "scaling": scaling, "threads": cfg.rs_threads},
+                        tools={rs_tool.name: rs_tool.identity},
+                        description=f"psmc-rs 0.2, default M-step budget, on {model} replicate {r}",
+                    )
+                )
     report_inputs: List[Path] = []
     for model in cfg.models:
         for r in range(1, cfg.replicates + 1):
@@ -189,6 +223,8 @@ def jobs(ctx: Context) -> List[Job]:
                 lay.truth(model, r), lay.c_psmc(model, r), lay.rs_json(model, r), lay.rs_psmc(model, r),
                 lay.record("fit-c", model, r), lay.record("fit-rs", model, r),
             ]
+            if default_inference(cfg) is not None:
+                report_inputs += [lay.rs_default_json(model, r), lay.record("fit-rs-default", model, r)]
     out.append(
         Job(
             id=f"{NAME}/report",
@@ -246,9 +282,12 @@ class Replicate:
     fits: Dict[str, results.Fit]
     curves: Dict[str, results.Curve]
     runs: Dict[str, Dict]
+    default_params: Optional[Dict] = None  # psmc-rs with its default M-step budget
+    default_curve: Optional[results.Curve] = None
 
 
-def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int) -> Replicate:
+def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default: bool = True) -> Replicate:
+    """The fits of one genome, read back and checked; ``with_default``: also psmc-rs's default M-step fit."""
     truth = json.loads(lay.truth(model, r).read_text())
     c = results.parse_psmc(lay.c_psmc(model, r))
     rs = results.parse_psmc(lay.rs_psmc(model, r))
@@ -271,13 +310,20 @@ def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int) -> Replicate
     sc = cfg.scaling
     curves = {k: f.curve(sc.mu, sc.gen_years, cfg.inference.bin_size) for k, f in fits.items()}
     runs = {}
-    for tool, kind in (("c", "fit-c"), ("rs", "fit-rs")):
+    for tool, kind in (("c", "fit-c"), ("rs", "fit-rs"), ("rs-default", "fit-rs-default")):
         try:
             runs[tool] = json.loads(lay.record(kind, model, r).read_text()).get("run", {})
         except (OSError, ValueError):
             runs[tool] = {}
+    default_params = default_curve = None
+    if with_default and default_inference(cfg) is not None:
+        default_params = results.read_rs_json(lay.rs_default_json(model, r))
+        if int(default_params.get("n_iter", -1)) != n_iter:
+            raise ValueError(f"{lay.rs_default_json(model, r)}: not a fit of {n_iter} iterations")
+        default_curve = results.fit_from_rs(default_params).curve(sc.mu, sc.gen_years, cfg.inference.bin_size)
     return Replicate(
-        model, r, truth, demography.epochs_from_record(truth["truth"]), c, rs_params, rs, fits, curves, runs
+        model, r, truth, demography.epochs_from_record(truth["truth"]), c, rs_params, rs, fits, curves, runs,
+        default_params, default_curve,
     )
 
 
@@ -295,7 +341,7 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
     g = cfg.scaling.gen_years
     n = cfg.inference.n_iter
     ll = loglikes(rp)
-    rows: Dict[str, List[Dict]] = {"replicates": [], "pairs": [], "traces": [], "curves": []}
+    rows: Dict[str, List[Dict]] = {"replicates": [], "pairs": [], "traces": [], "curves": [], "mstep": []}
     sc, bin_size = cfg.scaling, cfg.inference.bin_size
     for tool in TOOLS:
         fit, curve, run = rp.fits[tool], rp.curves[tool], rp.runs[tool]
@@ -364,7 +410,37 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
             "loglike_iteration0_rel_diff": rel.get(0),
         }
     )
+    if rp.default_params is not None:
+        rows["mstep"].append(mstep_row(rp, cfg, window))
     return rows
+
+
+def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
+    """psmc-rs with its default M-step budget against C psmc and against psmc-rs with the experiments' budget."""
+    import numpy as np
+
+    g = cfg.scaling.gen_years
+    d, c, rs = rp.default_curve, rp.curves["c"], rp.curves["rs"]
+    fd = results.fit_from_rs(rp.default_params)
+    ll_d, ll_rs = results.rs_loglikes(rp.default_params), results.rs_loglikes(rp.rs_params)
+    run_d, run_rs = rp.runs.get("rs-default", {}), rp.runs.get("rs", {})
+    return {
+        "model": rp.model,
+        "replicate": rp.replicate,
+        "mstep_iters_default": cfg.default_mstep_iters,
+        "mstep_iters": cfg.inference.mstep_iters,
+        "rmse_log10_ne_default_vs_c": metrics.rmse_between(d, c, window),
+        "max_abs_log10_ne_default_vs_c": float(np.max(np.abs(np.log10(d.at(window)) - np.log10(c.at(window))))),
+        "rmse_log10_ne_rs_vs_c": metrics.rmse_between(rs, c, window),
+        "rmse_log10_ne_default_vs_rs": metrics.rmse_between(d, rs, window),
+        "rmse_log10_ne_default_vs_truth": metrics.rmse_vs_truth(d, rp.epochs, window, g),
+        "rmse_log10_ne_rs_vs_truth": metrics.rmse_vs_truth(rs, rp.epochs, window, g),
+        "theta_default_rel_c": fd.theta / rp.fits["c"].theta - 1.0,
+        "loglike_final_default": ll_d[-1] if ll_d else None,
+        "loglike_final_rs": ll_rs[-1] if ll_rs else None,
+        "wall_seconds_default": run_d.get("wall_seconds"),
+        "wall_seconds_rs": run_rs.get("wall_seconds"),
+    }
 
 
 def _mean_sd(xs: Sequence[float]):
@@ -374,7 +450,7 @@ def _mean_sd(xs: Sequence[float]):
     return statistics.fmean(xs), (statistics.stdev(xs) if len(xs) > 1 else 0.0)
 
 
-def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict]) -> Dict:
+def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: Sequence[Dict] = ()) -> Dict:
     def col(tool: str, key: str) -> List[float]:
         return [r[key] for r in reps if r["tool"] == tool]
 
@@ -408,6 +484,9 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict]) -> Dict:
         "rmse_rs_vs_c_max": max(d) if d else None,
         "loglike_max_rel_diff": max((p["loglike_max_rel_diff"] for p in pairs if p["loglike_max_rel_diff"] is not None), default=None),
         "theta_max_abs_rel_diff": max((abs(p["theta_rel_diff"]) for p in pairs), default=None),
+        "rmse_rs_default_vs_c_mean": _mean_sd([m["rmse_log10_ne_default_vs_c"] for m in msteps])[0],
+        "rmse_rs_default_vs_c_max": max((m["rmse_log10_ne_default_vs_c"] for m in msteps), default=None),
+        "rmse_truth_rs_default_mean": _mean_sd([m["rmse_log10_ne_default_vs_truth"] for m in msteps])[0],
     }
 
 
@@ -418,7 +497,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     cfg = ctx.profile.e1
     lay = Layout(ctx.exp_dir(NAME))
     fixed = metrics.fixed_grid(cfg.grid)
-    all_rows: Dict[str, List[Dict]] = {k: [] for k in ("replicates", "pairs", "traces", "curves")}
+    all_rows: Dict[str, List[Dict]] = {k: [] for k in ("replicates", "pairs", "traces", "curves", "mstep")}
     table1: List[Dict] = []
     truth_rows: List[Dict] = []
     seed_rows: List[Dict] = []
@@ -428,6 +507,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     for model in cfg.models:
         reps_rows: List[Dict] = []
         pair_rows: List[Dict] = []
+        mstep_rows: List[Dict] = []
         window = None
         for r in range(1, cfg.replicates + 1):
             rp = load_replicate(lay, cfg, model, r)
@@ -440,6 +520,7 @@ def report(ctx: Context) -> Dict[str, Path]:
                 all_rows[k].extend(v)
             reps_rows += rows["replicates"]
             pair_rows += rows["pairs"]
+            mstep_rows += rows["mstep"]
             for ch in rp.truth["chromosomes"]:
                 seed_rows.append(
                     {"model": model, "replicate": r, "chromosome": ch["name"],
@@ -449,7 +530,7 @@ def report(ctx: Context) -> Dict[str, Path]:
                      "longest_het_gap_start": ch.get("longest_het_gap_start"),
                      "longest_hetfree_bins": ch.get("longest_hetfree_bins")}
                 )
-        table1.append(table1_row(model, window, reps_rows, pair_rows))
+        table1.append(table1_row(model, window, reps_rows, pair_rows, mstep_rows))
     written = {}
     for key, rows in (("table1", table1), ("truth", truth_rows), ("seeds", seed_rows), *all_rows.items()):
         write_csv(lay.table(key), rows)

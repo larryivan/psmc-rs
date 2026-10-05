@@ -103,12 +103,12 @@ class Jobs(unittest.TestCase):
         cfg = config.PRODUCTION.e5
         self.assertEqual(len(jobs), 50 * 2 + 10 * 2 + 2)
         boot = next(j for j in jobs if j.id == "E5/boot-trunk50000/bottleneck/rep10")
-        one_fit = config.Costs().rs02_s_per_mb_iter * 300 * 25
+        one_fit = config.Costs().rs02_seconds(300, cfg.inference)
         self.assertAlmostEqual(boot.est_seconds, one_fit * (1 + cfg.bootstrap_replicates))
         self.assertLessEqual(boot.mem_gb, 1.0)
         plan = runner.plan(runner.Graph(jobs, self.runs), config.Budget())
         self.assertGreater(plan["E5"]["cpu_hours"], 10.0)
-        self.assertLess(plan["E5"]["wall_hours_alone"], 4.0)
+        self.assertLess(plan["E5"]["wall_hours_alone"], 14.0)  # the M-step budget of 1000 dominates
 
 
 class TrunkCount(unittest.TestCase):
