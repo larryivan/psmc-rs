@@ -149,10 +149,10 @@ documentation of `psmc_rs::io::consensus` lists these cases, none of which
 arise from `bcftools call -c` output.
 
 **Mask mode** reads the sample's genotypes, for any other VCF (GATK,
-`bcftools call -m`, simulations). Each position is a called homozygous site,
-a heterozygous SNP or missing, and the positions are binned with fq2psmcfa's
-rule (a bin is missing when more than 90% of its sites are, else
-heterozygous when one of its sites is). Per record:
+`bcftools call -m`, gVCFs, simulations). Each position is a called
+homozygous site, a heterozygous SNP or missing, and the positions are binned
+with fq2psmcfa's rule (a bin is missing when more than 90% of its sites
+are, else heterozygous when one of its sites is). Per record:
 
 - FILTER other than `PASS` or `.`: the position is missing (kept with
   `--vcf-keep-filtered`);
@@ -162,13 +162,19 @@ heterozygous when one of its sites is). Per record:
   is missing;
 - homozygous (including hom-alt and homozygous indels): called.
 
-Several records at one position are combined. A position without any record
-is called homozygous unless a mask says otherwise, and each sequence runs to
-its `##contig` length when the header gives one (`--vcf-no-contig-end` ends
-it at the last record). A chromosome without records gives no sequence. The
-VCF must be sorted (`bcftools sort`): a position that goes backwards, or a
-chromosome that comes back after another, is an error, as is a record beyond
-its `##contig` length.
+A gVCF block, a record whose ALT alleles are only `.`, `<*>`, `<NON_REF>`
+or `<X>` and that has an INFO/END, stands for every position from POS to
+END: a block that these rules make missing (a no-call or filtered block) is
+missing over its whole span, and a reference block's positions are called
+homozygous unless a mask says otherwise. Several records at one position are
+combined. A position without any record is called homozygous unless a mask
+says otherwise, except in a gVCF, where a position that no record or block
+covers is missing (see *Masks*), and each sequence runs to its `##contig`
+length when the header gives one (`--vcf-no-contig-end` ends it at the last
+record, or at the END of a last block). A chromosome without records gives
+no sequence. The VCF must be sorted (`bcftools sort`): a position that goes
+backwards, or a chromosome that comes back after another, is an error, as
+is a record beyond its `##contig` length.
 
 **Masks.** `--vcf-mask BED` gives callable sites and `--vcf-negative-mask
 BED` sites to exclude; both repeat, and a site is callable when every
@@ -179,21 +185,25 @@ chromosome. **A variants-only VCF needs a mask**: without one, every
 position the caller could not call counts as homozygous, which hides the
 missing data and pulls θ and Ne down, while false heterozygous calls in
 repeats that a mask would remove push them up. QC then reports
-`VARIANTS_ONLY_NO_MASK`. **A gVCF needs a mask too**: psmc-rs does not read
-INFO/END, so the positions inside a reference or no-call block count as
-positions without a record (homozygous), and a no-call block is missing at
-its first position only. Make the callable mask from the gVCF's blocks and
-give it with the gVCF or with its variant records, as
+`VARIANTS_ONLY_NO_MASK`. **A gVCF needs a mask too.** In a gVCF, positions
+that no record or block covers are missing whatever the masks say (bcftools
+writes nothing where there are no reads), but a reference block counts as
+called over its span whatever its depth and genotype quality (GATK writes
+stretches without reads as `0/0` blocks), and the run warns about it. Make
+the callable mask from the gVCF's blocks and give it with the gVCF or with
+its variant records, as
 [docs/preprocessing.md](docs/preprocessing.md#the-callable-mask) shows.
 
 **Mode detection** (`--vcf-mode auto`, the default) looks at the first
-10,000 records. If at least half have ALT `.`, the file is an all-sites VCF:
-it is read in consensus mode when at least 90% of those carry INFO/FQ (as
-`bcftools call -c` writes), and is an error otherwise. A file whose records
-cover at least half of the positions they span and at least 90% of which
-carry FQ (`bcftools call -c -A` at high depth) is also read in consensus
-mode. Any other VCF is read in mask mode. `--vcf-mode consensus|mask` forces
-a mode; the run says which mode it used and why.
+10,000 records (at most 64 MB of them). If any of them is a gVCF block, the
+file is a gVCF and is read in mask mode. Otherwise, if at least half have
+ALT `.`, the file is an all-sites VCF: it is read in consensus mode when at
+least 90% of those carry INFO/FQ (as `bcftools call -c` writes), and is an
+error otherwise. A file whose records cover at least half of the positions
+they span and at least 90% of which carry FQ (`bcftools call -c -A` at high
+depth) is also read in consensus mode. Any other VCF is read in mask mode.
+`--vcf-mode consensus|mask` forces a mode (forced mask mode still reads a
+gVCF as one); the run says which mode it used and why.
 
 ### multihetsep
 

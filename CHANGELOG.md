@@ -241,6 +241,18 @@ Reproduction package (`experiment/`):
   back. FILTER was ignored and heterozygous indels counted as heterozygous
   SNPs; filtered records and missing genotypes are now missing at their
   position, heterozygous non-SNPs over their REF span.
+- gVCFs (GATK, DeepVariant, `bcftools call -g`, Strelka2) are recognised by
+  the reference and no-call blocks among their first records (ALT only
+  `.`, `<*>`, `<NON_REF>` or `<X>`, with INFO/END) and read in mask mode,
+  each block from POS to END: a no-call or filtered block is missing over
+  its whole span, and positions that no record or block covers are missing
+  whatever the masks say. 0.1 read a block as its first position, and the
+  rest of it, like every position without a record, as called. A
+  reference block still counts as called whatever its depth and quality,
+  which the run now warns about: a gVCF needs a callable mask made from
+  its blocks. In the library, `io::input::load` sets the new
+  `VcfOptions::gvcf` for such files; `VcfSummary::uncovered_sites` counts
+  the uncovered positions.
 - The time grid ends at C psmc's PSMC_T_INF = 1000 instead of 1e300, which
   changed the last state's emission when its λ was large.
 - The first L-BFGS step of each M-step started at unit step length, which

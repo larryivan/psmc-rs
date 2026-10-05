@@ -268,16 +268,19 @@ combined. Each sequence runs to its `##contig` length
 without any record gives no sequence.
 
 A **gVCF** (GATK `-ERC GVCF`, DeepVariant `--output_gvcf`, `bcftools call
--g`) is read the same way, record by record: psmc-rs does not read INFO/END,
-so the positions inside a reference or no-call block count as positions
-without a record, homozygous unless the mask leaves them out, and a no-call
-block (`./.`) is missing at its first position only. Its blocks do not make
-a callable set by themselves; they are what the callable mask below is made
-from. Give psmc-rs that mask together with the gVCF's variant records
-(`bcftools view -v snps,indels`, as below) or with the gVCF itself. A
-bcftools gVCF writes ALT `.` in its blocks, so `--vcf-mode auto` takes it
-for an all-sites VCF without the FQ field and stops; extract its variants,
-or give `--vcf-mode mask`.
+-g`, Strelka2) adds reference and no-call blocks: records whose ALT is only
+`.`, `<*>`, `<NON_REF>` or `<X>`, with an INFO/END. psmc-rs recognises a
+gVCF by such blocks among its first records and reads it in mask mode, each
+block over its whole span: a no-call (`./.`) or filtered block is missing
+from POS to END, and so is every position that no record or block covers,
+whatever the mask says (bcftools writes nothing where there are no reads).
+A reference block, though, counts as called homozygous over its span
+whatever its depth and genotype quality, and GATK writes stretches without
+reads as `0/0` blocks with GQ 0. So the blocks do not make a callable set
+by themselves (psmc-rs warns about it); they are what the callable mask
+below is made from. Give psmc-rs that mask together with the gVCF's variant
+records (`bcftools view -v snps,indels`, as below) or with the gVCF itself;
+with the bcftools mask below, both give the same bins.
 
 ### The callable mask
 
@@ -400,8 +403,10 @@ ancestry. At the same time nothing removes the false heterozygous calls of
 repeats and collapsed duplications, which push the other way. QC reports
 `VARIANTS_ONLY_NO_MASK` (a warning) whenever a VCF is read in mask mode
 without a positive mask. Give a callable mask (route B) or call all sites
-(route A). A gVCF without a mask is no better: psmc-rs does not read how
-far its blocks reach (INFO/END; see [the variant calls](#the-variant-calls)).
+(route A). A gVCF without a mask is hardly better: only its no-call blocks
+and the positions it does not cover become missing, while its reference
+blocks count as called whatever their depth and quality (see
+[the variant calls](#the-variant-calls)).
 (`tests/pipeline/run_e2e.sh` reads the same simulated variants with and
 without the gVCF-derived mask and checks both outcomes.)
 
