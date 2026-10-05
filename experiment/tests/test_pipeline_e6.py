@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import importlib.util
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -157,6 +158,37 @@ class CommandParsing(unittest.TestCase):
         groups = e6.scaling_groups([mk("a", "/x", 8), mk("b", "/x", 1), mk("c", "/y", 1), mk("d", "/y", 1)])
         self.assertEqual(list(groups), ["/x"])
         self.assertEqual([r.threads for r in groups["/x"]], [1, 8])
+
+
+def in_git_work_tree() -> bool:
+    if shutil.which("git") is None:
+        return False
+    res = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
+    return res.returncode == 0 and res.stdout.strip() == "true"
+
+
+def ignored(rel_path: str) -> bool:
+    # --no-index: judge by the ignore rules alone, whether or not the file exists.
+    return subprocess.run(["git", "check-ignore", "-q", "--no-index", rel_path], cwd=ROOT).returncode == 0
+
+
+@unittest.skipUnless(in_git_work_tree(), "not a git checkout")
+class RunsLayout(unittest.TestCase):
+    """What git keeps of experiment/runs/E6: results and records, not the regenerable inputs."""
+
+    def test_layout_paths_fall_on_the_right_side_of_the_ignore_rules(self):
+        lay = e6.Layout(ROOT / "experiment" / "runs" / "E6")
+        rel = lambda p: Path(p).relative_to(ROOT).as_posix()  # noqa: E731
+        kept = [lay.s2_fit("constant", 1, "vcf"), lay.s2_fit_psmc("constant", 1, "multihetsep"),
+                lay.s3_decode("bottleneck", 1), lay.s5_qc("Papuan"), lay.table("s3", "track"),
+                *lay.figures("s3"), lay.root / "provenance" / "s3" / "report.json"]
+        dropped = [lay.s2_vcf_psmcfa("constant", 1), lay.s2_multihetsep("constant", 1), lay.s2_mhs_psmcfa("zigzag", 1),
+                   lay.s3_true_track("bottleneck", 1), lay.s3_posterior("bottleneck", 1),
+                   lay.s2_fit("constant", 1, "vcf").with_suffix(".html"), lay.root / "logs" / "runner.log"]
+        for p in kept:
+            self.assertFalse(ignored(rel(p)), rel(p))
+        for p in dropped:
+            self.assertTrue(ignored(rel(p)), rel(p))
 
 
 class Checks(unittest.TestCase):
