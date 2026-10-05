@@ -208,6 +208,11 @@ Reproduction package (`experiment/`):
   single-trunk bootstrap is an error before fitting.
 - Input from pipes and FIFOs (the file is read once; only `--depth auto`
   needs a regular file).
+- A warning, before the input is read, when the M-steps that may run at
+  once would need more than 1 GB: with one λ per interval (`--n-steps`
+  alone) an M-step's memory grows with the cube of the intervals, and a
+  bootstrap fits up to one replicate per thread at once, each with its own
+  M-step.
 - TUI: the stop key interrupts EM and the bootstrap mid-step, the form has
   a generation-time field and shows the equivalent command line.
 - Library: `io::input::load` and `Dataset` (one loader for every format),

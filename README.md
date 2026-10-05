@@ -577,7 +577,13 @@ interval (`--n-steps` alone) it grows with the cube of the number of states
 and takes over the run: about 0.2 GB at 301 states, 0.5 GB at 401 and
 8 GB at 1001, and the measured peaks were 1.3 to 2.6 times these figures.
 On 42,000 bins, one iteration with 201 states took 3.9 s with one λ per
-interval and 0.3 s with a single λ.
+interval and 0.3 s with a single λ. Before it reads the input, a run warns
+when the M-steps that may run at once need more than 1 GB together, taking
+2.5 times the figure above for each. A fit runs one M-step at a time, but
+a bootstrap fits up to one replicate per thread at once (`--threads`, by
+default one per core or `RAYON_NUM_THREADS`), each with its own M-step:
+`--n-steps 300` needs about 0.6 GB per M-step, and 2.2 GB for a bootstrap
+on 4 threads.
 
 ## Testing and C equivalence
 
