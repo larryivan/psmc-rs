@@ -272,15 +272,25 @@ version_at_least() {
   }'
 }
 
+# The version that `$1 --version` prints after "$2 " at the start of a line
+# of its standard output, the first such line; $3 matches the version (a sed
+# BRE). Standard error is not searched, as the dynamic loader or an
+# LD_PRELOAD library may write a line there before the program runs (glibc's
+# "weak version `GLIBC_2.39' not found" with a binary built on a newer
+# glibc, for one); the error messages show it.
+tool_version() { # program, name, version pattern
+  local out version
+  out=$("$1" --version 2> /dev/null) || die "'$1 --version' failed: $("$1" --version 2>&1)"
+  version=$(printf '%s\n' "$out" | sed -n "s/^$2 \\($3\\).*/\\1/p" | sed -n 1p)
+  [ -n "$version" ] || die "cannot read the $2 version from '$("$1" --version 2>&1)'"
+  printf '%s\n' "$version"
+}
+
 bcftools=${BCFTOOLS:-bcftools}
 command -v "$bcftools" > /dev/null 2>&1 ||
   die "bcftools not found (install bcftools >= $MIN_BCFTOOLS, or set BCFTOOLS to its path)"
-bcftools_out=$("$bcftools" --version 2>&1) || die "'$bcftools --version' failed: $bcftools_out"
-bcftools_line=${bcftools_out%%$'\n'*}
-bcftools_version=$(printf '%s\n' "$bcftools_line" |
-  sed -n 's/^bcftools \([0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)*\).*/\1/p')
-[ -n "$bcftools_version" ] ||
-  die "cannot read the bcftools version from '$bcftools_line'"
+bcftools_version=$(tool_version "$bcftools" bcftools \
+  '[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)*') || exit 1
 version_at_least "$bcftools_version" "$MIN_BCFTOOLS" ||
   die "bcftools $bcftools_version is too old: $MIN_BCFTOOLS or later is needed"
 
@@ -289,10 +299,8 @@ if [ -z "$psmc_rs" ]; then
 fi
 command -v "$psmc_rs" > /dev/null 2>&1 ||
   die "psmc-rs not found (build it with cargo build --release, then give --psmc-rs PATH or set PSMC_RS)"
-psmc_rs_out=$("$psmc_rs" --version 2>&1) || die "'$psmc_rs --version' failed: $psmc_rs_out"
-psmc_rs_version=$(printf '%s\n' "$psmc_rs_out" |
-  sed -n '1s/^psmc-rs \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
-[ -n "$psmc_rs_version" ] || die "cannot read the psmc-rs version from '$psmc_rs_out'"
+psmc_rs_version=$(tool_version "$psmc_rs" psmc-rs \
+  '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*') || exit 1
 version_at_least "$psmc_rs_version" "$MIN_PSMC_RS" ||
   die "psmc-rs $psmc_rs_version is too old: $MIN_PSMC_RS or later is needed (for qc and convert)"
 

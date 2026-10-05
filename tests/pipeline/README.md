@@ -48,6 +48,8 @@ of bases at quality 10, and 0.3% sequencing errors.
   it, and the files stay.
 - The command line: `--help`, usage errors (exit 2), a missing input, a
   bcftools older than 1.10 and a psmc-rs older than 0.2.0 (fake binaries),
+  versions read from standard output past a dynamic loader warning on
+  standard error (as glibc 2.34 to 2.38 print for a binary linked on 2.39),
   unknown or repeated `--chroms` names, and `--chroms` from a BED file with
   Windows line ends, track and browser lines and several rows for one
   chromosome. The fit gets `--threads` only when

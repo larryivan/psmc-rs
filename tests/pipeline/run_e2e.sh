@@ -132,6 +132,30 @@ expect_error 1 "psmc-rs not found" "${base_args[@]}" --psmc-rs "$out/no-such-psm
 expect_error 1 "--chroms: 'c2' is not a sequence of" "${base_args[@]}" --chroms c1,c2
 expect_error 1 "--chroms names c1 twice" "${base_args[@]}" --chroms c1,c1
 
+# The versions come from the first line of standard output that has one.
+# What the dynamic loader writes on standard error before the program runs,
+# as glibc 2.34 to 2.38 do for a binary linked on 2.39, is not read.
+cat > "$out/fakebin/psmc-rs-warn" << EOF
+#!/bin/sh
+echo "$PSMC_RS: /lib/x86_64-linux-gnu/libc.so.6: weak version \\\`GLIBC_2.39' not found (required by $PSMC_RS)" >&2
+exec "$PSMC_RS" "\$@"
+EOF
+cat > "$out/fakebin/bcftools-warn" << EOF
+#!/bin/sh
+echo "bcftools: /lib/x86_64-linux-gnu/libcurl.so.4: no version information available (required by bcftools)" >&2
+if [ "\$1" = --version ]; then echo "Loading bcftools from the site's modules"; fi
+exec "$(command -v bcftools)" "\$@"
+EOF
+printf '#!/bin/sh\necho "psmc-rs, a test stand-in"\necho "psmc-rs 0.2.0" >&2\n' \
+  > "$out/fakebin/psmc-rs-stderr"
+chmod +x "$out/fakebin/psmc-rs-warn" "$out/fakebin/bcftools-warn" "$out/fakebin/psmc-rs-stderr"
+BCFTOOLS=$out/fakebin/bcftools-warn run_script "${base_args[@]}" \
+  --psmc-rs "$out/fakebin/psmc-rs-warn" --dry-run > /dev/null 2> "$out/err.txt" ||
+  fail "a loader warning before the versions: $(cat "$out/err.txt")"
+ok "versions read past a loader warning on standard error and a line before them"
+expect_error 1 "cannot read the psmc-rs version from 'psmc-rs, a test stand-in" \
+  "${base_args[@]}" --psmc-rs "$out/fakebin/psmc-rs-stderr"
+
 # The fit gets --threads only when it is given, and otherwise picks its own
 # default. The script's default follows the CPU affinity (checked where
 # taskset exists, on Linux).
