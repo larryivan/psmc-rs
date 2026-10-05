@@ -220,6 +220,12 @@ pub struct Bounds {
 pub struct MStepConfig {
     pub max_iters: usize,
     pub lbfgs_m: usize,
+    /// Weight of the smoothing penalty
+    /// `lambda * sum_k (ln lambda_{k+1} - ln lambda_k)^2` (over all states)
+    /// that the M-step adds to minus C psmc's Q. The default, 0, leaves C
+    /// psmc's objective, as the CLI's `--smooth-lambda` does by default
+    /// (0.1 used 1e-3). The penalty does not grow with the number of bins,
+    /// so a given weight matters less on larger inputs.
     pub lambda: f64,
     pub line_search_c1: f64,
     pub max_ls_steps: usize,
@@ -246,7 +252,7 @@ impl Default for MStepConfig {
         Self {
             max_iters: 100,
             lbfgs_m: 7,
-            lambda: 1e-3,
+            lambda: 0.0,
             line_search_c1: 1e-4,
             max_ls_steps: 20,
             tol_grad: 1e-4,
@@ -1144,6 +1150,31 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// By default the M-step minimises minus C psmc's Q, as the CLI does: no
+    /// smoothing penalty is added.
+    #[test]
+    fn default_objective_is_c_psmc_q() {
+        let mut rng = Rng(0x5851_F42D_4C95_7F2D);
+        let config = MStepConfig::default();
+        for (n, pattern) in LAYOUTS {
+            // Random λ, so a smoothing penalty would not vanish.
+            let model = random_model(&mut rng, n, pattern);
+            let stats = random_stats(&mut rng, &model, 5_000);
+            let bounds = bounds_from_config(&model, &config);
+            let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+            let (f, _) = eval_ad(&model, &stats, &x, &bounds, config.lambda).unwrap();
+            let mut at_x = model.clone();
+            unpack_params(&mut at_x, &from_unconstrained(&x, &bounds).unwrap()).unwrap();
+            at_x.param_recalculate().unwrap();
+            let q = crate::em::hmm_q(at_x.transition_matrix(), at_x.emission_matrix(), &stats);
+            assert!(
+                (f + q).abs() <= 1e-12 * q.abs(),
+                "{pattern:?}: objective {f} vs -Q {}",
+                -q
+            );
         }
     }
 
