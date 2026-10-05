@@ -364,23 +364,34 @@ class TimingProtocol:
 
     Before the run it waits ``settle_seconds``, then until the CPU use of the
     whole machine over ``quiet_window_seconds`` is at most
-    ``quiet_cpu_percent`` of all cores, or ``max_wait_seconds`` have passed;
-    a run that started without a quiet machine is flagged in the tables.
-    During the run it samples the RSS of the tool's process tree every
-    ``rss_sample_seconds`` (with the tool's own ``ru_maxrss``, the larger is
-    the peak) and afterwards records the CPU time that other processes used
-    while it ran.
+    ``quiet_cpu_percent`` of all cores. During the run it samples the RSS of
+    the tool's process tree every ``rss_sample_seconds`` (the tools are
+    single processes, whose own ``ru_maxrss`` is the exact peak; the larger
+    is kept) and afterwards records the CPU time that other processes used
+    while it ran. A run is only kept when it was clean: the machine became
+    quiet within ``max_wait_seconds``, other processes used at most
+    ``max_other_cpu_share`` of all cores during it, the machine did not sleep
+    (wall-clock span within ``max_sleep_seconds`` of the monotonic run time)
+    and, with ``require_ac_power``, it ran on AC power without Low Power
+    Mode. Otherwise ``measure`` writes no record and exits with status 75,
+    and the runner starts the run again later (it defers it).
     """
 
     settle_seconds: float = 10.0
     quiet_cpu_percent: float = 10.0
     quiet_window_seconds: float = 2.0
     max_wait_seconds: float = 180.0
-    rss_sample_seconds: float = 0.05
+    rss_sample_seconds: float = 0.5
+    max_other_cpu_share: float = 0.05  # of all cores, over the run
+    max_sleep_seconds: float = 2.0
+    require_ac_power: bool = True
 
 
-# For the smoke and tiny profiles: no waiting, one short look at the machine.
-QUICK_TIMING = TimingProtocol(settle_seconds=0.0, quiet_window_seconds=0.2, max_wait_seconds=0.0)
+# For the smoke and tiny profiles: no waiting, one short look at the machine,
+# and every run kept whatever else the machine does.
+QUICK_TIMING = TimingProtocol(settle_seconds=0.0, quiet_window_seconds=0.2, max_wait_seconds=0.0,
+                              rss_sample_seconds=0.05, quiet_cpu_percent=100.0, max_other_cpu_share=1.0,
+                              max_sleep_seconds=1e9, require_ac_power=False)
 
 
 @dataclass(frozen=True)

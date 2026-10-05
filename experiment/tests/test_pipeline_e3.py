@@ -186,7 +186,7 @@ class Report(unittest.TestCase):
                 "cpu_seconds": wall * u.threads * 0.9 + 0.1, "peak_rss_mb": 100.0 if u.tool == "c" else 10.0,
                 "maxrss_mb": 100.0, "peak_rss_tree_sampled_mb": 99.0, "loadavg_before": [0.5, 0.5, 0.5],
                 "loadavg_after": [1.0, 0.5, 0.5], "start": "2026-10-05T00:00:00", "end": "2026-10-05T00:00:10",
-                "machine_before": {"quiet": run.repeat == 1, "busy_percent": 3.0, "waited_seconds": 0.0},
+                "machine_before": {"quiet": True, "busy_percent": 3.0, "waited_seconds": 0.0},
                 "during": {"other_cpu_share": 0.01}, "machine": {"cpu": "Test CPU", "cpu_count": 8},
             }
             lay.timing(run).parent.mkdir(parents=True, exist_ok=True)
@@ -213,7 +213,7 @@ class Report(unittest.TestCase):
         self.assertAlmostEqual(float(rs02["speedup_vs_c"]), 10.15 / 1.15)
         self.assertAlmostEqual(float(rs02["speedup_vs_rs01_same_threads"]), 4.15 / 1.15)
         self.assertAlmostEqual(float(rs02["c_rss_over_rss"]), 10.0)
-        self.assertEqual(rs02["all_quiet"], "False")  # the second repeat was not quiet
+        self.assertEqual(rs02["all_quiet"], "True")
         self.assertEqual(rs02["outputs_identical"], "True")
         self.assertEqual(rows[("rs02", "2")]["outputs_identical"], "False")
         self.assertEqual(c["speedup_vs_c"], "")
@@ -243,7 +243,7 @@ class Report(unittest.TestCase):
         env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
         self.assertEqual(env["machine.cpu"], "Test CPU")
         self.assertEqual(env["tool.rs01.commit"], "e" * 40)
-        self.assertEqual(env["runs_not_quiet"], str(sum(1 for r in e3.runs(self.cfg) if r.repeat == 2)))
+        self.assertEqual((env["runs_not_quiet"], env["runs_not_clean"]), ("0", "0"))
 
     def test_a_fit_of_another_genome_is_refused(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02")
@@ -252,6 +252,24 @@ class Report(unittest.TestCase):
         self.lay.fit(run).write_text(json.dumps(params))
         with self.assertRaises(ValueError):
             e3.report(Context(self.profile, self.runs))
+
+    def test_a_run_on_a_busy_machine_stays_out_of_the_medians(self):
+        run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "c" and r.repeat == 2)
+        timing = json.loads(self.lay.timing(run).read_text())
+        timing["machine_before"]["quiet"] = False
+        self.lay.timing(run).write_text(json.dumps(timing))
+        e3.report(Context(self.profile, self.runs))
+        c = next(r for r in read_csv(self.lay.table("table2")) if r["tool"] == "c")
+        self.assertEqual((c["status"], c["repeats"], c["repeats_measured"]), ("incomplete", "1", "2"))
+        self.assertAlmostEqual(float(c["wall_median_s"]), 10.1)  # repeat 1 only
+        runs = [r for r in read_csv(self.lay.table("runs")) if r["tool"] == "c"]
+        self.assertEqual(sorted(r["clean"] for r in runs), ["False", "True"])
+
+    def test_timing_runs_are_ranked_by_repeat(self):
+        jobs = e3.jobs(Context(self.profile, self.runs, _tools={"c": FAKE_C, "rs01": FAKE_RS01, "rs02": FAKE_RS02}))
+        runs = [j for j in jobs if j.exclusive]
+        self.assertTrue(runs)
+        self.assertTrue(all(j.rank == int(j.id.rsplit("rep", 1)[1]) for j in runs))
 
     def test_partial_results_are_reported_as_incomplete(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs01")

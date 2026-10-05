@@ -13,10 +13,16 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
    thread, psmc-rs 0.1 (commit e50d69d, built out of tree) and psmc-rs 0.2
    at each of their thread counts; psmc-rs 0.2 also fits the 3000 Mb genome
    on 1, 2, 4 and 8 threads (thread scaling). Each run is an exclusive job
-   (nothing else runs) timed by ``e3_run measure`` (wall time, CPU time,
-   peak RSS of the tool's process tree, machine load before and after, CPU
-   used by other processes during the run; see :mod:`.e3_run`);
-3. writes the tables.
+   (nothing else runs, on this runner or any other: see the runner's
+   machine lock) timed by ``e3_run measure`` (wall time, CPU time, peak RSS
+   of the tool's process tree, machine load before and after, CPU used by
+   other processes during the run, power source; see :mod:`.e3_run`). A run
+   that is not clean (the machine not quiet before it, more than
+   ``timing.max_other_cpu_share`` of the cores used by others during it, a
+   sleep, battery power) is not kept: the runner starts it again later.
+   Jobs are ranked by repeat, so every setup's first repeat runs before any
+   second one and drift over the night does not fall on one tool;
+3. writes the tables, from clean runs only.
 
 A run whose estimated peak memory (:class:`.config.ResourceModel`) exceeds
 ``memory_limit_gb`` is not run; Table 2 lists it as skipped, with the
@@ -383,6 +389,7 @@ def jobs(ctx: Context) -> List[Job]:
                 tools={tool.name: tool.identity, "timing": timing_identity},
                 env={"RAYON_NUM_THREADS": str(u.threads)},
                 description=f"{TOOL_LABELS[u.tool]} on {u.size_mb} Mb, {u.threads} thread(s), repeat {run.repeat}",
+                rank=run.repeat,
             )
         )
         report_inputs += [lay.fit(run), lay.timing(run), lay.record(run)]
@@ -472,6 +479,7 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
         )
     before = timing.get("machine_before", {})
     during = timing.get("during", {})
+    power = before.get("power") or {}
     return {
         "tool": u.tool,
         "tool_label": TOOL_LABELS[u.tool],
@@ -490,10 +498,14 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
         "peak_rss_mb": timing["peak_rss_mb"],
         "maxrss_mb": timing["maxrss_mb"],
         "peak_rss_tree_sampled_mb": timing["peak_rss_tree_sampled_mb"],
+        "clean": is_clean(timing, cfg.timing),
         "quiet_before": before.get("quiet"),
         "busy_before_percent": before.get("busy_percent"),
         "waited_seconds": before.get("waited_seconds"),
         "other_cpu_share_during": during.get("other_cpu_share"),
+        "clock_span_seconds": timing.get("clock_span_seconds"),
+        "power_source": power.get("source"),
+        "low_power_mode": power.get("low_power_mode"),
         "loadavg_before_1m": (timing.get("loadavg_before") or [None])[0],
         "loadavg_after_1m": (timing.get("loadavg_after") or [None])[0],
         "start": timing.get("start"),
@@ -506,10 +518,30 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
     }
 
 
+def is_clean(timing: Dict, protocol: config.TimingProtocol) -> bool:
+    """Whether a timing record is a clean measurement by ``protocol`` (``measure`` keeps only those).
+
+    Checked again here, so that a record written under an older or laxer
+    protocol never enters the medians.
+    """
+    before, during = timing.get("machine_before", {}), timing.get("during", {})
+    power = before.get("power") or {}
+    span = timing.get("clock_span_seconds")
+    return bool(
+        before.get("quiet")
+        and (during.get("other_cpu_share") or 0.0) <= protocol.max_other_cpu_share
+        and (span is None or span - timing["wall_seconds"] <= protocol.max_sleep_seconds)
+        and not (protocol.require_ac_power and (power.get("source") not in (None, "AC Power") or power.get("low_power_mode")))
+    )
+
+
 def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict]) -> List[Dict]:
     by_setup: Dict[Setup, List[Dict]] = {}
+    measured: Dict[Setup, int] = {}
     for run, row in rows.items():
-        by_setup.setdefault(run.setup, []).append(row)
+        measured[run.setup] = measured.get(run.setup, 0) + 1
+        if row["clean"]:
+            by_setup.setdefault(run.setup, []).append(row)
     medians = {u: _median(r["wall_seconds"] for r in rs) for u, rs in by_setup.items()}
     rss = {u: _median(r["peak_rss_mb"] for r in rs) for u, rs in by_setup.items()}
     out = []
@@ -520,7 +552,7 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
         if p.skip:
             status, note = "skipped", p.skip
         elif len(rs) < cfg.repeats:
-            status, note = "incomplete", f"{len(rs)} of {cfg.repeats} repeats measured"
+            status, note = "incomplete", f"{len(rs)} of {cfg.repeats} repeats measured cleanly"
         else:
             status, note = "measured", ""
         c_setup = Setup("c", u.size_mb, 1)
@@ -537,6 +569,7 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
                 "note": note,
                 "est_peak_gb": round(p.est_gb, 3),
                 "repeats": len(rs),
+                "repeats_measured": measured.get(u, 0),
                 "wall_median_s": med,
                 "wall_min_s": min(walls) if walls else None,
                 "wall_max_s": max(walls) if walls else None,
@@ -558,7 +591,8 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
 def scaling_rows(cfg: config.E3, rows: Dict[Run, Dict], outputs: Dict[Run, Output]) -> List[Dict]:
     size = cfg.thread_scaling_size_mb
     threads = sorted(cfg.thread_scaling_threads)
-    by_t = {t: sorted((r for run, r in rows.items() if run.setup == Setup("rs02", size, t)), key=lambda r: r["repeat"])
+    by_t = {t: sorted((r for run, r in rows.items() if run.setup == Setup("rs02", size, t) and r["clean"]),
+                      key=lambda r: r["repeat"])
             for t in threads}
     base_t = threads[0]
     base = _median(r["wall_seconds"] for r in by_t[base_t])
@@ -643,7 +677,13 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
         ident = rec.get("key", {}).get("tools", {}).get(TOOL_NAMES[run.setup.tool], {})
         for k, v in sorted(ident.items()):
             add(f"tool.{run.setup.tool}.{k}", str(v))
+        command = rec.get("key", {}).get("command", [])
+        tool_path = command[command.index("--") + 1] if "--" in command else None
+        exes = rec.get("run", {}).get("executables", {})
+        if tool_path in exes:
+            add(f"tool.{run.setup.tool}.binary_sha256", exes[tool_path])
     add("tool.c.build", C_PSMC_BUILD)
+    add("cc", c_compiler())
     add("tool.rs01.settings", "pattern, --n-steps, --t-max, --smooth-lambda 0, --mstep-iters and N_ITER of the recipe; "
         "its default start rho0 = theta0/5 (= -r5) and 100 bp bins (it has no --tr-ratio or --bin-size)")
     add("inference", asdict(cfg.inference))
@@ -651,7 +691,21 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
     add("memory_limit_gb", f"{cfg.memory_limit_gb:g}")
     add("repeats", str(cfg.repeats))
     add("runs_not_quiet", str(sum(1 for r in rows.values() if not r["quiet_before"])))
+    add("runs_not_clean", str(sum(1 for r in rows.values() if not r["clean"])))
+    add("power_sources", ";".join(sorted({str(r["power_source"]) for r in rows.values()})))
+    add("low_power_mode_seen", str(any(r["low_power_mode"] for r in rows.values())))
     return out
+
+
+def c_compiler() -> str:
+    """``cc --version`` (first line): the compiler C psmc was built with, if it is still this machine's."""
+    import subprocess
+
+    try:
+        res = subprocess.run(["cc", "--version"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
+    return res.stdout.splitlines()[0].strip() if res.returncode == 0 and res.stdout else "unavailable"
 
 
 def seed_rows(cfg: config.E3, truths: Dict[int, Dict]) -> List[Dict]:

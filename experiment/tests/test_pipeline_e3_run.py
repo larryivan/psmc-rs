@@ -103,6 +103,9 @@ class Measure(unittest.TestCase):
         self.assertGreaterEqual(rec["during"]["other_cpu_share"], 0)
         self.assertLessEqual(rec["during"]["other_cpu_share"], 1)
         self.assertEqual(rec["protocol"]["settle_seconds"], 0.0)
+        self.assertIn("power", rec["machine_before"])
+        self.assertIn("removed", rec["environment"])
+        self.assertGreaterEqual(rec["clock_span_seconds"], rec["wall_seconds"] - 0.01)
         self.assertIn("cpu_count", rec["machine"])
         if sys.platform == "darwin" and rec["machine"].get("machine") == "arm64":
             self.assertGreater(rec["machine"]["performance_cores"], 0)
@@ -136,9 +139,28 @@ class Measure(unittest.TestCase):
         self.assertTrue(seen["quiet"])
         self.assertLess(seen["waited_seconds"], 5.0)
 
+    def test_an_unclean_run_writes_nothing_and_asks_to_be_run_later(self):
+        busy = replace(NO_WAIT, quiet_cpu_percent=-1.0, max_wait_seconds=0.0)
+        self.assertEqual(self.measure(1, protocol=busy), e3_run.EX_TEMPFAIL)  # never quiet: not run
+        self.assertFalse(self.out.exists())
+        crowded = replace(NO_WAIT, max_other_cpu_share=-1.0)
+        self.assertEqual(self.measure(1, protocol=crowded), e3_run.EX_TEMPFAIL)  # contaminated: not kept
+        self.assertFalse(self.out.exists())
+        res = {"during": {"other_cpu_share": 0.01}, "wall_seconds": 10.0, "clock_span_seconds": 70.0}
+        protocol = config.TimingProtocol()
+        self.assertIn("slept", e3_run.unclean(res, protocol))
+        self.assertIsNone(e3_run.unclean({**res, "clock_span_seconds": 10.5}, protocol))
+
+    def test_the_tool_runs_without_psmc_variables(self):
+        env, removed = e3_run.clean_environment({"PSMC_ALPHA_CACHE_MB": "64", "RUSTFLAGS": "-C x", "HOME": "/h",
+                                                 "RAYON_NUM_THREADS": "8"})
+        self.assertEqual(removed, ["PSMC_ALPHA_CACHE_MB", "RUSTFLAGS"])
+        self.assertEqual(env, {"HOME": "/h", "RAYON_NUM_THREADS": "8"})
+
     def test_command_line(self):
         with contextlib.redirect_stdout(io.StringIO()):
             rc = e3_run.main(["measure", "--out", str(self.out), "--settle", "0", "--max-wait", "0",
+                              "--quiet-cpu", "100", "--max-other-cpu", "1", "--no-require-ac",
                               "--quiet-window", "0.05", "--", sys.executable, "-c", "pass"])
         self.assertEqual(rc, 0)
         self.assertTrue(self.out.exists())

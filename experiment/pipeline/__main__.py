@@ -50,7 +50,9 @@ def build_parser() -> argparse.ArgumentParser:
     _common(p)
     _budget_args(p)
     p.add_argument("--foreground", action="store_true", help="run in this process instead of detaching")
-    p.add_argument("--keep-awake", action="store_true", help="macOS: keep the machine from idle sleep while the runner lives (caffeinate -i -w PID)")
+    p.add_argument("--keep-awake", action=argparse.BooleanOptionalAction, default=True,
+                   help="macOS: keep the machine from idle sleep while the runner lives (caffeinate -i -w PID; "
+                        "default on: a sleep would stretch a timing run's wall time)")
 
     p = sub.add_parser("status", help="done/running/failed/pending jobs per experiment, with an ETA")
     _common(p)

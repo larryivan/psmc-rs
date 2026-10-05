@@ -10,15 +10,21 @@
     runs ``TOOL ARGS...`` and writes how it ran to TIMING.json. Before the
     run it waits ``--settle`` seconds, then until the machine is quiet: the
     CPU use of all processes together over ``--quiet-window`` seconds is at
-    most ``--quiet-cpu`` percent of all cores, or ``--max-wait`` seconds have
-    passed (the record says which). It then starts the tool and samples the
-    RSS of the tool's process tree every ``--sample`` seconds; the peak RSS
-    is the larger of the sampled peak and the tool's own ``ru_maxrss``. The
-    record holds the wall time, the tool's user and system CPU time, the
-    peak RSS, the load average before and after, the busiest processes
-    before the run, and the CPU time that other processes used while it
-    ran. When the tool fails, nothing is written and the command exits with
-    the tool's status.
+    most ``--quiet-cpu`` percent of all cores. It then starts the tool, with
+    the environment cleaned of variables that change psmc-rs's behaviour or
+    build (``PSMC_*``, ``RUSTFLAGS``, ...), and samples the RSS of the tool's
+    process tree every ``--sample`` seconds; the peak RSS is the larger of
+    the sampled peak and the tool's own ``ru_maxrss``. The record holds the
+    wall time, the tool's user and system CPU time, the peak RSS, the load
+    average before and after, the busiest processes before the run, the CPU
+    time that other processes used while it ran, the power source and the
+    environment. When the tool fails, nothing is written and the command
+    exits with the tool's status. When the run is not clean (the machine
+    did not become quiet within ``--max-wait`` seconds, is on battery or in
+    Low Power Mode with ``--require-ac``, slept during the run, or other
+    processes used more than ``--max-other-cpu`` of all cores), nothing is
+    written and the command exits with status 75, which the runner takes as
+    "not now": it starts the run again later.
 
 Only the tool's processes are measured, not this wrapper (the runner's own
 record of the job includes the wrapper's Python interpreter). The module is
@@ -31,16 +37,22 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import config, paths, provenance, simulate
 
-RECORD = "psmc-rs-manuscript/E3/timing/1"
+RECORD = "psmc-rs-manuscript/E3/timing/2"
+EX_TEMPFAIL = 75  # not a clean run: the runner defers the job
+# Variables removed from the tool's environment: psmc-rs reads PSMC_*
+# (e.g. psmc-rs 0.1's PSMC_ALPHA_CACHE_MB, which changes its memory and
+# time), and the others change a build or what a tool prints.
+CLEANED_PREFIXES = ("PSMC_", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUST_LOG", "RUST_BACKTRACE")
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +135,32 @@ def machine_activity(window: float, top: int = 5) -> Dict:
     }
 
 
+def power_state() -> Dict:
+    """The power source (``AC Power`` or ``Battery Power``) and Low Power Mode on macOS; Nones elsewhere."""
+    out: Dict = {"source": None, "low_power_mode": None}
+    if sys.platform != "darwin":
+        return out
+    try:
+        batt = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True, timeout=5).stdout
+        settings = subprocess.run(["pmset", "-g"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return out
+    m = re.search(r"drawing from '([^']+)'", batt)
+    out["source"] = m.group(1) if m else None
+    m = re.search(r"^\s*lowpowermode\s+(\d)", settings, re.M)
+    out["low_power_mode"] = (m.group(1) == "1") if m else None
+    return out
+
+
+def clean_environment(env: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, str], List[str]]:
+    """The tool's environment (:data:`CLEANED_PREFIXES` removed) and the names removed."""
+    env = dict(os.environ if env is None else env)
+    removed = sorted(k for k in env if k.startswith(CLEANED_PREFIXES))
+    for k in removed:
+        del env[k]
+    return env, removed
+
+
 def wait_until_quiet(protocol: config.TimingProtocol, log=print) -> Dict:
     """Settle, then wait for a quiet machine (see the module documentation); returns what was seen."""
     time.sleep(max(protocol.settle_seconds, 0.0))
@@ -135,7 +173,7 @@ def wait_until_quiet(protocol: config.TimingProtocol, log=print) -> Dict:
             break
         log(f"[measure] machine busy ({act['busy_percent']:.0f}% of all cores); waiting")
     if not quiet:
-        log(f"[measure] machine not quiet after {waited:.0f} s ({act['busy_percent']:.0f}% busy): running anyway")
+        log(f"[measure] machine not quiet after {waited:.0f} s ({act['busy_percent']:.0f}% busy)")
     return {
         "quiet": quiet,
         "busy_percent": act["busy_percent"],
@@ -183,7 +221,7 @@ def maxrss_mb(rusage) -> float:
     return rusage.ru_maxrss / (2**20 if sys.platform == "darwin" else 2**10)
 
 
-def run_measured(cmd: Sequence[str], sample_seconds: float) -> Dict:
+def run_measured(cmd: Sequence[str], sample_seconds: float, env: Optional[Dict[str, str]] = None) -> Dict:
     """Run ``cmd`` (its output goes to ours) and measure it; see the module documentation."""
     import psutil
 
@@ -191,7 +229,7 @@ def run_measured(cmd: Sequence[str], sample_seconds: float) -> Dict:
     load_before = os.getloadavg()
     start = time.time()
     t0 = time.perf_counter()
-    proc = subprocess.Popen([str(c) for c in cmd], stdin=subprocess.DEVNULL)
+    proc = subprocess.Popen([str(c) for c in cmd], stdin=subprocess.DEVNULL, env=env)
     try:
         ps = psutil.Process(proc.pid)
     except psutil.Error:
@@ -206,6 +244,7 @@ def run_measured(cmd: Sequence[str], sample_seconds: float) -> Dict:
             samples += 1
         time.sleep(sample_seconds)
     wall = time.perf_counter() - t0
+    clock_span = time.time() - start  # runs on while the machine sleeps; perf_counter does not
     proc.returncode = os.waitstatus_to_exitcode(status)
     cpu_after = psutil.cpu_times()
     load_after = os.getloadavg()
@@ -219,6 +258,7 @@ def run_measured(cmd: Sequence[str], sample_seconds: float) -> Dict:
         "start": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(start)),
         "end": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "wall_seconds": round(wall, 4),
+        "clock_span_seconds": round(clock_span, 4),
         "user_seconds": round(rusage.ru_utime, 4),
         "system_seconds": round(rusage.ru_stime, 4),
         "cpu_seconds": round(tool_cpu, 4),
@@ -251,12 +291,24 @@ def measure(
     """Time one run of ``cmd`` and write the record to ``out``; returns the exit status for the shell."""
     if not cmd:
         raise ValueError("no command to measure")
+    power = power_state()
+    if protocol.require_ac_power and (power["source"] not in (None, "AC Power") or power["low_power_mode"]):
+        log(f"[measure] not on AC power or in Low Power Mode ({power}); not run, try later")
+        return EX_TEMPFAIL
     before = wait_until_quiet(protocol, log=log)
-    res = run_measured(cmd, protocol.rss_sample_seconds)
+    if not before["quiet"]:
+        log("[measure] the machine is not quiet; not run, try later")
+        return EX_TEMPFAIL
+    env, removed = clean_environment()
+    res = run_measured(cmd, protocol.rss_sample_seconds, env=env)
     status = res["exit_status"]
     if status != 0:
         log(f"[measure] {Path(cmd[0]).name} exited with status {status}; no timing record written")
         return status if 0 < status < 256 else 128 + abs(status)
+    why = unclean(res, protocol)
+    if why:
+        log(f"[measure] {why}; no timing record written, try later")
+        return EX_TEMPFAIL
     words = [str(c) for c in cmd]
     if runs_dir is not None:
         words = [paths.portable(w, Path(runs_dir)) for w in words]
@@ -264,7 +316,8 @@ def measure(
         "record": RECORD,
         "command": words,
         **res,
-        "machine_before": before,
+        "machine_before": {**before, "power": power},
+        "environment": {"removed": removed, **{k: env[k] for k in sorted(env) if k.endswith("_NUM_THREADS")}},
         "protocol": asdict(protocol),
         "machine": machine(),
     }
@@ -276,6 +329,18 @@ def measure(
     return 0
 
 
+def unclean(res: Dict, protocol: config.TimingProtocol) -> Optional[str]:
+    """Why a finished run is not a clean measurement, or None."""
+    share = res["during"]["other_cpu_share"]
+    if share > protocol.max_other_cpu_share:
+        return (f"other processes used {100 * share:.1f}% of all cores during the run "
+                f"(at most {100 * protocol.max_other_cpu_share:g}%)")
+    slept = res["clock_span_seconds"] - res["wall_seconds"]
+    if slept > protocol.max_sleep_seconds:
+        return f"the machine slept for about {slept:.0f} s during the run"
+    return None
+
+
 def measure_args(protocol: config.TimingProtocol) -> List[str]:
     """The ``measure`` options of ``protocol``, each given explicitly."""
     return [
@@ -284,6 +349,9 @@ def measure_args(protocol: config.TimingProtocol) -> List[str]:
         "--quiet-window", f"{protocol.quiet_window_seconds:g}",
         "--max-wait", f"{protocol.max_wait_seconds:g}",
         "--sample", f"{protocol.rss_sample_seconds:g}",
+        "--max-other-cpu", f"{protocol.max_other_cpu_share:g}",
+        "--max-sleep", f"{protocol.max_sleep_seconds:g}",
+        "--require-ac" if protocol.require_ac_power else "--no-require-ac",
     ]
 
 
@@ -310,6 +378,12 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--quiet-window", type=float, default=d.quiet_window_seconds, help="seconds over which CPU use is measured")
     m.add_argument("--max-wait", type=float, default=d.max_wait_seconds, help="run anyway after waiting this long")
     m.add_argument("--sample", type=float, default=d.rss_sample_seconds, help="seconds between RSS samples")
+    m.add_argument("--max-other-cpu", type=float, default=d.max_other_cpu_share,
+                   help="clean: other processes used at most this share of all cores during the run")
+    m.add_argument("--max-sleep", type=float, default=d.max_sleep_seconds,
+                   help="clean: the machine slept at most this many seconds during the run")
+    m.add_argument("--require-ac", action=argparse.BooleanOptionalAction, default=d.require_ac_power,
+                   help="clean: on AC power and not in Low Power Mode (macOS)")
     return p
 
 
@@ -333,6 +407,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         quiet_window_seconds=args.quiet_window,
         max_wait_seconds=args.max_wait,
         rss_sample_seconds=args.sample,
+        max_other_cpu_share=args.max_other_cpu,
+        max_sleep_seconds=args.max_sleep,
+        require_ac_power=args.require_ac,
     )
     return measure(cmd, args.out, protocol, runs_dir=args.runs_dir)
 
@@ -342,4 +419,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-__all__ = ["genome_for", "machine_activity", "measure", "measure_args", "run_measured", "simulate_size", "wait_until_quiet"]
+__all__ = [
+    "EX_TEMPFAIL", "clean_environment", "genome_for", "machine_activity", "measure", "measure_args", "power_state",
+    "run_measured", "simulate_size", "unclean", "wait_until_quiet",
+]
