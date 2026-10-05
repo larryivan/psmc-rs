@@ -2,7 +2,7 @@
 //! input, fit, bootstrap, decode and write the outputs, reporting progress
 //! and messages as [`Event`]s.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use rayon::ThreadPool;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,7 +24,7 @@ use psmc_rs::qc::{QcReport, Severity, render_text};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
-use crate::cli::{InferArgs, model_layout};
+use crate::cli::{InferArgs, model_layout, usage_bail};
 use crate::dataset::{
     describe, ensure_usable, ignored_options, load_input, loader_warnings, qc_report,
     resolve_input_path,
@@ -127,7 +127,8 @@ struct BootstrapPlan {
 }
 
 impl BootstrapPlan {
-    /// The bootstrap of `cli`, if any, checked before any work is done.
+    /// The bootstrap of `cli`, if any, checked before any work is done;
+    /// bootstrap options that cannot apply are usage errors.
     fn of(cli: &InferArgs, n_iter: usize, output: &Path) -> Result<Option<Self>> {
         if cli.bootstrap == 0 {
             for (set, flag) in [
@@ -135,14 +136,16 @@ impl BootstrapPlan {
                 (cli.bootstrap_dir.is_some(), "--bootstrap-dir"),
             ] {
                 if set {
-                    bail!("{flag} applies to a bootstrap; add --bootstrap N to run N replicates");
+                    usage_bail!(
+                        "{flag} applies to a bootstrap; add --bootstrap N to run N replicates"
+                    );
                 }
             }
             return Ok(None);
         }
         let em_iters = cli.bootstrap_iters.unwrap_or(n_iter);
         if em_iters == 0 {
-            bail!(
+            usage_bail!(
                 "the bootstrap replicates would run 0 EM iterations; set N_ITER above 0 or give \
                  --bootstrap-iters"
             );
@@ -475,7 +478,7 @@ fn check_outputs(
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("html"))
     {
-        bail!(
+        usage_bail!(
             "OUTPUT {} ends in .html, but the HTML report is written to OUTPUT with the \
              extension .html; name the parameters file .json",
             output.display()
@@ -530,8 +533,8 @@ fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) 
 }
 
 /// The starting model of `--init-params`: the saved parameters, with the
-/// layout checked against `--pattern` and `--n-steps` when they are given,
-/// and `--mu` for scaling.
+/// layout checked against `--pattern` and `--n-steps` when they are given
+/// (a mismatch is a usage error), and `--mu` for scaling.
 fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     let what = || format!("--init-params {}", path.display());
     let saved = load_params(path).with_context(what)?;
@@ -540,7 +543,7 @@ fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
         let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
         let wanted = PsmcModel::new(model.t_max, n_steps, 1.0, 1.0, model.mu, pattern)?;
         if (wanted.n_steps, c_pattern(&wanted)) != (model.n_steps, c_pattern(&model)) {
-            bail!(
+            usage_bail!(
                 "{} holds a model with pattern {} ({} intervals), but --pattern/--n-steps ask \
                  for {} ({} intervals); leave them out to continue the saved model",
                 what(),

@@ -18,6 +18,8 @@ use psmc_rs::io::params::{InputSummary, RunMetadata, save_params};
 use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 use psmc_rs::qc::QcReport;
 
+use crate::cli::usage_bail;
+
 /// A finished main fit and how it was made, as the output JSON records it.
 pub struct FitRecord<'a> {
     /// The fitted model.
@@ -129,7 +131,8 @@ pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
 /// the input or one of `dirs`, and each can be written in an existing
 /// directory; each of `dirs` is a directory or can be created. Otherwise a
 /// typo in a directory would only fail after the fit and the bootstrap,
-/// and two outputs of one name would overwrite each other.
+/// and two outputs of one name would overwrite each other. Names that
+/// collide are a usage error.
 pub fn check_destinations(
     input: &Path,
     files: &[(&str, &Path)],
@@ -140,13 +143,13 @@ pub fn check_destinations(
     for &(what, path) in files.iter().chain(dirs) {
         let at = resolved(path);
         if at == input {
-            bail!(
+            usage_bail!(
                 "{what} {} is the input file; give it another name",
                 path.display()
             );
         }
         if let Some((other, other_path, _)) = seen.iter().find(|(_, _, p)| *p == at) {
-            bail!(
+            usage_bail!(
                 "{other} {} and {what} {} are the same file; give them different names",
                 other_path.display(),
                 path.display()

@@ -390,3 +390,87 @@ fn init_params_reads_files_of_version_0_1() {
     ]);
     assert!(err.contains("--init-params"), "{err}");
 }
+
+/// A command line that parses but cannot run as given exits with status 2,
+/// as clap's own usage errors do (README: "2 on a usage error"); errors met
+/// while reading or writing files exit with status 1. None reads the input.
+#[test]
+fn usage_errors_exit_with_status_2() {
+    let dir = TempDir::new("usage_status");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let saved = dir.path("saved.json");
+    run_ok([
+        input.to_str().unwrap(),
+        saved.to_str().unwrap(),
+        "0",
+        "--no-progress",
+    ]);
+    let out = dir.path("fit.json");
+    let status = |extra: &[&str]| -> (Option<i32>, String) {
+        let mut args = vec![
+            input.display().to_string(),
+            out.display().to_string(),
+            "1".to_string(),
+            "--no-progress".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let o = common::run(&args);
+        let stderr = String::from_utf8(o.stderr).unwrap();
+        assert!(!stderr.contains("Input:"), "{stderr}");
+        (o.status.code(), stderr)
+    };
+    let saved = saved.to_str().unwrap();
+    let usage: &[(&[&str], &str)] = &[
+        (&["--pattern", "4+x"], "invalid --pattern '4+x'"),
+        (
+            &["--pattern", "4+5*3+4", "--n-steps", "30"],
+            "does not match",
+        ),
+        (&["--bootstrap-iters", "3"], "--bootstrap-iters applies"),
+        (&["--bootstrap-dir", "boot"], "--bootstrap-dir applies"),
+        (
+            &["--bootstrap", "2", "--bootstrap-iters", "0"],
+            "0 EM iterations",
+        ),
+        (
+            &["--init-params", saved, "--pattern", "4+25*2+4+6"],
+            "holds a model with pattern",
+        ),
+        (&["--psmc-out", out.to_str().unwrap()], "are the same file"),
+        (&["--qc-json", input.to_str().unwrap()], "is the input file"),
+        // clap's own.
+        (&["--threads", "0"], "at least 1"),
+    ];
+    for (extra, message) in usage {
+        let (code, stderr) = status(extra);
+        assert_eq!(code, Some(2), "{extra:?}: {stderr}");
+        assert!(stderr.contains(message), "{extra:?}: {stderr}");
+    }
+    let o = common::run([
+        input.to_str().unwrap(),
+        dir.path("fit.html").to_str().unwrap(),
+        "1",
+    ]);
+    assert_eq!(o.status.code(), Some(2));
+
+    // Not usage errors: a file that cannot be read or written.
+    let missing = dir.path("missing.json");
+    let (code, stderr) = status(&["--init-params", missing.to_str().unwrap()]);
+    assert_eq!(code, Some(1), "{stderr}");
+    let missing = dir.path("nowhere/t.tsv");
+    let (code, stderr) = status(&["--tmrca-out", missing.to_str().unwrap()]);
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(!out.exists());
+
+    // convert: multihetsep output asked of psmcfa input.
+    let o = common::run([
+        "convert",
+        input.to_str().unwrap(),
+        "--input-format",
+        "psmcfa",
+        "--multihetsep",
+        dir.path("x.mhs").to_str().unwrap(),
+    ]);
+    assert_eq!(o.status.code(), Some(2));
+}

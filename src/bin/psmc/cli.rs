@@ -1,7 +1,8 @@
 //! Command-line arguments.
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use std::fmt;
 use std::path::PathBuf;
 
 use psmc_rs::bootstrap::DEFAULT_BOOTSTRAP_TRUNK;
@@ -9,6 +10,40 @@ use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
 use psmc_rs::model::{MAX_STATES, n_steps_for_pattern};
 use psmc_rs::opt::MStepConfig;
+
+/// The exit status of a usage error, as clap gives for the errors it finds.
+pub const USAGE_EXIT: u8 = 2;
+
+/// A command line that parses but cannot be run as given: an invalid
+/// pattern, options that contradict each other, or outputs that would
+/// overwrite each other or the input. It is found before the input is read,
+/// and the program then exits with [`USAGE_EXIT`], as for the errors clap
+/// finds.
+#[derive(Debug)]
+pub struct UsageError(pub String);
+
+impl fmt::Display for UsageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for UsageError {}
+
+impl UsageError {
+    /// Whether `e`, or an error it wraps, is a usage error.
+    pub fn is_in(e: &anyhow::Error) -> bool {
+        e.chain().any(|cause| cause.is::<UsageError>())
+    }
+}
+
+/// Return a [`UsageError`] with a `format!` message.
+macro_rules! usage_bail {
+    ($($arg:tt)*) => {
+        return Err(anyhow::Error::new($crate::cli::UsageError(format!($($arg)*))))
+    };
+}
+pub(crate) use usage_bail;
 
 /// `--input-format`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -180,7 +215,7 @@ pub const DEFAULT_PATTERN: &str = "4+5*3+4";
 /// pattern without `--n-steps`, and one free lambda per interval with
 /// `--n-steps` alone. Given both, `--n-steps` must match the pattern;
 /// its number of intervals (`n_steps + 1`, the form psmc-rs 0.1 used) is
-/// accepted too.
+/// accepted too. An invalid pattern or a mismatch is a [`UsageError`].
 pub fn model_layout(
     pattern: Option<&str>,
     n_steps: Option<usize>,
@@ -194,12 +229,14 @@ pub fn model_layout(
             )),
         };
     };
-    let derived =
-        n_steps_for_pattern(pattern).with_context(|| format!("invalid --pattern '{pattern}'"))?;
+    let derived = match n_steps_for_pattern(pattern) {
+        Ok(n) => n,
+        Err(e) => usage_bail!("invalid --pattern '{pattern}': {e:#}"),
+    };
     match n_steps {
         None => Ok((derived, Some(pattern.to_string()))),
         Some(n) if n == derived || n == derived + 1 => Ok((derived, Some(pattern.to_string()))),
-        Some(n) => bail!(
+        Some(n) => usage_bail!(
             "--n-steps {n} does not match --pattern '{pattern}', which has {} intervals \
              (n_steps {derived}); leave out --n-steps to take it from the pattern",
             derived + 1
@@ -949,11 +986,13 @@ mod tests {
             model_layout(human.as_deref(), Some(64)).unwrap(),
             (63, human.clone())
         );
-        let err = model_layout(human.as_deref(), Some(30))
-            .unwrap_err()
-            .to_string();
+        let err = model_layout(human.as_deref(), Some(30)).unwrap_err();
+        assert!(UsageError::is_in(&err));
+        let err = err.to_string();
         assert!(err.contains("has 64 intervals (n_steps 63)"), "{err}");
-        let err = format!("{:#}", model_layout(Some("4+x"), None).unwrap_err());
+        let err = model_layout(Some("4+x"), None).unwrap_err();
+        assert!(UsageError::is_in(&err));
+        let err = format!("{err:#}");
         assert!(err.contains("invalid --pattern '4+x'"), "{err}");
     }
 

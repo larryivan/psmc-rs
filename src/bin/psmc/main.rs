@@ -15,7 +15,7 @@ use clap::Parser;
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 
-use crate::cli::{Cli, Command, InferArgs};
+use crate::cli::{Cli, Command, InferArgs, USAGE_EXIT, UsageError};
 use crate::console::Console;
 
 /// Inference on the command line. With the QC JSON on stdout, the result
@@ -41,7 +41,11 @@ fn main() -> ExitCode {
         Ok(code) => code,
         Err(e) => {
             console::print_err(&format!("Error: {e:#}\n"));
-            ExitCode::FAILURE
+            if UsageError::is_in(&e) {
+                ExitCode::from(USAGE_EXIT)
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
 }

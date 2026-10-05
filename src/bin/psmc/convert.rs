@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use psmc_rs::io::input::{Dataset, InputFormat};
 use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 
-use crate::cli::{ConvertArgs, FormatArg};
+use crate::cli::{ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
 use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
 use crate::output::{check_destinations, is_stdout, parent_dir, write_qc_json};
@@ -27,7 +27,7 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     let sink = |ev| console.emit(ev);
     let want_sites = args.multihetsep.is_some() || args.multihetsep_per_chrom.is_some();
     if want_sites && args.input.input_format == FormatArg::Psmcfa {
-        bail!("{NO_SITES}");
+        usage_bail!("{NO_SITES}");
     }
     check_outputs(args)?;
     let mut opts = args.input.to_options();
