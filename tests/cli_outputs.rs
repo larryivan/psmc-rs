@@ -396,6 +396,113 @@ fn a_rerun_that_fails_in_its_bootstrap_leaves_no_earlier_files() {
     }
 }
 
+/// Two sequences of ten 1000-bin trunks, alternately 38% and 58%
+/// heterozygous: the main start (rho0 = theta0/4 = 0.1635) is just below
+/// the limit of 1/6 on rho per bin, and the start of a replicate that
+/// draws more of the 58% trunks is past it.
+fn uneven_psmcfa(path: &Path) {
+    let trunk = |het_per_50: usize| -> String {
+        (0..1000)
+            .map(|i| if i % 50 < het_per_50 { 'K' } else { 'T' })
+            .collect()
+    };
+    let seq: String = (0..10)
+        .map(|t| trunk(if t % 2 == 0 { 19 } else { 29 }))
+        .collect();
+    fs::write(path, format!(">a\n{seq}\n>b\n{seq}\n")).unwrap();
+}
+
+/// Replicates whose fresh start EM cannot fit are named before the main
+/// fit, with the --tr-ratio that would fit them, and skipped: the run
+/// finishes, and the summary, its JSON and the report say which were left
+/// out. When none can be fitted, the run fails before the main fit.
+#[test]
+fn replicates_with_an_invalid_start_are_skipped_and_reported() {
+    let dir = TempDir::new("bootstrap_invalid_starts");
+    let input = dir.path("in.psmcfa");
+    uneven_psmcfa(&input);
+    let out = dir.path("fit.json");
+    let boot = dir.path("fit.bootstrap");
+    let args = |n_iter: &str, extra: &[&str]| {
+        let mut args = vec![
+            input.to_str().unwrap().to_string(),
+            out.to_str().unwrap().to_string(),
+            n_iter.to_string(),
+            "--no-progress".to_string(),
+            "--bootstrap".to_string(),
+            "8".to_string(),
+            "--bootstrap-iters".to_string(),
+            "1".to_string(),
+            "--bootstrap-block-size".to_string(),
+            "1000".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    // With the QC JSON on stdout, every message and result goes to stderr,
+    // in order.
+    let o = common::run(args("1", &["--qc-json", "-"]));
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(o.status.success(), "{stderr}");
+    let warning = "Warning: bootstrap replicates 2, 3 and 7 (3 of 8) would start from negative \
+                   transition probabilities (rho0 up to ";
+    let at = stderr.find(warning).unwrap_or_else(|| panic!("{stderr}"));
+    // Before the main fit.
+    let fitted = stderr.find("Last EM loglike").unwrap();
+    assert!(at < fitted, "{stderr}");
+    let line = stderr[at..].lines().next().unwrap();
+    assert!(
+        line.contains("above the limit of 0.166667 per bin)")
+            && line.contains("They will be skipped and the bands will come from the other 5")
+            && line.ends_with(
+                "To fit every replicate, start from --tr-ratio 4.41 or more (C psmc's -r)"
+            ),
+        "{line}"
+    );
+    assert!(
+        stderr[fitted..].contains("replicate_NNN.psmc; 5 of 8, replicates 2, 3 and 7 skipped)"),
+        "{stderr}"
+    );
+    let summary = json(&boot.join("summary.json"));
+    assert_eq!(summary["n_replicates"], 5);
+    assert_eq!(summary["skipped_replicates"], serde_json::json!([2, 3, 7]));
+    for n in 1..=8 {
+        let skipped = [2, 3, 7].contains(&n);
+        for ext in ["json", "psmc"] {
+            let file = boot.join(format!("replicate_{n:03}.{ext}"));
+            assert_eq!(file.exists(), !skipped, "{}", file.display());
+        }
+    }
+    let html = fs::read_to_string(dir.path("fit.html")).unwrap();
+    assert!(
+        html.contains("<tr><th>Skipped replicates</th><td>3 of 8 (2, 3, 7)</td></tr>"),
+        "the report names the skipped replicates"
+    );
+
+    // The advice fits every replicate.
+    let o = common::run(args("1", &["--tr-ratio", "4.41"]));
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(o.status.success(), "{stderr}");
+    assert!(!stderr.contains("negative transition"), "{stderr}");
+    let summary = json(&boot.join("summary.json"));
+    assert_eq!(summary["n_replicates"], 8);
+    assert_eq!(summary["skipped_replicates"], serde_json::json!([]));
+    fs::remove_file(&out).unwrap();
+
+    // No replicate can be fitted: an error before the main fit (here of no
+    // iterations, which refuses no start of its own).
+    let err = run_err(args("0", &["--tr-ratio", "2"]));
+    assert!(
+        err.contains(
+            "Error: every one of the 8 bootstrap replicates would start from negative \
+             transition probabilities"
+        ) && err.contains("start from --tr-ratio 4.41 or more"),
+        "{err}"
+    );
+    assert!(!err.contains("Last EM loglike"), "{err}");
+    assert!(!out.exists());
+}
+
 /// A bootstrap that cannot vary fails before the main fit.
 #[test]
 fn a_single_trunk_bootstrap_fails_before_fitting() {

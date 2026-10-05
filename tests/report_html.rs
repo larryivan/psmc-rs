@@ -180,6 +180,7 @@ fn the_bootstrap_section_states_its_caveat() {
     let m = model();
     let summary = BootstrapSummary {
         n_replicates: 30,
+        skipped_replicates: Vec::new(),
         block_size: 500_000,
         seed: 42,
         points: vec![BootstrapCurvePoint {
@@ -214,6 +215,7 @@ fn the_bootstrap_section_states_its_caveat() {
     assert!(!html.contains("0.90 to 0.92"));
     assert!(html.contains("each fitted from a fresh start"));
     assert!(!html.contains("C psmc -i -b"));
+    assert!(!html.contains("Skipped replicates") && !html.contains("were left out"));
     let series = js_const(&html, "series");
     assert!(
         series
@@ -246,6 +248,7 @@ fn a_bootstrap_from_saved_parameters_says_so() {
     let m = model();
     let summary = BootstrapSummary {
         n_replicates: 10,
+        skipped_replicates: Vec::new(),
         block_size: 20_000,
         seed: 42,
         points: Vec::new(),
@@ -265,6 +268,36 @@ fn a_bootstrap_from_saved_parameters_says_so() {
     assert!(html.contains("each fitted from the saved parameters the main fit continued"));
     assert!(html.contains("the band understates the uncertainty further"));
     assert!(!html.contains("each fitted from a fresh start"));
+}
+
+/// Replicates left out because their fresh start was invalid are counted
+/// and named, with the caveat that brings.
+#[test]
+fn skipped_replicates_are_reported() {
+    let m = model();
+    let summary = BootstrapSummary {
+        n_replicates: 18,
+        skipped_replicates: vec![3, 12],
+        block_size: 1_000,
+        seed: 42,
+        points: Vec::new(),
+    };
+    let html = render(&ReportData {
+        bootstrap: Some(BootstrapReport {
+            summary: &summary,
+            em_iters: 5,
+            trunks: Some(40),
+            started_from: None,
+        }),
+        ..base(&m)
+    });
+    assert!(html.contains("<tr><th>Replicates</th><td>18</td></tr>"));
+    assert!(html.contains("<tr><th>Skipped replicates</th><td>2 of 20 (3, 12)</td></tr>"));
+    assert!(html.contains(
+        "2 of the 20 replicates were left out: the fresh start of their resampled data had \
+         negative transition probabilities"
+    ));
+    assert!(html.contains("the band may be too narrow"));
 }
 
 #[test]

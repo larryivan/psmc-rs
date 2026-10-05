@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::bootstrap::{
-    BootstrapConfig, BootstrapOptions, BootstrapSummary, bootstrap_trunk_count,
-    default_bootstrap_dir, rows_to_sequences, run_bootstrap_with_options,
-    summarize_bootstrap_models,
+    BootstrapConfig, BootstrapOptions, BootstrapSummary, InvalidReplicateStart,
+    bootstrap_trunk_count, default_bootstrap_dir, invalid_replicate_starts, rows_to_sequences,
+    run_bootstrap_with_options, summarize_bootstrap_models,
 };
 use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{
@@ -393,11 +393,43 @@ fn infer(
     // parameters (-i with -b).
     let fresh_start = (model.t_max, tr_ratio);
     let saved_start = cli.init_params.is_some().then(|| model.clone());
+    let boot = match (&bootstrap, &boot_seqs) {
+        (Some(plan), Some((seqs, trunks))) => {
+            let cfg = BootstrapConfig {
+                replicates: plan.replicates,
+                trunk_size: plan.trunk_size,
+                seed: plan.seed,
+                em_iters: plan.em_iters,
+                t_max: fresh_start.0,
+                tr_ratio: fresh_start.1,
+                batch_size: cli.input.batch_size,
+                out_dir: Some(plan.dir.clone()),
+            };
+            Some((plan, seqs, *trunks, cfg))
+        }
+        _ => None,
+    };
+    // A replicate's fresh start takes theta0 from its own resampled data,
+    // so it can be past the limit on rho when the main start is not. Such
+    // replicates are found now, before the main fit, and the bootstrap
+    // skips them.
+    let invalid_replicates = match &boot {
+        Some((_, seqs, _, cfg)) if saved_start.is_none() => {
+            invalid_replicate_starts(seqs, &model, cfg)?
+        }
+        _ => Vec::new(),
+    };
     // EM would refuse a start it cannot move from; refuse it here, with
-    // advice in this run's options. Bootstrap replicates start from saved
-    // parameters too.
+    // advice in this run's options that fits the replicates too. With
+    // saved parameters, every bootstrap replicate starts from them, so
+    // they are checked even when the main fit runs no iteration.
     if n_iter > 0 || (bootstrap.is_some() && saved_start.is_some()) {
-        check_start(&model, cli)?;
+        check_start(&model, cli, replicates_tr_ratio(&invalid_replicates))?;
+    }
+    if let Some((_, _, _, cfg)) = &boot
+        && let Some(msg) = invalid_replicates_warning(cli, &model, cfg, &invalid_replicates)?
+    {
+        sink(Event::Warning(msg));
     }
 
     let mstep_config = MStepConfig {
@@ -464,21 +496,11 @@ fn infer(
 
     let bin_size = cli.input.bin_size as f64;
     let mut boot_summary = None;
-    if let (Some(plan), Some((seqs, trunks))) = (&bootstrap, &boot_seqs) {
-        let cfg = BootstrapConfig {
-            replicates: plan.replicates,
-            trunk_size: plan.trunk_size,
-            seed: plan.seed,
-            em_iters: plan.em_iters,
-            t_max: fresh_start.0,
-            tr_ratio: fresh_start.1,
-            batch_size: cli.input.batch_size,
-            out_dir: Some(plan.dir.clone()),
-        };
+    if let Some((plan, seqs, trunks, cfg)) = &boot {
         let summary = bootstrap_stage(
             seqs,
             &model,
-            &cfg,
+            cfg,
             saved_start.as_ref(),
             &mstep_config,
             (bin_size, cli.gen_years),
@@ -660,10 +682,101 @@ fn fit_start(cli: &InferArgs, layout: &PsmcModel, obs: &Observations) -> Option<
     Some(FitStart::new(layout, theta0, rho0, false))
 }
 
+/// The warning about the bootstrap replicates of `cfg` whose fresh start
+/// is `invalid` ([`invalid_replicate_starts`]), which the bootstrap skips,
+/// with the start that lets every replicate be fitted; an error when that
+/// is all of them, before the main fit. `model` is the main fit's start.
+fn invalid_replicates_warning(
+    cli: &InferArgs,
+    model: &PsmcModel,
+    cfg: &BootstrapConfig,
+    invalid: &[InvalidReplicateStart],
+) -> Result<Option<String>> {
+    let Some(first) = invalid.first() else {
+        return Ok(None);
+    };
+    let numbers: Vec<usize> = invalid.iter().map(|r| r.index + 1).collect();
+    let highest_rho0 = invalid.iter().map(|r| r.start.rho).fold(0.0, f64::max);
+    let past = match first.start.max_rho {
+        Some(limit) => {
+            format!("rho0 up to {highest_rho0:.6}, above the limit of {limit:.6} per bin")
+        }
+        None => format!("rho0 up to {highest_rho0:.6} per bin"),
+    };
+    // Replicates take the main start's theta0/rho0.
+    let advice = match (replicates_tr_ratio(invalid), cli.rho0) {
+        (Some(ratio), Some(_)) => format!(
+            "start from a --rho0 of {} or less, which gives every replicate theta0/rho0 {ratio} \
+             or more",
+            round_down(model.theta / ratio)
+        ),
+        (Some(ratio), None) => format!("start from --tr-ratio {ratio} or more (C psmc's -r)"),
+        (None, _) => "start from a smaller rho0".to_string(),
+    };
+    if invalid.len() == cfg.replicates {
+        bail!(
+            "every one of the {} bootstrap replicates would start from negative transition \
+             probabilities ({past}): their theta0, from their own resampled data, sets their \
+             rho0, so none of them can be fitted. To fit them, {advice}",
+            cfg.replicates
+        );
+    }
+    let fitted = cfg.replicates - invalid.len();
+    Ok(Some(format!(
+        "bootstrap {} ({} of {}) would start from negative transition probabilities ({past}): \
+         their resampled data are more heterozygous than the input, and their theta0, from \
+         those data, sets their rho0. They will be skipped and the bands will come from the \
+         other {fitted}; leaving out the most heterozygous resamples can make the bands too \
+         narrow. To fit every replicate, {advice}",
+        list_replicates(&numbers),
+        invalid.len(),
+        cfg.replicates
+    )))
+}
+
+/// The smallest theta0/rho0 at which every one of the `invalid` replicate
+/// starts is valid; `None` without any, or when one has no limit.
+fn replicates_tr_ratio(invalid: &[InvalidReplicateStart]) -> Option<f64> {
+    if invalid.is_empty() {
+        return None;
+    }
+    invalid
+        .iter()
+        .map(|r| r.start.min_tr_ratio())
+        .collect::<Option<Vec<f64>>>()
+        .map(|ratios| ratios.into_iter().fold(0.0, f64::max))
+}
+
+/// `x` rounded down to 6 significant digits, for a bound not to be passed.
+fn round_down(x: f64) -> f64 {
+    if !(x.is_finite() && x > 0.0) {
+        return x;
+    }
+    let scale = 10f64.powi(5 - x.log10().floor() as i32);
+    (x * scale).floor() / scale
+}
+
+/// Replicates by number: "replicate 3", "replicates 3 and 7", or the first
+/// five and how many more ("replicates 2, 3, 4, 5, 6 and 4 more").
+fn list_replicates(numbers: &[usize]) -> String {
+    let shown: Vec<String> = numbers.iter().take(5).map(usize::to_string).collect();
+    match (numbers.len(), shown.as_slice()) {
+        (1, [one]) => format!("replicate {one}"),
+        (n, [rest @ .., last]) if n <= 5 => format!("replicates {} and {last}", rest.join(", ")),
+        (n, _) => format!(
+            "replicates {} and {} more",
+            shown.join(", "),
+            n - shown.len()
+        ),
+    }
+}
+
 /// Refuse a start from which EM cannot move
 /// ([`PsmcModel::check_transitions`]), as EM would, but with advice in the
-/// options of this run ([`start_advice`]).
-fn check_start(model: &PsmcModel, cli: &InferArgs) -> Result<()> {
+/// options of this run ([`start_advice`]). `replicates_ratio` is the
+/// theta0/rho0 that the bootstrap replicates need
+/// ([`replicates_tr_ratio`]), if more than the start's.
+fn check_start(model: &PsmcModel, cli: &InferArgs, replicates_ratio: Option<f64>) -> Result<()> {
     let Err(e) = model.check_transitions() else {
         return Ok(());
     };
@@ -673,7 +786,7 @@ fn check_start(model: &PsmcModel, cli: &InferArgs) -> Result<()> {
     bail!(
         "EM cannot start from these parameters: {}. {}",
         negative.finding(),
-        start_advice(cli, negative)
+        start_advice(cli, negative, replicates_ratio)
     )
 }
 
@@ -681,24 +794,46 @@ fn check_start(model: &PsmcModel, cli: &InferArgs) -> Result<()> {
 /// `negative`: with `--init-params`, which rules out the options of a
 /// fresh start, by lowering rho in the saved file; otherwise with a
 /// smaller `--rho0` when one was given, and with `--tr-ratio` (C psmc's
-/// `-r`) or `--rho0` when not. Smaller bins also lower rho per bin.
-fn start_advice(cli: &InferArgs, negative: &NegativeTransitions) -> String {
-    let limit = negative.max_rho.map(|rho| format!(" below {rho:.6}"));
-    let limit = limit.as_deref().unwrap_or("");
-    match (&cli.init_params, cli.rho0, negative.min_tr_ratio()) {
+/// `-r`) or `--rho0` when not. Smaller bins also lower rho per bin. The
+/// ratio advised is at least `replicates_ratio`, which the bootstrap
+/// replicates need ([`replicates_tr_ratio`]), so that following the advice
+/// fits them too.
+fn start_advice(
+    cli: &InferArgs,
+    negative: &NegativeTransitions,
+    replicates_ratio: Option<f64>,
+) -> String {
+    let own = negative.min_tr_ratio();
+    let ratio = own.map(|r| replicates_ratio.map_or(r, |b| r.max(b)));
+    // The bootstrap replicates, which take theta0 from their own resampled
+    // data, can need a larger ratio than the start.
+    let replicates = if ratio > own {
+        "; the bootstrap replicates, whose theta0 comes from their own resampled data, need \
+         that much"
+    } else {
+        ""
+    };
+    match (&cli.init_params, cli.rho0, ratio) {
         (Some(path), ..) => format!(
-            "Set rho in {}{limit}, or fit from a fresh start instead of --init-params",
-            path.display()
+            "Set rho in {}{}, or fit from a fresh start instead of --init-params",
+            path.display(),
+            negative
+                .max_rho
+                .map_or(String::new(), |rho| format!(" below {rho:.6}"))
         ),
-        (None, Some(_), _) => format!(
-            "Re-bin the data with fewer base pairs per bin, or give a smaller --rho0{limit}"
+        (None, Some(_), Some(ratio)) => format!(
+            "Re-bin the data with fewer base pairs per bin, or give a --rho0 of {} or less \
+             (theta0/rho0 {ratio} or more{replicates})",
+            round_down(negative.theta / ratio)
         ),
         (None, None, Some(ratio)) => format!(
             "Re-bin the data with fewer base pairs per bin, or start from a smaller rho0: \
-             --tr-ratio {ratio} or more (C psmc's -r), or a --rho0{limit}"
+             --tr-ratio {ratio} or more (C psmc's -r), or a --rho0 of {} or less{replicates}",
+            round_down(negative.theta / ratio)
         ),
-        (None, None, None) => "Re-bin the data with fewer base pairs per bin, or start from a \
-                               smaller rho0 with a larger --tr-ratio (C psmc's -r) or --rho0"
+        (None, _, None) => "Re-bin the data with fewer base pairs per bin, or start from a \
+                            smaller rho0 with a larger --tr-ratio (C psmc's -r) or a smaller \
+                            --rho0"
             .to_string(),
     }
 }
@@ -893,16 +1028,25 @@ fn bootstrap_stage(
     }
     sink(progress(0));
     let on_done = |n: usize| sink(progress(n));
+    // A fresh start can be invalid for some replicates
+    // ([`invalid_replicates_warning`] named them); saved parameters are the
+    // main fit's start, checked before it.
     let opts = BootstrapOptions {
         cancel: Some(cancel),
         thread_pool: Some(pool),
         on_done: Some(&on_done),
         start,
+        skip_invalid_starts: start.is_none(),
     };
     let replicates = run_bootstrap_with_options(seqs, model, cfg, mstep_config, opts)?;
     write_replicate_psmc(dir, &replicates)?;
+    let mut fitted = vec![false; cfg.replicates];
+    for r in &replicates {
+        fitted[r.index] = true;
+    }
+    let skipped: Vec<usize> = (1..=cfg.replicates).filter(|&n| !fitted[n - 1]).collect();
     let models: Vec<PsmcModel> = replicates.into_iter().map(|r| r.model).collect();
-    let summary = summarize_bootstrap_models(
+    let mut summary = summarize_bootstrap_models(
         model,
         &models,
         bin_size,
@@ -910,9 +1054,20 @@ fn bootstrap_stage(
         cfg.trunk_size,
         cfg.seed,
     )?;
+    let skipped_note = if skipped.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; {} of {}, {} skipped",
+            summary.n_replicates,
+            cfg.replicates,
+            list_replicates(&skipped)
+        )
+    };
+    summary.skipped_replicates = skipped;
     let (summary_tsv, summary_json) = write_bootstrap_summary(dir, &summary)?;
     sink(Event::Output(format!(
-        "Bootstrap replicates (replicate_NNN.json, replicate_NNN.psmc): {}",
+        "Bootstrap replicates (replicate_NNN.json, replicate_NNN.psmc{skipped_note}): {}",
         dir.display()
     )));
     sink(Event::Output(format!(

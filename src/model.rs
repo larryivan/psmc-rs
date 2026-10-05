@@ -661,18 +661,31 @@ struct Coalescent {
 /// θ0 = −ln(1 − K/L), where K counts heterozygous (`K`) bins and L counts
 /// non-missing bins.
 pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
+    let (n_het, n_observed) = rows
+        .iter()
+        .map(|row| theta_counts(row))
+        .fold((0, 0), |(k, l), (rk, rl)| (k + rk, l + rl));
+    theta_from_counts(n_het, n_observed)
+}
+
+/// The counts [`initial_theta`] takes from `bins`: heterozygous (`K`) bins
+/// and non-missing bins.
+pub(crate) fn theta_counts(bins: &[u8]) -> (usize, usize) {
     let mut n_het = 0usize;
     let mut n_observed = 0usize;
-    for row in rows {
-        for &v in row {
-            if v == 1 {
-                n_het += 1;
-            }
-            if v != 2 {
-                n_observed += 1;
-            }
+    for &v in bins {
+        if v == 1 {
+            n_het += 1;
+        }
+        if v != 2 {
+            n_observed += 1;
         }
     }
+    (n_het, n_observed)
+}
+
+/// [`initial_theta`] from its counts ([`theta_counts`]).
+pub(crate) fn theta_from_counts(n_het: usize, n_observed: usize) -> Result<f64> {
     if n_observed == 0 {
         bail!("no observed (non-N) sites found in input");
     }

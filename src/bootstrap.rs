@@ -14,6 +14,14 @@
 //! starts its replicates from those parameters too; see
 //! [`BootstrapOptions::start`].
 //!
+//! A replicate's fresh start takes θ0 from its own resampled data, so a
+//! resample more heterozygous than the input starts from a larger ρ0. Near
+//! the limit on ρ of PSMC's transition probabilities
+//! ([`PsmcModel::check_transitions`]), some replicates can start past it
+//! while the main fit does not. [`invalid_replicate_starts`] finds them
+//! before anything is fitted, and [`BootstrapOptions::skip_invalid_starts`]
+//! leaves them out instead of failing.
+//!
 //! # Choosing the trunk size
 //!
 //! Replicates are built from whole trunks, so the trunk count bounds how much
@@ -71,7 +79,9 @@ use crate::em::{EmHistory, EmOptions, em_train_with_options};
 use crate::hmm::Cancelled;
 use crate::io::Observations;
 use crate::io::common::chunk_sequences;
-use crate::model::{PsmcModel, initial_theta};
+use crate::model::{
+    NegativeTransitions, PsmcModel, initial_theta, theta_counts, theta_from_counts,
+};
 use crate::opt::MStepConfig;
 use crate::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 
@@ -94,8 +104,14 @@ pub struct BootstrapCurvePoint {
 /// the main curve ([`summarize_bootstrap_models`]).
 #[derive(Debug, Clone, Serialize)]
 pub struct BootstrapSummary {
-    /// Number of replicates.
+    /// Number of replicates summarised.
     pub n_replicates: usize,
+    /// The replicates left out (numbered from 1, as their files), because
+    /// the fresh start of their resampled data had negative transition
+    /// probabilities ([`BootstrapOptions::skip_invalid_starts`]); empty
+    /// from [`summarize_bootstrap_models`], which sees only the fitted
+    /// replicates.
+    pub skipped_replicates: Vec<usize>,
     /// Trunk size in bins ([`BootstrapConfig::trunk_size`]).
     pub block_size: usize,
     /// Base seed of the resampling.
@@ -452,7 +468,11 @@ pub fn replicate_initial_model(
     tr_ratio: f64,
 ) -> Result<PsmcModel> {
     check_fresh_start(t_max, tr_ratio)?;
-    let theta0 = initial_theta(rows)?;
+    fresh_start(template, initial_theta(rows)?, t_max, tr_ratio)
+}
+
+/// [`replicate_initial_model`] at θ0 = `theta0`.
+fn fresh_start(template: &PsmcModel, theta0: f64, t_max: f64, tr_ratio: f64) -> Result<PsmcModel> {
     PsmcModel::new(
         t_max,
         template.n_steps,
@@ -461,6 +481,80 @@ pub fn replicate_initial_model(
         template.mu,
         template.pattern.clone(),
     )
+}
+
+/// A bootstrap replicate whose fresh start has negative transition
+/// probabilities ([`invalid_replicate_starts`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct InvalidReplicateStart {
+    /// The replicate, 0-based as for [`replicate_rng`] (its files are
+    /// numbered `index + 1`).
+    pub index: usize,
+    /// Its start: θ0 of its resampled data, ρ0 = θ0 / `tr_ratio`, the limit
+    /// on ρ and the smallest θ/ρ ratio under it.
+    pub start: NegativeTransitions,
+}
+
+/// The replicates of `cfg` whose fresh start ([`replicate_initial_model`]
+/// on the resampled data) has negative transition probabilities, so that
+/// EM cannot fit them, in replicate order.
+///
+/// The resampling is redone as [`run_bootstrap`] does it, from trunk
+/// counts alone and without copying the data, so this is cheap enough to
+/// run before a long main fit. It finds exactly the replicates that
+/// [`BootstrapOptions::skip_invalid_starts`] leaves out. It applies to
+/// fresh starts only: replicates that start from saved parameters
+/// ([`BootstrapOptions::start`]) all start where the main fit does.
+///
+/// # Errors
+///
+/// As [`run_bootstrap`] for unusable settings (see
+/// [`bootstrap_trunk_count`]), and for a replicate whose resampled data
+/// give no θ0 (no non-missing bin, or every one heterozygous), which
+/// [`run_bootstrap`] would fail on too.
+pub fn invalid_replicate_starts(
+    seqs: &[Vec<u8>],
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+) -> Result<Vec<InvalidReplicateStart>> {
+    bootstrap_trunk_count(seqs, cfg.trunk_size)?;
+    check_fresh_start(cfg.t_max, cfg.tr_ratio)?;
+    let mut lengths = Vec::new();
+    let mut counts = Vec::new();
+    for seq in seqs {
+        for range in trunk_ranges(seq.len(), cfg.trunk_size) {
+            lengths.push(range.len());
+            counts.push(theta_counts(&seq[range]));
+        }
+    }
+    let mut invalid = Vec::new();
+    for index in 0..cfg.replicates {
+        let rng = &mut replicate_rng(cfg.seed, index);
+        let (n_het, n_observed) = resample_chunk_indices(&lengths, |n| uniform_index(rng, n))
+            .into_iter()
+            .map(|i| counts[i])
+            .fold((0, 0), |(k, l), (ck, cl)| (k + ck, l + cl));
+        let start = theta_from_counts(n_het, n_observed)
+            .and_then(|theta0| fresh_start(template, theta0, cfg.t_max, cfg.tr_ratio))
+            .with_context(|| format!("bootstrap replicate {}", index + 1))?;
+        if let Some(start) = negative_transitions(&start)? {
+            invalid.push(InvalidReplicateStart { index, start });
+        }
+    }
+    Ok(invalid)
+}
+
+/// The [`NegativeTransitions`] of `model`, if its transition probabilities
+/// are negative; other failures of [`PsmcModel::check_transitions`] are
+/// errors.
+fn negative_transitions(model: &PsmcModel) -> Result<Option<NegativeTransitions>> {
+    match model.check_transitions() {
+        Ok(()) => Ok(None),
+        Err(e) => match e.downcast::<NegativeTransitions>() {
+            Ok(negative) => Ok(Some(negative)),
+            Err(e) => Err(e),
+        },
+    }
 }
 
 fn check_fresh_start(t_max: f64, tr_ratio: f64) -> Result<()> {
@@ -544,6 +638,11 @@ impl Default for BootstrapConfig {
 /// the last call of a successful run has `n == cfg.replicates`; other
 /// workers wait while it runs, so keep it cheap.
 ///
+/// A replicate whose fresh start has negative transition probabilities is
+/// an error here, as for EM (see [`invalid_replicate_starts`]);
+/// [`BootstrapOptions::skip_invalid_starts`] leaves such replicates out
+/// instead.
+///
 /// [`run_bootstrap_with_options`] also returns each replicate's EM history
 /// and data counts.
 pub fn run_bootstrap(
@@ -556,9 +655,8 @@ pub fn run_bootstrap(
 ) -> Result<Vec<PsmcModel>> {
     let opts = BootstrapOptions {
         cancel,
-        thread_pool: None,
         on_done: Some(on_done),
-        start: None,
+        ..BootstrapOptions::default()
     };
     let replicates = run_bootstrap_with_options(seqs, template, cfg, mstep_cfg, opts)?;
     Ok(replicates.into_iter().map(|r| r.model).collect())
@@ -586,6 +684,17 @@ pub struct BootstrapOptions<'a> {
     /// replicates that run few iterations from them stay close to them, and
     /// the bands understate the uncertainty more than those of a fresh start.
     pub start: Option<&'a PsmcModel>,
+    /// Leave out the replicates whose fresh start has negative transition
+    /// probabilities (exactly those of [`invalid_replicate_starts`]) instead
+    /// of failing: they are not fitted, no file is written for them, they
+    /// count as done for `on_done`, and the result lacks them. Without it,
+    /// such a replicate stops the bootstrap with EM's error.
+    ///
+    /// These are the resamples more heterozygous than the others, so
+    /// leaving them out can narrow the bands; report how many were left
+    /// out. Saved starting parameters ([`BootstrapOptions::start`]) are the
+    /// same for every replicate and never skipped.
+    pub skip_invalid_starts: bool,
 }
 
 /// The size of a replicate's resampled data, as C psmc's `MM` header line
@@ -624,6 +733,9 @@ impl ReplicateData {
 /// One fitted bootstrap replicate.
 #[derive(Debug)]
 pub struct BootstrapReplicate {
+    /// Which replicate it is, 0-based as for [`replicate_rng`]; its files
+    /// are numbered `index + 1` ([`replicate_json_path`]).
+    pub index: usize,
     /// The fitted model, with its matrices recalculated.
     pub model: PsmcModel,
     /// Its EM history, from its starting parameters on.
@@ -646,9 +758,10 @@ impl BootstrapReplicate {
 }
 
 /// [`run_bootstrap`] with a thread pool and, optionally, saved starting
-/// parameters ([`BootstrapOptions::start`]), returning each replicate's
-/// model, EM history and data counts (for its `.psmc` output), in replicate
-/// order.
+/// parameters ([`BootstrapOptions::start`]) or skipped invalid starts
+/// ([`BootstrapOptions::skip_invalid_starts`]), returning each fitted
+/// replicate's number, model, EM history and data counts (for its `.psmc`
+/// output), in replicate order.
 pub fn run_bootstrap_with_options(
     seqs: &[Vec<u8>],
     template: &PsmcModel,
@@ -668,6 +781,7 @@ pub fn run_bootstrap_with_options(
         thread_pool,
         on_done,
         start,
+        skip_invalid_starts,
     } = opts;
     match start {
         Some(start) => {
@@ -698,17 +812,25 @@ pub fn run_bootstrap_with_options(
     // before the one holding n, and a progress display would step backwards.
     let finished = Mutex::new(0usize);
 
-    let fit_replicate = |rep: usize| -> Result<BootstrapReplicate> {
+    // `None` for a replicate left out (`skip_invalid_starts`).
+    let fit_replicate = |rep: usize| -> Result<Option<BootstrapReplicate>> {
         if is_cancelled() {
             return Err(Cancelled.into());
         }
-        let fit = || -> Result<BootstrapReplicate> {
+        let fit = || -> Result<Option<BootstrapReplicate>> {
             let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
             let data = ReplicateData::of(&sampled);
             let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
             let mut model = match start {
                 Some(start) => start.clone(),
-                None => replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?,
+                None => {
+                    let model =
+                        replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?;
+                    if skip_invalid_starts && negative_transitions(&model)?.is_some() {
+                        return Ok(None);
+                    }
+                    model
+                }
             };
             let em_opts = EmOptions {
                 on_progress: None,
@@ -727,11 +849,12 @@ pub fn run_bootstrap_with_options(
             if let Some(dir) = &cfg.out_dir {
                 model.save_params(&replicate_json_path(dir, rep + 1))?;
             }
-            Ok(BootstrapReplicate {
+            Ok(Some(BootstrapReplicate {
+                index: rep,
                 model,
                 history,
                 data,
-            })
+            }))
         };
         let replicate = fit().with_context(|| format!("bootstrap replicate {}", rep + 1))?;
         let mut n = finished.lock().unwrap_or_else(PoisonError::into_inner);
@@ -745,12 +868,13 @@ pub fn run_bootstrap_with_options(
         (0..cfg.replicates)
             .into_par_iter()
             .map(fit_replicate)
-            .collect()
+            .collect::<Result<Vec<_>>>()
     };
-    match thread_pool {
+    let replicates = match thread_pool {
         Some(pool) => pool.install(run),
         None => run(),
-    }
+    }?;
+    Ok(replicates.into_iter().flatten().collect())
 }
 
 /// The points of [`PsmcModel::ne_curve`] with finite coordinates, a positive
@@ -864,6 +988,7 @@ pub fn summarize_bootstrap_models(
 
     Ok(BootstrapSummary {
         n_replicates: n_boot,
+        skipped_replicates: Vec::new(),
         block_size,
         seed,
         points,

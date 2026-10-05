@@ -89,10 +89,11 @@ pub fn write_main_psmc(
 }
 
 /// Write each replicate's `.psmc` output next to its JSON file,
-/// `replicate_NNN.psmc` in `dir`.
+/// `replicate_NNN.psmc` in `dir` (numbered as the replicate, so skipped
+/// replicates leave gaps).
 pub fn write_replicate_psmc(dir: &Path, replicates: &[BootstrapReplicate]) -> Result<()> {
-    for (i, rep) in replicates.iter().enumerate() {
-        let path = replicate_json_path(dir, i + 1).with_extension("psmc");
+    for rep in replicates {
+        let path = replicate_json_path(dir, rep.index + 1).with_extension("psmc");
         let file =
             File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
         rep.write_psmc(BufWriter::new(file))

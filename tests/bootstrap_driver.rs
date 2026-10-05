@@ -4,13 +4,14 @@
 //! independent of the thread count.
 
 use psmc_rs::bootstrap::{
-    BootstrapConfig, BootstrapOptions, DEFAULT_BOOTSTRAP_TRUNK, replicate_initial_model,
-    replicate_rng, resample_chunks, rows_to_sequences, run_bootstrap, run_bootstrap_with_options,
-    split_for_bootstrap,
+    BootstrapConfig, BootstrapOptions, DEFAULT_BOOTSTRAP_TRUNK, invalid_replicate_starts,
+    replicate_initial_model, replicate_rng, resample_chunks, rows_to_sequences, run_bootstrap,
+    run_bootstrap_with_options, split_for_bootstrap,
 };
 use psmc_rs::hmm::Cancelled;
 use psmc_rs::io::params::load_params;
 use psmc_rs::io::psmcfa::read_psmcfa;
+use psmc_rs::model::NegativeTransitions;
 use psmc_rs::opt::MStepConfig;
 use psmc_rs::{PsmcModel, initial_theta};
 use std::path::{Path, PathBuf};
@@ -529,4 +530,130 @@ fn batch_size_keeps_each_trunk_one_chain() {
         assert_eq!(max_rel_diff(a, b), 0.0, "replicate {rep}");
         assert_eq!(a.lam, b.lam, "replicate {rep}");
     }
+}
+
+/// Two sequences of ten 1000-bin trunks each, alternately 38% and 58%
+/// heterozygous (48% in all), so that resamples differ in their θ0.
+fn uneven_seqs() -> Vec<Vec<u8>> {
+    let trunk = |het_per_50: usize| (0..1000).map(move |i| u8::from(i % 50 < het_per_50));
+    (0..2)
+        .map(|_| {
+            (0..10)
+                .flat_map(|t| trunk(if t % 2 == 0 { 19 } else { 29 }))
+                .collect()
+        })
+        .collect()
+}
+
+/// A fresh start just below the limit on ρ for the whole input leaves
+/// some replicates, whose resampled data are more heterozygous, past it.
+/// `invalid_replicate_starts` finds exactly those before anything is
+/// fitted; `skip_invalid_starts` leaves them out, and without it they stop
+/// the bootstrap with EM's error.
+#[test]
+fn replicates_whose_fresh_start_is_invalid_are_found_and_can_be_skipped() {
+    let seqs = uneven_seqs();
+    let template = fitted_template();
+    let theta0 = initial_theta(&seqs).unwrap();
+    let limit = PsmcModel::new(15.0, N_STEPS, theta0, 0.5, 2.5e-8, Some(PATTERN.into()))
+        .unwrap()
+        .check_transitions()
+        .unwrap_err()
+        .downcast::<NegativeTransitions>()
+        .unwrap()
+        .max_rho
+        .unwrap();
+    let cfg = BootstrapConfig {
+        tr_ratio: theta0 / (0.995 * limit),
+        ..config(8, 1000, 1)
+    };
+    // The main start is valid.
+    replicate_initial_model(&template, &seqs, cfg.t_max, cfg.tr_ratio)
+        .unwrap()
+        .check_transitions()
+        .unwrap();
+
+    let invalid = invalid_replicate_starts(&seqs, &template, &cfg).unwrap();
+    let chunks = split_for_bootstrap(&seqs, cfg.trunk_size);
+    let mut expected = Vec::new();
+    for rep in 0..cfg.replicates {
+        let rows = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
+        let start = replicate_initial_model(&template, &rows, cfg.t_max, cfg.tr_ratio).unwrap();
+        if start.check_transitions().is_err() {
+            expected.push((rep, start.theta, start.rho));
+        }
+    }
+    let found: Vec<(usize, f64, f64)> = invalid
+        .iter()
+        .map(|r| (r.index, r.start.theta, r.start.rho))
+        .collect();
+    assert_eq!(found, expected);
+    assert!(
+        !invalid.is_empty() && invalid.len() < cfg.replicates,
+        "{found:?}"
+    );
+    for r in &invalid {
+        assert!(r.start.rho > r.start.max_rho.unwrap());
+        assert!(r.start.min_tr_ratio().unwrap() > cfg.tr_ratio);
+    }
+
+    let dir = std::env::temp_dir().join(format!("psmc_rs_skip_invalid_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let done = Mutex::new(Vec::new());
+    let on_done = |n: usize| done.lock().unwrap().push(n);
+    let opts = BootstrapOptions {
+        on_done: Some(&on_done),
+        skip_invalid_starts: true,
+        ..BootstrapOptions::default()
+    };
+    let cfg_files = BootstrapConfig {
+        out_dir: Some(dir.clone()),
+        ..cfg.clone()
+    };
+    let reps = run_bootstrap_with_options(&seqs, &template, &cfg_files, &mstep(), opts).unwrap();
+    let fitted: Vec<usize> = reps.iter().map(|r| r.index).collect();
+    let skipped: Vec<usize> = invalid.iter().map(|r| r.index).collect();
+    let all: Vec<usize> = (0..cfg.replicates).collect();
+    assert_eq!(
+        fitted,
+        all.iter()
+            .copied()
+            .filter(|i| !skipped.contains(i))
+            .collect::<Vec<_>>()
+    );
+    // Skipped replicates count as done, and have no file.
+    assert_eq!(
+        *done.lock().unwrap(),
+        (1..=cfg.replicates).collect::<Vec<_>>()
+    );
+    for i in all {
+        let file = dir.join(format!("replicate_{:03}.json", i + 1));
+        assert_eq!(file.exists(), fitted.contains(&i), "replicate {}", i + 1);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let err = run_bootstrap(&seqs, &template, &cfg, &mstep(), None, &no_progress).unwrap_err();
+    let message = format!("{err:#}");
+    assert!(
+        message.starts_with("bootstrap replicate ")
+            && message.contains("EM cannot start from these parameters"),
+        "{message}"
+    );
+    assert!(err.downcast_ref::<NegativeTransitions>().is_some());
+}
+
+/// Saved starting parameters are the same for every replicate: none is
+/// skipped for its data.
+#[test]
+fn saved_starts_are_never_skipped() {
+    let seqs = uneven_seqs();
+    let template = fitted_template();
+    let opts = BootstrapOptions {
+        start: Some(&template),
+        skip_invalid_starts: true,
+        ..BootstrapOptions::default()
+    };
+    let reps =
+        run_bootstrap_with_options(&seqs, &template, &config(3, 1000, 1), &mstep(), opts).unwrap();
+    assert_eq!(reps.iter().map(|r| r.index).collect::<Vec<_>>(), [0, 1, 2]);
 }

@@ -387,6 +387,20 @@ fn bootstrap_section(b: &BootstrapReport) -> String {
     let mut out =
         String::from(r#"<section class="card"><div class="meta"><h2>Bootstrap</h2><table>"#);
     row(&mut out, "Replicates", &count(s.n_replicates as u64));
+    let skipped = s.skipped_replicates.len();
+    if skipped > 0 {
+        let numbers: Vec<String> = s.skipped_replicates.iter().map(usize::to_string).collect();
+        row(
+            &mut out,
+            "Skipped replicates",
+            &format!(
+                "{} of {} ({})",
+                count(skipped as u64),
+                count((s.n_replicates + skipped) as u64),
+                numbers.join(", ")
+            ),
+        );
+    }
     row(&mut out, "Trunk size (bins)", &count(s.block_size as u64));
     if let Some(n) = b.trunks {
         row(&mut out, "Trunks resampled", &count(n as u64));
@@ -410,9 +424,16 @@ fn bootstrap_section(b: &BootstrapReport) -> String {
         ),
         None => ("each fitted from a fresh start", ""),
     };
+    let skipped_note = match skipped {
+        0 => String::new(),
+        n => format!(
+            " {n} of the {} replicates were left out: the fresh start of their resampled data had negative transition probabilities, which EM cannot fit. Their resamples were the most heterozygous, so without them the band may be too narrow.",
+            s.n_replicates + n
+        ),
+    };
     let _ = write!(
         out,
-        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, {fitted} on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations with psmc-rs's default start and objective (examples/bootstrap_calibration.rs, described in the README), the bootstrap standard deviation of log10 Ne was a median 0.85 (whole sequences as trunks) to 0.91 (1,000-bin trunks) of the true sampling standard deviation, and 0.74 to 0.78 at the oldest times, though at the most recent times whole-sequence trunks gave a band wider than the true spread; the estimator's bias, about a third of that standard deviation, does not show in the band at all. Few trunks give coarse bands.{saved_note}</div>"#,
+        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, {fitted} on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations with psmc-rs's default start and objective (examples/bootstrap_calibration.rs, described in the README), the bootstrap standard deviation of log10 Ne was a median 0.85 (whole sequences as trunks) to 0.91 (1,000-bin trunks) of the true sampling standard deviation, and 0.74 to 0.78 at the oldest times, though at the most recent times whole-sequence trunks gave a band wider than the true spread; the estimator's bias, about a third of that standard deviation, does not show in the band at all. Few trunks give coarse bands.{saved_note}{skipped_note}</div>"#,
     );
     out.push_str("</div></section>");
     out

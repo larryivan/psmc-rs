@@ -637,7 +637,7 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
     let ratio = rest.split_whitespace().next().unwrap();
     assert!(
         rest.starts_with(&format!(
-            "{ratio} or more (C psmc's -r), or a --rho0 below 0.16"
+            "{ratio} or more (C psmc's -r), or a --rho0 of 0.16"
         )),
         "{err}"
     );
@@ -647,7 +647,7 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
 
     let err = fit_err(&["--rho0", "0.3"]);
     assert!(err.contains(begins), "{err}");
-    assert!(err.contains("or give a smaller --rho0 below 0.16"), "{err}");
+    assert!(err.contains("or give a --rho0 of 0.16"), "{err}");
     assert!(!err.contains("--tr-ratio"), "{err}");
 
     // Saved parameters with that rho (written without iterations, which
