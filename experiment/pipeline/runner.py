@@ -23,6 +23,15 @@ Every attempt records its wall time, the peak RSS of its process tree
 (psutil, sampled every 50 ms, plus the main process's ``ru_maxrss`` from
 ``wait4``), its exit status and the machine's load average before and after;
 exclusive jobs also record the busiest other processes before they start.
+
+The jobs run the executables of this checkout (``target/release/psmc-rs``,
+the tools directory's binaries) and its pipeline code, which development
+may change while a long run goes on. The runner records the SHA-256 of the
+pipeline's Python files and of every executable a job names when it starts
+(:class:`Watch`), records the executables' checksums with every attempt,
+and starts no further job once one of them changes: it waits for the
+running jobs and exits, so that no record claims an identity its job did
+not run with. The next ``start`` identifies the tools afresh.
 """
 
 from __future__ import annotations
@@ -247,10 +256,11 @@ def job_environment(job: Job) -> Dict[str, str]:
 class Execution(threading.Thread):
     """Runs one job in its own process group and measures it."""
 
-    def __init__(self, job: Job, runs_dir: Path):
+    def __init__(self, job: Job, runs_dir: Path, executables: Optional[Dict[str, str]] = None):
         super().__init__(name=f"job:{job.id}", daemon=True)
         self.job = job
         self.runs_dir = Path(runs_dir)
+        self.executables = dict(executables or {})  # {portable path: SHA-256} of what the command runs
         self.proc: Optional[subprocess.Popen] = None
         self.result: Optional[Dict] = None
         self.started = time.time()
@@ -338,6 +348,7 @@ class Execution(threading.Thread):
             "cores": job.cores,
             "mem_gb": job.mem_gb,
             "exclusive": job.exclusive,
+            "executables": self.executables,
         }
         if busiest is not None:
             run["busiest_processes_before"] = busiest
@@ -558,6 +569,53 @@ class Logger:
                 f.write(line)
 
 
+def executables(command: Sequence[str]) -> List[Path]:
+    """The words of a command that are executable files (the tool, an interpreter, a wrapper)."""
+    out = []
+    for word in command:
+        p = Path(word)
+        if p.is_absolute() and p.is_file() and os.access(p, os.X_OK) and p not in out:
+            out.append(p)
+    return out
+
+
+def pipeline_files() -> List[Path]:
+    """The pipeline's Python files, which every Python step and job key depend on."""
+    return sorted((paths.EXPERIMENT / "pipeline").rglob("*.py"))
+
+
+class Watch:
+    """Files whose content must not change while a runner lives: its code and the executables its jobs run.
+
+    Checksums go through the runner's cache (by size and modification
+    time), so checking costs a ``stat`` per file unless a file was touched.
+    """
+
+    def __init__(self, files: Iterable[Path], cache: provenance.ChecksumCache):
+        self.cache = cache
+        self.snapshot: Dict[Path, str] = {}
+        for p in files:
+            p = Path(p).resolve()
+            if p not in self.snapshot and p.is_file():
+                self.snapshot[p] = cache.sha256(p)
+
+    def changed(self) -> List[Path]:
+        """The watched files that changed (or vanished) since the snapshot."""
+        out = []
+        for p, digest in self.snapshot.items():
+            try:
+                if self.cache.sha256(p) != digest:
+                    out.append(p)
+            except OSError:
+                out.append(p)
+        return out
+
+    def digests(self, files: Iterable[Path], runs_dir: Path) -> Dict[str, str]:
+        """``{portable path: SHA-256 at the snapshot}`` of ``files`` (the executables of one job)."""
+        return {paths.portable(str(p), runs_dir): self.snapshot[Path(p).resolve()]
+                for p in files if Path(p).resolve() in self.snapshot}
+
+
 class Daemon:
     """The scheduling loop. Runs in the foreground of whatever process calls :meth:`run`."""
 
@@ -574,6 +632,9 @@ class Daemon:
         self.keys: Dict[str, Dict] = {}
         self.stop_now = threading.Event()
         self.drain = threading.Event()
+        self.exes: Dict[str, List[Path]] = {jid: executables(j.command) for jid, j in graph.jobs.items()}
+        self.watch = Watch([*pipeline_files(), *(p for ps in self.exes.values() for p in ps)], self.cache)
+        self.halted: Optional[str] = None  # why no further job starts
 
     # -- state -------------------------------------------------------------
     def _deps_state(self, jid: str) -> str:
@@ -632,6 +693,7 @@ class Daemon:
                 "pid": os.getpid(),
                 "updated": time.time(),
                 "draining": self.drain.is_set(),
+                "halted": self.halted,
                 "running": running,
                 "failed": {j: self.reason.get(j, "") for j, s in self.state.items() if s == FAILED},
                 "blocked": {j: self.reason.get(j, "") for j, s in self.state.items() if s == BLOCKED},
@@ -641,7 +703,7 @@ class Daemon:
     # -- execution -----------------------------------------------------------
     def launch(self, job: Job) -> None:
         self.keys[job.id] = provenance.job_key(job, self.runs_dir, self.cache)
-        ex = Execution(job, self.runs_dir)
+        ex = Execution(job, self.runs_dir, executables=self.watch.digests(self.exes[job.id], self.runs_dir))
         self.running[job.id] = ex
         self.state[job.id] = RUNNING
         self.log(f"start {job.id} ({self.reason.get(job.id, '')}): {' '.join(job.command)}", job.experiment)
@@ -714,7 +776,10 @@ class Daemon:
             if not self.drain.is_set():
                 ready = [self.graph.jobs[j] for j in self.graph.order if self.state[j] == READY]
                 slots = [Slot(ex.job, ex.started) for ex in self.running.values()]
-                for job in pick(ready, slots, self.budget, self.graph.priority, time.time()):
+                chosen = pick(ready, slots, self.budget, self.graph.priority, time.time())
+                if chosen and self.code_or_tools_changed():
+                    chosen = []
+                for job in chosen:
                     self.launch(job)
                     started = True
             # Rewrite the state when it changed, once the processes of new jobs
@@ -732,7 +797,22 @@ class Daemon:
         self.write_state()
         counts = {s: sum(1 for v in self.state.values() if v == s) for s in (DONE, FAILED, BLOCKED, PENDING, READY)}
         self.log("runner finished: " + ", ".join(f"{v} {k}" for k, v in counts.items() if v))
-        return 1 if counts[FAILED] or counts[BLOCKED] else 0
+        if self.halted:
+            self.log(f"runner halted: {self.halted}")
+        return 1 if counts[FAILED] or counts[BLOCKED] or self.halted else 0
+
+    def code_or_tools_changed(self) -> bool:
+        """Whether a watched file changed; if so, start nothing more (drain) and say why."""
+        changed = self.watch.changed()
+        if not changed:
+            return False
+        names = ", ".join(paths.portable(str(p), self.runs_dir) for p in changed[:3]) + ("..." if len(changed) > 3 else "")
+        self.halted = (f"{names} changed since the runner started; no further job starts (running ones finish). "
+                       "Start the runner again to rerun what the change affects")
+        self.log(self.halted)
+        self.drain.set()
+        self.write_state()
+        return True
 
 
 def daemon_main(graph_factory: Callable[[], Graph], runs_dir: Path, budget: config.Budget, meta: Dict) -> int:

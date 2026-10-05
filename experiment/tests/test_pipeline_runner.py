@@ -223,6 +223,27 @@ class DaemonTests(Base):
         self.assertEqual(d.state["T/huge"], runner.BLOCKED)
         self.assertIn("64 GB", d.reason["T/huge"])
 
+    def test_executables_are_recorded_and_a_changed_one_stops_new_jobs(self):
+        tool = self.tmp / "tool.py"
+        tool.write_text("#!" + sys.executable + "\n" + FAKE_JOB)
+        tool.chmod(0o755)
+        a = self.job("T/a", ["a.txt"])
+        a.command = [str(tool), *a.command[2:]]
+        # b rewrites the tool (a rebuild during the run); c, after it, must not start.
+        b = Job(id="T/b", command=[sys.executable, "-c", f"open({str(tool)!r}, 'a').write('# rebuilt\\\\n'); "
+                                   f"open({str(self.tmp / 'b.txt')!r}, 'w').write('b')"],
+                inputs=[self.tmp / "a.txt"], outputs=[self.tmp / "b.txt"])
+        c = self.job("T/c", ["c.txt"], inputs=["b.txt"])
+        c.command = [str(tool), *c.command[2:]]
+        d, rc = self.run_daemon([a, b, c])
+        self.assertEqual(rc, 1)
+        self.assertEqual((d.state["T/a"], d.state["T/b"]), (runner.DONE, runner.DONE))
+        self.assertNotEqual(d.state["T/c"], runner.DONE)
+        self.assertEqual(self.runs_of("T/c"), 0)
+        self.assertIn("tool.py changed since the runner started", d.halted)
+        rec = json.loads(a.record_path(self.runs).read_text())
+        self.assertEqual(list(rec["run"]["executables"].values()), [d.watch.snapshot[tool.resolve()]])
+
 
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
 class DetachedRunner(Base):
