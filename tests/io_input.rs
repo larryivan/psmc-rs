@@ -88,6 +88,58 @@ fn formats_are_recognised_from_the_content() {
 }
 
 #[test]
+fn vcf_headers_need_not_start_with_fileformat() {
+    let body = call_c_vcf("c", 40, 4, 20);
+    let records: String = body.lines().skip(2).map(|l| format!("{l}\n")).collect();
+    let chrom_line = HEADER.lines().nth(1).unwrap();
+    let opts = InputOptions {
+        bin_size: 10,
+        filter: SeqFilter::DISABLED,
+        ..InputOptions::default()
+    };
+    let expected = load(
+        &TempFile::new("sniff_ref", "vcf", &body).0,
+        &InputOptions {
+            format: Some(InputFormat::Vcf),
+            ..opts.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(expected.obs.rows, vec![vec![1; 4]]);
+    // vcf2fq skips every '#' line and needs no header at all.
+    for text in [
+        format!("##contig=<ID=c,length=4000>\n{chrom_line}\n{records}"),
+        format!("##source=bcftools\n##fileformat=VCFv4.2\n{chrom_line}\n{records}"),
+        format!("\n{chrom_line}\n{records}"),
+        format!("# a comment\n{chrom_line}\n{records}"),
+        records.clone(),
+    ] {
+        let vcf = TempFile::new("sniff_vcf", "vcf", &text);
+        assert_eq!(
+            InputFormat::sniff(&vcf.0).unwrap(),
+            InputFormat::Vcf,
+            "{text}"
+        );
+        let data = load(&vcf.0, &opts).unwrap();
+        let SourceSummary::Vcf(v) = &data.source else {
+            panic!("not read as a VCF: {text}")
+        };
+        assert_eq!(v.mode.mode, VcfMode::Consensus);
+        assert_eq!(data.obs.rows, expected.obs.rows);
+    }
+
+    // Comment lines before multihetsep or psmcfa content are skipped.
+    let mhs = TempFile::new("sniff_mhs", "txt", "# made by hand\nchr1\t10\t10\tAC\n");
+    let psmcfa = TempFile::new("sniff_psmcfa", "txt", "# made by hand\n>chr1\nTTKN\n");
+    let comments = TempFile::new("sniff_comments", "txt", "# nothing else\n\n");
+    assert_eq!(InputFormat::sniff(&mhs.0).unwrap(), InputFormat::Mhs);
+    assert_eq!(InputFormat::sniff(&psmcfa.0).unwrap(), InputFormat::Psmcfa);
+    assert_eq!(InputFormat::sniff(&comments.0).unwrap(), InputFormat::Mhs);
+    let data = load(&mhs.0, &opts).unwrap();
+    assert_eq!(data.source.format(), InputFormat::Mhs);
+}
+
+#[test]
 fn auto_mode_reads_call_c_output_as_consensus() {
     let vcf = TempFile::new("mode_c", "vcf", &call_c_vcf("c", 200, 10, 20));
     let choice = detect_vcf_mode(&vcf.0).unwrap();

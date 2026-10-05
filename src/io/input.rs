@@ -53,9 +53,16 @@ impl InputFormat {
         }
     }
 
-    /// Guess the format from the content (gzip is decoded first): a VCF starts
-    /// with `##fileformat=VCF` or `#CHROM`, a psmcfa file with `>` (or `@`)
-    /// after optional blank lines, and anything else is taken as multihetsep.
+    /// Guess the format from the content (gzip is decoded first), skipping
+    /// blank lines:
+    ///
+    /// - a line starting with `##` (VCF meta-information such as
+    ///   `##fileformat`, `##contig` or `##source`) or `#CHROM` makes it a VCF;
+    /// - other lines starting with `#` are skipped as comments;
+    /// - the first other line decides: `>` or `@` starts a psmcfa file, a line
+    ///   of at least 8 tab-separated fields is a VCF record (of a VCF without
+    ///   header, which `vcfutils.pl vcf2fq` reads too), and anything else is
+    ///   multihetsep, as is a file of comments only.
     pub fn sniff(path: &Path) -> Result<InputFormat> {
         sniff_format(&mut Input::open(path)?, path)
     }
@@ -63,23 +70,32 @@ impl InputFormat {
 
 /// [`InputFormat::sniff`] on the first lines of `input`.
 fn sniff_format(input: &mut Input, path: &Path) -> Result<InputFormat> {
+    let mut comments = false;
     loop {
         let Some(line) = input.next_line(path)? else {
+            if comments {
+                return Ok(InputFormat::Mhs);
+            }
             bail!("{path:?} is empty, so its format cannot be recognised");
         };
         let s = line.trim_ascii();
         if s.is_empty() {
             continue;
         }
-        return Ok(
-            if s.starts_with(b"##fileformat=VCF") || s.starts_with(b"#CHROM") {
-                InputFormat::Vcf
-            } else if s[0] == b'>' || s[0] == b'@' {
-                InputFormat::Psmcfa
-            } else {
-                InputFormat::Mhs
-            },
-        );
+        if s[0] == b'#' {
+            if s.starts_with(b"##") || s.starts_with(b"#CHROM") {
+                return Ok(InputFormat::Vcf);
+            }
+            comments = true;
+            continue;
+        }
+        return Ok(if s[0] == b'>' || s[0] == b'@' {
+            InputFormat::Psmcfa
+        } else if s.split(|&b| b == b'\t').nth(7).is_some() {
+            InputFormat::Vcf
+        } else {
+            InputFormat::Mhs
+        });
     }
 }
 
