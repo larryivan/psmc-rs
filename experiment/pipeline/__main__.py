@@ -92,13 +92,13 @@ def runs_dir_of(args) -> Path:
     return (args.runs_dir or paths.default_runs_dir(args.profile)).resolve()
 
 
-def _running_meta(runs_dir: Path) -> dict:
-    if runner.daemon_alive(runs_dir) is None:
-        return {}
+def _last_meta(runs_dir: Path, profile: str) -> dict:
+    """The state the running (or else the last) runner of ``runs_dir`` wrote, if it ran ``profile``."""
     try:
-        return json.loads((runner.runner_dir(runs_dir) / "state.json").read_text())
+        state = json.loads((runner.runner_dir(runs_dir) / "state.json").read_text())
     except (OSError, ValueError):
         return {}
+    return state if state.get("profile") in (None, profile) else {}
 
 
 def make_graph(args, runs_dir: Path, build_tools: bool) -> runner.Graph:
@@ -159,7 +159,8 @@ def cmd_daemon(args) -> int:
 
 def cmd_status(args) -> int:
     runs_dir = runs_dir_of(args)
-    meta = _running_meta(runs_dir)
+    # Without experiments named: those of the running runner, or else of the last one.
+    meta = _last_meta(runs_dir, args.profile)
     if not args.experiments and not args.jobs_file and meta:
         args.experiments = meta.get("experiments") or []
         if meta.get("jobs_file"):

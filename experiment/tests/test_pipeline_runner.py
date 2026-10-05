@@ -270,6 +270,18 @@ class DaemonTests(Base):
         rec = json.loads(j.record_path(self.runs).read_text())
         self.assertGreater(rec["run"]["peak_rss_mb"], 70)
 
+    def test_a_job_whose_static_input_is_missing_is_blocked_not_pending(self):
+        j = self.job("T/s", ["s.txt"], inputs=["never_made.txt"])
+        statuses = runner.job_statuses(Graph([j], self.runs), self.runs, daemon_pid=None)
+        self.assertEqual(statuses[0].state, runner.BLOCKED)
+        self.assertIn("no job makes it", statuses[0].reason)
+        self.assertFalse((self.runs / "_runner").exists())  # status creates nothing
+
+    def test_key_differences_compare_as_json(self):
+        old = json.loads(json.dumps({"settings": {"a": [1, 2]}, "inputs": {}}))
+        self.assertEqual(provenance.key_differences(old, {"settings": {"a": (1, 2)}, "inputs": {}}), [])
+        self.assertEqual(provenance.key_differences(old, {"settings": {"a": (1, 3)}, "inputs": {}}), ["settings"])
+
     def test_unschedulable_job_is_blocked(self):
         j = self.job("T/huge", ["h.txt"], mem_gb=64.0)
         d, rc = self.run_daemon([j], config.Budget(cores=2, mem_gb=12))
@@ -345,6 +357,10 @@ class DetachedRunner(Base):
             self.assertEqual(self.runs_of(j.id), 1)
         self.assertLessEqual(len(done_before), 1)
         self.assertIn("runner finished: 3 done", (self.runs / "_runner" / "runner.log").read_text())
+        # With the runner gone, status without arguments reports the jobs the last runner ran.
+        st = self.cli("status")
+        self.assertIn("runner: not running", st.stdout)
+        self.assertRegex(st.stdout, r"\nT\s+3\s+0\s+0\s+0\s+0")
 
 
 if __name__ == "__main__":

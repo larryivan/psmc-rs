@@ -147,7 +147,11 @@ def machine() -> Dict:
 
 
 def key_differences(old: Dict, new: Dict) -> List[str]:
-    """Human-readable names of what changed between two keys."""
+    """Human-readable names of what changed between two keys.
+
+    Both are compared as JSON (a fresh key's tuples are a stored key's lists).
+    """
+    old, new = json.loads(json.dumps(old)), json.loads(json.dumps(new))
     out = []
     for field in ("command", "env", "settings", "tools", "seeds"):
         if old.get(field) != new.get(field):

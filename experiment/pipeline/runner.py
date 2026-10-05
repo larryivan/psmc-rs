@@ -610,8 +610,10 @@ class NoMachineLock(MachineLock):
 
 
 def daemon_alive(runs_dir: Path) -> Optional[int]:
-    """The PID of the running daemon of ``runs_dir``, or None."""
+    """The PID of the running daemon of ``runs_dir``, or None (without creating anything in ``runs_dir``)."""
     lock = Lock(runs_dir)
+    if not lock.path.exists():
+        return None
     if lock.acquire():
         lock.release()
         return None
@@ -1060,6 +1062,10 @@ def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None)
         job = graph.jobs[jid]
         if jid in running:
             out.append(JobStatus(job, RUNNING, elapsed=time.time() - running[jid]["start"]))
+            continue
+        absent = [p for p in graph.static_inputs[jid] if not Path(p).exists()]
+        if absent:  # no job of this graph makes it: waiting would be forever
+            out.append(JobStatus(job, BLOCKED, f"input missing, and no job makes it: {absent[0]}"))
             continue
         missing = [p for p in job.inputs if not Path(p).exists()]
         if missing:
