@@ -34,7 +34,9 @@
 //! mask intervals.
 
 use anyhow::{Context, Result, bail};
+use std::borrow::Cow;
 use std::cmp::{max, min};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -54,23 +56,100 @@ pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
 /// bins until memory runs out.
 pub(crate) const MAX_POS: u64 = 1 << 36;
 
-fn merge_intervals(mut xs: Vec<Interval>) -> Vec<Interval> {
-    if xs.is_empty() {
-        return xs;
+/// Sort `xs` and merge its overlapping and adjacent intervals, in place.
+fn merge_in_place(xs: &mut Vec<Interval>) {
+    if xs.len() < 2 {
+        return;
     }
-    xs.sort_unstable_by_key(|x| (x.0, x.1));
-    let mut out = Vec::with_capacity(xs.len());
-    let mut cur = xs[0];
-    for &(s, e) in &xs[1..] {
-        if s <= cur.1.saturating_add(1) {
-            cur.1 = max(cur.1, e);
+    xs.sort_unstable();
+    let mut w = 0;
+    for r in 1..xs.len() {
+        let (s, e) = xs[r];
+        if s <= xs[w].1.saturating_add(1) {
+            xs[w].1 = max(xs[w].1, e);
         } else {
-            out.push(cur);
-            cur = (s, e);
+            w += 1;
+            xs[w] = (s, e);
         }
     }
-    out.push(cur);
-    out
+    xs.truncate(w + 1);
+}
+
+fn merge_intervals(mut xs: Vec<Interval>) -> Vec<Interval> {
+    merge_in_place(&mut xs);
+    xs
+}
+
+/// The intervals of one chromosome (or the chromosome-less rows) of a mask,
+/// merged as they are added, so that memory follows the merged intervals
+/// rather than the rows: a mask of one row per callable site, as an
+/// all-sites VCF gives, is billions of rows for a human genome but a few
+/// million merged intervals.
+///
+/// A row that overlaps or touches the last interval extends it; in a sorted
+/// mask that merges every row that can be merged, and the list stays sorted
+/// and merged. Rows out of order are appended, and the list is sorted and
+/// merged again whenever it has doubled since the last time, which keeps the
+/// work at O(n log n) and the memory within twice the merged size (plus
+/// [`IntervalAcc::MIN_COMPACT`] rows).
+#[derive(Debug, Clone)]
+struct IntervalAcc {
+    xs: Vec<Interval>,
+    /// Whether `xs` is sorted and merged.
+    merged: bool,
+    /// Length at which an unmerged `xs` is merged again.
+    compact_at: usize,
+}
+
+impl Default for IntervalAcc {
+    fn default() -> Self {
+        Self {
+            xs: Vec::new(),
+            merged: true,
+            compact_at: Self::MIN_COMPACT,
+        }
+    }
+}
+
+impl IntervalAcc {
+    const MIN_COMPACT: usize = 1 << 16;
+
+    fn push(&mut self, (s, e): Interval) {
+        if let Some(last) = self.xs.last_mut() {
+            if s >= last.0 && s <= last.1.saturating_add(1) {
+                last.1 = max(last.1, e);
+                return;
+            }
+            if s < last.0 {
+                self.merged = false;
+            }
+        }
+        self.xs.push((s, e));
+        if !self.merged && self.xs.len() >= self.compact_at {
+            self.compact();
+        }
+    }
+
+    fn compact(&mut self) {
+        merge_in_place(&mut self.xs);
+        self.merged = true;
+        self.compact_at = max(2 * self.xs.len(), Self::MIN_COMPACT);
+    }
+
+    fn append(&mut self, other: IntervalAcc) {
+        for x in other.xs {
+            self.push(x);
+        }
+    }
+
+    /// The sorted, merged intervals.
+    fn finish(mut self) -> Vec<Interval> {
+        if !self.merged {
+            self.compact();
+        }
+        self.xs.shrink_to_fit();
+        self.xs
+    }
 }
 
 fn intersect_intervals(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
@@ -149,6 +228,119 @@ fn complement_intervals(intervals: &[Interval]) -> Vec<Interval> {
     out
 }
 
+/// The rows of one or more mask files, merged as they are read.
+#[derive(Debug, Default)]
+struct MaskAcc {
+    by_chrom: HashMap<String, IntervalAcc>,
+    global: IntervalAcc,
+}
+
+impl MaskAcc {
+    /// Add the rows of `path`. Rows of 3 or more columns are BED (`chrom
+    /// start end`, 0-based half-open) and apply to their chromosome; rows of
+    /// exactly 2 columns are `start end`, 1-based inclusive, and apply to
+    /// every chromosome. Blank lines and lines starting with `#` are skipped.
+    fn add_file(&mut self, path: &Path) -> Result<()> {
+        let mut reader = open_reader(path)?;
+        let mut line = Vec::<u8>::new();
+        let mut row_no = 0usize;
+        // The chromosome of the last BED row and its intervals, out of the
+        // map: consecutive rows of one chromosome need no lookup.
+        let mut cur: Option<(String, IntervalAcc)> = None;
+        let bad_row = |row_no: usize, what: &str| {
+            anyhow::anyhow!("invalid mask row {row_no} in {}: {what}", path.display())
+        };
+        let number = |field: &[u8], row_no: usize, what: &str| -> Result<u64> {
+            std::str::from_utf8(field)
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| bad_row(row_no, &format!("bad {what} '{}'", lossy(field))))
+        };
+        loop {
+            line.clear();
+            let n = reader
+                .read_until(b'\n', &mut line)
+                .with_context(|| format!("failed to read mask {path:?}"))?;
+            if n == 0 {
+                break;
+            }
+            row_no += 1;
+            let s = line.trim_ascii();
+            if s.is_empty() || s[0] == b'#' {
+                continue;
+            }
+            let mut cols = s.split(u8::is_ascii_whitespace).filter(|c| !c.is_empty());
+            let (Some(c0), Some(c1)) = (cols.next(), cols.next()) else {
+                return Err(bad_row(row_no, "expected 2 or 3+ columns"));
+            };
+            let Some(c2) = cols.next() else {
+                // Two-column mask format: start end (1-based inclusive).
+                let start = number(c0, row_no, "start")?;
+                let end = number(c1, row_no, "end")?;
+                if start == 0 || end < start {
+                    return Err(bad_row(row_no, "start/end out of range"));
+                }
+                self.global.push((start, end));
+                continue;
+            };
+            // BED: chrom start end, start 0-based and end 1-based exclusive.
+            let start0 = number(c1, row_no, "start")?;
+            let end_exclusive = number(c2, row_no, "end")?;
+            if end_exclusive <= start0 {
+                return Err(bad_row(row_no, "end must be > start"));
+            }
+            let interval = (start0 + 1, end_exclusive);
+            match &mut cur {
+                Some((name, acc)) if name.as_bytes() == c0 => acc.push(interval),
+                _ => {
+                    let name = std::str::from_utf8(c0)
+                        .map_err(|_| {
+                            bad_row(
+                                row_no,
+                                &format!(
+                                    "the chromosome name '{}' is not valid UTF-8",
+                                    c0.escape_ascii()
+                                ),
+                            )
+                        })?
+                        .to_string();
+                    if let Some((done, acc)) = cur.take() {
+                        self.put_back(done, acc);
+                    }
+                    let mut acc = self.by_chrom.remove(&name).unwrap_or_default();
+                    acc.push(interval);
+                    cur = Some((name, acc));
+                }
+            }
+        }
+        if let Some((done, acc)) = cur {
+            self.put_back(done, acc);
+        }
+        Ok(())
+    }
+
+    fn put_back(&mut self, chrom: String, acc: IntervalAcc) {
+        match self.by_chrom.entry(chrom) {
+            Entry::Occupied(mut e) => e.get_mut().append(acc),
+            Entry::Vacant(e) => {
+                e.insert(acc);
+            }
+        }
+    }
+
+    fn finish(self) -> MaskFile {
+        MaskFile {
+            by_chrom: self
+                .by_chrom
+                .into_iter()
+                .map(|(chrom, acc)| (chrom, acc.finish()))
+                .collect(),
+            global: self.global.finish(),
+        }
+    }
+}
+
+/// One mask (or the union of several), as sorted, merged intervals.
 #[derive(Debug, Clone, Default)]
 struct MaskFile {
     by_chrom: HashMap<String, Vec<Interval>>,
@@ -156,131 +348,30 @@ struct MaskFile {
 }
 
 impl MaskFile {
-    fn is_empty(&self) -> bool {
-        self.by_chrom.is_empty() && self.global.is_empty()
-    }
-
-    fn merge_all(&mut self) {
-        for v in self.by_chrom.values_mut() {
-            let merged = merge_intervals(std::mem::take(v));
-            *v = merged;
-        }
-        self.global = merge_intervals(std::mem::take(&mut self.global));
-    }
-
     fn union_from(paths: &[PathBuf]) -> Result<Self> {
-        let mut out = MaskFile::default();
+        let mut acc = MaskAcc::default();
         for p in paths {
-            let one = parse_mask_file(p)?;
-            out.global.extend(one.global);
-            for (chrom, intervals) in one.by_chrom {
-                out.by_chrom.entry(chrom).or_default().extend(intervals);
-            }
+            acc.add_file(p)?;
         }
-        out.merge_all();
-        Ok(out)
+        Ok(acc.finish())
     }
 
-    fn intervals_for_chrom(&self, chrom: &str) -> Vec<Interval> {
-        let mut out = Vec::<Interval>::new();
-        if let Some(v) = self.by_chrom.get(chrom) {
-            out.extend(v.iter().copied());
+    /// The intervals that apply to `chrom`: its own rows and the
+    /// chromosome-less ones, borrowed unless there are both.
+    fn intervals_for_chrom(&self, chrom: &str) -> Cow<'_, [Interval]> {
+        let own = self.by_chrom.get(chrom).map_or(&[][..], Vec::as_slice);
+        if self.global.is_empty() {
+            Cow::Borrowed(own)
+        } else if own.is_empty() {
+            Cow::Borrowed(&self.global)
+        } else {
+            Cow::Owned(merge_intervals([own, &self.global].concat()))
         }
-        if !self.global.is_empty() {
-            out.extend(self.global.iter().copied());
-        }
-        merge_intervals(out)
     }
 }
 
 fn parse_mask_file(path: &Path) -> Result<MaskFile> {
-    let mut reader = open_reader(path)?;
-    let mut line = String::new();
-    let mut out = MaskFile::default();
-    let mut row_no = 0usize;
-
-    loop {
-        line.clear();
-        let n = reader
-            .read_line(&mut line)
-            .with_context(|| format!("failed to read mask {path:?}"))?;
-        if n == 0 {
-            break;
-        }
-        row_no += 1;
-        let s = line.trim();
-        if s.is_empty() || s.starts_with('#') {
-            continue;
-        }
-        let cols: Vec<&str> = s.split_whitespace().collect();
-        if cols.len() < 2 {
-            bail!(
-                "invalid mask row {} in {}: expected 2 or 3+ columns",
-                row_no,
-                path.display()
-            );
-        }
-
-        if cols.len() == 2 {
-            // Two-column mask format: start end (1-based inclusive).
-            let start: u64 = cols[0].parse().with_context(|| {
-                format!(
-                    "invalid mask row {} in {}: bad start '{}'",
-                    row_no,
-                    path.display(),
-                    cols[0]
-                )
-            })?;
-            let end: u64 = cols[1].parse().with_context(|| {
-                format!(
-                    "invalid mask row {} in {}: bad end '{}'",
-                    row_no,
-                    path.display(),
-                    cols[1]
-                )
-            })?;
-            if start == 0 || end < start {
-                bail!(
-                    "invalid mask row {} in {}: start/end out of range",
-                    row_no,
-                    path.display()
-                );
-            }
-            out.global.push((start, end));
-        } else {
-            // BED-like format: chrom start end where start is 0-based and end is 1-based exclusive.
-            let chrom = cols[0].to_string();
-            let start0: u64 = cols[1].parse().with_context(|| {
-                format!(
-                    "invalid mask row {} in {}: bad start '{}'",
-                    row_no,
-                    path.display(),
-                    cols[1]
-                )
-            })?;
-            let end_exclusive: u64 = cols[2].parse().with_context(|| {
-                format!(
-                    "invalid mask row {} in {}: bad end '{}'",
-                    row_no,
-                    path.display(),
-                    cols[2]
-                )
-            })?;
-            if end_exclusive <= start0 {
-                bail!(
-                    "invalid mask row {} in {}: end must be > start",
-                    row_no,
-                    path.display()
-                );
-            }
-            let start = start0 + 1;
-            let end = end_exclusive;
-            out.by_chrom.entry(chrom).or_default().push((start, end));
-        }
-    }
-
-    out.merge_all();
-    Ok(out)
+    MaskFile::union_from(std::slice::from_ref(&path.to_path_buf()))
 }
 
 /// The callable set: the intersection of the positive masks (every position
@@ -317,23 +408,27 @@ impl MaskEngine {
     }
 
     /// Sorted, merged positions of `chrom` that are outside the callable set.
+    /// Only this list is built: the masks' own intervals are not copied
+    /// unless several of them have to be combined.
     pub(crate) fn uncallable_for_chrom(&self, chrom: &str) -> Vec<Interval> {
-        let neg = if self.negatives.is_empty() {
-            Vec::new()
-        } else {
-            self.negatives.intervals_for_chrom(chrom)
-        };
+        let neg = self.negatives.intervals_for_chrom(chrom);
         let Some((first, rest)) = self.positives.split_first() else {
-            return neg;
+            return neg.into_owned();
         };
         let mut callable = first.intervals_for_chrom(chrom);
         for m in rest {
             if callable.is_empty() {
                 break;
             }
-            callable = intersect_intervals(&callable, &m.intervals_for_chrom(chrom));
+            callable = Cow::Owned(intersect_intervals(
+                &callable,
+                &m.intervals_for_chrom(chrom),
+            ));
         }
-        complement_intervals(&subtract_intervals(&callable, &neg))
+        if !neg.is_empty() {
+            callable = Cow::Owned(subtract_intervals(&callable, &neg));
+        }
+        complement_intervals(&callable)
     }
 }
 
@@ -373,7 +468,10 @@ pub struct VcfOptions {
     /// negative mask does. Rows with 3 or more columns are BED
     /// (`chrom start end`, 0-based half-open) and apply to that chromosome;
     /// rows with exactly 2 columns are `start end`, 1-based inclusive, and
-    /// apply to every chromosome.
+    /// apply to every chromosome. Rows may come in any order, and
+    /// overlapping or adjacent rows are merged as they are read, so a mask
+    /// of one row per callable site takes the memory of its merged
+    /// intervals, not of its rows.
     pub masks: Vec<PathBuf>,
     /// Masks of positions to exclude, in the same formats as `masks`.
     pub negative_masks: Vec<PathBuf>,
@@ -1207,4 +1305,94 @@ pub fn read_vcf(
         ..VcfOptions::default()
     };
     Ok(read_vcf_with(path, &opts)?.obs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// xorshift64*, enough for shuffling test rows.
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_F491_4F6C_DD1D) % n
+        }
+    }
+
+    #[test]
+    fn interval_acc_merges_like_sorting_everything_first() {
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+        // Sorted, nearly sorted and shuffled rows; with more rows than
+        // MIN_COMPACT the shuffled ones are compacted on the way.
+        for (n, swaps) in [(1_000, 0), (1_000, 50), (300_000, 300_000), (5, 5)] {
+            let mut rows: Vec<Interval> = (0..n)
+                .map(|i| {
+                    let s = 1 + 3 * i + rng.below(4);
+                    (s, s + rng.below(5))
+                })
+                .collect();
+            for _ in 0..swaps {
+                let (a, b) = (rng.below(n) as usize, rng.below(n) as usize);
+                rows.swap(a, b);
+            }
+            let mut acc = IntervalAcc::default();
+            for &r in &rows {
+                acc.push(r);
+            }
+            assert_eq!(acc.finish(), merge_intervals(rows), "n {n}, swaps {swaps}");
+        }
+        assert!(IntervalAcc::default().finish().is_empty());
+    }
+
+    #[test]
+    fn interval_acc_keeps_adjacent_rows_as_one_interval() {
+        let mut acc = IntervalAcc::default();
+        for s in 1..=1_000_000u64 {
+            acc.push((s, s));
+        }
+        assert_eq!(acc.xs, [(1, 1_000_000)]);
+        // Reversed rows are merged whenever the list doubles.
+        let mut acc = IntervalAcc::default();
+        for s in (1..=1_000_000u64).rev() {
+            acc.push((s, s));
+            assert!(acc.xs.len() <= IntervalAcc::MIN_COMPACT);
+        }
+        assert_eq!(acc.finish(), [(1, 1_000_000)]);
+    }
+
+    #[test]
+    fn mask_rows_may_come_in_any_order() {
+        let path = std::env::temp_dir().join(format!(
+            "psmc_rs_mask_rows_any_order_{}.bed",
+            std::process::id()
+        ));
+        // chr2 comes back after chr1, rows within a chromosome are out of
+        // order, and two-column rows apply to every chromosome.
+        let text = "# comment\nchr2\t10\t20\nchr1\t5\t6\nchr1\t0\t3\n\n\
+                    chr2\t20\t30\n100\t100\nchr1\t3\t5\nchr2\t0\t1\n";
+        std::fs::write(&path, text).unwrap();
+        let m = parse_mask_file(&path).unwrap();
+        assert_eq!(m.by_chrom["chr1"], [(1, 6)]);
+        assert_eq!(m.by_chrom["chr2"], [(1, 1), (11, 30)]);
+        assert_eq!(m.global, [(100, 100)]);
+        assert_eq!(*m.intervals_for_chrom("chr1"), [(1, 6), (100, 100)]);
+        assert_eq!(*m.intervals_for_chrom("chr3"), [(100, 100)]);
+
+        for (text, want) in [
+            ("chr1\t5\t6\nchr1\tx\t9\n", "invalid mask row 2"),
+            ("chr1\tx\t9\n", "bad start 'x'"),
+            ("10\t5\n", "start/end out of range"),
+            ("chr1\n", "expected 2 or 3+ columns"),
+            ("chr1\t9\t9\n", "end must be > start"),
+        ] {
+            std::fs::write(&path, text).unwrap();
+            let err = parse_mask_file(&path).unwrap_err().to_string();
+            assert!(err.contains(want), "{text:?}: {err}");
+        }
+        let _ = std::fs::remove_file(path);
+    }
 }
