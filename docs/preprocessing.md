@@ -267,6 +267,18 @@ combined. Each sequence runs to its `##contig` length
 (`--vcf-no-contig-end` stops it at its last record), and a chromosome
 without any record gives no sequence.
 
+A **gVCF** (GATK `-ERC GVCF`, DeepVariant `--output_gvcf`, `bcftools call
+-g`) is read the same way, record by record: psmc-rs does not read INFO/END,
+so the positions inside a reference or no-call block count as positions
+without a record, homozygous unless the mask leaves them out, and a no-call
+block (`./.`) is missing at its first position only. Its blocks do not make
+a callable set by themselves; they are what the callable mask below is made
+from. Give psmc-rs that mask together with the gVCF's variant records
+(`bcftools view -v snps,indels`, as below) or with the gVCF itself. A
+bcftools gVCF writes ALT `.` in its blocks, so `--vcf-mode auto` takes it
+for an all-sites VCF without the FQ field and stops; extract its variants,
+or give `--vcf-mode mask`.
+
 ### The callable mask
 
 Common ways to make one:
@@ -388,8 +400,10 @@ ancestry. At the same time nothing removes the false heterozygous calls of
 repeats and collapsed duplications, which push the other way. QC reports
 `VARIANTS_ONLY_NO_MASK` (a warning) whenever a VCF is read in mask mode
 without a positive mask. Give a callable mask (route B) or call all sites
-(route A). (`tests/pipeline/run_e2e.sh` reads the same simulated variants
-with and without the gVCF-derived mask and checks both outcomes.)
+(route A). A gVCF without a mask is no better: psmc-rs does not read how
+far its blocks reach (INFO/END; see [the variant calls](#the-variant-calls)).
+(`tests/pipeline/run_e2e.sh` reads the same simulated variants with and
+without the gVCF-derived mask and checks both outcomes.)
 
 ### Sex chromosomes and organelles
 

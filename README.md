@@ -179,7 +179,12 @@ chromosome. **A variants-only VCF needs a mask**: without one, every
 position the caller could not call counts as homozygous, which hides the
 missing data and pulls θ and Ne down, while false heterozygous calls in
 repeats that a mask would remove push them up. QC then reports
-`VARIANTS_ONLY_NO_MASK`.
+`VARIANTS_ONLY_NO_MASK`. **A gVCF needs a mask too**: psmc-rs does not read
+INFO/END, so the positions inside a reference or no-call block count as
+positions without a record (homozygous), and a no-call block is missing at
+its first position only. Make the callable mask from the gVCF's blocks and
+give it with the gVCF or with its variant records, as
+[docs/preprocessing.md](docs/preprocessing.md#the-callable-mask) shows.
 
 **Mode detection** (`--vcf-mode auto`, the default) looks at the first
 10,000 records. If at least half have ALT `.`, the file is an all-sites VCF:
