@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
 use serde::Serialize;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek};
+use std::io::{self, BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
 
 use crate::io::Observations;
@@ -18,6 +18,11 @@ use crate::io::Observations;
 /// `.vcf.gz` written by bcftools, GATK and tabix), which are a chain of
 /// independent members: a single-member decoder silently stops after the first
 /// block, which for current bgzip is often just the VCF header.
+///
+/// A BGZF file must end with BGZF's empty end-of-file block, as htslib
+/// checks: reading one without it to the end is an error, because a bgzip
+/// file cut at a block boundary (by an interrupted job) decodes cleanly and
+/// would otherwise pass for the whole input.
 pub fn open_reader(path: &Path) -> Result<Box<dyn BufRead>> {
     let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
     decoding_reader(file, path)
@@ -40,18 +45,93 @@ pub(crate) fn is_regular_file(path: &Path) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.is_file())
 }
 
+/// The empty block that ends every complete BGZF (bgzip) file, as htslib
+/// writes it and checks for it (SAM/BAM format specification, 4.1.2).
+const BGZF_EOF: [u8; 28] = [
+    0x1f, 0x8b, 0x08, 0x04, 0, 0, 0, 0, 0, 0xff, 0x06, 0, b'B', b'C', 0x02, 0, 0x1b, 0, 0x03, 0, 0,
+    0, 0, 0, 0, 0, 0, 0,
+];
+
 fn decoding_reader(file: File, path: &Path) -> Result<Box<dyn BufRead>> {
-    let mut buf = BufReader::new(file);
-    let is_gzip = {
-        let head = buf
-            .fill_buf()
-            .with_context(|| format!("failed to read {path:?}"))?;
-        head.len() >= 2 && head[0] == 0x1f && head[1] == 0x8b
-    };
-    if is_gzip {
-        Ok(Box::new(BufReader::new(MultiGzDecoder::new(buf))))
+    let mut file = file;
+    // The gzip header up to the first extra subfield's identifier, which is
+    // `BC` in a BGZF block. A pipe may deliver it in several reads.
+    let mut head = Vec::with_capacity(14);
+    (&mut file)
+        .take(14)
+        .read_to_end(&mut head)
+        .with_context(|| format!("failed to read {path:?}"))?;
+    let is_gzip = head.starts_with(&[0x1f, 0x8b]);
+    let is_bgzf = is_gzip && head.len() == 14 && head[3] & 4 != 0 && head[12..14] == *b"BC";
+    let raw = Cursor::new(head).chain(file);
+    Ok(if is_bgzf {
+        Box::new(BufReader::new(BgzfReader {
+            decoder: MultiGzDecoder::new(TailKeeper::new(raw)),
+        }))
+    } else if is_gzip {
+        Box::new(BufReader::new(MultiGzDecoder::new(raw)))
     } else {
-        Ok(Box::new(buf))
+        Box::new(BufReader::new(raw))
+    })
+}
+
+/// A reader that remembers the last [`BGZF_EOF`]`.len()` bytes it passed on.
+struct TailKeeper<R> {
+    inner: R,
+    tail: [u8; BGZF_EOF.len()],
+    /// Bytes of `tail` that have been filled.
+    filled: usize,
+}
+
+impl<R> TailKeeper<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            tail: [0; BGZF_EOF.len()],
+            filled: 0,
+        }
+    }
+
+    fn ends_with_bgzf_eof(&self) -> bool {
+        self.filled == BGZF_EOF.len() && self.tail == BGZF_EOF
+    }
+}
+
+impl<R: Read> Read for TailKeeper<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        let k = n.min(self.tail.len());
+        self.tail.copy_within(k.., 0);
+        let keep = self.tail.len() - k;
+        self.tail[keep..].copy_from_slice(&buf[n - k..n]);
+        self.filled = (self.filled + k).min(self.tail.len());
+        Ok(n)
+    }
+}
+
+/// Decodes a BGZF file and, at its end, checks for the empty block that
+/// ends a complete one. bgzip and bcftools write whole blocks, so a file
+/// left by an interrupted job usually ends at a block boundary and decodes
+/// without error; only the missing end-of-file block shows that the rest of
+/// the genome is gone. htslib warns about it, and bcftools refuses such a
+/// file; reading on would silently analyse part of the input.
+struct BgzfReader<R> {
+    decoder: MultiGzDecoder<TailKeeper<R>>,
+}
+
+impl<R: Read> Read for BgzfReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.decoder.read(buf)?;
+        if n == 0 && !buf.is_empty() && !self.decoder.get_ref().ends_with_bgzf_eof() {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the bgzip (BGZF) data end without the end-of-file marker block that ends \
+                 every complete BGZF file, so the file is probably truncated, for example by \
+                 an interrupted bcftools or bgzip run (bcftools refuses it too); create it \
+                 again",
+            ));
+        }
+        Ok(n)
     }
 }
 

@@ -1,8 +1,8 @@
 //! Compressed inputs: every reader must decode all gzip members (bgzip files are
 //! a chain of independent members) and must not rely on the `.gz` extension.
 
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::{Compression, GzBuilder};
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::io::vcf::read_vcf;
@@ -150,6 +150,88 @@ fn bgzip_style_mask_is_read_in_full() {
     let _ = fs::remove_file(mask);
     let _ = fs::remove_file(plain_mask);
     let _ = fs::remove_file(vcf);
+}
+
+/// The empty block that ends a complete BGZF file.
+const BGZF_EOF: [u8; 28] = [
+    0x1f, 0x8b, 0x08, 0x04, 0, 0, 0, 0, 0, 0xff, 0x06, 0, b'B', b'C', 0x02, 0, 0x1b, 0, 0x03, 0, 0,
+    0, 0, 0, 0, 0, 0, 0,
+];
+
+/// One BGZF block: a gzip member with BGZF's `BC` extra subfield, which
+/// holds the block size minus 1.
+fn bgzf_block(data: &[u8]) -> Vec<u8> {
+    let mut enc = GzBuilder::new()
+        .extra(vec![b'B', b'C', 2, 0, 0, 0])
+        .write(Vec::new(), Compression::default());
+    enc.write_all(data).expect("gzip write failed");
+    let mut block = enc.finish().expect("gzip finish failed");
+    let bsize = u16::try_from(block.len() - 1).expect("block too large");
+    block[16..18].copy_from_slice(&bsize.to_le_bytes());
+    block
+}
+
+/// `parts` as BGZF blocks, as bgzip writes them, with or without the
+/// end-of-file block.
+fn bgzf(parts: &[&[u8]], eof: bool) -> Vec<u8> {
+    let mut out: Vec<u8> = parts.iter().flat_map(|p| bgzf_block(p)).collect();
+    if eof {
+        out.extend_from_slice(&BGZF_EOF);
+    }
+    out
+}
+
+#[test]
+fn a_bgzip_file_without_its_end_of_file_block_is_an_error() {
+    let text = vcf_text();
+    let header_end = text.find("chr1\t").expect("records present");
+    let (header, body) = text.as_bytes().split_at(header_end);
+    // Blocks end at line ends, as bcftools writes them: a file cut after a
+    // block decodes cleanly.
+    let cut_at = body[..body.len() / 2]
+        .iter()
+        .rposition(|&b| b == b'\n')
+        .unwrap()
+        + 1;
+    let blocks = [header, &body[..cut_at], &body[cut_at..]];
+    let truncated = |e: anyhow::Error| {
+        let msg = format!("{e:#}");
+        assert!(
+            msg.contains("end-of-file marker") && msg.contains("truncated"),
+            "{msg}"
+        );
+    };
+
+    let path = unique_temp_path("bgzf_vcf", "vcf.gz");
+    fs::write(&path, bgzf(&blocks, true)).unwrap();
+    let full = read_vcf(&path, None, 100, None, &[], &[]).expect("complete BGZF must parse");
+    let n_het: usize = full.rows.iter().flatten().filter(|&&v| v == 1).count();
+    assert_eq!(n_het, 300);
+    for cut in [bgzf(&blocks[..2], false), bgzf(&blocks, false)] {
+        fs::write(&path, cut).unwrap();
+        truncated(read_vcf(&path, None, 100, None, &[], &[]).unwrap_err());
+    }
+
+    // The same for psmcfa input and for masks.
+    let psmcfa = unique_temp_path("bgzf_psmcfa", "psmcfa.gz");
+    let records = [&b">s1\nTTKT\n"[..], b">s2\nKKTT\n"];
+    fs::write(&psmcfa, bgzf(&records, true)).unwrap();
+    assert_eq!(read_psmcfa(&psmcfa, None).unwrap().rows.len(), 2);
+    fs::write(&psmcfa, bgzf(&records[..1], false)).unwrap();
+    truncated(read_psmcfa(&psmcfa, None).unwrap_err());
+
+    let mask = unique_temp_path("bgzf_mask", "bed.gz");
+    let rows = [&b"chr1\t0\t1000\n"[..], b"chr1\t1000\t300000\n"];
+    fs::write(&mask, bgzf(&rows[..1], false)).unwrap();
+    let plain = unique_temp_path("bgzf_mask_vcf", "vcf");
+    fs::write(&plain, &text).unwrap();
+    truncated(read_vcf(&plain, None, 100, None, std::slice::from_ref(&mask), &[]).unwrap_err());
+    fs::write(&mask, bgzf(&rows, true)).unwrap();
+    assert!(read_vcf(&plain, None, 100, None, std::slice::from_ref(&mask), &[]).is_ok());
+
+    for p in [path, psmcfa, mask, plain] {
+        let _ = fs::remove_file(p);
+    }
 }
 
 #[test]
