@@ -1,12 +1,14 @@
 //! Golden files from the real tools (tests/data/route_a, see its README):
 //! simulated reads called with `bcftools mpileup | bcftools call -c`, then
 //! `vcfutils.pl vcf2fq | fq2psmcfa` with several option sets, and SNP calls
-//! with callable masks through `generate_multihetsep.py`. The loader and the
-//! writers must reproduce them byte for byte.
+//! with callable masks through `generate_multihetsep.py`; and a 250x
+//! chromosome called with `bcftools call -c -A` (tests/data/route_a_keep_alts).
+//! The loader and the writers must reproduce them byte for byte.
 
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{
-    Dataset, InputFormat, InputOptions, SeqFilter, SourceSummary, VcfDetails, VcfMode, load,
+    Dataset, InputFormat, InputOptions, SeqFilter, SourceSummary, VcfDetails, VcfMode,
+    detect_vcf_mode, load,
 };
 use psmc_rs::io::psmcfa::{parse_psmcfa, read_psmcfa};
 use psmc_rs::io::write::{
@@ -227,6 +229,70 @@ fn auto_depth_matches_the_independent_computation() {
     assert_eq!((c.min_depth, c.max_depth), (min, max));
     assert!(c.depth.median > 0.0);
     assert_eq!(c.depth.histogram.iter().sum::<u64>(), c.depth.records);
+}
+
+/// tests/data/route_a_keep_alts (see its README): `bcftools call -c -A` at
+/// 250x, where most reference sites get an ALT allele.
+fn keep_alts(name: &str) -> PathBuf {
+    Path::new(DIR).join("../route_a_keep_alts").join(name)
+}
+
+#[test]
+fn call_c_with_alt_alleles_at_reference_sites_is_read_like_vcf2fq() {
+    let vcf = keep_alts("keep_alts.vcf.gz");
+    let choice = detect_vcf_mode(&vcf).unwrap();
+    assert_eq!(choice.mode, VcfMode::Consensus, "{}", choice.reason);
+    // The ALT '.' rule alone would not have chosen consensus mode.
+    assert_eq!(
+        (
+            choice.inspected,
+            choice.alt_dot,
+            choice.records_with_fq,
+            choice.span
+        ),
+        (3000, 1297, 3000, 3000)
+    );
+
+    let text = fs::read_to_string(keep_alts("expected/auto_depth.tsv")).unwrap();
+    let cols: Vec<&str> = text.split_whitespace().collect();
+    let (min, max): (u64, u64) = (cols[1].parse().unwrap(), cols[2].parse().unwrap());
+    let opts = InputOptions {
+        bin_size: 50,
+        consensus: ConsensusFilters {
+            depth: DepthThresholds::Auto,
+            ..ConsensusFilters::default()
+        },
+        filter: SeqFilter {
+            min_good_bases: 1000,
+            ..SeqFilter::default()
+        },
+        ..InputOptions::default()
+    };
+    let data = load(&vcf, &opts).unwrap();
+    let SourceSummary::Vcf(v) = &data.source else {
+        panic!("not a VCF summary")
+    };
+    let VcfDetails::Consensus(c) = &v.details else {
+        panic!("not consensus mode")
+    };
+    assert_eq!((c.min_depth, c.max_depth), (min, max));
+    let out = unique_temp_path("route_a_keep_alts", "psmcfa");
+    write_psmcfa(&out, &data).unwrap();
+    let ours = fs::read(&out).unwrap();
+    let _ = fs::remove_file(&out);
+    let expected = fs::read(keep_alts("expected/keep_alts.psmcfa")).unwrap();
+    assert!(
+        ours == expected,
+        "ours:\n{}\nexpected:\n{}",
+        String::from_utf8_lossy(&ours),
+        String::from_utf8_lossy(&expected)
+    );
+
+    // `call -cv` on the same reads: FQ on every record, but variant sites
+    // only, so mask mode.
+    let choice = detect_vcf_mode(&keep_alts("variants_c.vcf.gz")).unwrap();
+    assert_eq!(choice.mode, VcfMode::Mask, "{}", choice.reason);
+    assert_eq!((choice.inspected, choice.records_with_fq), (17, 17));
 }
 
 #[test]

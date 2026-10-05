@@ -1,0 +1,6 @@
+generated: 2026-10-05
+bcftools: bcftools 1.24 Using htslib 1.24 
+perl: v5.34.1
+python3: Python 3.14.6
+sha256 vcfutils.pl: 801930c5cc64caf1c411fd31ea36aaca96c0c7315b70109901d334e65222354e
+sha256 fq2psmcfa: 26fd3ab234afa9535834aec20145ca1fcff0b31f1de1e0ad81fffbc08484b3fc

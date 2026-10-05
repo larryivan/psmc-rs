@@ -182,7 +182,11 @@ fn auto_mode_reads_variants_only_vcfs_with_masks() {
     let choice = detect_vcf_mode(&vcf.0).unwrap();
     assert_eq!(choice.mode, VcfMode::Mask);
     assert_eq!((choice.inspected, choice.alt_dot), (3, 1));
-    assert!(choice.reason.contains("variants-only"), "{}", choice.reason);
+    assert!(
+        choice.reason.contains("VCF of variant sites"),
+        "{}",
+        choice.reason
+    );
 
     let data = load(
         &vcf.0,
@@ -236,7 +240,9 @@ fn mode_detection_thresholds() {
     let line = |pos: u64, alt: &str, info: &str| {
         format!("c\t{pos}\t.\tA\t{alt}\t50\t.\t{info}\tGT\t0/0\n")
     };
-    let build = |n_dot: u64, n_dot_fq: u64, n_var: u64| {
+    // Records at consecutive positions: `n_dot` with ALT '.' (the first
+    // `n_dot_fq` of them with FQ), then `n_var` with ALT C and `var_info`.
+    let build = |n_dot: u64, n_dot_fq: u64, n_var: u64, var_info: &str| {
         let mut s = String::from(HEADER);
         let mut pos = 0;
         for i in 0..n_dot {
@@ -246,32 +252,96 @@ fn mode_detection_thresholds() {
         }
         for _ in 0..n_var {
             pos += 1;
-            s.push_str(&line(pos, "C", "DP=5;FQ=30"));
+            s.push_str(&line(pos, "C", var_info));
         }
         s
     };
+    let detect = |text: &str| detect_vcf_mode(&TempFile::new("mode_t", "vcf", text).0);
     // Exactly 50% ALT '.' with exactly 90% FQ: consensus.
-    let f = TempFile::new("mode_t", "vcf", &build(10, 9, 10));
-    assert_eq!(detect_vcf_mode(&f.0).unwrap().mode, VcfMode::Consensus);
+    let choice = detect(&build(10, 9, 10, "DP=5")).unwrap();
+    assert_eq!(choice.mode, VcfMode::Consensus);
+    assert_eq!(
+        (
+            choice.alt_dot,
+            choice.alt_dot_with_fq,
+            choice.records_with_fq
+        ),
+        (10, 9, 9)
+    );
     // 89% FQ: error.
-    let f = TempFile::new("mode_t", "vcf", &build(100, 89, 100));
-    assert!(detect_vcf_mode(&f.0).is_err());
-    // Just under 50% ALT '.': mask.
-    let f = TempFile::new("mode_t", "vcf", &build(9, 9, 10));
-    assert_eq!(detect_vcf_mode(&f.0).unwrap().mode, VcfMode::Mask);
+    assert!(detect(&build(100, 89, 100, "DP=5")).is_err());
+    // Just under 50% ALT '.', without FQ on the other records: mask.
+    let choice = detect(&build(9, 9, 10, "DP=5")).unwrap();
+    assert_eq!((choice.mode, choice.span), (VcfMode::Mask, 19));
+    assert!(choice.reason.contains("INFO/FQ"), "{}", choice.reason);
     // No records at all: mask.
-    let f = TempFile::new("mode_t", "vcf", HEADER);
-    let choice = detect_vcf_mode(&f.0).unwrap();
+    let choice = detect(HEADER).unwrap();
     assert_eq!((choice.mode, choice.inspected), (VcfMode::Mask, 0));
     // Only the first records are inspected.
     let n = MODE_DETECTION_RECORDS;
-    let mut s = build(0, 0, n);
+    let mut s = build(0, 0, n, "DP=5");
     for pos in n + 1..=3 * n {
         s.push_str(&line(pos, ".", "DP=5;FQ=-30"));
     }
-    let f = TempFile::new("mode_t", "vcf", &s);
-    let choice = detect_vcf_mode(&f.0).unwrap();
+    let choice = detect(&s).unwrap();
     assert_eq!((choice.mode, choice.inspected), (VcfMode::Mask, n));
+}
+
+#[test]
+fn dense_call_c_vcfs_with_alt_alleles_at_reference_sites_are_consensus() {
+    // `bcftools call -c -A` at high depth: most reference calls (FQ < 0)
+    // have an ALT allele, and every record carries FQ.
+    let line = |chrom: &str, pos: u64, alt: &str, fq: Option<&str>| {
+        let fq = fq.map_or(String::new(), |q| format!(";FQ={q}"));
+        format!("{chrom}\t{pos}\t.\tA\t{alt}\t50\t.\tDP=30;MQ=50;AF1=0{fq}\tGT\t0/0\n")
+    };
+    // `n` records, one every `step` positions from `start`, a third with ALT
+    // '.', and FQ on all but `no_fq` of them.
+    let build = |chrom: &str, start: u64, n: u64, step: u64, no_fq: u64| {
+        (0..n)
+            .map(|i| {
+                let alt = if i % 3 == 0 { "." } else { "G" };
+                let fq = (i >= no_fq).then_some("-40");
+                line(chrom, start + i * step, alt, fq)
+            })
+            .collect::<String>()
+    };
+    let detect = |records: String| {
+        detect_vcf_mode(&TempFile::new("mode_a", "vcf", &format!("{HEADER}{records}")).0).unwrap()
+    };
+
+    let choice = detect(build("c", 1, 300, 1, 0));
+    assert_eq!(choice.mode, VcfMode::Consensus);
+    assert_eq!(
+        (
+            choice.inspected,
+            choice.alt_dot,
+            choice.records_with_fq,
+            choice.span
+        ),
+        (300, 100, 300, 300)
+    );
+    assert!(choice.reason.contains("call -c -A"), "{}", choice.reason);
+    // Exactly 90% with FQ is enough, 89% is not.
+    assert_eq!(detect(build("c", 1, 300, 1, 30)).mode, VcfMode::Consensus);
+    let choice = detect(build("c", 1, 300, 1, 33));
+    assert_eq!(choice.mode, VcfMode::Mask);
+    assert!(choice.reason.contains("INFO/FQ"), "{}", choice.reason);
+    // Records at half of the positions they span are enough, fewer are not:
+    // 300 records over 599, 600 and 601 positions.
+    assert_eq!(detect(build("c", 1, 300, 2, 0)).mode, VcfMode::Consensus);
+    let with_last = |last: u64| build("c", 1, 299, 2, 0) + &line("c", last, "G", Some("-40"));
+    let choice = detect(with_last(600));
+    assert_eq!((choice.mode, choice.span), (VcfMode::Consensus, 600));
+    let choice = detect(with_last(601));
+    assert_eq!((choice.mode, choice.span), (VcfMode::Mask, 601));
+    assert!(choice.reason.contains("variant sites"), "{}", choice.reason);
+    // The span is counted per chromosome.
+    let choice = detect(build("a", 1_000_001, 150, 1, 0) + &build("b", 1, 150, 1, 0));
+    assert_eq!((choice.mode, choice.span), (VcfMode::Consensus, 300));
+    // A variants-only `call -cv` VCF carries FQ too, but is sparse.
+    let choice = detect(build("c", 1, 300, 500, 0));
+    assert_eq!(choice.mode, VcfMode::Mask);
 }
 
 #[test]

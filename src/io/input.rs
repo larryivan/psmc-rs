@@ -210,21 +210,38 @@ pub struct VcfModeChoice {
     pub alt_dot: u64,
     /// Of those, records with INFO/FQ.
     pub alt_dot_with_fq: u64,
+    /// Inspected records with INFO/FQ.
+    pub records_with_fq: u64,
+    /// Positions from the first to the last inspected record of each
+    /// chromosome, summed. An all-sites VCF has about one record per
+    /// position, a VCF of variant sites far fewer.
+    pub span: u64,
 }
 
-/// The [`VcfMode::Auto`] rule. Of the first [`MODE_DETECTION_RECORDS`] data
-/// records, if at least 50% have ALT `.` the file is an all-sites VCF: it is
-/// read in consensus mode when at least 90% of those carry INFO/FQ (as
-/// `bcftools call -c` writes), and is an error otherwise, because only the
-/// consensus caller's FQ tells vcf2fq how reliable a reference call is. Any
-/// other VCF (variants only) is read in mask mode.
+/// The [`VcfMode::Auto`] rule, applied to the first [`MODE_DETECTION_RECORDS`]
+/// data records:
+///
+/// - If at least 50% have ALT `.`, the file is an all-sites VCF. It is read
+///   in consensus mode when at least 90% of those carry INFO/FQ (as
+///   `bcftools call -c` writes), and is an error otherwise, because only the
+///   consensus caller's FQ tells vcf2fq how reliable a reference call is.
+/// - Otherwise it is also read in consensus mode when the records are at
+///   least half of the positions they [`span`](VcfModeChoice::span) (an
+///   all-sites VCF) and at least 90% of them carry INFO/FQ. This is
+///   `bcftools call -c -A` at high depth, which gives most reference sites an
+///   ALT allele seen in some read. A `bcftools call -cv` VCF of variant sites
+///   also carries FQ, but is far sparser.
+/// - Any other VCF is read in mask mode.
 pub fn detect_vcf_mode(path: &Path) -> Result<VcfModeChoice> {
     detect_mode(&mut Input::open(path)?, path)
 }
 
 /// [`detect_vcf_mode`] on the next lines of `input`.
 fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
-    let (mut inspected, mut alt_dot, mut with_fq) = (0u64, 0u64, 0u64);
+    let (mut inspected, mut alt_dot, mut with_fq, mut records_with_fq) = (0u64, 0u64, 0u64, 0u64);
+    let mut span = 0u64;
+    // The chromosome of the current block, and its lowest and highest POS.
+    let mut block: Option<(Vec<u8>, u64, u64)> = None;
     let mut data_bytes = 0usize;
     while inspected < MODE_DETECTION_RECORDS && data_bytes < MODE_DETECTION_BYTES {
         let Some(line) = input.next_line(path)? else {
@@ -235,14 +252,38 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         }
         data_bytes += line.len();
         let mut cols = line.trim_ascii_end().split(|&b| b == b'\t');
-        let (Some(alt), Some(info)) = (cols.nth(4), cols.nth(2)) else {
+        let (Some(chrom), Some(pos), Some(alt), Some(info)) =
+            (cols.next(), cols.next(), cols.nth(2), cols.nth(2))
+        else {
             continue;
         };
         inspected += 1;
+        let has_fq = info_has_fq(info);
+        records_with_fq += u64::from(has_fq);
         if alt == b"." {
             alt_dot += 1;
-            with_fq += u64::from(info_has_fq(info));
+            with_fq += u64::from(has_fq);
         }
+        let Some(pos) = std::str::from_utf8(pos)
+            .ok()
+            .and_then(|p| p.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        match &mut block {
+            Some((c, lo, hi)) if c.as_slice() == chrom => {
+                *lo = (*lo).min(pos);
+                *hi = (*hi).max(pos);
+            }
+            _ => {
+                if let Some((_, lo, hi)) = block.replace((chrom.to_vec(), pos, pos)) {
+                    span += hi - lo + 1;
+                }
+            }
+        }
+    }
+    if let Some((_, lo, hi)) = block {
+        span += hi - lo + 1;
     }
     let choice = |mode, reason: String| VcfModeChoice {
         mode,
@@ -251,6 +292,8 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         inspected,
         alt_dot,
         alt_dot_with_fq: with_fq,
+        records_with_fq,
+        span,
     };
     if inspected == 0 {
         return Ok(choice(
@@ -259,11 +302,39 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         ));
     }
     if 2 * alt_dot < inspected {
+        let dense = span > 0 && 2 * inspected >= span;
+        let density = if span == 0 {
+            0.0
+        } else {
+            100.0 * inspected as f64 / span as f64
+        };
+        if dense && 10 * records_with_fq >= 9 * inspected {
+            return Ok(choice(
+                VcfMode::Consensus,
+                format!(
+                    "consensus mode: only {alt_dot} of the first {inspected} records have ALT \
+                     '.', but there is a record for {density:.0}% of the positions they span \
+                     and {records_with_fq} carry INFO/FQ, as in an all-sites VCF from 'bcftools \
+                     call -c -A', which gives reference sites ALT alleles"
+                ),
+            ));
+        }
+        let why = if dense {
+            format!(
+                "only {records_with_fq} carry the INFO/FQ of 'bcftools call -c', which \
+                 consensus mode needs"
+            )
+        } else {
+            format!(
+                "there is a record for only {density:.1}% of the positions they span, as in a \
+                 VCF of variant sites"
+            )
+        };
         return Ok(choice(
             VcfMode::Mask,
             format!(
-                "mask mode: {alt_dot} of the first {inspected} records have ALT '.', so this is \
-                 a variants-only VCF"
+                "mask mode: {alt_dot} of the first {inspected} records have ALT '.' (fewer than \
+                 half), and {why}"
             ),
         ));
     }
@@ -848,6 +919,8 @@ fn load_vcf(
             inspected: 0,
             alt_dot: 0,
             alt_dot_with_fq: 0,
+            records_with_fq: 0,
+            span: 0,
         },
     };
     if choice.mode == VcfMode::Consensus {
