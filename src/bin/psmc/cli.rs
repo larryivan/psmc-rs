@@ -378,13 +378,15 @@ PSMC (Li & Durbin 2011): population size history from one diploid genome.
 psmc-rs INPUT OUTPUT N_ITER fits the model to INPUT (psmcfa, multihetsep or
 VCF) with N_ITER EM iterations and writes the parameters to OUTPUT (JSON)
 with an HTML report next to it. `psmc-rs convert` writes psmcfa and
-multihetsep files, and --tui opens an interactive interface.";
+multihetsep files, `psmc-rs qc` reports how suitable an input is, and
+--tui opens an interactive interface.";
 
 const AFTER_HELP: &str = "\
 Examples:
   psmc-rs sample.psmcfa fit.json 25 --psmc-out fit.psmc
   psmc-rs calls.vcf.gz fit.json 25 --bootstrap 100 --threads 8
-  psmc-rs convert calls.vcf.gz --psmcfa sample.psmcfa.gz";
+  psmc-rs convert calls.vcf.gz --psmcfa sample.psmcfa.gz
+  psmc-rs qc sample.psmcfa --json qc.json";
 
 /// The command line: inference unless a subcommand is given.
 #[derive(Parser, Debug, Clone)]
@@ -411,6 +413,9 @@ pub enum Command {
     /// Write an input (VCF, multihetsep or psmcfa) as psmcfa or
     /// multihetsep, read exactly as inference reads it
     Convert(ConvertArgs),
+    /// Report how suitable an input is for PSMC, read exactly as inference
+    /// reads it
+    Qc(QcArgs),
 }
 
 /// `psmc-rs convert`.
@@ -451,6 +456,31 @@ pub struct ConvertArgs {
     /// Print only results and warnings
     #[arg(long, short = 'q')]
     pub quiet: bool,
+}
+
+/// `psmc-rs qc`.
+#[derive(Args, Debug, Clone)]
+pub struct QcArgs {
+    /// Input file: psmcfa, multihetsep or VCF (gzip/bgzip allowed)
+    #[arg(value_name = "INPUT")]
+    pub input_file: PathBuf,
+
+    #[command(flatten)]
+    pub input: InputArgs,
+
+    /// Also write the report as JSON ('-' for stdout; the text report then
+    /// goes to stderr)
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
+    pub json: Option<PathBuf>,
+
+    /// Check the input for a bootstrap with trunks of this many bins (the
+    /// inference default is 500000)
+    #[arg(long, value_name = "BINS", value_parser = positive_usize)]
+    pub bootstrap_block_size: Option<usize>,
+
+    /// Exit with status 2 when the report has a warning
+    #[arg(long)]
+    pub strict: bool,
 }
 
 /// Inference: `psmc-rs INPUT OUTPUT N_ITER [options]`.
@@ -889,6 +919,12 @@ mod tests {
         assert_eq!(c.input_file, PathBuf::from("in.vcf.gz"));
         assert_eq!(c.input.bin_size, 50);
 
+        let cli = Cli::try_parse_from(["psmc-rs", "qc", "in.psmcfa", "--strict"]).unwrap();
+        let Some(Command::Qc(q)) = cli.command else {
+            panic!("not qc")
+        };
+        assert!(q.strict && q.json.is_none() && q.bootstrap_block_size.is_none());
+
         // Inference still takes its three positional arguments.
         let cli = Cli::try_parse_from(["psmc-rs", "in", "out", "5"]).unwrap();
         assert!(cli.command.is_none());
@@ -904,18 +940,7 @@ mod tests {
         assert!(err(&["psmc-rs", "convert", "in.vcf"]).contains("--psmcfa"));
         // Inference options do not apply to a subcommand: before it, the
         // subcommand's name is read as the inference input.
-        assert!(err(&["psmc-rs", "--threads", "4", "convert", "in.vcf"]).contains("N_ITER"));
-        assert!(
-            err(&[
-                "psmc-rs",
-                "convert",
-                "in.vcf",
-                "--psmcfa",
-                "o",
-                "--threads",
-                "4"
-            ])
-            .contains("--threads")
-        );
+        assert!(err(&["psmc-rs", "--threads", "4", "qc", "in.vcf"]).contains("N_ITER"));
+        assert!(err(&["psmc-rs", "qc", "in.vcf", "--threads", "4"]).contains("--threads"));
     }
 }

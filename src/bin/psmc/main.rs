@@ -1,10 +1,11 @@
-//! The `psmc-rs` program: inference (the default command), `convert` and
-//! the TUI.
+//! The `psmc-rs` program: inference (the default command), `convert`, `qc`
+//! and the TUI.
 
 mod cli;
 mod console;
 mod convert;
 mod dataset;
+mod qc;
 mod run;
 mod tui;
 
@@ -29,6 +30,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match &cli.command {
         Some(Command::Convert(args)) => convert::run(args),
+        Some(Command::Qc(args)) => qc::run(args),
         None if cli.infer.tui => tui::run_tui(&cli.infer).map(|()| ExitCode::SUCCESS),
         None => infer(&cli.infer),
     };
