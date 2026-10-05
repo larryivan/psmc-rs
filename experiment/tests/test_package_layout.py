@@ -103,7 +103,13 @@ class PackagedTables(unittest.TestCase):
 class Documentation(unittest.TestCase):
     def test_no_machine_specific_paths_in_docs_or_entry_points(self):
         exp = ROOT / "experiment"
-        files = list(exp.rglob("*.md")) + [exp / "run.py", exp / "requirements.txt"]
+        # Hidden directories (.venv, .tools with its psmc-rs 0.1 checkout,
+        # smoke runs) are local and ignored by git.
+        files = [
+            f
+            for f in exp.rglob("*.md")
+            if not any(part.startswith(".") for part in f.relative_to(exp).parts)
+        ] + [exp / "run.py", exp / "requirements.txt"]
         for f in files:
             text = f.read_text(encoding="utf-8")
             for needle in ("/Users/", "/home/", "miniforge"):
