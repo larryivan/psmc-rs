@@ -19,8 +19,8 @@ enforces both. On top of the model, psmc-rs
 - runs C psmc's bootstrap in one command, in parallel;
 - writes JSON parameters, an interactive HTML report, C psmc's `.psmc` output
   for `psmc_plot.pl`, and per-bin TMRCA posteriors;
-- is deterministic and multithreaded, with E-step memory that does not grow
-  with sequence length.
+- is deterministic and multithreaded, and its E-step keeps 1/128 of the
+  forward-backward matrices (a fit of human chromosome 1 peaks at 21 MB).
 
 Version 0.2.0 changed several defaults to C psmc's, so its results are not
 comparable with 0.1 runs made with default settings; see
@@ -470,12 +470,16 @@ Inputs, flags and outputs are covered in detail in [CHANGELOG.md](CHANGELOG.md).
 
 Results do not depend on `--threads` or `--batch-size`: a run writes the
 same bytes (JSON, `.psmc`, TMRCA and bootstrap files) with any thread
-count, which the tests check by running the binary. The E-step keeps
-forward and backward values every 128 bins instead of whole matrices, so
-its memory is about bins / 128 × states × 8 bytes per sequence in flight
-(plus about 0.3 MB), whatever the sequence length; `--batch-size` is no
-longer needed for memory. Sequences are processed in parallel, so `--threads`
-helps inputs of many sequences; a single long sequence runs on one thread.
+count, which the tests check by running the binary. Instead of whole
+forward and backward matrices, the E-step keeps one forward vector every
+128 bins and recomputes each 128-bin segment for the backward pass, so its
+memory still grows with sequence length, but at 1/128 of the rate: about
+bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
+With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
+at 21 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
+of eight copies of it (19.9 M bins). `--batch-size` is no longer needed
+for memory. Sequences are processed in parallel, so `--threads` helps
+inputs of many sequences; a single long sequence runs on one thread.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
