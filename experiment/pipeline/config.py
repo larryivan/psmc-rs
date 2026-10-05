@@ -499,20 +499,46 @@ class E4:
 
 @dataclass(frozen=True)
 class E5:
-    """Bootstrap calibration (Fig 6)."""
+    """Bootstrap calibration (Fig 6).
+
+    The truth: ``truth_replicates`` independent genomes of ``model``, each
+    fitted once by psmc-rs 0.2, give the sampling distribution of log10 Ne(t)
+    at every time of the grid (its SD is the true sampling SD). The
+    bootstrap: each of the first ``bootstrap_datasets`` genomes is
+    bootstrapped by psmc-rs 0.2 as C psmc does (``splitfa`` trunks drawn with
+    replacement up to the genome's length, every replicate fitted from a
+    fresh start with the same settings as the fits) with
+    ``bootstrap_replicates`` replicates at each trunk size of ``trunk_bins``.
+    Outcomes per grid time: bootstrap SD / true sampling SD of log10 Ne
+    (median over the datasets), and the share of datasets whose ``band``
+    percentile band covers the true Ne(t).
+
+    Seeds: the genomes ``seed("E5", model, r, "ancestry/<chrom>")`` and
+    ``"mutations/<chrom>"``, as every simulation; the bootstraps
+    ``seed("E5", model, r, "bootstrap/trunk<bins>")``, one per dataset and
+    trunk size.
+    """
 
     model: str = "bottleneck"
-    genome: Genome = Genome(n_chromosomes=6, chromosome_length=50_000_000)
+    genome: Genome = Genome(n_chromosomes=6, chromosome_length=50_000_000)  # 300 Mb
     simulation: Simulation = SIMULATION
     inference: Inference = INFERENCE
     scaling: Scaling = SIMULATION_SCALING
     truth_replicates: int = 50  # independent genomes, each fitted once
     bootstrap_datasets: int = 10  # the first genomes, bootstrapped
     bootstrap_replicates: int = 50
-    trunk_bins: Tuple[int, ...] = (500_000, 50_000)  # 50 Mb (default) and 5 Mb trunks
-    band: Tuple[float, float] = (0.025, 0.975)
+    # psmc-rs --bootstrap-block-size: 500,000 bins is its default and splitfa's
+    # (50 Mb at 100 bp, here one trunk per chromosome: 6 trunks); 50,000 bins
+    # cuts 5 Mb trunks (60).
+    trunk_bins: Tuple[int, ...] = (500_000, 50_000)
+    band: Tuple[float, float] = (0.025, 0.975)  # percentile band (psmc-rs's summary uses these)
     grid: TimeGrid = TimeGrid()
-    rs_threads: int = 1
+    rs_threads: int = 1  # psmc-rs --threads per fit
+    # psmc-rs --threads per bootstrap run: one each, so that the 20 runs of
+    # about 45 CPU minutes share the cores without idle threads at their ends
+    # (results do not depend on it).
+    bootstrap_threads: int = 1
+    example_dataset: int = 1  # the dataset whose bands Fig 6 shows
 
 
 @dataclass(frozen=True)
@@ -589,6 +615,15 @@ class Profile:
 
 PRODUCTION = Profile(name="production")
 
+# -- E5 (bootstrap calibration) at the smoke and tiny sizes ----------------
+# Smoke: 8 genomes of 2 x 2 Mb, the first 3 bootstrapped with 8 replicates at
+# trunks of 5,000 and 2,000 bins (8 and 20 trunks, as production's 6 and 60).
+# Tiny (unit tests): 3 genomes of one 300 kb chromosome, the first
+# bootstrapped with 3 replicates at trunks of 1,000 and 500 bins.
+_SMOKE_E5 = dict(truth_replicates=8, bootstrap_datasets=3, bootstrap_replicates=8, trunk_bins=(5_000, 2_000))
+_TINY_E5 = dict(truth_replicates=3, bootstrap_datasets=1, bootstrap_replicates=3, trunk_bins=(1_000, 500))
+# ---------------------------------------------------------------------------
+
 # The same code paths at a size that runs in a minute or two: 2 models x 2
 # replicates x 2 chromosomes of 2 Mb, 3 EM iterations.
 _SMOKE_GENOME = Genome(n_chromosomes=2, chromosome_length=2_000_000)
@@ -601,8 +636,7 @@ SMOKE = Profile(
           rs01_threads=(1, 2), rs02_threads=(1, 2), thread_scaling_size_mb=4, thread_scaling_threads=(1, 2),
           timing=QUICK_TIMING),
     e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
-    e5=replace(E5(), genome=_SMOKE_GENOME, truth_replicates=3, bootstrap_datasets=2, bootstrap_replicates=4,
-               trunk_bins=(5_000, 2_000), inference=_SMOKE_INFERENCE),
+    e5=replace(E5(), genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, **_SMOKE_E5),
 )
 
 # For the unit tests: one replicate of one model, one chromosome of 300 kb,
@@ -623,6 +657,7 @@ TINY = Profile(
         inference=replace(INFERENCE, n_iter=2),
         masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0), MaskSpec("dispersed30", 0.3, "dispersed", 20.0)),
     ),
+    e5=replace(E5(), genome=_TINY_GENOME, inference=replace(INFERENCE, n_iter=2), **_TINY_E5),
 )
 
 PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
