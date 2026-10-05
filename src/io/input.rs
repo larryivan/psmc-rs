@@ -30,7 +30,9 @@ use crate::io::consensus::{
 };
 use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
 use crate::io::psmcfa::parse_psmcfa;
-use crate::io::vcf::{VcfOptions, VcfSummary, no_het_snp_message, read_vcf_seqs_from};
+use crate::io::vcf::{
+    VcfOptions, VcfSummary, gvcf_block_end_of, no_het_snp_message, read_vcf_seqs_from,
+};
 
 /// Input file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -239,6 +241,8 @@ pub fn detect_vcf_mode(path: &Path) -> Result<VcfModeChoice> {
 /// [`detect_vcf_mode`] on the next lines of `input`.
 fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
     let (mut inspected, mut alt_dot, mut with_fq, mut records_with_fq) = (0u64, 0u64, 0u64, 0u64);
+    // gVCF blocks among the inspected records, for the reason given.
+    let mut gvcf_blocks = 0u64;
     let mut span = 0u64;
     // The chromosome of the current block, and its lowest and highest POS.
     let mut block: Option<(Vec<u8>, u64, u64)> = None;
@@ -270,6 +274,7 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         else {
             continue;
         };
+        gvcf_blocks += u64::from(gvcf_block_end_of(pos, alt, info).is_some());
         match &mut block {
             Some((c, lo, hi)) if c.as_slice() == chrom => {
                 *lo = (*lo).min(pos);
@@ -319,7 +324,12 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
                 ),
             ));
         }
-        let why = if dense {
+        let why = if gvcf_blocks > 0 {
+            format!(
+                "{gvcf_blocks} of them are reference or no-call blocks with INFO/END, as in a \
+                 gVCF"
+            )
+        } else if dense {
             format!(
                 "only {records_with_fq} carry the INFO/FQ of 'bcftools call -c', which \
                  consensus mode needs"

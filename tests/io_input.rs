@@ -212,6 +212,41 @@ fn auto_mode_reads_variants_only_vcfs_with_masks() {
 }
 
 #[test]
+fn auto_mode_names_a_gvcf_as_such() {
+    // DeepVariant: reference and no-call blocks with END, and variants
+    // with a symbolic <*> allele.
+    let text = format!(
+        "{HEADER}c\t1\t.\tA\t<*>\t0\t.\tEND=40\tGT:GQ\t0/0:50\n\
+         c\t41\t.\tA\tC,<*>\t50\tPASS\t.\tGT:GQ\t0/1:40\n\
+         c\t42\t.\tA\t<*>\t0\t.\tEND=80\tGT:GQ\t./.:0\n\
+         c\t81\t.\tA\t<*>\t0\t.\tEND=100\tGT:GQ\t0/0:50\n"
+    );
+    let vcf = TempFile::new("mode_gvcf", "vcf", &text);
+    let choice = detect_vcf_mode(&vcf.0).unwrap();
+    assert_eq!(choice.mode, VcfMode::Mask);
+    assert!(
+        choice
+            .reason
+            .contains("3 of them are reference or no-call blocks")
+            && choice.reason.contains("gVCF")
+            && !choice.reason.contains("variant sites"),
+        "{}",
+        choice.reason
+    );
+    let data = load(
+        &vcf.0,
+        &InputOptions {
+            bin_size: 10,
+            filter: SeqFilter::DISABLED,
+            ..InputOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(data.seqs[0].called, Some(61));
+    assert!(data.warnings().iter().any(|w| w.contains("is a gVCF")));
+}
+
+#[test]
 fn an_all_sites_vcf_without_fq_is_an_error_with_guidance() {
     // `bcftools call -m` without -v: ALT '.' everywhere, no FQ.
     let mut text = String::from(HEADER);

@@ -582,6 +582,132 @@ fn read_vcf_reports_chromosomes_the_mask_does_not_mention() {
     let _ = fs::remove_file(mask);
 }
 
+/// A VCF with the given `##contig` lines and tab-separated records whose
+/// columns are given space-separated (ID, QUAL filled in).
+fn write_gvcf(prefix: &str, contigs: &str, records: &[&str]) -> PathBuf {
+    let mut text = format!("##fileformat=VCFv4.2\n{contigs}");
+    text.push_str(HEADER.trim_start_matches("##fileformat=VCFv4.2\n"));
+    for r in records {
+        let c: Vec<&str> = r.split_whitespace().collect();
+        assert_eq!(c.len(), 8, "bad test record {r:?}");
+        text.push_str(&format!(
+            "{}\t{}\t.\t{}\t{}\t0\t{}\t{}\t{}\t{}\n",
+            c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]
+        ));
+    }
+    write_text(prefix, "vcf", &text)
+}
+
+#[test]
+fn read_vcf_gvcf_blocks_without_a_call_are_missing_over_their_span() {
+    let mask = write_text("gvcf_mask", "bed", "chr1\t0\t100\n");
+    let contig = "##contig=<ID=chr1,length=100>\n";
+    let records = |no_call: &'static str| {
+        [
+            "chr1 1 A <*> . END=20 GT:GQ:MIN_DP 0/0:50:30",
+            no_call,
+            "chr1 61 A G,<*> PASS . GT:GQ:MIN_DP 0/1:40:30",
+            "chr1 62 A <*> . END=100 GT:GQ:MIN_DP 0/0:50:30",
+        ]
+    };
+    let opts = VcfOptions {
+        bin_size: 10,
+        masks: vec![mask.clone()],
+        ..VcfOptions::default()
+    };
+    // A DeepVariant no-call block over 21..=60, and the same block
+    // filtered (missing unless filtered records are kept) or written with
+    // GATK's <NON_REF>.
+    for (no_call, keep_filtered, bins, missing) in [
+        (
+            "chr1 21 A <*> . END=60 GT:GQ:MIN_DP ./.:0:0",
+            false,
+            vec![0, 0, 2, 2, 2, 2, 1, 0, 0, 0],
+            40,
+        ),
+        (
+            "chr1 21 A <NON_REF> . END=60 GT:GQ:MIN_DP ./.:0:0",
+            false,
+            vec![0, 0, 2, 2, 2, 2, 1, 0, 0, 0],
+            40,
+        ),
+        (
+            "chr1 21 A <*> LowGQ END=60 GT:GQ:MIN_DP 0/0:2:1",
+            false,
+            vec![0, 0, 2, 2, 2, 2, 1, 0, 0, 0],
+            40,
+        ),
+        (
+            "chr1 21 A <*> LowGQ END=60 GT:GQ:MIN_DP 0/0:2:1",
+            true,
+            vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+            0,
+        ),
+    ] {
+        let vcf = write_gvcf("gvcf_blocks", contig, &records(no_call));
+        let read = read_vcf_with(
+            &vcf,
+            &VcfOptions {
+                keep_filtered,
+                ..opts.clone()
+            },
+        )
+        .unwrap();
+        assert_eq!(read.obs.rows, vec![bins], "{no_call}");
+        assert_eq!(read.summary.missing_sites, missing, "{no_call}");
+        assert_eq!(read.summary.gvcf_blocks, 3);
+        assert_eq!(read.summary.gvcf_unusable_blocks, u64::from(missing > 0));
+        let warnings = read.summary.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains("gVCF") && warnings[0].contains("bcftools view -v snps,indels"),
+            "{warnings:?}"
+        );
+        let _ = fs::remove_file(vcf);
+    }
+    let _ = fs::remove_file(mask);
+}
+
+#[test]
+fn read_vcf_gvcf_block_ends_are_clamped_and_end_sequences() {
+    let records = ["chr1 1 A G PASS . GT 0/1", "chr1 2 A <*> . END=35 GT 0/0"];
+    // Without a ##contig length the sequence ends at the last block's END.
+    let vcf = write_gvcf("gvcf_end", "", &records);
+    let opts = VcfOptions {
+        bin_size: 10,
+        ..VcfOptions::default()
+    };
+    let read = read_vcf_with(&vcf, &opts).unwrap();
+    assert_eq!(read.obs.rows, vec![vec![1, 0, 0, 0]]);
+    assert_eq!(read.summary.sites, 35);
+    // An END beyond the ##contig length stops there.
+    let short = write_gvcf("gvcf_end", "##contig=<ID=chr1,length=30>\n", &records);
+    let read = read_vcf_with(&short, &opts).unwrap();
+    assert_eq!(read.obs.rows, vec![vec![1, 0, 0]]);
+    assert_eq!(read.summary.sites, 30);
+
+    // Not blocks: an END before POS, and END on a structural variant or
+    // another non-reference allele, which describes the variant rather
+    // than a run of positions with one call.
+    let other = write_gvcf(
+        "gvcf_not_blocks",
+        "##contig=<ID=chr1,length=40>\n",
+        &[
+            "chr1 1 A G PASS . GT 0/1",
+            "chr1 10 A <*> . END=5 GT ./.",
+            "chr1 20 A <DEL> PASS SVTYPE=DEL;END=35 GT ./.",
+            "chr1 25 A C,<*> PASS END=35 GT ./.",
+        ],
+    );
+    let read = read_vcf_with(&other, &opts).unwrap();
+    assert_eq!(read.summary.missing_sites, 3);
+    assert_eq!(read.summary.gvcf_blocks, 0);
+    assert!(read.summary.warnings().iter().all(|w| !w.contains("gVCF")));
+    for p in [vcf, short, other] {
+        let _ = fs::remove_file(p);
+    }
+}
+
 #[test]
 fn read_vcf_says_separate_per_chromosome_masks_are_intersected() {
     // One mask per chromosome, each given as its own --vcf-mask: every

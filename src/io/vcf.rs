@@ -20,13 +20,23 @@
 //!   `A`/`C`/`G`/`T` (any case): heterozygous SNP;
 //! - heterozygous with another allele (indel, `*`, symbolic `<...>`): the
 //!   whole REF span `POS..POS+len(REF)-1` is missing (`END` and `SVLEN` are
-//!   not consulted);
+//!   not consulted, except for gVCF blocks, below);
 //! - homozygous (identical allele strings, including hom-alt and homozygous
 //!   indels) or haploid: called homozygous.
 //!
 //! A filtered or missing genotype does not reach past POS: the record carries
 //! no usable call, so the bases after POS keep their own records (in an
 //! all-sites VCF, possibly PASS heterozygous SNPs) or the mask's verdict.
+//!
+//! The exception is a gVCF block: a record whose ALT alleles all stand for
+//! "no other allele" (`.`, `<*>`, `<NON_REF>` or `<X>`) and whose INFO/END is
+//! at or after POS states its genotype for every position of `POS..=END`
+//! (END is clamped to the `##contig` length). When that record makes POS
+//! missing (filtered, missing genotype, heterozygous), the whole block is
+//! missing; a reference block is read like positions without records, which
+//! the mask decides, and a sequence that ends at its last record ends at the
+//! END of a block. [`VcfSummary::warnings`] points out that reference blocks
+//! need a callable mask made from their depth and quality.
 //!
 //! The file is streamed, and the work is proportional to the number of records
 //! and mask intervals plus the number of output bins, never to the genome
@@ -614,10 +624,20 @@ pub struct VcfSummary {
     pub depth: DepthStats,
     /// Of the records counted in `depth`, those whose DP is INFO/DP.
     pub depth_from_info: u64,
+    /// gVCF reference and no-call blocks: records whose ALT alleles are all
+    /// `.`, `<*>`, `<NON_REF>` or `<X>` and whose INFO/END is at or after
+    /// POS (clamped to the `##contig` length). The genotype of such a record
+    /// holds for its whole span.
+    pub gvcf_blocks: u64,
+    /// Of `gvcf_blocks`, those without a usable call (filtered, a missing
+    /// genotype, or heterozygous for the symbolic allele), all of whose
+    /// positions are missing.
+    pub gvcf_unusable_blocks: u64,
 }
 
 impl VcfSummary {
     /// Warnings worth showing to the user about how the input was read.
+    /// Without a positive mask, the first one says so.
     pub fn warnings(&self) -> Vec<String> {
         let mut out = Vec::new();
         if !self.positive_mask {
@@ -629,6 +649,19 @@ impl VcfSummary {
                  all-sites VCF."
                     .to_string(),
             );
+        }
+        if self.gvcf_blocks > 0 {
+            out.push(format!(
+                "the VCF is a gVCF: {} records are reference or no-call blocks (INFO/END). \
+                 Blocks without a usable call (filtered or no genotype; {} here) are missing \
+                 over their whole span, but a reference block counts as called homozygous over \
+                 its span whatever its depth and genotype quality (GATK writes stretches without \
+                 reads as 0/0 blocks). Unless the callable mask (--vcf-mask) was made from this \
+                 gVCF's blocks with depth and quality bounds, make it that way and give the \
+                 variant records alone (bcftools view -v snps,indels), as docs/preprocessing.md \
+                 describes",
+                self.gvcf_blocks, self.gvcf_unusable_blocks
+            ));
         }
         out.extend(self.mask_coverage_hints());
         out
@@ -859,17 +892,47 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
 /// What one record says about its position.
 struct Class {
     site: Site,
-    /// For a heterozygous non-SNP, the last position of its REF span (all of
-    /// which becomes missing).
+    /// The last position of the span the record makes missing, beyond POS:
+    /// the REF span of a heterozygous non-SNP, or a gVCF block without a
+    /// usable call.
     span_end: Option<u64>,
     /// For a heterozygous SNP, its two alleles in GT order.
     alleles: Option<[u8; 2]>,
 }
 
-/// Classify one record.
+/// The value of the INFO key `key`, if INFO has it.
+fn info_value<'a>(info: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
+    info.split(|&b| b == b';')
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix(b"="))
+}
+
+/// The END of a gVCF reference or no-call block: a record whose ALT alleles
+/// all stand for "no other allele" (`.`, or the symbolic `<*>` of bcftools
+/// and DeepVariant, `<NON_REF>` of GATK, `<X>` of old bcftools) and whose
+/// INFO/END is at or after POS. Such a record states one genotype for every
+/// position of `POS..=END`.
+fn gvcf_block_end(rec: &Record<'_>) -> Option<u64> {
+    gvcf_block_end_of(rec.pos, rec.alt, rec.info)
+}
+
+/// [`gvcf_block_end`] from the POS, ALT and INFO columns.
+pub(crate) fn gvcf_block_end_of(pos: u64, alt: &[u8], info: &[u8]) -> Option<u64> {
+    let reference_only = alt
+        .split(|&b| b == b',')
+        .all(|a| matches!(a, b"." | b"<*>" | b"<NON_REF>" | b"<X>"));
+    if !reference_only {
+        return None;
+    }
+    let end = info_value(info, b"END").and_then(parse_u64)?;
+    (end >= pos).then_some(end)
+}
+
+/// Classify one record. `block_end` is the END of a gVCF block
+/// ([`gvcf_block_end`]), already clamped to the sequence.
 fn classify(
     rec: &Record<'_>,
     keep_filtered: bool,
+    block_end: Option<u64>,
     row_no: usize,
     s: &mut VcfSummary,
 ) -> Result<Class> {
@@ -878,16 +941,22 @@ fn classify(
         span_end,
         alleles,
     };
+    s.gvcf_blocks += u64::from(block_end.is_some());
+    // A block without a usable call leaves its whole span uncalled.
+    let unusable_block = |s: &mut VcfSummary| {
+        s.gvcf_unusable_blocks += u64::from(block_end.is_some());
+        block_end
+    };
     if rec.filter != b"PASS" && rec.filter != b"." {
         s.filtered_records += 1;
         if !keep_filtered {
-            return Ok(class(Site::Missing, None, None));
+            return Ok(class(Site::Missing, unusable_block(s), None));
         }
     }
     Ok(match genotype(rec, row_no)? {
         Genotype::Missing => {
             s.missing_genotypes += 1;
-            class(Site::Missing, None, None)
+            class(Site::Missing, unusable_block(s), None)
         }
         Genotype::Hom => {
             s.hom_calls += 1;
@@ -901,7 +970,8 @@ fn classify(
         // is unreliable for a model of point mutations.
         Genotype::HetOther => {
             s.het_non_snp_records += 1;
-            let span_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
+            let ref_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
+            let span_end = max(ref_end, unusable_block(s).unwrap_or(0));
             class(Site::Missing, Some(span_end), None)
         }
     })
@@ -926,10 +996,14 @@ struct ChromBuilder {
     /// First entry of `uncallable` that can still reach `cursor` or beyond.
     next_unc: usize,
     cursor: u64,
-    /// Positions up to here are missing because of an earlier REF span.
+    /// Positions up to here are missing because of an earlier REF span or
+    /// gVCF block.
     miss_until: u64,
     pending: Option<Pending>,
     last_pos: u64,
+    /// The last END of a gVCF block: a sequence that does not end at its
+    /// contig length ends at the last record or the last block end.
+    last_block_end: u64,
     /// Where the sequence ends when it does not end at the last record.
     contig_len: Option<u64>,
     /// Missing positions emitted so far.
@@ -955,6 +1029,7 @@ impl ChromBuilder {
             miss_until: 0,
             pending: None,
             last_pos: 0,
+            last_block_end: 0,
             contig_len,
             missing: 0,
             het: HetTracker::new(collect_het),
@@ -1058,7 +1133,9 @@ impl ChromBuilder {
     }
 
     /// Add a record; `pos` must not be smaller than any earlier record's.
-    fn add_record(&mut self, pos: u64, class: Class, s: &mut VcfSummary) {
+    /// `block_end` is the END of a gVCF block.
+    fn add_record(&mut self, pos: u64, class: Class, block_end: Option<u64>, s: &mut VcfSummary) {
+        self.last_block_end = max(self.last_block_end, block_end.unwrap_or(0));
         match self.pending.as_mut() {
             Some(p) if p.pos == pos => {
                 p.site = max(p.site, class.site);
@@ -1084,7 +1161,9 @@ impl ChromBuilder {
 
     /// Emit everything up to the end of the sequence and return it.
     fn finish(mut self, s: &mut VcfSummary) -> VcfSeq {
-        let end = self.contig_len.unwrap_or(self.last_pos);
+        let end = self
+            .contig_len
+            .unwrap_or(max(self.last_pos, self.last_block_end));
         self.flush_pending(s);
         self.fill_gap(end, s);
         s.sites += end;
@@ -1336,8 +1415,12 @@ pub(crate) fn read_vcf_seqs_from(
                 len
             );
         }
-        let class = classify(&rec, opts.keep_filtered, row_no, &mut summary)?;
-        chrom.add_record(rec.pos, class, &mut summary);
+        // A block reaching past the contig (or past any real chromosome)
+        // ends there.
+        let block_end =
+            gvcf_block_end(&rec).map(|end| end.min(chrom.contig_len.unwrap_or(MAX_POS)));
+        let class = classify(&rec, opts.keep_filtered, block_end, row_no, &mut summary)?;
+        chrom.add_record(rec.pos, class, block_end, &mut summary);
     }
     if let Some(done) = cur.take() {
         seqs.push(done.finish(&mut summary));
