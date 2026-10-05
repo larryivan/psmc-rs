@@ -146,6 +146,16 @@ impl Bars {
                 }
             }
             Stage::Bootstrap => {
+                if s.bootstrap.is_none() {
+                    // The main fit is over.
+                    for pb in
+                        s.em.take()
+                            .into_iter()
+                            .chain(s.phase.take().map(|(_, pb)| pb))
+                    {
+                        pb.finish_and_clear();
+                    }
+                }
                 let pb = s.bootstrap.get_or_insert_with(|| {
                     self.add(progress::bar_raw(total, "BOOT", "replicates"))
                 });
