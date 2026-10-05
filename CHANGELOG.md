@@ -297,6 +297,19 @@ Reproduction package (`experiment/`):
   iterations, more than the difference from C psmc); results are now
   bit-identical for any thread count and budget.
 - `EmHistory` never recorded the log-likelihood of the final parameters.
+- EM could start from negative transition probabilities, which PSMC's
+  model has when ρ0 per bin is too large for the time grid (at t_max 15
+  and flat λ, above about 1/6, which θ0/4 passes at about 49%
+  heterozygous bins). Its M-step objective was then NaN, EM never moved,
+  and the run wrote a flat curve without a word, as C psmc does. The run
+  now checks the start before the main fit and stops with the limit and
+  the bin size, `--tr-ratio`, `--rho0` or saved rho that fixes it; QC
+  reports such a start as `INVALID_START`. In the library, the new
+  `PsmcModel::check_transitions` finds such a start and returns a
+  `model::NegativeTransitions` error, with which `em_train` refuses it
+  (reachable with `downcast_ref` through EM's and the bootstrap's
+  context), and the M-step refuses a start where its objective is not
+  finite.
 - Saved parameters reload bit for bit (exact JSON float parsing).
 - A closed stdout (`psmc-rs ... | head -1`) aborted the run before any file
   was written.

@@ -290,6 +290,17 @@ The model options follow C psmc:
 - `--mu` (2.5e-8) and `--gen-years` (25) only scale the curve to years and
   individuals: N0 = θ / (4 μ × bin size).
 
+PSMC's transition probabilities assume at most about one recombination per
+bin. When ρ0 per bin is too large for the time grid, some of them are
+negative and EM cannot move from the start (C psmc then reports a flat
+curve): with t_max 15 and flat λ the limit is about 1/6 per bin, which C's
+ρ0 = θ0/4 passes at about 49% heterozygous bins. psmc-rs checks the start
+before the main fit (with N_ITER 0 too when a bootstrap starts from
+`--init-params`) and stops with an error that gives the limit and what to
+change: smaller bins, a larger `--tr-ratio` or a smaller `--rho0` (with
+the ratio the bootstrap replicates need, when that is more), or, with
+`--init-params`, a smaller rho in the saved file.
+
 `Last EM loglike` is the log-likelihood of the written model, which C psmc
 prints as the LK of round N_ITER + 1. The JSON's `loglike[i]`, the
 log-likelihood after i iterations, is C's LK of round i + 1.
@@ -374,7 +385,7 @@ warnings), and the output JSON keeps its finding codes.
 
 | code | severity | when |
 | --- | --- | --- |
-| `INVALID_START` | warning | the fit's start (for `qc`, the default start) has negative transition probabilities, from which EM cannot move: ρ0 per bin is too large for the time grid; names the bin size, `--tr-ratio` or `--rho0` that fixes it |
+| `INVALID_START` | warning | the fit's start (for `qc`, the default start) has negative transition probabilities, from which EM cannot move: ρ0 per bin is too large for the time grid; names the bin size, `--tr-ratio` or `--rho0` that fixes it (a fit then stops, see [Fitting](#fitting)) |
 | `VARIANTS_ONLY_NO_MASK` | warning | a VCF read in mask mode without a callable mask |
 | `HIGH_MISSING` | warning above 50%, note above 25% | missing bins, or uncalled sites when they are counted |
 | `BIN_SATURATION` | warning | more than 10% of heterozygous bins likely hold two or more sites; names the largest bin size that brings it below 5% |
