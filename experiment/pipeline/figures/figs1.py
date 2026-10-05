@@ -1,0 +1,101 @@
+"""Fig S1 (E1): EM convergence of C psmc and psmc-rs 0.2 on the same genomes.
+
+One column per model; every replicate is a line. Iteration i counts
+completed EM iterations: C psmc's LK of round i + 1 and psmc-rs's
+``loglike[i]`` are both the log-likelihood after i iterations (C psmc prints
+none after its last one).
+
+* a-d: log-likelihood gained since the start, LL(i) - LL(0), for both tools
+  (C psmc wider, underneath);
+* e-h: psmc-rs's log-likelihood minus C psmc's after the same iteration
+  (log-likelihood units; iteration 0 evaluates the same starting model);
+* i-l: relative difference of theta per bin after each iteration.
+"""
+
+from __future__ import annotations
+
+from typing import List
+
+from . import style
+from .data import Source
+from .fig2 import MODEL_LABEL, model_order
+
+C_LW, RS_LW = 1.6, 0.6
+
+
+def _symmetric(ax, values, floor: float) -> None:
+    import numpy as np
+
+    v = np.asarray([x for x in values if np.isfinite(x)], dtype=float)
+    lim = max(float(np.max(np.abs(v))) if v.size else 0.0, floor) * 1.15
+    ax.set_ylim(-lim, lim)
+
+
+def draw(src: Source):
+    import numpy as np
+
+    df = src.table("E1_traces").sort_values(["model", "replicate", "tool", "iteration"])
+    models = model_order(df["model"].unique())
+    n = len(models)
+    n_iter = int(df["iteration"].max())
+    fig = style.figure("double", 118)
+    gs = style.grid(fig, 3, n, left_mm=15.0, top_mm=9.0, bottom_mm=9.0, wspace_mm=8.0, hspace_mm=5.5)
+    rows: List[List] = [[fig.add_subplot(gs[r, j]) for j in range(n)] for r in range(3)]
+    for r in (1, 2):
+        for j in range(n):
+            rows[r][j].sharex(rows[0][j])
+
+    lims = {"ll": [], "theta": []}
+    for j, m in enumerate(models):
+        sub = df[df.model == m]
+        ax_g, ax_l, ax_t = rows[0][j], rows[1][j], rows[2][j]
+        lims["gain"] = []
+        for rep, rsub in sub.groupby("replicate"):
+            by = {t: s.set_index("iteration") for t, s in rsub.groupby("tool")}
+            if "c" not in by or "rs" not in by:
+                continue
+            for tool, ent, lw, z in (("c", style.C_PSMC, C_LW, 2), ("rs", style.RS02, RS_LW, 3)):
+                ll = by[tool]["loglike"].dropna()
+                gain = ll - ll.loc[0]
+                ax_g.plot(gain.index, gain.values, color=ent.color, linewidth=lw, zorder=z)
+                lims["gain"] += list(gain.values)
+            common = by["c"]["loglike"].dropna().index.intersection(by["rs"]["loglike"].dropna().index)
+            d = by["rs"]["loglike"].loc[common] - by["c"]["loglike"].loc[common]
+            ax_l.plot(common, d.values, color=style.BLUE, linewidth=style.LW_THIN + 0.2, marker="o", markersize=1.2,
+                      zorder=3)
+            lims["ll"] += list(d.values)
+            th = by["rs"]["theta"] / by["c"]["theta"] - 1.0
+            th = th.dropna()
+            ax_t.plot(th.index, 100.0 * th.values, color=style.BLUE, linewidth=style.LW_THIN + 0.2, marker="o",
+                      markersize=1.2, zorder=3)
+            lims["theta"] += list(100.0 * th.values)
+        style.note(ax_g, 0.97, 0.05, MODEL_LABEL.get(m, m), ha="right", va="bottom", color=style.INK,
+                   size=style.TEXT_PT)
+        # The gain depends on the model: each panel of the first row has its own scale.
+        v = np.asarray(lims["gain"], dtype=float)
+        if v.size:
+            ax_g.set_ylim(min(0.0, float(np.nanmin(v))) * 1.05, max(float(np.nanmax(v)), 1e-9) * 1.1)
+        for ax in (ax_l, ax_t):
+            style.ref_line(ax, y=0.0)
+    for j in range(n):
+        for r, key in enumerate(("gain", "ll", "theta")):
+            ax = rows[r][j]
+            ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+            ax.set_xlim(-0.5, n_iter + 0.5)
+            if r:
+                _symmetric(ax, lims[key], 1e-6)
+            if j and r:
+                ax.tick_params(labelleft=False)
+            if r < 2:
+                ax.tick_params(labelbottom=False)
+            else:
+                ax.set_xlabel("EM iteration")
+    rows[0][0].set_ylabel("Log-likelihood gain,\nLL(i) − LL(0)")
+    rows[1][0].set_ylabel("LL, psmc-rs − C")
+    rows[2][0].set_ylabel("θ, psmc-rs vs C (%)")
+    handles = [style.handle(style.C_PSMC, linewidth=C_LW), style.handle(style.RS02, linewidth=RS_LW),
+               style.handle(style.Entity("psmc-rs 0.2 − C psmc (one replicate)", style.BLUE, "-", "o"),
+                        kind="both", linewidth=style.LW_THIN + 0.2, markersize=1.6)]
+    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3)
+    style.panel_letters(fig, [ax for row in rows for ax in row])
+    return fig
