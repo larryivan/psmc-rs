@@ -524,6 +524,10 @@ fn chunked_rows_count_as_one_sequence() {
     assert_eq!((info.n_seqs, info.sum_l, info.sum_n), (3, 150_947, 7373));
     assert_eq!(info.n_iterations, 0);
     assert_eq!(psmc_rounds(&model, &history, info.sum_l).unwrap().len(), 1);
+
+    // The same header from the counts alone.
+    let counted = PsmcRunInfo::from_counts(&model, &history, 3, 150_947, 7373).unwrap();
+    assert_eq!(counted, info);
 }
 
 #[test]

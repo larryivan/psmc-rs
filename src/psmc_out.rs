@@ -108,6 +108,28 @@ impl PsmcRunInfo {
         if rows.len() != row_starts.len() {
             bail!("row_starts length mismatch");
         }
+        let (mut sum_l, mut sum_n) = (0u64, 0u64);
+        for &bin in rows.iter().flatten() {
+            if bin < 2 {
+                sum_l += 1;
+                sum_n += u64::from(bin);
+            }
+        }
+        let n_seqs = row_starts.iter().filter(|&&s| s).count();
+        Self::from_counts(template, history, n_seqs, sum_l, sum_n)
+    }
+
+    /// [`from_history`](Self::from_history) for data already counted:
+    /// `n_seqs` sequences with `sum_l` non-missing and `sum_n` heterozygous
+    /// bins (for a run whose observations are no longer at hand, such as a
+    /// bootstrap replicate).
+    pub fn from_counts(
+        template: &PsmcModel,
+        history: &EmHistory,
+        n_seqs: usize,
+        sum_l: u64,
+        sum_n: u64,
+    ) -> Result<Self> {
         let Some(start) = history.params.first() else {
             bail!("EM history has no starting parameters");
         };
@@ -118,13 +140,6 @@ impl PsmcRunInfo {
                 3 + template.lam.len()
             );
         }
-        let (mut sum_l, mut sum_n) = (0u64, 0u64);
-        for &bin in rows.iter().flatten() {
-            if bin < 2 {
-                sum_l += 1;
-                sum_n += u64::from(bin);
-            }
-        }
         Ok(Self {
             version: format!("psmc-rs {}", env!("CARGO_PKG_VERSION")),
             pattern: c_pattern(template),
@@ -133,7 +148,7 @@ impl PsmcRunInfo {
             n_iterations: history.loglike.len(),
             max_t: start[2],
             tr_ratio: start[0] / start[1],
-            n_seqs: row_starts.iter().filter(|&&s| s).count(),
+            n_seqs,
             sum_l,
             sum_n,
         })
