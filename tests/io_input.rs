@@ -178,6 +178,36 @@ fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
     };
     let err = format!("{:#}", load(&text.0, &forced).unwrap_err());
     assert!(!err.contains("recognised from the first line"), "{err}");
+    let guessed = |name: &str, text: &str| {
+        let file = TempFile::new(name, "txt", text);
+        format!("{:#}", load(&file.0, &InputOptions::default()).unwrap_err())
+    };
+    // The note names the option, and comes with a row that lacks columns
+    // anywhere in the file.
+    let err = guessed("guess_short", "chr1\t100\t50\tAC\nchr1 200\n");
+    assert!(
+        err.contains("recognised from the first line") && err.contains("give --input-format"),
+        "{err}"
+    );
+    assert!(err.contains("row 2: missing nr_called"), "{err}");
+    // An error in a later row of a file that started as multihetsep is
+    // that file's error, without the note.
+    for (name, text, error) in [
+        (
+            "guess_again",
+            "chr1\t100\t50\tAC\nchr2\t90\t10\tAC\nchr1\t300\t100\tAG\n",
+            "chromosome 'chr1' appears again",
+        ),
+        (
+            "guess_order",
+            "chr1\t100\t50\tAC\nchr1\t90\t10\tAC\n",
+            "pos must increase",
+        ),
+    ] {
+        let err = guessed(name, text);
+        assert!(err.contains(error), "{err}");
+        assert!(!err.contains("recognised from the first line"), "{err}");
+    }
 }
 
 #[test]

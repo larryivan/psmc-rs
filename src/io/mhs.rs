@@ -249,7 +249,7 @@ pub(crate) fn read_mhs_seqs(
     collect_het: bool,
 ) -> Result<(Vec<MhsSeq>, MhsSummary)> {
     check_options(opts)?;
-    read_mhs_seqs_from(open_reader(path)?, path, opts, collect_het)
+    read_mhs_seqs_from(open_reader(path)?, path, opts, collect_het).map_err(|e| e.error)
 }
 
 fn check_options(opts: &MhsOptions) -> Result<()> {
@@ -266,12 +266,43 @@ fn check_options(opts: &MhsOptions) -> Result<()> {
     Ok(())
 }
 
+/// A failure of [`read_mhs_seqs_from`].
+#[derive(Debug)]
+pub(crate) struct MhsReadError {
+    pub error: anyhow::Error,
+    /// Whether the input may not be multihetsep at all, which matters when
+    /// its format was guessed: the error is in the first data row, the
+    /// input is not text, a row has fewer than the four columns, or no row
+    /// was found. Errors in later rows of a file that started as
+    /// multihetsep (positions out of order, a chromosome that comes back)
+    /// are errors of a multihetsep file.
+    pub maybe_other_format: bool,
+}
+
 /// [`read_mhs_seqs`] over an opened input; `path` names it in messages.
 pub(crate) fn read_mhs_seqs_from(
+    reader: impl BufRead,
+    path: &Path,
+    opts: &MhsOptions,
+    collect_het: bool,
+) -> Result<(Vec<MhsSeq>, MhsSummary), MhsReadError> {
+    let mut maybe_other_format = false;
+    read_rows(reader, path, opts, collect_het, &mut maybe_other_format).map_err(|error| {
+        MhsReadError {
+            error,
+            maybe_other_format,
+        }
+    })
+}
+
+/// [`read_mhs_seqs_from`]; sets `maybe_other_format` as
+/// [`MhsReadError::maybe_other_format`] says before it fails.
+fn read_rows(
     mut reader: impl BufRead,
     path: &Path,
     opts: &MhsOptions,
     collect_het: bool,
+    maybe_other_format: &mut bool,
 ) -> Result<(Vec<MhsSeq>, MhsSummary)> {
     check_options(opts)?;
     let MhsOptions { bin_size, pair, .. } = *opts;
@@ -286,6 +317,8 @@ pub(crate) fn read_mhs_seqs_from(
 
     loop {
         line.clear();
+        // Text that is not UTF-8 is not multihetsep.
+        *maybe_other_format = true;
         let bytes = reader
             .read_line(&mut line)
             .with_context(|| format!("failed to read {path:?}"))?;
@@ -299,19 +332,14 @@ pub(crate) fn read_mhs_seqs_from(
             continue;
         }
 
-        let mut cols = trimmed.split_whitespace();
-        let chrom = cols
-            .next()
-            .with_context(|| format!("invalid mhs row {row_no}: missing chrom"))?;
-        let pos_str = cols
-            .next()
-            .with_context(|| format!("invalid mhs row {row_no}: missing pos"))?;
-        let called_str = cols
-            .next()
-            .with_context(|| format!("invalid mhs row {row_no}: missing nr_called"))?;
-        let alleles = cols
-            .next()
-            .with_context(|| format!("invalid mhs row {row_no}: missing alleles"))?;
+        let cols: Vec<&str> = trimmed.split_whitespace().take(4).collect();
+        let &[chrom, pos_str, called_str, alleles] = cols.as_slice() else {
+            let missing = ["chrom", "pos", "nr_called", "alleles"][cols.len()];
+            bail!("invalid mhs row {row_no}: missing {missing}");
+        };
+        // From here on, an error in any row but the first is one of a
+        // multihetsep file.
+        *maybe_other_format = summary.rows == 0;
 
         let pos: u64 = pos_str
             .parse()
@@ -393,6 +421,7 @@ pub(crate) fn read_mhs_seqs_from(
     }
 
     if summary.rows == 0 {
+        *maybe_other_format = true;
         bail!("no valid mhs rows found in input");
     }
     if let Some(done) = cur.take() {

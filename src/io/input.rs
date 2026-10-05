@@ -836,17 +836,22 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
                 pair: opts.mhs_pair,
             };
             // Multihetsep is also what the format guess falls back to, so
-            // its errors say how the format was chosen.
-            let guessed = if opts.format.is_none() {
-                " (the format was recognised from the first line, which does not start with '>' \
-                 or '@' as in psmcfa and has fewer than the 8 tab-separated fields of a VCF \
-                 record; give the input format if the file is something else)"
-            } else {
-                ""
-            };
+            // an error that suggests another format says how the format
+            // was chosen.
             let (seqs, summary) =
                 read_mhs_seqs_from(input.into_reader(), path, &mhs_opts, opts.collect_het_sites)
-                    .with_context(|| format!("failed to read multihetsep {path:?}{guessed}"))?;
+                    .map_err(|e| {
+                        let guessed = if opts.format.is_none() && e.maybe_other_format {
+                            " (the format was recognised from the first line, which does not \
+                             start with '>' or '@' as in psmcfa and has fewer than the 8 \
+                             tab-separated fields of a VCF record; give --input-format if the \
+                             file is something else)"
+                        } else {
+                            ""
+                        };
+                        e.error
+                            .context(format!("failed to read multihetsep {path:?}{guessed}"))
+                    })?;
             let raw = seqs
                 .into_iter()
                 .map(|s| RawSeq {
