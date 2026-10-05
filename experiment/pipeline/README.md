@@ -91,7 +91,13 @@ for both tools and all replicates (constant: 5.0 ky to 2.30 My; bottleneck:
 10.1 ky to 1.32 My; expansion: 5.0 ky to 1.05 My; zigzag: 7.1 ky to 2.17 My).
 A fixed window, 10 ky to 1 My, is reported next to it. The truth is
 evaluated exactly at each time (exponential growth included); fitted curves
-are C psmc's step functions, scaled as `psmc_plot.pl` does.
+are C psmc's step functions, scaled as `psmc_plot.pl` does. The first free lambda of `4+25*2+4+6` spans
+intervals 0-3 (about 0-28 ky for zigzag, whose window starts at 7 ky), so
+part of the RMSE against the truth is the error of approximating the truth
+by the pattern's steps. Each fit is therefore also compared with the truth
+projected onto its own free-parameter spans (the true Ne averaged over each
+span in coalescence-rate terms, `metrics.projected_truth`): that RMSE is the
+estimation error, and the projection's RMSE against the truth the pattern's.
 
 ## Runner
 
@@ -136,7 +142,7 @@ also writing `--psmc-out`) on the identical psmcfa; then `report` writes:
 
 | table | contents |
 | --- | --- |
-| `E1_table1.csv` | Table 1, per model: RMSE of log10 Ne against the truth per tool (mean, SD; informative and fixed windows), RMSE between the tools (mean, max), largest relative difference in log-likelihood and theta |
+| `E1_table1.csv` | Table 1, per model: RMSE of log10 Ne against the truth per tool (mean, SD; informative and fixed windows) and against the pattern-projected truth, the pattern's own error, RMSE between the tools (mean, max), largest relative difference in log-likelihood and theta |
 | `E1_replicates.csv` | per model, replicate and tool: theta, rho, t_max, N0, RMSE against the truth, log-likelihoods, wall time, peak RSS, load |
 | `E1_rs_vs_c.csv` | per model and replicate: RMSE and largest difference between the tools, relative differences of theta, rho, t_max and the log-likelihood |
 | `E1_traces.csv` | per iteration (Fig S1): log-likelihood, theta, rho, t_max for both tools |

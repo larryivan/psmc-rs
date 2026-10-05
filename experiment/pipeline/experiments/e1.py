@@ -17,12 +17,23 @@ Tables (``tables/``):
 
 * ``E1_table1.csv``: Table 1, one row per model: RMSE of log10 Ne against
   the truth for each tool (mean and SD over replicates) on the model's
-  informative window and on the fixed window, RMSE between the tools, and
-  the largest differences in log-likelihood and theta.
+  informative window and on the fixed window, RMSE against the
+  pattern-projected truth (below), RMSE between the tools, and the largest
+  differences in log-likelihood and theta.
 * ``E1_replicates.csv``: one row per model, replicate and tool: final theta,
   rho, t_max and N0, RMSE against the truth, log-likelihoods, and the run's
   wall time, peak RSS and load (recorded, not used for timing claims).
 * ``E1_rs_vs_c.csv``: one row per model and replicate: the two tools compared.
+
+**Pattern-projected truth.** The first free lambda of ``4+25*2+4+6`` spans
+intervals 0-3 (about 0-28 ky for the zigzag model, whose window starts at
+7 ky), so part of the RMSE against the truth is the error of approximating
+the truth by the pattern's steps, which no estimator with this pattern can
+remove. Each fit is therefore also compared with the truth projected onto
+its own free-parameter spans: the true Ne averaged over each span in
+coalescence-rate terms (:func:`.metrics.projected_truth`), on the same
+window. ``rmse_log10_ne_vs_projected_truth`` is then the estimation error,
+and ``rmse_log10_projected_truth_vs_truth`` the pattern's own error.
 * ``E1_traces.csv``: EM traces (Fig S1): log-likelihood, theta, rho and
   t_max after each iteration, for both tools.
 * ``E1_curves.csv``: the final Ne(t) step curves of every fit (Fig 2).
@@ -285,8 +296,10 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
     n = cfg.inference.n_iter
     ll = loglikes(rp)
     rows: Dict[str, List[Dict]] = {"replicates": [], "pairs": [], "traces": [], "curves": []}
+    sc, bin_size = cfg.scaling, cfg.inference.bin_size
     for tool in TOOLS:
         fit, curve, run = rp.fits[tool], rp.curves[tool], rp.runs[tool]
+        projected = metrics.projected_truth(fit, rp.epochs, sc.mu, g, bin_size)
         rows["replicates"].append(
             {
                 "model": rp.model,
@@ -298,6 +311,8 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
                 "n0": fit.n0(cfg.scaling.mu, cfg.inference.bin_size),
                 "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, rp.epochs, window, g),
                 "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(curve, rp.epochs, fixed, g),
+                "rmse_log10_ne_vs_projected_truth": metrics.rmse_vs_projected_truth(curve, projected, window),
+                "rmse_log10_projected_truth_vs_truth": metrics.rmse_vs_truth(projected, rp.epochs, window, g),
                 "loglike_common": ll[tool].get(n - 1),
                 "loglike_final": ll[tool].get(n),
                 "wall_seconds": run.get("wall_seconds"),
@@ -367,6 +382,9 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict]) -> Dict:
     r_mean, r_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_truth"))
     cf_mean, cf_sd = _mean_sd(col("c", "rmse_log10_ne_vs_truth_fixed"))
     rf_mean, rf_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_truth_fixed"))
+    cp_mean, cp_sd = _mean_sd(col("c", "rmse_log10_ne_vs_projected_truth"))
+    rp_mean, rp_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_projected_truth"))
+    pattern_mean, _ = _mean_sd(col("c", "rmse_log10_projected_truth_vs_truth"))
     d = [p["rmse_log10_ne_rs_vs_c"] for p in pairs]
     return {
         "model": model,
@@ -381,6 +399,11 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict]) -> Dict:
         "rmse_truth_fixed_c_sd": cf_sd,
         "rmse_truth_fixed_rs_mean": rf_mean,
         "rmse_truth_fixed_rs_sd": rf_sd,
+        "rmse_projected_c_mean": cp_mean,
+        "rmse_projected_c_sd": cp_sd,
+        "rmse_projected_rs_mean": rp_mean,
+        "rmse_projected_rs_sd": rp_sd,
+        "rmse_pattern_vs_truth_mean": pattern_mean,
         "rmse_rs_vs_c_mean": statistics.fmean(d) if d else None,
         "rmse_rs_vs_c_max": max(d) if d else None,
         "loglike_max_rel_diff": max((p["loglike_max_rel_diff"] for p in pairs if p["loglike_max_rel_diff"] is not None), default=None),
