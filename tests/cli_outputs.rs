@@ -550,3 +550,52 @@ fn the_missing_mask_warning_is_given_once() {
             .contains(&"VARIANTS_ONLY_NO_MASK".into())
     );
 }
+
+/// PSMC_ECHARTS_JS embeds a local chart library in the report, for use
+/// without a network; otherwise the report loads it from the CDN.
+#[test]
+fn the_report_can_embed_a_local_chart_library() {
+    let dir = TempDir::new("echarts");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 1000);
+    let js = dir.path("echarts.min.js");
+    fs::write(&js, "/* a local copy of echarts */").unwrap();
+    let run = |name: &str, env: Option<&Path>| {
+        let out = dir.path(&format!("{name}.json"));
+        let mut cmd = std::process::Command::new(common::bin());
+        cmd.args([
+            input.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "0",
+            "--quiet",
+        ]);
+        match env {
+            Some(path) => cmd.env("PSMC_ECHARTS_JS", path),
+            None => cmd.env_remove("PSMC_ECHARTS_JS"),
+        };
+        assert!(cmd.status().unwrap().success());
+        fs::read_to_string(out.with_extension("html")).unwrap()
+    };
+    let embedded = run("local", Some(&js));
+    assert!(embedded.contains("<script>\n/* a local copy of echarts */\n</script>"));
+    let cdn = r#"<script src="https://cdn.jsdelivr.net/npm/echarts@5"#;
+    assert!(!embedded.contains(cdn));
+    let online = run("cdn", None);
+    assert!(online.contains(cdn));
+    // Either way, a page without the library says what to do.
+    for html in [&embedded, &online] {
+        assert!(html.contains(r#"id="echarts-missing" hidden"#));
+    }
+
+    let mut cmd = std::process::Command::new(common::bin());
+    cmd.args([
+        input.to_str().unwrap(),
+        dir.path("bad.json").to_str().unwrap(),
+        "0",
+    ])
+    .env("PSMC_ECHARTS_JS", dir.path("missing.js"));
+    let o = cmd.output().unwrap();
+    assert!(!o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(stderr.contains("PSMC_ECHARTS_JS"), "{stderr}");
+}
