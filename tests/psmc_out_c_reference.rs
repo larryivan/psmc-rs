@@ -15,6 +15,9 @@
 //! model and the short sequences, `tests/data/psmc_out` (see the READMEs
 //! there).
 
+mod common;
+
+use common::psmc_text::{parse_round, round_lines, tag};
 use psmc_rs::em::EmHistory;
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::model::n_steps_for_pattern;
@@ -93,65 +96,6 @@ fn psmc_text(fit: &Fit) -> String {
     )
     .unwrap();
     String::from_utf8(out).unwrap()
-}
-
-fn tag(line: &str) -> &str {
-    line.split('\t').next().unwrap()
-}
-
-/// The lines of round `round`, from `RD` to `//`.
-fn round_lines(text: &str, round: usize) -> Vec<&str> {
-    let start = format!("RD\t{round}");
-    let mut lines: Vec<&str> = text
-        .lines()
-        .skip_while(|l| *l != start)
-        .take_while(|l| *l != "//")
-        .collect();
-    assert!(!lines.is_empty(), "no round {round}");
-    lines.push("//");
-    lines
-}
-
-/// The numbers of one round.
-#[derive(Debug)]
-struct Round {
-    lk: f64,
-    qd: (f64, f64),
-    ri: f64,
-    tr: (f64, f64),
-    mt: f64,
-    /// RS rows: t_k, lambda_k, n_recomb sigma_k, sigma_k, post_sigma_k.
-    rs: Vec<[f64; 5]>,
-}
-
-fn parse_round(lines: &[&str]) -> Round {
-    let field = |t: &str| {
-        lines
-            .iter()
-            .find_map(|l| l.strip_prefix(&format!("{t}\t")))
-            .unwrap_or_else(|| panic!("no {t} line"))
-    };
-    let num = |s: &str| s.parse::<f64>().unwrap();
-    let (q0, q1) = field("QD").split_once(" -> ").unwrap();
-    let (theta, rho) = field("TR").split_once('\t').unwrap();
-    let rs = lines
-        .iter()
-        .filter_map(|l| l.strip_prefix("RS\t"))
-        .enumerate()
-        .map(|(k, l)| {
-            let cols: Vec<&str> = l.split('\t').collect();
-            assert_eq!(cols[0], k.to_string());
-            [1, 2, 3, 4, 5].map(|i| num(cols[i]))
-        })
-        .collect();
-    Round {
-        lk: num(field("LK")),
-        qd: (num(q0), num(q1)),
-        ri: num(field("RI")),
-        tr: (num(theta), num(rho)),
-        mt: num(field("MT")),
-        rs,
-    }
 }
 
 fn rel(a: f64, b: f64) -> f64 {

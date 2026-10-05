@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod psmc_text;
+
 use psmc_rs::io::psmcfa::read_psmcfa_records;
 use psmc_rs::io::write::write_psmcfa_to;
 use serde_json::Value;
