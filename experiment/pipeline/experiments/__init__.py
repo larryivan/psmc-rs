@@ -16,7 +16,7 @@ from .. import config, paths, tools
 from ..runner import Job
 
 # Experiment name -> module (in this package).
-REGISTRY: Dict[str, str] = {"E1": "e1", "E2": "e2"}
+REGISTRY: Dict[str, str] = {"E1": "e1", "E2": "e2", "E3": "e3"}
 
 
 @dataclass
