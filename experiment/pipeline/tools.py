@@ -164,13 +164,22 @@ def build_rs01(commit: str = config.E3().rs01_commit, tools: Optional[Path] = No
 
 
 def psmc_rs_01(build: bool = False, commit: str = config.E3().rs01_commit, log: Callable[[str], None] = print) -> Tool:
-    """psmc-rs 0.1, built from ``commit`` when ``build`` (or when missing and ``build``)."""
+    """psmc-rs 0.1, built from ``commit`` when ``build``.
+
+    0.1 has no ``--version``; its version comes from the Cargo.toml it was
+    built from, and the commit and the binary's SHA-256 identify it.
+    """
     d = rs01_dirs()
     binary = build_rs01(commit, log=log) if build else d["target"] / "release" / "psmc-rs"
     if not binary.exists():
         raise ToolError(f"{binary} does not exist; build it with: python -m experiment.pipeline tools --build-rs01")
     head = _git("rev-parse", "HEAD", cwd=d["src"]) if d["src"].exists() else ""
-    return Tool("psmc-rs-0.1", binary, {"version": _version(binary), "commit": head})
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (d["src"] / "Cargo.toml").read_text(), re.M) if head else None
+    return Tool(
+        "psmc-rs-0.1",
+        binary,
+        {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, "binary_sha256": sha256_file(binary)},
+    )
 
 
 # ---------------------------------------------------------------------------
