@@ -1175,6 +1175,7 @@ pub(crate) fn read_consensus_from(
     let mut row_no = 0usize;
     let mut depth = DepthCounter::default();
     let mut seen = HashSet::<Vec<u8>>::new();
+    let mut repeated = HashSet::<Vec<u8>>::new();
     let mut seqs = Vec::new();
     let mut cur: Option<Chrom> = None;
 
@@ -1207,17 +1208,15 @@ pub(crate) fn read_consensus_from(
             if let Some(done) = cur.take() {
                 end_chrom(done, false, &mut summary, &mut seqs)?;
             }
-            if !seen.insert(f[0].to_vec()) {
-                let name = String::from_utf8_lossy(f[0]).into_owned();
-                if !summary.repeated_chroms.contains(&name) {
-                    summary.repeated_chroms.push(name);
-                }
-            }
             let name = String::from_utf8_lossy(f[0]);
+            // Each name is listed once, from its first or second block, so
+            // no list is searched (assemblies can have a million scaffolds).
+            let first_block = seen.insert(f[0].to_vec());
+            if !first_block && repeated.insert(f[0].to_vec()) {
+                summary.repeated_chroms.push(name.to_string());
+            }
             let uncallable = if summary.masked {
-                if !masks.mentions_chrom(&name)
-                    && !summary.chroms_outside_mask.iter().any(|n| *n == name)
-                {
+                if first_block && !masks.mentions_chrom(&name) {
                     summary.chroms_outside_mask.push(name.to_string());
                 }
                 masks.uncallable_for_chrom(&name)

@@ -578,6 +578,31 @@ fn masks_are_an_optional_extra_filter() {
 }
 
 #[test]
+fn chromosomes_outside_the_mask_and_repeated_ones_are_listed_once() {
+    let mask = unique_temp_path("consensus_mask", "bed");
+    fs::write(&mask, "b\t0\t10\n").unwrap();
+    let o = ConsensusOptions {
+        masks: vec![mask.clone()],
+        ..opts()
+    };
+    let blocks = ["a", "b", "a", "c", "a", "b", "c"];
+    let records: String = blocks.iter().map(|c| good_run(c, 1, 2)).collect();
+    let s = read(&records, &o).unwrap().summary;
+    assert_eq!(s.chroms_outside_mask, ["a", "c"]);
+    assert_eq!(s.repeated_chroms, ["a", "b", "c"]);
+
+    // A fragmented assembly: every scaffold is outside the mask, in order.
+    let n = 20_000;
+    let records: String = (0..n).map(|i| good_run(&format!("s{i}"), 1, 1)).collect();
+    let r = read(&records, &o).unwrap();
+    assert_eq!(r.seqs.len(), n);
+    assert_eq!(r.summary.chroms_outside_mask.len(), n);
+    assert_eq!(r.summary.chroms_outside_mask[n - 1], format!("s{}", n - 1));
+    assert!(r.summary.repeated_chroms.is_empty());
+    let _ = fs::remove_file(mask);
+}
+
+#[test]
 fn bins_follow_the_fq2psmcfa_rule() {
     // 10-base bins: 9 missing of 10 is not more than 90%, so the bin is
     // called; the partial last bin is judged against the full size.
