@@ -374,7 +374,8 @@ pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Ve
 
 /// Cut sequences into HMM rows of at most `batch_size` bins (whole
 /// sequences without it), the rows of each sequence chained in one HMM
-/// sequence; empty sequences are skipped.
+/// sequence; empty sequences are skipped. The rows have no callable bases;
+/// [`chunk_sequences`] cuts a [`Sequences`](crate::io::Sequences) with them.
 pub fn sequences_to_observations(
     seqs: &[Vec<u8>],
     batch_size: Option<usize>,
@@ -382,35 +383,7 @@ pub fn sequences_to_observations(
     if seqs.is_empty() {
         bail!("sequences are empty");
     }
-    if let Some(batch) = batch_size
-        && batch == 0
-    {
-        bail!("batch_size must be > 0");
-    }
-
-    let mut rows = Vec::<Vec<u8>>::new();
-    let mut row_starts = Vec::<bool>::new();
-    for seq in seqs {
-        if seq.is_empty() {
-            continue;
-        }
-        match batch_size {
-            None => {
-                rows.push(seq.clone());
-                row_starts.push(true);
-            }
-            Some(batch) => {
-                for (i, chunk) in seq.chunks(batch).enumerate() {
-                    rows.push(chunk.to_vec());
-                    row_starts.push(i == 0);
-                }
-            }
-        }
-    }
-    if rows.is_empty() {
-        bail!("no rows produced from sequences");
-    }
-    Ok(Observations { rows, row_starts })
+    chunk_sequences(seqs.to_vec(), batch_size, "no rows produced from sequences")
 }
 
 /// Legacy within-sequence block bootstrap: each sequence is cut into blocks of

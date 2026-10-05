@@ -958,6 +958,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
         Observations {
             rows: Vec::new(),
             row_starts: Vec::new(),
+            callable: None,
         }
     } else {
         chunk_sequences(kept_bins, opts.batch_size, "no observations")?

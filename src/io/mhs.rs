@@ -179,7 +179,7 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
     let (seqs, _) = read_mhs_seqs(path, opts, false)?;
     chunk_sequences(
-        seqs.into_iter().map(|s| s.bins).collect(),
+        seqs.into_iter().map(|s| s.bins).collect::<Vec<_>>(),
         opts.batch_size,
         "no valid mhs rows found in input",
     )

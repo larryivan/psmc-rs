@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
 
-use crate::io::Observations;
+use crate::io::{CallableBases, Observations, Sequences};
 
 /// Open a text input for line-oriented reading.
 ///
@@ -413,17 +413,28 @@ impl DepthCounter {
 /// Turn whole sequences into HMM rows. With `batch_size`, long sequences are
 /// split into chunks that stay connected in one HMM chain (`row_starts` is
 /// `true` only for the first chunk of each sequence). Empty sequences are dropped.
+///
+/// `seqs` is a [`Sequences`] or, for sequences without callable bases, the
+/// bins alone (`Vec<Vec<u8>>`). Callable bases are cut at the same bins as
+/// the symbols; they are checked first ([`Sequences::validate`]).
 pub fn chunk_sequences(
-    seqs: Vec<Vec<u8>>,
+    seqs: impl Into<Sequences>,
     batch_size: Option<usize>,
     empty_msg: &str,
 ) -> Result<Observations> {
     if batch_size == Some(0) {
         bail!("batch_size must be > 0");
     }
+    let seqs = seqs.into();
+    seqs.validate()?;
+    let Sequences { bins, callable } = seqs;
+    let bin_size = callable.as_ref().map(CallableBases::bin_size);
+    let mut counts = callable.map(|c| c.into_counts().into_iter());
     let mut rows = Vec::new();
     let mut row_starts = Vec::new();
-    for seq in seqs {
+    let mut count_rows = Vec::new();
+    for seq in bins {
+        let seq_counts = counts.as_mut().and_then(Iterator::next);
         if seq.is_empty() {
             continue;
         }
@@ -431,11 +442,15 @@ pub fn chunk_sequences(
             None => {
                 rows.push(seq);
                 row_starts.push(true);
+                count_rows.extend(seq_counts);
             }
             Some(batch) => {
                 for (i, chunk) in seq.chunks(batch).enumerate() {
                     rows.push(chunk.to_vec());
                     row_starts.push(i == 0);
+                }
+                if let Some(c) = seq_counts {
+                    count_rows.extend(c.chunks(batch).map(<[u32]>::to_vec));
                 }
             }
         }
@@ -443,5 +458,14 @@ pub fn chunk_sequences(
     if rows.is_empty() {
         bail!("{empty_msg}");
     }
-    Ok(Observations { rows, row_starts })
+    let callable = bin_size
+        .map(|s| CallableBases::new(s, count_rows))
+        .transpose()?;
+    let obs = Observations {
+        rows,
+        row_starts,
+        callable,
+    };
+    debug_assert!(obs.validate().is_ok(), "chunking keeps the counts valid");
+    Ok(obs)
 }

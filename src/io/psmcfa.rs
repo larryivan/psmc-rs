@@ -325,7 +325,7 @@ pub fn read_psmcfa(path: &Path, batch_size: Option<usize>) -> Result<Observation
         );
     }
     chunk_sequences(
-        records.into_iter().map(|r| r.seq).collect(),
+        records.into_iter().map(|r| r.seq).collect::<Vec<_>>(),
         batch_size,
         "no valid observations found in psmcfa input",
     )

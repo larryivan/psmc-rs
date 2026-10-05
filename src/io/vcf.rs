@@ -1309,7 +1309,7 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
     summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
     let obs = chunk_sequences(
-        seqs.into_iter().map(|s| s.bins).collect(),
+        seqs.into_iter().map(|s| s.bins).collect::<Vec<_>>(),
         opts.batch_size,
         "no valid segregating sites found in VCF input",
     )?;
