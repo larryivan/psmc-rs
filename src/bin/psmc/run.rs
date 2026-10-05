@@ -35,8 +35,8 @@ use crate::dataset::{
     resolve_input_path,
 };
 use crate::output::{
-    FitRecord, check_destinations, is_stdout, save_fit, write_bootstrap_summary, write_main_psmc,
-    write_qc_json, write_replicate_psmc,
+    BOOTSTRAP_SUMMARY_FILES, FitRecord, check_destinations, is_stdout, save_fit,
+    write_bootstrap_summary, write_main_psmc, write_qc_json, write_replicate_psmc,
 };
 
 /// A stage of the pipeline with a progress count.
@@ -809,7 +809,7 @@ fn bootstrap_stage(
         .out_dir
         .as_deref()
         .expect("the CLI always writes the replicates");
-    if let Some(msg) = remove_stale_replicates(dir, cfg.replicates)? {
+    if let Some(msg) = remove_earlier_bootstrap(dir, cfg.replicates)? {
         sink(Event::Warning(msg));
     }
     sink(progress(0));
@@ -871,23 +871,36 @@ fn replicate_files(dir: &Path) -> Result<impl Iterator<Item = (usize, PathBuf)>>
     }))
 }
 
-/// Remove the replicate files an earlier bootstrap left in `dir` beyond
-/// this run's `replicates`, and say so. This run rewrites the files of its
-/// own replicates and the summary, but would leave the others, which
+/// Remove the files an earlier bootstrap left in `dir` (its replicate
+/// files and its summary) before this run writes any, and say so for the
+/// replicates beyond this run's `replicates`, which this run would not
+/// have replaced.
+///
+/// This run writes each replicate's JSON as the replicate finishes, the
+/// `.psmc` files and the summary only at the end. Replacing the earlier
+/// files one by one would leave the two runs mixed when this one stops
+/// part way (an error, a kill, running out of memory), and would leave
+/// replicates beyond this run's count in place for good, which
 /// `cat replicate_*.psmc` (the README's recipe for psmc_plot.pl) and globs
 /// of `replicate_*.json` would then mix with this run's while the summary
 /// and the report use only the new ones.
-fn remove_stale_replicates(dir: &Path, replicates: usize) -> Result<Option<String>> {
-    let mut stale: Vec<(usize, PathBuf)> = replicate_files(dir)?
+fn remove_earlier_bootstrap(dir: &Path, replicates: usize) -> Result<Option<String>> {
+    let earlier: Vec<(usize, PathBuf)> = replicate_files(dir)?.collect();
+    let summary = BOOTSTRAP_SUMMARY_FILES
+        .map(|name| dir.join(name))
+        .into_iter()
+        .filter(|path| path.is_file());
+    for path in earlier.iter().map(|(_, path)| path.clone()).chain(summary) {
+        fs::remove_file(&path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+    let mut stale: Vec<(usize, PathBuf)> = earlier
+        .into_iter()
         .filter(|&(n, _)| n > replicates)
         .collect();
     if stale.is_empty() {
         return Ok(None);
     }
     stale.sort();
-    for (_, path) in &stale {
-        fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
-    }
     let (first, last) = (stale[0].0, stale[stale.len() - 1].0);
     let which = if first == last {
         format!("replicate {first}")

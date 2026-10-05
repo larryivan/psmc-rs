@@ -343,6 +343,59 @@ fn a_rerun_bootstrap_leaves_no_earlier_replicates() {
     assert!(rep(1, "json").exists());
 }
 
+/// A rerun that stops during its bootstrap leaves none of the earlier
+/// bootstrap's files: every replicate file and the summary of the earlier
+/// run are removed before the first replicate is written, so the
+/// directory never mixes two runs.
+#[test]
+fn a_rerun_that_fails_in_its_bootstrap_leaves_no_earlier_files() {
+    let dir = TempDir::new("bootstrap_rerun_fails");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 3000);
+    let out = dir.path("fit.json");
+    let boot = dir.path("fit.bootstrap");
+    let rep = |n: usize, ext: &str| boot.join(format!("replicate_{n:03}.{ext}"));
+    let run = |seed: &str| {
+        common::run([
+            input.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "1",
+            "--no-progress",
+            "--threads",
+            "1",
+            "--bootstrap",
+            "4",
+            "--bootstrap-block-size",
+            "1000",
+            "--bootstrap-seed",
+            seed,
+        ])
+    };
+    assert!(run("1").status.success());
+    let first: Vec<_> = (1..=4).map(|n| fs::read(rep(n, "json")).unwrap()).collect();
+    for name in ["summary.tsv", "summary.json"] {
+        assert!(boot.join(name).exists());
+    }
+
+    // Replicate 3's JSON cannot be written: a directory has its name.
+    fs::remove_file(rep(3, "json")).unwrap();
+    fs::create_dir(rep(3, "json")).unwrap();
+    let o = run("2");
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert_eq!(o.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("bootstrap replicate 3"), "{stderr}");
+    for n in [1, 2, 4] {
+        assert!(!rep(n, "psmc").exists(), "replicate {n}");
+        // Absent, or written by the second run.
+        if let Ok(json) = fs::read(rep(n, "json")) {
+            assert_ne!(json, first[n - 1], "replicate {n} is of the first run");
+        }
+    }
+    for name in ["summary.tsv", "summary.json"] {
+        assert!(!boot.join(name).exists(), "{name}");
+    }
+}
+
 /// A bootstrap that cannot vary fails before the main fit.
 #[test]
 fn a_single_trunk_bootstrap_fails_before_fitting() {

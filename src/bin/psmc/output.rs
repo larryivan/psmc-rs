@@ -101,14 +101,16 @@ pub fn write_replicate_psmc(dir: &Path, replicates: &[BootstrapReplicate]) -> Re
     Ok(())
 }
 
-/// Write the bootstrap summary as `summary.tsv` and `summary.json` in `dir`;
-/// returns their paths.
+/// The file names of the bootstrap summary in its directory: TSV, JSON.
+pub const BOOTSTRAP_SUMMARY_FILES: [&str; 2] = ["summary.tsv", "summary.json"];
+
+/// Write the bootstrap summary as `summary.tsv` and `summary.json` in `dir`
+/// ([`BOOTSTRAP_SUMMARY_FILES`]); returns their paths.
 pub fn write_bootstrap_summary(
     dir: &Path,
     summary: &BootstrapSummary,
 ) -> Result<(PathBuf, PathBuf)> {
-    let tsv = dir.join("summary.tsv");
-    let json = dir.join("summary.json");
+    let [tsv, json] = BOOTSTRAP_SUMMARY_FILES.map(|name| dir.join(name));
     write_bootstrap_summary_tsv(&tsv, summary)?;
     write_bootstrap_summary_json(&json, summary)?;
     Ok((tsv, json))
