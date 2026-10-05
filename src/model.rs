@@ -517,8 +517,9 @@ impl PsmcModel {
     /// recombination per bin. When `rho` is too high for `t_max` and the λ,
     /// the probability of staying in the oldest states turns negative. The
     /// M-step's objective is then not a number at the start, so EM (C
-    /// psmc's too) never moves from it and returns a flat history. The error
-    /// says how far `rho` must come down.
+    /// psmc's too) never moves from it and returns a flat history. The
+    /// error is then a [`NegativeTransitions`] (reach it with
+    /// `downcast_ref`), which says how far `rho` must come down.
     pub fn check_transitions(&self) -> Result<()> {
         let mut worst: Option<((usize, usize), f64)> = None;
         for ((from, to), &p) in self.p_kl.indexed_iter() {
@@ -532,25 +533,17 @@ impl PsmcModel {
         let Some(((from, to), p)) = worst else {
             return Ok(());
         };
-        let found = format!(
-            "the transition probabilities are negative (down to {p:.3e}, from state {from} to \
-             state {to})"
-        );
         let limit = self.max_valid_rho();
-        if limit <= 0.0 {
-            bail!("{found}");
+        Err(NegativeTransitions {
+            p,
+            from,
+            to,
+            theta: self.theta,
+            rho: self.rho,
+            t_max: self.t_max,
+            max_rho: (limit > 0.0).then_some(limit),
         }
-        // The smallest theta/rho ratio that brings rho below the limit,
-        // rounded up to 2 decimals.
-        let ratio = (self.theta / limit * 100.0).ceil() / 100.0;
-        bail!(
-            "{found}: PSMC assumes at most about one recombination per bin, and rho = {:.6} per \
-             bin is too high for it; with t_max {} and these lambdas rho must be below {limit:.6}. \
-             Re-bin the data with fewer base pairs per bin, or start from a smaller rho0 \
-             (--rho0, or --tr-ratio {ratio} or more; C psmc's -r)",
-            self.rho,
-            self.t_max
-        )
+        .into())
     }
 
     /// The largest `rho` (to about 9 significant digits) at which, with the
@@ -580,6 +573,73 @@ impl PsmcModel {
         self.pattern_spec.as_deref()
     }
 }
+
+/// The error of [`PsmcModel::check_transitions`] when transition
+/// probabilities are negative: where, and how far `rho` must come down.
+///
+/// Its message gives the limit on `rho` and the θ/ρ ratio that reaches it,
+/// in the model's own terms; a program that sets the start through options
+/// of its own can build its advice from the fields instead.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NegativeTransitions {
+    /// The most negative transition probability, from state `from` to
+    /// state `to`.
+    pub p: f64,
+    pub from: usize,
+    pub to: usize,
+    /// θ, ρ and `t_max` of the model.
+    pub theta: f64,
+    pub rho: f64,
+    pub t_max: f64,
+    /// The largest ρ (to about 9 significant digits) at which, with the
+    /// other parameters as they are, no transition probability is
+    /// negative; `None` when there is none below the model's ρ.
+    pub max_rho: Option<f64>,
+}
+
+impl NegativeTransitions {
+    /// The smallest θ/ρ ratio, rounded up to 2 decimals, that brings ρ below
+    /// [`max_rho`](Self::max_rho) at this θ.
+    pub fn min_tr_ratio(&self) -> Option<f64> {
+        self.max_rho
+            .map(|limit| (self.theta / limit * 100.0).ceil() / 100.0)
+    }
+
+    /// What is wrong, without advice: the negative probabilities and, when
+    /// there is one, the limit on ρ.
+    pub fn finding(&self) -> String {
+        let found = format!(
+            "the transition probabilities are negative (down to {:.3e}, from state {} to \
+             state {})",
+            self.p, self.from, self.to
+        );
+        match self.max_rho {
+            Some(limit) => format!(
+                "{found}: PSMC assumes at most about one recombination per bin, and rho = {:.6} \
+                 per bin is too high for it; with t_max {} and these lambdas rho must be below \
+                 {limit:.6}",
+                self.rho, self.t_max
+            ),
+            None => found,
+        }
+    }
+}
+
+impl std::fmt::Display for NegativeTransitions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.finding())?;
+        if let Some(ratio) = self.min_tr_ratio() {
+            write!(
+                f,
+                ". Re-bin the data with fewer base pairs per bin, or start from a smaller rho \
+                 (a theta/rho ratio of {ratio} or more)"
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for NegativeTransitions {}
 
 /// See [`PsmcModel::coalescent`].
 struct Coalescent {

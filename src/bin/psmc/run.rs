@@ -2,7 +2,7 @@
 //! input, fit, bootstrap, decode and write the outputs, reporting progress
 //! and messages as [`Event`]s.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use rayon::ThreadPool;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,6 +21,7 @@ use psmc_rs::hmm::{
 use psmc_rs::io::Observations;
 use psmc_rs::io::input::Dataset;
 use psmc_rs::io::params::{InputSummary, load_params};
+use psmc_rs::model::NegativeTransitions;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::psmc_out::c_pattern;
 use psmc_rs::qc::{FitStart, QcReport, Severity, render_text};
@@ -392,6 +393,12 @@ fn infer(
     // parameters (-i with -b).
     let fresh_start = (model.t_max, tr_ratio);
     let saved_start = cli.init_params.is_some().then(|| model.clone());
+    // EM would refuse a start it cannot move from; refuse it here, with
+    // advice in this run's options. Bootstrap replicates start from saved
+    // parameters too.
+    if n_iter > 0 || (bootstrap.is_some() && saved_start.is_some()) {
+        check_start(&model, cli)?;
+    }
 
     let mstep_config = MStepConfig {
         max_iters: cli.mstep_iters,
@@ -651,6 +658,49 @@ fn fit_start(cli: &InferArgs, layout: &PsmcModel, obs: &Observations) -> Option<
         None => start_rates(cli, obs).ok()?,
     };
     Some(FitStart::new(layout, theta0, rho0, false))
+}
+
+/// Refuse a start from which EM cannot move
+/// ([`PsmcModel::check_transitions`]), as EM would, but with advice in the
+/// options of this run ([`start_advice`]).
+fn check_start(model: &PsmcModel, cli: &InferArgs) -> Result<()> {
+    let Err(e) = model.check_transitions() else {
+        return Ok(());
+    };
+    let Some(negative) = e.downcast_ref::<NegativeTransitions>() else {
+        return Err(e.context("EM cannot start from these parameters"));
+    };
+    bail!(
+        "EM cannot start from these parameters: {}. {}",
+        negative.finding(),
+        start_advice(cli, negative)
+    )
+}
+
+/// How this run can start from a smaller rho than the start of
+/// `negative`: with `--init-params`, which rules out the options of a
+/// fresh start, by lowering rho in the saved file; otherwise with a
+/// smaller `--rho0` when one was given, and with `--tr-ratio` (C psmc's
+/// `-r`) or `--rho0` when not. Smaller bins also lower rho per bin.
+fn start_advice(cli: &InferArgs, negative: &NegativeTransitions) -> String {
+    let limit = negative.max_rho.map(|rho| format!(" below {rho:.6}"));
+    let limit = limit.as_deref().unwrap_or("");
+    match (&cli.init_params, cli.rho0, negative.min_tr_ratio()) {
+        (Some(path), ..) => format!(
+            "Set rho in {}{limit}, or fit from a fresh start instead of --init-params",
+            path.display()
+        ),
+        (None, Some(_), _) => format!(
+            "Re-bin the data with fewer base pairs per bin, or give a smaller --rho0{limit}"
+        ),
+        (None, None, Some(ratio)) => format!(
+            "Re-bin the data with fewer base pairs per bin, or start from a smaller rho0: \
+             --tr-ratio {ratio} or more (C psmc's -r), or a --rho0{limit}"
+        ),
+        (None, None, None) => "Re-bin the data with fewer base pairs per bin, or start from a \
+                               smaller rho0 with a larger --tr-ratio (C psmc's -r) or --rho0"
+            .to_string(),
+    }
 }
 
 /// The starting model of `--init-params`: the saved parameters, with the

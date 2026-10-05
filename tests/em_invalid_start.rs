@@ -4,7 +4,7 @@
 //! EM cannot move from such a start (C psmc stays at it and reports a flat
 //! history), so it must refuse it and say how far rho has to come down.
 
-use psmc_rs::model::n_steps_for_pattern;
+use psmc_rs::model::{NegativeTransitions, n_steps_for_pattern};
 use psmc_rs::opt::{MStepConfig, bounds_from_config, em_train, m_step_lbfgs_with_outcome};
 use psmc_rs::{PsmcModel, initial_theta};
 
@@ -38,19 +38,21 @@ fn config() -> MStepConfig {
 }
 
 /// The limit on rho and the smallest theta/rho ratio that the error of
-/// `check_transitions` gives.
-fn advice(message: &str) -> (f64, f64) {
-    let number_after = |key: &str| -> f64 {
-        let rest = &message[message.find(key).unwrap_or_else(|| panic!("{message}")) + key.len()..];
-        let end = rest
-            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-            .unwrap_or(rest.len());
-        rest[..end].trim_end_matches('.').parse().unwrap()
-    };
-    (
-        number_after("rho must be below "),
-        number_after("--tr-ratio "),
-    )
+/// `check_transitions` gives, from its fields; its message gives them too,
+/// and names no command-line option, which a library caller does not have.
+fn advice(err: &anyhow::Error) -> (f64, f64) {
+    let negative = err
+        .downcast_ref::<NegativeTransitions>()
+        .unwrap_or_else(|| panic!("{err:#}"));
+    let (limit, ratio) = (negative.max_rho.unwrap(), negative.min_tr_ratio().unwrap());
+    let message = format!("{err:#}");
+    assert!(
+        message.contains(&format!("rho must be below {limit:.6}"))
+            && message.contains(&format!("a theta/rho ratio of {ratio} or more")),
+        "{message}"
+    );
+    assert!(!message.contains("--"), "{message}");
+    (limit, ratio)
 }
 
 #[test]
@@ -71,7 +73,7 @@ fn em_refuses_a_start_with_negative_transitions() {
         ),
         "{message}"
     );
-    let (limit, ratio) = advice(&message);
+    let (limit, ratio) = advice(&err);
     assert!((limit - 1.0 / 6.0).abs() < 1e-6, "{message}");
 
     // The advice works: from the suggested ratio EM fits, and the history
@@ -96,7 +98,7 @@ fn the_limit_is_where_transitions_turn_negative() {
     for pattern in ["4+5*3+4", "4+25*2+4+6"] {
         let theta = 0.9;
         let err = model(pattern, theta, 0.3).check_transitions().unwrap_err();
-        let (limit, ratio) = advice(&err.to_string());
+        let (limit, ratio) = advice(&err);
         let below = model(pattern, theta, limit * (1.0 - 1e-5));
         assert!(below.check_transitions().is_ok(), "{pattern}: {limit}");
         assert!(below.transition_matrix().iter().all(|&p| p >= 0.0));

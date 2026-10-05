@@ -586,3 +586,93 @@ fn usage_errors_exit_with_status_2() {
     ]);
     assert_eq!(o.status.code(), Some(2));
 }
+
+/// A psmcfa input of two sequences whose bins are 60% heterozygous: C's
+/// start (theta0 = -ln(1 - K/L) = 0.92, rho0 = theta0 / 4 = 0.23) is past
+/// the limit of about 1/6 on rho per bin at t_max 15.
+fn too_diverse_psmcfa(dir: &TempDir) -> std::path::PathBuf {
+    let input = dir.path("diverse.psmcfa");
+    let bins = "KKKTT".repeat(2000);
+    std::fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
+    input
+}
+
+/// A start EM cannot move from is refused before the fit, with advice this
+/// run can follow: --tr-ratio or --rho0 for a fresh start, a smaller --rho0
+/// when one was given, and the saved file's rho for --init-params, which
+/// rules out the options of a fresh start.
+#[test]
+fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
+    let dir = TempDir::new("invalid_start");
+    let input = too_diverse_psmcfa(&dir);
+    let out = dir.path("fit.json");
+    let args = |n_iter: &str, extra: &[&str]| {
+        let mut args = vec![
+            input.display().to_string(),
+            out.display().to_string(),
+            n_iter.to_string(),
+            "--no-progress".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        args
+    };
+    // The error line (QC's own advice comes before it).
+    let fit_err = |extra: &[&str]| {
+        let o = common::run(args("1", extra));
+        let stderr = String::from_utf8(o.stderr).unwrap();
+        assert_eq!(o.status.code(), Some(1), "{stderr}");
+        assert!(!out.exists(), "{stderr}");
+        stderr
+            .lines()
+            .find(|l| l.starts_with("Error: "))
+            .unwrap_or_else(|| panic!("{stderr}"))
+            .to_string()
+    };
+    let begins = "Error: EM cannot start from these parameters: the transition probabilities are \
+                  negative";
+    let err = fit_err(&[]);
+    assert!(err.contains(begins), "{err}");
+    let key = "start from a smaller rho0: --tr-ratio ";
+    let rest = &err[err.find(key).unwrap_or_else(|| panic!("{err}")) + key.len()..];
+    let ratio = rest.split_whitespace().next().unwrap();
+    assert!(
+        rest.starts_with(&format!(
+            "{ratio} or more (C psmc's -r), or a --rho0 below 0.16"
+        )),
+        "{err}"
+    );
+    // The advice works.
+    run_ok(args("1", &["--tr-ratio", ratio]));
+    std::fs::remove_file(&out).unwrap();
+
+    let err = fit_err(&["--rho0", "0.3"]);
+    assert!(err.contains(begins), "{err}");
+    assert!(err.contains("or give a smaller --rho0 below 0.16"), "{err}");
+    assert!(!err.contains("--tr-ratio"), "{err}");
+
+    // Saved parameters with that rho (written without iterations, which
+    // fit nothing and so refuse nothing).
+    let saved = dir.path("saved.json");
+    run_ok([
+        input.to_str().unwrap(),
+        saved.to_str().unwrap(),
+        "0",
+        "--no-progress",
+        "--rho0",
+        "0.3",
+    ]);
+    let err = fit_err(&["--init-params", saved.to_str().unwrap()]);
+    assert!(err.contains(begins), "{err}");
+    assert!(
+        err.contains(&format!("Set rho in {} below 0.16", saved.display())),
+        "{err}"
+    );
+    assert!(
+        err.contains("fit from a fresh start instead of --init-params"),
+        "{err}"
+    );
+    assert!(
+        !err.contains("--tr-ratio") && !err.contains("--rho0"),
+        "{err}"
+    );
+}
