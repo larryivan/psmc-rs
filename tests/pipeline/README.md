@@ -44,7 +44,9 @@ of bases at quality 10, and 0.3% sequencing errors.
 
 - The command line: `--help`, usage errors (exit 2), a missing input, a
   bcftools older than 1.10 and a psmc-rs older than 0.2.0 (fake binaries),
-  unknown or repeated `--chroms` names. The fit gets `--threads` only when
+  unknown or repeated `--chroms` names, and `--chroms` from a BED file with
+  Windows line ends, track and browser lines and several rows for one
+  chromosome. The fit gets `--threads` only when
   it is given; where `taskset` exists (Linux), `taskset -c 0` makes the
   script run one job at a time. The dry run leaves out exactly the
   names that `psmc-rs qc` classifies as sex chromosomes or organelles, for

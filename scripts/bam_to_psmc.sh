@@ -42,8 +42,9 @@ Required:
 
 Options:
   --chroms LIST|FILE  Chromosomes to use: a comma-separated list, or a file
-                      with one name per line (the first column, so a .fai or
-                      BED works too). Default: every contig of the reference
+                      whose first column gives the names: one per line, a
+                      .fai, or a BED (only the names count: each chromosome
+                      is called whole). Default: every contig of the reference
                       not named like a sex chromosome or organelle (X, Y, Z,
                       W, M, MT, chrX, chrM, ..., the rule of \`psmc-rs qc\`).
   --threads N         Chromosomes called at once, and bcftools concat
@@ -351,12 +352,17 @@ while IFS= read -r k; do
   ref_kinds+=("$k")
 done < <(printf '%s\n' "${ref_names[@]}" | classify_names)
 
-# Names asked for with --chroms, one per line.
+# Names asked for with --chroms, one per line. From a file: the first
+# column, without blank and comment lines or a BED file's track and browser
+# lines, each name once (a BED file has a row per interval), and without
+# the carriage returns of Windows line ends.
 requested_names() {
   if [ -f "$chroms_arg" ]; then
-    awk '!/^[ \t]*(#|$)/ { print $1 }' "$chroms_arg"
+    awk '{ sub(/\r$/, "") }
+      /^[ \t]*(#|$)/ || /^(track|browser)([ \t]|$)/ { next }
+      !seen[$1]++ { print $1 }' "$chroms_arg"
   else
-    printf '%s\n' "$chroms_arg" | tr ',' '\n' | awk 'NF { print $1 }'
+    printf '%s\n' "$chroms_arg" | tr ',' '\n' | awk '{ sub(/\r$/, "") } NF { print $1 }'
   fi
 }
 

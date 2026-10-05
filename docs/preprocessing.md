@@ -67,7 +67,8 @@ organelle (the log lists what it leaves out), 8 at a time, and writes:
 discussed below: `--min-mapq 20 --min-baseq 20` for mpileup, `--depth auto`,
 `--min-qual 20` and `--bin-size 100`. `--chroms`
 takes a comma-separated list or a file of names (the first column, so a
-`.fai` or BED file works); `--dry-run` prints the chromosomes and commands
+`.fai` or a BED file works, but only the names count: each chromosome is
+called whole); `--dry-run` prints the chromosomes and commands
 without running anything. Options after `--` go to the psmc-rs fit. The
 script needs bcftools 1.10 or later and psmc-rs 0.2.0 or later, and runs
 with the bash 3.2 that macOS ships as well as with current bash. The files

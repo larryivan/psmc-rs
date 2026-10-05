@@ -157,6 +157,17 @@ run_script --bam "$out/empty.bam" --ref "$out/names.fa" --out "$out/names" --dry
 "$PSMC_RS" qc "$out/names.psmcfa" --json "$out/names.qc.json" > /dev/null 2>&1
 check kinds "$out/dry_run.txt" "$out/names.qc.json"
 
+# --chroms from a BED file with Windows line ends, a track and a browser
+# line, and several rows for one chromosome: its names, each once.
+printf 'track name=callable\r\nbrowser position chr1:1-4\r\nchr1\t0\t2\r\nchr1\t2\t4\r\nscaffold_12\t0\t4\r\n' \
+  > "$out/callable.bed"
+run_script --bam "$out/empty.bam" --ref "$out/names.fa" --out "$out/names" --dry-run \
+  --chroms "$out/callable.bed" > "$out/dry_bed.txt"
+called=$(awk '/^Chromosomes to call/ { on = 1; next } /^[^ ]/ { on = 0 } on { print $1 }' \
+  "$out/dry_bed.txt" | tr '\n' ' ')
+[ "$called" = "chr1 scaffold_12 " ] || fail "--chroms callable.bed calls: $called"
+ok "--chroms from a BED file (CRLF, track and browser lines, several rows per chromosome): $called"
+
 # ---------------------------------------------------------------------------
 step "simulation"
 
