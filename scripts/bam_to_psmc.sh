@@ -161,7 +161,7 @@ keep_tmp=0 dry_run=0
 extra=()
 
 need_value() {
-  [ "$#" -ge 2 ] && [ -n "$2" ] || usage_error "$1 needs a value"
+  [ -n "${2-}" ] || usage_error "$1 needs a value"
 }
 
 is_uint() {
@@ -253,8 +253,9 @@ case "$out" in
   */) usage_error "--out is a prefix for file names, not a directory: '$out'" ;;
 esac
 
-[ -f "$bam" ] && [ -r "$bam" ] || die "cannot read --bam $bam"
-[ -f "$ref" ] && [ -r "$ref" ] || die "cannot read --ref $ref"
+readable_file() { [ -f "$1" ] && [ -r "$1" ]; }
+readable_file "$bam" || die "cannot read --bam $bam"
+readable_file "$ref" || die "cannot read --ref $ref"
 
 # ---------------------------------------------------------------------------
 # Tools

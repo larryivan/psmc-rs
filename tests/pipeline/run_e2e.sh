@@ -40,9 +40,10 @@ PSMC_RS=${PSMC_RS:-$root/target/release/psmc-rs}
 VCFUTILS=${VCFUTILS:-$(command -v vcfutils.pl || true)}
 FQ2PSMCFA=${FQ2PSMCFA:-$(command -v fq2psmcfa || true)}
 [ -x "$PSMC_RS" ] || fail "no psmc-rs at $PSMC_RS: build it (cargo build --release) or set PSMC_RS"
-[ -n "$VCFUTILS" ] && [ -f "$VCFUTILS" ] ||
+# An empty name is no file, so these also catch tools that are not found.
+[ -f "$VCFUTILS" ] ||
   fail "vcfutils.pl not found: set VCFUTILS (bcftools ships it as misc/vcfutils.pl)"
-[ -n "$FQ2PSMCFA" ] && [ -x "$FQ2PSMCFA" ] ||
+[ -x "$FQ2PSMCFA" ] ||
   fail "fq2psmcfa not found: set FQ2PSMCFA (build utils/fq2psmcfa of lh3/psmc)"
 for tool in bcftools bgzip tabix perl python3; do
   command -v "$tool" > /dev/null || fail "$tool is not on PATH"
@@ -103,6 +104,8 @@ expect_error() { # expected status, expected message, arguments...
 }
 base_args=(--bam "$out/empty.bam" --ref "$out/tiny.fa" --out "$out/x")
 expect_error 2 "--bam is required" --ref "$out/tiny.fa" --out "$out/x"
+expect_error 2 "--out needs a value" --bam "$out/empty.bam" --ref "$out/tiny.fa" --out
+expect_error 2 "--chroms needs a value" "${base_args[@]}" --chroms ""
 expect_error 2 "--depth must be auto or MIN:MAX" "${base_args[@]}" --depth 10
 expect_error 2 "--depth must be auto or MIN:MAX" "${base_args[@]}" --depth 50:10
 expect_error 2 "--threads must be a whole number" "${base_args[@]}" --threads two
@@ -116,6 +119,7 @@ expect_error 2 "--tui does not go with this script" "${base_args[@]}" --run 2 --
 expect_error 1 "psmc-rs prints its help or version instead of fitting" "${base_args[@]}" \
   --run 2 -- --version
 expect_error 1 "cannot read --bam" --bam "$out/missing.bam" --ref "$out/tiny.fa" --out "$out/x"
+expect_error 1 "cannot read --ref" --bam "$out/empty.bam" --ref "$out" --out "$out/x"
 
 printf '#!/bin/sh\necho "bcftools 1.9"\necho "Using htslib 1.9"\n' > "$out/fakebin/bcftools"
 chmod +x "$out/fakebin/bcftools"

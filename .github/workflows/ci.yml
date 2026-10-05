@@ -102,7 +102,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends bcftools tabix zlib1g-dev shellcheck
           bcftools --version | head -n 2
+          shellcheck --version | head -n 2
 
+      # Ubuntu 24.04's shellcheck is 0.9.0, which reports more than the
+      # current release does (SC2015 on `[ a ] && [ b ] || c`, for one): the
+      # scripts must be clean with both.
       - name: Check the shell scripts
         run: shellcheck -s bash scripts/bam_to_psmc.sh tests/pipeline/run_e2e.sh
 
