@@ -114,7 +114,9 @@ jobs:
           Copy-Item README.md, LICENSE "dist/$name/"
           Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.${{ matrix.archive_ext }}" -Force
           $hash = (Get-FileHash "dist/$name.${{ matrix.archive_ext }}" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.${{ matrix.archive_ext }}" | Out-File -FilePath "dist/$name.${{ matrix.archive_ext }}.sha256" -Encoding ascii
+          # End the line with LF: Out-File would end it with Windows' CRLF,
+          # and shasum -c (macOS, perl) then reads the CR as part of the name.
+          "$hash  $name.${{ matrix.archive_ext }}`n" | Out-File -FilePath "dist/$name.${{ matrix.archive_ext }}.sha256" -Encoding ascii -NoNewline
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -138,9 +140,16 @@ jobs:
           merge-multiple: true
           path: dist
 
+      # perl's shasum (the one of macOS) reads a CR at the end of a line as
+      # part of the file name, where GNU sha256sum drops it: checking with
+      # shasum makes sure each list works on macOS too, against the assets.
       - name: Build consolidated checksums
         run: |
           cat dist/*.sha256 > dist/SHA256SUMS.txt
+          cd dist
+          for list in *.sha256 SHA256SUMS.txt; do
+            shasum -a 256 -c "$list"
+          done
 
       - name: Create release and upload assets
         uses: softprops/action-gh-release@v2
