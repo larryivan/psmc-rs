@@ -32,10 +32,11 @@ set:
   slot 4 #eda100, the VCF read without its mask slot 5 #e87ba4;
   ``"#2a78d6,#eda100,#e87ba4" --pairs all`` passes (CVD 13.0, normal vision
   19.6) with both new slots below 3:1, so their lines also carry their
-  marker shapes. A psmc-rs variant that should coincide with the default
-  (the fq2psmcfa route, the VCF input of Fig S2, the 5 Mb bootstrap trunks
-  of Fig 6) is the next step of the blue ramp, 650 #104281, dotted or
-  dashed (``"#2a78d6,#104281" --ordinal`` passes). Uncertainty bands use
+  marker shapes. A psmc-rs variant of the default (the fq2psmcfa route and
+  the rescaled VCF + mask route of Fig 5, the VCF input of Fig S2, the 5 Mb
+  bootstrap trunks of Figs 3 and 6, the default M-step budget of Fig 4) is
+  the next step of the blue ramp, 650 #104281, dotted or dashed
+  (``"#2a78d6,#104281" --ordinal`` passes). Uncertainty bands use
   the entity's colour at low alpha; counts use the sequential blue ramp.
 
 Export (:func:`save`) writes ``<name>.pdf``, ``.svg`` and a 600-dpi ``.png``
@@ -125,12 +126,15 @@ TOOLS: Dict[str, Entity] = {"rs": RS02, "rs02": RS02, "c": C_PSMC, "rs01": RS01}
 
 # Fig 5 (E4): routes from a VCF and a callable mask to psmc-rs.
 ROUTES: Dict[str, Entity] = {
-    "exact": Entity("VCF + mask (exact)", BLUE, "-", "o"),
+    "exact": Entity("VCF + mask (= consensus → fq2psmcfa)", BLUE, "-", "o"),
     "fq2psmcfa": Entity("Consensus FASTA → fq2psmcfa", BLUE_650, DOT, "o", filled=False),
+    "exact_rescaled": Entity("VCF + mask, rescaled to callable bases", BLUE_650, (0, (3.0, 1.5)), "D",
+                             filled=False),
     "multihetsep": Entity("multihetsep", YELLOW, "-", "^"),
+    "multihetsep_rescaled": Entity("multihetsep, rescaled", YELLOW, (0, (3.0, 1.5)), "^", filled=False),
     "nomask": Entity("VCF, no mask", MAGENTA, "-", "v"),
 }
-ROUTE_ORDER = ("exact", "fq2psmcfa", "multihetsep", "nomask")
+ROUTE_ORDER = ("exact", "exact_rescaled", "fq2psmcfa", "multihetsep", "multihetsep_rescaled", "nomask")
 
 # Fig S2 (E6): the same genome in three formats.
 FORMATS: Dict[str, Entity] = {

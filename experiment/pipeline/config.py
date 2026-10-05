@@ -616,7 +616,7 @@ class E5:
 # Every setting of E6 is in this block (experiments/e6.py reads nothing else
 # of its own). E6 reuses what other experiments made: E1's genomes, fits and
 # settings (S1-S3: models, inference, scaling, threads and time grid come
-# from profile.e1), E3's psmc-rs 0.2 runs (S4) and E2's genomes and bootstrap
+# from profile.e1) and E2's genomes and bootstrap
 # trunk (S5). Its costs only schedule the jobs; no result depends on them.
 
 
@@ -641,12 +641,10 @@ class E6Costs:
     tmrca_report_s_per_mb: float = 0.04  # reading 5 million posterior rows, the metrics
     tmrca_report_s_base: float = 5.0
     tmrca_report_gb: float = 2.5
-    table_s: float = 20.0  # S1, S2, S4 and S5 tables
+    table_s: float = 20.0  # S1, S2 and S5 tables
     table_gb: float = 1.0
     qc_s: float = 5.0  # psmc-rs qc of a real genome (0.1 s for 1.9 Gb)
     qc_gb: float = 0.5
-    figure_s: float = 30.0
-    figure_gb: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -662,7 +660,8 @@ class E6:
     S3  TMRCA decoding: E1's psmc-rs fit of ``tmrca_model`` replicate
         ``tmrca_replicate`` decoded per bin (``--tmrca-out``) and compared with
         the true pairwise TMRCA re-simulated from the replicate's seeds.
-    S4  Thread scaling and determinism: E3's psmc-rs 0.2 runs.
+    S4  Thread scaling and determinism: E3's own tables (E3_thread_scaling,
+        E3_determinism); E6 adds nothing to them.
     S5  QC table: ``psmc-rs qc`` of E2's four real genomes.
     """
 
@@ -692,9 +691,6 @@ class E6:
     tmrca_calibration_classes: int = 10
     tmrca_density_cells: int = 60
     tmrca_decode_threads: int = 4  # psmc-rs --threads; the posterior does not depend on it
-
-    # S4. The experiment whose psmc-rs 0.2 runs are read (see experiments/e6.py).
-    thread_scaling_experiment: str = "E3"
 
     # S5. psmc-rs qc of E2's genomes, with E2's bin size and bootstrap trunk
     # (--bootstrap-block-size), as E2 bootstraps them.
@@ -891,7 +887,6 @@ class E4Costs:
     crosscheck_gb: float = 0.5
     # psmc-rs fit (the VCF routes hold the merged mask intervals)
     fit_gb: float = 0.3
-    figure_s: float = 20.0
 
 
 E4_COSTS = E4Costs()

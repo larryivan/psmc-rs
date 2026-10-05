@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
-import math
 import shutil
 import subprocess
 import sys
@@ -18,8 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline import config, demography, metrics, paths, results, runner, tools  # noqa: E402
+from experiment.pipeline import config, demography, metrics, results, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, e5  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
@@ -54,7 +56,7 @@ class Jobs(unittest.TestCase):
     def test_job_counts_and_dependencies(self):
         cfg = self.cfg
         boots = cfg.bootstrap_datasets * len(cfg.trunk_bins)
-        self.assertEqual(len(self.jobs), 2 * cfg.truth_replicates + boots + 2)
+        self.assertEqual(len(self.jobs), 2 * cfg.truth_replicates + boots + 1)
         g = self.graph
         self.assertEqual(g.deps["E5/fit/bottleneck/rep05"], ["E5/sim/bottleneck/rep05"])
         self.assertEqual(g.deps["E5/boot-trunk2000/bottleneck/rep03"], ["E5/sim/bottleneck/rep03"])
@@ -62,7 +64,6 @@ class Jobs(unittest.TestCase):
         report = set(g.deps["E5/report"])
         expected = {j.id for j in self.jobs if j.id.startswith(("E5/sim/", "E5/fit/", "E5/boot-"))}
         self.assertEqual(report, expected)
-        self.assertEqual(g.deps["E5/figure"], ["E5/report", "E5/sim/bottleneck/rep01"])
 
     def test_bootstrap_command(self):
         job = self.by_id["E5/boot-trunk5000/bottleneck/rep02"]
@@ -101,7 +102,7 @@ class Jobs(unittest.TestCase):
     def test_production(self):
         jobs = e5.jobs(fake_ctx(config.PRODUCTION, self.runs))
         cfg = config.PRODUCTION.e5
-        self.assertEqual(len(jobs), 50 * 2 + 10 * 2 + 2)
+        self.assertEqual(len(jobs), 50 * 2 + 10 * 2 + 1)
         boot = next(j for j in jobs if j.id == "E5/boot-trunk50000/bottleneck/rep10")
         one_fit = config.Costs().rs02_seconds(300, cfg.inference)
         self.assertAlmostEqual(boot.est_seconds, one_fit * (1 + cfg.bootstrap_replicates))
@@ -350,33 +351,6 @@ class Tables(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "seed"):
             e5.report(Context(self.profile, self.runs, log=lambda msg: None))
 
-    @unittest.skipUnless(HAS_MATPLOTLIB, "matplotlib not installed")
-    def test_figure_is_drawn_reproducibly(self):
-        from experiment.pipeline.figures import e5 as fig6
-
-        first = fig6.make(self.profile, self.runs)
-        self.assertEqual([p.name for p in first], list(e5.FIGURES))
-        pdf, png = (p.read_bytes() for p in first)
-        self.assertTrue(pdf.startswith(b"%PDF"))
-        self.assertTrue(png.startswith(b"\x89PNG"))
-        self.assertIn(b"/FontFile2", pdf)  # TrueType fonts embedded
-        again = fig6.make(self.profile, self.runs)
-        self.assertEqual([p.read_bytes() for p in again], [pdf, png])
-
-
-class FigureHelpers(unittest.TestCase):
-    def test_time_limits_reach_a_nearby_power_of_ten(self):
-        from experiment.pipeline.figures import e5 as fig6
-
-        self.assertEqual(fig6.time_limits(10_050.0, 1_322_585.0), (10_000.0, 1_322_585.0))
-        self.assertEqual(fig6.time_limits(30_000.0, 980_000.0), (30_000.0, 1_000_000.0))
-
-    def test_trunk_label(self):
-        from experiment.pipeline.figures import e5 as fig6
-
-        self.assertEqual(fig6.trunk_label({"trunk_mb": "50.0", "trunks": "6"}), "50 Mb trunks (6 per genome)")
-
-
 def in_git_work_tree() -> bool:
     if shutil.which("git") is None:
         return False
@@ -400,8 +374,8 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E5/boot/trunk50000/rep10/summary.tsv",
             "experiment/runs/E5/provenance/boot-trunk50000/bottleneck/rep10.json",
             "experiment/runs/E5/tables/E5_summary.csv",
-            "experiment/runs/E5/figures/E5_fig6.pdf",
-            "experiment/runs/E5/figures/E5_fig6.png",
+            "experiment/runs/E5/figures/fig6_bootstrap_calibration.pdf",
+            "experiment/runs/E5/figures/fig6_bootstrap_calibration.png",
         )
         dropped = (
             "experiment/runs/E5/sims/bottleneck/rep01/genome.psmcfa",
@@ -416,33 +390,21 @@ class RunsLayout(unittest.TestCase):
             self.assertTrue(ignored(p), p)
 
 
-def tools_present() -> bool:
-    return (paths.ROOT / "target" / "release" / "psmc-rs").exists()
-
-
-@unittest.skipUnless(HAS_MSPRIME and HAS_SCIPY and HAS_MATPLOTLIB and tools_present(),
-                     "needs msprime, psutil, scipy, matplotlib and a psmc-rs build")
+@unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class EndToEnd(unittest.TestCase):
-    """The tiny profile through the runner: simulate, fit, bootstrap, tables and figure; then nothing is left to do."""
+    """E5 in the tiny runs of every experiment (tiny_runs): simulate, fit, bootstrap and tables; then nothing is left to do."""
 
     def test_tiny_profile(self):
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            ctx = Context(config.TINY, runs)
-            graph = runner.Graph(e5.jobs(ctx), runs)
-            daemon = runner.Daemon(graph, runs, config.Budget(cores=3, mem_gb=4), runner.Logger(runs), {})
-            self.assertEqual(daemon.run(), 0)
-            lay = e5.layout(ctx)
-            datasets = read_csv(lay.table("datasets"))
-            self.assertEqual(len(datasets), len(config.TINY.e5.trunk_bins))
-            for row in datasets:
-                self.assertEqual(row["main_fit_equals_fit"], "True")  # psmc-rs's results do not depend on the run
-                self.assertLess(float(row["summary_band_max_rel_diff"]), 1e-9)
-                self.assertEqual(int(row["replicates"]), config.TINY.e5.bootstrap_replicates)
-            for name in e5.FIGURES:
-                self.assertTrue(lay.figure(name).exists())
-            statuses = runner.job_statuses(graph, runs, daemon_pid=None)
-            self.assertEqual({s.state for s in statuses}, {runner.DONE})
+        runs = tiny_runs.runs_dir()
+        lay = e5.Layout(runs / e5.NAME, config.TINY.e5.model)
+        datasets = read_csv(lay.table("datasets"))
+        self.assertEqual(len(datasets), len(config.TINY.e5.trunk_bins))
+        for row in datasets:
+            self.assertEqual(row["main_fit_equals_fit"], "True")  # psmc-rs's results do not depend on the run
+            self.assertLess(float(row["summary_band_max_rel_diff"]), 1e-9)
+            self.assertEqual(int(row["replicates"]), config.TINY.e5.bootstrap_replicates)
+        statuses = runner.job_statuses(tiny_runs.graph(), runs, daemon_pid=None)
+        self.assertEqual({s.state for s in statuses if s.job.experiment == "E5"}, {runner.DONE})
 
 
 if __name__ == "__main__":

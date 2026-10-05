@@ -1,33 +1,30 @@
 """Tests for experiment E6: its jobs, its checks and (with the tools present) a tiny run end to end.
 
-The analyses and the figures have their own tests (test_pipeline_e6_analysis.py, test_pipeline_e6_figures.py).
+The analyses have their own tests (test_pipeline_e6_analysis.py); the figures are FIG's (test_figures_*.py).
 """
 
 from __future__ import annotations
 
 import csv
-import importlib.util
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiment.pipeline import config, paths, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import REGISTRY, Context, e1, e6  # noqa: E402
-from experiment.pipeline.runner import Job  # noqa: E402
+from experiment.pipeline.experiments import Context, e1, e6  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
 FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-HAS = {m: importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "scipy", "matplotlib", "msprime", "psutil")}
-HAS_NUMERIC = HAS["numpy"] and HAS["pandas"] and HAS["scipy"]
 
 
 def read_csv(path: Path):
@@ -37,23 +34,6 @@ def read_csv(path: Path):
 
 def fake_ctx(profile: config.Profile, runs: Path) -> Context:
     return Context(profile, runs, _tools={"c": FAKE_C, "rs02": FAKE_RS}, log=lambda msg: None)
-
-
-def fake_e3_jobs(ctx: Context, psmcfa: Path, n_iter: int = 2) -> list:
-    """Stand-ins for E3's runs: psmc-rs 0.2 on one input with 1 thread (twice) and 2 threads, plus a qc run."""
-    inference = replace(config.INFERENCE, n_iter=n_iter)
-    out = []
-    for t, k in ((1, 1), (1, 2), (2, 1)):
-        js = Path(ctx.runs_dir) / "E3" / "fits" / f"t{t}-r{k}.json"
-        out.append(Job(
-            id=f"E3/fit/t{t}-r{k}",
-            command=tools.rs02_fit(ctx.rs02(), inference, config.SIMULATION_SCALING, psmcfa, js, threads=t,
-                                   psmc_out=js.with_suffix(".psmc")),
-            inputs=[psmcfa], outputs=[js, js.with_suffix(".psmc")], cores=t, exclusive=True,
-        ))
-    qc = Path(ctx.runs_dir) / "E3" / "qc.json"
-    out.append(Job(id="E3/qc", command=tools.rs02_qc(ctx.rs02(), psmcfa, qc), inputs=[psmcfa], outputs=[qc]))
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -68,9 +48,7 @@ class Jobs(unittest.TestCase):
         self.runs = Path(self._tmp.name).resolve()
         self.ctx = fake_ctx(config.SMOKE, self.runs)
         self.e1_jobs = e1.jobs(self.ctx)
-        # Without E3 registered, so that S4 is left out whatever the tree registers.
-        with mock.patch.dict(REGISTRY, {"E1": "e1", "E6": "e6"}, clear=True):
-            self.jobs = e6.jobs(self.ctx)
+        self.jobs = e6.jobs(self.ctx)
         self.by_id = {j.id: j for j in self.jobs}
         self.graph = runner.Graph(self.e1_jobs + self.jobs, self.runs)
 
@@ -79,14 +57,13 @@ class Jobs(unittest.TestCase):
         models = config.SMOKE.e1.models
         for part in ("s1", "s2", "s3", "s5"):
             self.assertIn(f"E6/{part}/report", ids)
-        self.assertFalse(any(j.startswith("E6/s4") for j in ids))  # E3 is not registered in setUp
-        self.assertEqual({f"E6/{p}/figure" for p in ("s1", "s2", "s3")}, {j for j in ids if j.endswith("/figure")})
+        self.assertFalse(any(j.startswith("E6/s4") for j in ids))  # S4 is E3's own tables
+        self.assertFalse(any(j.endswith("/figure") for j in ids))  # the figures are FIG's
         s1 = set(self.graph.deps["E6/s1/report"])
         self.assertEqual(s1, {j.id for j in self.e1_jobs if j.id.startswith(("E1/fit-c/", "E1/fit-rs/", "E1/sim/"))})
         self.assertEqual(self.graph.deps["E6/s2/convert-vcf/bottleneck/rep01"], ["E1/sim/bottleneck/rep01"])
         self.assertEqual(sorted(self.graph.deps["E6/s3/decode/bottleneck/rep01"]),
                          ["E1/fit-rs/bottleneck/rep01", "E1/sim/bottleneck/rep01"])
-        self.assertEqual(self.graph.deps["E6/s1/figure"], ["E6/s1/report"])
         self.assertEqual(len([j for j in ids if j.startswith("E6/s2/fit-")]), 2 * len(models))
 
     def test_s2_reads_the_vcf_in_mask_mode_and_fits_with_e1s_settings(self):
@@ -120,17 +97,6 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--bootstrap-block-size") + 1], str(config.SMOKE.e2.bootstrap_trunk_bins))
         self.assertEqual(qc[0].inputs, [paths.REAL_DATA / config.SMOKE.e2.genomes[0].file])
 
-    def test_s4_reads_e3s_runs_through_their_records(self):
-        psmcfa = self.runs / "E3" / "genome.psmcfa"
-        with mock.patch.object(e6, "source_jobs", lambda ctx, exp: fake_e3_jobs(ctx, psmcfa)):
-            jobs = {j.id: j for j in e6.jobs(self.ctx)}
-        s4 = jobs["E6/s4/report"]
-        self.assertIn("E6/s4/figure", jobs)
-        records = [Path(s4.command[i + 1]) for i, a in enumerate(s4.command) if a == "--record"]
-        self.assertEqual(len(records), 3)  # the three fits, not the qc run
-        self.assertTrue(all(r.parent == self.runs / "E3" / "provenance" / "fit" for r in records))
-        self.assertEqual(set(records) - set(s4.inputs), set())
-
     def test_production_plan(self):
         jobs = e6.jobs(fake_ctx(config.PRODUCTION, self.runs))
         self.assertEqual(len([j for j in jobs if j.id.startswith("E6/s2/fit-")]), 8)
@@ -138,28 +104,6 @@ class Jobs(unittest.TestCase):
         plan = runner.plan(graph, config.Budget())
         self.assertLess(plan["E6"]["cpu_hours"], 1.0)
         self.assertTrue(all(j.mem_gb <= config.Budget().mem_gb for j in jobs))
-
-
-class CommandParsing(unittest.TestCase):
-    def test_fits_are_recognised_and_other_commands_are_not(self):
-        rs = Path("/r/target/release/psmc-rs")
-        fit = tools.rs02_fit(tools.Tool("rs", rs), config.INFERENCE, config.SIMULATION_SCALING, Path("/in.psmcfa"),
-                             Path("/out.json"), threads=8, psmc_out=Path("/out.psmc"))
-        got = e6.parse_rs02_fit(["/usr/bin/time", "-l", *fit], str(rs))
-        self.assertEqual(got, {"input": "/in.psmcfa", "output": "/out.json", "threads": 8, "psmc_out": "/out.psmc"})
-        self.assertIsNone(e6.parse_rs02_fit(tools.rs02_qc(tools.Tool("rs", rs), Path("/in"), Path("/q.json")), str(rs)))
-        self.assertIsNone(e6.parse_rs02_fit(["/other/psmc-rs", "/in", "/out.json", "25", "--threads", "1"], str(rs)))
-
-    def test_portable_paths_round_trip(self):
-        runs = Path("/tmp/somewhere/runs")
-        text = f"{runs}/E3/fits/a.json"
-        self.assertEqual(e6.local_path(paths.portable(text, runs), runs), text)
-
-    def test_runs_are_grouped_by_input_with_several_thread_counts(self):
-        mk = lambda jid, inp, t: e6.RsRun(jid, Path(inp), Path(f"/{jid}.json"), t, Path(f"/{jid}.rec"))  # noqa: E731
-        groups = e6.scaling_groups([mk("a", "/x", 8), mk("b", "/x", 1), mk("c", "/y", 1), mk("d", "/y", 1)])
-        self.assertEqual(list(groups), ["/x"])
-        self.assertEqual([r.threads for r in groups["/x"]], [1, 8])
 
 
 def in_git_work_tree() -> bool:
@@ -183,7 +127,7 @@ class RunsLayout(unittest.TestCase):
         rel = lambda p: Path(p).relative_to(ROOT).as_posix()  # noqa: E731
         kept = [lay.s2_fit("constant", 1, "vcf"), lay.s2_fit_psmc("constant", 1, "multihetsep"),
                 lay.s3_decode("bottleneck", 1), lay.s5_qc("Papuan"), lay.table("s3", "track"),
-                *lay.figures("s3"), lay.root / "provenance" / "s3" / "report.json"]
+                lay.root / "figures" / "figS3_tmrca_decoding.pdf", lay.root / "provenance" / "s3" / "report.json"]
         dropped = [lay.s2_vcf_psmcfa("constant", 1), lay.s2_multihetsep("constant", 1), lay.s2_mhs_psmcfa("zigzag", 1),
                    lay.s3_true_track("bottleneck", 1), lay.s3_posterior("bottleneck", 1),
                    lay.s2_fit("constant", 1, "vcf").with_suffix(".html"), lay.root / "logs" / "runner.log"]
@@ -210,49 +154,28 @@ class Checks(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-def tools_present() -> bool:
-    try:
-        tools.c_psmc()
-    except tools.ToolError:
-        return False
-    return (paths.ROOT / "target" / "release" / "psmc-rs").exists() and shutil.which("bgzip") is not None
-
-
-@unittest.skipUnless(HAS_NUMERIC and HAS["matplotlib"] and HAS["msprime"] and HAS["psutil"] and tools_present(),
-                     "needs numpy, pandas, scipy, matplotlib, msprime, psutil, C psmc, psmc-rs and bgzip")
+@unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class EndToEnd(unittest.TestCase):
-    """The tiny profile through the runner: E1, stand-ins for E3's runs, and every part of E6."""
+    """E6 in the tiny runs of every experiment (tiny_runs): every part's tables and checks."""
 
     def test_tiny_profile(self):
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d).resolve()
-            ctx = Context(config.TINY, runs, log=lambda msg: None)
-            psmcfa = e1.Layout(runs / "E1").psmcfa("bottleneck", 1)
-            with mock.patch.object(e6, "source_jobs", lambda c, exp: fake_e3_jobs(c, psmcfa)):
-                graph = runner.Graph(e1.jobs(ctx) + fake_e3_jobs(ctx, psmcfa) + e6.jobs(ctx), runs)
-                daemon = runner.Daemon(graph, runs, config.Budget(cores=4, mem_gb=8), runner.Logger(runs), {})
-                self.assertEqual(daemon.run(), 0, (runs / "_runner" / "runner.log").read_text()[-3000:])
-            lay = e6.Layout(runs / "E6")
-            for part in e6.PARTS:
-                for p in lay.tables(part):
-                    self.assertTrue(p.exists(), p)
-            for part in e6.FIGURES:
-                for p in lay.figures(part):
-                    self.assertTrue(p.exists(), p)
-            bins = {(r["format"], r["sequence"]): r for r in read_csv(lay.table("s2", "bins"))}
-            self.assertEqual(bins[("vcf", "all")]["identical"], "True")
-            self.assertEqual(bins[("multihetsep", "all")]["tail_is_after_last_het"], "True")
-            fits = {r["format"]: r for r in read_csv(lay.table("s2", "fits"))}
-            self.assertEqual(fits["vcf"]["parameters_identical"], "True")
-            s3 = {r["bins"]: r for r in read_csv(lay.table("s3", "summary"))}
-            self.assertEqual(s3["all"]["state_index_mismatches"], "0")
-            self.assertEqual(s3["all"]["decoded_model_is_e1_fit"], "True")
-            self.assertGreater(float(s3["all"]["pearson_log10_mean"]), 0.3)
-            det = read_csv(lay.table("s4", "determinism"))
-            self.assertEqual((det[0]["runs"], det[0]["json_identical"], det[0]["psmc_identical"]), ("3", "True", "True"))
-            qc = read_csv(lay.table("s5", "qc"))
-            self.assertIn("chr1 only", qc[-1]["label"])
-            self.assertTrue(all("/Users/" not in p.read_text() for part in e6.PARTS for p in lay.tables(part)))
+        runs = tiny_runs.runs_dir()
+        lay = e6.Layout(runs / "E6")
+        for part in e6.PARTS:
+            for p in lay.tables(part):
+                self.assertTrue(p.exists(), p)
+        bins = {(r["format"], r["sequence"]): r for r in read_csv(lay.table("s2", "bins"))}
+        self.assertEqual(bins[("vcf", "all")]["identical"], "True")
+        self.assertEqual(bins[("multihetsep", "all")]["tail_is_after_last_het"], "True")
+        fits = {r["format"]: r for r in read_csv(lay.table("s2", "fits"))}
+        self.assertEqual(fits["vcf"]["parameters_identical"], "True")
+        s3 = {r["bins"]: r for r in read_csv(lay.table("s3", "summary"))}
+        self.assertEqual(s3["all"]["state_index_mismatches"], "0")
+        self.assertEqual(s3["all"]["decoded_model_is_e1_fit"], "True")
+        self.assertGreater(float(s3["all"]["pearson_log10_mean"]), 0.3)
+        qc = read_csv(lay.table("s5", "qc"))
+        self.assertIn("chr1 only", qc[-1]["label"])
+        self.assertTrue(all("/Users/" not in p.read_text() for part in e6.PARTS for p in lay.tables(part)))
 
 
 if __name__ == "__main__":

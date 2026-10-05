@@ -42,9 +42,7 @@ iterations, 78 jobs in about 15 s) in `experiment/.runs-smoke/`;
 | `experiments/e1.py` | E1 as jobs, and its tables |
 | `inputprep.py` | E4's data steps: callable masks, masked VCF, consensus FASTA through fq2psmcfa, bins of the routes compared, generate_multihetsep.py cross-check (`python -m experiment.pipeline.inputprep STEP`) |
 | `experiments/e4.py` | E4 as jobs, and its tables |
-| `figures/e4.py` | Fig 5, from E4's tables |
 | `experiments/e5.py` | E5 as jobs, and its tables |
-| `figures/e5.py` | Fig 6, from E5's tables |
 | `experiments/fig.py` | the figures as runner jobs (experiment `FIG`) |
 | `figures/` | the manuscript's figures: style, table schemas, one module per figure ([README](figures/README.md)) |
 
@@ -222,8 +220,8 @@ Jobs per replicate and mask: `mask` (BED, masked VCF, record), `consensus`
 multihetsep file), `convert/<mask>/{multihetsep,nomask}` (those routes' bins
 as psmc-rs reads them), `bins` (every route against the exact route),
 `crosscheck` (replicate 1), and a `fit` and a `qc` per route; then `report`
-(tables) and `figure` (Fig 5). The report checks that every fit read the
-bins of its route's psmcfa.
+(tables; Fig 5 is drawn from them by `FIG/fig5_input_preparation`). The
+report checks that every fit read the bins of its route's psmcfa.
 
 | table | contents |
 | --- | --- |
@@ -275,7 +273,7 @@ psmc-rs genome.psmcfa boot.json 25 <the recipe> --threads 1 \
 As in C psmc, every replicate draws trunks with replacement up to the
 genome's length and is fitted from a fresh start with the settings of the
 fits. Jobs: `sim` (psmcfa only, no VCF), `fit`, `boot-trunk500000`,
-`boot-trunk50000`, `report` and `figure`. Seeds: the genomes
+`boot-trunk50000` and `report`. Seeds: the genomes
 `seed("E5", "bottleneck", r, "ancestry/<chrom>")` and `"mutations/<chrom>"`;
 each bootstrap run `seed("E5", "bottleneck", r, "bootstrap/trunk<B>")`, so the
 two trunk sizes draw independently. All are in `tables/E5_seeds.csv`.
@@ -320,15 +318,14 @@ on the run).
 | `E5_fits.csv` | per genome: heterozygous sites and bins, theta, rho, t_max, N0, final log-likelihood, RMSE against the truth, wall time and peak RSS |
 | `E5_seeds.csv` | every seed |
 
-**Figure 6** (`figures/E5_fig6.pdf` and `.png`, by `figures/e5.py` from the
-tables and the truth record; 180 x 128 mm, 7 pt Arial, fonts embedded,
-byte-for-byte reproducible): A and B, genome 1's fit and bootstrap band at each
-trunk size over the true Ne and the 95% range of the 50 fits; C, the SD ratio
-by time (median and IQR over the 10 genomes; grey: where a bootstrap with the
-true SD would fall given the true SD's own sampling error); D, the pointwise
-coverage of the true Ne (thick) and of the fits' mean (thin) against the
-nominal 95%. Redraw it without re-running anything with
-`$PY -m experiment.pipeline.figures.e5 [--profile P]`.
+**Figure 6** (`figures/fig6_bootstrap_calibration.{pdf,svg,png}`, drawn by
+`FIG` from the tables, see `figures/README.md`): a, genome 1's fit and its
+bootstrap bands at both trunk sizes over the true Ne and the 95% range of
+the 50 fits; b, the true sampling SD and the bootstrap SDs; c, the SD ratio
+by time (median and IQR over the 10 genomes; grey: where a bootstrap with
+the true SD would fall given the true SD's own sampling error); d, the
+pointwise coverage of the true Ne (thick, with its Clopper-Pearson
+interval) and of the fits' mean (thin) against the nominal 95%.
 
 Layout of `experiment/runs/E5/`: `sims/` (genomes; not committed),
 `truth/`, `fits/bottleneck/repNN.rs.json`, `boot/trunk<B>/repNN.rs.json` (the
@@ -380,10 +377,12 @@ checkout's `target/release/psmc-rs`, built by `start`.
 experiment/.venv/bin/python -m unittest discover -s experiment/tests
 ```
 
-`test_pipeline_*.py` cover every module; parts that need msprime, stdpopsim,
-psutil, htslib, C psmc or a psmc-rs build skip without them. With all of
-them present, `test_pipeline_e1.EndToEnd` runs the tiny profile through the
-runner and checks that the first iteration's log-likelihood of psmc-rs
-equals C psmc's to its printed precision; `test_pipeline_e5.EndToEnd` runs
-E5's tiny profile (simulations, fits, bootstraps, tables and figure) and
-checks that nothing is left to do afterwards.
+`test_pipeline_*.py` and `test_figures_*.py` cover every module; parts that
+need msprime, stdpopsim, psutil, htslib, C psmc or the psmc-rs builds skip
+without them. With all of them present, `tiny_runs.py` runs every experiment
+at the tiny profile through the runner once per test process (about a
+minute); the `EndToEnd` tests check each experiment's tables (for example
+that the first iteration's log-likelihood of psmc-rs equals C psmc's to its
+printed precision, and that nothing is left to do afterwards), and
+`test_figures_draw` draws every figure from those tables and checks every
+table schema the figures read against them.

@@ -10,7 +10,9 @@
 * e-h: |log10(Ne_psmc-rs / Ne_C)| over time for every replicate (log scale;
   smaller values are drawn on the axis floor).
 * i: RMSE of log10 Ne on the informative window, per replicate: each tool
-  against the truth, and psmc-rs against C psmc, with the means.
+  against the truth, psmc-rs against C psmc (with ``--mstep-iters 1000``,
+  as every fit; see ``config.Inference``), and psmc-rs with its default
+  M-step budget (100) against C psmc, with the means.
 """
 
 from __future__ import annotations
@@ -112,7 +114,7 @@ def draw(src: Source):
         else:
             ax.tick_params(labelleft=False)
 
-    _rmse_panel(bottom, models, reps, pairs)
+    _rmse_panel(bottom, models, reps, pairs, src.table("E1_mstep") if src.has("E1_mstep") else None)
     handles = [
         style.handle(style.TRUTH, linewidth=style.LW),
         style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
@@ -124,8 +126,8 @@ def draw(src: Source):
     return fig
 
 
-def _rmse_panel(ax, models: List[str], reps, pairs) -> None:
-    """RMSE of log10 Ne per replicate: C and psmc-rs against the truth, psmc-rs against C."""
+def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
+    """RMSE of log10 Ne per replicate: C and psmc-rs against the truth, psmc-rs against C (and its default M-step)."""
     import numpy as np
 
     groups = [
@@ -136,27 +138,34 @@ def _rmse_panel(ax, models: List[str], reps, pairs) -> None:
         ("psmc-rs 0.2 vs C psmc", style.Entity("psmc-rs 0.2 vs C psmc", style.INK, "-", "D"),
          lambda m: pairs[pairs.model == m]["rmse_log10_ne_rs_vs_c"]),
     ]
-    width = 0.24
+    if mstep is not None and len(mstep):
+        groups.append(("psmc-rs 0.2, default M-step (100), vs C psmc",
+                       style.Entity("", style.BLUE_650, "-", "^", filled=False),
+                       lambda m: mstep[mstep.model == m]["rmse_log10_ne_default_vs_c"]))
+    width = 0.8 / len(groups)
     handles = []
+    lows, highs = [], []
     for gi, (label, ent, get) in enumerate(groups):
         for i, m in enumerate(models):
             v = np.asarray(get(m), dtype=float)
             v = v[np.isfinite(v)]
             if not v.size:
                 continue
-            x0 = i + (gi - 1) * width
+            lows.append(float(v.min()))
+            highs.append(float(v.max()))
+            x0 = i + (gi - (len(groups) - 1) / 2) * width
             jitter = (np.arange(v.size) - (v.size - 1) / 2) * (0.6 * width / max(v.size, 2))
             ax.plot(x0 + jitter, v, **ent.points(markersize=2.6, alpha=0.85, label=label))
             mean = float(np.mean(v))
             ax.plot([x0 - 0.4 * width, x0 + 0.4 * width], [mean, mean], color=style.INK, linewidth=style.LW,
                     zorder=5)
-            if gi == 2:
+            if gi >= 2:
                 style.note(ax, x0 + 0.45 * width, mean, fmt_sig(mean), ha="left", va="center",
-                           transform=ax.transData)
+                           transform=ax.transData, size=5.5)
         handles.append(style.handle(ent, kind="points", label=label))
     style.log_axis(ax, "y", grid=True)
-    lo = min(float(np.nanmin(pairs["rmse_log10_ne_rs_vs_c"])), float(np.nanmin(reps["rmse_log10_ne_vs_truth"])))
-    hi = float(np.nanmax(reps["rmse_log10_ne_vs_truth"]))
+    lo = min(lows) if lows else 1e-6
+    hi = max(highs) if highs else 1.0
     ax.set_ylim(*decades(lo / 1.5, hi * 1.5))
     ax.set_xlim(-0.6, len(models) - 0.4)
     ax.set_xticks(range(len(models)))

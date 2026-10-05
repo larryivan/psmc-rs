@@ -9,9 +9,9 @@ one and saves it with :func:`.style.save`. The experiment ``FIG``
 tables, and ``python -m experiment.pipeline.figures`` draws them directly.
 
 :mod:`.style` holds the shared style (type, sizes, colours, export),
-:mod:`.schemas` the tables the figures read, :mod:`.data` their readers and
-the curve arithmetic, and :mod:`.fake` small stand-in tables in those
-schemas for developing and testing the figures.
+:mod:`.schemas` the experiments' tables the figures read (the columns they
+need), and :mod:`.data` their readers and the curve arithmetic. Every
+figure of the manuscript is drawn here, and only here.
 """
 
 from __future__ import annotations
@@ -60,24 +60,26 @@ class FigureSpec:
 FIGURES: Tuple[FigureSpec, ...] = (
     FigureSpec("fig1_workflow", "fig1", "FIG", (), "From reads to a PSMC history with psmc-rs"),
     FigureSpec("fig2_simulated_accuracy", "fig2", "E1",
-               ("E1_curves", "E1_truth", "E1_table1", "E1_replicates", "E1_rs_vs_c"),
+               ("E1_curves", "E1_truth", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E1_mstep"),
                "Accuracy on simulated genomes, and C psmc and psmc-rs 0.2 compared"),
-    FigureSpec("fig3_real_genomes", "fig3", "E2", ("E2_curves", "E2_summary"),
+    FigureSpec("fig3_real_genomes", "fig3", "E2", ("E2_curves", "E2_bands", "E2_bootstrap", "E2_rs_vs_c",
+                                                   "E2_fit_summary"),
                "Four real genomes: C psmc, psmc-rs 0.2 and its bootstrap"),
-    FigureSpec("fig4_performance", "fig4", "E3", ("E3_runs", "E3_threads"),
-               "Run time and memory against genome size, and thread scaling"),
-    FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves"),
-               "How the route from a VCF and a callable mask to PSMC biases the inference"),
-    FigureSpec("fig6_bootstrap_calibration", "fig6", "E5", ("E5_calibration", "E5_curves"),
+    FigureSpec("fig4_performance", "fig4", "E3", ("E3_table2", "E3_runs"),
+               "Run time and memory against genome size, and the speed-up over C psmc"),
+    FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves", "E4_bias"),
+               "How the route from a VCF and a callable mask to PSMC changes the inference"),
+    FigureSpec("fig6_bootstrap_calibration", "fig6", "E5",
+               ("E5_summary", "E5_sampling", "E5_bands", "E5_sd_ratio", "E5_coverage"),
                "Calibration of the bootstrap"),
     FigureSpec("figS1_em_convergence", "figs1", "E1", ("E1_traces",),
                "EM convergence of C psmc and psmc-rs 0.2"),
-    FigureSpec("figS2_format_consistency", "figs2", "E6", ("E6_formats", "E6_format_curves"),
+    FigureSpec("figS2_format_consistency", "figs2", "E6", ("E6_S2_curves", "E6_S2_bins", "E6_S2_fits"),
                "One genome read as psmcfa, VCF and multihetsep"),
     FigureSpec("figS3_tmrca_decoding", "figs3", "E6",
-               ("E6_tmrca_track", "E6_tmrca_hist2d", "E6_tmrca_calibration", "E6_tmrca_summary"),
+               ("E6_S3_track", "E6_S3_density", "E6_S3_calibration", "E6_S3_summary"),
                "Posterior TMRCA against the true TMRCA"),
-    FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_threads",),
+    FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_thread_scaling", "E3_table2", "E3_runs", "E3_determinism"),
                "Thread scaling and determinism of psmc-rs 0.2"),
 )
 BY_NAME: Dict[str, FigureSpec] = {f.name: f for f in FIGURES}

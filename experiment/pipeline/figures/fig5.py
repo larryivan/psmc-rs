@@ -1,20 +1,30 @@
-"""Fig 5 (E4): how the route from a VCF and a callable mask to PSMC biases the inference.
+"""Fig 5 (E4): how the route from a VCF and a callable mask to PSMC changes the inference.
 
-Routes (colour, marker): the exact route (psmc-rs reading the VCF with
-``--vcf-mask``), the classic consensus FASTA -> fq2psmcfa route (identical
-bins by construction: drawn as open markers and a dotted line over the exact
-route), multihetsep (missing sites placed at interval starts), and the VCF
-read without its mask. Masks: no missing data, and 10% or 30% of positions
+Routes (colour, marker): psmc-rs reading the VCF with its mask (blue; its
+bins equal those of the classic consensus FASTA -> fq2psmcfa route, which
+is asserted bin for bin and not drawn separately), the same fits rescaled
+to their callable bases per called bin (dark blue, dashed), multihetsep
+(missing sites placed at interval starts; yellow) and the VCF read without
+its mask (pink). Masks: no missing data, and 10% or 30% of positions
 uncallable in clustered (mean 20 kb) or dispersed (mean 20 bp) runs.
 
-* a: relative bias of theta per bin against the exact route on the same
-  replicate without missing data (every replicate, and the mean);
+With fq2psmcfa's rule a bin is missing only when nearly all its bases are
+uncallable, so a dispersed mask leaves almost every bin called with only
+about (1 - f) of its bases, and theta per bin, and every time and size
+with it, shrinks by about (1 - f): the bin-exact route is then as biased
+as ignoring the mask. Rescaling with the callable bases (known to the
+routes whose input records them) corrects it.
+
+* a: theta per bin against the complete-data fit of the same genome, in
+  percent (every replicate, and the mean);
 * b: RMSE of log10 Ne against the truth on the informative window;
 * c: share of bins whose state (called, heterozygous, missing) differs from
-  the exact route's;
-* d: the curves of one replicate with one mask, and the truth;
-* e, f: bias over time, log10(Ne / true Ne), median over replicates, for two
-  masks.
+  the VCF + mask route's;
+* d: the curves of one replicate with the dispersed 30% mask, and the truth;
+* e, f: bias over time, mean over replicates of log10(Ne / true Ne), with
+  the largest clustered and dispersed masks; grey: the complete data.
+
+Everything comes from ``E4_routes``, ``E4_curves`` and ``E4_bias``.
 """
 
 from __future__ import annotations
@@ -23,31 +33,51 @@ from typing import Dict, List, Tuple
 
 from .. import config
 from . import style
-from .data import Source, curves, decades, informative_window, log10_ratio, time_grid, truth_xy
+from .data import Source, curves, decades, informative_window, truth_xy
 
-MASK_LABEL = {"none": "None"}
-
-
-def mask_label(name: str, structure: str, fraction: float, two_lines: bool = True) -> str:
-    if name == "none" or structure == "none":
-        return "No missing\ndata" if two_lines else "no missing data"
-    sep = "\n" if two_lines else " "
-    return f"{structure.capitalize()}{sep}{100 * fraction:.0f}%"
+DRAWN = ("exact", "exact_rescaled", "multihetsep", "nomask")
+COMPLETE = config.E4_CONTROL_MASK  # the no-missing control
+MARKED = ("multihetsep", "nomask")  # light colours carry their marker along the line too
 
 
-def masks_of(routes) -> List[Tuple[str, str, float]]:
-    """``(mask, structure, missing fraction)`` in the figure's order: none, then clustered, then dispersed."""
-    seen = {}
-    for r in routes.itertuples():
-        seen[str(r.mask)] = (str(r.structure), float(r.missing_fraction))
+def masks_of(routes, cfg: config.E4) -> List[Tuple[str, str, float]]:
+    """``(mask, structure, missing fraction)``: the control, then clustered and dispersed by fraction."""
+    specs = {m.name: (m.structure, m.missing_fraction) for m in cfg.masks}
+    present = list(dict.fromkeys(routes["mask"]))
+    items = [(m, *specs.get(m, ("none", 0.0))) for m in present]
     order = {"none": 0, "clustered": 1, "dispersed": 2}
-    items = sorted(seen.items(), key=lambda kv: (order.get(kv[1][0], 3), kv[1][1], kv[0]))
-    return [(m, s, f) for m, (s, f) in items]
+    return sorted(items, key=lambda x: (order.get(x[1], 3), x[2], x[0]))
 
 
 def routes_of(routes) -> List[str]:
     present = set(routes["route"])
-    return [r for r in style.ROUTE_ORDER if r in present]
+    return [r for r in DRAWN if r in present]
+
+
+def mask_label(structure: str, fraction: float) -> str:
+    return "no missing data" if structure == "none" else f"{structure} {100 * fraction:.0f}%"
+
+
+def mask_axis(ax, masks) -> None:
+    """Masks on x: the missing fraction under each group, the structure under its group."""
+    from matplotlib.transforms import blended_transform_factory
+
+    ax.set_xlim(-0.55, len(masks) - 0.45)
+    ax.set_xticks(range(len(masks)))
+    ax.set_xticklabels(["none" if s == "none" else f"{100 * f:.0f}%" for _, s, f in masks], fontsize=style.TICK_PT)
+    ax.tick_params(axis="x", length=0)
+    for i in range(1, len(masks)):
+        ax.axvline(i - 0.5, color=style.GRID, linewidth=style.LW_GRID, zorder=0)
+    trans = blended_transform_factory(ax.transData, ax.transAxes)
+    groups: Dict[str, List[int]] = {}
+    for i, (_, s, _) in enumerate(masks):
+        if s != "none":
+            groups.setdefault(s, []).append(i)
+    for s, idx in groups.items():
+        lo, hi = min(idx) - 0.4, max(idx) + 0.4
+        ax.plot([lo, hi], [-0.13, -0.13], color=style.MUTED, linewidth=style.LW_GRID, transform=trans, clip_on=False)
+        ax.text((lo + hi) / 2, -0.15, s, ha="center", va="top", fontsize=style.TICK_PT, color=style.INK2,
+                transform=trans)
 
 
 def dot_panel(ax, routes, column: str, scale: float, masks, route_names) -> None:
@@ -71,42 +101,17 @@ def dot_panel(ax, routes, column: str, scale: float, masks, route_names) -> None
     ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
 
 
-def mask_axis(ax, masks) -> None:
-    """Masks on x: the missing fraction under each group, the structure under its group."""
-    from matplotlib.transforms import blended_transform_factory
-
-    ax.set_xlim(-0.55, len(masks) - 0.45)
-    ax.set_xticks(range(len(masks)))
-    ax.set_xticklabels(["none" if s == "none" else f"{100 * f:.0f}%" for _, s, f in masks], fontsize=style.TICK_PT)
-    ax.tick_params(axis="x", length=0)
-    for i in range(1, len(masks)):
-        ax.axvline(i - 0.5, color=style.GRID, linewidth=style.LW_GRID, zorder=0)
-    trans = blended_transform_factory(ax.transData, ax.transAxes)
-    groups: Dict[str, List[int]] = {}
-    for i, (_, s, _) in enumerate(masks):
-        if s != "none":
-            groups.setdefault(s, []).append(i)
-    for s, idx in groups.items():
-        lo, hi = min(idx) - 0.4, max(idx) + 0.4
-        ax.plot([lo, hi], [-0.13, -0.13], color=style.MUTED, linewidth=style.LW_GRID, transform=trans,
-                clip_on=False)
-        ax.text((lo + hi) / 2, -0.15, s, ha="center", va="top", fontsize=style.TICK_PT, color=style.INK2,
-                transform=trans)
-
-
-MARKED_ROUTES = ("multihetsep", "nomask")  # the light colours carry their marker along the line too
-
-
-def route_line(ax, x, y, route: str, lw: float, xlim: Tuple[float, float], n_marks: int = 6) -> None:
-    """A route's step line; the routes in light colours also get their marker at a few log-spaced times."""
+def route_line(ax, x, y, route: str, xlim: Tuple[float, float], n_marks: int = 6, **kw) -> None:
+    """A route's line; the routes in light colours also get their marker at a few log-spaced times."""
     import numpy as np
 
     ent = style.ROUTES[route]
-    ax.plot(x, y, drawstyle="steps-post", color=ent.color, linestyle=ent.linestyle, linewidth=lw,
-            zorder=4 if route == "fq2psmcfa" else 3)
-    if route not in MARKED_ROUTES:
+    style_kw = {"color": ent.color, "linestyle": ent.linestyle, "linewidth": style.LW, "zorder": 3}
+    style_kw.update(kw)
+    ax.plot(x, y, **style_kw)
+    if route not in MARKED:
         return
-    shift = (MARKED_ROUTES.index(route) + 0.5) / (len(MARKED_ROUTES) * (n_marks + 1))
+    shift = (MARKED.index(route) + 0.5) / (len(MARKED) * (n_marks + 1))
     span = np.log10(xlim[1] / xlim[0])
     xm = xlim[0] * 10 ** (span * (np.arange(1, n_marks + 1) / (n_marks + 1) + shift))
     idx = np.clip(np.searchsorted(np.asarray(x), xm, side="right") - 1, 0, len(y) - 1)
@@ -120,94 +125,94 @@ def draw(src: Source):
     figs = config.FIGURES
     g = cfg.scaling.gen_years
     routes = src.table("E4_routes")
-    cdf = src.table("E4_curves")
-    masks = masks_of(routes)
+    fits = curves(src.table("E4_curves"), ["replicate", "mask", "route"])
+    bias = src.table("E4_bias")
+    masks = masks_of(routes, cfg)
     route_names = routes_of(routes)
-    fits = curves(cdf, ["replicate", "mask", "route"])
     xlim = figs.sim_years
     window = informative_window(cfg.model, cfg.grid, g)
-    grid = time_grid(xlim, figs.curve_grid_points)
 
-    fig = style.figure("double", 120)
-    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=2.0, top_mm=8.0, bottom_mm=9.0, wspace_mm=13.0,
+    fig = style.figure("double", 122)
+    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=2.5, top_mm=12.0, bottom_mm=9.0, wspace_mm=13.0,
                     hspace_mm=15.0, height_ratios=[1.0, 1.1])
     ax_t, ax_r, ax_b = (fig.add_subplot(gs[0, i]) for i in range(3))
     ax_c, ax_e, ax_f = (fig.add_subplot(gs[1, i]) for i in range(3))
 
-    dot_panel(ax_t, routes, "theta_rel_bias", 100.0, masks, route_names)
+    dot_panel(ax_t, routes, "theta_rel_complete", 100.0, masks, route_names)
     style.ref_line(ax_t, y=0.0)
-    ax_t.set_ylabel("Bias in θ (%)")
+    ax_t.set_ylabel("θ against the complete data (%)")
     dot_panel(ax_r, routes, "rmse_log10_ne_vs_truth", 1.0, masks, route_names)
     ax_r.set_ylim(bottom=0.0)
     ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$")
-    dot_panel(ax_b, routes, "bins_differ_fraction", 100.0, masks, route_names)
+    differ = [r for r in route_names if r in ("multihetsep", "nomask")]
+    dot_panel(ax_b, routes, "differing_bin_fraction", 100.0, masks, differ or route_names)
     ax_b.set_ylim(bottom=0.0)
-    ax_b.set_ylabel("Bins differing from exact (%)")
+    ax_b.set_ylabel("Bins unlike VCF + mask (%)")
 
     # d: one replicate, one mask.
     rep, mask = figs.e4_example_replicate, figs.e4_example_mask
     if not any(k[1] == mask for k in fits):
         mask = masks[-1][0]
+    specs = {m: (s, f) for m, s, f in masks}
     style.shade_outside(ax_c, window, xlim)
     vals: List[float] = []
+    grid = np.logspace(np.log10(window[0]), np.log10(window[1]), 200)
     for route in route_names:
         c = fits.get((rep, mask, route))
         if c is None:
             continue
-        ent = style.ROUTES[route]
         x, y = style.step_xy(c.years, c.ne, xlim)
-        lw = style.LW_BOLD if route == "exact" else style.LW
-        route_line(ax_c, x, y, route, lw, xlim)
-        inside = (grid >= window[0]) & (grid <= window[1])
-        vals += list(c.at(grid[inside]))
+        route_line(ax_c, x, y, route, xlim, drawstyle="steps-post",
+                   linewidth=style.LW_BOLD if route == "exact" else style.LW)
+        vals += list(c.at(grid))
     tx, ty = truth_xy(cfg.model, g, xlim)
-    ax_c.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=5)
+    ax_c.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=6)
     vals += [float(ty.min()), float(ty.max())]
     style.years_axis(ax_c, xlim)
     style.ne_axis(ax_c, decades(min(vals) / 1.3, max(vals) * 1.3))
-    m_struct = {m: (s, f) for m, s, f in masks}
-    style.note(ax_c, 0.97, 0.97, f"{mask_label(mask, *m_struct.get(mask, ('', 0.0)), two_lines=False)},\n"
-                                 f"replicate {rep}", ha="right", va="top")
+    style.note(ax_c, 0.97, 0.97, f"{mask_label(*specs.get(mask, ('none', 0.0)))},\nreplicate {rep}",
+               ha="right", va="top")
 
-    # e, f: the bias each route adds, over time: log10(Ne_route / Ne_exact) on
-    # the same replicate and mask, median over replicates. (PSMC's own error
-    # against the truth, shared by every route, is in b and d.)
-    bias_axes = [ax_e, ax_f]
-    bias_masks = [m for m in figs.e4_bias_masks if m in m_struct][: len(bias_axes)]
-    inside = (grid >= window[0]) & (grid <= window[1])
-    blim = 0.02
-    series: Dict[Tuple[str, str], np.ndarray] = {}
-    n_reps: Dict[str, int] = {}
-    for mask_b in bias_masks:
+    # e, f: mean bias against the truth over time, with the complete data for reference.
+    bias_masks = [m for m in figs.e4_bias_masks if m in specs][:2]
+    reference = bias[(bias["mask"] == COMPLETE) & (bias.route == "exact")].sort_values("years")
+    lim = 0.05
+    for m in bias_masks:
+        sub = bias[(bias["mask"] == m) & bias.route.isin(route_names)]
+        if not sub.empty:
+            lim = max(lim, float(np.nanmax(np.abs(sub["log10_bias_mean"]))))
+    if not reference.empty:
+        lim = max(lim, float(np.nanmax(np.abs(reference["log10_bias_mean"]))))
+    lim *= 1.15
+    for ax, m in zip((ax_e, ax_f), bias_masks):
+        if not reference.empty:
+            ax.plot(reference["years"], reference["log10_bias_mean"], color=style.MUTED, linewidth=2.0, zorder=2,
+                    solid_capstyle="butt", drawstyle="steps-post")
         for route in route_names:
-            reps = sorted(k[0] for k in fits if k[1] == mask_b and k[2] == route and (k[0], mask_b, "exact") in fits)
-            if not reps:
+            sub = bias[(bias["mask"] == m) & (bias.route == route)].sort_values("years")
+            if sub.empty:
                 continue
-            n_reps[mask_b] = len(reps)
-            b = np.median(np.vstack([log10_ratio(fits[(r, mask_b, route)], fits[(r, mask_b, "exact")], grid)
-                                     for r in reps]), axis=0)
-            series[(mask_b, route)] = b
-            blim = max(blim, float(np.max(np.abs(b[inside]))))
-    blim = blim * 1.2
-    for ax, mask_b in zip(bias_axes, bias_masks):
-        style.shade_outside(ax, window, xlim)
-        for route in route_names:
-            b = series.get((mask_b, route))
-            if b is None:
-                continue
-            ent = style.ROUTES[route]
-            lw = style.LW_BOLD if route == "exact" else style.LW
-            route_line(ax, grid, b, route, lw, xlim)
-        style.years_axis(ax, xlim)
-        ax.set_ylim(-blim, blim)
-        ax.set_ylabel("log$_{10}$($N_\\mathrm{e}$ / $N_\\mathrm{e}$ of exact route)")
-        style.note(ax, 0.03, 0.97, f"{mask_label(mask_b, *m_struct[mask_b], two_lines=False)},\n"
-                                   f"median of {n_reps.get(mask_b, 0)} replicates", ha="left", va="top")
-    for ax in bias_axes[len(bias_masks):]:
+            route_line(ax, sub["years"].to_numpy(), sub["log10_bias_mean"].to_numpy(), route,
+                       (float(sub["years"].min()), float(sub["years"].max())), drawstyle="steps-post",
+                       linewidth=style.LW_BOLD if route == "exact" else style.LW)
+        style.ref_line(ax, y=0.0)
+        style.years_axis(ax, (window[0] / 1.15, window[1] * 1.15))
+        ax.set_ylim(-lim, lim)
+        ax.set_ylabel("log$_{10}$($N_\\mathrm{e}$ / true $N_\\mathrm{e}$), mean")
+        n = int(bias[bias["mask"] == m]["replicates"].max())
+        style.note(ax, 0.03, 0.97, f"{mask_label(*specs[m])},\nmean of {n} replicate{'s' if n > 1 else ''}",
+                   ha="left", va="top")
+    for ax in (ax_e, ax_f)[len(bias_masks):]:
         ax.set_axis_off()
+
+    from matplotlib.lines import Line2D
 
     handles = [style.handle(style.ROUTES[r], kind="both", linewidth=style.LW) for r in route_names]
     handles.append(style.handle(style.TRUTH, linewidth=style.LW))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
+    handles.append(Line2D([], [], color=style.MUTED, linewidth=2.0, label="Complete data (e, f)"))
+    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3)
     style.panel_letters(fig, [ax_t, ax_r, ax_b, ax_c, ax_e, ax_f])
     return fig
+
+
+__all__ = ["DRAWN", "draw", "mask_label", "masks_of", "routes_of"]

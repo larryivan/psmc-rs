@@ -1,23 +1,21 @@
 """The tables the figures read: file, columns and meaning.
 
-This is the contract between the experiments and the figures. Each
-experiment's ``report`` writes its tables to ``<runs>/<EXP>/tables/``; the
-figures read nothing else (plus :mod:`..config`, e.g. the demographic
-models, whose true Ne(t) the truth records hold too). A figure checks that
-every column it needs is present (:func:`read`) and names the table and the
-missing columns otherwise; extra columns are allowed.
+These are tables the experiments' ``report`` jobs write to
+``<runs>/<EXP>/tables/`` (``experiments/e1.py`` ... ``e6.py``); the schemas
+list only the columns the figures read, and a figure checks that they are
+present (:func:`.data.read`), naming the table and the missing columns
+otherwise. Extra columns are allowed. The unit tests run every experiment
+at the tiny profile and draw every figure from the tables it writes, so a
+schema cannot drift from its table unnoticed.
 
-Conventions, as in E1's tables: times in ``years`` (scaled with the
-experiment's mu and g), sizes ``ne`` in diploid individuals, replicates and
-datasets counted from 1, ``tool`` is ``c`` (C psmc), ``rs`` (psmc-rs 0.2)
-or ``rs01`` (psmc-rs 0.1). A curve table has one row per PSMC interval:
-``ne`` holds from ``years`` to the next row's ``years`` (the first row's
-``years`` is 0, the last interval runs to infinity), exactly as
-:meth:`..results.Fit.curve` gives it. Booleans are ``true``/``false``.
-
-E1's tables exist (``experiments/e1.py``). The schemas of E2 to E6 are what
-the figures expect; :mod:`.fake` writes small tables in these schemas for
-developing and testing the figures until the experiments write theirs.
+Conventions, as in the experiments' tables: times in ``years`` (scaled with
+the experiment's mu and g), sizes ``ne`` in diploid individuals, replicates
+and datasets counted from 1, ``tool`` is ``c`` (C psmc), ``rs`` (psmc-rs
+0.2) or, in E3, ``rs01`` (psmc-rs 0.1), ``rs02`` and ``rs02-default``. A
+curve table has one row per PSMC interval: ``ne`` holds from ``years`` to
+the next row's ``years`` (the first row's ``years`` is 0, the last interval
+runs to infinity), as :meth:`..results.Fit.curve` gives it. Booleans are
+``True``/``False``.
 """
 
 from __future__ import annotations
@@ -52,50 +50,51 @@ class TableSchema:
         return f"{self.experiment}/tables/{self.file} (one row per {self.rows}):\n{cols}"
 
 
-def _schema(experiment: str, file: str, rows: str, columns: Dict[str, str]) -> TableSchema:
-    return TableSchema(experiment, file, tuple(columns.items()), rows)
-
-
 SCHEMAS: Dict[str, TableSchema] = {}
 
 
-def _add(key: str, schema: TableSchema) -> None:
-    SCHEMAS[key] = schema
+def _add(key: str, experiment: str, rows: str, columns: Dict[str, str]) -> None:
+    SCHEMAS[key] = TableSchema(experiment, f"{key}.csv", tuple(columns.items()), rows)
 
 
 # ---------------------------------------------------------------------------
-# E1 (written by experiments/e1.py; only the columns the figures use)
+# E1: simulated accuracy and equivalence (Fig 2, Fig S1)
 # ---------------------------------------------------------------------------
 
-_add("E1_curves", _schema("E1", "E1_curves.csv", "model, replicate, tool and interval", {
+_add("E1_curves", "E1", "model, replicate, tool and interval", {
     "model": "demographic model (config.MODELS)",
     "replicate": "replicate (1..)",
     "tool": "c or rs",
     **CURVE_COLUMNS,
-}))
-_add("E1_truth", _schema("E1", "E1_truth.csv", "model and time of a dense log grid", {
+})
+_add("E1_truth", "E1", "model and time of a dense log grid", {
     "model": "demographic model",
     "years": "years ago",
     "ne": "true Ne at that time",
-}))
-_add("E1_table1", _schema("E1", "E1_table1.csv", "model", {
+})
+_add("E1_table1", "E1", "model", {
     "model": "demographic model",
     "window_lo_years": "start of the informative window (1% quantile of the true coalescence time)",
     "window_hi_years": "end of the informative window (99% quantile)",
-}))
-_add("E1_replicates", _schema("E1", "E1_replicates.csv", "model, replicate and tool", {
+})
+_add("E1_replicates", "E1", "model, replicate and tool", {
     "model": "demographic model",
     "replicate": "replicate",
     "tool": "c or rs",
     "rmse_log10_ne_vs_truth": "RMSE of log10 Ne against the truth on the informative window",
-}))
-_add("E1_rs_vs_c", _schema("E1", "E1_rs_vs_c.csv", "model and replicate", {
+})
+_add("E1_rs_vs_c", "E1", "model and replicate", {
     "model": "demographic model",
     "replicate": "replicate",
     "rmse_log10_ne_rs_vs_c": "RMSE of log10 Ne between the tools on the informative window",
     "max_abs_log10_ne_diff": "largest |log10 Ne_rs - log10 Ne_c| on the window",
-}))
-_add("E1_traces", _schema("E1", "E1_traces.csv", "model, replicate, tool and EM iteration", {
+})
+_add("E1_mstep", "E1", "model and replicate", {
+    "model": "demographic model",
+    "replicate": "replicate",
+    "rmse_log10_ne_default_vs_c": "RMSE of log10 Ne between psmc-rs with its default M-step budget and C psmc",
+})
+_add("E1_traces", "E1", "model, replicate, tool and EM iteration", {
     "model": "demographic model",
     "replicate": "replicate",
     "tool": "c or rs",
@@ -103,138 +102,214 @@ _add("E1_traces", _schema("E1", "E1_traces.csv", "model, replicate, tool and EM 
     "loglike": "log-likelihood after i iterations (empty for C at i = N_ITER: it prints none)",
     "theta": "theta per bin after i iterations",
     "rho": "rho per bin after i iterations",
-}))
+})
 
 # ---------------------------------------------------------------------------
 # E2: real genomes (Fig 3)
 # ---------------------------------------------------------------------------
 
-_add("E2_curves", _schema("E2", "E2_curves.csv", "sample, tool, replicate and interval", {
-    "sample": "config.RealGenome.sample_id (HLemySub1, HLhydTec1, HLpelCas1, Papuan)",
+_add("E2_curves", "E2", "genome, tool and interval", {
+    "sample_id": "config.RealGenome.sample_id (HLemySub1, HLhydTec1, HLpelCas1, Papuan)",
     "tool": "c or rs",
-    "replicate": "0: the fit of the whole input; 1..N: psmc-rs bootstrap replicates (tool rs)",
     **CURVE_COLUMNS,
-}))
-_add("E2_summary", _schema("E2", "E2_summary.csv", "sample", {
-    "sample": "sample id",
-    "mu": "mutation rate used for scaling",
-    "gen_years": "generation time used for scaling",
-    "rmse_log10_ne_rs_vs_c": "RMSE of log10 Ne between the tools' fits",
-    "window_lo_years": "start of the window the RMSE is computed on",
-    "window_hi_years": "end of that window",
-    "bootstrap_replicates": "bootstrap replicates fitted (skipped ones excluded)",
-}))
+})
+_add("E2_bands", "E2", "genome, bootstrap trunk size and time of a dense log grid", {
+    "sample_id": "genome",
+    "trunk_bins": "the bootstrap's trunk size (bins)",
+    "years": "years ago",
+    "ne_band_lo": "2.5% quantile of the bootstrap replicates' Ne",
+    "ne_band_hi": "97.5% quantile",
+})
+_add("E2_bootstrap", "E2", "genome and bootstrap trunk size", {
+    "sample_id": "genome",
+    "default_trunks": "True for psmc-rs's default trunks, False for the second bootstrap on fine trunks",
+    "trunk_bins": "trunk size (bins)",
+    "trunk_mb": "trunk size (Mb)",
+    "trunks": "trunks the genome is cut into",
+    "coarse_band": "True when fewer than psmc-rs's 20 trunks",
+    "replicates": "bootstrap replicates fitted",
+})
+_add("E2_rs_vs_c", "E2", "genome", {
+    "sample_id": "genome",
+    "window_lo_years": "start of the comparison window (1% of coalescences under C psmc's fit)",
+    "window_hi_years": "end of the comparison window (99%)",
+    "rmse_log10_ne_rs_vs_c": "RMSE of log10 Ne between the tools on the window",
+})
+_add("E2_fit_summary", "E2", "genome and tool", {
+    "sample_id": "genome",
+    "tool": "c or rs",
+    "mu": "mutation rate the curves are scaled with",
+    "gen_years": "generation time the curves are scaled with",
+})
 
 # ---------------------------------------------------------------------------
 # E3: performance (Fig 4, Fig S4)
 # ---------------------------------------------------------------------------
 
-_add("E3_runs", _schema("E3", "E3_runs.csv", "tool, threads, genome size and repeat", {
-    "tool": "c, rs01 or rs02",
-    "threads": "threads given to the tool (1 for C psmc and psmc-rs 0.1)",
-    "genome_mb": "simulated genome size (Mb)",
-    "repeat": "repeat (1..)",
-    "status": "ok, skipped or failed",
-    "wall_seconds": "wall time of the whole run (empty unless ok)",
-    "peak_rss_mb": "peak RSS of the process tree, MiB (empty unless ok)",
-    "note": "why a run was skipped (e.g. estimated memory above the limit), else empty",
-}))
-_add("E3_threads", _schema("E3", "E3_threads.csv", "thread count and repeat (psmc-rs 0.2, thread-scaling genome)", {
-    "genome_mb": "genome size (Mb)",
-    "threads": "--threads",
+_add("E3_table2", "E3", "tool, thread count and genome size (Table 2)", {
+    "tool": "c, rs01, rs02 or rs02-default",
+    "threads": "threads given to the tool (1 for C psmc)",
+    "size_mb": "genome size (Mb)",
+    "status": "measured, skipped (estimated memory above the limit) or incomplete",
+    "note": "why a setup was skipped or is incomplete",
+    "wall_median_s": "median wall time of the clean repeats",
+    "peak_rss_median_mb": "median peak RSS of the process tree (MiB)",
+    "speedup_vs_c": "C psmc's median wall time over this setup's, at the same size",
+})
+_add("E3_runs", "E3", "timed run", {
+    "tool": "c, rs01, rs02 or rs02-default",
+    "threads": "threads",
+    "size_mb": "genome size (Mb)",
     "repeat": "repeat (1..)",
     "wall_seconds": "wall time",
-    "peak_rss_mb": "peak RSS of the process tree, MiB",
-    "json_sha256": "SHA-256 of the output JSON",
-}))
+    "peak_rss_mb": "peak RSS of the tool's process tree (MiB)",
+    "clean": "True when the run was timed on a quiet machine (only clean runs enter the medians)",
+})
+_add("E3_thread_scaling", "E3", "thread count (psmc-rs 0.2 on the thread-scaling genome)", {
+    "size_mb": "genome size (Mb)",
+    "threads": "--threads",
+    "wall_median_s": "median wall time",
+    "efficiency": "speed-up over the fewest threads / threads",
+    "peak_rss_median_mb": "median peak RSS (MiB)",
+})
+_add("E3_determinism", "E3", "run, against its tool's reference at the same size", {
+    "tool": "c, rs01, rs02 or rs02-default",
+    "size_mb": "genome size (Mb)",
+    "threads": "threads",
+    "sha256": "SHA-256 of the output",
+})
 
 # ---------------------------------------------------------------------------
 # E4: input preparation (Fig 5)
 # ---------------------------------------------------------------------------
 
-_add("E4_routes", _schema("E4", "E4_routes.csv", "replicate, mask and route", {
+_add("E4_routes", "E4", "mask, route (rescaled routes included) and replicate", {
+    "mask": "nomissing (the control) or a config.MaskSpec name",
+    "route": "exact, fq2psmcfa, multihetsep, nomask, exact_rescaled or multihetsep_rescaled",
     "replicate": "replicate",
-    "mask": "none (no missing data) or a config.MaskSpec name (clustered10, ...)",
-    "structure": "none, clustered or dispersed",
-    "missing_fraction": "fraction of uncallable positions (0 for none)",
-    "route": "exact, fq2psmcfa, multihetsep or nomask",
-    "theta_rel_bias": "theta / theta of the exact route on the same replicate without missing data - 1",
+    "theta_rel_complete": "theta / theta of the exact route on the same genome without missing data - 1",
     "rmse_log10_ne_vs_truth": "RMSE of log10 Ne against the truth on the informative window",
-    "bins_differ_fraction": "fraction of bins whose state (T, K, N) differs from the exact route's",
-}))
-_add("E4_curves", _schema("E4", "E4_curves.csv", "replicate, mask, route and interval", {
-    "replicate": "replicate",
-    "mask": "mask name or none",
+    "differing_bin_fraction": "share of bins whose state (T, K, N) differs from the exact route's",
+})
+_add("E4_curves", "E4", "mask, route, replicate and interval", {
+    "mask": "mask",
     "route": "route",
+    "replicate": "replicate",
     **CURVE_COLUMNS,
-}))
+})
+_add("E4_bias", "E4", "mask, route and time of the informative window", {
+    "mask": "mask",
+    "route": "route",
+    "years": "years ago",
+    "replicates": "replicates",
+    "log10_bias_mean": "mean over replicates of log10(fitted Ne / true Ne)",
+})
 
 # ---------------------------------------------------------------------------
 # E5: bootstrap calibration (Fig 6)
 # ---------------------------------------------------------------------------
 
-_add("E5_calibration", _schema("E5", "E5_calibration.csv", "trunk size and time of the grid", {
+_add("E5_summary", "E5", "trunk size and window", {
     "trunk_bins": "--bootstrap-block-size (bins)",
-    "years": "time of the informative-window grid",
-    "sd_true": "SD of log10 Ne over the independent genomes' fits (true sampling SD)",
-    "sd_boot_median": "median over datasets of the bootstrap SD of log10 Ne",
-    "sd_boot_q25": "its 25% quantile over datasets",
-    "sd_boot_q75": "its 75% quantile over datasets",
-    "sd_ratio_median": "median over datasets of bootstrap SD / sd_true",
-    "coverage": "fraction of datasets whose 95% percentile band contains the true Ne",
-    "n_datasets": "bootstrapped datasets",
-}))
-_add("E5_curves", _schema("E5", "E5_curves.csv", "kind, dataset, trunk, replicate and interval", {
-    "kind": "fit (one fit per independent genome) or bootstrap",
-    "dataset": "genome (1..truth_replicates)",
-    "trunk_bins": "trunk size of a bootstrap (0 for kind fit)",
-    "replicate": "bootstrap replicate (0 for kind fit)",
-    **CURVE_COLUMNS,
-}))
+    "trunk_mb": "trunk size (Mb)",
+    "trunks": "trunks per genome",
+    "window": "informative or fixed",
+    "coverage_mean": "pointwise coverage averaged over the window",
+    "coverage_mean_ci_lo": "its 2.5% bound from resampling the bootstrapped genomes",
+    "coverage_mean_ci_hi": "its 97.5% bound",
+})
+_add("E5_sampling", "E5", "time of the informative window", {
+    "point": "index of the time",
+    "years": "years ago",
+    "true_ne": "true Ne",
+    "fits": "independent genomes fitted",
+    "lo_ne": "2.5% quantile of the fits' Ne",
+    "hi_ne": "97.5% quantile of the fits' Ne",
+})
+_add("E5_bands", "E5", "bootstrapped genome, trunk size and time", {
+    "dataset": "genome (1..)",
+    "trunk_bins": "trunk size (bins)",
+    "point": "index of the time",
+    "years": "years ago",
+    "fit_ne": "the genome's fitted Ne",
+    "boot_lo_ne": "2.5% quantile of its bootstrap replicates",
+    "boot_hi_ne": "97.5% quantile",
+})
+_add("E5_sd_ratio", "E5", "trunk size and time", {
+    "trunk_bins": "trunk size (bins)",
+    "point": "index of the time",
+    "years": "years ago",
+    "sd_true_log10": "SD of log10 Ne over the independent fits (the true sampling SD)",
+    "sd_true_ci_lo": "its chi-square 95% interval, lower bound",
+    "sd_true_ci_hi": "upper bound",
+    "sd_boot_log10_median": "median over the bootstrapped genomes of the bootstrap SD",
+    "ratio_median": "median over the genomes of bootstrap SD / true SD",
+    "ratio_q25": "its 25% quantile",
+    "ratio_q75": "its 75% quantile",
+})
+_add("E5_coverage", "E5", "trunk size and time", {
+    "trunk_bins": "trunk size (bins)",
+    "point": "index of the time",
+    "years": "years ago",
+    "datasets": "bootstrapped genomes",
+    "coverage": "share of them whose 95% band holds the true Ne",
+    "coverage_ci_lo": "Clopper-Pearson 95% interval, lower bound",
+    "coverage_ci_hi": "upper bound",
+    "coverage_fit_mean": "share whose band holds the fits' geometric mean",
+})
 
 # ---------------------------------------------------------------------------
 # E6: supplementary analyses (Fig S2, S3)
 # ---------------------------------------------------------------------------
 
-_add("E6_formats", _schema("E6", "E6_formats.csv", "model and input format", {
+_add("E6_S2_curves", "E6", "model, format and interval (format truth: a dense grid of the true Ne)", {
     "model": "demographic model (E1 replicate config.E6.format_replicate)",
-    "input": "psmcfa, vcf or multihetsep",
-    "bins_differ": "bins whose state differs from the psmcfa's (over the common length)",
-    "tail_bins_missing": "psmcfa bins after the last heterozygous site that the input lacks",
-}))
-_add("E6_format_curves", _schema("E6", "E6_format_curves.csv", "model, input format and interval", {
-    "model": "demographic model",
-    "input": "psmcfa, vcf or multihetsep",
+    "format": "psmcfa, vcf, multihetsep or truth",
     **CURVE_COLUMNS,
-}))
-_add("E6_tmrca_track", _schema("E6", "E6_tmrca_track.csv", "100 bp bin of the example window", {
-    "start_bp": "0-based start of the bin on its chromosome",
-    "true_tmrca_years": "true pairwise TMRCA at the bin's midpoint, in years",
-    "post_mean_years": "posterior mean TMRCA",
-    "post_map_years": "posterior MAP TMRCA",
-    "q025_years": "2.5% posterior quantile",
+})
+_add("E6_S2_bins", "E6", "model, format and sequence (all: the genome)", {
+    "model": "demographic model",
+    "format": "vcf or multihetsep",
+    "sequence": "a sequence, or all",
+    "bins_differing": "bins whose state differs from the psmcfa's",
+    "bins_missing_at_end": "psmcfa bins after the format's last bin (the multihetsep tail)",
+})
+_add("E6_S2_fits", "E6", "model and format", {
+    "model": "demographic model",
+    "format": "psmcfa, vcf or multihetsep",
+    "window_lo_years": "start of the model's informative window",
+    "window_hi_years": "end of the window",
+})
+_add("E6_S3_track", "E6", "100 bp bin of the example window", {
+    "sequence": "chromosome",
+    "start_bp": "0-based start of the bin",
+    "obs": "T, K or N",
+    "true_years": "true pairwise TMRCA of the bin (length-weighted mean), years",
+    "posterior_mean_years": "posterior mean TMRCA",
+    "q025_years": "2.5% posterior quantile (its state's average time)",
     "q975_years": "97.5% posterior quantile",
-}))
-_add("E6_tmrca_hist2d", _schema("E6", "E6_tmrca_hist2d.csv", "estimator and cell of a log-log grid", {
-    "estimator": "mean or map",
-    "true_lo_years": "cell's lower edge, true TMRCA",
-    "true_hi_years": "cell's upper edge, true TMRCA",
-    "est_lo_years": "cell's lower edge, estimate",
-    "est_hi_years": "cell's upper edge, estimate",
-    "count": "bins in the cell",
-}))
-_add("E6_tmrca_calibration", _schema("E6", "E6_tmrca_calibration.csv", "class of true TMRCA", {
-    "true_lo_years": "lower edge of the class",
-    "true_hi_years": "upper edge of the class",
-    "bins": "bins in the class",
-    "coverage": "fraction whose 95% posterior interval contains the true TMRCA",
-}))
-_add("E6_tmrca_summary", _schema("E6", "E6_tmrca_summary.csv", "estimator", {
-    "estimator": "mean or map",
-    "pearson_log10": "Pearson correlation of log10 estimate and log10 true TMRCA over every bin",
-    "coverage": "fraction of bins whose 95% interval contains the true TMRCA",
-    "bins": "bins compared",
-}))
+})
+_add("E6_S3_density", "E6", "non-empty cell of a log10 grid", {
+    "log10_true_lo": "cell's lower edge, log10 true TMRCA (years)",
+    "log10_true_hi": "upper edge",
+    "log10_mean_lo": "cell's lower edge, log10 posterior mean",
+    "log10_mean_hi": "upper edge",
+    "n_bins": "bins in the cell",
+})
+_add("E6_S3_calibration", "E6", "class (decile) of the true TMRCA or of the posterior mean", {
+    "by": "true or posterior_mean",
+    "class": "decile (1..10)",
+    "median_true_years": "median true TMRCA in the class",
+    "coverage95_states": "share whose interval of states (2.5% to 97.5% quantile) holds the true TMRCA",
+    "coverage95_point": "share whose quantiles' state average times hold it",
+})
+_add("E6_S3_summary", "E6", "set of bins (all, heterozygous, homozygous)", {
+    "bins": "all, heterozygous (K) or homozygous (T)",
+    "n_bins": "bins",
+    "pearson_log10_mean": "Pearson correlation of log10 posterior mean and log10 true TMRCA",
+    "coverage95_states": "coverage of the 95% interval of states",
+    "coverage95_point": "coverage of the quantiles' average times",
+})
 
 
 def describe_all() -> str:

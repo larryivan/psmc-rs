@@ -582,104 +582,6 @@ def track_rows(d: Decoded, sequence: int, name: str, start_bin: int, n_bins: int
 
 
 # ---------------------------------------------------------------------------
-# S4. Thread scaling and determinism
-# ---------------------------------------------------------------------------
-
-
-def run_row(
-    threads: int, job_id: str, repeat: int, record: Mapping, params: Mapping, json_sha: str, psmc_sha: Optional[str],
-    label: str,
-) -> Dict:
-    """One measured run: the runner's measurements (its provenance ``record``) and the digest of what it wrote."""
-    m = record.get("run", {}) or {}
-    inp = params.get("input", {}) or {}
-    bins, bin_size = inp.get("bins"), params.get("bin_size")
-    wall = m.get("wall_seconds")
-    cpu = (m.get("user_seconds") or 0.0) + (m.get("system_seconds") or 0.0)
-    busiest = m.get("busiest_processes_before") or []
-    return {
-        "input": label,
-        "genome_mb": (bins * bin_size / 1e6) if (bins and bin_size) else None,
-        "bins": bins,
-        "sequences": inp.get("sequences"),
-        "threads": threads,
-        "repeat": repeat,
-        "job": job_id,
-        "wall_seconds": wall,
-        "peak_rss_mb": m.get("peak_rss_mb"),
-        "user_seconds": m.get("user_seconds"),
-        "system_seconds": m.get("system_seconds"),
-        "cpu_per_wall": (cpu / wall) if wall else None,
-        "exclusive": m.get("exclusive"),
-        "loadavg_before_1m": (m.get("loadavg_before") or [None])[0],
-        "loadavg_after_1m": (m.get("loadavg_after") or [None])[0],
-        "busiest_other_cpu_percent": max((p.get("cpu_percent", 0.0) for p in busiest), default=None),
-        "start": m.get("start"),
-        "json_sha256": json_sha,
-        "psmc_sha256": psmc_sha,
-    }
-
-
-def scaling_rows(rows: Sequence[Mapping]) -> List[Dict]:
-    """Per input and thread count: wall time (median, min, max), speedup and efficiency against the fewest threads, memory."""
-    out = []
-    by_input: "OrderedDict[str, List[Mapping]]" = OrderedDict()
-    for r in rows:
-        by_input.setdefault(r["input"], []).append(r)
-    for label, rs in by_input.items():
-        threads = sorted({int(r["threads"]) for r in rs})
-        base_t = threads[0]
-        med = {t: _median(r["wall_seconds"] for r in rs if int(r["threads"]) == t) for t in threads}
-        for t in threads:
-            mine = [r for r in rs if int(r["threads"]) == t]
-            walls = [r["wall_seconds"] for r in mine if r["wall_seconds"] is not None]
-            speed = (med[base_t] / med[t]) if (med[base_t] and med[t]) else None
-            out.append(
-                {
-                    "input": label,
-                    "genome_mb": mine[0]["genome_mb"],
-                    "threads": t,
-                    "runs": len(mine),
-                    "wall_median": med[t],
-                    "wall_min": min(walls) if walls else None,
-                    "wall_max": max(walls) if walls else None,
-                    "speedup_vs_threads": base_t,
-                    "speedup": speed,
-                    "efficiency": (speed * base_t / t) if speed else None,
-                    "peak_rss_mb_median": _median(r["peak_rss_mb"] for r in mine),
-                    "peak_rss_mb_max": max((r["peak_rss_mb"] for r in mine if r["peak_rss_mb"] is not None), default=None),
-                    "cpu_per_wall_median": _median(r["cpu_per_wall"] for r in mine),
-                    "loadavg_before_1m_max": max((r["loadavg_before_1m"] for r in mine if r["loadavg_before_1m"] is not None), default=None),
-                }
-            )
-    return out
-
-
-def determinism_rows(rows: Sequence[Mapping]) -> List[Dict]:
-    """Per input: whether every run, whatever its thread count, wrote byte-identical outputs."""
-    out = []
-    by_input: "OrderedDict[str, List[Mapping]]" = OrderedDict()
-    for r in rows:
-        by_input.setdefault(r["input"], []).append(r)
-    for label, rs in by_input.items():
-        js = {r["json_sha256"] for r in rs}
-        ps = {r["psmc_sha256"] for r in rs if r["psmc_sha256"]}
-        out.append(
-            {
-                "input": label,
-                "genome_mb": rs[0]["genome_mb"],
-                "threads": ";".join(str(t) for t in sorted({int(r["threads"]) for r in rs})),
-                "runs": len(rs),
-                "distinct_json": len(js),
-                "json_identical": len(js) == 1,
-                "distinct_psmc": len(ps) if ps else None,
-                "psmc_identical": (len(ps) == 1) if ps else None,
-            }
-        )
-    return out
-
-
-# ---------------------------------------------------------------------------
 # S5. QC of the real genomes
 # ---------------------------------------------------------------------------
 
@@ -734,7 +636,7 @@ def finding_rows(sample_id: str, qc: Mapping) -> List[Dict]:
 
 __all__ = [
     "Decoded", "FormatFit", "agreement_summary", "align", "bin_tmrca", "calibration_rows", "compare_bins",
-    "convergence_summary", "curve_rows", "density_rows", "determinism_rows", "finding_rows", "fit_rows",
-    "last_het_bin", "qc_row", "read_psmcfa", "run_row", "scaling_rows", "state_mismatches", "state_of",
+    "convergence_summary", "curve_rows", "density_rows", "finding_rows", "fit_rows",
+    "last_het_bin", "qc_row", "read_psmcfa", "state_mismatches", "state_of",
     "tmrca_summary", "trace_rows", "track_rows", "truth_rows",
 ]

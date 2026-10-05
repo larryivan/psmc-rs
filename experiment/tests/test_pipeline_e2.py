@@ -1,4 +1,4 @@
-"""Tests for experiment E2 (real genomes): jobs, inputs, windows, bands, tables, Figure 3, and a tiny run."""
+"""Tests for experiment E2 (real genomes): jobs, inputs, windows, bands, tables, and a tiny run."""
 
 from __future__ import annotations
 
@@ -18,8 +18,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline import config, demography, metrics, paths, results, runner, tools  # noqa: E402
+from experiment.pipeline import config, demography, paths, results, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, available, e2  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
@@ -74,14 +77,13 @@ class Jobs(unittest.TestCase):
         self.jobs = e2.jobs(fake_ctx(config.PRODUCTION, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
 
-    def test_four_jobs_per_genome_then_report_and_figure(self):
+    def test_four_jobs_per_genome_then_the_report(self):
         # Papuan chr1 forms 5 default trunks (< 20): it gets the second bootstrap, on 5 Mb trunks.
-        self.assertEqual(len(self.jobs), 4 * 4 + 1 + 2)
+        self.assertEqual(len(self.jobs), 4 * 4 + 1 + 1)
         self.assertIn("E2/boot-rs/trunk50000/Papuan", self.by_id)
         self.assertNotIn("E2/boot-rs/trunk50000/HLhydTec1", self.by_id)  # 51 default trunks
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E2/fit-c/Papuan"], [])  # reads the packaged file
-        self.assertEqual(g.deps["E2/figure"], ["E2/report"])
         report = set(g.deps["E2/report"])
         self.assertEqual(report, {j.id for j in self.jobs if j.id.split("/")[1] in ("fit-c", "fit-rs", "boot-rs", "qc")})
 
@@ -358,29 +360,6 @@ class Tables(unittest.TestCase):
         curves = read_csv(self.lay.table("curves"))
         self.assertEqual(len(curves), 2 * 2 * 64)
 
-    @unittest.skipUnless(HAS_MPL, "matplotlib not installed")
-    def test_figure_is_drawn_from_the_tables(self):
-        from experiment.pipeline.figures import fig3_real_genomes as fig3
-
-        panels = fig3.load_panels(self.lay.root / "tables")
-        self.assertEqual(set(panels), {"Papuan", "HLhydTec1"})
-        self.assertIn("chr1 only", fig3.title(panels["Papuan"]))
-        self.assertIn("4 trunks of 0.5 Mb (few trunks: a coarse band)", fig3.subtitle(panels["Papuan"]))
-        out = self.runs / "fig" / "fig3"
-        written = fig3.render(panels, ["Papuan", "HLhydTec1"], out, ["pdf", "png"])
-        self.assertEqual([p.name for p in written], ["fig3.pdf", "fig3.png"])
-        self.assertTrue(all(p.stat().st_size > 1000 for p in written))
-        first = written[0].read_bytes()
-        fig3.render(panels, ["Papuan", "HLhydTec1"], out, ["pdf"])
-        self.assertEqual(written[0].read_bytes(), first)  # no creation date: same bytes
-
-    def test_step_curve_is_cut_to_the_range(self):
-        from experiment.pipeline.figures import fig3_real_genomes as fig3
-
-        xs, ys = fig3.step_xy([0.0, 10.0, 100.0, 1000.0], [1.0, 2.0, 3.0, 4.0], 50.0, 500.0)
-        self.assertEqual((xs, ys), ([50.0, 100.0, 500.0], [2.0, 3.0, 3.0]))
-
-
 def in_git_work_tree() -> bool:
     if shutil.which("git") is None:
         return False
@@ -409,8 +388,8 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E2/provenance/fit-c/HLemySub1.json",
             "experiment/runs/E2/provenance/report.json",
             "experiment/runs/E2/tables/E2_bootstrap_replicates.csv",
-            "experiment/runs/E2/figures/E2_fig3_real_genomes.pdf",
-            "experiment/runs/E2/figures/E2_fig3_real_genomes.png",
+            "experiment/runs/E2/figures/fig3_real_genomes.pdf",
+            "experiment/runs/E2/figures/fig3_real_genomes.svg",
         ):
             self.assertFalse(ignored(p), p)
 
@@ -425,41 +404,28 @@ class RunsLayout(unittest.TestCase):
             self.assertTrue(ignored(p), p)
 
 
-def tools_present() -> bool:
-    try:
-        tools.c_psmc()
-    except tools.ToolError:
-        return False
-    return tools.rs02_binary().exists()
-
-
-@unittest.skipUnless(HAS_NUMPY and HAS_MPL and HAS_PSUTIL and tools_present(), "needs numpy, matplotlib, psutil, C psmc and psmc-rs")
+@unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class EndToEnd(unittest.TestCase):
-    """The tiny profile through the runner: prefixes, both tools, bootstrap, qc, tables and Figure 3."""
+    """E2 in the tiny runs of every experiment (tiny_runs): prefixes, both tools, bootstraps, qc and tables."""
 
     def test_tiny_profile(self):
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            graph = runner.Graph(e2.jobs(Context(config.TINY, runs)), runs)
-            daemon = runner.Daemon(graph, runs, config.Budget(cores=3, mem_gb=4), runner.Logger(runs), {})
-            self.assertEqual(daemon.run(), 0)
-            lay = e2.Layout(runs / "E2")
-            pairs = {r["sample_id"]: r for r in read_csv(lay.table("pairs"))}
-            self.assertEqual(set(pairs), {"Papuan", "HLhydTec1"})
-            for sid, row in pairs.items():
-                # The first iteration's log-likelihood equals C psmc's to its printed precision.
-                self.assertLess(float(row["loglike_iteration0_rel_diff"]), 1e-8, sid)
-                self.assertEqual(row["bootstrap_main_identical"], "True", sid)
-            boot = {r["sample_id"]: r for r in read_csv(lay.table("bootstrap"))}
-            for sid, row in boot.items():
-                self.assertLess(float(row["summary_max_rel_diff"]), 1e-9, sid)
-                self.assertEqual(row["main_identical_to_fit"], "True", sid)
-            trunks = {(r["sample_id"], r["trunk_bins"]): int(r["trunks"]) for r in read_csv(lay.table("bootstrap"))}
-            self.assertEqual(trunks[("Papuan", "5000")], 4)  # 20,000 bins in trunks of 5,000
-            self.assertEqual(trunks[("Papuan", "1000")], 20)
-            self.assertTrue(all(lay.figure(ext).exists() for ext in e2.FIGURE_FORMATS))
-            again = runner.job_statuses(graph, runs, daemon_pid=None)
-            self.assertTrue(all(s.state == runner.DONE for s in again))
+        runs = tiny_runs.runs_dir()
+        lay = e2.Layout(runs / "E2")
+        pairs = {r["sample_id"]: r for r in read_csv(lay.table("pairs"))}
+        self.assertEqual(set(pairs), {"Papuan", "HLhydTec1"})
+        for sid, row in pairs.items():
+            # The first iteration's log-likelihood equals C psmc's to its printed precision.
+            self.assertLess(float(row["loglike_iteration0_rel_diff"]), 1e-8, sid)
+            self.assertEqual(row["bootstrap_main_identical"], "True", sid)
+        rows = read_csv(lay.table("bootstrap"))
+        for row in rows:
+            self.assertLess(float(row["summary_max_rel_diff"]), 1e-9, row["sample_id"])
+            self.assertEqual(row["main_identical_to_fit"], "True", row["sample_id"])
+        trunks = {(r["sample_id"], r["trunk_bins"]): int(r["trunks"]) for r in rows}
+        self.assertEqual(trunks[("Papuan", "5000")], 4)  # 20,000 bins in trunks of 5,000
+        self.assertEqual(trunks[("Papuan", "1000")], 20)
+        statuses = runner.job_statuses(tiny_runs.graph(), runs, daemon_pid=None)
+        self.assertTrue(all(s.state == runner.DONE for s in statuses if s.job.experiment == "E2"))
 
 
 if __name__ == "__main__":

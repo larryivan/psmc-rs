@@ -17,8 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline import config, demography, paths, results, runner, tools  # noqa: E402
+from experiment.pipeline import config, demography, results, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, e1  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
@@ -163,33 +166,20 @@ class Tables(unittest.TestCase):
         self.assertEqual(read_csv(self.lay.table("seeds"))[0]["ancestry_seed"], "1")
 
 
-def tools_present() -> bool:
-    try:
-        tools.c_psmc()
-    except tools.ToolError:
-        return False
-    return (paths.ROOT / "target" / "release" / "psmc-rs").exists() and shutil.which("bgzip") is not None
-
-
-@unittest.skipUnless(HAS_MSPRIME and HAS_NUMPY and tools_present(), "needs msprime, psutil, C psmc, psmc-rs and bgzip")
+@unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class EndToEnd(unittest.TestCase):
-    """The tiny profile through the runner: simulate, fit with both tools, write the tables."""
+    """E1 in the tiny runs of every experiment (tiny_runs): simulate, fit with both tools, write the tables."""
 
     def test_tiny_profile(self):
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            ctx = Context(config.TINY, runs)
-            graph = runner.Graph(e1.jobs(ctx), runs)
-            daemon = runner.Daemon(graph, runs, config.Budget(cores=3, mem_gb=4), runner.Logger(runs), {})
-            self.assertEqual(daemon.run(), 0)
-            lay = e1.Layout(runs / "E1")
-            pairs = read_csv(lay.table("pairs"))
-            self.assertEqual(len(pairs), 1)
-            # The first iteration's log-likelihood equals C psmc's to its printed precision.
-            self.assertLess(float(pairs[0]["loglike_iteration0_rel_diff"]), 1e-8)
-            self.assertLess(float(pairs[0]["rmse_log10_ne_rs_vs_c"]), 0.5)
-            truth = json.loads(lay.truth("bottleneck", 1).read_text())
-            self.assertEqual(truth["chromosomes"][0]["seeds"]["ancestry"], config.seed("E1", "bottleneck", 1, "ancestry/chr1"))
+        lay = e1.Layout(tiny_runs.runs_dir() / "E1")
+        pairs = read_csv(lay.table("pairs"))
+        self.assertEqual(len(pairs), 1)
+        # The first iteration's log-likelihood equals C psmc's to its printed precision.
+        self.assertLess(float(pairs[0]["loglike_iteration0_rel_diff"]), 1e-8)
+        self.assertLess(float(pairs[0]["rmse_log10_ne_rs_vs_c"]), 0.5)
+        self.assertEqual(len(read_csv(lay.table("mstep"))), 1)
+        truth = json.loads(lay.truth("bottleneck", 1).read_text())
+        self.assertEqual(truth["chromosomes"][0]["seeds"]["ancestry"], config.seed("E1", "bottleneck", 1, "ancestry/chr1"))
 
 
 if __name__ == "__main__":

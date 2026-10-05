@@ -47,7 +47,8 @@ Layout under ``<runs>/E4/``::
     crosscheck/<mask>/rep01.json                         psmc-rs vs generate_multihetsep.py
     fits/<mask>/<route>/repNN.json                       psmc-rs 0.2
     qc/<mask>/<route>/repNN.json                         psmc-rs qc
-    provenance/, tables/E4_*.csv, figures/               (logs/ and sims/ are not committed)
+    provenance/, tables/E4_*.csv                         (logs/ and sims/ are not committed)
+    figures/fig5_input_preparation.{pdf,svg,png}         Fig 5, drawn from the tables (experiment FIG)
 
 Tables (``tables/``):
 
@@ -104,7 +105,6 @@ TABLES = {
     "truth": "E4_truth.csv",
     "seeds": "E4_seeds.csv",
 }
-FIGURES = ("E4_fig5.pdf", "E4_fig5.png")
 
 
 def mask_names(cfg: config.E4) -> Tuple[str, ...]:
@@ -207,8 +207,6 @@ class Layout:
     def table(self, key: str) -> Path:
         return self.root / "tables" / TABLES[key]
 
-    def figure(self, name: str) -> Path:
-        return self.root / "figures" / name
 
 
 def job_id(*parts: str) -> str:
@@ -462,7 +460,7 @@ def report_inputs(cfg: config.E4, lay: Layout) -> List[Path]:
 
 
 def _report_jobs(ctx: Context, cfg: config.E4, lay: Layout) -> List[Job]:
-    costs, ec = ctx.profile.costs, config.E4_COSTS
+    costs = ctx.profile.costs
     report = Job(
         id=job_id("report"),
         command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
@@ -476,18 +474,7 @@ def _report_jobs(ctx: Context, cfg: config.E4, lay: Layout) -> List[Job]:
         )},
         description="E4 tables",
     )
-    figure = Job(
-        id=job_id("figure"),
-        command=[paths.python(), "-m", "experiment.pipeline.figures.e4", "--tables", str(lay.root / "tables"),
-                 "--out-dir", str(lay.root / "figures")],
-        inputs=[lay.table(k) for k in ("summary", "bias", "bins", "curves", "truth", "routes")],
-        outputs=[lay.figure(f) for f in FIGURES],
-        mem_gb=costs.report_gb,
-        est_seconds=ec.figure_s,
-        tools={"pipeline": provenance.python_identity(["figures/e4.py"], ["matplotlib", "numpy"])},
-        description="Fig 5",
-    )
-    return [report, figure]
+    return [report]
 
 
 # ---------------------------------------------------------------------------

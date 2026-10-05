@@ -25,19 +25,6 @@ if HAS_NUMERIC:
     from experiment.pipeline.experiments import e6_analysis as A
 
 
-def thread_rows():
-    """Four measured runs of one 3 Gb input (1 thread twice, 4 and 8 threads), as S4 tabulates them."""
-    out = []
-    for t, wall in ((1, 100.0), (1, 102.0), (4, 30.0), (8, 20.0)):
-        rec = {"run": {"wall_seconds": wall, "peak_rss_mb": 50.0 + t, "user_seconds": wall * 0.9 * t,
-                       "system_seconds": 1.0, "loadavg_before": [0.5, 1, 1], "loadavg_after": [1.0, 1, 1],
-                       "exclusive": True, "busiest_processes_before": [{"cpu_percent": 3.0}]}}
-        params = {"bin_size": 100, "input": {"bins": 30_000_000, "sequences": 30}}
-        out.append(A.run_row(t, f"E3/x/t{t}", 1, rec, params, "x", None, "<runs>/E3/g.psmcfa"))
-    return out
-
-
-@unittest.skipUnless(HAS_NUMERIC, "numpy, pandas and scipy needed")
 class Convergence(unittest.TestCase):
     """C psmc's reference output read as both tools: the traces must agree exactly."""
 
@@ -183,21 +170,7 @@ class Tmrca(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_NUMERIC, "numpy, pandas and scipy needed")
-class ThreadsAndQc(unittest.TestCase):
-    def test_scaling_and_determinism(self):
-        rows = thread_rows()
-        self.assertEqual(rows[0]["genome_mb"], 3000.0)
-        self.assertEqual(rows[0]["busiest_other_cpu_percent"], 3.0)
-        sc = {r["threads"]: r for r in A.scaling_rows(rows)}
-        self.assertEqual(sc[1]["wall_median"], 101.0)
-        self.assertAlmostEqual(sc[8]["speedup"], 101.0 / 20.0)
-        self.assertAlmostEqual(sc[8]["efficiency"], 101.0 / 20.0 / 8)
-        det = A.determinism_rows(rows)
-        self.assertEqual((det[0]["runs"], det[0]["distinct_json"], det[0]["json_identical"]), (4, 1, True))
-        self.assertIsNone(det[0]["psmc_identical"])
-        rows[-1]["json_sha256"] = "y"
-        self.assertFalse(A.determinism_rows(rows)[0]["json_identical"])
-
+class Qc(unittest.TestCase):
     def test_qc_rows(self):
         qc = {"input_format": "psmcfa", "bin_size": 100, "n_sequences": 2,
               "totals": {"bins": 10, "missing_fraction": 0.1, "het_per_kb": 1.0},

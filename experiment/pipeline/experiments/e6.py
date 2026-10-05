@@ -1,4 +1,4 @@
-"""E6: supplementary analyses S1-S5 (Figs S1-S4, Table S5).
+"""E6: supplementary analyses S1, S2, S3 and S5 (Figs S2 and S3, Table S5; the data of Fig S1).
 
 E6 runs little of its own: it reads what E1, E2 and E3 make, where the design
 says so, and adds the runs that only it needs. Its settings are
@@ -22,18 +22,10 @@ time grid of S1-S3 are E1's (``profile.e1``).
   the heterozygous sites against the record). Per bin: correlation of the
   posterior mean and MAP with the truth, coverage of the 95% interval, and a
   5 Mb example track.
-* **S4, thread scaling and determinism.** E3's psmc-rs 0.2 runs: E6 finds
-  them among E3's jobs and names their provenance records on the report's
-  command line (``--record``); the report reads the runner's measurements
-  from them (wall time, peak RSS of the process tree, user and system time,
-  load before and after, the busiest other processes) and compares the
-  JSON (and ``.psmc``) the runs wrote byte for byte across thread counts.
-  The contract with E3: one runner job per run, whose command contains
-  ``<psmc-rs 0.2> INPUT OUTPUT.json N_ITER ... --threads T`` (as
-  :func:`.tools.rs02_fit` writes it). Every input fitted with two or more
-  thread counts is tabulated (the thread-scaling genome, and every size run
-  with 1 and 8 threads). Without E3 (not registered, or its jobs cannot be
-  listed) S4 is left out and the log says why.
+* **S4, thread scaling and determinism**, is E3's own: its tables
+  ``E3_thread_scaling`` and ``E3_determinism`` hold every thread count of
+  every psmc-rs 0.2 run, timed by E3's protocol, and Fig S4 is drawn from
+  them.
 * **S5, QC table.** ``psmc-rs qc --json`` of E2's four real genomes, with
   E2's bin size and bootstrap trunk (``--bootstrap-block-size``). E6 runs it
   itself: a QC report depends only on the file and these options and takes
@@ -41,10 +33,11 @@ time grid of S1-S3 are E1's (``profile.e1``).
 
 Checks: the S2 VCF route must reproduce the psmcfa bins and fit, the
 multihetsep bins may differ only by the tail after the last heterozygous
-bin, the S3 decoding must use E1's parameters exactly, and the S4 outputs
-must be byte-identical across thread counts. A report job writes its tables
+bin, and the S3 decoding must use E1's parameters exactly. A report job writes its tables
 and then fails when a check does not hold, so the tables can be inspected
-and nothing downstream (figures) runs on them.
+and nothing downstream (figures) runs on them. The figures are drawn by
+experiment FIG from these tables (Fig S1 from E1's traces, Fig S2 from
+``E6_S2_*``, Fig S3 from ``E6_S3_*``, Fig S4 from E3's own tables).
 
 Layout under ``<runs>/E6/``::
 
@@ -53,10 +46,10 @@ Layout under ``<runs>/E6/``::
     fits/s2/<model>/repNN.{vcf,multihetsep}.{json,psmc}     psmc-rs fits of the other formats
     fits/s3/<model>/repNN.decode.json                       the decoding run (E1's parameters)
     qc/s5/<sample>.json                                     psmc-rs qc of the real genomes
-    tables/E6_S*.csv, figures/FigS*.{pdf,png}, provenance/, logs/ (not committed)
+    tables/E6_S*.csv, figures/figS2_*, figS3_* (experiment FIG), provenance/, logs/ (not committed)
 
 The Python steps run as ``python -m experiment.pipeline.experiments.e6
-{report,figure} --part sN``; ``python -m experiment.pipeline report E6``
+report --part sN``; ``python -m experiment.pipeline report E6``
 writes the tables of every part whose inputs exist.
 """
 
@@ -76,7 +69,7 @@ from ..runner import Job
 from . import Context, e1
 
 NAME = "E6"
-PARTS = ("s1", "s2", "s3", "s4", "s5")
+PARTS = ("s1", "s2", "s3", "s5")
 TABLES: Dict[str, Dict[str, str]] = {
     "s1": {"traces": "E6_S1_traces.csv", "summary": "E6_S1_summary.csv", "agreement": "E6_S1_agreement.csv"},
     "s2": {"bins": "E6_S2_bins.csv", "fits": "E6_S2_fits.csv", "curves": "E6_S2_curves.csv"},
@@ -86,20 +79,11 @@ TABLES: Dict[str, Dict[str, str]] = {
         "density": "E6_S3_density.csv",
         "track": "E6_S3_track.csv",
     },
-    "s4": {"runs": "E6_S4_runs.csv", "scaling": "E6_S4_scaling.csv", "determinism": "E6_S4_determinism.csv"},
     "s5": {"qc": "E6_S5_qc.csv", "findings": "E6_S5_findings.csv"},
 }
-FIGURES = {
-    "s1": "FigS1_em_convergence",
-    "s2": "FigS2_format_consistency",
-    "s3": "FigS3_tmrca_decoding",
-    "s4": "FigS4_thread_scaling",
-}
-FIGURE_FORMATS = ("pdf", "png")
 S2_FORMATS = {"vcf": ["--input-format", "vcf", "--vcf-mode", "mask"], "multihetsep": ["--input-format", "mhs"]}
 REPORT_MODULES = ["experiments/e6.py", "experiments/e6_analysis.py", "experiments/e1.py", "results.py",
                   "metrics.py", "demography.py", "simulate.py"]
-FIGURE_MODULES = ["experiments/e6.py", "figures/e6_supplementary.py"]
 
 
 def rep(r: int) -> str:
@@ -153,15 +137,13 @@ class Layout:
     def s5_qc(self, sample_id: str) -> Path:
         return self.root / "qc" / "s5" / f"{sample_id}.json"
 
-    # Tables and figures
+    # Tables
     def table(self, part: str, key: str) -> Path:
         return self.root / "tables" / TABLES[part][key]
 
     def tables(self, part: str) -> List[Path]:
         return [self.table(part, k) for k in TABLES[part]]
 
-    def figures(self, part: str) -> List[Path]:
-        return [self.root / "figures" / f"{FIGURES[part]}.{ext}" for ext in FIGURE_FORMATS]
 
 
 def job_id(*parts) -> str:
@@ -169,7 +151,7 @@ def job_id(*parts) -> str:
 
 
 def e6_command(ctx: Context, action: str, part: str) -> List[str]:
-    """The command of one of E6's Python steps (``report`` or ``figure`` of a part)."""
+    """The command of one of E6's Python steps (the ``report`` of a part)."""
     return [paths.python(), "-m", "experiment.pipeline.experiments.e6", action, "--part", part, *ctx.profile_args()]
 
 
@@ -373,129 +355,6 @@ def s3_jobs(ctx: Context) -> List[Job]:
     return jobs
 
 
-# --- S4: E3's psmc-rs 0.2 runs ------------------------------------------------
-
-
-@dataclass(frozen=True)
-class RsRun:
-    """One psmc-rs 0.2 fit that another experiment's job runs."""
-
-    job_id: str
-    input: Path
-    output: Path  # the parameter JSON
-    threads: int
-    record: Path  # the job's provenance record: the runner's measurements
-    psmc_out: Optional[Path] = None
-
-
-def parse_rs02_fit(command: Sequence[str], binary: str) -> Optional[Dict]:
-    """``input``, ``output``, ``threads`` and ``psmc_out`` of a psmc-rs 0.2 fit command, or None.
-
-    The command must hold ``<binary> INPUT OUTPUT.json N_ITER ... --threads T``
-    (:func:`.tools.rs02_fit`), possibly after a wrapper; ``qc`` and
-    ``convert`` are not fits.
-    """
-    cmd = [str(c) for c in command]
-    if binary not in cmd:
-        return None
-    args = cmd[cmd.index(binary) + 1 :]
-    if len(args) < 3 or args[0] in ("qc", "convert", "help") or not args[1].endswith(".json") or "--threads" not in args:
-        return None
-    try:
-        threads = int(args[args.index("--threads") + 1])
-    except (IndexError, ValueError):
-        return None
-    psmc = args[args.index("--psmc-out") + 1] if "--psmc-out" in args[:-1] else None
-    return {"input": args[0], "output": args[1], "threads": threads, "psmc_out": psmc}
-
-
-def rs02_run(job: Job, rs02_path: Path, runs_dir: Path) -> Optional[RsRun]:
-    """The psmc-rs 0.2 fit that ``job`` runs (:func:`parse_rs02_fit`), or None when it runs something else."""
-    fit = parse_rs02_fit(job.command, str(rs02_path))
-    if fit is None:
-        return None
-    psmc = Path(fit["psmc_out"]) if fit["psmc_out"] else None
-    return RsRun(job.id, Path(fit["input"]), Path(fit["output"]), fit["threads"], job.record_path(runs_dir), psmc)
-
-
-def local_path(text: str, runs_dir: Path) -> str:
-    """The inverse of :func:`.paths.portable`: placeholders (``<runs>``, ``<repo>``, ...) back to this machine's paths."""
-    for prefix, name in paths.placeholders(runs_dir).items():
-        text = text.replace(name, prefix)
-    return text
-
-
-def run_from_record(record: Path, runs_dir: Path) -> RsRun:
-    """The psmc-rs 0.2 fit recorded in a provenance record (the command of its key)."""
-    rec = json.loads(Path(record).read_text())
-    key = rec.get("key", {})
-    fit = parse_rs02_fit(key.get("command", []), paths.portable(str(tools.rs02_binary()), runs_dir))
-    if fit is None:
-        raise ValueError(f"{record}: not the record of a psmc-rs 0.2 fit with --threads")
-    loc = lambda p: Path(local_path(p, runs_dir))  # noqa: E731
-    return RsRun(key.get("job", str(record)), loc(fit["input"]), loc(fit["output"]), fit["threads"], Path(record),
-                 loc(fit["psmc_out"]) if fit["psmc_out"] else None)
-
-
-def scaling_groups(runs: Sequence[RsRun]) -> "OrderedDict[str, List[RsRun]]":
-    """Runs grouped by input, for the inputs fitted with at least two thread counts."""
-    groups: "OrderedDict[str, List[RsRun]]" = OrderedDict()
-    for r in runs:
-        groups.setdefault(str(r.input), []).append(r)
-    return OrderedDict(
-        (k, sorted(v, key=lambda r: (r.threads, r.job_id)))
-        for k, v in groups.items()
-        if len({r.threads for r in v}) >= 2
-    )
-
-
-def source_jobs(ctx: Context, experiment: str) -> Optional[List[Job]]:
-    """The jobs of another experiment, or None when it is not registered or its tools are missing."""
-    from . import REGISTRY, module
-
-    if experiment not in REGISTRY:
-        ctx.log(f"[E6] S4 is left out: experiment {experiment} is not registered")
-        return None
-    try:
-        return module(experiment).jobs(ctx)
-    except (tools.ToolError, OSError) as exc:
-        ctx.log(f"[E6] S4 is left out: the jobs of {experiment} cannot be listed ({exc})")
-        return None
-
-
-def thread_scaling(ctx: Context) -> "OrderedDict[str, List[RsRun]]":
-    """E3's psmc-rs 0.2 runs, grouped by input (inputs fitted with two or more thread counts)."""
-    src = source_jobs(ctx, ctx.profile.e6.thread_scaling_experiment)
-    if not src:
-        return OrderedDict()
-    binary = ctx.rs02().path
-    runs = [run for run in (rs02_run(j, binary, ctx.runs_dir) for j in src) if run is not None]
-    return scaling_groups(runs)
-
-
-def s4_jobs(ctx: Context) -> List[Job]:
-    """S4: one report job over E3's runs, when there are any.
-
-    The report reads the runs' provenance records, named on its command line
-    (``--record``), and their outputs; it does not need E3's module.
-    """
-    cfg = ctx.profile.e6
-    groups = thread_scaling(ctx)
-    if not groups:
-        return []
-    inputs: List[Path] = []
-    records: List[str] = []
-    for runs in groups.values():
-        for run in runs:
-            inputs += [run.output, run.record] + ([run.psmc_out] if run.psmc_out else [])
-            records += ["--record", str(run.record)]
-    settings = {"source": cfg.thread_scaling_experiment,
-                "runs": {paths.portable(k, ctx.runs_dir): [r.job_id for r in v] for k, v in groups.items()}}
-    job = _report_job(ctx, "s4", inputs, settings, cfg.costs.table_s, cfg.costs.table_gb, "S4 tables: threads")
-    job.command = job.command + records
-    return [job]
-
-
 def s5_jobs(ctx: Context) -> List[Job]:
     """S5: psmc-rs qc of E2's genomes, and the report."""
     cfg = ctx.profile.e6
@@ -522,29 +381,10 @@ def s5_jobs(ctx: Context) -> List[Job]:
     return out
 
 
-def figure_job(ctx: Context, part: str) -> Job:
-    cfg = ctx.profile.e6
-    lay = Layout(ctx.exp_dir(NAME))
-    return Job(
-        id=job_id(part, "figure"),
-        command=e6_command(ctx, "figure", part),
-        inputs=lay.tables(part),
-        outputs=lay.figures(part),
-        mem_gb=cfg.costs.figure_gb,
-        est_seconds=cfg.costs.figure_s,
-        settings={"figure": FIGURES[part], "formats": list(FIGURE_FORMATS)},
-        tools={"pipeline": provenance.python_identity(FIGURE_MODULES, ["matplotlib", "numpy", "pandas"])},
-        description=f"{FIGURES[part]}",
-    )
-
-
 def jobs(ctx: Context) -> List[Job]:
     out: List[Job] = []
-    for part, make in (("s1", s1_jobs), ("s2", s2_jobs), ("s3", s3_jobs), ("s4", s4_jobs), ("s5", s5_jobs)):
-        mine = make(ctx)
-        out += mine
-        if mine and part in FIGURES:
-            out.append(figure_job(ctx, part))
+    for part, make in (("s1", s1_jobs), ("s2", s2_jobs), ("s3", s3_jobs), ("s5", s5_jobs)):
+        out += make(ctx)
     return out
 
 
@@ -706,41 +546,6 @@ def report_s3(ctx: Context) -> Dict[str, Path]:
     return written
 
 
-def report_s4(ctx: Context, records: Optional[Sequence[Path]] = None) -> Dict[str, Path]:
-    """S4 tables from E3's runs; fails after writing them when outputs differ across thread counts.
-
-    The runs are those of ``records`` (provenance records), else those found
-    among E3's jobs.
-    """
-    from . import e6_analysis as A
-
-    if records:
-        groups = scaling_groups([run_from_record(r, ctx.runs_dir) for r in records])
-    else:
-        groups = thread_scaling(ctx)
-    if not groups:
-        raise MissingInput(f"no psmc-rs 0.2 runs of {ctx.profile.e6.thread_scaling_experiment} with several thread counts")
-    _require([p for runs in groups.values() for r in runs for p in [r.output, r.record] + ([r.psmc_out] if r.psmc_out else [])])
-    rows = []
-    for inp, runs in groups.items():
-        label = paths.portable(inp, ctx.runs_dir)
-        seen: Dict[int, int] = {}
-        for run in runs:
-            seen[run.threads] = seen.get(run.threads, 0) + 1
-            rows.append(A.run_row(
-                run.threads, run.job_id, seen[run.threads], json.loads(run.record.read_text()),
-                json.loads(run.output.read_text()),
-                provenance.sha256_file(run.output), provenance.sha256_file(run.psmc_out) if run.psmc_out else None, label,
-            ))
-    determinism = A.determinism_rows(rows)
-    written = _write(Layout(ctx.exp_dir(NAME)), "s4",
-                     {"runs": rows, "scaling": A.scaling_rows(rows), "determinism": determinism})
-    bad = [d["input"] for d in determinism if not d["json_identical"] or d["psmc_identical"] is False]
-    if bad:
-        raise CheckFailed(f"S4: outputs differ across thread counts for {', '.join(bad)}")
-    return written
-
-
 def report_s5(ctx: Context) -> Dict[str, Path]:
     """S5 tables from the QC reports of E2's genomes."""
     from . import e6_analysis as A
@@ -758,7 +563,7 @@ def report_s5(ctx: Context) -> Dict[str, Path]:
 
 
 REPORTS: Dict[str, Callable[[Context], Dict[str, Path]]] = {
-    "s1": report_s1, "s2": report_s2, "s3": report_s3, "s4": report_s4, "s5": report_s5,
+    "s1": report_s1, "s2": report_s2, "s3": report_s3, "s5": report_s5,
 }
 
 
@@ -773,15 +578,6 @@ def report(ctx: Context, parts: Sequence[str] = PARTS) -> Dict[str, Path]:
     return written
 
 
-def figure(ctx: Context, part: str) -> Dict[str, Path]:
-    """Draw the figure of ``part`` from its tables."""
-    from ..figures import e6_supplementary
-
-    lay = Layout(ctx.exp_dir(NAME))
-    _require(lay.tables(part))
-    return e6_supplementary.draw(part, {k: lay.table(part, k) for k in TABLES[part]}, lay.figures(part))
-
-
 # ---------------------------------------------------------------------------
 # Command line of the Python steps
 # ---------------------------------------------------------------------------
@@ -789,13 +585,11 @@ def figure(ctx: Context, part: str) -> Dict[str, Path]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m experiment.pipeline.experiments.e6",
-                                description="E6's Python steps: the tables and figures of one part (S1-S5).")
-    p.add_argument("action", choices=("report", "figure"))
+                                description="E6's Python steps: the tables of one part (S1-S5).")
+    p.add_argument("action", choices=("report",))
     p.add_argument("--part", required=True, choices=PARTS)
     p.add_argument("--profile", default="production", choices=sorted(config.PROFILES))
     p.add_argument("--runs-dir", type=Path)
-    p.add_argument("--record", type=Path, action="append", default=[],
-                   help="S4: a provenance record of a psmc-rs 0.2 run to read (repeatable)")
     return p
 
 
@@ -803,14 +597,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     runs_dir = (args.runs_dir or paths.default_runs_dir(args.profile)).resolve()
     ctx = Context(config.get_profile(args.profile), runs_dir)
-    if args.action == "figure":
-        if args.part not in FIGURES:
-            raise SystemExit(f"{args.part} has no figure")
-        written = figure(ctx, args.part)
-    elif args.part == "s4":
-        written = report_s4(ctx, args.record)
-    else:
-        written = REPORTS[args.part](ctx)
+    written = REPORTS[args.part](ctx)
     for key, path in written.items():
         print(f"{key}: {path}")
     return 0
@@ -820,5 +607,4 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-__all__ = ["FIGURES", "Layout", "NAME", "PARTS", "RsRun", "TABLES", "figure", "jobs", "parse_rs02_fit", "report",
-           "rs02_run", "run_from_record", "scaling_groups", "thread_scaling"]
+__all__ = ["Layout", "NAME", "PARTS", "TABLES", "jobs", "report"]

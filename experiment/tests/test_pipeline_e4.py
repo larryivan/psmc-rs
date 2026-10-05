@@ -16,8 +16,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline import config, paths, runner, tools  # noqa: E402
+from experiment.pipeline import config, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, e4  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 HAS_RUN_DEPS = all(importlib.util.find_spec(m) is not None for m in ("msprime", "psutil", "numpy", "matplotlib"))
 FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
@@ -48,7 +51,7 @@ class Jobs(unittest.TestCase):
         masks = len(e4.mask_names(cfg))
         per_mask = 6 + 2 * len(cfg.routes)  # mask, consensus, 3 converts, bins; a fit and a qc per route
         crosschecks = masks * min(cfg.multihetsep_crosscheck_replicates, cfg.replicates)
-        self.assertEqual(len(self.jobs), cfg.replicates * (1 + masks * per_mask) + crosschecks + 2)
+        self.assertEqual(len(self.jobs), cfg.replicates * (1 + masks * per_mask) + crosschecks + 1)
         self.assertEqual(e4.mask_names(cfg)[0], config.E4_CONTROL_MASK)
 
     def test_routes_read_what_they_should(self):
@@ -81,11 +84,10 @@ class Jobs(unittest.TestCase):
         sim = self.by_id["E4/sim/rep01"]
         self.assertEqual(sim.seeds["chr1"]["ancestry"], config.seed("E4", "bottleneck", 1, "ancestry/chr1"))
 
-    def test_report_and_figure_wait_for_everything(self):
+    def test_report_waits_for_everything(self):
         report_deps = set(self.graph.deps["E4/report"])
         self.assertTrue({j.id for j in self.jobs if j.id.startswith(("E4/fit/", "E4/qc/", "E4/crosscheck/", "E4/bins/"))}
                         <= report_deps)
-        self.assertEqual(self.graph.deps["E4/figure"], ["E4/report"])
 
     def test_production_plan(self):
         jobs = e4.jobs(Context(config.PRODUCTION, self.runs, _tools=dict(FAKE_TOOLS)))
@@ -162,53 +164,37 @@ class GitLayout(unittest.TestCase):
         for p in ("truth/rep01.json", "masks/dispersed30/rep01.json", "consensus/dispersed30/rep01.json",
                   "bins/dispersed30/rep01.json", "crosscheck/dispersed30/rep01.json",
                   "fits/dispersed30/multihetsep/rep01.json", "qc/dispersed30/nomask/rep01.json",
-                  "provenance/fit/dispersed30/exact/rep01.json", "tables/E4_summary.csv", "figures/E4_fig5.pdf"):
+                  "provenance/fit/dispersed30/exact/rep01.json", "tables/E4_summary.csv", "figures/fig5_input_preparation.pdf"):
             self.assertFalse(git_ignores(f"experiment/runs/E4/{p}"), p)
 
     def test_regenerable_inputs_are_ignored(self):
         for p in ("sims/rep01/genome.vcf.gz", "sims/rep01/dispersed30/callable.bed.gz",
                   "sims/rep01/dispersed30/variants.vcf.gz", "sims/rep01/dispersed30/fq2psmcfa.psmcfa",
                   "sims/rep01/dispersed30/input.multihetsep", "sims/rep01/dispersed30/bins/exact.psmcfa",
-                  "fits/dispersed30/exact/rep01.html", "logs/attempts.jsonl", "figures/E4_fig5.pdf.partial"):
+                  "fits/dispersed30/exact/rep01.html", "logs/attempts.jsonl", "figures/fig5_input_preparation.pdf.partial"):
             self.assertTrue(git_ignores(f"experiment/runs/E4/{p}"), p)
 
 
-def run_tools_present() -> bool:
-    try:
-        for name in ("fq2psmcfa", "generate_multihetsep.py"):
-            tools.utility(name)
-    except tools.ToolError:
-        return False
-    return (paths.ROOT / "target" / "release" / "psmc-rs").exists() and shutil.which("bgzip") is not None
-
-
-@unittest.skipUnless(HAS_RUN_DEPS and run_tools_present(), "needs msprime, psutil, matplotlib, fq2psmcfa, "
-                     "generate_multihetsep.py, psmc-rs and bgzip")
+@unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class EndToEnd(unittest.TestCase):
-    """A tiny E4 through the runner: one replicate of 2 x 300 kb, two masks plus the control."""
+    """E4 in the tiny runs of every experiment (tiny_runs): one replicate of 2 x 300 kb, two masks plus the control."""
 
     def test_tiny_e4(self):
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            graph = runner.Graph(e4.jobs(Context(config.TINY, runs)), runs)
-            daemon = runner.Daemon(graph, runs, config.Budget(cores=4, mem_gb=8), runner.Logger(runs), {})
-            self.assertEqual(daemon.run(), 0, (runs / "_runner" / "runner.log").read_text()[-3000:])
-            lay = e4.Layout(runs / "E4")
-            summary = {(r["mask"], r["route"]): r for r in read_csv(lay.table("summary"))}
-            self.assertEqual(len(summary), 3 * (4 + 2))  # 4 routes and 2 rescaled ones per mask
-            for mask in ("nomissing", "clustered30", "dispersed30"):
-                self.assertEqual(summary[(mask, "fq2psmcfa")]["fits_identical_to_exact"], "1")
-                self.assertIn("VARIANTS_ONLY_NO_MASK", summary[(mask, "nomask")]["qc_warnings_all"])
-            self.assertEqual(summary[("nomissing", "nomask")]["fits_identical_to_exact"], "1")
-            # The dispersed mask leaves bins called with fewer callable bases; the rescaled route knows how many.
-            self.assertLess(float(summary[("dispersed30", "exact_rescaled")]["bases_per_called_bin_mean"]), 90.0)
-            self.assertGreater(float(summary[("dispersed30", "exact_rescaled")]["scale_mean"]), 1.1)
-            self.assertAlmostEqual(float(summary[("nomissing", "exact_rescaled")]["scale_mean"]), 1.0)
-            bins = {(r["mask"], r["route"]): r for r in read_csv(lay.table("bins"))}
-            self.assertEqual(bins[("clustered30", "fq2psmcfa")]["bytes_identical"], "True")
-            self.assertGreater(int(bins[("clustered30", "nomask")]["N_T"]), 0)
-            self.assertTrue(all(r["identical"] == "True" for r in read_csv(lay.table("crosscheck"))))
-            self.assertTrue(lay.figure("E4_fig5.pdf").exists())
+        lay = e4.Layout(tiny_runs.runs_dir() / "E4")
+        summary = {(r["mask"], r["route"]): r for r in read_csv(lay.table("summary"))}
+        self.assertEqual(len(summary), 3 * (4 + 2))  # 4 routes and 2 rescaled ones per mask
+        for mask in ("nomissing", "clustered30", "dispersed30"):
+            self.assertEqual(summary[(mask, "fq2psmcfa")]["fits_identical_to_exact"], "1")
+            self.assertIn("VARIANTS_ONLY_NO_MASK", summary[(mask, "nomask")]["qc_warnings_all"])
+        self.assertEqual(summary[("nomissing", "nomask")]["fits_identical_to_exact"], "1")
+        # The dispersed mask leaves bins called with fewer callable bases; the rescaled route knows how many.
+        self.assertLess(float(summary[("dispersed30", "exact_rescaled")]["bases_per_called_bin_mean"]), 90.0)
+        self.assertGreater(float(summary[("dispersed30", "exact_rescaled")]["scale_mean"]), 1.1)
+        self.assertAlmostEqual(float(summary[("nomissing", "exact_rescaled")]["scale_mean"]), 1.0)
+        bins = {(r["mask"], r["route"]): r for r in read_csv(lay.table("bins"))}
+        self.assertEqual(bins[("clustered30", "fq2psmcfa")]["bytes_identical"], "True")
+        self.assertGreater(int(bins[("clustered30", "nomask")]["N_T"]), 0)
+        self.assertTrue(all(r["identical"] == "True" for r in read_csv(lay.table("crosscheck"))))
 
 
 if __name__ == "__main__":

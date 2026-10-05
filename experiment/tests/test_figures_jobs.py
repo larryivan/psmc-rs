@@ -15,7 +15,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiment.pipeline import config, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import REGISTRY, Context, e1, fig  # noqa: E402
+from experiment.pipeline.experiments import REGISTRY, Context, e1, fig, jobs_for  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 HAS_PLOTTING = all(importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "matplotlib"))
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
@@ -65,14 +68,22 @@ class Jobs(unittest.TestCase):
         self.assertIn("sha256", job.tools["font"])
         self.assertFalse(job.exclusive)
 
+    @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
     def test_report_draws_what_it_can(self):
-        from experiment.pipeline.figures import fake
-
-        fake.write_all(self.runs, config.SMOKE, ["E3"])
-        ctx = Context(config.SMOKE, self.runs, log=lambda _msg: None)
+        shutil.copytree(tiny_runs.runs_dir() / "E3" / "tables", self.runs / "E3" / "tables")
+        ctx = Context(config.TINY, self.runs, log=lambda _msg: None)
         written = fig.report(ctx)
         self.assertEqual(set(written), {"fig1_workflow", "fig4_performance", "figS4_thread_scaling"})
         self.assertTrue(all(p.exists() for p in written.values()))
+
+    def test_every_figure_has_one_owner(self):
+        # No experiment job writes a figure; FIG's outputs do not collide with any other job's.
+        ctx = Context(config.SMOKE, self.runs, _tools={"c": FAKE_C, "rs02": FAKE_RS, "rs01": FAKE_RS,
+                                                     "fq2psmcfa": FAKE_C, "generate_multihetsep.py": FAKE_C},
+                      log=lambda _msg: None)
+        jobs = jobs_for(ctx, [e for e in REGISTRY if e != "FIG"])
+        self.assertFalse([j.id for j in jobs if any("figures" in p.parts for p in j.outputs)])
+        runner.Graph(jobs + fig.jobs(ctx), self.runs)  # no output is declared twice
 
 
 def in_git_work_tree() -> bool:

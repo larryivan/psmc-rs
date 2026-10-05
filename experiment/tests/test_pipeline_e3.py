@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import importlib.util
 import json
-import math
 import shutil
 import subprocess
 import sys
@@ -18,8 +17,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline import config, paths, provenance, results, runner, tools  # noqa: E402
+from experiment.pipeline import config, provenance, results, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, e3  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
 
 C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
@@ -313,38 +315,23 @@ class RunsLayout(unittest.TestCase):
             self.assertTrue(ignored(p), p)
 
 
-def tools_present() -> bool:
-    try:
-        tools.c_psmc()
-        tools.psmc_rs_01(build=False)
-    except (tools.ToolError, OSError):
-        return False
-    return (paths.ROOT / "target" / "release" / "psmc-rs").exists()
-
-
-@unittest.skipUnless(HAS_TOOLCHAIN and tools_present(), "needs msprime, psutil, numpy, C psmc and both psmc-rs builds")
+@unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class EndToEnd(unittest.TestCase):
-    """The tiny profile through the runner: simulate, time every tool twice, write the tables."""
+    """E3 in the tiny runs of every experiment (tiny_runs): simulate, time every tool twice, write the tables."""
 
     def test_tiny_profile(self):
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            ctx = Context(config.TINY, runs)
-            graph = runner.Graph(e3.jobs(ctx), runs)
-            daemon = runner.Daemon(graph, runs, config.Budget(cores=3, mem_gb=4), runner.Logger(runs), {})
-            self.assertEqual(daemon.run(), 0)
-            lay = e3.Layout(runs / "E3")
-            table2 = read_csv(lay.table("table2"))
-            self.assertEqual(len(table2), len(e3.setups(config.TINY.e3)))
-            self.assertTrue(all(r["status"] == "measured" for r in table2))
-            self.assertTrue(all(float(r["wall_median_s"]) > 0 and float(r["peak_rss_median_mb"]) > 0 for r in table2))
-            det = [r for r in read_csv(lay.table("determinism")) if r["tool"] in ("rs02", "c")]
-            self.assertTrue(det and all(r["byte_identical"] == "True" for r in det))
-            run = e3.Run(e3.Setup("rs02", 1, 2), 2)
-            self.assertEqual(json.loads(lay.timing(run).read_text())["exit_status"], 0)
-            rec = json.loads(lay.record(run).read_text())
-            self.assertTrue(rec["run"]["exclusive"])
-            self.assertEqual(provenance.sha256_file(lay.fit(run)), provenance.sha256_file(lay.fit(e3.Run(e3.Setup("rs02", 1, 1), 1))))
+        lay = e3.Layout(tiny_runs.runs_dir() / "E3")
+        table2 = read_csv(lay.table("table2"))
+        self.assertEqual(len(table2), len(e3.setups(config.TINY.e3)))
+        self.assertTrue(all(r["status"] == "measured" for r in table2))
+        self.assertTrue(all(float(r["wall_median_s"]) > 0 and float(r["peak_rss_median_mb"]) > 0 for r in table2))
+        det = [r for r in read_csv(lay.table("determinism")) if r["tool"] in ("rs02", "rs02-default", "c")]
+        self.assertTrue(det and all(r["byte_identical"] == "True" for r in det))
+        run = e3.Run(e3.Setup("rs02", 1, 2), 2)
+        self.assertEqual(json.loads(lay.timing(run).read_text())["exit_status"], 0)
+        rec = json.loads(lay.record(run).read_text())
+        self.assertTrue(rec["run"]["exclusive"])
+        self.assertEqual(provenance.sha256_file(lay.fit(run)), provenance.sha256_file(lay.fit(e3.Run(e3.Setup("rs02", 1, 1), 1))))
 
 
 if __name__ == "__main__":

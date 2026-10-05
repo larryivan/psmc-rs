@@ -28,19 +28,22 @@ appear as E2-E6 are added.
 | figure | written to | reads | width x height |
 | --- | --- | --- | --- |
 | `fig1_workflow` | `FIG/figures/` | nothing (schematic) | 183 x 82 mm |
-| `fig2_simulated_accuracy` | `E1/figures/` | `E1_curves`, `E1_truth`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c` | 183 x 150 mm |
-| `fig3_real_genomes` | `E2/figures/` | `E2_curves`, `E2_summary` | 183 x 112 mm |
-| `fig4_performance` | `E3/figures/` | `E3_runs`, `E3_threads` | 183 x 64 mm |
-| `fig5_input_preparation` | `E4/figures/` | `E4_routes`, `E4_curves` | 183 x 120 mm |
-| `fig6_bootstrap_calibration` | `E5/figures/` | `E5_calibration`, `E5_curves` | 183 x 108 mm |
+| `fig2_simulated_accuracy` | `E1/figures/` | `E1_curves`, `E1_truth`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E1_mstep` | 183 x 150 mm |
+| `fig3_real_genomes` | `E2/figures/` | `E2_curves`, `E2_bands`, `E2_bootstrap`, `E2_rs_vs_c`, `E2_fit_summary` | 183 x 112 mm |
+| `fig4_performance` | `E3/figures/` | `E3_table2`, `E3_runs` | 183 x 70 mm |
+| `fig5_input_preparation` | `E4/figures/` | `E4_routes`, `E4_curves`, `E4_bias` | 183 x 122 mm |
+| `fig6_bootstrap_calibration` | `E5/figures/` | `E5_summary`, `E5_sampling`, `E5_bands`, `E5_sd_ratio`, `E5_coverage` | 183 x 132 mm |
 | `figS1_em_convergence` | `E1/figures/` | `E1_traces` | 183 x 118 mm |
-| `figS2_format_consistency` | `E6/figures/` | `E6_formats`, `E6_format_curves` | 183 x 92 mm |
-| `figS3_tmrca_decoding` | `E6/figures/` | `E6_tmrca_track`, `E6_tmrca_hist2d`, `E6_tmrca_calibration`, `E6_tmrca_summary` | 183 x 112 mm |
-| `figS4_thread_scaling` | `E3/figures/` | `E3_threads` | 183 x 60 mm |
+| `figS2_format_consistency` | `E6/figures/` | `E6_S2_curves`, `E6_S2_bins`, `E6_S2_fits` | 183 x 96 mm |
+| `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
+| `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
 
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
 so that it can be turned into the caption. Captions should also say:
 
+- **Every psmc-rs fit** uses `--mstep-iters 1000`, so that its M-step runs to
+  convergence as C psmc's does (`config.Inference`); "default M-step" is
+  psmc-rs's own default, 100 (Fig 2i, Fig 4, Fig S4).
 - **Fig 2, 5, 6, S2**: times in years with mu 2.5e-8 and g 25; Ne in diploid
   individuals; grey shading marks times outside the model's informative
   window (1% to 99% quantiles of the true pairwise coalescence time), where
@@ -52,11 +55,20 @@ so that it can be turned into the caption. Captions should also say:
   narrow spikes at the boundaries; they are real and short.
 - **Fig 3**: each species with its own mu and g (in the panel; the turtle
   values are unverified, see `config._TURTLE_SCALING_SOURCE`); the human
-  sample is chromosome 1 only.
-- **Fig 4**: medians of the repeats (each repeat is a dot under its marker);
-  sizes a tool was not run at are named in the panel with the reason E3
-  recorded.
-- **Fig 6**: coverage over 10 datasets moves in steps of 10%.
+  sample is chromosome 1 only. A genome whose default trunks are fewer than
+  20 (Papuan chr1: 5 of 50 Mb) is bootstrapped again on 5 Mb trunks (dark
+  outline); E5 calibrates chromosome-scale trunks only, and the turtles'
+  default bootstraps resample whole scaffolds.
+- **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
+  marker); sizes a tool was not run at are named in panel a with the reason
+  E3 recorded.
+- **Fig 5**: the VCF + mask route equals the consensus FASTA -> fq2psmcfa
+  route bin for bin (asserted); with a dispersed mask both shrink theta, and
+  every time and size, by about the missing fraction, and the rescaled route
+  (callable bases per called bin from `psmc-rs qc`) corrects it.
+- **Fig 6**: coverage over 10 genomes moves in steps of 10% (shaded:
+  pointwise Clopper-Pearson 95% interval); the window-averaged coverage in
+  the legend has a 95% interval from resampling the genomes.
 
 ## Style (`style.py`)
 
@@ -85,53 +97,58 @@ fits' range in Fig 6 is neutral grey.
 
 ## Tables (`schemas.py`)
 
-The figures read only these tables (and `config.py`: the demographic models,
-whose true Ne(t) is drawn with its exact change times, and the figure
-settings in `config.FIGURES`). `data.read` checks that the columns a figure
-needs are present and names the missing ones; other columns may be there.
-Curve tables have one row per PSMC interval: `ne` holds from `years` to the
-next row's `years` (the first is 0, the last interval runs to infinity), as
-`results.Fit.curve` gives it. `tool` is `c`, `rs` or `rs01`.
+The figures read only these tables, which the experiments' `report` jobs
+write (and `config.py`: the demographic models, whose true Ne(t) is drawn
+with its exact change times, and the figure settings in `config.FIGURES`).
+`data.read` checks that the columns a figure needs are present and names the
+missing ones; other columns may be there. The unit tests run every
+experiment at the tiny profile and draw every figure from the tables it
+writes, so a schema cannot drift from its table unnoticed. Curve tables have
+one row per PSMC interval: `ne` holds from `years` to the next row's
+`years` (the first is 0, the last interval runs to infinity), as
+`results.Fit.curve` gives it. `tool` is `c` or `rs`, and in E3 `c`,
+`rs01`, `rs02` or `rs02-default`.
 
 | table | one row per | columns the figures need |
 | --- | --- | --- |
 | `E1/tables/E1_curves.csv` | model, replicate, tool and interval | `model`, `replicate`, `tool`, `interval`, `years`, `ne` |
-| `E1/tables/E1_truth.csv` | model and time of a dense log grid | `model`, `years`, `ne` (checked against `config.MODELS`) |
+| `E1/tables/E1_truth.csv` | model and time of a dense log grid | `model`, `years`, `ne` |
 | `E1/tables/E1_table1.csv` | model | `model`, `window_lo_years`, `window_hi_years` |
 | `E1/tables/E1_replicates.csv` | model, replicate and tool | `model`, `replicate`, `tool`, `rmse_log10_ne_vs_truth` |
 | `E1/tables/E1_rs_vs_c.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_rs_vs_c`, `max_abs_log10_ne_diff` |
+| `E1/tables/E1_mstep.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_default_vs_c` |
 | `E1/tables/E1_traces.csv` | model, replicate, tool and EM iteration | `model`, `replicate`, `tool`, `iteration`, `loglike`, `theta`, `rho` |
-| `E2/tables/E2_curves.csv` | sample, tool, replicate and interval | `sample`, `tool`, `replicate` (0: the fit; 1..N: psmc-rs bootstrap), `interval`, `years`, `ne` |
-| `E2/tables/E2_summary.csv` | sample | `sample`, `mu`, `gen_years`, `rmse_log10_ne_rs_vs_c`, `window_lo_years`, `window_hi_years`, `bootstrap_replicates` |
-| `E3/tables/E3_runs.csv` | tool, threads, genome size and repeat | `tool` (c, rs01, rs02), `threads`, `genome_mb`, `repeat`, `status` (ok, skipped, failed), `wall_seconds`, `peak_rss_mb`, `note` (why skipped) |
-| `E3/tables/E3_threads.csv` | thread count and repeat | `genome_mb`, `threads`, `repeat`, `wall_seconds`, `peak_rss_mb`, `json_sha256` |
-| `E4/tables/E4_routes.csv` | replicate, mask and route | `replicate`, `mask` (none or a `MaskSpec` name), `structure`, `missing_fraction`, `route` (exact, fq2psmcfa, multihetsep, nomask), `theta_rel_bias` (against the exact route without missing data), `rmse_log10_ne_vs_truth`, `bins_differ_fraction` |
-| `E4/tables/E4_curves.csv` | replicate, mask, route and interval | `replicate`, `mask`, `route`, `interval`, `years`, `ne` |
-| `E5/tables/E5_calibration.csv` | trunk size and time of the window's grid | `trunk_bins`, `years`, `sd_true`, `sd_boot_median`, `sd_boot_q25`, `sd_boot_q75`, `sd_ratio_median`, `coverage`, `n_datasets` |
-| `E5/tables/E5_curves.csv` | kind, dataset, trunk, replicate and interval | `kind` (fit, bootstrap), `dataset`, `trunk_bins` (0 for fit), `replicate` (0 for fit), `interval`, `years`, `ne` |
-| `E6/tables/E6_formats.csv` | model and input format | `model`, `input` (psmcfa, vcf, multihetsep), `bins_differ`, `tail_bins_missing` |
-| `E6/tables/E6_format_curves.csv` | model, input and interval | `model`, `input`, `interval`, `years`, `ne` |
-| `E6/tables/E6_tmrca_track.csv` | bin of the example window | `start_bp`, `true_tmrca_years`, `post_mean_years`, `post_map_years`, `q025_years`, `q975_years` |
-| `E6/tables/E6_tmrca_hist2d.csv` | estimator and cell of a log-log grid | `estimator` (mean, map), `true_lo_years`, `true_hi_years`, `est_lo_years`, `est_hi_years`, `count` |
-| `E6/tables/E6_tmrca_calibration.csv` | class of true TMRCA | `true_lo_years`, `true_hi_years`, `bins`, `coverage` |
-| `E6/tables/E6_tmrca_summary.csv` | estimator | `estimator`, `pearson_log10`, `coverage`, `bins` |
-
-`fake.py` writes small stand-in tables in these schemas (the truth with
-seeded noise, sized by a profile) for developing and testing the figures;
-`fake.calibration` is the definition `E5_calibration.csv` is expected to
-follow. They go to a scratch directory, never to `experiment/runs`:
-
-```bash
-$PY -m experiment.pipeline.figures.fake --runs-dir /tmp/fig-dev --profile production E2 E3 E4 E5 E6
-$PY -m experiment.pipeline.figures --runs-dir /tmp/fig-dev
-```
+| `E2/tables/E2_curves.csv` | genome, tool and interval | `sample_id`, `tool`, `interval`, `years`, `ne` |
+| `E2/tables/E2_bands.csv` | genome, bootstrap trunk size and time of a dense log grid | `sample_id`, `trunk_bins`, `years`, `ne_band_lo`, `ne_band_hi` |
+| `E2/tables/E2_bootstrap.csv` | genome and bootstrap trunk size | `sample_id`, `default_trunks`, `trunk_bins`, `trunk_mb`, `trunks`, `coarse_band`, `replicates` |
+| `E2/tables/E2_rs_vs_c.csv` | genome | `sample_id`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c` |
+| `E2/tables/E2_fit_summary.csv` | genome and tool | `sample_id`, `tool`, `mu`, `gen_years` |
+| `E3/tables/E3_table2.csv` | tool, thread count and genome size (Table 2) | `tool`, `threads`, `size_mb`, `status`, `note`, `wall_median_s`, `peak_rss_median_mb`, `speedup_vs_c` |
+| `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
+| `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
+| `E3/tables/E3_determinism.csv` | run, against its tool's reference at the same size | `tool`, `size_mb`, `threads`, `sha256` |
+| `E4/tables/E4_routes.csv` | mask, route (rescaled routes included) and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `rmse_log10_ne_vs_truth`, `differing_bin_fraction` |
+| `E4/tables/E4_curves.csv` | mask, route, replicate and interval | `mask`, `route`, `replicate`, `interval`, `years`, `ne` |
+| `E4/tables/E4_bias.csv` | mask, route and time of the informative window | `mask`, `route`, `years`, `replicates`, `log10_bias_mean` |
+| `E5/tables/E5_summary.csv` | trunk size and window | `trunk_bins`, `trunk_mb`, `trunks`, `window`, `coverage_mean`, `coverage_mean_ci_lo`, `coverage_mean_ci_hi` |
+| `E5/tables/E5_sampling.csv` | time of the informative window | `point`, `years`, `true_ne`, `fits`, `lo_ne`, `hi_ne` |
+| `E5/tables/E5_bands.csv` | bootstrapped genome, trunk size and time | `dataset`, `trunk_bins`, `point`, `years`, `fit_ne`, `boot_lo_ne`, `boot_hi_ne` |
+| `E5/tables/E5_sd_ratio.csv` | trunk size and time | `trunk_bins`, `point`, `years`, `sd_true_log10`, `sd_true_ci_lo`, `sd_true_ci_hi`, `sd_boot_log10_median`, `ratio_median`, `ratio_q25`, `ratio_q75` |
+| `E5/tables/E5_coverage.csv` | trunk size and time | `trunk_bins`, `point`, `years`, `datasets`, `coverage`, `coverage_ci_lo`, `coverage_ci_hi`, `coverage_fit_mean` |
+| `E6/tables/E6_S2_curves.csv` | model, format and interval (format truth: a dense grid of the true Ne) | `model`, `format`, `interval`, `years`, `ne` |
+| `E6/tables/E6_S2_bins.csv` | model, format and sequence (all: the genome) | `model`, `format`, `sequence`, `bins_differing`, `bins_missing_at_end` |
+| `E6/tables/E6_S2_fits.csv` | model and format | `model`, `format`, `window_lo_years`, `window_hi_years` |
+| `E6/tables/E6_S3_track.csv` | 100 bp bin of the example window | `sequence`, `start_bp`, `obs`, `true_years`, `posterior_mean_years`, `q025_years`, `q975_years` |
+| `E6/tables/E6_S3_density.csv` | non-empty cell of a log10 grid | `log10_true_lo`, `log10_true_hi`, `log10_mean_lo`, `log10_mean_hi`, `n_bins` |
+| `E6/tables/E6_S3_calibration.csv` | class (decile) of the true TMRCA or of the posterior mean | `by`, `class`, `median_true_years`, `coverage95_states`, `coverage95_point` |
+| `E6/tables/E6_S3_summary.csv` | set of bins (all, heterozygous, homozygous) | `bins`, `n_bins`, `pearson_log10_mean`, `coverage95_states`, `coverage95_point` |
 
 ## Production
 
 The figures run last, as `FIG` jobs after each experiment's `report` job:
 
 ```bash
-experiment/.venv/bin/python -m experiment.pipeline start E1 E2 E3 E4 E5 E6 FIG --keep-awake
+experiment/.venv/bin/python -m experiment.pipeline start E1 E2 E3 E4 E5 E6 FIG
 ```
 
 Ten jobs of a few seconds each (1 core, 0.1-0.4 GB peak; a few CPU

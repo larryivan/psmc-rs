@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline import config, demography, paths  # noqa: E402
+from experiment.pipeline import config, demography  # noqa: E402
 from experiment.pipeline.results import Curve  # noqa: E402
 
 HAS_PLOTTING = all(importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "matplotlib"))
@@ -46,6 +46,7 @@ class Style(unittest.TestCase):
         # Routes and formats reuse the same colour for the same thing.
         self.assertEqual(style.ROUTES["multihetsep"].color, style.FORMATS["multihetsep"].color)
         self.assertEqual(style.ROUTES["exact"].color, style.RS02.color)
+        self.assertEqual(style.ROUTES["exact_rescaled"].color, style.BLUE_650)
 
     def test_figure_sizes(self):
         from experiment.pipeline.figures import style
@@ -157,71 +158,36 @@ class Data(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
-class SchemasAndStandIns(unittest.TestCase):
+class Schemas(unittest.TestCase):
+    """The schemas against real tables are checked in test_figures_draw (the experiments' tiny runs)."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.runs = Path(self._tmp.name)
-
-    def test_every_schema_is_written_and_read_back(self):
-        from experiment.pipeline.figures import data, fake
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
-        written = fake.write_all(self.runs, config.SMOKE)
-        self.assertEqual({p.name for p in written}, {s.file for s in SCHEMAS.values()})
-        for key in SCHEMAS:
-            df = data.read(self.runs, key)
-            self.assertGreater(len(df), 0, key)
 
     def test_missing_table_and_columns_are_named(self):
         from experiment.pipeline.figures import data
         from experiment.pipeline.figures.schemas import SCHEMAS
 
         with self.assertRaises(data.MissingTable):
-            data.read(self.runs, "E2_summary")
-        path = SCHEMAS["E2_summary"].path(self.runs)
+            data.read(self.runs, "E2_rs_vs_c")
+        path = SCHEMAS["E2_rs_vs_c"].path(self.runs)
         path.parent.mkdir(parents=True)
         with open(path, "w", newline="") as f:
-            csv.writer(f).writerows([["sample", "mu"], ["Papuan", "1.25e-8"]])
+            csv.writer(f).writerows([["sample_id", "window_lo_years"], ["Papuan", "1000"]])
         with self.assertRaises(data.SchemaError) as cm:
-            data.read(self.runs, "E2_summary")
-        self.assertIn("gen_years", str(cm.exception))
+            data.read(self.runs, "E2_rs_vs_c")
+        self.assertIn("rmse_log10_ne_rs_vs_c", str(cm.exception))
 
-    def test_stand_ins_follow_the_profile(self):
-        import pandas as pd
+    def test_every_schema_names_an_experiments_table(self):
+        from experiment.pipeline.experiments import e1, e2, e3, e4, e5, e6
+        from experiment.pipeline.figures.schemas import SCHEMAS
 
-        from experiment.pipeline.figures import fake
-
-        fake.write_all(self.runs, config.SMOKE, ["E3", "E5"])
-        runs = pd.read_csv(self.runs / "E3" / "tables" / "E3_runs.csv")
-        self.assertEqual(sorted(runs["genome_mb"].unique()), list(config.SMOKE.e3.genome_sizes_mb))
-        cal = pd.read_csv(self.runs / "E5" / "tables" / "E5_calibration.csv")
-        self.assertEqual(sorted(cal["trunk_bins"].unique()), sorted(config.SMOKE.e5.trunk_bins))
-        self.assertTrue(((cal["coverage"] >= 0) & (cal["coverage"] <= 1)).all())
-
-    def test_calibration_definition(self):
-        import numpy as np
-
-        from experiment.pipeline.figures import fake
-
-        truth = np.zeros(3)
-        fits = {d: np.full(3, v) for d, v in ((1, -0.1), (2, 0.1))}
-        boots = {(1, 10): np.array([[-0.2] * 3, [0.2] * 3]), (2, 10): np.array([[0.2] * 3, [0.4] * 3])}
-        rows = fake.calibration(fits, boots, truth, (0.025, 0.975))
-        self.assertEqual(len(rows), 3)
-        sd_true = float(np.std([-0.1, 0.1], ddof=1))
-        sds = [float(np.std([-0.2, 0.2], ddof=1)), float(np.std([0.2, 0.4], ddof=1))]
-        self.assertAlmostEqual(rows[0]["sd_true"], sd_true)
-        self.assertAlmostEqual(rows[0]["sd_boot_median"], float(np.median(sds)))
-        self.assertAlmostEqual(rows[0]["sd_ratio_median"], float(np.median(sds)) / sd_true)
-        self.assertEqual(rows[0]["coverage"], 0.5)  # only dataset 1's band contains the truth, 0
-        self.assertEqual(rows[0]["n_datasets"], 2)
-
-    def test_refuses_the_production_runs_directory(self):
-        from experiment.pipeline.figures import fake
-
-        with self.assertRaises(ValueError):
-            fake.write_all(paths.RUNS, config.SMOKE, ["E3"])
+        written = {f"{m.NAME}/{name}" for m in (e1, e2, e3, e4, e5) for name in m.TABLES.values()}
+        written |= {f"E6/{name}" for part in e6.TABLES.values() for name in part.values()}
+        for key, s in SCHEMAS.items():
+            self.assertIn(f"{s.experiment}/{s.file}", written, key)
 
 
 class Readme(unittest.TestCase):
