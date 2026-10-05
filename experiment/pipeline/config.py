@@ -345,24 +345,120 @@ class E2:
     max_bins: Optional[int] = None
 
 
+# --- E3: how a run is timed, and the memory and time model of each tool ----
+
+
+@dataclass(frozen=True)
+class TimingProtocol:
+    """How ``experiments/e3_run.py measure`` times one run of a tool.
+
+    Before the run it waits ``settle_seconds``, then until the CPU use of the
+    whole machine over ``quiet_window_seconds`` is at most
+    ``quiet_cpu_percent`` of all cores, or ``max_wait_seconds`` have passed;
+    a run that started without a quiet machine is flagged in the tables.
+    During the run it samples the RSS of the tool's process tree every
+    ``rss_sample_seconds`` (with the tool's own ``ru_maxrss``, the larger is
+    the peak) and afterwards records the CPU time that other processes used
+    while it ran.
+    """
+
+    settle_seconds: float = 10.0
+    quiet_cpu_percent: float = 10.0
+    quiet_window_seconds: float = 2.0
+    max_wait_seconds: float = 180.0
+    rss_sample_seconds: float = 0.05
+
+
+# For the smoke and tiny profiles: no waiting, one short look at the machine.
+QUICK_TIMING = TimingProtocol(settle_seconds=0.0, quiet_window_seconds=0.2, max_wait_seconds=0.0)
+
+
+@dataclass(frozen=True)
+class ResourceModel:
+    """Estimated peak memory and run time of one E3 run.
+
+    The memory estimate decides which runs E3 skips (above
+    ``E3.memory_limit_gb``); the time estimate only schedules the jobs and
+    gives the ETA. MB are 2**20 bytes and GB 2**30, as the runner reports
+    them. Measured with ``/usr/bin/time -l`` on simulated constant-model
+    genomes (Apple M1 Pro, 2026-10-05; times under load, so generous).
+    """
+
+    # C psmc keeps the forward and backward matrices of one sequence at a
+    # time (64 doubles per bin each, allocated bin by bin), so its peak
+    # follows the longest sequence, not the genome: 207 MB for one 20 Mb
+    # sequence, 105 MB for two or four of 10 Mb, 404 MB for one of 40 Mb,
+    # 1011 MB for one of 100 Mb.
+    c_mb_base: float = 6.0
+    c_mb_per_mb_longest: float = 10.05
+    # psmc-rs 0.1 (e50d69d), one thread or one sequence: the forward
+    # variables of whole sequences as f32 (2.48 MB per Mb), largest first,
+    # while they fit its 2 GiB cache budget (PSMC_ALPHA_CACHE_MB unset),
+    # plus one f64 forward buffer of the longest sequence (4.96 MB per Mb)
+    # and the input (one byte per bin): 752 MB for one 100 Mb sequence,
+    # 2497 MB for ten (eight cached). Several threads and sequences: one f64
+    # buffer per sequence in work, nothing cached: 3977 MB for ten 100 Mb
+    # sequences on 8 threads.
+    rs01_mb_base: float = 5.0
+    rs01_mb_per_mb_input: float = 0.0095
+    rs01_mb_per_mb_cache: float = 2.48
+    rs01_cache_mb: float = 2048.0
+    rs01_mb_per_mb_buffer: float = 4.96
+    # psmc-rs 0.2: the input (one byte per bin) and a few MB per sequence in
+    # work: 12 MB for one 100 Mb sequence, 21 MB for ten on one thread,
+    # 49 MB for ten on 8 threads.
+    rs02_mb_base: float = 10.8
+    rs02_mb_per_mb_input: float = 0.0103
+    rs02_mb_per_extra_thread: float = 4.0
+    # Run time per Mb and EM iteration on one thread, input and output
+    # included (25 iterations: C psmc about 1 h for 3000 Mb). psmc-rs runs
+    # min(threads, sequences) sequences at once, each extra one adding
+    # parallel_efficiency of a thread. psmc-rs 0.1 on one thread computes the
+    # forward pass of a sequence it could not cache twice (+50% for it).
+    c_s_per_mb_iter: float = 0.05
+    rs01_s_per_mb_iter: float = 0.03
+    rs01_uncached_extra: float = 0.5
+    rs02_s_per_mb_iter: float = 0.006
+    parallel_efficiency: float = 0.7
+
+
 @dataclass(frozen=True)
 class E3:
-    """Performance (Fig 4, Table 2, Fig S4): run exclusively, nothing else running."""
+    """Performance (Fig 4, Table 2, Fig S4): run time and peak memory of C psmc, psmc-rs 0.1 and 0.2.
+
+    One genome per size, made of ``chromosome_length`` chromosomes under the
+    ``model``, simulated as in E1 with the seed key
+    ``E3/<model>/<replicate>/...``: the chromosomes are the same for every
+    size, so each genome is the first chromosomes of the next larger one.
+    C psmc (one thread; it has no threads), psmc-rs 0.1 and psmc-rs 0.2 (at
+    each of their thread counts) fit every size with the inference recipe,
+    ``repeats`` times; psmc-rs 0.2 also fits the thread-scaling size at
+    every count of ``thread_scaling_threads``. Every run is an exclusive
+    runner job (nothing else runs), timed as ``timing`` says. A run whose
+    estimated peak memory (``resources``) exceeds ``memory_limit_gb`` is not
+    run, and the tables say so and why.
+    """
 
     model: str = "constant"
+    replicate: int = 1  # seeds: seed("E3", model, replicate, "ancestry/chrN"), for every size
     genome_sizes_mb: Tuple[int, ...] = (100, 300, 1000, 3000)
-    chromosome_length: int = 100_000_000  # sizes are made of 100 Mb chromosomes
+    chromosome_length: int = 100_000_000  # sizes are made of 100 Mb chromosomes: 1, 3, 10 and 30
+    simulation: Simulation = SIMULATION
+    scaling: Scaling = SIMULATION_SCALING  # psmc-rs --mu and --gen-years: the scaling of its report only
     repeats: int = 3
     inference: Inference = INFERENCE
+    rs01_threads: Tuple[int, ...] = (1, 8)
     rs02_threads: Tuple[int, ...] = (1, 8)
     thread_scaling_size_mb: int = 3000
     thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8)
-    c_memory_limit_gb: float = 12.0  # skip C psmc where its estimated peak exceeds this (and say why)
+    memory_limit_gb: float = 12.0  # skip any run whose estimated peak exceeds this (and say why)
     rs01_commit: str = "e50d69d"
     # psmc-rs 0.1 has no --tr-ratio; its default start rho0 = theta0/5 is the
     # -r5 of the recipe, so it gets the other settings (pattern, t_max,
-    # smoothing 0, iterations) and its default start.
-    rss_sample_seconds: float = 0.05
+    # smoothing 0, M-step iterations, EM iterations) and its default start.
+    # It has no --bin-size either: it reads a psmcfa as 100 bp bins.
+    timing: TimingProtocol = TimingProtocol()
+    resources: ResourceModel = ResourceModel()
 
 
 @dataclass(frozen=True)
@@ -502,7 +598,8 @@ SMOKE = Profile(
     e1=E1(models=("constant", "bottleneck"), replicates=2, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
     e2=E2(bootstrap_replicates=4, inference=_SMOKE_INFERENCE, rs_threads=2),
     e3=E3(genome_sizes_mb=(2, 4), chromosome_length=2_000_000, repeats=1, inference=_SMOKE_INFERENCE,
-          thread_scaling_size_mb=4, thread_scaling_threads=(1, 2)),
+          rs01_threads=(1, 2), rs02_threads=(1, 2), thread_scaling_size_mb=4, thread_scaling_threads=(1, 2),
+          timing=QUICK_TIMING),
     e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
     e5=replace(E5(), genome=_SMOKE_GENOME, truth_replicates=3, bootstrap_datasets=2, bootstrap_replicates=4,
                trunk_bins=(5_000, 2_000), inference=_SMOKE_INFERENCE),
@@ -514,6 +611,10 @@ _TINY_GENOME = Genome(n_chromosomes=1, chromosome_length=300_000)
 TINY = Profile(
     name="tiny",
     e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=replace(INFERENCE, n_iter=2)),
+    # E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats, 2 EM iterations.
+    e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=replace(INFERENCE, n_iter=2),
+          rs01_threads=(1,), rs02_threads=(1, 2), thread_scaling_size_mb=1, thread_scaling_threads=(1, 2),
+          timing=QUICK_TIMING),
 )
 
 PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
