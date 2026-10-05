@@ -6,7 +6,8 @@
 #
 # per chromosome in parallel, then one bgzipped, indexed all-sites VCF,
 # `psmc-rs qc` and `psmc-rs convert` (psmcfa, optionally multihetsep), and
-# optionally an inference run. Run with --help for the options.
+# optionally an inference run. Run with --help for the options;
+# tests/pipeline/run_e2e.sh tests it.
 #
 # Works with the bash 3.2 that macOS ships: no associative arrays, no
 # `wait -n`, and empty arrays are never expanded under `set -u`.
