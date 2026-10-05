@@ -1,19 +1,28 @@
 """The tools: psmc-rs 0.2 (this checkout), psmc-rs 0.1 (commit e50d69d), C psmc and utilities.
 
-Each tool is a :class:`Tool`: a path and an identity, the facts that a
-job's provenance record keeps about it. The identity is chosen so that it
-changes exactly when the tool's results could:
+Each tool is a :class:`Tool`: a path, an identity and information. The
+identity enters the provenance key of every job that runs the tool, and is
+chosen so that it changes exactly when the tool's results could; the
+information is recorded next to it and changes nothing:
 
-* psmc-rs 0.2: its version, the last commit that touched the Rust sources
-  (``src/``, ``Cargo.toml``, ``Cargo.lock``) and, when those have
-  uncommitted changes, a digest of the changes. Commits elsewhere (the
-  experiment code, documentation) do not change it. The binary is
-  ``target/release/psmc-rs`` of this checkout, built with
-  ``cargo build --release --locked --offline`` (a no-op when up to date).
-* psmc-rs 0.1: the commit it is built from, in a git worktree under the
-  tools directory with ``CARGO_TARGET_DIR`` next to it (see :func:`build_rs01`).
+* psmc-rs 0.2: its version, the content of the Rust sources (the git tree
+  and blob ids of ``src/``, ``Cargo.toml`` and ``Cargo.lock`` at HEAD, so
+  that a rebase or squash that keeps the sources keeps the identity), a
+  digest of their uncommitted changes, and the toolchain (``rustc -vV`` and
+  ``RUSTFLAGS``). Information: the last commit that touched the sources and
+  the binary's SHA-256 (it embeds the checkout's path, so it differs between
+  clones of the same sources). Outside a git checkout the binary's SHA-256
+  is the identity. The binary is ``target/release/psmc-rs`` of this
+  checkout, built with ``cargo build --release --locked --offline`` (a no-op
+  when up to date).
+* psmc-rs 0.1: the commit it is built from (in a git worktree under the
+  tools directory with ``CARGO_TARGET_DIR`` next to it, see
+  :func:`build_rs01`) and the toolchain; information: the binary's SHA-256.
 * C psmc and the utilities: their version where they print one, and the
   SHA-256 of the file.
+
+The runner records the SHA-256 of every executable a job runs, and refuses
+to start jobs once one of them changes (see :mod:`.runner`).
 
 The command builders give the exact command lines of the experiments.
 """
@@ -37,7 +46,8 @@ RS_SOURCES = ("src", "Cargo.toml", "Cargo.lock")
 class Tool:
     name: str
     path: Path
-    identity: Dict[str, str] = field(default_factory=dict)
+    identity: Dict[str, str] = field(default_factory=dict)  # enters provenance keys
+    info: Dict[str, str] = field(default_factory=dict)  # recorded, not part of any key
 
     def __str__(self) -> str:
         return str(self.path)
@@ -75,9 +85,30 @@ def rs02_binary() -> Path:
     return paths.ROOT / "target" / "release" / "psmc-rs"
 
 
+def source_tree(cwd: Path = paths.ROOT) -> str:
+    """The content of the Rust sources at HEAD: ``src=<tree id>;Cargo.toml=<blob id>;Cargo.lock=<blob id>``."""
+    return ";".join(f"{p}={_git('rev-parse', f'HEAD:{p}', cwd=cwd)}" for p in RS_SOURCES)
+
+
+def toolchain() -> Dict[str, str]:
+    """The compiler a build uses: ``rustc -vV``'s release, commit and host, LLVM, and ``RUSTFLAGS``."""
+    out = {"rustflags": os.environ.get("RUSTFLAGS", ""), "cargo_encoded_rustflags": os.environ.get("CARGO_ENCODED_RUSTFLAGS", "")}
+    try:
+        res = _run(["rustc", "-vV"])
+    except OSError:
+        res = None
+    if res is None or res.returncode != 0:
+        out["rustc"] = "unavailable"
+        return out
+    fields = dict(line.split(": ", 1) for line in res.stdout.splitlines()[1:] if ": " in line)
+    out["rustc"] = f"{fields.get('release', '?')} ({fields.get('commit-hash', '?')[:12]}) {fields.get('host', '?')}"
+    out["llvm"] = fields.get("LLVM version", "")
+    return out
+
+
 def rs02_source_state() -> Dict[str, str]:
-    """The commit of the Rust sources and a digest of their uncommitted changes ('' if clean)."""
-    commit = _git("log", "-1", "--format=%H", "--", *RS_SOURCES)
+    """The content of the Rust sources (:func:`source_tree`) and a digest of their uncommitted changes ('' if clean)."""
+    tree = source_tree()
     status = _git("status", "--porcelain", "--untracked-files=all", "--", *RS_SOURCES)
     dirty = ""
     if status:
@@ -89,7 +120,7 @@ def rs02_source_state() -> Dict[str, str]:
                 if p.is_file():
                     h.update(p.read_bytes())
         dirty = h.hexdigest()
-    return {"source_commit": commit, "source_dirty": dirty}
+    return {"source_tree": tree, "source_dirty": dirty}
 
 
 def build_rs02(log: Callable[[str], None] = print) -> Path:
@@ -112,7 +143,7 @@ def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
     """psmc-rs 0.2 from this checkout, built first when ``build``.
 
     Outside a git checkout (an unpacked archive of the repository) the
-    sources have no commit, and the binary's SHA-256 identifies it instead.
+    sources have no git ids, and the binary's SHA-256 identifies it instead.
     """
     binary = build_rs02(log) if build else rs02_binary()
     if not binary.exists():
@@ -120,11 +151,18 @@ def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
     version = _version(binary)
     if not version.startswith("psmc-rs 0.2"):
         raise ToolError(f"{binary} is {version!r}, not psmc-rs 0.2")
+    digest = sha256_file(binary)
     try:
         source = rs02_source_state()
+        commit = _git("log", "-1", "--format=%H", "--", *RS_SOURCES)
     except (ToolError, OSError):
-        source = {"source_commit": "unknown: not a git checkout", "binary_sha256": sha256_file(binary)}
-    return Tool("psmc-rs-0.2", binary, {"version": version, **source})
+        source = {"source_tree": "unknown: not a git checkout", "binary_sha256": digest}
+        commit = "unknown: not a git checkout"
+    tc = toolchain()
+    identity = {"version": version, **source, "rustc": tc["rustc"], "rustflags": tc["rustflags"],
+                "cargo_encoded_rustflags": tc["cargo_encoded_rustflags"]}
+    return Tool("psmc-rs-0.2", binary, identity, {"source_commit": commit, "binary_sha256": digest,
+                                                  "llvm": tc.get("llvm", "")})
 
 
 # ---------------------------------------------------------------------------
@@ -175,11 +213,13 @@ def psmc_rs_01(build: bool = False, commit: str = config.E3().rs01_commit, log: 
         raise ToolError(f"{binary} does not exist; build it with: python -m experiment.pipeline tools --build-rs01")
     head = _git("rev-parse", "HEAD", cwd=d["src"]) if d["src"].exists() else ""
     m = re.search(r'^version\s*=\s*"([^"]+)"', (d["src"] / "Cargo.toml").read_text(), re.M) if head else None
-    return Tool(
-        "psmc-rs-0.1",
-        binary,
-        {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, "binary_sha256": sha256_file(binary)},
-    )
+    tc = toolchain()
+    digest = sha256_file(binary)
+    identity = {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, "rustc": tc["rustc"],
+                "rustflags": tc["rustflags"]}
+    if not head:
+        identity["binary_sha256"] = digest  # no sources to identify it by
+    return Tool("psmc-rs-0.1", binary, identity, {"binary_sha256": digest})
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +344,6 @@ def rs02_qc(tool: Tool, inp: Path, json_out: Path, extra: Sequence[str] = ()) ->
 def describe(tools: Sequence[Tool]) -> str:
     lines = []
     for t in tools:
-        ident = ", ".join(f"{k}={v}" for k, v in t.identity.items() if v)
+        ident = ", ".join(f"{k}={v}" for k, v in {**t.identity, **t.info}.items() if v)
         lines.append(f"{t.name:24s} {t.path}\n{'':24s} {ident}")
     return "\n".join(lines)

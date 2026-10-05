@@ -59,8 +59,20 @@ class Commands(unittest.TestCase):
 class Identities(unittest.TestCase):
     def test_rs02_source_state(self):
         state = tools.rs02_source_state()
-        self.assertRegex(state["source_commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(state["source_tree"], r"^src=[0-9a-f]{40};Cargo.toml=[0-9a-f]{40};Cargo.lock=[0-9a-f]{40}$")
         self.assertTrue(state["source_dirty"] == "" or re.match(r"^[0-9a-f]{64}$", state["source_dirty"]))
+
+    def test_rs02_identity_is_its_sources_and_toolchain_not_a_commit_or_a_path(self):
+        binary = ROOT / "target" / "release" / "psmc-rs"
+        if not binary.exists():
+            self.skipTest("target/release/psmc-rs not built")
+        t = tools.psmc_rs_02(build=False)
+        self.assertEqual(set(t.identity), {"version", "source_tree", "source_dirty", "rustc", "rustflags",
+                                           "cargo_encoded_rustflags"})
+        self.assertRegex(t.info["source_commit"], r"^[0-9a-f]{40}$")
+        self.assertEqual(t.info["binary_sha256"], tools.sha256_file(binary))
+        with mock.patch.dict("os.environ", {"RUSTFLAGS": "-C target-cpu=native"}):
+            self.assertNotEqual(tools.psmc_rs_02(build=False).identity, t.identity)
 
     def test_psmc_rs_outside_a_checkout_is_identified_by_its_binary(self):
         binary = ROOT / "target" / "release" / "psmc-rs"
@@ -69,7 +81,7 @@ class Identities(unittest.TestCase):
         with mock.patch.object(tools, "rs02_source_state", side_effect=tools.ToolError("not a repository")):
             t = tools.psmc_rs_02(build=False)
         self.assertEqual(t.identity["binary_sha256"], tools.sha256_file(binary))
-        self.assertIn("unknown", t.identity["source_commit"])
+        self.assertIn("unknown", t.identity["source_tree"])
 
     def test_missing_tools_are_reported(self):
         with self.assertRaises(tools.ToolError):
