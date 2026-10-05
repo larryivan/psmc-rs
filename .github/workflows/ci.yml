@@ -5,7 +5,8 @@ on:
   pull_request:
 
 jobs:
-  rust:
+  lint:
+    name: Format and lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -23,7 +24,59 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Lint
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # Unit, integration and doc tests; examples are built too.
       - name: Run tests
-        run: cargo test --workspace --all-targets
+        run: cargo test --workspace --locked
+
+  msrv:
+    name: Minimum Rust version (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # rust-version in Cargo.toml: let chains, and ratatui's dependencies.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.88
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build every target
+        run: cargo build --workspace --all-targets --locked
+
+  experiment:
+    name: Experiment scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Standard library only; the tests that need numpy, pandas,
+      # matplotlib or msprime skip themselves.
+      - name: Run unit tests
+        run: python3 -m unittest discover -s experiment/tests
