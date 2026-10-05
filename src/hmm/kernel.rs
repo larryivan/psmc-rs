@@ -165,7 +165,7 @@ mod portable {
     use super::{ROW_TILE, TILE};
 
     pub(super) fn vec_mat(x: &[f64], m: &[f64], np: usize, y: &mut [f64]) {
-        for (jt, y_tile) in y.chunks_exact_mut(TILE).enumerate() {
+        for (jt, y_tile) in y.as_chunks_mut::<TILE>().0.iter_mut().enumerate() {
             let col = jt * TILE;
             let mut acc = [0.0f64; TILE];
             for (row, &s) in m.chunks_exact(np).zip(x) {
@@ -174,7 +174,7 @@ mod portable {
                     acc[c] += s * r[c];
                 }
             }
-            y_tile.copy_from_slice(&acc);
+            *y_tile = acc;
         }
     }
 
@@ -213,7 +213,7 @@ mod portable {
 #[inline(always)]
 fn sum(v: &[f64]) -> f64 {
     let mut acc = [0.0f64; TILE];
-    for chunk in v.chunks_exact(TILE) {
+    for chunk in v.as_chunks::<TILE>().0 {
         for c in 0..TILE {
             acc[c] += chunk[c];
         }
@@ -375,7 +375,7 @@ fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64],
         *v = carry;
         carry += t;
     }
-    for (b, yb) in y.chunks_exact_mut(TILE).enumerate() {
+    for (b, yb) in y.as_chunks_mut::<TILE>().0.iter_mut().enumerate() {
         let (pb, rb) = (tile(p, b), tile(r, b));
         let (cs, cp) = (suffix[b], prefix[b]);
         for t in 0..TILE {

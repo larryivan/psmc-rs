@@ -136,9 +136,9 @@ fn splitmix64_mix(mut z: u64) -> u64 {
 fn expand_seed(seed: u64) -> [u8; 32] {
     let mut state = seed;
     let mut key = [0u8; 32];
-    for word in key.chunks_exact_mut(8) {
+    for word in key.as_chunks_mut::<8>().0 {
         state = state.wrapping_add(SPLITMIX64_GAMMA);
-        word.copy_from_slice(&splitmix64_mix(state).to_le_bytes());
+        *word = splitmix64_mix(state).to_le_bytes();
     }
     key
 }
