@@ -3,8 +3,8 @@
 `experiment/pipeline/` produces the manuscript's experiments: it simulates
 genomes, runs C psmc and psmc-rs with identical settings, records how every
 output was made, and writes the tables. It replaces `experiment/scripts/`,
-which stays until every experiment has moved here. Experiments E1 and E4
-are implemented; E2, E3, E5 and E6 have their parameters in `config.py`
+which stays until every experiment has moved here. Experiments E1, E4
+and E5 are implemented; the others have their parameters in `config.py`
 already.
 
 Run it from the repository root with the experiment's environment
@@ -43,6 +43,8 @@ iterations, 78 jobs in about 15 s) in `experiment/.runs-smoke/`;
 | `inputprep.py` | E4's data steps: callable masks, masked VCF, consensus FASTA through fq2psmcfa, bins of the routes compared, generate_multihetsep.py cross-check (`python -m experiment.pipeline.inputprep STEP`) |
 | `experiments/e4.py` | E4 as jobs, and its tables |
 | `figures/fig5.py` | Fig 5 from E4's tables |
+| `experiments/e5.py` | E5 as jobs, and its tables |
+| `figures/e5.py` | Fig 6, from E5's tables |
 
 ## Design
 
@@ -217,6 +219,105 @@ most 154 MB, the mask 5 s, the consensus 28 s.
 experiment/.venv/bin/python -m experiment.pipeline start E4 --keep-awake
 ```
 
+## E5: bootstrap calibration
+
+How well does psmc-rs's bootstrap, which follows C psmc's, measure the
+uncertainty of a PSMC curve? The truth: 50 independent genomes of the
+bottleneck model, each 300 Mb (6 chromosomes of 50 Mb), simulated as in E1
+and fitted once by psmc-rs 0.2: their spread at each time is the true
+sampling distribution of log10 Ne(t). The bootstrap: each of the first 10
+genomes is bootstrapped by psmc-rs 0.2 with 50 replicates at two trunk
+sizes, the default 500,000 bins (50 Mb, splitfa's: one trunk per
+chromosome, 6 per genome) and 50,000 bins (5 Mb, 60 per genome), exactly as a
+user runs it:
+
+```bash
+psmc-rs genome.psmcfa boot.json 25 <the recipe> --threads 1 \
+  --bootstrap 50 --bootstrap-block-size B --bootstrap-seed S --bootstrap-dir DIR
+```
+
+As in C psmc, every replicate draws trunks with replacement up to the
+genome's length and is fitted from a fresh start with the settings of the
+fits. Jobs: `sim` (psmcfa only, no VCF), `fit`, `boot-trunk500000`,
+`boot-trunk50000`, `report` and `figure`. Seeds: the genomes
+`seed("E5", "bottleneck", r, "ancestry/<chrom>")` and `"mutations/<chrom>"`;
+each bootstrap run `seed("E5", "bottleneck", r, "bootstrap/trunk<B>")`, so the
+two trunk sizes draw independently. All are in `tables/E5_seeds.csv`.
+
+**Outcomes.** Every curve is read at the 200 times of the model's
+informative window (10.1 ky to 1.32 My, as E1) and, for robustness, of the
+fixed window (10 ky to 1 My). At each time:
+
+* the true sampling SD is the SD of log10 Ne over the 50 fits, with a
+  chi-square 95% interval (normal theory: 0.84 to 1.25 times the SD for 50
+  fits);
+* a bootstrap's SD is the SD of log10 Ne over its replicates, and its 95% band
+  the 2.5% and 97.5% quantiles of the replicates' Ne, interpolated linearly
+  as psmc-rs's own summary does;
+* the SD ratio of a genome is its bootstrap SD over the true sampling SD; the
+  tables give its median over the 10 genomes (the headline), quartiles and
+  range;
+* the coverage is the share of the 10 genomes whose band holds the true
+  Ne(t), with a Clopper-Pearson 95% interval; next to it, the share whose
+  band holds the geometric mean of the 50 fits, the estimator's expectation.
+  A bootstrap sees the spread of the estimate, not its bias: the gap between
+  the two coverages is PSMC's bias, the shortfall of the second from 95% is
+  the bootstrap's.
+
+The report checks that every fit read its simulated genome, that every
+bootstrap ran with its seed, trunk size and replicate count (a replicate whose
+fresh start is invalid is skipped by psmc-rs and listed in `summary.json`; the
+report reads exactly the replicates the summary names), and that the band
+recomputed from the replicate files equals psmc-rs's `summary.json`. It
+records whether the main fit of every bootstrap run equals the genome's own
+fit (`E5_datasets.csv`, `main_fit_equals_fit`; psmc-rs's results do not depend
+on the run).
+
+| table | contents |
+| --- | --- |
+| `E5_summary.csv` | per trunk size and window: median, range and share below 1 of the median SD ratio; median IQR ratio; mean and least pointwise coverage of the truth and of the fits' mean; median band width and true 95% range (log10); median true SD, bias and RMSE |
+| `E5_sd_ratio.csv` | per trunk size and time: the true SD and its interval, the bootstrap SD, the SD ratio (median, quartiles, range over genomes), the IQR ratio |
+| `E5_coverage.csv` | per trunk size and time: genomes covered, coverage and its interval, coverage of the fits' mean, band width |
+| `E5_sampling.csv` | per time: true Ne, and the 50 fits' mean log10 Ne, median and 95% range of Ne, SD and its interval, IQR, bias and RMSE |
+| `E5_bands.csv` | per bootstrapped genome, trunk size and time: its fit, its band and median, its bootstrap SD, whether the band covers the truth |
+| `E5_datasets.csv` | per bootstrap run: trunks, seed, replicates fitted and skipped, median SD ratio, coverage, the checks, wall time, CPU time and peak RSS |
+| `E5_fits.csv` | per genome: heterozygous sites and bins, theta, rho, t_max, N0, final log-likelihood, RMSE against the truth, wall time and peak RSS |
+| `E5_seeds.csv` | every seed |
+
+**Figure 6** (`figures/E5_fig6.pdf` and `.png`, by `figures/e5.py` from the
+tables and the truth record; 180 x 128 mm, 7 pt Arial, fonts embedded,
+byte-for-byte reproducible): A and B, genome 1's fit and bootstrap band at each
+trunk size over the true Ne and the 95% range of the 50 fits; C, the SD ratio
+by time (median and IQR over the 10 genomes; grey: where a bootstrap with the
+true SD would fall given the true SD's own sampling error); D, the pointwise
+coverage of the true Ne (thick) and of the fits' mean (thin) against the
+nominal 95%. Redraw it without re-running anything with
+`$PY -m experiment.pipeline.figures.e5 [--profile P]`.
+
+Layout of `experiment/runs/E5/`: `sims/` (genomes; not committed),
+`truth/`, `fits/bottleneck/repNN.rs.json`, `boot/trunk<B>/repNN.rs.json` (the
+bootstrap run's main fit), `boot/trunk<B>/repNN/` (`replicate_NNN.json`,
+`summary.json`, `summary.tsv`; the replicates' `.psmc` files, 0.1 MB each, are
+not committed), `provenance/`, `tables/`, `figures/`, `logs/` (not committed).
+
+**Production plan** (`plan E5`): 122 jobs, about 16 CPU hours, about 2.3
+hours of wall time alone on the default budget of 7 cores and 12 GB. Measured
+on the development machine at a load average of 4 to 8: a 300 Mb genome
+simulates in 7 s (0.19 GB) and one fit of it takes 49 s and 26 MB, so a
+bootstrap run (its main fit and 50 replicates, one thread) takes about 42
+minutes; the cost model, at 0.007 s per Mb and iteration, expects 45. The 20
+bootstrap runs dominate (15 CPU hours) and run one thread each, 7 at a time,
+in three waves; memory does not limit E5. The jobs are independent of the
+other experiments, so E5 can run alongside them on the shared budget.
+
+```bash
+experiment/.venv/bin/python -m experiment.pipeline start E5 --keep-awake
+```
+
+`--profile smoke` runs E5 with 8 genomes of 2 x 2 Mb, the first 3
+bootstrapped with 8 replicates at trunks of 5,000 and 2,000 bins (8 and 20
+trunks), 3 EM iterations, in about 10 seconds.
+
 ## Tools
 
 The tools directory is `$PSMC_EXP_TOOLS`, else `experiment/.tools` (of the
@@ -239,4 +340,6 @@ experiment/.venv/bin/python -m unittest discover -s experiment/tests
 psutil, htslib, C psmc or a psmc-rs build skip without them. With all of
 them present, `test_pipeline_e1.EndToEnd` runs the tiny profile through the
 runner and checks that the first iteration's log-likelihood of psmc-rs
-equals C psmc's to its printed precision.
+equals C psmc's to its printed precision; `test_pipeline_e5.EndToEnd` runs
+E5's tiny profile (simulations, fits, bootstraps, tables and figure) and
+checks that nothing is left to do afterwards.
