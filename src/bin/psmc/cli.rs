@@ -16,9 +16,10 @@ pub const USAGE_EXIT: u8 = 2;
 
 /// A command line that parses but cannot be run as given: an invalid
 /// pattern, options that contradict each other, or outputs that would
-/// overwrite each other or the input. It is found before the input is read,
-/// and the program then exits with [`USAGE_EXIT`], as for the errors clap
-/// finds.
+/// overwrite each other or the input. It is found before the input is read
+/// (only for an output that a pipe's format rules out, once the pipe has
+/// been read), and the program then exits with [`USAGE_EXIT`], as for the
+/// errors clap finds.
 #[derive(Debug)]
 pub struct UsageError(pub String);
 

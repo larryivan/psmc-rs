@@ -32,12 +32,16 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         usage_bail!("{NO_SITES}");
     }
     check_outputs(args)?;
+    if want_sites && recognised_as_psmcfa(args) {
+        usage_bail!("{NO_SITES}");
+    }
     let mut opts = args.input.to_options();
     opts.collect_het_sites = want_sites;
     let data = load_input(&args.input_file, &opts)?;
     let format = data.source.format();
+    // The format of a pipe is known only now; the error is the same.
     if want_sites && format == InputFormat::Psmcfa {
-        bail!("{NO_SITES}");
+        usage_bail!("{NO_SITES}");
     }
     // The per-sequence files are named after the sequences, so only now can
     // they be checked against the input and the other outputs, before
@@ -127,6 +131,17 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         )));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Whether the format of the input is recognised as psmcfa before the
+/// input is read: with `--input-format auto`, from the first lines of a
+/// regular file. A pipe or FIFO can be read only once, so only the loader
+/// can recognise its format. A file whose format cannot be recognised is
+/// left to the loader, which says why.
+fn recognised_as_psmcfa(args: &ConvertArgs) -> bool {
+    args.input.input_format == FormatArg::Auto
+        && args.input_file.is_file()
+        && InputFormat::sniff(&args.input_file).is_ok_and(|f| f == InputFormat::Psmcfa)
 }
 
 /// The files `convert` writes whose names are known before the input is

@@ -223,11 +223,18 @@ fn convert_normalises_psmcfa() {
     assert_eq!(fs::read_to_string(&out).unwrap(), expected);
 }
 
+/// Multihetsep output of psmcfa input is a usage error (exit status 2)
+/// whether the format is given or recognised, found before the input is
+/// read: the rest of this file, which cannot be read, is never reached.
+/// From a pipe, whose format is known only once read, it exits 2 too.
 #[test]
 fn psmcfa_has_no_sites_for_multihetsep() {
     let dir = TempDir::new("convert_no_sites");
     let input = dir.path("in.psmcfa");
-    fs::write(&input, ">a\nTTKTTT\n").unwrap();
+    // The second record ends inside a FASTQ quality block, which the
+    // loader refuses.
+    let text = ">a\nTTKTTT\n>b\nTT+\n";
+    fs::write(&input, text).unwrap();
     let out = dir.path("out.mhs");
     for extra in [&[][..], &["--input-format", "psmcfa"][..]] {
         let mut args = vec![
@@ -237,10 +244,20 @@ fn psmcfa_has_no_sites_for_multihetsep() {
             out.to_str().unwrap(),
         ];
         args.extend_from_slice(extra);
-        let err = run_err(&args);
+        let o = run(&args);
+        let err = String::from_utf8(o.stderr).unwrap();
+        assert_eq!(o.status.code(), Some(2), "{extra:?}: {err}");
         assert!(err.contains("psmcfa input has no sites"), "{err}");
         assert!(!out.exists());
     }
+    let o = convert_piped(
+        b">a\nTTKTTT\n".to_vec(),
+        &["--multihetsep", out.to_str().unwrap()],
+    );
+    let err = String::from_utf8(o.stderr).unwrap();
+    assert_eq!(o.status.code(), Some(2), "{err}");
+    assert!(err.contains("psmcfa input has no sites"), "{err}");
+    assert!(!out.exists());
     let err = run_err(["convert", input.to_str().unwrap()]);
     assert!(err.contains("--psmcfa"), "{err}");
 }
