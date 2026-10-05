@@ -52,7 +52,8 @@
 //! IUPAC codes (`K`, `M`, `R`, `S`, `W`, `Y`) are heterozygous; `A`, `C`, `G`,
 //! `T` and the three-base codes are called homozygous. Bins follow
 //! [`Binner`]: missing when more than 90% of the bases are, else heterozygous
-//! when one base is.
+//! when one base is. Each bin's callable bases ([`ConsensusSeq::callable`])
+//! are the bin size minus its missing bases: the good bases of a full bin.
 //!
 //! # Differences from the Perl and C tools
 //!
@@ -90,6 +91,7 @@ use std::collections::{HashSet, VecDeque};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
+use crate::io::callable::check_bin_size;
 use crate::io::common::{
     Binner, DepthCounter, HetCall, HetTracker, is_regular_file, open_reader, reopen_reader,
 };
@@ -150,7 +152,8 @@ impl Default for ConsensusFilters {
 /// Options for [`read_vcf_consensus`].
 #[derive(Debug, Clone)]
 pub struct ConsensusOptions {
-    /// Bases per bin (`fq2psmcfa -s`, default 100).
+    /// Bases per bin (`fq2psmcfa -s`, default 100), at most
+    /// [`MAX_BIN_SIZE`](crate::io::MAX_BIN_SIZE).
     pub bin_size: usize,
     pub filters: ConsensusFilters,
     /// Callable masks, in the formats of [`crate::io::vcf::VcfOptions::masks`].
@@ -423,6 +426,11 @@ pub struct ConsensusSeq {
     pub name: String,
     /// One symbol per bin: 0 = `T`, 1 = `K`, 2 = `N`.
     pub bins: Vec<u8>,
+    /// The callable bases of each bin: the bin size minus the bases
+    /// fq2psmcfa reads as missing, i.e. the good bases of a full bin (the
+    /// bases past the end of a shorter last bin count as callable, see
+    /// [`crate::io::callable`]).
+    pub callable: Vec<u32>,
     /// Length of vcf2fq's sequence (fq2psmcfa's `len`).
     pub bases: u64,
     /// Bases read as called (fq2psmcfa's `n_good_bases`).
@@ -912,9 +920,11 @@ impl Chrom {
             );
         }
         self.commit(self.len);
+        let (bins, callable) = self.binner.finish_with_callable();
         Ok(ConsensusSeq {
             name: self.name,
-            bins: self.binner.finish(),
+            bins,
+            callable,
             bases: self.len,
             good_bases: self.good,
             het_bases: self.het_bases,
@@ -1039,9 +1049,7 @@ pub(crate) fn ensure_rereadable(path: &Path) -> Result<()> {
 /// [`DepthThresholds::Auto`] reads the file twice, so `path` must then be a
 /// regular file. Otherwise it is read once and may be a pipe or FIFO.
 pub fn read_vcf_consensus(path: &Path, opts: &ConsensusOptions) -> Result<ConsensusRead> {
-    if opts.bin_size == 0 {
-        bail!("vcf bin_size must be > 0");
-    }
+    check_bin_size(opts.bin_size, "vcf")?;
     match opts.filters.depth {
         DepthThresholds::Fixed { min, max } => {
             let bounds = DepthBounds {
@@ -1068,9 +1076,7 @@ pub(crate) fn read_consensus_from(
     opts: &ConsensusOptions,
     bounds: DepthBounds,
 ) -> Result<ConsensusRead> {
-    if opts.bin_size == 0 {
-        bail!("vcf bin_size must be > 0");
-    }
+    check_bin_size(opts.bin_size, "vcf")?;
     let filters = &opts.filters;
     let mut summary = ConsensusSummary {
         min_depth: bounds.min,

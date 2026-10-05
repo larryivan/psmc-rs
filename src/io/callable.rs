@@ -3,13 +3,15 @@
 //!
 //! A bin of `s` bases is `N` when more than 90% of them are missing
 //! (`fq2psmcfa`'s rule), and C psmc treats every other bin as `s` callable
-//! bases. Input binned from per-site data can also record each bin's count
-//! `c`: `s` minus the positions of the bin classified missing. The last bin
-//! of a sequence may be shorter than `s`; as `fq2psmcfa` judges it against
-//! the full `s`, its positions past the end of the sequence are not missing
-//! and count as callable. So the count and the symbol always agree: a bin
-//! is `N` exactly when `10 * c < s`, and a `T` or `K` bin has
-//! `0 < c <= s`. Complete data give `c = s` for every bin.
+//! bases. The readers that bin per-site data (VCF in both modes and
+//! multihetsep, through [`crate::io::common::Binner`]) also record each
+//! bin's count `c`: `s` minus the positions of the bin classified missing.
+//! The last bin of a sequence may be shorter than `s`; as `fq2psmcfa`
+//! judges it against the full `s`, its positions past the end of the
+//! sequence are not missing and count as callable. So the count and the
+//! symbol always agree: a bin is `N` exactly when `10 * c < s`, and a `T` or
+//! `K` bin has `0 < c <= s`. Complete data give `c = s` for every bin.
+//! psmcfa input has no counts.
 
 use anyhow::{Result, bail};
 
@@ -20,6 +22,23 @@ use crate::io::{Observations, Sequences};
 /// ([`CallableBases`]). PSMC bins are normally 100 bases; much larger bins
 /// are useful only to bin long test inputs quickly.
 pub const MAX_BIN_SIZE: usize = u32::MAX as usize;
+
+/// Fail unless `bin_size` is a bin size psmc-rs can bin per-site input
+/// into: at least 1 and at most [`MAX_BIN_SIZE`]. `what` names the input
+/// (`vcf`, `mhs`) in the message.
+pub(crate) fn check_bin_size(bin_size: usize, what: &str) -> Result<()> {
+    if bin_size == 0 {
+        bail!("{what} bin_size must be > 0");
+    }
+    if bin_size > MAX_BIN_SIZE {
+        bail!(
+            "{what} bin_size {bin_size} is larger than {MAX_BIN_SIZE}, the most bases per bin \
+             psmc-rs bins per-site input into (it keeps the callable bases of each bin in 32 \
+             bits); PSMC bins are normally 100 bases"
+        );
+    }
+    Ok(())
+}
 
 /// The callable bases of each bin of a list of rows or sequences of bins:
 /// `counts()[i][j]` belongs to bin `j` of entry `i`. See the module docs for

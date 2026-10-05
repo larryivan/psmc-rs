@@ -6,13 +6,15 @@ use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
 
-use crate::io::Observations;
+use crate::io::callable::check_bin_size;
 use crate::io::common::{Binner, HetCall, HetTracker, chunk_sequences, open_reader};
+use crate::io::{CallableBases, Observations, Sequences};
 
 /// Options for [`read_mhs_with`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MhsOptions {
-    /// Sites per PSMC bin (`fq2psmcfa -s`); must be > 0.
+    /// Sites per PSMC bin (`fq2psmcfa -s`); between 1 and
+    /// [`MAX_BIN_SIZE`](crate::io::MAX_BIN_SIZE).
     pub bin_size: usize,
     /// Split each chromosome into HMM rows of at most this many bins that stay
     /// chained in one HMM sequence; `None` keeps one row per chromosome.
@@ -165,6 +167,12 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 /// needs per-site calls, i.e. a VCF plus callability mask
 /// ([`crate::io::vcf::read_vcf`]).
 ///
+/// The observations carry the callable bases of each bin
+/// ([`Observations::callable`]), the bin size minus its missing sites under
+/// the same placement. They are approximate in the same way: the callable
+/// sites of each interval are counted exactly, but their split between the
+/// interval's bins is the placement's.
+///
 /// A new value in the first column starts a new sequence, and the rows of a
 /// chromosome must form one block: a chromosome that comes back after another
 /// one is an error, since its `nr_called` would be counted from the start of
@@ -178,11 +186,12 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 /// indel (it joins multi-character VCF alleles), which would shift the pair.
 pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
     let (seqs, _) = read_mhs_seqs(path, opts, false)?;
-    chunk_sequences(
-        seqs.into_iter().map(|s| s.bins).collect::<Vec<_>>(),
-        opts.batch_size,
-        "no valid mhs rows found in input",
-    )
+    let (bins, counts) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
+    let seqs = Sequences {
+        bins,
+        callable: Some(CallableBases::new(opts.bin_size, counts)?),
+    };
+    chunk_sequences(seqs, opts.batch_size, "no valid mhs rows found in input")
 }
 
 /// Counts over a whole multihetsep file, for the selected pair.
@@ -207,6 +216,10 @@ pub struct MhsSummary {
 pub(crate) struct MhsSeq {
     pub name: String,
     pub bins: Vec<u8>,
+    /// The callable bases of each bin: the bin size minus the bin's sites
+    /// missing for the pair, with the uncalled sites placed at the start of
+    /// each interval ([`read_mhs_with`]).
+    pub callable: Vec<u32>,
     /// Position of the last row: the sequence covers `1..=extent`.
     pub extent: u64,
     /// Sites binned as called for the pair.
@@ -228,9 +241,11 @@ struct MhsChrom {
 
 impl MhsChrom {
     fn finish(mut self) -> MhsSeq {
+        let (bins, callable) = self.binner.finish_with_callable();
         MhsSeq {
             name: self.name,
-            bins: self.binner.finish(),
+            bins,
+            callable,
             extent: self.prev_pos,
             called: self.called,
             n_het: self.n_het,
@@ -253,9 +268,7 @@ pub(crate) fn read_mhs_seqs(
 }
 
 fn check_options(opts: &MhsOptions) -> Result<()> {
-    if opts.bin_size == 0 {
-        bail!("mhs bin_size must be > 0");
-    }
+    check_bin_size(opts.bin_size, "mhs")?;
     if opts.pair.0 == opts.pair.1 {
         bail!(
             "mhs haplotype pair must name two different haplotypes, got ({},{})",

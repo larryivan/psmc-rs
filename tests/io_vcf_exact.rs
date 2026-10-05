@@ -1,7 +1,9 @@
 //! The VCF reader against an independent per-base reference: build the state
 //! of every position straight from the definition, bin it with a literal port
-//! of `fq2psmcfa`, and compare bin for bin over many random scenarios.
+//! of `fq2psmcfa`, and compare bin for bin, and the callable bases of every
+//! bin, over many random scenarios.
 
+use psmc_rs::io::Observations;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf, read_vcf_with};
 use std::fmt::Write as _;
 use std::fs;
@@ -141,6 +143,20 @@ fn fq2psmcfa(states: &[State], block_len: usize) -> Vec<u8> {
     }
     out.push(symbol(n_n, is_hetb));
     out
+}
+
+/// The callable bases of each bin of [`fq2psmcfa`]`(states, block_len)`: the
+/// block length minus the block's missing positions. A last block shorter
+/// than `block_len` is judged against the full length, so the positions past
+/// the end of the sequence count as callable.
+fn callable_counts(states: &[State], block_len: usize) -> Vec<u32> {
+    states
+        .chunks(block_len)
+        .map(|block| {
+            let missing = block.iter().filter(|&&s| s == State::Missing).count();
+            u32::try_from(block_len - missing).unwrap()
+        })
+        .collect()
 }
 
 /// `covered[p]` for `p` in `0..=len`: whether a row of `rows` covers position
@@ -379,6 +395,44 @@ fn chunk(seqs: &[Vec<u8>], batch_size: Option<usize>) -> (Vec<Vec<u8>>, Vec<bool
     (rows, starts)
 }
 
+/// Compare the callable bases of the reader's rows with those of the
+/// per-base reference, cut into rows as the bins are; they must also pass
+/// the invariants of `Observations::validate`.
+fn check_callable(
+    obs: &Observations,
+    states: &[Vec<State>],
+    bin_size: usize,
+    batch_size: Option<usize>,
+    ctx: &str,
+) {
+    let callable = obs
+        .callable
+        .as_ref()
+        .unwrap_or_else(|| panic!("{ctx}: no callable bases"));
+    assert_eq!(callable.bin_size(), bin_size, "{ctx}");
+    let whole: Vec<Vec<u32>> = states
+        .iter()
+        .map(|st| callable_counts(&st[1..], bin_size))
+        .collect();
+    let mut want = Vec::new();
+    for counts in &whole {
+        let b = batch_size.unwrap_or(counts.len());
+        want.extend(counts.chunks(b).map(<[u32]>::to_vec));
+    }
+    if callable.counts() != want.as_slice() {
+        let (got, want) = (callable.counts().concat(), want.concat());
+        let first = got.iter().zip(&want).position(|(a, b)| a != b);
+        panic!(
+            "{ctx}: callable bases differ from the reference, first at bin {first:?} \
+             ({} vs {} bins)",
+            got.len(),
+            want.len()
+        );
+    }
+    obs.validate()
+        .unwrap_or_else(|e| panic!("{ctx}: invalid observations: {e:#}"));
+}
+
 /// Panic with the first difference and the share of differing bins.
 fn assert_same_bins(got: &[Vec<u8>], want: &[Vec<u8>], ctx: &str) {
     if got == want {
@@ -434,6 +488,7 @@ fn check(sc: &Scenario, ctx: &str) -> bool {
     let (rows, starts) = chunk(&seqs, sc.batch_size);
     assert_same_bins(&read.obs.rows, &rows, ctx);
     assert_eq!(read.obs.row_starts, starts, "{ctx}");
+    check_callable(&read.obs, &states, sc.bin_size, sc.batch_size, ctx);
 
     let s = &read.summary;
     assert_eq!(s.het_snps, count(State::Het), "{ctx}: het_snps");
@@ -780,7 +835,8 @@ fn audit_scenario(seed: u64, missing: impl Fn(&mut Rng, u64) -> Vec<bool>) -> Sc
 
 /// Compare `read_vcf` (the wrapper the CLI uses) with the reference.
 fn check_audit(sc: &Scenario, ctx: &str) {
-    let want: Vec<Vec<u8>> = reference_states(sc)
+    let states = reference_states(sc);
+    let want: Vec<Vec<u8>> = states
         .iter()
         .map(|st| fq2psmcfa(&st[1..], sc.bin_size))
         .collect();
@@ -788,6 +844,7 @@ fn check_audit(sc: &Scenario, ctx: &str) {
     let got = read_vcf(&vcf, None, sc.bin_size, None, &opts.masks, &[])
         .unwrap_or_else(|e| panic!("{ctx}: {e:#}"));
     assert_same_bins(&got.rows, &want, ctx);
+    check_callable(&got, &states, sc.bin_size, None, ctx);
 }
 
 #[test]

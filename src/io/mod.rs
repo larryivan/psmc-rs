@@ -18,9 +18,9 @@ pub struct Observations {
     pub rows: Vec<Vec<u8>>,
     pub row_starts: Vec<bool>,
     /// The callable bases of each bin, row for row, when the input records
-    /// them; `None` when every called bin is taken to hold the bin size in
-    /// callable bases, as in C psmc. See [`callable`] and
-    /// [`Observations::validate`].
+    /// them (VCF and multihetsep); `None` when every called bin is taken to
+    /// hold the bin size in callable bases, as in C psmc (psmcfa input). See
+    /// [`callable`] and [`Observations::validate`].
     pub callable: Option<CallableBases>,
 }
 

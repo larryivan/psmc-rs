@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
 
-use crate::io::{CallableBases, Observations, Sequences};
+use crate::io::{CallableBases, MAX_BIN_SIZE, Observations, Sequences};
 
 /// Open a text input for line-oriented reading.
 ///
@@ -172,21 +172,38 @@ impl<R: Read> Read for BgzfReader<R> {
 /// (1) if it contains a heterozygous site, otherwise `T` (0).
 ///
 /// As in `fq2psmcfa`, a trailing partial bin is judged against the full bin size.
+///
+/// It also counts the callable bases of each bin
+/// ([`Binner::finish_with_callable`]): the bin size minus the bin's missing
+/// sites, so that the sites past the end of a trailing partial bin count as
+/// callable, as the rule above treats them (see [`crate::io::callable`]).
 #[derive(Debug, Clone)]
 pub struct Binner {
     bin_size: usize,
     seq: Vec<u8>,
+    callable: Vec<u32>,
     len: usize,
     n_missing: usize,
     has_het: bool,
 }
 
 impl Binner {
+    /// A binner for bins of `bin_size` sites.
+    ///
+    /// # Panics
+    ///
+    /// If `bin_size` is 0 or above [`MAX_BIN_SIZE`], whose callable bases
+    /// would not fit in 32 bits.
     pub fn new(bin_size: usize) -> Self {
         assert!(bin_size > 0, "bin_size must be > 0");
+        assert!(
+            bin_size <= MAX_BIN_SIZE,
+            "bin_size must be at most {MAX_BIN_SIZE}"
+        );
         Self {
             bin_size,
             seq: Vec::new(),
+            callable: Vec::new(),
             len: 0,
             n_missing: 0,
             has_het: false,
@@ -217,6 +234,9 @@ impl Binner {
             0
         };
         self.seq.push(sym);
+        let callable =
+            u32::try_from(self.bin_size - self.n_missing).expect("the bin size fits in 32 bits");
+        self.callable.push(callable);
         self.len = 0;
         self.n_missing = 0;
         self.has_het = false;
@@ -259,10 +279,19 @@ impl Binner {
     /// Flush the trailing partial bin (if any) and return the binned sequence,
     /// leaving the binner empty and ready for the next sequence.
     pub fn finish(&mut self) -> Vec<u8> {
+        self.finish_with_callable().0
+    }
+
+    /// [`Binner::finish`], also returning the callable bases of each bin:
+    /// the bin size minus the bin's missing sites.
+    pub fn finish_with_callable(&mut self) -> (Vec<u8>, Vec<u32>) {
         if self.len > 0 {
             self.emit();
         }
-        std::mem::take(&mut self.seq)
+        (
+            std::mem::take(&mut self.seq),
+            std::mem::take(&mut self.callable),
+        )
     }
 }
 
