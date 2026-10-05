@@ -30,23 +30,29 @@
 //! resampled. It misses the estimator's bias and tends to understate its
 //! sampling variability. `examples/bootstrap_calibration.rs` simulated 40
 //! sequences of 10,000 bins from a known `4+5*3+4` model (θ = 0.05 and
-//! ρ = 0.01 per bin) and fitted them with 20 EM iterations. Bootstrap SDs
-//! came from 30 replicates on each of 6 datasets, and the true sampling SD
-//! from 40 independent datasets. Results, for log10 Ne at 30 time points:
+//! ρ = 0.01 per bin) and fitted them as the CLI does by default (a start at
+//! θ0/4, no smoothing) with 20 EM iterations. Bootstrap SDs came from 30
+//! replicates on each of 6 datasets, and the true sampling SD from 40
+//! independent datasets. Results, for log10 Ne at 30 time points:
 //!
-//! - The bootstrap SD was a median 0.90 of the true SD with 500,000-bin
-//!   trunks (here, whole sequences) and 0.92 with 1,000-bin trunks. It was
-//!   below the true SD at 58% of time points. It fell to 0.74 at the oldest
-//!   times and to 0.75–0.91 at the most recent ones, and ranged from 0.74
-//!   to 1.06 between datasets.
-//! - The fits' median bias, 0.085, was half the true SD (0.168). The
+//! - The bootstrap SD was a median 0.85 of the true SD with 500,000-bin
+//!   trunks (here, whole sequences) and 0.91 with 1,000-bin trunks. It was
+//!   below the true SD at 62% and 63% of time points, fell to 0.78 and 0.74
+//!   of it at the oldest times, and ranged from 0.68 to 1.03 between
+//!   datasets.
+//! - At the most recent times the two trunk sizes differ: whole sequences
+//!   gave 1.24 times the true SD, 1,000-bin trunks 0.81 times.
+//! - Measured by the interquartile range instead, which a few runaway fits
+//!   do not drive, the bootstrap spread was a median 1.01 (whole sequences)
+//!   and 1.08 (1,000-bin trunks) of the true one.
+//! - The fits' median bias, 0.094, was a third of the true SD (0.280). The
 //!   bootstrap cannot see it.
 //! - The previous within-sequence scheme (50,000-bin blocks, replicates
 //!   started from the full fit) gave an SD of exactly 0, because no sequence
 //!   was longer than one block.
 //!
 //! Read the bands as a lower bound on the uncertainty, especially at the
-//! oldest and most recent times.
+//! oldest times.
 
 use anyhow::{Context, Result, bail};
 use rand::{Rng, SeedableRng};

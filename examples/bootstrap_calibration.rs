@@ -23,9 +23,8 @@
 //!
 //! The default run fits 40 + 6 x 90 models and takes about 5 minutes on 4
 //! threads (under 50 MB); its tables do not depend on `--threads`. The
-//! numbers in the `psmc_rs::bootstrap` module docs were measured at an
-//! earlier commit with `--smooth-lambda 0.001 --tr-ratio 5`, the 0.1
-//! defaults.
+//! numbers in the `psmc_rs::bootstrap` module docs and the README come from
+//! this default run.
 //!
 //! ```text
 //! cargo run --release --example bootstrap_calibration -- [--threads 3]
