@@ -5,6 +5,7 @@ mod cli;
 mod console;
 mod convert;
 mod dataset;
+mod output;
 mod qc;
 mod run;
 mod tui;

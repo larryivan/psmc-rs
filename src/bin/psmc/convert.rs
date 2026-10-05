@@ -12,7 +12,8 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{ConvertArgs, FormatArg};
 use crate::console::Console;
 use crate::dataset::{describe, load_input, loader_warnings, qc_report};
-use crate::run::{Event, qc_event, write_qc_json};
+use crate::output::write_qc_json;
+use crate::run::{Event, qc_event};
 
 const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
                         whether each holds a heterozygous site, not where. Convert the VCF or \

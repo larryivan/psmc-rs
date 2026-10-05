@@ -4,23 +4,22 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use rayon::ThreadPool;
-use std::fs::{self, File};
-use std::io::BufWriter;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::bootstrap::{
     BootstrapConfig, BootstrapOptions, BootstrapSummary, bootstrap_trunk_count,
-    default_bootstrap_dir, replicate_json_path, rows_to_sequences, run_bootstrap_with_options,
-    summarize_bootstrap_models, write_bootstrap_summary_json, write_bootstrap_summary_tsv,
+    default_bootstrap_dir, rows_to_sequences, run_bootstrap_with_options,
+    summarize_bootstrap_models,
 };
 use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{Cancelled, EStepPhase, write_tmrca_posterior_tsv};
 use psmc_rs::io::Observations;
-use psmc_rs::io::input::{Dataset, SourceSummary};
-use psmc_rs::io::params::{InputSummary, RunMetadata, load_params, save_params};
+use psmc_rs::io::input::Dataset;
+use psmc_rs::io::params::{InputSummary, load_params};
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
-use psmc_rs::psmc_out::{PsmcRunInfo, c_pattern, psmc_rounds, write_psmc};
+use psmc_rs::psmc_out::c_pattern;
 use psmc_rs::qc::{QcReport, Severity, render_text};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
@@ -28,6 +27,10 @@ use psmc_rs::{PsmcModel, initial_theta};
 use crate::cli::{InferArgs, model_layout};
 use crate::dataset::{
     describe, ensure_usable, load_input, loader_warnings, qc_report, resolve_input_path,
+};
+use crate::output::{
+    FitRecord, save_fit, write_bootstrap_summary, write_main_psmc, write_qc_json,
+    write_replicate_psmc,
 };
 
 /// A stage of the pipeline with a progress count.
@@ -302,20 +305,17 @@ fn infer(
     // The main fit's outputs are written before the bootstrap, which can
     // take far longer.
     let input_summary = InputSummary::of(&data);
-    let mut params = model.params_file();
-    params.run = RunMetadata {
-        version: Some(env!("CARGO_PKG_VERSION").to_string()),
-        n_iter: Some(n_iter),
-        final_loglike,
-        loglike: Some(loglike_path(&history)),
-        bin_size: Some(cli.input.bin_size),
-        gen_years: Some(cli.gen_years),
-        tr_ratio: Some(tr_ratio),
-        smooth_lambda: Some(cli.smooth_lambda),
-        input: Some(input_summary.clone()),
-        qc: qc.as_ref().map(QcReport::summary),
+    let record = FitRecord {
+        model: &model,
+        history: &history,
+        bin_size: cli.input.bin_size,
+        gen_years: cli.gen_years,
+        tr_ratio,
+        smooth_lambda: cli.smooth_lambda,
+        input: &input_summary,
+        qc: qc.as_ref(),
     };
-    save_params(&output_file, &params)?;
+    save_fit(&output_file, &record)?;
     sink(Event::Output(format!(
         "Parameters: {}",
         output_file.display()
@@ -451,14 +451,6 @@ fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     Ok(model)
 }
 
-/// The log-likelihood after each number of EM iterations, from the start
-/// (0) to the end ([`RunMetadata::loglike`]).
-fn loglike_path(history: &EmHistory) -> Vec<f64> {
-    let mut path: Vec<f64> = history.loglike.iter().map(|&(before, _)| before).collect();
-    path.extend(history.final_loglike());
-    path
-}
-
 /// The QC report as an event: its text, and its warnings for `--quiet`.
 pub fn qc_event(report: &QcReport) -> Event {
     Event::Qc {
@@ -470,16 +462,6 @@ pub fn qc_event(report: &QcReport) -> Event {
             .map(|f| format!("QC {}: {}", f.code.as_str(), f.message))
             .collect(),
     }
-}
-
-/// Write `report` as JSON to `path`, or to stdout for `-`.
-pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
-    let json = report.to_json() + "\n";
-    if path == Path::new("-") {
-        print!("{json}");
-        return Ok(());
-    }
-    fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
 }
 
 /// Read the input as `cli` says and report how it was read.
@@ -558,25 +540,6 @@ fn fit(
     Ok(history)
 }
 
-/// Write the main fit as C psmc's `.psmc` output.
-fn write_main_psmc(
-    path: &Path,
-    model: &PsmcModel,
-    history: &EmHistory,
-    data: &Dataset,
-) -> Result<()> {
-    let mut info = PsmcRunInfo::from_history(model, history, &data.obs.rows, &data.obs.row_starts)?;
-    // C psmc counts the empty records of a psmcfa file in n_seqs.
-    if let SourceSummary::Psmcfa(p) = &data.source {
-        info.n_seqs = p.records;
-    }
-    let rounds = psmc_rounds(model, history, info.sum_l)?;
-    let file =
-        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
-    write_psmc(BufWriter::new(file), &info, &rounds)
-        .with_context(|| format!("failed to write {}", path.display()))
-}
-
 /// Run the bootstrap and write its files: each replicate's JSON and
 /// `.psmc` output, and the summary of the curves.
 #[allow(clippy::too_many_arguments)]
@@ -608,13 +571,7 @@ fn bootstrap_stage(
         .out_dir
         .as_deref()
         .expect("the CLI always writes the replicates");
-    for (i, rep) in replicates.iter().enumerate() {
-        let path = replicate_json_path(dir, i + 1).with_extension("psmc");
-        let file =
-            File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-        rep.write_psmc(BufWriter::new(file))
-            .with_context(|| format!("failed to write {}", path.display()))?;
-    }
+    write_replicate_psmc(dir, &replicates)?;
     let models: Vec<PsmcModel> = replicates.into_iter().map(|r| r.model).collect();
     let summary = summarize_bootstrap_models(
         model,
@@ -624,10 +581,7 @@ fn bootstrap_stage(
         cfg.trunk_size,
         cfg.seed,
     )?;
-    let summary_tsv = dir.join("summary.tsv");
-    let summary_json = dir.join("summary.json");
-    write_bootstrap_summary_tsv(&summary_tsv, &summary)?;
-    write_bootstrap_summary_json(&summary_json, &summary)?;
+    let (summary_tsv, summary_json) = write_bootstrap_summary(dir, &summary)?;
     sink(Event::Output(format!(
         "Bootstrap replicates (replicate_NNN.json, replicate_NNN.psmc): {}",
         dir.display()
