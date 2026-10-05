@@ -774,15 +774,24 @@ fn the_report_can_embed_a_local_chart_library() {
         assert!(html.contains(r#"id="echarts-missing" hidden"#));
     }
 
+    // A path that cannot be read fails before the input is read, not after
+    // the fit (and the bootstrap) with no report.
     let mut cmd = std::process::Command::new(common::bin());
     cmd.args([
         input.to_str().unwrap(),
         dir.path("bad.json").to_str().unwrap(),
-        "0",
+        "1",
+        "--bootstrap",
+        "2",
+        "--bootstrap-block-size",
+        "500",
     ])
     .env("PSMC_ECHARTS_JS", dir.path("missing.js"));
     let o = cmd.output().unwrap();
-    assert!(!o.status.success());
+    assert_eq!(o.status.code(), Some(1));
     let stderr = String::from_utf8(o.stderr).unwrap();
     assert!(stderr.contains("PSMC_ECHARTS_JS"), "{stderr}");
+    assert!(!stderr.contains("Input:"), "{stderr}");
+    assert!(!dir.path("bad.json").exists());
+    assert!(!dir.path("bad.bootstrap").exists());
 }

@@ -91,6 +91,16 @@ fn fmt_num(v: f64) -> String {
     }
 }
 
+/// Check that the ECharts bundle `PSMC_ECHARTS_JS` names, if any, can be
+/// read, as [`write_html_report`] will read it. A run calls this before its
+/// work, so that a wrong path fails at once rather than after the fit and
+/// the bootstrap, with no report written.
+pub fn check_echarts_bundle() -> Result<()> {
+    echarts_script_tag().map(drop)
+}
+
+/// The `<script>` that loads ECharts: the bundle `PSMC_ECHARTS_JS` names,
+/// embedded, or the CDN.
 fn echarts_script_tag() -> Result<String> {
     if let Ok(js_path) = std::env::var("PSMC_ECHARTS_JS") {
         let path = Path::new(&js_path);

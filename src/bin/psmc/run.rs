@@ -21,7 +21,9 @@ use psmc_rs::io::params::{InputSummary, load_params};
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::psmc_out::c_pattern;
 use psmc_rs::qc::{QcReport, Severity, render_text};
-use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
+use psmc_rs::report::{
+    BootstrapReport, ReportData, check_echarts_bundle, default_html_path, write_html_report,
+};
 use psmc_rs::{PsmcModel, initial_theta};
 
 use crate::cli::{InferArgs, model_layout, usage_bail};
@@ -466,7 +468,8 @@ fn infer(
 }
 
 /// Check the files and directories the run will write before reading the
-/// input (see [`check_destinations`]).
+/// input (see [`check_destinations`]), and the chart library the report
+/// embeds when `PSMC_ECHARTS_JS` names one.
 fn check_outputs(
     cli: &InferArgs,
     input: &Path,
@@ -505,7 +508,8 @@ fn check_outputs(
         .map(|plan| (dir_name, plan.dir.as_path()))
         .into_iter()
         .collect();
-    check_destinations(input, &files, &dirs)
+    check_destinations(input, &files, &dirs)?;
+    check_echarts_bundle()
 }
 
 /// The psmc_plot.pl command that plots round `n_iter` of the `.psmc` files
