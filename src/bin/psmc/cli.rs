@@ -388,10 +388,10 @@ pub struct Cli {
     #[command(flatten)]
     pub input: InputArgs,
 
-    #[arg(
-        long,
-        help = "Number of worker threads for E-step (multi-sequence) and bootstrap"
-    )]
+    /// Worker threads for the E-step (sequences in parallel), the
+    /// bootstrap and TMRCA decoding (default: one per core); results do not
+    /// depend on it
+    #[arg(long, value_name = "N", value_parser = positive_usize)]
     pub threads: Option<usize>,
 
     /// Free-parameter pattern of the time intervals (C psmc -p); default
@@ -472,12 +472,10 @@ pub struct Cli {
     )]
     pub tmrca_out: Option<PathBuf>,
 
-    #[arg(
-        long,
-        default_value_t = 25.0,
-        help = "Generation time (years) used for TMRCA scaling"
-    )]
-    pub tmrca_gen_years: f64,
+    /// Years per generation, for the time axis of the Ne curve (report),
+    /// the bootstrap summary and the TMRCA output
+    #[arg(long, value_name = "YEARS", default_value_t = 25.0, value_parser = positive_f64, alias = "tmrca-gen-years")]
+    pub gen_years: f64,
 }
 
 impl Cli {
@@ -528,6 +526,9 @@ impl Cli {
         }
         if let Some(v) = self.threads {
             push("--threads", v.to_string());
+        }
+        if self.gen_years != 25.0 {
+            push("--gen-years", self.gen_years.to_string());
         }
         if self.bootstrap > 0 {
             args.push("--bootstrap".to_string());
@@ -681,6 +682,12 @@ mod tests {
     #[test]
     fn the_old_bin_size_flag_still_works() {
         assert_eq!(input(&["--mhs-bin-size", "40"]).bin_size, 40);
+    }
+
+    #[test]
+    fn the_old_generation_time_flag_still_works() {
+        let cli = Cli::try_parse_from(["psmc-rs", "in", "out", "1", "--tmrca-gen-years", "29"]);
+        assert_eq!(cli.unwrap().gen_years, 29.0);
     }
 
     #[test]

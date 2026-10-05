@@ -3,6 +3,7 @@
 //! and messages as [`Event`]s.
 
 use anyhow::{Context, Result, anyhow, bail};
+use rayon::ThreadPool;
 use rayon::prelude::*;
 use std::fs;
 use std::path::PathBuf;
@@ -86,34 +87,33 @@ fn bootstrap_replicate_seed(base_seed: u64, rep_idx: usize) -> u64 {
     )
 }
 
-fn configure_threads(n_threads: Option<usize>) -> Result<()> {
-    if let Some(n_threads) = n_threads {
-        if n_threads == 0 {
-            bail!("--threads must be >= 1");
-        }
-        if let Err(e) = rayon::ThreadPoolBuilder::new()
-            .num_threads(n_threads)
-            .build_global()
-        {
-            let msg = e.to_string();
-            if !msg.contains("initialized") {
-                return Err(anyhow!(
-                    "failed to configure Rayon global thread pool: {msg}"
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Run inference as `cli` describes it. `cancel` stops the run at the next
-/// check (between stages, and inside EM); the error is then [`Cancelled`].
-/// `progress_bars` lets the TMRCA decoding draw its own bar on stderr.
+/// Run inference as `cli` describes it, in a thread pool of its own with
+/// `--threads` workers. `cancel` stops the run at the next check (between
+/// stages, and inside EM and the bootstrap); the error is then
+/// [`Cancelled`]. `progress_bars` lets the TMRCA decoding draw its own bar
+/// on stderr.
 pub fn run_inference(
     cli: &Cli,
     cancel: &AtomicBool,
     sink: Sink,
     progress_bars: bool,
+) -> Result<RunSummary> {
+    // A pool per run, rather than the global one, so that a later run (in
+    // the TUI) can use another thread count.
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(cli.threads.unwrap_or(0))
+        .build()
+        .context("failed to start the worker threads")?;
+    pool.install(|| infer(cli, cancel, sink, progress_bars, &pool))
+}
+
+/// [`run_inference`] inside its pool.
+fn infer(
+    cli: &Cli,
+    cancel: &AtomicBool,
+    sink: Sink,
+    progress_bars: bool,
+    pool: &ThreadPool,
 ) -> Result<RunSummary> {
     let raw_input = cli
         .input_file
@@ -142,8 +142,6 @@ pub fn run_inference(
     if cli.bootstrap > 0 && bootstrap_iters == 0 {
         bail!("bootstrap requires EM iterations; set N_ITER > 0 or use --bootstrap-iters");
     }
-
-    configure_threads(cli.threads)?;
 
     let io_total = fs::metadata(&input_file).map(|m| m.len()).unwrap_or(1);
     let io_progress = |done| Event::Progress {
@@ -231,7 +229,7 @@ pub fn run_inference(
             EmOptions {
                 on_progress: Some(&mut on_progress),
                 cancel: Some(cancel),
-                thread_pool: None,
+                thread_pool: Some(pool),
             },
         )?;
         final_loglike = history.final_loglike();
@@ -301,7 +299,7 @@ pub fn run_inference(
             &model,
             &boot_models,
             report_bin_size,
-            25.0,
+            cli.gen_years,
             cli.bootstrap_block_size,
             cli.bootstrap_seed,
         )?;
@@ -328,12 +326,9 @@ pub fn run_inference(
     check_cancel(cancel)?;
     let mut tmrca_report_data = None;
     if let Some(tmrca_out) = &cli.tmrca_out {
-        let t = model.compute_t(0.1);
-        let n0 = model.n0_for_bin(report_bin_size);
-        let tmrca_years: Vec<f64> = t[..=model.n_steps]
-            .iter()
-            .map(|tk| tk * 2.0 * n0 * cli.tmrca_gen_years)
-            .collect();
+        // Each state's average coalescent time, the time of its emission
+        // (C psmc's TC column).
+        let tmrca_years = model.state_tmrca_years(report_bin_size, cli.gen_years);
         let tmrca = write_tmrca_posterior_tsv(
             model.prior_matrix(),
             model.transition_matrix(),
@@ -358,7 +353,7 @@ pub fn run_inference(
     let report = ReportData {
         model: &model,
         bin_size: report_bin_size,
-        gen_years: 25.0,
+        gen_years: cli.gen_years,
         input_file: &input_file,
         output_json: &output_file,
         input: None,
@@ -437,4 +432,64 @@ fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
             examples.join(", ")
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    use std::sync::Mutex;
+
+    /// A directory of its own under the system temp dir.
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("psmc_rs_run_{name}_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn cli(dir: &std::path::Path, extra: &[&str]) -> Cli {
+        let input = dir.join("in.psmcfa");
+        let bins = "TTTTKTTTTTTTNNTTKTTTTTTTTKTTTTTTTTTTKTTTTTTTTTKTT".repeat(4);
+        fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
+        let mut args = vec![
+            "psmc-rs".to_string(),
+            input.display().to_string(),
+            dir.join("out.json").display().to_string(),
+            "1".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        Cli::try_parse_from(args).unwrap()
+    }
+
+    /// Each run uses a pool of its own size, also when a process (the TUI)
+    /// runs several.
+    #[test]
+    fn each_run_uses_its_thread_count() {
+        let dir = temp_dir("threads");
+        for threads in [3, 2] {
+            let sizes = Mutex::new(Vec::new());
+            let sink = |ev: Event| {
+                if let Event::Progress { .. } = ev {
+                    sizes.lock().unwrap().push(rayon::current_num_threads());
+                }
+            };
+            let cli = cli(&dir, &["--threads", &threads.to_string()]);
+            run_inference(&cli, &AtomicBool::new(false), &sink, false).unwrap();
+            let sizes = sizes.into_inner().unwrap();
+            assert!(!sizes.is_empty());
+            assert!(sizes.iter().all(|&n| n == threads), "{sizes:?}");
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_set_cancel_flag_stops_the_run() {
+        let dir = temp_dir("cancel");
+        let cli = cli(&dir, &[]);
+        let err = run_inference(&cli, &AtomicBool::new(true), &|_| {}, false).unwrap_err();
+        assert!(err.is::<Cancelled>(), "{err:#}");
+        assert!(!dir.join("out.json").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 }
