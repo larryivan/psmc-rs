@@ -3,7 +3,7 @@
 
 use psmc_rs::io::input::{
     DropReason, HetSite, InputFormat, InputOptions, MODE_DETECTION_RECORDS, SeqFilter,
-    SourceSummary, VcfDetails, VcfMode, detect_vcf_mode, load,
+    SourceSummary, VcfDetails, VcfInputSummary, VcfMode, detect_vcf_mode, load,
 };
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
@@ -346,13 +346,11 @@ fn auto_mode_names_a_gvcf_as_such() {
     );
     let vcf = TempFile::new("mode_gvcf", "vcf", &text);
     let choice = detect_vcf_mode(&vcf.0).unwrap();
-    assert_eq!(choice.mode, VcfMode::Mask);
+    assert_eq!((choice.mode, choice.gvcf_blocks), (VcfMode::Mask, 3));
     assert!(
-        choice
-            .reason
-            .contains("3 of them are reference or no-call blocks")
-            && choice.reason.contains("gVCF")
-            && !choice.reason.contains("variant sites"),
+        choice.reason.contains(
+            "3 of the first 4 records are reference or no-call blocks with INFO/END, as in a gVCF"
+        ) && !choice.reason.contains("variant sites"),
         "{}",
         choice.reason
     );
@@ -367,6 +365,59 @@ fn auto_mode_names_a_gvcf_as_such() {
     .unwrap();
     assert_eq!(data.seqs[0].called, Some(61));
     assert!(data.warnings().iter().any(|w| w.contains("is a gVCF")));
+}
+
+/// `bcftools call -m -g` writes its reference blocks with ALT '.' and
+/// nothing at all where there are no reads. Such a file is a gVCF, read in
+/// mask mode whether detected or requested, and the positions no record
+/// covers are missing even where the callable mask allows them.
+#[test]
+fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
+    let text = "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+                chr1\t1\t.\tG\t.\t.\t.\tEND=298;MIN_DP=1\tGT:DP\t0/0:1\n\
+                chr1\t299\t.\tA\tG\t50\t.\tDP=5\tGT:DP\t0/1:5\n\
+                chr1\t600\t.\tA\t.\t.\t.\tEND=899;MIN_DP=1\tGT:DP\t0/0:1\n";
+    let vcf = TempFile::new("bcftools_gvcf", "vcf", text);
+    let mask = TempFile::new("bcftools_gvcf_mask", "bed", "chr1\t0\t1000\n");
+    let choice = detect_vcf_mode(&vcf.0).unwrap();
+    assert_eq!(
+        (choice.mode, choice.gvcf_blocks, choice.alt_dot),
+        (VcfMode::Mask, 2, 2)
+    );
+    assert!(choice.reason.contains("as in a gVCF"), "{}", choice.reason);
+    for mode in [VcfMode::Auto, VcfMode::Mask] {
+        let data = load(
+            &vcf.0,
+            &InputOptions {
+                bin_size: 10,
+                masks: vec![mask.0.clone()],
+                filter: SeqFilter::DISABLED,
+                ..vcf_opts(mode)
+            },
+        )
+        .unwrap();
+        // 300..=599 and 900..=1000 have no record.
+        assert_eq!(
+            (data.seqs[0].extent, data.seqs[0].called),
+            (Some(1000), Some(599)),
+            "{mode:?}"
+        );
+        let SourceSummary::Vcf(VcfInputSummary {
+            details: VcfDetails::Mask(m),
+            ..
+        }) = &data.source
+        else {
+            panic!("not mask mode")
+        };
+        assert_eq!((m.uncovered_sites, m.missing_sites), (401, 401), "{mode:?}");
+        let warnings = data.warnings();
+        assert!(
+            warnings.iter().any(|w| w.contains("is a gVCF")
+                && w.contains("so are the positions that no record or block covers (401 here")),
+            "{warnings:?}"
+        );
+    }
 }
 
 #[test]
@@ -518,7 +569,8 @@ fn forced_modes_are_reported() {
     };
     assert_eq!(v.mode.mode, VcfMode::Mask);
     assert!(v.mode.forced);
-    assert_eq!(v.mode.inspected, 0);
+    // Mask mode inspects the first records for gVCF blocks.
+    assert_eq!((v.mode.inspected, v.mode.gvcf_blocks), (50, 0));
     assert!(v.mode.reason.contains("requested"));
 
     // Consensus mode reads INFO only, but a sample the header lacks is

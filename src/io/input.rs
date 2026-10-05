@@ -207,7 +207,8 @@ pub struct VcfModeChoice {
     pub forced: bool,
     /// One sentence for the user.
     pub reason: String,
-    /// Data records inspected by the detection (0 when forced).
+    /// Data records inspected: by the detection, or, when mask mode is
+    /// forced, for gVCF blocks (0 when consensus mode is forced).
     pub inspected: u64,
     /// Of those, records with ALT `.`.
     pub alt_dot: u64,
@@ -219,11 +220,21 @@ pub struct VcfModeChoice {
     /// chromosome, summed. An all-sites VCF has about one record per
     /// position, a VCF of variant sites far fewer.
     pub span: u64,
+    /// Inspected records that are gVCF reference or no-call blocks (ALT
+    /// `.`, `<*>`, `<NON_REF>` or `<X>` with INFO/END). With any, the VCF is
+    /// a gVCF: it is read in mask mode, and positions that no record covers
+    /// are missing ([`crate::io::vcf::VcfOptions::gvcf`]).
+    pub gvcf_blocks: u64,
 }
 
 /// The [`VcfMode::Auto`] rule, applied to the first [`MODE_DETECTION_RECORDS`]
 /// data records:
 ///
+/// - If any is a gVCF reference or no-call block (ALT `.`, `<*>`,
+///   `<NON_REF>` or `<X>` with INFO/END, as `bcftools call -g`, GATK,
+///   DeepVariant and Strelka2 write them), the file is a gVCF and is read in
+///   mask mode ([`VcfModeChoice::gvcf_blocks`]). Consensus mode, like
+///   vcf2fq, would read a block as its first position alone.
 /// - If at least 50% have ALT `.`, the file is an all-sites VCF. It is read
 ///   in consensus mode when at least 90% of those carry INFO/FQ (as
 ///   `bcftools call -c` writes), and is an error otherwise, because only the
@@ -241,8 +252,14 @@ pub fn detect_vcf_mode(path: &Path) -> Result<VcfModeChoice> {
 
 /// [`detect_vcf_mode`] on the next lines of `input`.
 fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
+    choose_mode(inspect_records(input, path)?, path)
+}
+
+/// The counts of [`VcfModeChoice`] over the next data records of `input`,
+/// at most [`MODE_DETECTION_RECORDS`] of them in [`MODE_DETECTION_BYTES`];
+/// the mode is left to [`choose_mode`].
+fn inspect_records(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
     let (mut inspected, mut alt_dot, mut with_fq, mut records_with_fq) = (0u64, 0u64, 0u64, 0u64);
-    // gVCF blocks among the inspected records, for the reason given.
     let mut gvcf_blocks = 0u64;
     let mut span = 0u64;
     // The chromosome of the current block, and its lowest and highest POS.
@@ -291,20 +308,49 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
     if let Some((_, lo, hi)) = block {
         span += hi - lo + 1;
     }
-    let choice = |mode, reason: String| VcfModeChoice {
-        mode,
+    Ok(VcfModeChoice {
+        mode: VcfMode::Auto,
         forced: false,
-        reason,
+        reason: String::new(),
         inspected,
         alt_dot,
         alt_dot_with_fq: with_fq,
         records_with_fq,
         span,
+        gvcf_blocks,
+    })
+}
+
+/// The [`detect_vcf_mode`] rule applied to the counts of [`inspect_records`].
+fn choose_mode(seen: VcfModeChoice, path: &Path) -> Result<VcfModeChoice> {
+    let VcfModeChoice {
+        inspected,
+        alt_dot,
+        alt_dot_with_fq: with_fq,
+        records_with_fq,
+        span,
+        gvcf_blocks,
+        ..
+    } = seen;
+    let choice = |mode, reason: String| VcfModeChoice {
+        mode,
+        reason,
+        ..seen.clone()
     };
     if inspected == 0 {
         return Ok(choice(
             VcfMode::Mask,
             "mask mode: the VCF has no data records".to_string(),
+        ));
+    }
+    if gvcf_blocks > 0 {
+        return Ok(choice(
+            VcfMode::Mask,
+            format!(
+                "mask mode: {gvcf_blocks} of the first {inspected} records are reference or \
+                 no-call blocks with INFO/END, as in a gVCF, so positions that no record covers \
+                 are missing"
+            ),
         ));
     }
     if 2 * alt_dot < inspected {
@@ -325,12 +371,7 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
                 ),
             ));
         }
-        let why = if gvcf_blocks > 0 {
-            format!(
-                "{gvcf_blocks} of them are reference or no-call blocks with INFO/END, as in a \
-                 gVCF"
-            )
-        } else if dense {
+        let why = if dense {
             format!(
                 "only {records_with_fq} carry the INFO/FQ of 'bcftools call -c', which \
                  consensus mode needs"
@@ -1001,15 +1042,24 @@ fn load_vcf(
     }
     let choice = match opts.vcf_mode {
         VcfMode::Auto => detect_mode(&mut input, path)?,
-        mode => VcfModeChoice {
-            mode,
+        // Mask mode reads a gVCF as one, so the first records are inspected
+        // for its blocks.
+        VcfMode::Mask => VcfModeChoice {
+            mode: VcfMode::Mask,
             forced: true,
-            reason: format!("{} mode was requested", mode.name()),
+            reason: "mask mode was requested".to_string(),
+            ..inspect_records(&mut input, path)?
+        },
+        VcfMode::Consensus => VcfModeChoice {
+            mode: VcfMode::Consensus,
+            forced: true,
+            reason: "consensus mode was requested".to_string(),
             inspected: 0,
             alt_dot: 0,
             alt_dot_with_fq: 0,
             records_with_fq: 0,
             span: 0,
+            gvcf_blocks: 0,
         },
     };
     if choice.mode == VcfMode::Consensus {
@@ -1079,6 +1129,7 @@ fn load_vcf(
         negative_masks: opts.negative_masks.clone(),
         keep_filtered: opts.keep_filtered,
         to_contig_end: opts.to_contig_end,
+        gvcf: choice.gvcf_blocks > 0,
     };
     let (seqs, mut summary) =
         read_vcf_seqs_from(input.into_reader(), path, &vopts, opts.collect_het_sites)

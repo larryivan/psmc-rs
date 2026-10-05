@@ -708,6 +708,83 @@ fn read_vcf_gvcf_block_ends_are_clamped_and_end_sequences() {
     }
 }
 
+/// Read as a gVCF, a position that no record covers, by its POS, its REF
+/// span or its block, is missing: before the first record, between
+/// records, and after the last one up to the ##contig length. Otherwise
+/// such positions are called, as in any VCF, and the gVCF warning says so.
+#[test]
+fn read_vcf_as_a_gvcf_makes_uncovered_positions_missing() {
+    let vcf = write_gvcf(
+        "gvcf_uncovered",
+        "##contig=<ID=chr1,length=60>\n",
+        &[
+            // 1..=4 uncovered.
+            "chr1 5 A <*> . END=20 GT 0/0",
+            // A homozygous deletion covers 21..=24 with its REF.
+            "chr1 21 ACGT A PASS . GT 1/1",
+            // 25..=29 uncovered.
+            "chr1 30 A G PASS . GT 0/1",
+            // A bcftools reference block (ALT '.'); 41..=60 uncovered.
+            "chr1 31 A . . END=40 GT 0/0",
+        ],
+    );
+    let opts = VcfOptions {
+        bin_size: 10,
+        ..VcfOptions::default()
+    };
+    let read = read_vcf_with(&vcf, &opts).unwrap();
+    assert_eq!(
+        (read.summary.missing_sites, read.summary.uncovered_sites),
+        (0, 0)
+    );
+    let warnings = read.summary.warnings();
+    assert!(
+        warnings.iter().any(|w| w.contains("is a gVCF")
+            && w.contains("positions that no record or block covers count as called")),
+        "{warnings:?}"
+    );
+
+    let read = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            gvcf: true,
+            ..opts.clone()
+        },
+    )
+    .unwrap();
+    assert!(read.summary.read_as_gvcf);
+    assert_eq!(
+        (read.summary.missing_sites, read.summary.uncovered_sites),
+        (29, 29)
+    );
+    assert_eq!(read.summary.het_snps, 1);
+    let warnings = read.summary.warnings();
+    assert!(
+        warnings.iter().any(|w| w.contains("is a gVCF")
+            && w.contains("so are the positions that no record or block covers (29 here")),
+        "{warnings:?}"
+    );
+    // Uncovered positions are missing also where a mask would call them,
+    // and a position the mask leaves out is not counted twice.
+    let mask = write_text("gvcf_uncovered_mask", "bed", "chr1\t0\t50\n");
+    let read = read_vcf_with(
+        &vcf,
+        &VcfOptions {
+            gvcf: true,
+            masks: vec![mask.clone()],
+            ..opts
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (read.summary.missing_sites, read.summary.uncovered_sites),
+        (29, 29)
+    );
+    for p in [vcf, mask] {
+        let _ = fs::remove_file(p);
+    }
+}
+
 #[test]
 fn read_vcf_says_separate_per_chromosome_masks_are_intersected() {
     // One mask per chromosome, each given as its own --vcf-mask: every

@@ -361,6 +361,7 @@ fn write_scenario(sc: &Scenario) -> (PathBuf, VcfOptions, Files) {
         negative_masks,
         keep_filtered: sc.keep_filtered,
         to_contig_end: sc.to_contig_end,
+        gvcf: false,
     };
     (vcf, opts, files)
 }

@@ -38,6 +38,11 @@
 //! END of a block. [`VcfSummary::warnings`] points out that reference blocks
 //! need a callable mask made from their depth and quality.
 //!
+//! In a gVCF the records and blocks cover every position the caller looked
+//! at; `bcftools call -g` writes nothing where there are no reads. Read as a
+//! gVCF ([`VcfOptions::gvcf`]), a position that no record, REF span or block
+//! covers is therefore missing, whatever the masks say.
+//!
 //! The file is streamed, and the work is proportional to the number of records
 //! and mask intervals plus the number of output bins, never to the genome
 //! length: runs of positions between records are emitted straight from the
@@ -554,6 +559,13 @@ pub struct VcfOptions {
     /// homozygous, else missing). A record beyond the length, or a length
     /// above 2^36 (no real chromosome comes close), is an error.
     pub to_contig_end: bool,
+    /// Read the VCF as a gVCF: a position that no record covers (by its
+    /// POS, its REF span or, for a gVCF block, its INFO/END) is missing,
+    /// since the caller did not look at it, rather than called homozygous
+    /// when the masks allow it. [`crate::io::input::load`] sets it when the
+    /// records it inspects include gVCF blocks
+    /// ([`crate::io::input::VcfModeChoice::gvcf_blocks`]).
+    pub gvcf: bool,
 }
 
 impl Default for VcfOptions {
@@ -566,6 +578,7 @@ impl Default for VcfOptions {
             negative_masks: Vec::new(),
             keep_filtered: false,
             to_contig_end: true,
+            gvcf: false,
         }
     }
 }
@@ -633,6 +646,11 @@ pub struct VcfSummary {
     /// genotype, or heterozygous for the symbolic allele), all of whose
     /// positions are missing.
     pub gvcf_unusable_blocks: u64,
+    /// Whether the VCF was read as a gVCF ([`VcfOptions::gvcf`]).
+    pub read_as_gvcf: bool,
+    /// Read as a gVCF, the positions of `sites` that no record covers,
+    /// which are missing; included in `missing_sites`.
+    pub uncovered_sites: u64,
 }
 
 impl VcfSummary {
@@ -650,16 +668,27 @@ impl VcfSummary {
                     .to_string(),
             );
         }
-        if self.gvcf_blocks > 0 {
+        if self.gvcf_blocks > 0 || self.read_as_gvcf {
+            let uncovered = if self.read_as_gvcf {
+                format!(
+                    ", and so are the positions that no record or block covers ({} here; \
+                     bcftools writes nothing where there are no reads)",
+                    self.uncovered_sites
+                )
+            } else {
+                "; positions that no record or block covers count as called, as in a VCF \
+                 without blocks"
+                    .to_string()
+            };
             out.push(format!(
                 "the VCF is a gVCF: {} records are reference or no-call blocks (INFO/END). \
                  Blocks without a usable call (filtered or no genotype; {} here) are missing \
-                 over their whole span, but a reference block counts as called homozygous over \
-                 its span whatever its depth and genotype quality (GATK writes stretches without \
-                 reads as 0/0 blocks). Unless the callable mask (--vcf-mask) was made from this \
-                 gVCF's blocks with depth and quality bounds, make it that way and give the \
-                 variant records alone (bcftools view -v snps,indels), as docs/preprocessing.md \
-                 describes",
+                 over their whole span{uncovered}, but a reference block counts as called \
+                 homozygous over its span whatever its depth and genotype quality (GATK writes \
+                 stretches without reads as 0/0 blocks). Unless the callable mask (--vcf-mask) \
+                 was made from this gVCF's blocks with depth and quality bounds, make it that \
+                 way and give the variant records alone (bcftools view -v snps,indels), as \
+                 docs/preprocessing.md describes",
                 self.gvcf_blocks, self.gvcf_unusable_blocks
             ));
         }
@@ -999,6 +1028,11 @@ struct ChromBuilder {
     /// Positions up to here are missing because of an earlier REF span or
     /// gVCF block.
     miss_until: u64,
+    /// Positions up to here are covered by a record: its POS, its REF span
+    /// or its gVCF block.
+    covered_until: u64,
+    /// Whether positions that no record covers are missing (a gVCF).
+    uncovered_missing: bool,
     pending: Option<Pending>,
     last_pos: u64,
     /// The last END of a gVCF block: a sequence that does not end at its
@@ -1017,16 +1051,18 @@ impl ChromBuilder {
         name: &[u8],
         uncallable: Vec<Interval>,
         contig_len: Option<u64>,
-        bin_size: usize,
+        opts: &VcfOptions,
         collect_het: bool,
     ) -> Self {
         Self {
             name: name.to_vec(),
-            binner: Binner::new(bin_size),
+            binner: Binner::new(opts.bin_size),
             uncallable,
             next_unc: 0,
             cursor: 1,
             miss_until: 0,
+            covered_until: 0,
+            uncovered_missing: opts.gvcf,
             pending: None,
             last_pos: 0,
             last_block_end: 0,
@@ -1075,6 +1111,29 @@ impl ChromBuilder {
             self.missing(e - a + 1, s);
             a = e + 1;
         }
+        // In a gVCF, the positions after the last record's coverage were
+        // not looked at.
+        let callable_to = if self.uncovered_missing {
+            min(to, self.covered_until)
+        } else {
+            to
+        };
+        if callable_to < to {
+            let from = max(a, callable_to + 1);
+            if from <= to {
+                let n = to - from + 1;
+                s.uncovered_sites += n;
+                self.fill_mask(a, callable_to, s);
+                self.missing(n, s);
+                return;
+            }
+        }
+        self.fill_mask(a, to, s);
+    }
+
+    /// Emit the positions `a..=to`, covered by records but without one of
+    /// their own, as the masks say: called where callable, else missing.
+    fn fill_mask(&mut self, mut a: u64, to: u64, s: &mut VcfSummary) {
         while a <= to {
             while self
                 .uncallable
@@ -1133,8 +1192,15 @@ impl ChromBuilder {
     }
 
     /// Add a record; `pos` must not be smaller than any earlier record's.
-    /// `block_end` is the END of a gVCF block.
-    fn add_record(&mut self, pos: u64, class: Class, block_end: Option<u64>, s: &mut VcfSummary) {
+    /// `block_end` is the END of a gVCF block, `ref_end` the last position
+    /// of its REF allele.
+    fn add_record(
+        &mut self,
+        pos: u64,
+        class: Class,
+        (ref_end, block_end): (u64, Option<u64>),
+        s: &mut VcfSummary,
+    ) {
         self.last_block_end = max(self.last_block_end, block_end.unwrap_or(0));
         match self.pending.as_mut() {
             Some(p) if p.pos == pos => {
@@ -1156,6 +1222,7 @@ impl ChromBuilder {
         if let Some(e) = class.span_end {
             self.miss_until = max(self.miss_until, e);
         }
+        self.covered_until = max(self.covered_until, max(ref_end, block_end.unwrap_or(0)));
         self.last_pos = pos;
     }
 
@@ -1300,6 +1367,7 @@ pub(crate) fn read_vcf_seqs_from(
     let masks = MaskEngine::new(&opts.masks, &opts.negative_masks)?;
     let mut summary = VcfSummary {
         positive_mask: masks.has_positive(),
+        read_as_gvcf: opts.gvcf,
         ..VcfSummary::default()
     };
 
@@ -1391,7 +1459,7 @@ pub(crate) fn read_vcf_seqs_from(
                 rec.chrom,
                 uncallable,
                 contig_len,
-                opts.bin_size,
+                opts,
                 collect_het,
             ));
         }
@@ -1420,7 +1488,8 @@ pub(crate) fn read_vcf_seqs_from(
         let block_end =
             gvcf_block_end(&rec).map(|end| end.min(chrom.contig_len.unwrap_or(MAX_POS)));
         let class = classify(&rec, opts.keep_filtered, block_end, row_no, &mut summary)?;
-        chrom.add_record(rec.pos, class, block_end, &mut summary);
+        let ref_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
+        chrom.add_record(rec.pos, class, (ref_end, block_end), &mut summary);
     }
     if let Some(done) = cur.take() {
         seqs.push(done.finish(&mut summary));
