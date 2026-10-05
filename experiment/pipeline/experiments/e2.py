@@ -776,8 +776,9 @@ def trace_rows(gr: GenomeResult, cfg: config.E2) -> List[Dict]:
     return rows
 
 
-def _codes(findings: Sequence[Dict], severity: str) -> str:
-    return ";".join(f["code"] for f in findings if f.get("severity") == severity)
+def _codes(findings: Sequence[Dict], warnings: bool) -> str:
+    """The codes of the warnings, or of the other findings (notes; qc's JSON calls their severity 'info')."""
+    return ";".join(f["code"] for f in findings if (f.get("severity") == "warning") == warnings)
 
 
 def qc_row(gr: GenomeResult) -> Dict:
@@ -812,8 +813,8 @@ def qc_row(gr: GenomeResult) -> Dict:
         "multi_het_share": sat.get("multi_het_share"),
         "max_bin_size_below_target": sat.get("max_bin_size_below_target"),
         "expected_recombinations": q.get("expected_recombinations"),
-        "warnings": _codes(findings, "warning"),
-        "notes": _codes(findings, "note"),
+        "warnings": _codes(findings, warnings=True),
+        "notes": _codes(findings, warnings=False),
         "fit_warnings": ";".join(fit_qc.get("warnings", [])),
         "fit_notes": ";".join(fit_qc.get("notes", [])),
     }

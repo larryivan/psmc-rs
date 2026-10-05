@@ -263,7 +263,7 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
               "saturation": {"multi_het_share": 0.01}, "longest_missing_run": None,
               "findings": [{"code": "TOO_SHORT", "severity": "warning", "message": "short, really",
                             "recommendation": "use more", "sequences": []},
-                           {"code": "HET_OUTLIER", "severity": "note", "message": "m", "recommendation": "r",
+                           {"code": "HET_OUTLIER", "severity": "info", "message": "m", "recommendation": "r",
                             "sequences": ["chr1"]}],
               "sequences": [{"name": "chr1"}]}
         lay.qc_json(sid).parent.mkdir(parents=True, exist_ok=True)
