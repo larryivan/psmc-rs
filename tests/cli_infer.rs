@@ -675,4 +675,16 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
         !err.contains("--tr-ratio") && !err.contains("--rho0"),
         "{err}"
     );
+    // QC's advice, printed before the error, also speaks of the saved file.
+    let o = common::run(args("1", &["--init-params", saved.to_str().unwrap()]));
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(stderr.contains("INVALID_START"), "{stderr}");
+    assert!(
+        stderr.contains("lower rho in the --init-params file"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains("--tr-ratio") && !stderr.contains("--rho0"),
+        "{stderr}"
+    );
 }

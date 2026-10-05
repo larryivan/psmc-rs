@@ -225,6 +225,9 @@ pub struct FitStart {
     /// t_max 15 and pattern `4+5*3+4`), for a report made without a fit
     /// (`psmc-rs qc`, `convert`).
     pub assumed: bool,
+    /// The start is a saved fit's (`--init-params`), whose θ and ρ come from
+    /// the file rather than from options; [`FitStart::new`] sets it false.
+    pub saved: bool,
 }
 
 impl FitStart {
@@ -278,6 +281,7 @@ impl FitStart {
             min_transition,
             max_rho0,
             assumed,
+            saved: false,
         }
     }
 

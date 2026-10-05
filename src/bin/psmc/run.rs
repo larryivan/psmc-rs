@@ -679,7 +679,9 @@ fn fit_start(cli: &InferArgs, layout: &PsmcModel, obs: &Observations) -> Option<
         Some(_) => (layout.theta, layout.rho),
         None => start_rates(cli, obs).ok()?,
     };
-    Some(FitStart::new(layout, theta0, rho0, false))
+    let mut start = FitStart::new(layout, theta0, rho0, false);
+    start.saved = cli.init_params.is_some();
+    Some(start)
 }
 
 /// The warning about the bootstrap replicates of `cfg` whose fresh start

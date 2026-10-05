@@ -555,7 +555,12 @@ fn invalid_start(input: &QcInput, report: &QcReport) -> Option<Finding> {
         .pattern
         .as_deref()
         .map_or(String::new(), |p| format!(" and pattern {p}"));
-    let whose = if start.assumed {
+    let whose = if start.saved {
+        format!(
+            "The fit starts from the saved parameters, theta0 {theta} and rho0 {rho} per bin, \
+             with t_max {t_max}{pattern}"
+        )
+    } else if start.assumed {
         format!(
             "A fit with psmc-rs's default settings would start from theta0 {theta} per bin \
              (from these data) and rho0 = theta0/{} = {rho} per bin, with t_max \
@@ -586,6 +591,16 @@ fn invalid_start(input: &QcInput, report: &QcReport) -> Option<Finding> {
     // theta0 and rho0 per bin shrink in proportion with the bin size; a
     // tenth below the limit leaves a margin.
     let recommendation = match start.max_rho0 {
+        // A saved fit's rho comes from its file: the options of a fresh
+        // start (--tr-ratio, --rho0) do not apply to it.
+        _ if start.saved => format!(
+            "Start from a smaller rho0: lower rho in the --init-params file{}, or fit from a \
+             fresh start instead of --init-params.",
+            start.max_rho0.map_or(String::new(), |max| format!(
+                " to {} or less",
+                sig(0.9 * max, 2)
+            ))
+        ),
         Some(max) => {
             let target = 0.9 * max;
             let s = report.bin_size;

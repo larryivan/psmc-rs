@@ -364,6 +364,35 @@ fn invalid_start() {
         );
     }
 
+    // A saved fit's rho comes from the --init-params file: the options of
+    // a fresh start (--tr-ratio, --rho0) do not apply to it.
+    let saved = FitStart {
+        saved: true,
+        ..start.clone()
+    };
+    let f = with(Some(saved)).findings[0].clone();
+    assert!(
+        f.message
+            .starts_with("The fit starts from the saved parameters, theta0 0.916 and rho0 0.229"),
+        "{}",
+        f.message
+    );
+    assert!(
+        f.recommendation
+            .contains("lower rho in the --init-params file to")
+            && f.recommendation
+                .contains("fresh start instead of --init-params"),
+        "{}",
+        f.recommendation
+    );
+    for flag in ["--tr-ratio", "--rho0", "--bin-size"] {
+        assert!(
+            !f.recommendation.contains(flag),
+            "{flag}: {}",
+            f.recommendation
+        );
+    }
+
     // Without a fit (psmc-rs qc), the default start is assumed.
     let assumed = FitStart {
         assumed: true,
