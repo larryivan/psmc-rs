@@ -74,7 +74,7 @@ of bases at quality 10, and 0.3% sequencing errors.
 - Run 4, chr3 renamed `HLA-A*01:01:01:01`: called from the plain and the
   indexed SAM, the name survives (`bcftools mpileup -r` would read the
   colons as a range) and both give the same psmcfa.
-- Route B, variant calls and a callable mask, on the same reads: a gVCF from
+- Route B of `docs/preprocessing.md` on the same reads: a gVCF from
   `bcftools call -m -g`, its depth-banded blocks as the callable mask and its
   variant records as the VCF. Without the mask, QC warns
   VARIANTS_ONLY_NO_MASK; with it, the warning is gone and recovery, `K` and

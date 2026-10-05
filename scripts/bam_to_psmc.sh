@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bam_to_psmc.sh: from the aligned reads of one diploid genome to psmc-rs
-# input through the classic PSMC consensus:
+# input through the classic PSMC consensus (route A of docs/preprocessing.md):
 #
 #   bcftools mpileup -C50 -q20 -Q20 -f ref.fa aln.bam | bcftools call -c
 #
@@ -75,7 +75,7 @@ directory next to them and renamed when complete, so an interrupted run
 leaves none of them half written; psmc-rs writes the fit's files itself. A
 rerun with the same inputs writes the same bytes to every output but the
 log, whatever --threads is. bcftools >= $MIN_BCFTOOLS and psmc-rs >=
-$MIN_PSMC_RS are required.
+$MIN_PSMC_RS are required. See docs/preprocessing.md.
 EOF
 }
 

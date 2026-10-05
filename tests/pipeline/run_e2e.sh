@@ -250,7 +250,7 @@ cmp "$c/aln.sam.out.psmcfa" "$c/aln.sam.gz.out.psmcfa" || fail "-T and -R calls 
 ok "$name called by region and streamed, with the same psmcfa"
 
 # ---------------------------------------------------------------------------
-step "route B: variant calls and a callable mask from a gVCF"
+step "route B of docs/preprocessing.md: variant calls and a callable mask from a gVCF"
 
 b=$work/routeb
 mkdir -p "$b"
