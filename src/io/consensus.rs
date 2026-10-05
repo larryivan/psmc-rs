@@ -61,6 +61,9 @@
 //! - Malformed lines are errors instead of being read as Perl reads them: a
 //!   data line with fewer than 8 fields, a non-numeric POS, or a POS above
 //!   2^36. Blank lines are skipped.
+//! - A chromosome name that is not valid UTF-8 is an error. VCF is UTF-8,
+//!   and names are kept as text ([`ConsensusSeq::name`]); vcf2fq and
+//!   fq2psmcfa copy the bytes.
 //! - An FQ value with two decimal points (`-1.2.3`) is read as its leading
 //!   number. vcf2fq negates such a string as text (`"+1.2.3"`), and the
 //!   number Perl later takes from it depends on interpreter state (in one
@@ -834,7 +837,7 @@ struct Run {
 /// window of an INDEL at POS p starts at string index `p - l` (0-based), and
 /// POS never decreases, so indices below `last_pos - l` are final.
 struct Chrom {
-    name: Vec<u8>,
+    name: String,
     /// Length of the vcf2fq string so far.
     len: u64,
     last_pos: u64,
@@ -860,9 +863,9 @@ struct Chrom {
 }
 
 impl Chrom {
-    fn new(name: &[u8], bin_size: usize, uncallable: Vec<Interval>, collect_het: bool) -> Self {
+    fn new(name: &str, bin_size: usize, uncallable: Vec<Interval>, collect_het: bool) -> Self {
         Self {
-            name: name.to_vec(),
+            name: name.to_string(),
             len: 0,
             last_pos: 0,
             bases_at_last_pos: 0,
@@ -998,14 +1001,14 @@ impl Chrom {
                  chromosome ends at base {} (vcf2fq dies here with 'substr outside of string'); \
                  vcf2fq places bases by appending them, so records at positions without a \
                  SNP/reference record shorten the chromosome",
-                String::from_utf8_lossy(&self.name),
+                self.name,
                 beg + 1,
                 self.len
             );
         }
         self.commit(self.len);
         Ok(ConsensusSeq {
-            name: String::from_utf8_lossy(&self.name).into_owned(),
+            name: self.name,
             bins: self.binner.finish(),
             bases: self.len,
             good_bases: self.good,
@@ -1014,6 +1017,18 @@ impl Chrom {
             het_sites: self.het.take(),
         })
     }
+}
+
+/// A chromosome name as text. VCF is UTF-8; another encoding is an error
+/// rather than a lossy conversion, which could give two chromosomes one name.
+pub(crate) fn utf8_chrom(name: &[u8], row_no: usize) -> Result<&str> {
+    std::str::from_utf8(name).map_err(|_| {
+        anyhow::anyhow!(
+            "invalid VCF row {row_no}: the chromosome name '{}' is not valid UTF-8, which VCF \
+             requires",
+            name.escape_ascii()
+        )
+    })
 }
 
 /// Whether INFO has a value vcf2fq reads as FQ.
@@ -1204,11 +1219,11 @@ pub(crate) fn read_consensus_from(
         summary.records += 1;
         let pos = parse_pos(f[1], row_no)?;
 
-        if cur.as_ref().is_none_or(|c| c.name != f[0]) {
+        if cur.as_ref().is_none_or(|c| c.name.as_bytes() != f[0]) {
             if let Some(done) = cur.take() {
                 end_chrom(done, false, &mut summary, &mut seqs)?;
             }
-            let name = String::from_utf8_lossy(f[0]);
+            let name = utf8_chrom(f[0], row_no)?;
             // Each name is listed once, from its first or second block, so
             // no list is searched (assemblies can have a million scaffolds).
             let first_block = seen.insert(f[0].to_vec());
@@ -1216,15 +1231,15 @@ pub(crate) fn read_consensus_from(
                 summary.repeated_chroms.push(name.to_string());
             }
             let uncallable = if summary.masked {
-                if first_block && !masks.mentions_chrom(&name) {
+                if first_block && !masks.mentions_chrom(name) {
                     summary.chroms_outside_mask.push(name.to_string());
                 }
-                masks.uncallable_for_chrom(&name)
+                masks.uncallable_for_chrom(name)
             } else {
                 Vec::new()
             };
             cur = Some(Chrom::new(
-                f[0],
+                name,
                 opts.bin_size,
                 uncallable,
                 opts.collect_het_sites,
@@ -1235,7 +1250,7 @@ pub(crate) fn read_consensus_from(
             bail!(
                 "invalid VCF row {row_no}: POS {pos} on '{}' comes after POS {} (vcf2fq: \
                  unsorted input); sort the VCF with bcftools sort",
-                String::from_utf8_lossy(f[0]),
+                c.name,
                 c.last_pos
             );
         }
@@ -1302,7 +1317,7 @@ fn end_chrom(
 ) -> Result<()> {
     count_position(&c, summary);
     // `&v2q_post_process(...) if ($last_chr)`: the name '0' is false in Perl.
-    if c.name == b"0" && !last {
+    if c.name == "0" && !last {
         summary.discarded_chroms.push("0".to_string());
         return Ok(());
     }

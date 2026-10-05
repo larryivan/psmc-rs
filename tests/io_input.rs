@@ -743,3 +743,58 @@ fn input_without_heterozygous_bins_loads_but_is_not_usable() {
         "{err:#}"
     );
 }
+
+/// `call_c_vcf` with `name` (raw bytes) as the chromosome.
+fn vcf_bytes_with_chrom(name: &[u8]) -> Vec<u8> {
+    let text = call_c_vcf("@", 20, 5, 20);
+    let mut out = Vec::new();
+    for line in text.split_inclusive('\n') {
+        match line.strip_prefix('@') {
+            Some(rest) => {
+                out.extend_from_slice(name);
+                out.extend_from_slice(rest.as_bytes());
+            }
+            None => out.extend_from_slice(line.as_bytes()),
+        }
+    }
+    out
+}
+
+#[test]
+fn chromosome_names_must_be_utf8() {
+    // Latin-1 'chré': a lossy conversion would make it 'chr\u{FFFD}', the
+    // name of every other such chromosome too.
+    let path = unique_temp_path("latin1", "vcf");
+    fs::write(&path, vcf_bytes_with_chrom(b"chr\xe9")).unwrap();
+    let vcf = TempFile(path);
+    for mode in [VcfMode::Auto, VcfMode::Consensus, VcfMode::Mask] {
+        let err = load(&vcf.0, &vcf_opts(mode)).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("chromosome name 'chr\\xe9' is not valid UTF-8"),
+            "{mode:?}: {msg}"
+        );
+    }
+    assert!(read_vcf(&vcf.0, None, 10, None, &[], &[]).is_err());
+
+    // UTF-8 names are kept byte for byte, as vcf2fq and fq2psmcfa keep them.
+    let path = unique_temp_path("utf8", "vcf");
+    fs::write(&path, vcf_bytes_with_chrom("chré".as_bytes())).unwrap();
+    let vcf = TempFile(path);
+    for mode in [VcfMode::Consensus, VcfMode::Mask] {
+        let opts = InputOptions {
+            bin_size: 5,
+            filter: SeqFilter::DISABLED,
+            ..vcf_opts(mode)
+        };
+        let data = load(&vcf.0, &opts).unwrap();
+        assert_eq!(data.seqs[0].name, "chré");
+        let mut out = Vec::new();
+        psmc_rs::io::write::write_psmcfa_to(
+            &mut out,
+            [(data.seqs[0].name.as_str(), data.obs.rows[0].as_slice())],
+        )
+        .unwrap();
+        assert_eq!(out, b">chr\xc3\xa9\nKKKK\n");
+    }
+}

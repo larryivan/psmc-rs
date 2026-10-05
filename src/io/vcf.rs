@@ -41,6 +41,7 @@ use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
 use crate::io::common::{Binner, HetCall, HetTracker, chunk_sequences, open_reader};
+use crate::io::consensus::utf8_chrom;
 
 pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
 
@@ -946,7 +947,8 @@ fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
 /// Records must be sorted by position within a chromosome (several records at
 /// one POS are combined), and each chromosome must form one contiguous block,
 /// as in any `bcftools sort`ed or indexed VCF. POS, and the `##contig` lengths
-/// that are used, must not exceed 2^36.
+/// that are used, must not exceed 2^36, and chromosome names must be valid
+/// UTF-8, as VCF requires.
 pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     let (seqs, mut summary) = read_vcf_seqs(path, opts, false)?;
     if summary.het_snps == 0 {
@@ -1064,8 +1066,8 @@ pub(crate) fn read_vcf_seqs_from(
                     lossy(rec.chrom)
                 );
             }
-            let name = lossy(rec.chrom);
-            if !masks.mentions_chrom(&name) {
+            let name = utf8_chrom(rec.chrom, row_no)?;
+            if !masks.mentions_chrom(name) {
                 summary.chroms_outside_mask.push(name.to_string());
             }
             let contig_len = if opts.to_contig_end {
@@ -1090,7 +1092,7 @@ pub(crate) fn read_vcf_seqs_from(
             if contig_len.is_some() {
                 summary.contig_lengths_used.push(name.to_string());
             }
-            let uncallable = masks.uncallable_for_chrom(&name);
+            let uncallable = masks.uncallable_for_chrom(name);
             cur = Some(ChromBuilder::new(
                 rec.chrom,
                 uncallable,
