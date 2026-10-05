@@ -12,8 +12,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # A fixed release, not stable: each Rust release adds clippy lints that
+      # warn by default, and with -D warnings a new one would fail this job
+      # without any change here. Move the pin to a newer release on purpose,
+      # together with the fixes its lints ask for.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt, clippy
 
