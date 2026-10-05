@@ -193,6 +193,34 @@ fn a_large_mstep_is_warned_of_before_reading() {
     assert!(warning("0", &["--n-steps", "400"]).is_none());
     assert!(warning("1", &["--n-steps", "200"]).is_none());
     assert!(warning("1", &[]).is_none());
+
+    // A bootstrap fits a replicate per thread at once: 0.56 GB per M-step
+    // at 301 intervals is under the limit alone, but not four times over.
+    let boot = |extra: &[&str]| {
+        let mut args = vec![
+            missing.to_str().unwrap(),
+            out.to_str().unwrap(),
+            "1",
+            "--n-steps",
+            "300",
+        ];
+        args.extend_from_slice(extra);
+        let err = run_err(&args);
+        err.lines()
+            .find(|l| l.starts_with("Warning: the bootstrap will need about"))
+            .map(str::to_string)
+    };
+    let msg = boot(&["--bootstrap", "4", "--threads", "4"]).unwrap();
+    assert!(
+        msg.contains(
+            "will need about 2.2 GB of memory for its M-steps: it fits up to 4 replicates"
+        ),
+        "{msg}"
+    );
+    assert!(msg.contains("fewer --threads"), "{msg}");
+    assert!(boot(&["--bootstrap", "4", "--threads", "1"]).is_none());
+    assert!(boot(&["--bootstrap", "1", "--threads", "4"]).is_none());
+    assert!(boot(&["--threads", "4"]).is_none());
 }
 
 /// N_ITER 0 writes the starting model with its log-likelihood: `loglike`
