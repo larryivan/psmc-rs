@@ -551,6 +551,13 @@ class E5:
     # (results do not depend on it).
     bootstrap_threads: int = 1
     example_dataset: int = 1  # the dataset whose bands Fig 6 shows
+    # Pointwise coverage over 10 datasets moves in steps of 0.1 (Clopper-Pearson
+    # 95%: 0.55-1.0 at 9/10), and the coverage averaged over the window's
+    # strongly correlated points has no interval of its own. The summary
+    # therefore also resamples the datasets (with replacement, this many
+    # times, seed stage "summary/<window>/trunk<B>") and gives 95% percentile
+    # intervals of the window-averaged coverage and of the median SD ratio.
+    dataset_resamples: int = 10_000
 
 
 # --- E6: supplementary analyses S1-S5 ---------------------------------------

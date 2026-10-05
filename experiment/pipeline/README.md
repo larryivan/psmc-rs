@@ -295,7 +295,7 @@ on the run).
 
 | table | contents |
 | --- | --- |
-| `E5_summary.csv` | per trunk size and window: median, range and share below 1 of the median SD ratio; median IQR ratio; mean and least pointwise coverage of the truth and of the fits' mean; median band width and true 95% range (log10); median true SD, bias and RMSE |
+| `E5_summary.csv` | per trunk size and window: median, range and share below 1 of the median SD ratio, with a 95% interval from resampling the datasets; median IQR ratio; mean and least pointwise coverage of the truth and of the fits' mean, the mean's 95% interval from resampling the datasets (the independent units: the points of one dataset are strongly correlated) and the spread of the datasets' shares of covered points; median band width and true 95% range (log10); median true SD, bias and RMSE |
 | `E5_sd_ratio.csv` | per trunk size and time: the true SD and its interval, the bootstrap SD, the SD ratio (median, quartiles, range over genomes), the IQR ratio |
 | `E5_coverage.csv` | per trunk size and time: genomes covered, coverage and its interval, coverage of the fits' mean, band width |
 | `E5_sampling.csv` | per time: true Ne, and the 50 fits' mean log10 Ne, median and 95% range of Ne, SD and its interval, IQR, bias and RMSE |

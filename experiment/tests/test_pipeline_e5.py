@@ -163,6 +163,23 @@ class Statistics(unittest.TestCase):
         np.testing.assert_allclose(cal["coverage"], 0.5)
         np.testing.assert_allclose(cal["coverage_mean"], 0.5)  # the fits' geometric mean, 10**2.05, is in b1's band only
 
+    def test_dataset_resampling_intervals(self):
+        import numpy as np
+
+        # Four datasets covering 100%, 100%, 50% and 0% of three points; SD ratios 1, 1, 2, 2.
+        covers = np.array([[1, 1, 1], [1, 1, 1], [1, 0, 1], [0, 0, 0]], dtype=bool)
+        ratio = np.array([[1.0] * 3, [1.0] * 3, [2.0] * 3, [2.0] * 3])
+        res = e5.dataset_resampling({"covers": covers, "ratio": ratio}, 4000, seed=1)
+        self.assertAlmostEqual(res["coverage_dataset_min"], 0.0)
+        self.assertAlmostEqual(res["coverage_dataset_max"], 1.0)
+        self.assertLess(res["coverage_mean_ci_lo"], covers.mean())
+        self.assertGreater(res["coverage_mean_ci_hi"], covers.mean())
+        self.assertGreaterEqual(res["coverage_mean_ci_lo"], 0.0)
+        self.assertLessEqual(res["coverage_mean_ci_hi"], 1.0)
+        self.assertEqual((res["sd_ratio_median_ci_lo"], res["sd_ratio_median_ci_hi"]), (1.0, 2.0))
+        again = e5.dataset_resampling({"covers": covers, "ratio": ratio}, 4000, seed=1)
+        self.assertEqual(res, again)  # seeded
+
 
 # ---------------------------------------------------------------------------
 # The report on synthetic outputs with a known answer
@@ -260,7 +277,7 @@ class Tables(unittest.TestCase):
         self.assertEqual(len(read_csv(self.lay.table("summary"))), 2 * len(e5.WINDOWS))
         self.assertEqual(len(read_csv(self.lay.table("fits"))), 4)
         seeds = read_csv(self.lay.table("seeds"))
-        self.assertEqual(len(seeds), 4 * 2 + 2 * 2)
+        self.assertEqual(len(seeds), 4 * 2 + 2 * 2 + len(e5.WINDOWS) * 2)  # genomes, bootstraps, summaries
         boot_seed = [s for s in seeds if s["replicate"] == "2" and s["stage"] == "bootstrap/trunk500"]
         self.assertEqual(int(boot_seed[0]["seed"]), config.seed("E5", "bottleneck", 2, "bootstrap/trunk500"))
 

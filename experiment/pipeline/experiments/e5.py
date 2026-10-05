@@ -50,7 +50,11 @@ do not depend on the run).
 
 Tables (``tables/``):
 
-* ``E5_summary.csv``: per trunk size and window, the headline numbers.
+* ``E5_summary.csv``: per trunk size and window, the headline numbers,
+  with 95% intervals for the window-averaged coverage and the median SD
+  ratio from resampling the datasets (the independent units; the points of
+  one dataset are strongly correlated), and the spread of each dataset's
+  share of covered points.
 * ``E5_sd_ratio.csv``: per trunk size and time, the true sampling SD, the
   bootstrap SDs and their ratio (median, quartiles and range over datasets).
 * ``E5_coverage.csv``: per trunk size and time, the pointwise coverage of
@@ -622,6 +626,38 @@ def analyse(genomes: List[GenomeFit], boots: Dict[Tuple[int, int], Bootstrap], c
             "bands": bands, "calibration": by_trunk}
 
 
+def dataset_resampling(c: Dict, resamples: int, seed: int, level: float = 0.95) -> Dict[str, float]:
+    """Percentile intervals over datasets resampled with replacement, for one trunk size and window.
+
+    Datasets are the independent units: the pointwise coverages and SD
+    ratios of one dataset are strongly correlated along the window, so the
+    window's summaries are resampled by dataset. Statistics: the
+    window-averaged coverage (the mean over datasets of each dataset's share
+    of covered points) and the median over the window of the per-point
+    median SD ratio.
+    """
+    import numpy as np
+
+    covers = np.asarray(c["covers"], dtype=float)  # datasets x times
+    ratio = np.asarray(c["ratio"], dtype=float)
+    n = covers.shape[0]
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, n, size=(resamples, n))
+    share = covers.mean(axis=1)
+    coverage = share[idx].mean(axis=1)
+    ratio_median = np.array([np.median(np.median(ratio[i], axis=0)) for i in idx])
+    a = (1.0 - level) / 2.0
+    return {
+        "coverage_dataset_sd": float(share.std(ddof=1)) if n > 1 else 0.0,
+        "coverage_dataset_min": float(share.min()),
+        "coverage_dataset_max": float(share.max()),
+        "coverage_mean_ci_lo": float(np.quantile(coverage, a)),
+        "coverage_mean_ci_hi": float(np.quantile(coverage, 1.0 - a)),
+        "sd_ratio_median_ci_lo": float(np.quantile(ratio_median, a)),
+        "sd_ratio_median_ci_hi": float(np.quantile(ratio_median, 1.0 - a)),
+    }
+
+
 def summary_rows(cfg: config.E5, window: str, res: Dict, trunks: Dict[int, int]) -> List[Dict]:
     import numpy as np
 
@@ -630,6 +666,8 @@ def summary_rows(cfg: config.E5, window: str, res: Dict, trunks: Dict[int, int])
     for trunk in cfg.trunk_bins:
         c = res["calibration"][trunk]
         rm = c["ratio_median"]
+        seed = config.seed(NAME, cfg.model, 0, f"summary/{window}/{trunk_dir(trunk)}")
+        resampled = dataset_resampling(c, cfg.dataset_resamples, seed)
         rows.append(
             {
                 "trunk_bins": trunk,
@@ -643,12 +681,19 @@ def summary_rows(cfg: config.E5, window: str, res: Dict, trunks: Dict[int, int])
                 "datasets": c["datasets"],
                 "replicates_per_dataset": cfg.bootstrap_replicates,
                 "sd_ratio_median": float(np.median(rm)),
+                "sd_ratio_median_ci_lo": resampled["sd_ratio_median_ci_lo"],
+                "sd_ratio_median_ci_hi": resampled["sd_ratio_median_ci_hi"],
                 "sd_ratio_min": float(rm.min()),
                 "sd_ratio_max": float(rm.max()),
                 "share_points_sd_ratio_below_1": float(np.mean(rm < 1.0)),
                 "iqr_ratio_median": float(np.median(c["iqr_ratio_median"])),
                 "coverage_nominal": cfg.band[1] - cfg.band[0],
                 "coverage_mean": float(np.mean(c["coverage"])),
+                "coverage_mean_ci_lo": resampled["coverage_mean_ci_lo"],
+                "coverage_mean_ci_hi": resampled["coverage_mean_ci_hi"],
+                "coverage_dataset_sd": resampled["coverage_dataset_sd"],
+                "coverage_dataset_min": resampled["coverage_dataset_min"],
+                "coverage_dataset_max": resampled["coverage_dataset_max"],
                 "coverage_min": float(np.min(c["coverage"])),
                 "coverage_of_fit_mean_mean": float(np.mean(c["coverage_mean"])),
                 "band_width_log10_median": float(np.median(c["band_width_log10"])),
@@ -801,6 +846,10 @@ def seed_rows(cfg: config.E5, genomes: List[GenomeFit]) -> List[Dict]:
             for trunk in cfg.trunk_bins:
                 rows.append({"replicate": gn.replicate, "stage": bootstrap_stage(trunk),
                              "seed": bootstrap_seed(cfg, gn.replicate, trunk)})
+    for window in WINDOWS:
+        for trunk in cfg.trunk_bins:
+            stage = f"summary/{window}/{trunk_dir(trunk)}"
+            rows.append({"replicate": 0, "stage": stage, "seed": config.seed(NAME, cfg.model, 0, stage)})
     return rows
 
 
