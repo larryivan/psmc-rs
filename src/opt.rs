@@ -1,214 +1,20 @@
+//! The M-step: L-BFGS on the EM objective, over logit-transformed
+//! parameters, with the gradient of [`objective`].
+
 use anyhow::{Result, bail};
 
 use crate::hmm::SufficientStats;
-use crate::model::{PsmcModel, T_INF};
+use crate::model::PsmcModel;
 
 pub use crate::em::{EmHistory, EmProgressEvent, em_train, em_train_with_progress};
 use crate::progress;
 use crate::utils::{logit, sigmoid};
 
-#[derive(Clone, Debug)]
-struct Dual {
-    re: f64,
-    grad: Vec<f64>,
-}
+#[cfg(test)]
+mod dual;
+mod objective;
 
-impl Dual {
-    fn constant(val: f64, n: usize) -> Self {
-        Self {
-            re: val,
-            grad: vec![0.0; n],
-        }
-    }
-
-    fn variable(val: f64, n: usize, idx: usize) -> Self {
-        let mut grad = vec![0.0; n];
-        grad[idx] = 1.0;
-        Self { re: val, grad }
-    }
-
-    fn exp(&self) -> Self {
-        let v = self.re.exp();
-        let grad = self.grad.iter().map(|g| g * v).collect();
-        Self { re: v, grad }
-    }
-
-    fn ln(&self) -> Self {
-        let v = self.re.ln();
-        let grad = self.grad.iter().map(|g| g / self.re).collect();
-        Self { re: v, grad }
-    }
-}
-
-use std::ops::{Add, Div, Mul, Neg, Sub};
-
-impl Add<&Dual> for &Dual {
-    type Output = Dual;
-    fn add(self, rhs: &Dual) -> Dual {
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(a, b)| a + b)
-            .collect();
-        Dual {
-            re: self.re + rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Sub<&Dual> for &Dual {
-    type Output = Dual;
-    fn sub(self, rhs: &Dual) -> Dual {
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(a, b)| a - b)
-            .collect();
-        Dual {
-            re: self.re - rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Mul<&Dual> for &Dual {
-    type Output = Dual;
-    // The product rule adds the two partial products.
-    #[allow(clippy::suspicious_arithmetic_impl)]
-    fn mul(self, rhs: &Dual) -> Dual {
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(a, b)| a * rhs.re + b * self.re)
-            .collect();
-        Dual {
-            re: self.re * rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Div<&Dual> for &Dual {
-    type Output = Dual;
-    fn div(self, rhs: &Dual) -> Dual {
-        let denom = rhs.re * rhs.re;
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(a, b)| (a * rhs.re - b * self.re) / denom)
-            .collect();
-        Dual {
-            re: self.re / rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Add<f64> for &Dual {
-    type Output = Dual;
-    fn add(self, rhs: f64) -> Dual {
-        Dual {
-            re: self.re + rhs,
-            grad: self.grad.clone(),
-        }
-    }
-}
-
-impl Sub<f64> for &Dual {
-    type Output = Dual;
-    fn sub(self, rhs: f64) -> Dual {
-        Dual {
-            re: self.re - rhs,
-            grad: self.grad.clone(),
-        }
-    }
-}
-
-impl Mul<f64> for &Dual {
-    type Output = Dual;
-    fn mul(self, rhs: f64) -> Dual {
-        let grad = self.grad.iter().map(|g| g * rhs).collect();
-        Dual {
-            re: self.re * rhs,
-            grad,
-        }
-    }
-}
-
-impl Div<f64> for &Dual {
-    type Output = Dual;
-    fn div(self, rhs: f64) -> Dual {
-        let grad = self.grad.iter().map(|g| g / rhs).collect();
-        Dual {
-            re: self.re / rhs,
-            grad,
-        }
-    }
-}
-
-impl Add<&Dual> for f64 {
-    type Output = Dual;
-    fn add(self, rhs: &Dual) -> Dual {
-        Dual {
-            re: self + rhs.re,
-            grad: rhs.grad.clone(),
-        }
-    }
-}
-
-impl Sub<&Dual> for f64 {
-    type Output = Dual;
-    fn sub(self, rhs: &Dual) -> Dual {
-        let grad = rhs.grad.iter().map(|g| -g).collect();
-        Dual {
-            re: self - rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Mul<&Dual> for f64 {
-    type Output = Dual;
-    fn mul(self, rhs: &Dual) -> Dual {
-        let grad = rhs.grad.iter().map(|g| g * self).collect();
-        Dual {
-            re: self * rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Div<&Dual> for f64 {
-    type Output = Dual;
-    fn div(self, rhs: &Dual) -> Dual {
-        let denom = rhs.re * rhs.re;
-        let grad = rhs.grad.iter().map(|g| -self * g / denom).collect();
-        Dual {
-            re: self / rhs.re,
-            grad,
-        }
-    }
-}
-
-impl Neg for &Dual {
-    type Output = Dual;
-    fn neg(self) -> Dual {
-        let grad = self.grad.iter().map(|g| -g).collect();
-        Dual { re: -self.re, grad }
-    }
-}
-
-fn sigmoid_dual(x: &Dual) -> Dual {
-    let n = x.grad.len();
-    let one = Dual::constant(1.0, n);
-    let denom = &one + &(-x).exp();
-    &one / &denom
-}
+use objective::Objective;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bounds {
@@ -343,278 +149,6 @@ fn from_unconstrained(p: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-fn from_unconstrained_dual(p: &[Dual], bounds: &[Bounds]) -> Result<Vec<Dual>> {
-    if p.len() != bounds.len() {
-        bail!("bounds length mismatch");
-    }
-    let mut out = Vec::with_capacity(p.len());
-    for (v, b) in p.iter().zip(bounds.iter()) {
-        let z = sigmoid_dual(v);
-        let scaled = &z * (b.hi - b.lo);
-        let scaled = &scaled + b.lo;
-        out.push(scaled);
-    }
-    Ok(out)
-}
-
-fn expand_lam_dual(
-    lam_grouped: &[Dual],
-    spec: Option<&[(usize, usize)]>,
-    n_steps: usize,
-) -> Result<Vec<Dual>> {
-    match spec {
-        None => {
-            if lam_grouped.len() != n_steps + 1 {
-                bail!("lam length mismatch for ungrouped params");
-            }
-            Ok(lam_grouped.to_vec())
-        }
-        Some(spec) => {
-            let expected = spec.iter().map(|(nr, _)| nr).sum::<usize>();
-            if lam_grouped.len() != expected {
-                bail!(
-                    "lam length {} does not match grouped params {}",
-                    lam_grouped.len(),
-                    expected
-                );
-            }
-            let mut lam = Vec::with_capacity(n_steps + 1);
-            let mut counter = 0usize;
-            for (nr, gl) in spec.iter().cloned() {
-                for _ in 0..nr {
-                    for _ in 0..gl {
-                        lam.push(lam_grouped[counter].clone());
-                    }
-                    counter += 1;
-                }
-            }
-            if lam.len() != n_steps + 1 {
-                bail!(
-                    "expanded dual lam length {} != n_steps+1 {}",
-                    lam.len(),
-                    n_steps + 1
-                );
-            }
-            Ok(lam)
-        }
-    }
-}
-
-/// Transition and emission matrices of [`compute_params_dual`], row by row.
-type DualMatrices = (Vec<Vec<Dual>>, Vec<Vec<Dual>>);
-
-fn compute_params_dual(
-    n_steps: usize,
-    theta: &Dual,
-    rho: &Dual,
-    t_max: &Dual,
-    lam_full: &[Dual],
-) -> Result<DualMatrices> {
-    let n = n_steps;
-    let n_params = theta.grad.len();
-    if lam_full.len() != n + 1 {
-        bail!("lam_full length {} != n_steps+1 {}", lam_full.len(), n + 1);
-    }
-
-    let alpha_c = Dual::constant(0.1, n_params);
-    let one = Dual::constant(1.0, n_params);
-    let beta = (&(&one + &(t_max / &alpha_c)).ln()) / (n as f64);
-
-    let mut t = Vec::with_capacity(n + 2);
-    for k in 0..n {
-        let exp_term = (&beta * (k as f64)).exp();
-        let expm1 = &exp_term - 1.0;
-        let tk = &alpha_c * &expm1;
-        t.push(tk);
-    }
-    t.push(t_max.clone());
-    t.push(Dual::constant(T_INF, n_params));
-
-    let mut tau = vec![Dual::constant(0.0, n_params); n + 1];
-    for k in 0..=n {
-        tau[k] = &t[k + 1] - &t[k];
-    }
-
-    let mut alpha = vec![Dual::constant(0.0, n_params); n + 2];
-    alpha[0] = one.clone();
-    for k in 1..=n {
-        let ratio = &tau[k - 1] / &lam_full[k - 1];
-        let term = (-&ratio).exp();
-        alpha[k] = &alpha[k - 1] * &term;
-    }
-    alpha[n + 1] = Dual::constant(0.0, n_params);
-
-    let mut beta_arr = vec![Dual::constant(0.0, n_params); n + 1];
-    for k in 1..=n {
-        let inv_a = 1.0 / &alpha[k];
-        let inv_prev = 1.0 / &alpha[k - 1];
-        let diff = &inv_a - &inv_prev;
-        let term = &lam_full[k - 1] * &diff;
-        beta_arr[k] = &beta_arr[k - 1] + &term;
-    }
-
-    let mut c_pi = Dual::constant(0.0, n_params);
-    for i in 0..=n {
-        let diff = &alpha[i] - &alpha[i + 1];
-        c_pi = &c_pi + &(&lam_full[i] * &diff);
-    }
-    let c_sigma = &(1.0 / &(&c_pi * rho)) + 0.5;
-
-    let mut q_aux = vec![Dual::constant(0.0, n_params); n];
-    for m in 0..n {
-        let diff_alpha = &alpha[m] - &alpha[m + 1];
-        let term = &beta_arr[m] - &(&lam_full[m] / &alpha[m]);
-        q_aux[m] = &(&diff_alpha * &term) + &tau[m];
-    }
-
-    let mut sigma = vec![Dual::constant(0.0, n_params); n + 1];
-    let mut p_kl = vec![vec![Dual::constant(0.0, n_params); n + 1]; n + 1];
-    let mut em = vec![vec![Dual::constant(0.0, n_params); n + 1]; 3];
-    let mut q = vec![Dual::constant(0.0, n_params); n + 1];
-
-    let mut sum_t = Dual::constant(0.0, n_params);
-
-    for k in 0..=n {
-        let ak1 = &alpha[k] - &alpha[k + 1];
-        let lak = lam_full[k].clone();
-
-        let cpik = &(&ak1 * &(&sum_t + &lak)) - &(&alpha[k + 1] * &tau[k]);
-        let pik = &cpik / &c_pi;
-        sigma[k] = &(&(&ak1 / &(&c_pi * rho)) + &(&pik / 2.0)) / &c_sigma;
-
-        let tmp_avg = -(&(&one - &(&pik / &(&c_sigma * &sigma[k]))).ln());
-        let mut avg_t = &tmp_avg / rho;
-        let avg_re = avg_t.re;
-        let sum_re = sum_t.re;
-        let tau_re = tau[k].re;
-        if !avg_re.is_finite() || avg_re < sum_re || avg_re > (sum_re + tau_re) {
-            // (tau * alpha[k+1]) / denom, in C's (and param_recalculate's)
-            // order: the cancellation in lak - term magnifies any rounding
-            // difference.
-            let denom = &alpha[k] - &alpha[k + 1];
-            let term = &(&tau[k] * &alpha[k + 1]) / &denom;
-            avg_t = &sum_t + &(&lak - &term);
-        }
-
-        let tmp = &ak1 / &cpik;
-        for m in 0..k {
-            q[m] = &tmp * &q_aux[m];
-        }
-        let term1 = &(&ak1 * &ak1) * &(&beta_arr[k] - &(&lak / &alpha[k]));
-        let term2 = &(&lak * 2.0) * &ak1;
-        let term3 = &(&alpha[k + 1] * 2.0) * &tau[k];
-        q[k] = &(&term1 + &term2) - &term3;
-        q[k] = &q[k] / &cpik;
-
-        if k < n {
-            let tmp2 = &q_aux[k] / &cpik;
-            for m in (k + 1)..=n {
-                let diff_alpha = &alpha[m] - &alpha[m + 1];
-                q[m] = &diff_alpha * &tmp2;
-            }
-        }
-
-        let tmp3 = &pik / &(&c_sigma * &sigma[k]);
-        for m in 0..=n {
-            p_kl[k][m] = &tmp3 * &q[m];
-        }
-        p_kl[k][k] = &(&tmp3 * &q[k]) + &(1.0 - &tmp3);
-
-        let prod = theta * &avg_t;
-        let exp_term = (-&prod).exp();
-        em[0][k] = exp_term.clone();
-        em[1][k] = &one - &exp_term;
-        em[2][k] = one.clone();
-
-        sum_t = &sum_t + &tau[k];
-    }
-
-    Ok((p_kl, em))
-}
-
-fn smooth_penalty_dual(lam_full: &[Dual]) -> Dual {
-    let n_params = lam_full[0].grad.len();
-    let mut sum = Dual::constant(0.0, n_params);
-    if lam_full.len() < 2 {
-        return sum;
-    }
-    for k in 0..(lam_full.len() - 1) {
-        let d = &lam_full[k + 1].ln() - &lam_full[k].ln();
-        sum = &sum + &(&d * &d);
-    }
-    sum
-}
-
-// The loops index parallel arrays (matrices and expected counts) by state.
-#[allow(clippy::needless_range_loop)]
-fn q_function_stats_dual(a: &[Vec<Dual>], em: &[Vec<Dual>], stats: &SufficientStats) -> Dual {
-    let n_params = a[0][0].grad.len();
-    let n_states = a.len();
-    let mut q = Dual::constant(0.0, n_params);
-    // Numerical guard:
-    // - skip exact zero-count terms so we never evaluate 0 * log(0)
-    // - add a tiny epsilon before log to keep AD stable near boundaries
-    let ln_safe = |v: &Dual| (v + 1e-300).ln();
-    for i in 0..n_states {
-        for j in 0..n_states {
-            let c = stats.xi[(i, j)];
-            if c != 0.0 {
-                q = &q + &(&ln_safe(&a[i][j]) * c);
-            }
-        }
-    }
-    for k in 0..n_states {
-        let c0 = stats.gobs[0][k];
-        if c0 != 0.0 {
-            q = &q + &(&ln_safe(&em[0][k]) * c0);
-        }
-        let c1 = stats.gobs[1][k];
-        if c1 != 0.0 {
-            q = &q + &(&ln_safe(&em[1][k]) * c1);
-        }
-        let c2 = stats.gobs[2][k];
-        if c2 != 0.0 {
-            q = &q + &(&ln_safe(&em[2][k]) * c2);
-        }
-    }
-    q
-}
-
-// Calls of `eval_ad` on this thread, for checking `MStepOutcome::evaluations`
-// (the M-step runs on the calling thread).
-#[cfg(test)]
-thread_local! {
-    static EVAL_AD_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-fn eval_ad(
-    base_model: &PsmcModel,
-    stats: &SufficientStats,
-    params: &[f64],
-    bounds: &[Bounds],
-    lambda: f64,
-) -> Result<(f64, Vec<f64>)> {
-    #[cfg(test)]
-    EVAL_AD_CALLS.with(|c| c.set(c.get() + 1));
-    let n = params.len();
-    let vars: Vec<Dual> = (0..n).map(|i| Dual::variable(params[i], n, i)).collect();
-    let constrained = from_unconstrained_dual(&vars, bounds)?;
-
-    let theta = &constrained[0];
-    let rho = &constrained[1];
-    let t_max = &constrained[2];
-    let lam_grouped = &constrained[3..];
-    let lam_full = expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps)?;
-
-    let (a, em) = compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
-    let q = q_function_stats_dual(&a, &em, stats);
-    let penalty = smooth_penalty_dual(&lam_full);
-    let neg_q = -&q;
-    let pen = &penalty * lambda;
-    let f = &neg_q + &pen;
-    Ok((f.re, f.grad))
-}
-
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
@@ -680,22 +214,6 @@ pub struct MStepOutcome {
     pub stop: MStepStop,
 }
 
-/// The objective of the M-step, counting its evaluations.
-struct Objective<'a> {
-    model: &'a PsmcModel,
-    stats: &'a SufficientStats,
-    bounds: &'a [Bounds],
-    lambda: f64,
-    evaluations: usize,
-}
-
-impl Objective<'_> {
-    fn eval(&mut self, x: &[f64]) -> Result<(f64, Vec<f64>)> {
-        self.evaluations += 1;
-        eval_ad(self.model, self.stats, x, self.bounds, self.lambda)
-    }
-}
-
 /// [`m_step_lbfgs_with_progress`], also returning how many times the
 /// objective was evaluated.
 pub fn m_step_lbfgs_with_outcome(
@@ -706,15 +224,9 @@ pub fn m_step_lbfgs_with_outcome(
     config: &MStepConfig,
     mut on_progress: Option<&mut dyn FnMut(MStepProgress)>,
 ) -> Result<MStepOutcome> {
-    let mut objective = Objective {
-        model,
-        stats,
-        bounds,
-        lambda: config.lambda,
-        evaluations: 0,
-    };
+    let mut objective = Objective::new(model, stats, bounds, config.lambda)?;
     let mut xk = to_unconstrained(init_params, bounds)?;
-    let (mut f0, mut gk) = objective.eval(&xk)?;
+    let (mut f0, mut gk) = objective.value_and_gradient(&xk);
     let debug_mstep = std::env::var("PSMC_DEBUG_MSTEP")
         .map(|v| v == "1")
         .unwrap_or(false);
@@ -810,7 +322,7 @@ pub fn m_step_lbfgs_with_outcome(
             for i in 0..xk.len() {
                 x_new[i] = xk[i] + step * r[i];
             }
-            let (f_new, g_new) = objective.eval(&x_new)?;
+            let (f_new, g_new) = objective.value_and_gradient(&x_new);
             if debug_mstep {
                 eprintln!(
                     "  line-search iter {}: step={:.3e}, f_new={:.15e}, rhs={:.15e}",
@@ -835,7 +347,7 @@ pub fn m_step_lbfgs_with_outcome(
                 for i in 0..xk.len() {
                     x_new[i] = xk[i] - step_rev * r[i];
                 }
-                let (f_new, g_new) = objective.eval(&x_new)?;
+                let (f_new, g_new) = objective.value_and_gradient(&x_new);
                 if debug_mstep {
                     eprintln!(
                         "  reverse-search iter {}: step={:.3e}, f_new={:.15e}, f0={:.15e}",
@@ -866,7 +378,7 @@ pub fn m_step_lbfgs_with_outcome(
                     for sign in [-1.0f64, 1.0f64] {
                         let mut x_try = xk.clone();
                         x_try[i] += sign * radius;
-                        let (f_try, g_try) = objective.eval(&x_try)?;
+                        let (f_try, g_try) = objective.value_and_gradient(&x_try);
                         if !f_try.is_finite() {
                             continue;
                         }
@@ -963,8 +475,24 @@ pub fn m_step_lbfgs_with_outcome(
 
 #[cfg(test)]
 mod tests {
+    use super::dual::{Dd, Dual, Real, compute_params_dual, eval_dual_in, expand_lam_dual};
+    use super::objective::EVAL_CALLS;
     use super::*;
     use crate::hmm::e_step_streaming;
+    use crate::model::T_INF;
+
+    /// The objective and its adjoint gradient at `x`.
+    fn eval_adjoint(
+        model: &PsmcModel,
+        stats: &SufficientStats,
+        x: &[f64],
+        bounds: &[Bounds],
+        lambda: f64,
+    ) -> (f64, Vec<f64>) {
+        Objective::new(model, stats, bounds, lambda)
+            .unwrap()
+            .value_and_gradient(x)
+    }
 
     /// Deterministic xorshift64 in [0, 1).
     struct Rng(u64);
@@ -1040,23 +568,20 @@ mod tests {
     }
 
     /// States whose average time is the fallback (the interval's conditional
-    /// mean coalescent time) rather than the log formula.
+    /// mean coalescent time) rather than the log formula, as
+    /// `compute_params_dual` (and so `param_recalculate`) decides.
     fn fallback_states(model: &PsmcModel) -> Vec<usize> {
-        let n = model.n_steps;
-        let (t, lam) = (&model.t, model.map_lam(&model.lam).unwrap());
-        let mut alpha = vec![1.0; n + 2];
-        for k in 1..=n {
-            alpha[k] = alpha[k - 1] * (-(t[k] - t[k - 1]) / lam[k - 1]).exp();
-        }
-        alpha[n + 1] = 0.0;
-        let avg = model.avg_t();
-        (0..=n)
-            .filter(|&k| {
-                let tau = t[k + 1] - t[k];
-                let mean = t[k] + lam[k] - tau * alpha[k + 1] / (alpha[k] - alpha[k + 1]);
-                (avg[k] - mean).abs() <= 1e-9 * mean.abs()
-            })
-            .collect()
+        let value = |v: f64| Dual::<f64>::constant(v, 0);
+        let lam: Vec<Dual> = model
+            .map_lam(&model.lam)
+            .unwrap()
+            .into_iter()
+            .map(value)
+            .collect();
+        let (theta, rho, t_max) = (value(model.theta), value(model.rho), value(model.t_max));
+        compute_params_dual(model.n_steps, &theta, &rho, &t_max, &lam)
+            .unwrap()
+            .fallbacks
     }
 
     /// Asserts that `compute_params_dual`'s values are bit-identical to
@@ -1070,7 +595,8 @@ mod tests {
             .map(|i| Dual::variable(params[i], n_vars, i))
             .collect();
         let lam_full = expand_lam_dual(&vars[3..], model.pattern_spec(), n).unwrap();
-        let (a, em) = compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
+        let dual = compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
+        let (a, em) = (dual.p_kl, dual.em);
         let same = |x: f64, y: f64| x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan());
         // Same operations in the same order, so equal to the bit.
         for ((k, l), v) in model.p_kl.indexed_iter() {
@@ -1154,8 +680,337 @@ mod tests {
         .stats
     }
 
+    /// Random expected counts for `states` states: positive, of the sizes an
+    /// E-step on `n_bins` bins gives, with a share `zeros` of them 0.
+    fn synthetic_stats(rng: &mut Rng, states: usize, n_bins: f64, zeros: f64) -> SufficientStats {
+        let mut count = |scale: f64| {
+            if rng.next() < zeros {
+                0.0
+            } else {
+                scale * rng.log_uniform(1e-4, 1.0)
+            }
+        };
+        let per_state = n_bins / states as f64;
+        let mut xi = ndarray::Array2::zeros((states, states));
+        for ((k, l), v) in xi.indexed_iter_mut() {
+            *v = count(if k == l { per_state } else { 1e-3 * per_state });
+        }
+        let gobs = [
+            (0..states).map(|_| count(per_state)).collect(),
+            (0..states).map(|_| count(0.05 * per_state)).collect(),
+            (0..states).map(|_| count(0.02 * per_state)).collect(),
+        ];
+        SufficientStats { gobs, xi }
+    }
+
+    /// A model of moderate λ (0.1 to 10) whose transition probabilities are
+    /// valid and in which some inner state's average time falls back to its
+    /// interval's mean (which takes a large ρ, 0.02 to 1 per bin); with
+    /// `huge_last`, the last λ (900 to 1e6) sends the last state's to its
+    /// fallback beyond `T_INF`.
+    fn fallback_model(
+        rng: &mut Rng,
+        n_steps: usize,
+        pattern: Option<&str>,
+        huge_last: bool,
+    ) -> PsmcModel {
+        loop {
+            let theta = rng.log_uniform(1e-4, 1.0);
+            let rho = rng.log_uniform(0.02, 1.0);
+            let t_max = rng.log_uniform(2.0, 100.0);
+            let mut model = PsmcModel::new(
+                t_max,
+                n_steps,
+                theta,
+                rho,
+                2.5e-8,
+                pattern.map(str::to_string),
+            )
+            .unwrap();
+            for lam in model.lam.iter_mut() {
+                *lam = rng.log_uniform(0.1, 10.0);
+            }
+            if huge_last {
+                *model.lam.last_mut().unwrap() = rng.log_uniform(900.0, 1e6);
+            }
+            model.param_recalculate().unwrap();
+            if model.check_transitions().is_ok()
+                && fallback_states(&model).iter().any(|&k| k < n_steps)
+            {
+                return model;
+            }
+        }
+    }
+
+    /// The unconstrained point of `model`'s parameters with each of the
+    /// coordinates `which` moved, with probability 1/2, to within 1e-6 to
+    /// 1e-13 of a bound (of its range's width).
+    fn near_bounds_point(
+        rng: &mut Rng,
+        model: &PsmcModel,
+        bounds: &[Bounds],
+        which: &[usize],
+    ) -> Vec<f64> {
+        let mut x = to_unconstrained(&pack_params(model), bounds).unwrap();
+        for &i in which {
+            if rng.next() < 0.5 {
+                let depth = 14.0 + 16.0 * rng.next();
+                x[i] = if rng.next() < 0.5 { -depth } else { depth };
+            }
+        }
+        x
+    }
+
+    /// What [`compare_with_forward_mode`] saw.
+    #[derive(Default, Debug)]
+    struct Compared {
+        /// Points compared, and those where the objective is not finite
+        /// (negative transition probabilities).
+        points: usize,
+        not_finite: usize,
+        /// Points where every gradient component agreed with forward mode
+        /// to 1e-10, and the largest relative difference among them.
+        agreed: usize,
+        worst_agreed: f64,
+        /// Points where they differed by more, which the double-double
+        /// evaluation decided, and those of these where the forward-mode
+        /// gradient is not finite (overflow in its derivatives) although
+        /// the objective is.
+        decided: usize,
+        dual_not_finite: usize,
+        /// Points the double-double evaluation could not decide: exact
+        /// arithmetic sends other states' average times to the fallback.
+        other_branches: usize,
+        /// The adjoint's error over forward mode's at each decided point.
+        error_ratios: Vec<f64>,
+        /// Points whose survival to t_max is below 1e-140, where forward
+        /// mode's squared denominators underflow (in double-double too, whose
+        /// exponent range is that of f64): its gradient is no derivative
+        /// there, and the gradients were not compared.
+        underflow: usize,
+        /// States of the compared points whose average time is the
+        /// fallback, for k < n and for the last state.
+        inner_fallbacks: usize,
+        last_fallbacks: usize,
+    }
+
+    /// `-ln alpha[n]`, the cumulative coalescence rate up to t_max, of the
+    /// parameters at the unconstrained point `x`.
+    fn log_survival_to_t_max(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> f64 {
+        let mut at_x = model.clone();
+        unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
+        let t = at_x.compute_t(0.1);
+        let lam = at_x.map_lam(&at_x.lam).unwrap();
+        (0..at_x.n_steps).map(|k| (t[k + 1] - t[k]) / lam[k]).sum()
+    }
+
+    /// The largest relative error of `g` against `truth` over its
+    /// components, with a floor of 1e-3 of the largest component of `truth`
+    /// (infinite when `g` has a component that is not finite).
+    fn worst_relative_error(g: &[f64], truth: &[f64]) -> f64 {
+        let floor = 1e-3 * truth.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        g.iter()
+            .zip(truth)
+            .map(|(a, b)| {
+                if a.is_finite() {
+                    (a - b).abs() / b.abs().max(floor)
+                } else {
+                    f64::INFINITY
+                }
+            })
+            .fold(0.0, f64::max)
+    }
+
+    /// Checks the adjoint objective against the forward-mode one at `x`.
+    ///
+    /// The values must be equal to the bit (both NaN where transition
+    /// probabilities are negative), and the adjoint gradient finite where
+    /// the value is. Every gradient component must agree with forward mode
+    /// to 1e-10 relative, with a floor of 1e-3 of the largest component
+    /// ([`worst_relative_error`]), unless the two gradients' own rounding
+    /// errors are larger: then the forward-mode code evaluated in
+    /// double-double arithmetic gives the objective's derivatives (when
+    /// exact arithmetic takes the same fallback branches), and the adjoint
+    /// gradient must be within 1e-10 of them or at most four times as far
+    /// from them as the forward-mode gradient.
+    fn compare_with_forward_mode(
+        model: &PsmcModel,
+        stats: &SufficientStats,
+        x: &[f64],
+        bounds: &[Bounds],
+        lambda: f64,
+        seen: &mut Compared,
+    ) {
+        let (f, g) = eval_adjoint(model, stats, x, bounds, lambda);
+        let (f_dual, g_dual, fallbacks) =
+            eval_dual_in::<f64>(model, stats, x, bounds, lambda).unwrap();
+        let what = || {
+            format!(
+                "{:?} lambda={lambda} at {:?}",
+                model.pattern,
+                from_unconstrained(x, bounds).unwrap()
+            )
+        };
+        seen.points += 1;
+        assert!(
+            f.to_bits() == f_dual.to_bits() || (f.is_nan() && f_dual.is_nan()),
+            "{}: value {f} vs forward mode {f_dual}",
+            what()
+        );
+        if !f.is_finite() {
+            seen.not_finite += 1;
+            return;
+        }
+        assert!(g.iter().all(|v| v.is_finite()), "{}: {g:?}", what());
+        for &k in &fallbacks {
+            if k < model.n_steps {
+                seen.inner_fallbacks += 1;
+            } else {
+                seen.last_fallbacks += 1;
+            }
+        }
+        if log_survival_to_t_max(model, x, bounds) > 140.0 * std::f64::consts::LN_10 {
+            seen.underflow += 1;
+            return;
+        }
+        let vs_dual = worst_relative_error(&g, &g_dual);
+        if vs_dual <= 1e-10 {
+            seen.agreed += 1;
+            seen.worst_agreed = seen.worst_agreed.max(vs_dual);
+            return;
+        }
+        let (_, g_dd, fallbacks_dd) = eval_dual_in::<Dd>(model, stats, x, bounds, lambda).unwrap();
+        if fallbacks_dd != fallbacks {
+            seen.other_branches += 1;
+            return;
+        }
+        let truth: Vec<f64> = g_dd.iter().map(|v| v.to_f64()).collect();
+        let (adjoint_error, dual_error) = (
+            worst_relative_error(&g, &truth),
+            worst_relative_error(&g_dual, &truth),
+        );
+        assert!(
+            adjoint_error <= 1e-10 || adjoint_error <= 4.0 * dual_error,
+            "{}: the adjoint gradient {g:?} differs from forward mode's {g_dual:?} by \
+             {vs_dual:.2e}, and from the derivatives {truth:?} by {adjoint_error:.2e} \
+             (forward mode by {dual_error:.2e})",
+            what()
+        );
+        seen.decided += 1;
+        seen.error_ratios.push(adjoint_error / dual_error);
+        if !g_dual.iter().all(|v| v.is_finite()) {
+            seen.dual_not_finite += 1;
+        }
+    }
+
+    /// Layouts of 11 to 301 states, with and without a pattern.
+    const ORACLE_LAYOUTS: [(usize, Option<&str>); 5] = [
+        (10, None),
+        (22, Some("4+5*3+4")),
+        (63, Some("4+25*2+4+6")),
+        (100, None),
+        (300, Some("1+30*10")),
+    ];
+
+    /// At parameters a fit can have (λ within two decades, ρ per bin from
+    /// 1e-4), the adjoint and forward-mode objectives agree: the value to
+    /// the bit and every gradient component to 1e-10 relative, except where
+    /// rounding in the objective itself makes forward mode less accurate
+    /// than that (at small ρ, the average times' -ln(1 - u) / ρ cancels in
+    /// its derivative with respect to ρ). The points include the average
+    /// time's fallback for inner and last states, θ, ρ, t_max and the last
+    /// λ near their bounds, and zero counts.
     #[test]
-    fn ad_gradient_matches_central_differences() {
+    fn adjoint_matches_forward_mode() {
+        let mut rng = Rng(0x243F_6A88_85A3_08D3);
+        let config = MStepConfig::default();
+        let mut seen = Compared::default();
+        for (n, pattern) in ORACLE_LAYOUTS {
+            for case in 0..(if n >= 100 { 3 } else { 10 }) {
+                let lambda = if case % 2 == 0 { 0.0 } else { 1e-2 };
+                let model = random_model(&mut rng, n, pattern);
+                let bounds = bounds_from_config(&model, &config);
+                // E-step counts, and synthetic ones with some zero.
+                let stats = if n < 100 {
+                    random_stats(&mut rng, &model, 5_000)
+                } else {
+                    synthetic_stats(&mut rng, n + 1, 1e6, 0.0)
+                };
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                let stats = synthetic_stats(&mut rng, n + 1, 1e6, 0.05);
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+
+                let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                // θ, ρ, t_max and the last λ near their bounds.
+                let last = bounds.len() - 1;
+                let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+            }
+        }
+        assert_eq!(seen.points, 4 * (3 * 10 + 2 * 3));
+        // ρ near its upper bound makes transition probabilities negative.
+        assert!(seen.not_finite * 4 < seen.points, "{seen:?}");
+        // Most points agree to 1e-10 with forward mode; at the others the
+        // adjoint gradient is the more accurate, or as accurate.
+        let compared = seen.points - seen.not_finite - seen.underflow;
+        assert!(seen.agreed * 4 >= compared * 3, "{seen:?}");
+        assert!(seen.error_ratios.iter().all(|&r| r <= 1.1), "{seen:?}");
+        assert!(
+            seen.inner_fallbacks >= 100 && seen.last_fallbacks >= 20,
+            "{seen:?}"
+        );
+    }
+
+    /// Over the whole region the M-step can reach, λ over six decades and
+    /// any parameter near its bounds, the values still agree to the bit.
+    /// The float objective is ill-conditioned there (λ near 1e6 leaves the
+    /// survival barely decaying over an interval, and C's β sums cancel):
+    /// it can be wrong in its 7th digit and forward mode's gradient in its
+    /// 3rd, so the double-double evaluation decides most points, and the
+    /// adjoint gradient is mostly the more accurate one.
+    #[test]
+    fn adjoint_matches_forward_mode_everywhere() {
+        let mut rng = Rng(0x1319_8A2E_0370_7344);
+        let config = MStepConfig::default();
+        let mut seen = Compared::default();
+        for (n, pattern) in ORACLE_LAYOUTS.into_iter().take(3) {
+            for case in 0..16 {
+                let lambda = if case % 2 == 0 { 0.0 } else { 1e-2 };
+                let model = loop {
+                    let model = wide_random_model(&mut rng, n, pattern, case % 2 == 0);
+                    if model.check_transitions().is_ok() {
+                        break model;
+                    }
+                };
+                let bounds = bounds_from_config(&model, &config);
+                let stats = synthetic_stats(&mut rng, n + 1, 1e6, 0.05);
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                let all: Vec<usize> = (0..bounds.len()).collect();
+                let model = random_model(&mut rng, n, pattern);
+                let x = near_bounds_point(&mut rng, &model, &bounds, &all);
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+            }
+        }
+        assert!(seen.not_finite * 2 < seen.points, "{seen:?}");
+        assert!(seen.other_branches * 10 < seen.points, "{seen:?}");
+        assert!(seen.decided >= 20, "{seen:?}");
+        // Where they differ, the adjoint gradient is mostly the more
+        // accurate one (or both are as far off, through the value itself),
+        // and rarely, by a little, the less.
+        let worse = seen.error_ratios.iter().filter(|&&r| r > 1.01).count();
+        assert!(worse * 10 <= seen.decided, "{seen:?}");
+        assert!(
+            seen.inner_fallbacks >= 5 && seen.last_fallbacks >= 10,
+            "{seen:?}"
+        );
+    }
+
+    #[test]
+    fn adjoint_gradient_matches_central_differences() {
         let mut rng = Rng(0xD1B5_4A32_D192_ED03);
         let config = MStepConfig::default();
         for (n, pattern) in LAYOUTS {
@@ -1165,8 +1020,8 @@ mod tests {
                     let stats = random_stats(&mut rng, &model, 20_000);
                     let bounds = bounds_from_config(&model, &config);
                     let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-                    let (_, grad) = eval_ad(&model, &stats, &x, &bounds, lambda).unwrap();
-                    let f = |x: &[f64]| eval_ad(&model, &stats, x, &bounds, lambda).unwrap().0;
+                    let (_, grad) = eval_adjoint(&model, &stats, &x, &bounds, lambda);
+                    let f = |x: &[f64]| eval_adjoint(&model, &stats, x, &bounds, lambda).0;
                     // Richardson-extrapolated central differences: O(h^4).
                     let central = |i: usize, h: f64| {
                         let (mut xp, mut xm) = (x.clone(), x.clone());
@@ -1204,7 +1059,7 @@ mod tests {
             let stats = random_stats(&mut rng, &model, 5_000);
             let bounds = bounds_from_config(&model, &config);
             let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-            let (f, _) = eval_ad(&model, &stats, &x, &bounds, config.lambda).unwrap();
+            let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, config.lambda);
             let mut at_x = model.clone();
             unpack_params(&mut at_x, &from_unconstrained(&x, &bounds).unwrap()).unwrap();
             at_x.param_recalculate().unwrap();
@@ -1218,7 +1073,7 @@ mod tests {
     }
 
     /// Runs the M-step; returns its outcome, the number of iterations it
-    /// reported as done and the number of `eval_ad` calls it made.
+    /// reported as done and the number of objective evaluations it made.
     fn counted_m_step(
         model: &PsmcModel,
         stats: &SufficientStats,
@@ -1227,7 +1082,7 @@ mod tests {
         let bounds = bounds_from_config(model, config);
         let mut done = 0;
         let mut on_progress = |p: MStepProgress| done = p.done;
-        let calls_before = EVAL_AD_CALLS.with(|c| c.get());
+        let calls_before = EVAL_CALLS.with(|c| c.get());
         let outcome = m_step_lbfgs_with_outcome(
             model,
             stats,
@@ -1237,7 +1092,7 @@ mod tests {
             Some(&mut on_progress),
         )
         .unwrap();
-        let calls = EVAL_AD_CALLS.with(|c| c.get()) - calls_before;
+        let calls = EVAL_CALLS.with(|c| c.get()) - calls_before;
         (outcome, done, calls)
     }
 
