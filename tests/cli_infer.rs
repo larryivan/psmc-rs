@@ -167,6 +167,34 @@ fn init_params_continues_a_saved_fit() {
     assert!(err.contains("cannot be used with"), "{err}");
 }
 
+/// A model whose M-step needs gigabytes (one lambda per interval for
+/// hundreds of intervals) is named before the input is read; a run without
+/// an M-step gets no warning.
+#[test]
+fn a_large_mstep_is_warned_of_before_reading() {
+    let dir = TempDir::new("mstep_memory");
+    // The input does not exist, so the run stops right after its settings.
+    let missing = dir.path("missing.psmcfa");
+    let out = dir.path("fit.json");
+    let warning = |n_iter: &str, extra: &[&str]| {
+        let mut args = vec![missing.to_str().unwrap(), out.to_str().unwrap(), n_iter];
+        args.extend_from_slice(extra);
+        let err = run_err(&args);
+        err.lines()
+            .find(|l| l.starts_with("Warning: the M-step of this model"))
+            .map(str::to_string)
+    };
+    let msg = warning("1", &["--n-steps", "400"]).unwrap();
+    assert!(
+        msg.contains("(401 intervals, 401 free lambdas) will need about 1.3 GB"),
+        "{msg}"
+    );
+    assert!(msg.contains("--pattern"), "{msg}");
+    assert!(warning("0", &["--n-steps", "400"]).is_none());
+    assert!(warning("1", &["--n-steps", "200"]).is_none());
+    assert!(warning("1", &[]).is_none());
+}
+
 /// N_ITER 0 writes the starting model with its log-likelihood: `loglike`
 /// holds N_ITER + 1 = 1 value, `final_loglike` equals it, and the run
 /// prints it. For saved parameters it is their saved log-likelihood, to
