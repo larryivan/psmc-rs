@@ -26,8 +26,9 @@ $PY -m experiment.pipeline start E1       # resume: only what is not done runs
 ```
 
 `--profile smoke` runs the same jobs at a small size in
-`experiment/.runs-smoke/` (every experiment in about 15 minutes, 3 EM
-iterations); `--profile tiny` is for the unit tests. The production run
+`experiment/.runs-smoke/` (3 EM iterations; the 187 jobs of every
+experiment and figure took 2 minutes on the development machine, while
+`plan` expects about 15); `--profile tiny` is for the unit tests. The production run
 is described at the end ([Production](#production)).
 
 ## Modules
