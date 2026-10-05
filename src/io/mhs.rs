@@ -2,6 +2,7 @@
 //! binned into PSMC observations for one pair of haplotypes.
 
 use anyhow::{Context, Result, bail};
+use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
 
@@ -164,7 +165,10 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 /// needs per-site calls, i.e. a VCF plus callability mask
 /// ([`crate::io::vcf::read_vcf`]).
 ///
-/// A new value in the first column starts a new sequence. Rows must have
+/// A new value in the first column starts a new sequence, and the rows of a
+/// chromosome must form one block: a chromosome that comes back after another
+/// one is an error, since its `nr_called` would be counted from the start of
+/// the chromosome rather than from its previous row. Rows must have
 /// increasing positions within a chromosome, `1 <= nr_called <= distance to
 /// the previous row`, and alleles segregating across all haplotypes (as in
 /// files from `generate_multihetsep.py`); the pair must name two different
@@ -277,6 +281,7 @@ pub(crate) fn read_mhs_seqs_from(
 
     let mut seqs: Vec<MhsSeq> = Vec::new();
     let mut cur: Option<MhsChrom> = None;
+    let mut finished = HashSet::<String>::new();
     let mut file_haps = None;
 
     loop {
@@ -323,7 +328,16 @@ pub(crate) fn read_mhs_seqs_from(
 
         if cur.as_ref().is_none_or(|c| c.name != chrom) {
             if let Some(done) = cur.take() {
+                finished.insert(done.name.clone());
                 seqs.push(done.finish());
+            }
+            if finished.contains(chrom) {
+                bail!(
+                    "invalid mhs row {row_no}: chromosome '{chrom}' appears again after another \
+                     chromosome; the rows of each chromosome must form one block in position \
+                     order (concatenate whole per-chromosome files, or sort the rows with \
+                     sort -k1,1 -k2,2n)"
+                );
             }
             cur = Some(MhsChrom {
                 name: chrom.to_string(),

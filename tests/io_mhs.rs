@@ -56,6 +56,30 @@ chr2 8 8 AC
 }
 
 #[test]
+fn read_mhs_rejects_a_chromosome_that_comes_back() {
+    // Interleaved rows: the second chr1 block would be counted from
+    // position 0, misplacing its uncalled sites.
+    let opts = pair_opts(10, (0, 1));
+    let err = read_with(
+        "chr1\t100\t50\tAC\nchr2\t90\t10\tAC\nchr1\t300\t100\tAG\n",
+        &opts,
+    )
+    .unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("row 3") && msg.contains("'chr1' appears again") && msg.contains("sort"),
+        "{msg}"
+    );
+    // The same rows grouped by chromosome are fine.
+    let rows = read_with(
+        "chr1\t100\t50\tAC\nchr1\t300\t100\tAG\nchr2\t90\t10\tAC\n",
+        &opts,
+    )
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+}
+
+#[test]
 fn read_mhs_non_segregating_event_errors() {
     let path = unique_temp_path("mhs_nonseg", "mhs");
     let content = "chr1 4 4 AA\n";
