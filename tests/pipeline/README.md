@@ -2,7 +2,8 @@
 
 `run_e2e.sh` simulates the reads of a small diploid genome, runs
 `scripts/bam_to_psmc.sh` on them and checks the outputs against the classic
-tools and the simulation truth.
+tools and the simulation truth. CI runs it in the `pipeline` job of
+`.github/workflows/ci.yml`.
 
 ```sh
 cargo build --release

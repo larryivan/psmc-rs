@@ -173,11 +173,12 @@ and inference on the VCF fits exactly these bins. This is tested three ways:
    including one bin per base (`-s 1 -g 0`), which compares every base.
 2. `tests/io_consensus_tools.rs` runs the real tools on hundreds of random
    VCFs full of edge cases (`--ignored`; it needs `VCFUTILS` and
-   `FQ2PSMCFA`).
+   `FQ2PSMCFA`, and the `pipeline` job of CI runs it).
 3. `tests/pipeline/run_e2e.sh` runs `scripts/bam_to_psmc.sh` on simulated
    reads and compares its psmcfa with `vcf2fq -d MIN -D MAX | fq2psmcfa -q20`
    on the script's own VCF, with MIN and MAX computed independently of
-   psmc-rs.
+   psmc-rs; CI runs it with Ubuntu's bcftools and `vcfutils.pl` and with
+   `fq2psmcfa` built from lh3/psmc 0.6.5-r74.
 
 The goldens were made with the `vcfutils.pl` of bcftools 1.24. The few
 inputs where psmc-rs differs on purpose (malformed lines are errors, a

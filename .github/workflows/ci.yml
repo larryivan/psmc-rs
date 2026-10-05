@@ -80,3 +80,66 @@ jobs:
       # matplotlib or msprime skip themselves.
       - name: Run unit tests
         run: python3 -m unittest discover -s experiment/tests
+
+  pipeline:
+    name: BAM to PSMC pipeline (end to end)
+    runs-on: ubuntu-latest
+    env:
+      # lh3/psmc 0.6.5-r74, the version behind tests/data/c_reference.
+      PSMC_COMMIT: 80dc4c1385e6f08044b6131dd6412e092c72b2d1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The tabix package holds bgzip and tabix; perl and python3 come with
+      # the runner.
+      - name: Install bcftools, bgzip, tabix, zlib and shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bcftools tabix zlib1g-dev shellcheck
+          bcftools --version | head -n 2
+
+      - name: Check the shell scripts
+        run: shellcheck -s bash scripts/bam_to_psmc.sh tests/pipeline/run_e2e.sh
+
+      # Debian's and Ubuntu's bcftools package installs vcfutils.pl in
+      # /usr/bin; otherwise take the one of the installed bcftools release.
+      - name: Find vcfutils.pl
+        run: |
+          if command -v vcfutils.pl > /dev/null; then
+            vcfutils=$(command -v vcfutils.pl)
+          else
+            version=$(bcftools --version | sed -n '1s/^bcftools \([0-9.]*\).*/\1/p')
+            vcfutils=$RUNNER_TEMP/vcfutils.pl
+            curl -fsSL -o "$vcfutils" \
+              "https://raw.githubusercontent.com/samtools/bcftools/$version/misc/vcfutils.pl"
+          fi
+          perl -c "$vcfutils"
+          echo "VCFUTILS=$vcfutils" >> "$GITHUB_ENV"
+
+      # -O1: an -O2 build of lh3/psmc segfaults on macOS arm64, and the C
+      # reference outputs were made with -O1; it is the safe choice here too.
+      - name: Build fq2psmcfa from lh3/psmc
+        run: |
+          curl -fsSL "https://github.com/lh3/psmc/archive/$PSMC_COMMIT.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP"
+          src=$RUNNER_TEMP/psmc-$PSMC_COMMIT
+          gcc -O1 -I "$src" -o "$RUNNER_TEMP/fq2psmcfa" "$src/utils/fq2psmcfa.c" -lz
+          echo "FQ2PSMCFA=$RUNNER_TEMP/fq2psmcfa" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build psmc-rs
+        run: cargo build --release --locked
+
+      # scripts/bam_to_psmc.sh on simulated reads; see tests/pipeline/README.md.
+      - name: Run the end-to-end test
+        run: tests/pipeline/run_e2e.sh
+
+      # Consensus and mask modes against the same vcfutils.pl and fq2psmcfa.
+      - name: Compare with vcf2fq and fq2psmcfa
+        run: cargo test --release --locked --test io_consensus_tools --test io_vcf_exact -- --ignored
