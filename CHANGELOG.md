@@ -192,7 +192,8 @@ Reproduction package (`experiment/`):
   bootstrap_trunk_count, replicate_rng}` and
   `opt::m_step_lbfgs_with_outcome`.
 - `examples/bootstrap_calibration.rs`, the simulation behind the bootstrap
-  coverage figures, and `examples/bench_estep.rs`.
+  coverage figures (by default with the CLI's start and smoothing;
+  `--tr-ratio`, `--smooth-lambda`), and `examples/bench_estep.rs`.
 - Tests against the original tools' outputs: `tests/c_equivalence.rs` (C
   psmc 0.6.5-r74), the `.psmc` output and `psmc_plot.pl`, psmcfa parsing,
   route A goldens from bcftools, `vcfutils.pl`, `fq2psmcfa` and

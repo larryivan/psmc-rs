@@ -280,13 +280,21 @@ replicate would equal the input; with fewer than 20 trunks the run warns
 that the bands are coarse. Pick a trunk size that leaves a few dozen trunks
 (`psmc-rs qc INPUT --bootstrap-block-size BINS` counts them).
 
-**Read the bands as a lower bound on the uncertainty.** In simulations
-(`examples/bootstrap_calibration.rs`: 40 sequences of 10,000 bins from a
-known `4+5*3+4` model, 20 EM iterations), the bootstrap standard deviation
-of log10 Ne was a median 0.90 to 0.92 of the true sampling standard
-deviation, below it at 58% of time points, 0.74 at the oldest times, and
-0.74 to 1.06 between datasets. The fits' median bias (0.085 in log10 Ne,
-half the true standard deviation) does not show in the band at all.
+**Read the bands as a lower bound on the uncertainty.**
+`examples/bootstrap_calibration.rs` simulates 40 sequences of 10,000 bins
+from a known `4+5*3+4` model and fits them with psmc-rs's default start and
+objective (θ0/4, no smoothing) for 20 EM iterations; `cargo run --release
+--example bootstrap_calibration` takes about 5 minutes on 4 threads. There
+the bootstrap standard deviation of log10 Ne was a median 0.85 of the true
+sampling standard deviation with 500,000-bin trunks (here, whole sequences)
+and 0.91 with 1,000-bin trunks, below it at 62% to 63% of time points, 0.74
+to 0.78 at the oldest times, and 0.68 to 1.03 between datasets. The fits'
+median bias (0.094 in log10 Ne, a third of the true standard deviation) does
+not show in the band at all. Measured by the interquartile range instead,
+which a few runaway fits do not drive, the bootstrap spread was a median
+1.01 (whole sequences) and 1.08 (1,000-bin trunks) of the true one, and at
+the most recent times whole-sequence trunks gave a band 1.24 times as wide
+as the true spread.
 
 ### convert
 
@@ -376,8 +384,8 @@ JSON files hold the 0.1 fields.
 **HTML report.** The Ne curve (with the bootstrap band and median when there
 are replicates), a run summary (input, log-likelihood, pattern, parameters,
 N0, bin size, generation time, starting values, smoothing, M-step cap), the
-QC findings, metrics and per-sequence table, the bootstrap settings with the
-caveat above, and, with `--tmrca-out`, TMRCA panels. Charts can be restyled
+QC findings, metrics and per-sequence table, the bootstrap settings with a
+coverage caveat, and, with `--tmrca-out`, TMRCA panels. Charts can be restyled
 and saved as PNG. The page loads ECharts from cdn.jsdelivr.net; for
 offline use set `PSMC_ECHARTS_JS` to a local `echarts.min.js` when running
 psmc-rs, which embeds it (without either, the page says so).
