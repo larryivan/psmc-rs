@@ -21,7 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiment.pipeline import config, paths, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, e1, e6  # noqa: E402
+from experiment.pipeline.experiments import REGISTRY, Context, e1, e6  # noqa: E402
 from experiment.pipeline.runner import Job  # noqa: E402
 
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
@@ -68,7 +68,9 @@ class Jobs(unittest.TestCase):
         self.runs = Path(self._tmp.name).resolve()
         self.ctx = fake_ctx(config.SMOKE, self.runs)
         self.e1_jobs = e1.jobs(self.ctx)
-        self.jobs = e6.jobs(self.ctx)
+        # Without E3 registered, so that S4 is left out whatever the tree registers.
+        with mock.patch.dict(REGISTRY, {"E1": "e1", "E6": "e6"}, clear=True):
+            self.jobs = e6.jobs(self.ctx)
         self.by_id = {j.id: j for j in self.jobs}
         self.graph = runner.Graph(self.e1_jobs + self.jobs, self.runs)
 
@@ -77,7 +79,7 @@ class Jobs(unittest.TestCase):
         models = config.SMOKE.e1.models
         for part in ("s1", "s2", "s3", "s5"):
             self.assertIn(f"E6/{part}/report", ids)
-        self.assertFalse(any(j.startswith("E6/s4") for j in ids))  # E3 is not registered here
+        self.assertFalse(any(j.startswith("E6/s4") for j in ids))  # E3 is not registered in setUp
         self.assertEqual({f"E6/{p}/figure" for p in ("s1", "s2", "s3")}, {j for j in ids if j.endswith("/figure")})
         s1 = set(self.graph.deps["E6/s1/report"])
         self.assertEqual(s1, {j.id for j in self.e1_jobs if j.id.startswith(("E1/fit-", "E1/sim/"))})

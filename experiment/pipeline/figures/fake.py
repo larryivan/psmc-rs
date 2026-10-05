@@ -175,7 +175,7 @@ def e3(runs_dir: Path, profile: config.Profile) -> List[Path]:
 
     for size in cfg.genome_sizes_mb:
         c_gb = costs.c_psmc_gb_base + costs.c_psmc_gb_per_mb_longest * size
-        series = [("c", 1, costs.c_psmc_s_per_mb_iter * size * n, c_gb * 1024, c_gb > cfg.c_memory_limit_gb),
+        series = [("c", 1, costs.c_psmc_s_per_mb_iter * size * n, c_gb * 1024, c_gb > cfg.memory_limit_gb),
                   ("rs01", 1, 4.0 * costs.rs02_s_per_mb_iter * size * n, 80.0 + 0.6 * size, False)]
         series += [("rs02", t, costs.rs02_s_per_mb_iter * size * n / speedup(t), 12.0 + 0.012 * size + 2.0 * t, False)
                    for t in cfg.rs02_threads]
@@ -186,7 +186,7 @@ def e3(runs_dir: Path, profile: config.Profile) -> List[Path]:
                              "status": "skipped" if skip else "ok",
                              "wall_seconds": None if skip else wall * (1 + rng.normal(0, 0.03)),
                              "peak_rss_mb": None if skip else rss * (1 + rng.normal(0, 0.01)),
-                             "note": f"estimated {c_gb:.1f} GB > {cfg.c_memory_limit_gb:g} GB" if skip else ""})
+                             "note": f"estimated {c_gb:.1f} GB > {cfg.memory_limit_gb:g} GB" if skip else ""})
     base = costs.rs02_s_per_mb_iter * cfg.thread_scaling_size_mb * n
     for t in cfg.thread_scaling_threads:
         for rep in range(1, cfg.repeats + 1):
