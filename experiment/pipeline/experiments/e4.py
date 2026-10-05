@@ -16,7 +16,23 @@ by four routes (see section 8 of config.py and :mod:`.inputprep`):
 * ``nomask``: psmc-rs on the VCF without the mask.
 
 Every route is fitted with psmc-rs 0.2 (the human recipe of the psmc README)
-and checked with ``psmc-rs qc``. Layout under ``<runs>/E4/``::
+and checked with ``psmc-rs qc``.
+
+**Rescaled routes.** fq2psmcfa's rule calls a bin missing only when nearly
+all its bases are uncallable, so a dispersed mask leaves almost every bin
+called while each holds only about (1 - f) of its 100 bases. PSMC, and the
+scaling N0 = theta / (4 mu s), still take s = 100, so theta per bin and with
+it every time and size shrink by about (1 - f): the bin-exact routes are as
+biased as reading the VCF without its mask. The routes whose input records
+the callable sites (``config.E4.rescaled_routes``: the VCF with its mask, and
+multihetsep) are therefore reported twice: as fitted, and rescaled with s =
+callable bases per called bin (``called_bases / (bins - missing_bins)`` from
+their ``psmc-rs qc`` JSON) as the route ``<route>_rescaled``. The rescaled
+curve is the fitted one with times and sizes multiplied by 100 / s. The
+fq2psmcfa and nomask routes cannot be rescaled: a psmcfa does not record
+the callable sites, and without the mask every site counts as callable.
+
+Layout under ``<runs>/E4/``::
 
     sims/repNN/genome.psmcfa, genome.vcf.gz(.tbi)        simulated genome (not committed)
     sims/repNN/<mask>/callable.bed.gz                    callable sites
@@ -35,13 +51,15 @@ and checked with ``psmc-rs qc``. Layout under ``<runs>/E4/``::
 
 Tables (``tables/``):
 
-* ``E4_summary.csv``: one row per mask and route (Fig 5): replicates, the
-  realised missing fraction, the share of bins that differ from the exact
-  route, theta relative to the exact route and to the complete data, RMSE of
-  log10 Ne against the truth, RMSE against the exact route, how many fits
-  equal the exact route's, and the QC codes that fired.
-* ``E4_routes.csv``: one row per mask, route and replicate: the fit, its
-  input as read, the metrics and the QC codes.
+* ``E4_summary.csv``: one row per mask and route, rescaled routes included
+  (Fig 5): replicates, the realised missing fraction, the share of bins that
+  differ from the exact route, the callable bases per called bin and the
+  rescaling factor, theta relative to the exact route and to the complete
+  data, RMSE of log10 Ne against the truth, against the exact route and
+  against the complete-data fit of the same genome, how many fits equal the
+  exact route's, and the QC codes that fired.
+* ``E4_routes.csv``: one row per mask, route (rescaled routes included) and
+  replicate: the fit, its input as read, the metrics and the QC codes.
 * ``E4_bias.csv``: log10(fitted / true Ne) at every time of the model's
   informative window, mean, SD, min and max over replicates (Fig 5).
 * ``E4_bins.csv``: one row per mask, replicate and route: how its bins differ
@@ -73,6 +91,7 @@ from .e1 import TRUTH_GRID_YEARS, rep, write_csv
 NAME = "E4"
 ROUTES = ("exact", "fq2psmcfa", "multihetsep", "nomask")
 BIN_ROUTES = ("fq2psmcfa", "multihetsep", "nomask")  # compared with the exact route's bins
+RESCALED = "_rescaled"  # suffix of a route rescaled to its callable bases per called bin
 TABLES = {
     "summary": "E4_summary.csv",
     "routes": "E4_routes.csv",
@@ -94,6 +113,25 @@ def mask_names(cfg: config.E4) -> Tuple[str, ...]:
     if config.E4_CONTROL_MASK in names:
         raise ValueError(f"mask name {config.E4_CONTROL_MASK!r} is reserved for the control")
     return ((config.E4_CONTROL_MASK,) if cfg.no_missing_control else ()) + names
+
+
+def table_routes(cfg: config.E4) -> Tuple[str, ...]:
+    """The routes of the tables: every fitted route, then the rescaled ones (``<route>_rescaled``)."""
+    return tuple(cfg.routes) + tuple(f"{r}{RESCALED}" for r in cfg.rescaled_routes if r in cfg.routes)
+
+
+def bases_per_called_bin(qc: Dict) -> Optional[float]:
+    """Callable bases per called bin of a route's input, from its ``psmc-rs qc`` JSON.
+
+    ``called_bases / (bins - missing_bins)``; None when the input does not
+    record its callable sites (a psmcfa: qc reports no ``called_bases``).
+    """
+    t = qc.get("totals", {})
+    called = t.get("called_bases")
+    bins = (t.get("bins") or 0) - (t.get("missing_bins") or 0)
+    if called is None or bins <= 0:
+        return None
+    return float(called) / bins
 
 
 def mask_spec(cfg: config.E4, name: str) -> Optional[config.MaskSpec]:
@@ -525,6 +563,32 @@ def load_fits(cfg: config.E4, lay: Layout, r: int, mask: str, bins: Dict) -> Dic
     return out
 
 
+@dataclass
+class RouteVariant:
+    """A route as the tables report it: a fit read with the bin size, or rescaled to its callable bases."""
+
+    route: str  # the table's route: the fitted route, or "<route>_rescaled"
+    base: str  # the fitted route
+    fit: RouteFit
+    curve: results.Curve
+    scale: float  # bin_size / bases_per_called_bin when rescaled, else 1
+    bases_per_called_bin: Optional[float]  # from the route's qc JSON; None when its input does not record it
+
+
+def route_variants(cfg: config.E4, fits: Dict[str, RouteFit]) -> List[RouteVariant]:
+    """Every fitted route as fitted, then the rescaled routes whose input records its callable bases."""
+    sc, bin_size = cfg.scaling, cfg.inference.bin_size
+    out = [RouteVariant(route, route, rf, rf.curve, 1.0, bases_per_called_bin(rf.qc)) for route, rf in fits.items()]
+    for route in cfg.rescaled_routes:
+        rf = fits.get(route)
+        s_eff = bases_per_called_bin(rf.qc) if rf is not None else None
+        if rf is None or not s_eff:
+            continue
+        out.append(RouteVariant(f"{route}{RESCALED}", route, rf, rf.fit.curve(sc.mu, sc.gen_years, s_eff),
+                                bin_size / s_eff, s_eff))
+    return out
+
+
 def report(ctx: Context) -> Dict[str, Path]:
     """Write every E4 table from the jobs' outputs; returns the paths written."""
     import numpy as np
@@ -552,6 +616,7 @@ def report(ctx: Context) -> Dict[str, Path]:
             ]
         het_simulated = truth["totals"]["het_sites"]
         complete_theta: Optional[float] = None
+        complete_curve: Optional[results.Curve] = None
         for mask in mask_names(cfg):
             spec = mask_spec(cfg, mask)
             mrec = _read(lay.mask_record(mask, r))
@@ -605,34 +670,43 @@ def report(ctx: Context) -> Dict[str, Path]:
             fits = load_fits(cfg, lay, r, mask, brec)
             exact = fits["exact"]
             if mask == config.E4_CONTROL_MASK:
-                complete_theta = exact.fit.theta
+                complete_theta, complete_curve = exact.fit.theta, exact.curve
             for route, rf in fits.items():
-                findings = qc_findings(rf.qc)
-                for f in findings:
+                for f in qc_findings(rf.qc):
                     rows["qc"].append({"mask": mask, "route": route, "replicate": r, **f})
+            for v in route_variants(cfg, fits):
+                rf = v.fit
+                findings = qc_findings(rf.qc)
                 inp = rf.params.get("input", {})
-                bias_r = metrics.log10_bias(rf.curve, epochs, window, g)
-                bias.setdefault((mask, route), []).append(bias_r)
-                diff_bins = brec["routes"][route]["totals"] if route in BIN_ROUTES else None
+                bias_r = metrics.log10_bias(v.curve, epochs, window, g)
+                bias.setdefault((mask, v.route), []).append(bias_r)
+                diff_bins = brec["routes"][v.base]["totals"] if v.base in BIN_ROUTES else None
                 qct = rf.qc.get("totals", {})
+                theta = rf.fit.theta * v.scale  # per bin_size callable bases when rescaled
                 rows["routes"].append(
                     {
-                        "mask": mask, "route": route, "replicate": r,
+                        "mask": mask, "route": v.route, "replicate": r,
+                        "base_route": v.base, "rescaled": v.route != v.base,
                         "missing_fraction": tot["missing_fraction"],
-                        "theta": rf.fit.theta, "rho": rf.fit.rho, "t_max": rf.fit.t_max,
-                        "n0": rf.fit.n0(cfg.scaling.mu, cfg.inference.bin_size),
-                        "theta_rel_exact": rf.fit.theta / exact.fit.theta - 1.0,
-                        "theta_rel_complete": (rf.fit.theta / complete_theta - 1.0) if complete_theta else None,
+                        "theta": theta, "rho": rf.fit.rho, "t_max": rf.fit.t_max,
+                        "n0": rf.fit.n0(cfg.scaling.mu, cfg.inference.bin_size) * v.scale,
+                        "theta_rel_exact": theta / exact.fit.theta - 1.0,
+                        "theta_rel_complete": (theta / complete_theta - 1.0) if complete_theta else None,
                         "theta0": qct.get("theta0_per_bin"),
                         "bins": inp.get("bins"), "het_bins": inp.get("het_bins"), "missing_bins": inp.get("missing_bins"),
                         "missing_bin_fraction": inp.get("missing_bins", 0) / inp["bins"] if inp.get("bins") else None,
                         "differing_bin_fraction": diff_bins["differing_fraction"] if diff_bins else 0.0,
-                        "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(rf.curve, epochs, window, g),
-                        "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(rf.curve, epochs, fixed, g),
-                        "rmse_log10_ne_vs_exact": metrics.rmse_between(rf.curve, exact.curve, window),
+                        "called_bases": qct.get("called_bases"),
+                        "bases_per_called_bin": v.bases_per_called_bin,
+                        "scale": v.scale,
+                        "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(v.curve, epochs, window, g),
+                        "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(v.curve, epochs, fixed, g),
+                        "rmse_log10_ne_vs_exact": metrics.rmse_between(v.curve, exact.curve, window),
                         "max_abs_log10_ne_vs_exact": float(np.max(np.abs(
-                            np.log10(rf.curve.at(window)) - np.log10(exact.curve.at(window))))),
-                        "identical_to_exact": same_fit(rf.params, exact.params),
+                            np.log10(v.curve.at(window)) - np.log10(exact.curve.at(window))))),
+                        "rmse_log10_ne_vs_complete": (metrics.rmse_between(v.curve, complete_curve, window)
+                                                      if complete_curve is not None else None),
+                        "identical_to_exact": same_fit(rf.params, exact.params) and v.scale == 1.0,
                         "loglike_final": rf.params.get("final_loglike"),
                         "qc_warnings": _codes(findings, "warning"),
                         "qc_info": _codes(findings, "info"),
@@ -642,8 +716,8 @@ def report(ctx: Context) -> Dict[str, Path]:
                         "peak_rss_mb": rf.run.get("peak_rss_mb"),
                     }
                 )
-                for k, (t, y, lam, ne) in enumerate(zip(rf.fit.boundaries(), rf.curve.years, rf.fit.lambdas, rf.curve.ne)):
-                    rows["curves"].append({"mask": mask, "route": route, "replicate": r, "interval": k,
+                for k, (t, y, lam, ne) in enumerate(zip(rf.fit.boundaries(), v.curve.years, rf.fit.lambdas, v.curve.ne)):
+                    rows["curves"].append({"mask": mask, "route": v.route, "replicate": r, "interval": k,
                                            "t_2n0": t, "years": y, "lambda": lam, "ne": ne})
     rows["summary"] = summary_rows(cfg, rows["routes"], rows["bins"])
     for (mask, route), series in bias.items():
@@ -667,8 +741,10 @@ def summary_rows(cfg: config.E4, routes: List[Dict], bins: List[Dict]) -> List[D
     """One row per mask and route (Fig 5): means over replicates."""
     out = []
     for mask in mask_names(cfg):
-        for route in cfg.routes:
+        for route in table_routes(cfg):
             rs = [x for x in routes if x["mask"] == mask and x["route"] == route]
+            if not rs and route.endswith(RESCALED):
+                continue  # the route's input recorded no callable bases
             n = len(rs)
             warn_sets = [set(filter(None, x["qc_warnings"].split(";"))) for x in rs]
             info_sets = [set(filter(None, x["qc_info"].split(";"))) for x in rs]
@@ -681,6 +757,8 @@ def summary_rows(cfg: config.E4, routes: List[Dict], bins: List[Dict]) -> List[D
                     "missing_fraction_mean": _mean([x["missing_fraction"] for x in rs]),
                     "differing_bin_fraction_mean": _mean([x["differing_bin_fraction"] for x in rs]),
                     "missing_bin_fraction_mean": _mean([x["missing_bin_fraction"] for x in rs]),
+                    "bases_per_called_bin_mean": _mean([x.get("bases_per_called_bin") for x in rs]),
+                    "scale_mean": _mean([x.get("scale", 1.0) for x in rs]),
                     "theta_rel_exact_mean": _mean([x["theta_rel_exact"] for x in rs]),
                     "theta_rel_exact_sd": _sd([x["theta_rel_exact"] for x in rs]),
                     "theta_rel_complete_mean": _mean([x["theta_rel_complete"] for x in rs]),
@@ -690,6 +768,8 @@ def summary_rows(cfg: config.E4, routes: List[Dict], bins: List[Dict]) -> List[D
                     "rmse_truth_fixed_mean": _mean([x["rmse_log10_ne_vs_truth_fixed"] for x in rs]),
                     "rmse_exact_mean": _mean([x["rmse_log10_ne_vs_exact"] for x in rs]),
                     "rmse_exact_max": max((x["rmse_log10_ne_vs_exact"] for x in rs), default=None),
+                    "rmse_complete_mean": _mean([x.get("rmse_log10_ne_vs_complete") for x in rs]),
+                    "rmse_complete_sd": _sd([x.get("rmse_log10_ne_vs_complete") for x in rs]),
                     "fits_identical_to_exact": sum(1 for x in rs if x["identical_to_exact"]),
                     "qc_warnings_all": ";".join(sorted(set.intersection(*warn_sets))) if warn_sets else "",
                     "qc_warnings_any": ";".join(sorted(set.union(*warn_sets))) if warn_sets else "",
@@ -709,4 +789,7 @@ FIELDS: Dict[str, Sequence[str]] = {
 }
 
 
-__all__ = ["BIN_ROUTES", "Layout", "NAME", "ROUTES", "TABLES", "jobs", "mask_names", "report", "route_input"]
+__all__ = [
+    "BIN_ROUTES", "Layout", "NAME", "RESCALED", "ROUTES", "TABLES", "bases_per_called_bin", "jobs", "mask_names",
+    "report", "route_input", "route_variants", "table_routes",
+]

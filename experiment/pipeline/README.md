@@ -183,6 +183,18 @@ psmc-rs 0.2 and checked with `psmc-rs qc`:
 | `multihetsep` | `psmc-rs convert --multihetsep` of the exact route's input, read back by psmc-rs (uncalled sites at the start of each interval); for replicate 1 every mask's file is compared row for row with `generate_multihetsep.py --mask` run on each chromosome, and the job fails if they differ |
 | `nomask` | the same VCF without the mask: uncallable sites count as called homozygous |
 
+The routes are bin-exact, not unbiased: with fq2psmcfa's rule a bin is
+missing only when nearly all its bases are uncallable, so a dispersed mask
+leaves almost every bin called with only about (1 - f) of its bases, and
+theta per bin, N0 = theta / (4 mu s) and every time and size shrink by about
+(1 - f), as without the mask. The routes whose input records the callable
+sites (`exact` and `multihetsep`, `config.E4.rescaled_routes`) are also
+reported rescaled (`exact_rescaled`, `multihetsep_rescaled`): s is the
+callable bases per called bin (`called_bases / (bins - missing_bins)` of
+their `psmc-rs qc` JSON), and times and sizes are multiplied by 100 / s. The
+`fq2psmcfa` and `nomask` routes cannot be rescaled, since their inputs do not
+know which sites were callable.
+
 Jobs per replicate and mask: `mask` (BED, masked VCF, record), `consensus`
 (the fq2psmcfa route's psmcfa), `convert` (the exact route's bins and the
 multihetsep file), `convert/<mask>/{multihetsep,nomask}` (those routes' bins
@@ -193,8 +205,8 @@ bins of its route's psmcfa.
 
 | table | contents |
 | --- | --- |
-| `E4_summary.csv` | per mask and route (Fig 5): realised missing fraction, share of bins unlike the exact route's, theta against the exact route and against the complete data of the same genome, RMSE of log10 Ne against the truth (informative and fixed windows) and against the exact route, fits identical to the exact route's, QC codes in every / any replicate |
-| `E4_routes.csv` | per mask, route and replicate: the fit, its input as read (bins, heterozygous and missing bins), metrics, QC codes, wall time and peak RSS |
+| `E4_summary.csv` | per mask and route, rescaled routes included (Fig 5): realised missing fraction, share of bins unlike the exact route's, callable bases per called bin and the rescaling factor, theta against the exact route and against the complete data of the same genome, RMSE of log10 Ne against the truth (informative and fixed windows), against the exact route and against the complete-data fit of the same genome, fits identical to the exact route's, QC codes in every / any replicate |
+| `E4_routes.csv` | per mask, route (rescaled routes included) and replicate: the fit, its input as read (bins, heterozygous and missing bins, callable bases), metrics, QC codes, wall time and peak RSS |
 | `E4_bias.csv` | log10(fitted / true Ne) on the informative-window grid: mean, SD, min, max over replicates |
 | `E4_bins.csv` | per mask, replicate and route: the exact route's T/K/N bins against the route's (`N_T`: missing in the exact route, called in the route), bins only one has (the multihetsep tail after its last row) |
 | `E4_masks.csv` | per mask and replicate: target and realised missing fraction, uncallable runs and their mean length, heterozygous sites removed |

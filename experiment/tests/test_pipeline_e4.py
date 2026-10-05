@@ -112,6 +112,38 @@ class Summary(unittest.TestCase):
         self.assertEqual((row["qc_warnings_all"], row["qc_warnings_any"]), ("B", "A;B"))
         self.assertEqual((row["fits_identical_to_exact"], row["structure"]), (2, "none"))
 
+    def test_bases_per_called_bin_from_qc(self):
+        qc = {"totals": {"bins": 1000, "missing_bins": 10, "called_bases": 69300}}
+        self.assertAlmostEqual(e4.bases_per_called_bin(qc), 70.0)
+        self.assertIsNone(e4.bases_per_called_bin({"totals": {"bins": 1000, "missing_bins": 0, "called_bases": None}}))
+        self.assertIsNone(e4.bases_per_called_bin({"totals": {"bins": 5, "missing_bins": 5, "called_bases": 0}}))
+
+    def test_rescaled_routes_multiply_times_and_sizes_by_bin_size_over_callable_bases(self):
+        from experiment.pipeline import results
+
+        cfg = config.E4()
+        fit = results.Fit(theta=0.03, rho=0.006, t_max=15.0, n=3, lambdas=(1.0, 2.0, 0.5, 1.0))
+        qc70 = {"totals": {"bins": 100, "missing_bins": 0, "called_bases": 7000}}
+        qc_psmcfa = {"totals": {"bins": 100, "missing_bins": 0, "called_bases": None}}
+
+        def route_fit(route, qc):
+            sc = cfg.scaling
+            return e4.RouteFit("dispersed30", route, 1, {}, fit, fit.curve(sc.mu, sc.gen_years, 100), qc, {})
+
+        fits = {"exact": route_fit("exact", qc70), "fq2psmcfa": route_fit("fq2psmcfa", qc_psmcfa),
+                "multihetsep": route_fit("multihetsep", qc_psmcfa)}
+        variants = {v.route: v for v in e4.route_variants(cfg, fits)}
+        self.assertEqual(set(variants), {"exact", "fq2psmcfa", "multihetsep", "exact_rescaled"})
+        v = variants["exact_rescaled"]
+        self.assertAlmostEqual(v.scale, 100 / 70)
+        raw = fits["exact"].curve
+        for a, b in zip(v.curve.years, raw.years):
+            self.assertAlmostEqual(a, b * 100 / 70, delta=1e-9 * max(b, 1.0))
+        for a, b in zip(v.curve.ne, raw.ne):
+            self.assertAlmostEqual(a, b * 100 / 70, delta=1e-9 * b)
+        self.assertEqual(e4.table_routes(cfg), ("exact", "fq2psmcfa", "multihetsep", "nomask",
+                                                "exact_rescaled", "multihetsep_rescaled"))
+
     def test_same_fit(self):
         a = {"theta": 1.0, "rho": 0.2, "t_max": 15.0, "lam": [1, 2], "loglike": [-3.0], "n_steps": 63, "pattern": "p"}
         self.assertTrue(e4.same_fit(a, dict(a)))
@@ -163,11 +195,15 @@ class EndToEnd(unittest.TestCase):
             self.assertEqual(daemon.run(), 0, (runs / "_runner" / "runner.log").read_text()[-3000:])
             lay = e4.Layout(runs / "E4")
             summary = {(r["mask"], r["route"]): r for r in read_csv(lay.table("summary"))}
-            self.assertEqual(len(summary), 3 * 4)
+            self.assertEqual(len(summary), 3 * (4 + 2))  # 4 routes and 2 rescaled ones per mask
             for mask in ("nomissing", "clustered30", "dispersed30"):
                 self.assertEqual(summary[(mask, "fq2psmcfa")]["fits_identical_to_exact"], "1")
                 self.assertIn("VARIANTS_ONLY_NO_MASK", summary[(mask, "nomask")]["qc_warnings_all"])
             self.assertEqual(summary[("nomissing", "nomask")]["fits_identical_to_exact"], "1")
+            # The dispersed mask leaves bins called with fewer callable bases; the rescaled route knows how many.
+            self.assertLess(float(summary[("dispersed30", "exact_rescaled")]["bases_per_called_bin_mean"]), 90.0)
+            self.assertGreater(float(summary[("dispersed30", "exact_rescaled")]["scale_mean"]), 1.1)
+            self.assertAlmostEqual(float(summary[("nomissing", "exact_rescaled")]["scale_mean"]), 1.0)
             bins = {(r["mask"], r["route"]): r for r in read_csv(lay.table("bins"))}
             self.assertEqual(bins[("clustered30", "fq2psmcfa")]["bytes_identical"], "True")
             self.assertGreater(int(bins[("clustered30", "nomask")]["N_T"]), 0)

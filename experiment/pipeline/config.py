@@ -492,6 +492,18 @@ class E4:
     # multihetsep: psmc-rs convert --multihetsep (cross-checked once with generate_multihetsep.py);
     # nomask: the same VCF without the mask.
     routes: Tuple[str, ...] = ("exact", "fq2psmcfa", "multihetsep", "nomask")
+    # Routes whose input records which sites were callable (the VCF with its
+    # mask, and multihetsep's called-site counts), so that the callable bases
+    # per called bin are known. With fq2psmcfa's binning rule a bin is missing
+    # only when nearly all its bases are uncallable, so a dispersed mask
+    # leaves almost every bin called but holding only about (1 - f) of its
+    # bases: theta per bin, N0 = theta / (4 mu s) and with them every time
+    # and size shrink by about (1 - f). The tables report these routes twice:
+    # as fitted, and rescaled with s = callable bases per called bin (from
+    # psmc-rs qc) instead of the bin size ("<route>_rescaled"). The
+    # fq2psmcfa route (a psmcfa) and the nomask route (every site counted as
+    # called) cannot be rescaled: their inputs do not know the callable sites.
+    rescaled_routes: Tuple[str, ...] = ("exact", "multihetsep")
     multihetsep_crosscheck_replicates: int = 1
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1
