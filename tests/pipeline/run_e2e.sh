@@ -8,9 +8,11 @@
 #
 # VCFUTILS and FQ2PSMCFA default to vcfutils.pl and fq2psmcfa on PATH, and
 # PSMC_RS to target/release/psmc-rs. bcftools (>= 1.10), bgzip, tabix, perl
-# and python3 must be on PATH. E2E_WORK=DIR keeps the files there instead of
-# a temporary directory; E2E_BASH=PATH runs the script with that bash (for
-# example /bin/bash, macOS's bash 3.2).
+# and python3 must be on PATH. E2E_WORK=DIR works in DIR instead of a
+# temporary directory and keeps the files there: DIR must be new or empty,
+# or a directory that an earlier run made, which is emptied first.
+# E2E_BASH=PATH runs the script with that bash (for example /bin/bash,
+# macOS's bash 3.2).
 
 set -euo pipefail
 
@@ -50,8 +52,13 @@ export PSMC_RS
 
 if [ -n "${E2E_WORK:-}" ]; then
   work=$E2E_WORK
+  # Only a directory that holds the marker of an earlier run is emptied.
+  if [ -e "$work" ] && [ ! -e "$work/.run_e2e_work" ] && [ -n "$(ls -A "$work")" ]; then
+    fail "E2E_WORK=$work is not empty and was not made by run_e2e.sh; give a new or empty directory"
+  fi
   rm -rf "$work"
   mkdir -p "$work"
+  : > "$work/.run_e2e_work"
 else
   work=$(mktemp -d)
   trap 'rm -rf "$work"' EXIT
@@ -70,6 +77,16 @@ out=$work/cli
 mkdir -p "$out/fakebin"
 touch "$out/empty.bam"
 printf '>c1\nACGT\n' > "$out/tiny.fa"
+
+# E2E_WORK leaves a directory alone that this script did not make.
+mkdir -p "$out/notmine"
+echo keep > "$out/notmine/data.txt"
+s=0
+E2E_WORK=$out/notmine "$here/run_e2e.sh" > "$out/notmine.out" 2>&1 || s=$?
+[ "$s" -eq 1 ] && [ -f "$out/notmine/data.txt" ] &&
+  grep -qF "is not empty and was not made by run_e2e.sh" "$out/notmine.out" ||
+  fail "E2E_WORK on a directory of other files: exit $s, $(cat "$out/notmine.out")"
+ok "E2E_WORK refuses a non-empty directory that run_e2e.sh did not make"
 
 run_script --help > "$out/help.txt" || fail "--help"
 grep -q '^Usage: ' "$out/help.txt" || fail "--help prints no usage"

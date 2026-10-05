@@ -15,8 +15,10 @@ It needs bcftools (1.10 or later), bgzip, tabix, perl and python3 on `PATH`;
 `vcfutils.pl` (shipped with bcftools, as `misc/vcfutils.pl` in its sources and
 in `/usr/bin` of Debian's and Ubuntu's package) and `fq2psmcfa` (built from
 `utils/fq2psmcfa.c` of lh3/psmc) default to the copies on `PATH`, and
-psmc-rs to `target/release/psmc-rs` (`PSMC_RS`). `E2E_WORK=DIR` keeps the
-files in DIR; `E2E_BASH=/bin/bash` runs the script with macOS's bash 3.2. It
+psmc-rs to `target/release/psmc-rs` (`PSMC_RS`). `E2E_WORK=DIR` works in DIR
+and keeps the files there; DIR must be new or empty, or a directory that an
+earlier run made (it holds a `.run_e2e_work` marker), which is emptied
+first. `E2E_BASH=/bin/bash` runs the script with macOS's bash 3.2. It
 takes about half a minute.
 
 | File | What it is |
@@ -42,6 +44,8 @@ of bases at quality 10, and 0.3% sequencing errors.
 
 ## What is checked
 
+- The test itself: `E2E_WORK` pointing at a directory of other files stops
+  it, and the files stay.
 - The command line: `--help`, usage errors (exit 2), a missing input, a
   bcftools older than 1.10 and a psmc-rs older than 0.2.0 (fake binaries),
   unknown or repeated `--chroms` names, and `--chroms` from a BED file with
