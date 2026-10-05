@@ -45,6 +45,8 @@ iterations, 78 jobs in about 15 s) in `experiment/.runs-smoke/`;
 | `figures/e4.py` | Fig 5, from E4's tables |
 | `experiments/e5.py` | E5 as jobs, and its tables |
 | `figures/e5.py` | Fig 6, from E5's tables |
+| `experiments/fig.py` | the figures as runner jobs (experiment `FIG`) |
+| `figures/` | the manuscript's figures: style, table schemas, one module per figure ([README](figures/README.md)) |
 
 ## Design
 
@@ -317,6 +319,14 @@ experiment/.venv/bin/python -m experiment.pipeline start E5 --keep-awake
 `--profile smoke` runs E5 with 8 genomes of 2 x 2 Mb, the first 3
 bootstrapped with 8 replicates at trunks of 5,000 and 2,000 bins (8 and 20
 trunks), 3 EM iterations, in about 10 seconds.
+
+## Figures
+
+`FIG` draws each figure as a runner job after the tables it reads, into
+`runs/<experiment>/figures/<name>.{pdf,svg,png}`; `python -m
+experiment.pipeline.figures` draws them directly. The style, the tables
+each figure reads and the production run are in
+[figures/README.md](figures/README.md).
 
 ## Tools
 

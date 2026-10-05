@@ -224,6 +224,18 @@ class SchemasAndStandIns(unittest.TestCase):
             fake.write_all(paths.RUNS, config.SMOKE, ["E3"])
 
 
+class Readme(unittest.TestCase):
+    def test_lists_every_table_and_column(self):
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        text = (ROOT / "experiment" / "pipeline" / "figures" / "README.md").read_text()
+        for s in SCHEMAS.values():
+            rows = [line for line in text.splitlines() if line.startswith(f"| `{s.experiment}/tables/{s.file}`")]
+            self.assertEqual(len(rows), 1, s.file)
+            for col in s.names:
+                self.assertIn(f"`{col}`", rows[0], f"{s.file}: {col}")
+
+
 class FiguresConfig(unittest.TestCase):
     def test_settings(self):
         f = config.FIGURES
