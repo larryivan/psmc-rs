@@ -430,8 +430,9 @@ pub struct InputOptions {
     /// VCF: how to read it (default [`VcfMode::Auto`]).
     pub vcf_mode: VcfMode,
     /// VCF mask mode: the sample to read ([`VcfOptions::sample`]). Consensus
-    /// mode reads INFO only, but a name that the header lacks is still an
-    /// error.
+    /// mode reads only INFO, which bcftools computes over all samples, so it
+    /// cannot select a sample: there a VCF with several samples is an error,
+    /// and so is a name that the header lacks.
     pub sample: Option<String>,
     /// VCF: callable masks ([`VcfOptions::masks`]); in consensus mode they
     /// are an optional extra filter.
@@ -960,6 +961,31 @@ fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)
     Ok((raw, summary))
 }
 
+/// Why consensus mode refuses a VCF with several `samples`; `selected` is
+/// the sample asked for, if any.
+fn pooled_samples_message(samples: &[String], selected: Option<&str>) -> String {
+    let shown = samples
+        .iter()
+        .take(5)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = if samples.len() > 5 { ", ..." } else { "" };
+    let selected = selected
+        .map(|name| format!(" (it cannot read sample '{name}' alone)"))
+        .unwrap_or_default();
+    format!(
+        "the VCF has {} samples ({shown}{more}), but consensus mode, like vcfutils.pl vcf2fq, \
+         reads only the INFO fields FQ, AF1, DP and MQ, which bcftools computes over all \
+         samples together, so it would bin a consensus of the pooled samples, in which any \
+         site that segregates among them looks heterozygous{selected}. Call the sample on its \
+         own (bcftools mpileup with only its alignments, or with -s NAME, then bcftools call \
+         -c), or read that sample's genotypes in mask mode (--vcf-mode mask --vcf-sample NAME) \
+         with a callable mask (--vcf-mask)",
+        samples.len()
+    )
+}
+
 fn load_vcf(
     mut input: Input,
     path: &Path,
@@ -982,11 +1008,17 @@ fn load_vcf(
         },
     };
     if choice.mode == VcfMode::Consensus {
-        if let Some(name) = &opts.sample {
-            let samples = input.vcf_samples(path)?.unwrap_or_default();
-            if !samples.iter().any(|s| s == name) {
-                bail!("VCF sample '{name}' not found in header");
-            }
+        let samples = input.vcf_samples(path)?.unwrap_or_default();
+        if let Some(name) = &opts.sample
+            && !samples.iter().any(|s| s == name)
+        {
+            bail!("VCF sample '{name}' not found in header");
+        }
+        if samples.len() > 1 {
+            bail!(
+                "{}",
+                pooled_samples_message(&samples, opts.sample.as_deref())
+            );
         }
         let copts = ConsensusOptions {
             bin_size: opts.bin_size,

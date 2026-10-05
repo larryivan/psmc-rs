@@ -257,11 +257,12 @@ fn random_vcf(rng: &mut Rng, o: &Opts) -> String {
         big_d: o.big_d,
         q_mq: o.q_mq,
     };
+    // One sample: the loader refuses a VCF with several in consensus mode,
+    // since vcf2fq would pool them (tests/io_input.rs checks that).
     let mut out = String::from("##fileformat=VCFv4.2\n##source=fuzz\n");
-    let samples = if rng.chance(0.1) { "s1\ts2" } else { "s1" };
     writeln!(
         out,
-        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{samples}"
+        "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1"
     )
     .unwrap();
     let n_chroms = if rng.chance(0.02) { 0 } else { rng.range(1, 4) };

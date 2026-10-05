@@ -502,6 +502,73 @@ fn forced_modes_are_reported() {
 }
 
 #[test]
+fn consensus_mode_refuses_a_vcf_with_several_samples() {
+    // A joint `bcftools call -c` of two samples: INFO pools them.
+    let two: String = call_c_vcf("c", 50, 5, 20)
+        .lines()
+        .map(|l| match l {
+            l if l.starts_with("##") => format!("{l}\n"),
+            l if l.starts_with('#') => format!("{l}\ts2\n"),
+            l => format!("{l}\t0/0\n"),
+        })
+        .collect();
+    let vcf = TempFile::new("two_samples", "vcf", &two);
+    let refused = |opts: &InputOptions| {
+        let msg = format!("{:#}", load(&vcf.0, opts).unwrap_err());
+        assert!(
+            msg.contains("2 samples (s1, s2)")
+                && msg.contains("pooled")
+                && msg.contains("--vcf-mode mask --vcf-sample"),
+            "{msg}"
+        );
+        msg
+    };
+    // Detected or requested, with or without a sample name.
+    refused(&InputOptions::default());
+    refused(&vcf_opts(VcfMode::Consensus));
+    let msg = refused(&InputOptions {
+        sample: Some("s2".to_string()),
+        ..InputOptions::default()
+    });
+    assert!(msg.contains("cannot read sample 's2' alone"), "{msg}");
+    // A name the header lacks is still reported as such.
+    let err = load(
+        &vcf.0,
+        &InputOptions {
+            sample: Some("nobody".to_string()),
+            ..InputOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(format!("{err:#}").contains("'nobody' not found"), "{err:#}");
+
+    // Mask mode reads the genotypes of the sample asked for.
+    let data = load(
+        &vcf.0,
+        &InputOptions {
+            sample: Some("s2".to_string()),
+            filter: SeqFilter::DISABLED,
+            ..vcf_opts(VcfMode::Mask)
+        },
+    )
+    .unwrap();
+    assert_eq!(data.het_bins(), 0);
+    // So does consensus mode for a one-sample VCF named on the command line.
+    let one = TempFile::new("one_sample", "vcf", &call_c_vcf("c", 50, 5, 20));
+    let data = load(
+        &one.0,
+        &InputOptions {
+            sample: Some("s1".to_string()),
+            filter: SeqFilter::DISABLED,
+            bin_size: 5,
+            ..InputOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(data.het_bins(), 10);
+}
+
+#[test]
 fn the_output_filter_follows_fq2psmcfa() {
     let f = SeqFilter::default();
     assert_eq!((f.min_good_bases, f.min_good_fraction), (10_000, 0.2));
