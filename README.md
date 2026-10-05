@@ -177,7 +177,8 @@ columns are BED (`chrom start end`, 0-based, end-exclusive); rows of exactly
 two columns are `start end`, 1-based inclusive, and apply to every
 chromosome. **A variants-only VCF needs a mask**: without one, every
 position the caller could not call counts as homozygous, which hides the
-missing data and biases θ and Ne low. QC then reports
+missing data and pulls θ and Ne down, while false heterozygous calls in
+repeats that a mask would remove push them up. QC then reports
 `VARIANTS_ONLY_NO_MASK`.
 
 **Mode detection** (`--vcf-mode auto`, the default) looks at the first

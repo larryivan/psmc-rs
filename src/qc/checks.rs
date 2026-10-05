@@ -89,9 +89,11 @@ pub enum QcCode {
     /// called homozygous site. A variants-only VCF (the GATK and bcftools
     /// default) has no records for positions that could not be called (no or
     /// low coverage, low mapping quality, repeats), so all of them count as
-    /// homozygous: missing data disappear, the `K` fraction is diluted, and
-    /// θ and Ne come out too low, while uncalled stretches look like long
-    /// runs of recent common ancestry.
+    /// homozygous: missing data disappear, the `K` fraction is diluted, which
+    /// pulls θ and Ne down, and uncalled stretches look like long runs of
+    /// recent common ancestry. A callable mask would also exclude repeats and
+    /// collapsed duplications, whose false heterozygous calls push θ up, so
+    /// the net bias has no fixed direction.
     VariantsOnlyNoMask,
     /// Much of the input is missing: more than [`HIGH_MISSING_WARN_FRACTION`]
     /// (warning) or [`HIGH_MISSING_INFO_FRACTION`] (info) of the bins are
@@ -527,8 +529,10 @@ fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> 
         format!(
             "The VCF was read without a callable-sites mask, so every position without a \
              record counted as a called homozygous site ({} of bins are missing). In a \
-             variants-only VCF that hides every uncalled position: theta ({}) and Ne are \
-             biased low, and uncalled stretches look like recent common ancestry.",
+             variants-only VCF that hides every uncalled position, which pulls theta ({}) \
+             and Ne down and makes uncalled stretches look like recent common ancestry; \
+             meanwhile false heterozygous calls in repeats and collapsed duplications, which \
+             a callable mask would exclude, push them up. The net bias has no fixed direction.",
             pct(report.totals.missing_fraction),
             report
                 .totals
