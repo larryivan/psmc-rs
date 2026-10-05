@@ -7,8 +7,150 @@ use std::path::{Path, PathBuf};
 
 use psmc_rs::io::consensus::LossReason;
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
+use psmc_rs::qc::{
+    ConsensusStats, DepthStats, DroppedSequences, FilterCount, QcContext, QcInput, QcReport, QcSeq,
+    try_analyze,
+};
 
 use crate::cli::FormatArg;
+
+/// The input format as QC and the report name it, with the VCF mode.
+pub fn format_label(data: &Dataset) -> String {
+    match &data.source {
+        SourceSummary::Vcf(v) => format!("vcf ({} mode)", v.mode.mode.name()),
+        s => s.format().name().to_string(),
+    }
+}
+
+/// Input QC of a loaded dataset. `bootstrap_trunk` is the bootstrap trunk
+/// size in bins (0 without a bootstrap) and `free_lambdas` the number of
+/// free lambdas of the model to fit, when known.
+pub fn qc_report(
+    data: &Dataset,
+    bin_size: usize,
+    bootstrap_trunk: usize,
+    free_lambdas: Option<usize>,
+) -> Result<QcReport> {
+    let seqs: Vec<QcSeq> = data
+        .seqs
+        .iter()
+        .map(|s| QcSeq {
+            extent_bases: s.extent,
+            called_bases: s.called,
+            het_sites: s.het_sites,
+            ..QcSeq::new(s.name.clone(), s.n_bins)
+        })
+        .collect();
+    let mut context = QcContext {
+        input_format: Some(format_label(data)),
+        free_lambdas,
+        dropped: dropped_groups(data),
+        ..QcContext::default()
+    };
+    let u32_of = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
+    match &data.source {
+        SourceSummary::Psmcfa(_) => {}
+        SourceSummary::Mhs(_) => context.approximate_missing_placement = true,
+        SourceSummary::Vcf(v) => match &v.details {
+            VcfDetails::Consensus(c) => {
+                context.consensus = Some(ConsensusStats {
+                    depth: DepthStats {
+                        mean: c.depth.mean,
+                        median: c.depth.median,
+                        min_depth: Some(u32_of(c.min_depth)),
+                        max_depth: Some(u32_of(c.max_depth)),
+                        histogram: c.depth.histogram.clone(),
+                    },
+                    total_bases: c.bases,
+                    // Positions without a record are missing data, which
+                    // HIGH_MISSING covers, rather than a filter.
+                    filters: LossReason::ALL
+                        .iter()
+                        .filter(|&&r| r != LossReason::NoRecord)
+                        .map(|&r| FilterCount {
+                            name: r.label().to_string(),
+                            bases: c.lost.get(r),
+                        })
+                        .collect(),
+                });
+            }
+            VcfDetails::Mask(m) => {
+                context.variants_only_no_mask = !m.positive_mask;
+                if m.depth.records > 0 {
+                    context.consensus = Some(ConsensusStats {
+                        depth: DepthStats {
+                            mean: m.depth.mean,
+                            median: m.depth.median,
+                            min_depth: None,
+                            max_depth: None,
+                            histogram: m.depth.histogram.clone(),
+                        },
+                        total_bases: m.sites,
+                        filters: Vec::new(),
+                    });
+                }
+            }
+        },
+    }
+    try_analyze(&QcInput {
+        rows: &data.obs.rows,
+        row_starts: &data.obs.row_starts,
+        seqs: &seqs,
+        bin_size,
+        bootstrap_trunk_bins: bootstrap_trunk,
+        context,
+    })
+}
+
+/// The dropped sequences of `data`, counted by reason.
+fn dropped_groups(data: &Dataset) -> Vec<DroppedSequences> {
+    let mut empty = (0, 0);
+    let mut filtered = (0, 0);
+    for d in &data.dropped {
+        let group = match d.reason {
+            DropReason::Empty => &mut empty,
+            DropReason::Filter { .. } => &mut filtered,
+        };
+        group.0 += 1;
+        group.1 += d.extent.unwrap_or(0);
+    }
+    let mut out = Vec::new();
+    if empty.0 > 0 {
+        out.push(DroppedSequences {
+            reason: "without any bin".to_string(),
+            count: empty.0,
+            bases: None,
+        });
+    }
+    if let (true, Some(f)) = (filtered.0 > 0, &data.filter) {
+        out.push(DroppedSequences {
+            reason: format!(
+                "dropped by the output filter (--min-good-bases {}, --min-good-fraction {})",
+                f.min_good_bases, f.min_good_fraction
+            ),
+            count: filtered.0,
+            bases: Some(filtered.1),
+        });
+    }
+    out
+}
+
+/// The loader's warnings that QC does not repeat: without a callable mask,
+/// QC's VARIANTS_ONLY_NO_MASK replaces the mask-mode reader's warning.
+pub fn loader_warnings(data: &Dataset, qc: Option<&QcReport>) -> Vec<String> {
+    let mut out = data.warnings();
+    if let (Some(qc), SourceSummary::Vcf(v)) = (qc, &data.source)
+        && let VcfDetails::Mask(m) = &v.details
+        && !m.positive_mask
+        && qc
+            .finding(psmc_rs::qc::QcCode::VariantsOnlyNoMask)
+            .is_some()
+        && let Some(no_mask) = m.warnings().first()
+    {
+        out.retain(|w| w != no_mask);
+    }
+    out
+}
 
 /// Whether the file name of `path` has an extension of `fmt` input (any
 /// supported extension for auto).

@@ -56,6 +56,15 @@ impl Console {
                 }
             }
             Event::Warning(line) => self.eprint(&format!("Warning: {line}")),
+            Event::Qc { text, warnings } => {
+                if self.quiet {
+                    for w in warnings {
+                        self.eprint(&format!("Warning: {w}"));
+                    }
+                } else {
+                    self.eprint(text.trim_end());
+                }
+            }
             Event::Output(line) => match &self.bars {
                 Some(b) => b.multi.suspend(|| println!("{line}")),
                 None => println!("{line}"),

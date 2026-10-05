@@ -18,14 +18,17 @@ use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{Cancelled, EStepPhase, write_tmrca_posterior_tsv};
 use psmc_rs::io::Observations;
 use psmc_rs::io::input::{Dataset, SourceSummary};
-use psmc_rs::io::params::load_params;
+use psmc_rs::io::params::{InputSummary, RunMetadata, load_params, save_params};
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::psmc_out::{PsmcRunInfo, c_pattern, psmc_rounds, write_psmc};
+use psmc_rs::qc::{QcReport, Severity, render_text};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
 use crate::cli::{Cli, model_layout};
-use crate::dataset::{describe, ensure_usable, load_input, resolve_input_path};
+use crate::dataset::{
+    describe, ensure_usable, load_input, loader_warnings, qc_report, resolve_input_path,
+};
 
 /// A stage of the pipeline with a progress count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +54,9 @@ pub enum Event {
     Warning(String),
     /// A result: the final log-likelihood or an output written.
     Output(String),
+    /// The input QC report as text, and its warnings one per line (shown
+    /// instead of the text when messages are hidden).
+    Qc { text: String, warnings: Vec<String> },
     /// EM iteration `iter` of `total` starts.
     Iteration { iter: usize, total: usize },
     /// Progress of a stage; `iter` is the EM iteration of E- and M-steps.
@@ -184,7 +190,38 @@ fn infer(
     }
     let data = read_input(&input_file, cli, sink)?;
     let obs = &data.obs;
-    let format_name = data.source.format().name();
+
+    // Input QC, printed before the fit. A QC error is only reported, so
+    // that it never stops a fit.
+    let free_lambdas = match &saved {
+        Some(model) => model.lam.len(),
+        None => PsmcModel::new(15.0, n_steps, 1.0, 1.0, 1.0, pattern.clone())?
+            .lam
+            .len(),
+    };
+    let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
+    let qc = if obs.rows.is_empty() {
+        None
+    } else {
+        match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas)) {
+            Ok(report) => Some(report),
+            Err(e) => {
+                sink(Event::Warning(format!("input QC failed: {e:#}")));
+                None
+            }
+        }
+    };
+    for line in loader_warnings(&data, qc.as_ref()) {
+        sink(Event::Warning(line));
+    }
+    if let Some(report) = &qc {
+        sink(qc_event(report));
+        if let Some(path) = &cli.qc_json {
+            write_qc_json(path, report)?;
+            sink(Event::Output(format!("QC report: {}", path.display())));
+        }
+    }
+    ensure_usable(&data)?;
 
     // A bootstrap that cannot vary fails before the main fit, not after.
     let boot_seqs = match &bootstrap {
@@ -231,17 +268,18 @@ fn infer(
         }
     };
     let (theta0, rho0) = (model.theta, model.rho);
+    let tr_ratio = theta0 / rho0;
     sink(Event::Info(format!(
         "Model: pattern {}, {} intervals, {} free lambdas; start theta0 {theta0:.6}, rho0 \
          {rho0:.6} (theta0/rho0 {}), t_max {}",
         model.pattern.as_deref().unwrap_or("none"),
         model.n_steps + 1,
         model.lam.len(),
-        theta0 / rho0,
+        tr_ratio,
         model.t_max
     )));
     // The replicates start where the main fit started, as C psmc -b does.
-    let start = (model.t_max, model.theta / model.rho);
+    let start = (model.t_max, tr_ratio);
 
     let mstep_config = MStepConfig {
         max_iters: cli.mstep_iters,
@@ -261,6 +299,27 @@ fn infer(
     }
     check_cancel(cancel)?;
 
+    // The main fit's outputs are written before the bootstrap, which can
+    // take far longer.
+    let input_summary = InputSummary::of(&data);
+    let mut params = model.params_file();
+    params.run = RunMetadata {
+        version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        n_iter: Some(n_iter),
+        final_loglike,
+        loglike: Some(loglike_path(&history)),
+        bin_size: Some(cli.input.bin_size),
+        gen_years: Some(cli.gen_years),
+        tr_ratio: Some(tr_ratio),
+        smooth_lambda: Some(cli.smooth_lambda),
+        input: Some(input_summary.clone()),
+        qc: qc.as_ref().map(QcReport::summary),
+    };
+    save_params(&output_file, &params)?;
+    sink(Event::Output(format!(
+        "Parameters: {}",
+        output_file.display()
+    )));
     if let Some(path) = &cli.psmc_out {
         write_main_psmc(path, &model, &history, &data)?;
         sink(Event::Output(format!("PSMC output: {}", path.display())));
@@ -316,20 +375,32 @@ fn infer(
         tmrca_report_data = Some(tmrca);
     }
 
-    model.save_params(&output_file)?;
-
     let report_html = default_html_path(&output_file);
+    let mut settings = vec![
+        ("Starting theta0/rho0".to_string(), format!("{tr_ratio}")),
+        (
+            "Smoothness penalty".to_string(),
+            format!("{}", cli.smooth_lambda),
+        ),
+        (
+            "M-step iterations (at most)".to_string(),
+            cli.mstep_iters.to_string(),
+        ),
+    ];
+    if let Some(path) = &cli.init_params {
+        settings.push(("Started from".to_string(), path.display().to_string()));
+    }
     let report = ReportData {
         model: &model,
         bin_size,
         gen_years: cli.gen_years,
         input_file: &input_file,
         output_json: &output_file,
-        input: None,
+        input: Some(&input_summary),
         n_iter,
         final_loglike,
-        settings: vec![("Input format".to_string(), format_name.to_string())],
-        qc: None,
+        settings,
+        qc: qc.as_ref(),
         bootstrap: boot_summary.as_ref().zip(bootstrap.as_ref()).map(
             |((summary, trunks), plan)| BootstrapReport {
                 summary,
@@ -380,8 +451,38 @@ fn saved_start(path: &Path, cli: &Cli) -> Result<PsmcModel> {
     Ok(model)
 }
 
-/// Read the input as `cli` says, report how it was read, and check that it
-/// can be fitted.
+/// The log-likelihood after each number of EM iterations, from the start
+/// (0) to the end ([`RunMetadata::loglike`]).
+fn loglike_path(history: &EmHistory) -> Vec<f64> {
+    let mut path: Vec<f64> = history.loglike.iter().map(|&(before, _)| before).collect();
+    path.extend(history.final_loglike());
+    path
+}
+
+/// The QC report as an event: its text, and its warnings for `--quiet`.
+pub fn qc_event(report: &QcReport) -> Event {
+    Event::Qc {
+        text: render_text(report),
+        warnings: report
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .map(|f| format!("QC {}: {}", f.code.as_str(), f.message))
+            .collect(),
+    }
+}
+
+/// Write `report` as JSON to `path`, or to stdout for `-`.
+pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
+    let json = report.to_json() + "\n";
+    if path == Path::new("-") {
+        print!("{json}");
+        return Ok(());
+    }
+    fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))
+}
+
+/// Read the input as `cli` says and report how it was read.
 fn read_input(path: &Path, cli: &Cli, sink: Sink) -> Result<Dataset> {
     let io_total = fs::metadata(path).map(|m| m.len()).unwrap_or(1);
     let io_progress = |done| Event::Progress {
@@ -396,10 +497,6 @@ fn read_input(path: &Path, cli: &Cli, sink: Sink) -> Result<Dataset> {
     for line in describe(&data) {
         sink(Event::Info(line));
     }
-    for line in data.warnings() {
-        sink(Event::Warning(line));
-    }
-    ensure_usable(&data)?;
     Ok(data)
 }
 

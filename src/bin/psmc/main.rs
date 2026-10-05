@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     if cli.tui {
         return tui::run_tui(&cli);
     }
-    let console = Console::new(false, !cli.no_progress);
+    let console = Console::new(cli.quiet, !cli.no_progress);
     let never = AtomicBool::new(false);
     let result = run::run_inference(&cli, &never, &|ev| console.emit(ev), !cli.no_progress);
     console.finish();

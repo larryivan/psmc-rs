@@ -712,6 +712,11 @@ fn handle_pipeline_event(app: &mut App, ev: Event) {
     match ev {
         Event::Info(line) | Event::Output(line) => app.append_log(line),
         Event::Warning(line) => app.append_log(format!("Warning: {line}")),
+        Event::Qc { text, .. } => {
+            for line in text.lines() {
+                app.append_log(line.to_string());
+            }
+        }
         Event::Iteration { iter, total } => app.append_log(format!("EM iteration {iter}/{total}")),
         Event::Progress {
             stage,

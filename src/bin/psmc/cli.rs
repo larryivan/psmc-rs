@@ -475,8 +475,18 @@ pub struct Cli {
     #[arg(long, value_name = "DIR", help_heading = "Bootstrap")]
     pub bootstrap_dir: Option<PathBuf>,
 
+    /// Do not draw progress bars
     #[arg(long)]
     pub no_progress: bool,
+
+    /// Print only results and warnings: no input description, model
+    /// summary or QC report (QC warnings are still listed)
+    #[arg(long, short = 'q')]
+    pub quiet: bool,
+
+    /// Write the input QC report as JSON ('-' for stdout)
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
+    pub qc_json: Option<PathBuf>,
 
     /// Also write C psmc's .psmc output (rounds 0 to N_ITER), for
     /// psmc_plot.pl and other tools made for C psmc
@@ -572,6 +582,10 @@ impl Cli {
         }
         if let Some(v) = &self.psmc_out {
             args.push("--psmc-out".to_string());
+            args.push(v.display().to_string());
+        }
+        if let Some(v) = &self.qc_json {
+            args.push("--qc-json".to_string());
             args.push(v.display().to_string());
         }
         args.push("--no-progress".to_string());

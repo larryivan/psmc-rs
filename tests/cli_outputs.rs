@@ -335,4 +335,207 @@ fn generation_time_scales_the_time_axis() {
         }
         assert_eq!(a[4..], b[4..]);
     }
+    assert_eq!(fit25["gen_years"], 25.0);
+    assert_eq!(fit50["gen_years"], 50.0);
+}
+
+/// The output JSON records how the fit was made, next to the model.
+#[test]
+fn the_output_json_records_the_run() {
+    let dir = TempDir::new("metadata");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 4000);
+    let psmc = dir.path("fit.psmc");
+    let qc_json = dir.path("qc.json");
+    let out = fit(
+        &dir,
+        &input,
+        "fit",
+        3,
+        &[
+            "--psmc-out",
+            psmc.to_str().unwrap(),
+            "--qc-json",
+            qc_json.to_str().unwrap(),
+            "--bin-size",
+            "50",
+        ],
+    );
+    let v = json(&out);
+    assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(v["n_iter"], 3);
+    assert_eq!(v["bin_size"], 50);
+    assert_eq!(v["gen_years"], 25.0);
+    assert_eq!(v["tr_ratio"], 4.0);
+    assert_eq!(v["smooth_lambda"], 0.0);
+    let loglike: Vec<f64> = serde_json::from_value(v["loglike"].clone()).unwrap();
+    assert_eq!(loglike.len(), 4);
+    assert_eq!(v["final_loglike"].as_f64().unwrap(), loglike[3]);
+    // The .psmc rounds give the log-likelihood of each E-step's parameters.
+    let rounds = parse_rounds(&fs::read_to_string(&psmc).unwrap());
+    for (round, ll) in rounds[1..].iter().zip(&loglike) {
+        assert!((round.lk - ll).abs() < 1e-6, "{} vs {ll}", round.lk);
+    }
+
+    let text = fs::read_to_string(&input).unwrap();
+    let bins: Vec<char> = text
+        .lines()
+        .filter(|l| !l.starts_with('>'))
+        .flat_map(str::chars)
+        .collect();
+    let count = |c: char| bins.iter().filter(|&&b| b == c).count();
+    let input_summary = &v["input"];
+    assert_eq!(input_summary["format"], "psmcfa");
+    assert!(input_summary.get("vcf_mode").is_none());
+    assert_eq!(input_summary["sequences"], 3);
+    assert_eq!(input_summary["bins"], bins.len());
+    assert_eq!(input_summary["het_bins"], count('K'));
+    assert_eq!(input_summary["missing_bins"], count('N'));
+    assert_eq!(input_summary["dropped_sequences"], 0);
+
+    // The QC summary lists the codes of the full report.
+    let qc = json(&qc_json);
+    let codes = |severity: &str| -> Vec<serde_json::Value> {
+        qc["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["severity"] == severity)
+            .map(|f| f["code"].clone())
+            .collect()
+    };
+    assert_eq!(v["qc"]["warnings"].as_array().unwrap(), &codes("warning"));
+    assert_eq!(v["qc"]["notes"].as_array().unwrap(), &codes("info"));
+    assert!(codes("warning").contains(&"TOO_SHORT".into()));
+    assert_eq!(v["qc"]["bins"], qc["totals"]["bins"]);
+    assert_eq!(qc["bin_size"], 50);
+
+    let html = fs::read_to_string(out.with_extension("html")).unwrap();
+    assert!(html.contains("<h2>Input QC</h2>"));
+    assert!(html.contains("<code>TOO_SHORT</code>"));
+    assert!(html.contains("<tr><th>Starting theta0/rho0</th><td>4</td></tr>"));
+}
+
+/// "Last EM loglike" after N iterations is the log-likelihood of the
+/// parameters written, which C psmc prints as the LK of round N + 1 (the
+/// E-step of the next iteration); psmc-rs 0.1 printed round N's. The JSON's
+/// `loglike[i]` is the value after i iterations, C's LK of round i + 1.
+#[test]
+fn last_em_loglike_is_c_psmcs_next_round() {
+    let dir = TempDir::new("loglike_convention");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 3000);
+    let fit_n = |n: usize| -> (f64, serde_json::Value, Vec<common::psmc_text::Round>) {
+        let psmc = dir.path(&format!("n{n}.psmc"));
+        let out = dir.path(&format!("n{n}.json"));
+        let stdout = run_ok([
+            input.to_str().unwrap(),
+            out.to_str().unwrap(),
+            &n.to_string(),
+            "--no-progress",
+            "--psmc-out",
+            psmc.to_str().unwrap(),
+        ]);
+        let last = stdout
+            .lines()
+            .find_map(|l| l.strip_prefix("Last EM loglike: "))
+            .unwrap();
+        (
+            last.parse().unwrap(),
+            json(&out),
+            parse_rounds(&fs::read_to_string(&psmc).unwrap()),
+        )
+    };
+    let (two, two_json, _) = fit_n(2);
+    let (_, _, three_rounds) = fit_n(3);
+    // The .psmc prints LK with 6 decimals.
+    assert!((two - three_rounds[3].lk).abs() < 1e-6, "{two} vs RD 3");
+    assert!((two - three_rounds[2].lk).abs() > 1e-3, "not RD 2");
+    let loglike: Vec<f64> = serde_json::from_value(two_json["loglike"].clone()).unwrap();
+    assert_eq!(loglike[2], two);
+    for i in 0..2 {
+        assert!(
+            (loglike[i] - three_rounds[i + 1].lk).abs() < 1e-6,
+            "loglike[{i}]"
+        );
+    }
+}
+
+/// The QC report goes to stderr before the fit; --quiet leaves only the
+/// results and the warnings.
+#[test]
+fn qc_text_is_printed_unless_quiet() {
+    let dir = TempDir::new("quiet");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let run = |extra: &[&str]| {
+        let mut args = vec![
+            input.display().to_string(),
+            dir.path("fit.json").display().to_string(),
+            "1".to_string(),
+            "--no-progress".to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let out = common::run(&args);
+        assert!(out.status.success());
+        (
+            String::from_utf8(out.stdout).unwrap(),
+            String::from_utf8(out.stderr).unwrap(),
+        )
+    };
+    let (stdout, stderr) = run(&[]);
+    assert!(stdout.contains("Last EM loglike: "), "{stdout}");
+    assert!(
+        stderr.contains("Input QC (psmcfa): 3 sequences"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("WARNING  TOO_SHORT"), "{stderr}");
+    assert!(stderr.contains("Model: pattern 4+5*3+4"), "{stderr}");
+
+    let (quiet_out, quiet_err) = run(&["--quiet"]);
+    assert_eq!(quiet_out, stdout);
+    assert!(!quiet_err.contains("Input QC"), "{quiet_err}");
+    assert!(!quiet_err.contains("Model:"), "{quiet_err}");
+    assert!(
+        quiet_err.contains("Warning: QC TOO_SHORT: Only "),
+        "{quiet_err}"
+    );
+}
+
+/// A VCF read without a callable mask gets one warning about it, from QC.
+#[test]
+fn the_missing_mask_warning_is_given_once() {
+    let dir = TempDir::new("no_mask");
+    let vcf = dir.path("in.vcf");
+    fs::write(
+        &vcf,
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+         chr1\t20\t.\tA\tC\t.\tPASS\t.\tGT\t0/1\nchr1\t24\t.\tA\tC\t.\tPASS\t.\tGT\t1/0\n",
+    )
+    .unwrap();
+    let out = common::run([
+        vcf.to_str().unwrap(),
+        dir.path("fit.json").to_str().unwrap(),
+        "0",
+        "--bin-size",
+        "4",
+        "--min-good-bases",
+        "0",
+        "--no-progress",
+    ]);
+    assert!(out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("VARIANTS_ONLY_NO_MASK"), "{stderr}");
+    assert!(
+        !stderr.contains("no callable mask (--vcf-mask) was given"),
+        "{stderr}"
+    );
+    let v = json(&dir.path("fit.json"));
+    assert_eq!(v["input"]["vcf_mode"], "mask");
+    assert!(
+        v["qc"]["warnings"]
+            .as_array()
+            .unwrap()
+            .contains(&"VARIANTS_ONLY_NO_MASK".into())
+    );
 }
