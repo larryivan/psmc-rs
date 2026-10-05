@@ -858,3 +858,37 @@ __all__ = [
     "REAL_GENOMES", "RealGenome", "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation",
     "SizeChange", "TimeGrid", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
 ]
+
+# ---------------------------------------------------------------------------
+# 8. Figures (experiment/pipeline/figures): what the figures show. Their
+#    style (type, sizes, colours) is in figures/style.py; the tables they
+#    read are described in figures/schemas.py. No result depends on these.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Figures:
+    """Choices of the figures that are not style: grids, axis ranges, examples."""
+
+    # Replicate curves are summarised (medians, percentile bands) at this many
+    # log-spaced times across the axis.
+    curve_grid_points: int = 600
+    # Time axis (years) of the Ne(t) panels of simulations (Fig 2, 5, 6, S2):
+    # the fitted curves of every model start after 1 ky and the informative
+    # windows end before 2.5 My (see TimeGrid).
+    sim_years: Tuple[float, float] = (1e3, 1e7)
+    # Fig 5: the replicate whose curves are shown, the mask of the example
+    # panel, and the masks whose bias over time is shown.
+    e4_example_replicate: int = 1
+    e4_example_mask: str = "dispersed30"
+    e4_bias_masks: Tuple[str, ...] = ("clustered30", "dispersed30")
+    # Fig 6: the bootstrapped dataset shown with its bands.
+    e5_example_dataset: int = 1
+    # Runner jobs (scheduling only): one figure takes seconds and well under 1 GB.
+    job_seconds: float = 20.0
+    job_gb: float = 1.0
+
+
+FIGURES = Figures()
+
+__all__ += ["FIGURES", "Figures"]
