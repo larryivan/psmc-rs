@@ -4,8 +4,8 @@ For every genome of :class:`.config.E2` (three turtle assemblies and the
 chromosome 1 of a Papuan Highlands human, which is not a whole genome) the
 runner fits the packaged psmcfa (``experiment/real_data``) with C psmc and
 with psmc-rs 0.2 (the identical file and settings), fits psmc-rs's
-C-compatible bootstrap, runs ``psmc-rs qc``, and then writes the tables.
-Layout under ``<runs>/E2/``::
+C-compatible bootstrap, runs ``psmc-rs qc``, and then writes the tables and
+Figure 3. Layout under ``<runs>/E2/``::
 
     fits/<sample>.c.psmc                          C psmc, every round
     fits/<sample>.rs.json, <sample>.rs.psmc       psmc-rs 0.2, one thread (JSON and .psmc)
@@ -15,12 +15,13 @@ Layout under ``<runs>/E2/``::
     inputs/<sample>.psmcfa                        smoke and tiny profiles only: the first bins (not committed)
     provenance/<kind>/<sample>.json               one record per job
     tables/E2_*.csv                               written by ``report E2``
+    figures/E2_fig3_real_genomes.{pdf,png}        Figure 3, drawn from the tables
     logs/                                         runner and job logs (not committed)
 
 Jobs per genome: ``fit-c`` (C psmc), ``fit-rs`` (psmc-rs 0.2), ``boot-rs``
 (psmc-rs 0.2 with ``--bootstrap``) and ``qc`` (``psmc-rs qc --json``, with
 the bootstrap's trunk size), plus ``subset`` when the profile fits only the
-first bins of each genome; then ``report``.
+first bins of each genome; then ``report`` and ``figure``.
 
 **Settings.** Both tools fit with the psmc README's human recipe
 (``-N25 -t15 -r5 -p "4+25*2+4+6"``; :class:`.config.Inference`). Curves are
@@ -95,6 +96,9 @@ from .e1 import write_csv
 NAME = "E2"
 TOOLS = ("c", "rs")
 MODULE = "experiment.pipeline.experiments.e2"
+FIGURE_MODULE = "experiment.pipeline.figures.fig3_real_genomes"
+FIGURE_STEM = "E2_fig3_real_genomes"
+FIGURE_FORMATS = ("pdf", "png")
 TABLES = {
     "fit_summary": "E2_fit_summary.csv",
     "pairs": "E2_rs_vs_c.csv",
@@ -106,6 +110,7 @@ TABLES = {
     "qc": "E2_qc.csv",
     "qc_findings": "E2_qc_findings.csv",
 }
+FIGURE_TABLES = ("fit_summary", "pairs", "bootstrap", "bands", "curves")
 SUMMARY_PROBS = (0.025, 0.5, 0.975)  # the quantiles of psmc-rs's summary.json
 
 
@@ -250,6 +255,9 @@ class Layout:
 
     def table(self, key: str) -> Path:
         return self.root / "tables" / TABLES[key]
+
+    def figure(self, ext: str) -> Path:
+        return self.root / "figures" / f"{FIGURE_STEM}.{ext}"
 
 
 def job_id(kind: str, sid: str) -> str:
@@ -411,6 +419,25 @@ def jobs(ctx: Context) -> List[Job]:
                 ["experiments/e2.py", "experiments/e1.py", "results.py", "metrics.py", "demography.py"], ["numpy"]
             )},
             description="E2 tables",
+        )
+    )
+    order = [sid for sid in cfg.panel_order if sid in {g.sample_id for g in cfg.genomes}]
+    order += [g.sample_id for g in cfg.genomes if g.sample_id not in order]
+    out.append(
+        Job(
+            id=f"{NAME}/figure",
+            command=[
+                paths.python(), "-m", FIGURE_MODULE, "--tables", str(lay.root / "tables"),
+                "--out", str(lay.root / "figures" / FIGURE_STEM), "--order", ",".join(order),
+                "--formats", ",".join(FIGURE_FORMATS),
+            ],
+            inputs=[lay.table(k) for k in FIGURE_TABLES],
+            outputs=[lay.figure(ext) for ext in FIGURE_FORMATS],
+            mem_gb=costs.report_gb,
+            est_seconds=costs.report_s,
+            settings={"order": order, "formats": list(FIGURE_FORMATS)},
+            tools={"pipeline": provenance.python_identity(["figures/fig3_real_genomes.py"], ["matplotlib", "numpy"])},
+            description="Figure 3",
         )
     )
     return out

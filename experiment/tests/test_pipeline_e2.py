@@ -25,6 +25,7 @@ C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
 FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
 FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
 HAS_NUMPY = importlib.util.find_spec("numpy") is not None
+HAS_MPL = importlib.util.find_spec("matplotlib") is not None
 HAS_PSUTIL = importlib.util.find_spec("psutil") is not None
 
 
@@ -73,10 +74,11 @@ class Jobs(unittest.TestCase):
         self.jobs = e2.jobs(fake_ctx(config.PRODUCTION, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
 
-    def test_four_jobs_per_genome_then_report(self):
-        self.assertEqual(len(self.jobs), 4 * 4 + 1)
+    def test_four_jobs_per_genome_then_report_and_figure(self):
+        self.assertEqual(len(self.jobs), 4 * 4 + 2)
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E2/fit-c/Papuan"], [])  # reads the packaged file
+        self.assertEqual(g.deps["E2/figure"], ["E2/report"])
         report = set(g.deps["E2/report"])
         self.assertEqual(report, {j.id for j in self.jobs if j.id.split("/")[1] in ("fit-c", "fit-rs", "boot-rs", "qc")})
 
@@ -338,6 +340,27 @@ class Tables(unittest.TestCase):
         curves = read_csv(self.lay.table("curves"))
         self.assertEqual(len(curves), 2 * 2 * 64)
 
+    @unittest.skipUnless(HAS_MPL, "matplotlib not installed")
+    def test_figure_is_drawn_from_the_tables(self):
+        from experiment.pipeline.figures import fig3_real_genomes as fig3
+
+        panels = fig3.load_panels(self.lay.root / "tables")
+        self.assertEqual(set(panels), {"Papuan", "HLhydTec1"})
+        self.assertIn("chr1 only", fig3.title(panels["Papuan"]))
+        out = self.runs / "fig" / "fig3"
+        written = fig3.render(panels, ["Papuan", "HLhydTec1"], out, ["pdf", "png"])
+        self.assertEqual([p.name for p in written], ["fig3.pdf", "fig3.png"])
+        self.assertTrue(all(p.stat().st_size > 1000 for p in written))
+        first = written[0].read_bytes()
+        fig3.render(panels, ["Papuan", "HLhydTec1"], out, ["pdf"])
+        self.assertEqual(written[0].read_bytes(), first)  # no creation date: same bytes
+
+    def test_step_curve_is_cut_to_the_range(self):
+        from experiment.pipeline.figures import fig3_real_genomes as fig3
+
+        xs, ys = fig3.step_xy([0.0, 10.0, 100.0, 1000.0], [1.0, 2.0, 3.0, 4.0], 50.0, 500.0)
+        self.assertEqual((xs, ys), ([50.0, 100.0, 500.0], [2.0, 3.0, 3.0]))
+
 
 def in_git_work_tree() -> bool:
     if shutil.which("git") is None:
@@ -363,6 +386,8 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E2/provenance/fit-c/HLemySub1.json",
             "experiment/runs/E2/provenance/report.json",
             "experiment/runs/E2/tables/E2_bootstrap_replicates.csv",
+            "experiment/runs/E2/figures/E2_fig3_real_genomes.pdf",
+            "experiment/runs/E2/figures/E2_fig3_real_genomes.png",
         ):
             self.assertFalse(ignored(p), p)
 
@@ -387,9 +412,9 @@ def tools_present() -> bool:
     return tools.rs02_binary().exists()
 
 
-@unittest.skipUnless(HAS_NUMPY and HAS_PSUTIL and tools_present(), "needs numpy, psutil, C psmc and psmc-rs")
+@unittest.skipUnless(HAS_NUMPY and HAS_MPL and HAS_PSUTIL and tools_present(), "needs numpy, matplotlib, psutil, C psmc and psmc-rs")
 class EndToEnd(unittest.TestCase):
-    """The tiny profile through the runner: prefixes, both tools, bootstrap, qc and tables."""
+    """The tiny profile through the runner: prefixes, both tools, bootstrap, qc, tables and Figure 3."""
 
     def test_tiny_profile(self):
         with tempfile.TemporaryDirectory() as d:
@@ -408,6 +433,7 @@ class EndToEnd(unittest.TestCase):
             for sid, row in boot.items():
                 self.assertLess(float(row["summary_max_rel_diff"]), 1e-9, sid)
                 self.assertEqual(int(row["trunks"]), 4, sid)  # 20,000 bins in trunks of 5,000
+            self.assertTrue(all(lay.figure(ext).exists() for ext in e2.FIGURE_FORMATS))
             again = runner.job_statuses(graph, runs, daemon_pid=None)
             self.assertTrue(all(s.state == runner.DONE for s in again))
 
