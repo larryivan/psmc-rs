@@ -177,7 +177,7 @@ Reproduction package (`experiment/`):
   for bootstraps of fewer than 20 trunks; a single-trunk bootstrap is an
   error before fitting.
 - Input from pipes and FIFOs (the file is read once; only `--depth auto`
-  needs a regular file), and a directory as INPUT.
+  needs a regular file).
 - TUI: the stop key interrupts EM and the bootstrap mid-step, the form has
   a generation-time field and shows the equivalent command line.
 - Library: `io::input::load` and `Dataset` (one loader for every format),

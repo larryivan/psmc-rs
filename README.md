@@ -88,8 +88,10 @@ from its magic bytes, and every member of a bgzip file is read).
 a `##` or `#CHROM` line makes it VCF; other `#` lines and blank lines are
 skipped; then a line starting with `>` or `@` means psmcfa, a line of at
 least 8 tab-separated fields a VCF without header, and anything else
-multihetsep. A directory as INPUT stands for its first file, by name, ending
-in `.psmcfa`, `.vcf`, `.mhs` or `.multihetsep` (each optionally `.gz`).
+multihetsep. For inference (not `convert` or `qc`), INPUT may also be a
+directory: it stands for its first file, by name, ending in `.psmcfa`,
+`.vcf`, `.mhs` or `.multihetsep` (each optionally `.gz`), or only in the
+extensions of `--input-format` when that is set.
 
 `--bin-size` (default 100, `fq2psmcfa -s`) is the number of bases per bin. It
 bins VCF and multihetsep input, and scales time and Ne for every format, so
