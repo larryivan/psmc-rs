@@ -3,7 +3,9 @@
 //! `vcfutils.pl vcf2fq | fq2psmcfa` with several option sets, and SNP calls
 //! with callable masks through `generate_multihetsep.py`; and a 250x
 //! chromosome called with `bcftools call -c -A` (tests/data/route_a_keep_alts).
-//! The loader and the writers must reproduce them byte for byte.
+//! The loader and the writers must reproduce them byte for byte, and the
+//! loader's callable bases per bin must be the good bases `fq2psmcfa` reads
+//! in vcf2fq's FASTQ.
 
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{
@@ -165,6 +167,126 @@ fn consensus_mode_reproduces_vcf2fq_and_fq2psmcfa() {
         let expected_names: Vec<&str> = records.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, expected_names, "{}", set.name);
     }
+}
+
+/// The records of vcf2fq's FASTQ: name, bases and quality characters.
+fn read_fastq(bytes: &[u8]) -> Vec<(String, Vec<u8>, Vec<u8>)> {
+    let text = std::str::from_utf8(bytes).expect("vcf2fq writes ASCII");
+    let mut lines = text.lines();
+    let mut out = Vec::new();
+    while let Some(header) = lines.next() {
+        let name = header.strip_prefix('@').expect("a FASTQ header");
+        let mut seq = Vec::new();
+        for line in lines.by_ref() {
+            if line == "+" {
+                break;
+            }
+            seq.extend_from_slice(line.as_bytes());
+        }
+        // Quality lines may start with '@' or '+', so they are read by length.
+        let mut qual = Vec::new();
+        while qual.len() < seq.len() {
+            qual.extend_from_slice(lines.next().expect("a quality line").as_bytes());
+        }
+        assert_eq!(qual.len(), seq.len(), "{name}");
+        out.push((name.to_string(), seq, qual));
+    }
+    out
+}
+
+/// What `fq2psmcfa -q min_qual` reads at one base of vcf2fq's FASTQ:
+/// `Some(true)` for a heterozygous base (the IUPAC code of two bases),
+/// `Some(false)` for a called homozygous one, `None` for a missing one (`N`,
+/// or lowercase, which a quality below `min_qual` makes it).
+fn fq2psmcfa_base(base: u8, qual: u8, min_qual: u64) -> Option<bool> {
+    let base = if u64::from(qual - 33) < min_qual {
+        base.to_ascii_lowercase()
+    } else {
+        base
+    };
+    match base {
+        b'A' | b'C' | b'G' | b'T' => Some(false),
+        b'M' | b'R' | b'W' | b'S' | b'Y' | b'K' => Some(true),
+        b'N' => None,
+        b if b.is_ascii_lowercase() => None,
+        b => panic!("unexpected base '{}' in vcf2fq output", b as char),
+    }
+}
+
+/// `fq2psmcfa -s s`'s bins of one sequence of bases read by
+/// [`fq2psmcfa_base`], and each bin's callable bases: `s` minus its missing
+/// bases (a last bin shorter than `s` is judged against the full `s`).
+fn bin_bases(bases: &[Option<bool>], s: usize) -> (Vec<u8>, Vec<u32>) {
+    bases
+        .chunks(s)
+        .map(|block| {
+            let missing = block.iter().filter(|b| b.is_none()).count();
+            let symbol = if 10 * missing > 9 * s {
+                2
+            } else {
+                u8::from(block.contains(&Some(true)))
+            };
+            (symbol, u32::try_from(s - missing).unwrap())
+        })
+        .unzip()
+}
+
+#[test]
+fn consensus_mode_counts_the_good_bases_of_vcf2fq_output() {
+    let mut checked_against_fq2psmcfa = 0;
+    for set in option_sets() {
+        let s = OptionSet::get(&set.fq2psmcfa, 's', 100) as usize;
+        let min_qual = OptionSet::get(&set.fq2psmcfa, 'q', 10);
+        let fastq = read_fastq(&read_bytes(&fixture(&format!(
+            "expected/{}.fq.gz",
+            set.name
+        ))));
+        let expected = parse_psmcfa(read_bytes(&set.expected_path()).as_slice()).unwrap();
+        // Every sequence, not only those fq2psmcfa's output filter keeps.
+        let opts = InputOptions {
+            filter: SeqFilter::DISABLED,
+            ..set.input_options()
+        };
+        let data =
+            load(&fixture(&set.input), &opts).unwrap_or_else(|e| panic!("{}: {e:#}", set.name));
+        let callable = data.sequence_callable().expect("consensus mode counts");
+        assert_eq!(data.obs.callable.as_ref().unwrap().bin_size(), s);
+        assert_eq!(data.seqs.len(), fastq.len(), "{}", set.name);
+        for (((info, bins), counts), (name, seq, qual)) in
+            data.sequences().iter().zip(&callable).zip(&fastq)
+        {
+            let ctx = format!("{} {name}", set.name);
+            assert_eq!(&info.name, name, "{ctx}");
+            let bases: Vec<Option<bool>> = seq
+                .iter()
+                .zip(qual)
+                .map(|(&b, &q)| fq2psmcfa_base(b, q, min_qual))
+                .collect();
+            let (want_bins, want_counts) = bin_bases(&bases, s);
+            assert_eq!(**bins, want_bins, "{ctx}: bins");
+            assert_eq!(**counts, want_counts, "{ctx}: callable bases");
+            let good = bases.iter().filter(|b| b.is_some()).count() as u64;
+            assert_eq!(info.called, Some(good), "{ctx}");
+            // Where fq2psmcfa kept the sequence, the bins counted from the
+            // FASTQ are its output.
+            if let Some(r) = expected.iter().find(|r| r.name == *name) {
+                assert_eq!(r.seq, want_bins, "{ctx}: fq2psmcfa's bins");
+                checked_against_fq2psmcfa += 1;
+            }
+        }
+        // Every sequence fq2psmcfa wrote was compared.
+        assert!(
+            expected
+                .iter()
+                .all(|r| fastq.iter().any(|(name, ..)| *name == r.name)),
+            "{}",
+            set.name
+        );
+    }
+    assert!(
+        checked_against_fq2psmcfa >= 8,
+        "{checked_against_fq2psmcfa}"
+    );
 }
 
 #[test]

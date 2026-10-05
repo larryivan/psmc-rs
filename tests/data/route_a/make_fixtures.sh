@@ -43,10 +43,12 @@ bcftools view --no-version -t chr3 "$work/allsites_raw.vcf.gz" 2>/dev/null \
   | gzip -9n > allsites_chr3_unmodified.vcf.gz
 
 # 3. vcf2fq | fq2psmcfa with several option sets: name, vcf2fq options,
-#    fq2psmcfa options, input.
+#    fq2psmcfa options, input. vcf2fq's FASTQ is kept too, for the
+#    callable bases of each bin.
 run() {
   local name=$1 v=$2 f=$3 vcf=$4
   gzip -dc "$vcf" | perl "$VCFUTILS" vcf2fq $v > "$work/$name.fq"
+  gzip -9n -c "$work/$name.fq" > "expected/$name.fq.gz"
   "$FQ2PSMCFA" $f "$work/$name.fq" > "expected/$name.psmcfa"
   printf '%s\tvcf2fq %s\tfq2psmcfa %s\t%s\n' "$name" "$v" "$f" "$vcf" >> expected/option_sets.tsv
 }

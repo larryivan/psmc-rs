@@ -16,6 +16,7 @@ tests can check psmc-rs against them without the tools installed.
 | `snps_phased.vcf.gz` | The same, with the heterozygous genotypes written as phased, `0\|1` and `1\|0` in turn. |
 | `masks/mask_<chrom>.bed.gz` | Callable sites per chromosome, as `bamCaller.py` defines them: one-base ACGT REF, ALT one of `ACGTacgt.`, mean/2 <= DP <= 2*mean, MQ >= 20, \|FQ\| >= 20 (from `allsites.vcf.gz`). |
 | `expected/<name>.psmcfa[.gz]` | `vcfutils.pl vcf2fq ... \| fq2psmcfa ...` for each row of `expected/option_sets.tsv`. |
+| `expected/<name>.fq.gz` | The FASTQ `vcfutils.pl vcf2fq ...` writes for each row, which `fq2psmcfa` reads: the tests count the callable bases of each bin from it. |
 | `expected/option_sets.tsv` | The option sets: name, vcf2fq options, fq2psmcfa options, input. |
 | `expected/auto_depth.tsv` | Mean INFO/DP over vcf2fq's SNP/reference records and the derived bounds `max(1, round(mean/3))`, `round(2*mean)`, used by the `auto` row. |
 | `expected/<vcf>.<chrom>.multihetsep` | `generate_multihetsep.py --mask masks/mask_<chrom>.bed.gz <vcf>.<chrom>.vcf.gz`, one chromosome per run (the script assumes it). |
@@ -78,4 +79,7 @@ the lh3/psmc 0.6.5-r74 sources also used for `tests/data/c_reference`,
 `generate_multihetsep.py` from msmc-tools, perl 5.34.1 and Python 3.14.6;
 `expected/versions.txt` has the checksums of the three scripts and binary. The
 simulation uses only `random.Random` with a fixed seed, whose sequence is
-stable across Python 3 releases.
+stable across Python 3 releases. The `.fq.gz` files were added later, by the
+same commands with the same `vcfutils.pl` (its checksum matches
+`versions.txt`) and perl; `tests/io_route_a.rs` checks that binning them
+gives the `fq2psmcfa` output above, bin for bin.
