@@ -1,6 +1,8 @@
+//! The interactive terminal UI (`--tui`): a form for the main settings, live
+//! progress of the shared inference pipeline, and the results.
+
 use anyhow::{Context, Result, anyhow, bail};
-use clap::{Parser, ValueEnum};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{self, Event as TermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -9,7 +11,6 @@ use ratatui::prelude::*;
 use ratatui::widgets::{
     Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Tabs, Wrap,
 };
-use rayon::prelude::*;
 use std::collections::VecDeque;
 use std::fs;
 use std::io;
@@ -21,22 +22,10 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use psmc_rs::bootstrap::{
-    default_bootstrap_dir, new_rng, replicate_json_path, rows_to_sequences,
-    sample_sequences_block_bootstrap, sequences_to_observations, summarize_bootstrap_models,
-    write_bootstrap_summary_json, write_bootstrap_summary_tsv,
-};
-use psmc_rs::hmm::EStepPhase;
-use psmc_rs::hmm::write_tmrca_posterior_tsv;
-use psmc_rs::io::mhs::read_mhs;
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::io::vcf::read_vcf;
-use psmc_rs::opt::{
-    EmProgressEvent, MStepConfig, bounds_from_config, em_train, em_train_with_progress,
-};
-use psmc_rs::progress;
-use psmc_rs::report::{default_html_path, write_html_report};
-use psmc_rs::{PsmcModel, initial_theta};
+use psmc_rs::hmm::Cancelled;
+
+use crate::cli::{Cli, InputFormat};
+use crate::run::{self, Event, RunSummary, Stage, is_supported_input_file};
 
 const MAX_LOG_LINES: usize = 3_000;
 
@@ -50,139 +39,6 @@ const FIELD_INPUT_FORMAT: usize = 6;
 const FIELD_MHS_BIN_SIZE: usize = 7;
 const FIELD_MU: usize = 8;
 const FIELD_SMOOTH_LAMBDA: usize = 9;
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
-enum InputFormat {
-    Psmcfa,
-    Mhs,
-    Vcf,
-}
-
-#[derive(Parser, Debug, Clone)]
-#[command(name = "psmc-rs")]
-#[command(about = "PSMC in Rust", long_about = None)]
-struct Cli {
-    #[arg(long, help = "Launch interactive TUI")]
-    tui: bool,
-
-    #[arg(required_unless_present = "tui")]
-    input_file: Option<PathBuf>,
-
-    #[arg(required_unless_present = "tui")]
-    output_file: Option<PathBuf>,
-
-    #[arg(required_unless_present = "tui")]
-    n_iter: Option<usize>,
-
-    #[arg(
-        long,
-        help = "Number of worker threads for E-step (multi-sequence) and bootstrap"
-    )]
-    threads: Option<usize>,
-
-    #[arg(long, value_enum, default_value_t = InputFormat::Psmcfa)]
-    input_format: InputFormat,
-
-    #[arg(long, default_value_t = 100)]
-    mhs_bin_size: usize,
-
-    #[arg(
-        long,
-        help = "Sample name in VCF (required if VCF has multiple samples)"
-    )]
-    vcf_sample: Option<String>,
-
-    #[arg(
-        long = "vcf-mask",
-        help = "Callable mask BED path for VCF->MHS semantics (can be repeated)"
-    )]
-    vcf_mask: Vec<PathBuf>,
-
-    #[arg(
-        long = "vcf-negative-mask",
-        help = "Negative mask BED path for VCF->MHS semantics (can be repeated)"
-    )]
-    vcf_negative_mask: Vec<PathBuf>,
-
-    #[arg(long, default_value_t = 15.0)]
-    t_max: f64,
-
-    #[arg(long, default_value_t = 64)]
-    n_steps: usize,
-
-    #[arg(long)]
-    theta0: Option<f64>,
-
-    #[arg(long)]
-    rho0: Option<f64>,
-
-    #[arg(long)]
-    pattern: Option<String>,
-
-    #[arg(
-        long,
-        help = "Split long inputs into chunks for memory control; chunks remain connected in one HMM chain"
-    )]
-    batch_size: Option<usize>,
-
-    #[arg(long, default_value_t = 2.5e-8)]
-    mu: f64,
-
-    #[arg(long)]
-    mstep_iters: Option<usize>,
-
-    #[arg(
-        long,
-        default_value_t = 1e-3,
-        help = "M-step smoothness penalty on log-lambda differences"
-    )]
-    smooth_lambda: f64,
-
-    #[arg(
-        long,
-        default_value_t = 0,
-        help = "Number of block-bootstrap replicates (0 disables bootstrap)"
-    )]
-    bootstrap: usize,
-
-    #[arg(long, default_value_t = 50_000, help = "Bootstrap block size in bins")]
-    bootstrap_block_size: usize,
-
-    #[arg(
-        long,
-        default_value_t = 42,
-        help = "Random seed for bootstrap resampling"
-    )]
-    bootstrap_seed: u64,
-
-    #[arg(
-        long,
-        help = "EM iterations for each bootstrap replicate (default: same as N_ITER)"
-    )]
-    bootstrap_iters: Option<usize>,
-
-    #[arg(
-        long,
-        help = "Directory for bootstrap replicate JSON files and summary outputs"
-    )]
-    bootstrap_dir: Option<PathBuf>,
-
-    #[arg(long)]
-    no_progress: bool,
-
-    #[arg(
-        long,
-        help = "Write per-bin TMRCA posterior TSV and add TMRCA charts into HTML report"
-    )]
-    tmrca_out: Option<PathBuf>,
-
-    #[arg(
-        long,
-        default_value_t = 25.0,
-        help = "Generation time (years) used for TMRCA scaling"
-    )]
-    tmrca_gen_years: f64,
-}
 
 #[derive(Clone)]
 struct FormField {
@@ -198,55 +54,44 @@ enum TuiPage {
     Result,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StageKind {
-    Io,
-    EForward,
-    EBackward,
-    MStep,
-    Bootstrap,
-}
-
-impl StageKind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Io => "IO",
-            Self::EForward => "E-forward",
-            Self::EBackward => "E-backward",
-            Self::MStep => "M-step",
-            Self::Bootstrap => "Bootstrap",
-        }
-    }
-
-    fn unit(self) -> &'static str {
-        match self {
-            Self::Io => "B/s",
-            Self::EForward | Self::EBackward => "sites/s",
-            Self::MStep => "iter/s",
-            Self::Bootstrap => "rep/s",
-        }
+fn stage_label(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Io => "IO",
+        Stage::EForward => "E-forward",
+        Stage::EBackward => "E-backward",
+        Stage::MStep => "M-step",
+        Stage::Bootstrap => "Bootstrap",
     }
 }
 
-const STAGE_ORDER: [StageKind; 5] = [
-    StageKind::Io,
-    StageKind::EForward,
-    StageKind::EBackward,
-    StageKind::MStep,
-    StageKind::Bootstrap,
+fn stage_unit(stage: Stage) -> &'static str {
+    match stage {
+        Stage::Io => "B/s",
+        Stage::EForward | Stage::EBackward => "sites/s",
+        Stage::MStep => "iter/s",
+        Stage::Bootstrap => "rep/s",
+    }
+}
+
+const STAGE_ORDER: [Stage; 5] = [
+    Stage::Io,
+    Stage::EForward,
+    Stage::EBackward,
+    Stage::MStep,
+    Stage::Bootstrap,
 ];
 
-fn stage_idx(stage: StageKind) -> usize {
+fn stage_idx(stage: Stage) -> usize {
     match stage {
-        StageKind::Io => 0,
-        StageKind::EForward => 1,
-        StageKind::EBackward => 2,
-        StageKind::MStep => 3,
-        StageKind::Bootstrap => 4,
+        Stage::Io => 0,
+        Stage::EForward => 1,
+        Stage::EBackward => 2,
+        Stage::MStep => 3,
+        Stage::Bootstrap => 4,
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct StageSnapshot {
     done: u64,
     total: u64,
@@ -255,39 +100,20 @@ struct StageSnapshot {
     updated_at: Option<Instant>,
 }
 
-impl Default for StageSnapshot {
-    fn default() -> Self {
-        Self {
-            done: 0,
-            total: 0,
-            iter: None,
-            started_at: None,
-            updated_at: None,
-        }
-    }
-}
-
+/// A finished run, as the result page shows it.
 #[derive(Debug, Clone)]
-struct RunSummary {
-    output_json: PathBuf,
-    html_report: PathBuf,
-    tmrca_out: Option<PathBuf>,
-    bootstrap_dir: Option<PathBuf>,
-    last_loglike: Option<f64>,
+struct Finished {
+    summary: RunSummary,
     elapsed_sec: f64,
 }
 
-#[derive(Debug, Clone)]
+/// What the worker thread of a run sends to the UI.
+#[derive(Debug)]
 enum RunnerEvent {
-    Log(String),
-    Stage {
-        stage: StageKind,
-        done: u64,
-        total: u64,
-        iter: Option<(usize, usize)>,
-    },
-    Completed(RunSummary),
+    Pipeline(Event),
+    Completed(Finished),
     Failed(String),
+    Cancelled,
 }
 
 struct RunningTask {
@@ -339,7 +165,7 @@ struct App {
     manual_scroll: u16,
     running: Option<RunningTask>,
     stages: Vec<StageSnapshot>,
-    result: Option<RunSummary>,
+    result: Option<Finished>,
     picker: Option<FilePicker>,
 }
 
@@ -512,13 +338,7 @@ impl App {
         }
     }
 
-    fn update_stage(
-        &mut self,
-        stage: StageKind,
-        done: u64,
-        total: u64,
-        iter: Option<(usize, usize)>,
-    ) {
+    fn update_stage(&mut self, stage: Stage, done: u64, total: u64, iter: Option<(usize, usize)>) {
         let now = Instant::now();
         let idx = stage_idx(stage);
         let snap = &mut self.stages[idx];
@@ -616,23 +436,6 @@ fn parse_input_format_field(v: &str) -> Result<InputFormat> {
     }
 }
 
-fn is_supported_input_file(path: &Path, fmt: InputFormat) -> bool {
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    match fmt {
-        InputFormat::Psmcfa => name.ends_with(".psmcfa") || name.ends_with(".psmcfa.gz"),
-        InputFormat::Mhs => {
-            name.ends_with(".mhs")
-                || name.ends_with(".mhs.gz")
-                || name.ends_with(".multihetsep")
-                || name.ends_with(".multihetsep.gz")
-        }
-        InputFormat::Vcf => name.ends_with(".vcf") || name.ends_with(".vcf.gz"),
-    }
-}
-
 fn build_cli_from_form(app: &App) -> Result<Cli> {
     let input = parse_non_empty_str("Input", app.field_value(FIELD_INPUT))?;
     let output = parse_non_empty_str("Output", app.field_value(FIELD_OUTPUT))?;
@@ -667,66 +470,6 @@ fn build_cli_from_form(app: &App) -> Result<Cli> {
     Ok(cli)
 }
 
-fn cli_to_args(cli: &Cli) -> Vec<String> {
-    let mut args = Vec::new();
-    if let Some(v) = &cli.input_file {
-        args.push(v.display().to_string());
-    }
-    if let Some(v) = &cli.output_file {
-        args.push(v.display().to_string());
-    }
-    if let Some(v) = cli.n_iter {
-        args.push(v.to_string());
-    }
-    args.push("--input-format".to_string());
-    args.push(
-        match cli.input_format {
-            InputFormat::Psmcfa => "psmcfa",
-            InputFormat::Mhs => "mhs",
-            InputFormat::Vcf => "vcf",
-        }
-        .to_string(),
-    );
-    if matches!(cli.input_format, InputFormat::Mhs | InputFormat::Vcf) {
-        args.push("--mhs-bin-size".to_string());
-        args.push(cli.mhs_bin_size.to_string());
-    }
-    if let Some(sample) = &cli.vcf_sample {
-        args.push("--vcf-sample".to_string());
-        args.push(sample.clone());
-    }
-    for p in &cli.vcf_mask {
-        args.push("--vcf-mask".to_string());
-        args.push(p.display().to_string());
-    }
-    for p in &cli.vcf_negative_mask {
-        args.push("--vcf-negative-mask".to_string());
-        args.push(p.display().to_string());
-    }
-    if let Some(v) = &cli.pattern {
-        args.push("--pattern".to_string());
-        args.push(v.clone());
-    }
-    if let Some(v) = cli.batch_size {
-        args.push("--batch-size".to_string());
-        args.push(v.to_string());
-    }
-    if let Some(v) = cli.threads {
-        args.push("--threads".to_string());
-        args.push(v.to_string());
-    }
-    args.push("--mu".to_string());
-    args.push(cli.mu.to_string());
-    args.push("--smooth-lambda".to_string());
-    args.push(cli.smooth_lambda.to_string());
-    if cli.bootstrap > 0 {
-        args.push("--bootstrap".to_string());
-        args.push(cli.bootstrap.to_string());
-    }
-    args.push("--no-progress".to_string());
-    args
-}
-
 fn infer_picker_dir(raw_path: &str) -> PathBuf {
     let trimmed = raw_path.trim();
     if trimmed.is_empty() {
@@ -742,10 +485,10 @@ fn infer_picker_dir(raw_path: &str) -> PathBuf {
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
     }
-    if let Some(parent) = p.parent() {
-        if parent.exists() {
-            return parent.to_path_buf();
-        }
+    if let Some(parent) = p.parent()
+        && parent.exists()
+    {
+        return parent.to_path_buf();
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
@@ -804,36 +547,6 @@ fn refresh_picker_entries(picker: &mut FilePicker) -> Result<()> {
     picker.entries = entries;
     picker.selected = picker.selected.min(picker.entries.len().saturating_sub(1));
     Ok(())
-}
-
-fn pick_supported_file_from_dir(dir: &Path, fmt: InputFormat) -> Result<PathBuf> {
-    let mut files = Vec::<PathBuf>::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
-        let entry = entry?;
-        let p = entry.path();
-        if !p.is_file() {
-            continue;
-        }
-        if is_supported_input_file(&p, fmt) {
-            files.push(p);
-        }
-    }
-    files.sort();
-    files.into_iter().next().ok_or_else(|| {
-        anyhow!(
-            "directory {} does not contain a supported {:?} input file",
-            dir.display(),
-            fmt
-        )
-    })
-}
-
-fn resolve_input_path(path: &Path, fmt: InputFormat) -> Result<PathBuf> {
-    if path.is_dir() {
-        pick_supported_file_from_dir(path, fmt)
-    } else {
-        Ok(path.to_path_buf())
-    }
 }
 
 fn apply_picker_selection(app: &mut App) -> Result<()> {
@@ -951,7 +664,7 @@ fn fmt_rate(rate: f64, unit: &str) -> String {
 
 fn preview_cmdline(app: &App) -> String {
     match build_cli_from_form(app) {
-        Ok(cli) => format!("{} {}", app.self_bin.display(), cli_to_args(&cli).join(" ")),
+        Ok(cli) => format!("{} {}", app.self_bin.display(), cli.to_args().join(" ")),
         Err(e) => format!("Invalid config: {e}"),
     }
 }
@@ -966,16 +679,10 @@ fn poll_runner(app: &mut App) {
     let mut done = false;
     for ev in events {
         match ev {
-            RunnerEvent::Log(line) => app.append_log(line),
-            RunnerEvent::Stage {
-                stage,
-                done: stage_done,
-                total,
-                iter,
-            } => app.update_stage(stage, stage_done, total, iter),
-            RunnerEvent::Completed(summary) => {
-                app.status = format!("Done in {:.1}s", summary.elapsed_sec);
-                app.result = Some(summary);
+            RunnerEvent::Pipeline(ev) => handle_pipeline_event(app, ev),
+            RunnerEvent::Completed(finished) => {
+                app.status = format!("Done in {:.1}s", finished.elapsed_sec);
+                app.result = Some(finished);
                 app.page = TuiPage::Result;
                 done = true;
             }
@@ -984,12 +691,31 @@ fn poll_runner(app: &mut App) {
                 app.append_log(format!("Run failed: {err}"));
                 done = true;
             }
+            RunnerEvent::Cancelled => {
+                app.status = "Cancelled".to_string();
+                app.append_log("Run cancelled by user.");
+                done = true;
+            }
         }
     }
-    if done {
-        if let Some(task) = app.running.take() {
-            let _ = task.handle.join();
-        }
+    if done && let Some(task) = app.running.take() {
+        let _ = task.handle.join();
+    }
+}
+
+/// Show an event of the pipeline: messages in the log, progress in the
+/// stage gauges.
+fn handle_pipeline_event(app: &mut App, ev: Event) {
+    match ev {
+        Event::Info(line) | Event::Output(line) => app.append_log(line),
+        Event::Warning(line) => app.append_log(format!("Warning: {line}")),
+        Event::Iteration { iter, total } => app.append_log(format!("EM iteration {iter}/{total}")),
+        Event::Progress {
+            stage,
+            done,
+            total,
+            iter,
+        } => app.update_stage(stage, done, total, iter),
     }
 }
 
@@ -997,8 +723,8 @@ fn start_run(app: &mut App) -> Result<()> {
     if app.running.is_some() {
         return Ok(());
     }
-    let mut cli = build_cli_from_form(app)?;
-    let cmdline = format!("{} {}", app.self_bin.display(), cli_to_args(&cli).join(" "));
+    let cli = build_cli_from_form(app)?;
+    let cmdline = format!("{} {}", app.self_bin.display(), cli.to_args().join(" "));
     app.append_log(format!("$ {cmdline}"));
     app.reset_stages();
     app.result = None;
@@ -1011,19 +737,18 @@ fn start_run(app: &mut App) -> Result<()> {
 
     let handle = thread::spawn(move || {
         let started = Instant::now();
-        cli.no_progress = true;
-        let mut send = |ev: RunnerEvent| {
-            let _ = tx.send(ev);
+        let sink = |ev: Event| {
+            let _ = tx.send(RunnerEvent::Pipeline(ev));
         };
-        match run_inference_with_events(cli, &stop_worker, &mut send) {
-            Ok(mut summary) => {
-                summary.elapsed_sec = started.elapsed().as_secs_f64();
-                let _ = tx.send(RunnerEvent::Completed(summary));
-            }
-            Err(e) => {
-                let _ = tx.send(RunnerEvent::Failed(e.to_string()));
-            }
-        }
+        let outcome = match run::run_inference(&cli, &stop_worker, &sink, false) {
+            Ok(summary) => RunnerEvent::Completed(Finished {
+                summary,
+                elapsed_sec: started.elapsed().as_secs_f64(),
+            }),
+            Err(e) if e.is::<Cancelled>() => RunnerEvent::Cancelled,
+            Err(e) => RunnerEvent::Failed(format!("{e:#}")),
+        };
+        let _ = tx.send(outcome);
     });
 
     app.running = Some(RunningTask { rx, handle, stop });
@@ -1033,7 +758,7 @@ fn start_run(app: &mut App) -> Result<()> {
 fn stop_run(app: &mut App) {
     if let Some(task) = app.running.as_mut() {
         task.stop.store(true, Ordering::Relaxed);
-        app.status = "Stopping after current phase...".to_string();
+        app.status = "Stopping...".to_string();
         app.append_log("Stop requested.");
     }
 }
@@ -1179,11 +904,11 @@ fn render_run_page(f: &mut Frame, area: Rect, app: &App) {
             .unwrap_or_default();
         let eta_txt = eta.map(fmt_seconds).unwrap_or_else(|| "--:--".to_string());
         let rate_txt = rate
-            .map(|v| fmt_rate(v, stage.unit()))
+            .map(|v| fmt_rate(v, stage_unit(*stage)))
             .unwrap_or_else(|| "--".to_string());
         let label = format!(
             "{}{iter_txt} | {}/{} | ETA {} | {}",
-            stage.label(),
+            stage_label(*stage),
             snap.done,
             snap.total,
             eta_txt,
@@ -1192,7 +917,7 @@ fn render_run_page(f: &mut Frame, area: Rect, app: &App) {
         let gauge = Gauge::default()
             .block(
                 Block::default()
-                    .title(stage.label())
+                    .title(stage_label(*stage))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded),
             )
@@ -1214,10 +939,11 @@ fn render_result_page(f: &mut Frame, area: Rect, app: &App) {
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(9), Constraint::Min(8)])
         .split(area);
-    let summary = if let Some(r) = &app.result {
+    let summary = if let Some(f) = &app.result {
+        let r = &f.summary;
         format!(
             "Elapsed: {:.2}s\nOutput JSON: {}\nHTML report: {}\nTMRCA: {}\nBootstrap dir: {}\nLast EM loglike: {}",
-            r.elapsed_sec,
+            f.elapsed_sec,
             r.output_json.display(),
             r.html_report.display(),
             r.tmrca_out
@@ -1228,7 +954,7 @@ fn render_result_page(f: &mut Frame, area: Rect, app: &App) {
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "-".to_string()),
-            r.last_loglike
+            r.final_loglike
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "-".to_string()),
         )
@@ -1404,11 +1130,7 @@ fn render_ui(f: &mut Frame, app: &App) {
     } else {
         "Setup: Tab/Shift+Tab select field  type edit  Ctrl+O input picker  Ctrl+D output dir picker  Space toggle fmt  F5 run"
     };
-    let secondary = if app.picker.is_some() {
-        "Pages: F1 Setup | F2 Run | F3 Result"
-    } else {
-        "Pages: F1 Setup | F2 Run | F3 Result"
-    };
+    let secondary = "Pages: F1 Setup | F2 Run | F3 Result";
     let footer = Paragraph::new(vec![
         Line::raw(hint),
         Line::raw(format!(
@@ -1453,10 +1175,10 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 }
             }
             KeyCode::Down => {
-                if let Some(picker) = app.picker.as_mut() {
-                    if !picker.entries.is_empty() {
-                        picker.selected = (picker.selected + 1) % picker.entries.len();
-                    }
+                if let Some(picker) = app.picker.as_mut()
+                    && !picker.entries.is_empty()
+                {
+                    picker.selected = (picker.selected + 1) % picker.entries.len();
                 }
             }
             KeyCode::Enter => {
@@ -1466,11 +1188,11 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 browse_picker_dir(app)?;
             }
             KeyCode::Backspace | KeyCode::Left => {
-                if let Some(picker) = app.picker.as_mut() {
-                    if let Some(parent) = picker.cwd.parent() {
-                        picker.cwd = parent.to_path_buf();
-                        refresh_picker_entries(picker)?;
-                    }
+                if let Some(picker) = app.picker.as_mut()
+                    && let Some(parent) = picker.cwd.parent()
+                {
+                    picker.cwd = parent.to_path_buf();
+                    refresh_picker_entries(picker)?;
                 }
             }
             _ => {}
@@ -1539,17 +1261,16 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
                 app.selected_field_mut().pop();
             }
         }
-        KeyCode::Char(c) => {
-            if app.page == TuiPage::Setup && app.running.is_none() {
-                app.selected_field_mut().push(c);
-            }
+        KeyCode::Char(c) if app.page == TuiPage::Setup && app.running.is_none() => {
+            app.selected_field_mut().push(c);
         }
         _ => {}
     }
     Ok(())
 }
 
-fn run_tui(cli: &Cli) -> Result<()> {
+/// Run the TUI until the user quits; `cli` fills the form.
+pub fn run_tui(cli: &Cli) -> Result<()> {
     let self_bin = std::env::current_exe().context("failed to resolve executable path")?;
     let mut app = App::new(self_bin, cli);
 
@@ -1570,13 +1291,13 @@ fn run_tui(cli: &Cli) -> Result<()> {
 
         if event::poll(Duration::from_millis(80)).context("event poll failed")? {
             match event::read().context("failed to read terminal event")? {
-                Event::Key(key) => {
+                TermEvent::Key(key) => {
                     if let Err(e) = handle_key(&mut app, key) {
                         app.status = "Input error".to_string();
                         app.append_log(format!("Input error: {e}"));
                     }
                 }
-                Event::Resize(_, _) => {
+                TermEvent::Resize(_, _) => {
                     let _ = term.autoresize();
                 }
                 _ => {}
@@ -1593,684 +1314,4 @@ fn run_tui(cli: &Cli) -> Result<()> {
     execute!(term.backend_mut(), LeaveAlternateScreen).ok();
     let _ = term.show_cursor();
     final_res
-}
-
-fn send_event(on_event: &mut dyn FnMut(RunnerEvent), ev: RunnerEvent) {
-    on_event(ev);
-}
-
-fn check_cancel(stop: &AtomicBool) -> Result<()> {
-    if stop.load(Ordering::Relaxed) {
-        bail!("cancelled by user");
-    }
-    Ok(())
-}
-
-fn bootstrap_replicate_seed(base_seed: u64, rep_idx: usize) -> u64 {
-    // SplitMix-like deterministic stream splitting per replicate.
-    base_seed.wrapping_add(
-        (rep_idx as u64)
-            .wrapping_add(1)
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15),
-    )
-}
-
-fn configure_threads(n_threads: Option<usize>) -> Result<()> {
-    if let Some(n_threads) = n_threads {
-        if n_threads == 0 {
-            bail!("--threads must be >= 1");
-        }
-        match rayon::ThreadPoolBuilder::new()
-            .num_threads(n_threads)
-            .build_global()
-        {
-            Ok(_) => {}
-            Err(e) => {
-                let msg = e.to_string();
-                if !msg.contains("initialized") {
-                    return Err(anyhow!(
-                        "failed to configure Rayon global thread pool: {msg}"
-                    ));
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn run_inference_with_events(
-    cli: Cli,
-    stop: &AtomicBool,
-    on_event: &mut dyn FnMut(RunnerEvent),
-) -> Result<RunSummary> {
-    let raw_input = cli
-        .input_file
-        .clone()
-        .ok_or_else(|| anyhow!("missing INPUT_FILE"))?;
-    let output_file = cli
-        .output_file
-        .clone()
-        .ok_or_else(|| anyhow!("missing OUTPUT_FILE"))?;
-    let n_iter = cli.n_iter.ok_or_else(|| anyhow!("missing N_ITER"))?;
-
-    check_cancel(stop)?;
-    let input_file = resolve_input_path(&raw_input, cli.input_format)?;
-    if input_file != raw_input {
-        send_event(
-            on_event,
-            RunnerEvent::Log(format!(
-                "Input is a directory, selected file: {}",
-                input_file.display()
-            )),
-        );
-    }
-
-    if cli.bootstrap > 0 && cli.bootstrap_block_size == 0 {
-        bail!("--bootstrap-block-size must be > 0 when --bootstrap is enabled");
-    }
-    let bootstrap_iters = cli.bootstrap_iters.unwrap_or(n_iter);
-    if cli.bootstrap > 0 && bootstrap_iters == 0 {
-        bail!("bootstrap requires EM iterations; set N_ITER > 0 or use --bootstrap-iters");
-    }
-
-    configure_threads(cli.threads)?;
-
-    let io_total = fs::metadata(&input_file).map(|m| m.len()).unwrap_or(1);
-    send_event(
-        on_event,
-        RunnerEvent::Stage {
-            stage: StageKind::Io,
-            done: 0,
-            total: io_total,
-            iter: None,
-        },
-    );
-    let format_name = match cli.input_format {
-        InputFormat::Psmcfa => "psmcfa",
-        InputFormat::Mhs => "mhs",
-        InputFormat::Vcf => "vcf",
-    };
-    let obs = match cli.input_format {
-        InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
-        InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
-        InputFormat::Vcf => read_vcf(
-            &input_file,
-            cli.batch_size,
-            cli.mhs_bin_size,
-            cli.vcf_sample.as_deref(),
-            &cli.vcf_mask,
-            &cli.vcf_negative_mask,
-        ),
-    }
-    .with_context(|| format!("failed to read {format_name} input"))?;
-    send_event(
-        on_event,
-        RunnerEvent::Stage {
-            stage: StageKind::Io,
-            done: io_total,
-            total: io_total,
-            iter: None,
-        },
-    );
-    send_event(
-        on_event,
-        RunnerEvent::Log(format!(
-            "Loaded {} rows from {}",
-            obs.rows.len(),
-            input_file.display()
-        )),
-    );
-
-    let theta0 = match cli.theta0 {
-        Some(v) => v,
-        None => initial_theta(&obs.rows)?,
-    };
-    let rho0 = cli.rho0.unwrap_or_else(|| theta0 / 5.0);
-    let pattern = cli.pattern.clone();
-    let mut model = PsmcModel::new(cli.t_max, cli.n_steps, theta0, rho0, cli.mu, pattern)?;
-
-    let mut base_mstep_config = MStepConfig::default();
-    base_mstep_config.max_iters = cli.mstep_iters.unwrap_or(100);
-    base_mstep_config.lambda = cli.smooth_lambda;
-    base_mstep_config.progress = false;
-
-    let mut last_loglike = None;
-    if n_iter > 0 {
-        let mut on_progress = |ev: EmProgressEvent| match ev {
-            EmProgressEvent::IterStart { iter, total_iters } => {
-                send_event(
-                    on_event,
-                    RunnerEvent::Log(format!("EM iteration {iter}/{total_iters}")),
-                );
-            }
-            EmProgressEvent::EStep {
-                iter,
-                total_iters,
-                phase,
-                done,
-                total,
-            } => {
-                let stage = match phase {
-                    EStepPhase::Forward => StageKind::EForward,
-                    EStepPhase::Backward => StageKind::EBackward,
-                };
-                send_event(
-                    on_event,
-                    RunnerEvent::Stage {
-                        stage,
-                        done,
-                        total,
-                        iter: Some((iter, total_iters)),
-                    },
-                );
-            }
-            EmProgressEvent::MStep {
-                iter,
-                total_iters,
-                done,
-                total,
-            } => {
-                send_event(
-                    on_event,
-                    RunnerEvent::Stage {
-                        stage: StageKind::MStep,
-                        done: done as u64,
-                        total: total as u64,
-                        iter: Some((iter, total_iters)),
-                    },
-                );
-            }
-        };
-        let history = em_train_with_progress(
-            &mut model,
-            &obs.rows,
-            &obs.row_starts,
-            n_iter,
-            &base_mstep_config,
-            Some(&mut on_progress),
-        )?;
-        if let Some((before, _)) = history.loglike.last() {
-            last_loglike = Some(*before);
-            send_event(
-                on_event,
-                RunnerEvent::Log(format!("Last EM loglike: {before}")),
-            );
-        }
-        if let Some(msg) = near_bounds_warning(&model, &base_mstep_config)? {
-            send_event(on_event, RunnerEvent::Log(msg));
-        }
-    }
-
-    check_cancel(stop)?;
-    let report_bin_size = match cli.input_format {
-        InputFormat::Psmcfa => 100.0,
-        InputFormat::Mhs => cli.mhs_bin_size as f64,
-        InputFormat::Vcf => cli.mhs_bin_size as f64,
-    };
-    let input_format_name = match cli.input_format {
-        InputFormat::Psmcfa => "psmcfa",
-        InputFormat::Mhs => "mhs",
-        InputFormat::Vcf => "vcf",
-    };
-
-    model.param_recalculate()?;
-
-    let mut bootstrap_report_data = None;
-    let mut bootstrap_dir_out = None;
-    if cli.bootstrap > 0 {
-        let bootstrap_dir = cli
-            .bootstrap_dir
-            .clone()
-            .unwrap_or_else(|| default_bootstrap_dir(&output_file));
-        fs::create_dir_all(&bootstrap_dir).with_context(|| {
-            format!(
-                "failed to create bootstrap output directory {}",
-                bootstrap_dir.display()
-            )
-        })?;
-        bootstrap_dir_out = Some(bootstrap_dir.clone());
-
-        send_event(
-            on_event,
-            RunnerEvent::Stage {
-                stage: StageKind::Bootstrap,
-                done: 0,
-                total: cli.bootstrap as u64,
-                iter: None,
-            },
-        );
-
-        let seqs = rows_to_sequences(&obs.rows, &obs.row_starts)?;
-        send_event(
-            on_event,
-            RunnerEvent::Log(format!(
-                "Bootstrap: running {} replicates in parallel",
-                cli.bootstrap
-            )),
-        );
-
-        let mut boot_results = (0..cli.bootstrap)
-            .into_par_iter()
-            .map(|rep| -> Result<(usize, PsmcModel)> {
-                if stop.load(Ordering::Relaxed) {
-                    bail!("cancelled by user");
-                }
-                let mut rng = new_rng(bootstrap_replicate_seed(cli.bootstrap_seed, rep));
-                let sampled =
-                    sample_sequences_block_bootstrap(&seqs, cli.bootstrap_block_size, &mut rng)?;
-                let obs_rep = sequences_to_observations(&sampled, cli.batch_size)?;
-
-                let mut model_rep = model.clone();
-                let mut rep_cfg = base_mstep_config.clone();
-                rep_cfg.progress = false;
-                let _ = em_train(
-                    &mut model_rep,
-                    &obs_rep.rows,
-                    &obs_rep.row_starts,
-                    bootstrap_iters,
-                    &rep_cfg,
-                )?;
-                model_rep.param_recalculate()?;
-
-                let rep_json = replicate_json_path(&bootstrap_dir, rep + 1);
-                model_rep.save_params(&rep_json)?;
-                Ok((rep, model_rep))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        check_cancel(stop)?;
-        boot_results.sort_by_key(|(rep, _)| *rep);
-
-        let mut boot_models = Vec::<PsmcModel>::with_capacity(cli.bootstrap);
-        for (i, (_, model_rep)) in boot_results.into_iter().enumerate() {
-            boot_models.push(model_rep);
-            send_event(
-                on_event,
-                RunnerEvent::Stage {
-                    stage: StageKind::Bootstrap,
-                    done: (i + 1) as u64,
-                    total: cli.bootstrap as u64,
-                    iter: None,
-                },
-            );
-        }
-
-        let bootstrap_summary = summarize_bootstrap_models(
-            &model,
-            &boot_models,
-            report_bin_size,
-            25.0,
-            cli.bootstrap_block_size,
-            cli.bootstrap_seed,
-        )?;
-        let summary_tsv = bootstrap_dir.join("summary.tsv");
-        let summary_json = bootstrap_dir.join("summary.json");
-        write_bootstrap_summary_tsv(&summary_tsv, &bootstrap_summary)?;
-        write_bootstrap_summary_json(&summary_json, &bootstrap_summary)?;
-        send_event(
-            on_event,
-            RunnerEvent::Log(format!("Bootstrap summary TSV: {}", summary_tsv.display())),
-        );
-        send_event(
-            on_event,
-            RunnerEvent::Log(format!(
-                "Bootstrap summary JSON: {}",
-                summary_json.display()
-            )),
-        );
-        bootstrap_report_data = Some(bootstrap_summary);
-    }
-
-    check_cancel(stop)?;
-    let mut tmrca_report_data = None;
-    let mut tmrca_out_path = None;
-    if let Some(tmrca_out) = &cli.tmrca_out {
-        let t = model.compute_t(0.1);
-        let n0 = model.theta / (4.0 * model.mu * report_bin_size);
-        let mut tmrca_years = Vec::with_capacity(model.n_steps + 1);
-        for k in 0..=model.n_steps {
-            tmrca_years.push(t[k] * 2.0 * n0 * cli.tmrca_gen_years);
-        }
-        let tmrca = write_tmrca_posterior_tsv(
-            model.prior_matrix(),
-            model.transition_matrix(),
-            model.emission_matrix(),
-            &obs.rows,
-            &obs.row_starts,
-            &tmrca_years,
-            tmrca_out,
-            false,
-            20_000,
-        )?;
-        send_event(
-            on_event,
-            RunnerEvent::Log(format!("TMRCA posterior: {}", tmrca_out.display())),
-        );
-        tmrca_report_data = Some(tmrca);
-        tmrca_out_path = Some(tmrca_out.clone());
-    }
-
-    model.save_params(&output_file)?;
-
-    let report_html = default_html_path(&output_file);
-    write_html_report(
-        &model,
-        &input_file,
-        &output_file,
-        &report_html,
-        n_iter,
-        input_format_name,
-        report_bin_size,
-        tmrca_report_data.as_ref(),
-        bootstrap_report_data.as_ref(),
-    )?;
-    send_event(
-        on_event,
-        RunnerEvent::Log(format!("HTML report: {}", report_html.display())),
-    );
-
-    Ok(RunSummary {
-        output_json: output_file,
-        html_report: report_html,
-        tmrca_out: tmrca_out_path,
-        bootstrap_dir: bootstrap_dir_out,
-        last_loglike,
-        elapsed_sec: 0.0,
-    })
-}
-
-fn run_inference(cli: Cli) -> Result<()> {
-    let raw_input = cli
-        .input_file
-        .clone()
-        .ok_or_else(|| anyhow!("missing INPUT_FILE"))?;
-    let input_file = resolve_input_path(&raw_input, cli.input_format)?;
-    if input_file != raw_input {
-        println!(
-            "Input is a directory, selected file: {}",
-            input_file.display()
-        );
-    }
-    let output_file = cli
-        .output_file
-        .clone()
-        .ok_or_else(|| anyhow!("missing OUTPUT_FILE"))?;
-    let n_iter = cli.n_iter.ok_or_else(|| anyhow!("missing N_ITER"))?;
-
-    if cli.bootstrap > 0 && cli.bootstrap_block_size == 0 {
-        bail!("--bootstrap-block-size must be > 0 when --bootstrap is enabled");
-    }
-    let bootstrap_iters = cli.bootstrap_iters.unwrap_or(n_iter);
-    if cli.bootstrap > 0 && bootstrap_iters == 0 {
-        bail!("bootstrap requires EM iterations; set N_ITER > 0 or use --bootstrap-iters");
-    }
-
-    configure_threads(cli.threads)?;
-
-    let pattern = cli.pattern.clone();
-
-    let format_name = match cli.input_format {
-        InputFormat::Psmcfa => "psmcfa",
-        InputFormat::Mhs => "mhs",
-        InputFormat::Vcf => "vcf",
-    };
-
-    let obs = if cli.no_progress {
-        match cli.input_format {
-            InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
-            InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
-            InputFormat::Vcf => read_vcf(
-                &input_file,
-                cli.batch_size,
-                cli.mhs_bin_size,
-                cli.vcf_sample.as_deref(),
-                &cli.vcf_mask,
-                &cli.vcf_negative_mask,
-            ),
-        }
-        .with_context(|| format!("failed to read {format_name} input"))?
-    } else {
-        let pb = progress::spinner("IO", &format!("Reading {format_name}"));
-        let obs = match cli.input_format {
-            InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
-            InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
-            InputFormat::Vcf => read_vcf(
-                &input_file,
-                cli.batch_size,
-                cli.mhs_bin_size,
-                cli.vcf_sample.as_deref(),
-                &cli.vcf_mask,
-                &cli.vcf_negative_mask,
-            ),
-        }
-        .with_context(|| format!("failed to read {format_name} input"))?;
-        pb.finish_with_message(format!("Reading {format_name} done"));
-        obs
-    };
-
-    let theta0 = match cli.theta0 {
-        Some(v) => v,
-        None => initial_theta(&obs.rows)?,
-    };
-    let rho0 = cli.rho0.unwrap_or_else(|| theta0 / 5.0);
-
-    let mut model = PsmcModel::new(cli.t_max, cli.n_steps, theta0, rho0, cli.mu, pattern)?;
-
-    let mut base_mstep_config = MStepConfig::default();
-    base_mstep_config.max_iters = cli.mstep_iters.unwrap_or(100);
-    base_mstep_config.lambda = cli.smooth_lambda;
-    if cli.no_progress {
-        base_mstep_config.progress = false;
-    }
-
-    if n_iter > 0 {
-        let history = em_train(
-            &mut model,
-            &obs.rows,
-            &obs.row_starts,
-            n_iter,
-            &base_mstep_config,
-        )?;
-        if let Some((before, _)) = history.loglike.last() {
-            println!("Last EM loglike: {}", before);
-        }
-        warn_if_near_bounds(&model, &base_mstep_config)?;
-    }
-
-    let report_bin_size = match cli.input_format {
-        InputFormat::Psmcfa => 100.0,
-        InputFormat::Mhs => cli.mhs_bin_size as f64,
-        InputFormat::Vcf => cli.mhs_bin_size as f64,
-    };
-    let input_format_name = match cli.input_format {
-        InputFormat::Psmcfa => "psmcfa",
-        InputFormat::Mhs => "mhs",
-        InputFormat::Vcf => "vcf",
-    };
-
-    model.param_recalculate()?;
-
-    let mut bootstrap_report_data = None;
-    if cli.bootstrap > 0 {
-        let bootstrap_dir = cli
-            .bootstrap_dir
-            .clone()
-            .unwrap_or_else(|| default_bootstrap_dir(&output_file));
-        fs::create_dir_all(&bootstrap_dir).with_context(|| {
-            format!(
-                "failed to create bootstrap output directory {}",
-                bootstrap_dir.display()
-            )
-        })?;
-
-        let seqs = rows_to_sequences(&obs.rows, &obs.row_starts)?;
-
-        let pb_boot = if !cli.no_progress {
-            Some(progress::bar(cli.bootstrap as u64, "BOOT", "replicates"))
-        } else {
-            None
-        };
-        if let Some(pb) = &pb_boot {
-            pb.set_message("parallel replicates");
-        }
-        let pb_boot_threads = pb_boot.clone();
-        let mut boot_results = (0..cli.bootstrap)
-            .into_par_iter()
-            .map(|rep| -> Result<(usize, PsmcModel)> {
-                let mut rng = new_rng(bootstrap_replicate_seed(cli.bootstrap_seed, rep));
-                let sampled =
-                    sample_sequences_block_bootstrap(&seqs, cli.bootstrap_block_size, &mut rng)?;
-                let obs_rep = sequences_to_observations(&sampled, cli.batch_size)?;
-
-                let mut model_rep = model.clone();
-                let mut rep_cfg = base_mstep_config.clone();
-                rep_cfg.progress = false;
-                let _ = em_train(
-                    &mut model_rep,
-                    &obs_rep.rows,
-                    &obs_rep.row_starts,
-                    bootstrap_iters,
-                    &rep_cfg,
-                )?;
-                model_rep.param_recalculate()?;
-
-                let rep_json = replicate_json_path(&bootstrap_dir, rep + 1);
-                model_rep.save_params(&rep_json)?;
-                if let Some(pb) = &pb_boot_threads {
-                    pb.inc(1);
-                }
-                Ok((rep, model_rep))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        boot_results.sort_by_key(|(rep, _)| *rep);
-        let mut boot_models = Vec::<PsmcModel>::with_capacity(cli.bootstrap);
-        for (_, model_rep) in boot_results {
-            boot_models.push(model_rep);
-        }
-        if let Some(pb) = pb_boot {
-            pb.finish_with_message("bootstrap done");
-        }
-
-        let bootstrap_summary = summarize_bootstrap_models(
-            &model,
-            &boot_models,
-            report_bin_size,
-            25.0,
-            cli.bootstrap_block_size,
-            cli.bootstrap_seed,
-        )?;
-        let summary_tsv = bootstrap_dir.join("summary.tsv");
-        let summary_json = bootstrap_dir.join("summary.json");
-        write_bootstrap_summary_tsv(&summary_tsv, &bootstrap_summary)?;
-        write_bootstrap_summary_json(&summary_json, &bootstrap_summary)?;
-        println!("Bootstrap dir: {}", bootstrap_dir.display());
-        println!("Bootstrap summary TSV: {}", summary_tsv.display());
-        println!("Bootstrap summary JSON: {}", summary_json.display());
-        bootstrap_report_data = Some(bootstrap_summary);
-    }
-
-    let mut tmrca_report_data = None;
-    if let Some(tmrca_out) = &cli.tmrca_out {
-        let t = model.compute_t(0.1);
-        let n0 = model.theta / (4.0 * model.mu * report_bin_size);
-        let mut tmrca_years = Vec::with_capacity(model.n_steps + 1);
-        for k in 0..=model.n_steps {
-            tmrca_years.push(t[k] * 2.0 * n0 * cli.tmrca_gen_years);
-        }
-        let tmrca = write_tmrca_posterior_tsv(
-            model.prior_matrix(),
-            model.transition_matrix(),
-            model.emission_matrix(),
-            &obs.rows,
-            &obs.row_starts,
-            &tmrca_years,
-            tmrca_out,
-            !cli.no_progress,
-            20_000,
-        )?;
-        println!("TMRCA posterior: {}", tmrca_out.display());
-        tmrca_report_data = Some(tmrca);
-    }
-
-    model.save_params(&output_file)?;
-
-    let report_html = default_html_path(&output_file);
-    write_html_report(
-        &model,
-        &input_file,
-        &output_file,
-        &report_html,
-        n_iter,
-        input_format_name,
-        report_bin_size,
-        tmrca_report_data.as_ref(),
-        bootstrap_report_data.as_ref(),
-    )?;
-    println!("HTML report: {}", report_html.display());
-
-    Ok(())
-}
-
-fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {
-    // Use a very tight tolerance so "near bound" reflects a true optimizer
-    // saturation, not ordinary values in wide ranges (e.g. lam in [1e-6, 1e6]).
-    let span = (hi - lo).abs();
-    let scale = v.abs().max(lo.abs()).max(hi.abs()).max(1.0);
-    let tol = (span * 1e-12).max(scale * 1e-12).max(f64::EPSILON * 16.0);
-    ((v - lo).abs() <= tol, (v - hi).abs() <= tol)
-}
-
-fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Result<Option<String>> {
-    let bounds = bounds_from_config(model, cfg);
-    let mut vals: Vec<(String, f64)> = Vec::with_capacity(3 + model.lam.len());
-    vals.push(("theta".to_string(), model.theta));
-    vals.push(("rho".to_string(), model.rho));
-    vals.push(("t_max".to_string(), model.t_max));
-    for (i, v) in model.lam.iter().enumerate() {
-        vals.push((format!("lam[{i}]"), *v));
-    }
-
-    let mut near_lo = 0usize;
-    let mut near_hi = 0usize;
-    let mut examples: Vec<String> = Vec::new();
-    for (i, (name, v)) in vals.iter().enumerate() {
-        let b = bounds[i];
-        let (is_lo, is_hi) = near(*v, b.lo, b.hi);
-        if is_lo {
-            near_lo += 1;
-            if examples.len() < 6 {
-                examples.push(format!("{name}≈lo({})", b.lo));
-            }
-        }
-        if is_hi {
-            near_hi += 1;
-            if examples.len() < 6 {
-                examples.push(format!("{name}≈hi({})", b.hi));
-            }
-        }
-    }
-    if near_lo + near_hi > 0 {
-        return Ok(Some(format!(
-            "Warning: {} params are on/near optimization bounds (lo={}, hi={}). Examples: {}. Consider wider bounds.",
-            near_lo + near_hi,
-            near_lo,
-            near_hi,
-            examples.join(", ")
-        )));
-    }
-    Ok(None)
-}
-
-fn warn_if_near_bounds(model: &PsmcModel, cfg: &MStepConfig) -> Result<()> {
-    if let Some(msg) = near_bounds_warning(model, cfg)? {
-        eprintln!("{msg}");
-    }
-    Ok(())
-}
-
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-    if cli.tui {
-        return run_tui(&cli);
-    }
-    run_inference(cli)
 }

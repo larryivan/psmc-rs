@@ -6,7 +6,7 @@ license = "MIT"
 
 [[bin]]
 name = "psmc-rs"
-path = "src/bin/psmc.rs"
+path = "src/bin/psmc/main.rs"
 
 [dependencies]
 anyhow = "1.0"

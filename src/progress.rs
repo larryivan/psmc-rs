@@ -41,3 +41,13 @@ pub fn bar_raw(len: u64, prefix: &str, msg: &str) -> ProgressBar {
     pb.set_message(msg.to_string());
     pb
 }
+
+/// A spinner styled like [`spinner`], for a caller that draws it itself
+/// (for example in an `indicatif::MultiProgress`) and starts its ticks.
+pub fn spinner_raw(prefix: &str, msg: &str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(spinner_style());
+    pb.set_prefix(prefix.to_string());
+    pb.set_message(msg.to_string());
+    pb
+}
