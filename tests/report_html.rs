@@ -215,6 +215,21 @@ fn the_bootstrap_section_states_its_caveat() {
             .iter()
             .any(|s| s["name"] == "Bootstrap q2.5")
     );
+    // The band stacks the spread on q2.5. ECharts stacks on the first
+    // numeric dimension of a series' data, so its points must hold Ne first
+    // and map it to the y axis; with [years, ne] points it added the years
+    // and drew the spread itself as Ne.
+    assert!(html.contains(r#"const ribbonDims = ["ne", "years"];"#));
+    assert!(html.contains(r#"const ribbonEncode = { x: "years", y: "ne" };"#));
+    assert!(html.contains("q025Data.map((p) => [p[1], p[0]])"));
+    assert!(html.contains("return [Math.max(0, p[1] - lo), p[0], lo, p[1]];"));
+    for name in ["__Bootstrap CI base", "Bootstrap 95% CI"] {
+        let at = html.find(&format!(r#"name: "{name}","#)).unwrap();
+        let def = &html[at..at + 400];
+        assert!(def.contains(r#"stack: "bootstrap_ci""#), "{def}");
+        assert!(def.contains("dimensions: ribbonDims"), "{def}");
+        assert!(def.contains("ribbonEncode"), "{def}");
+    }
 }
 
 /// Replicates that continue saved parameters (C psmc -i -b) say so, with

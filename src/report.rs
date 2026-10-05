@@ -1318,13 +1318,20 @@ pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
       const q975Data = sQ975 ? sQ975.data : [];
       const hasRibbon = q025Data.length > 0 && q975Data.length > 0;
 
-      const ribbonBase = hasRibbon ? q025Data : [];
+      // The band stacks the spread q97.5 - q2.5 on an invisible q2.5 line.
+      // ECharts stacks on the first numeric dimension of the data, which for
+      // the curves' [years, ne] points is years, so the band's points put Ne
+      // first and map it to the y axis: [ne, years], and for the spread also
+      // the bounds, which its tooltip shows.
+      const ribbonBase = hasRibbon ? q025Data.map((p) => [p[1], p[0]]) : [];
       const ribbonDelta = hasRibbon
         ? q975Data.map((p, i) => {
             const lo = (q025Data[i] && Number.isFinite(q025Data[i][1])) ? q025Data[i][1] : p[1];
-            return [p[0], Math.max(0, p[1] - lo)];
+            return [Math.max(0, p[1] - lo), p[0], lo, p[1]];
           })
         : [];
+      const ribbonDims = ["ne", "years"];
+      const ribbonEncode = { x: "years", y: "ne" };
       const ciBandColor = rgba(palette.ci, 0.22);
       const legendData = ["psmc-rs"];
       if (q500Data.length > 0) legendData.push("Bootstrap median");
@@ -1337,6 +1344,8 @@ pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
           type: "line",
           stack: "bootstrap_ci",
           step: stepValue,
+          dimensions: ribbonDims,
+          encode: ribbonEncode,
           data: ribbonBase,
           showSymbol: false,
           symbol: "none",
@@ -1350,10 +1359,16 @@ pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
           type: "line",
           stack: "bootstrap_ci",
           step: stepValue,
+          dimensions: ribbonDims.concat([
+            { name: "lo", displayName: "2.5%" },
+            { name: "hi", displayName: "97.5%" }
+          ]),
+          encode: Object.assign({ tooltip: ["lo", "hi"] }, ribbonEncode),
           data: ribbonDelta,
           showSymbol: false,
           symbol: "none",
           lineStyle: { width: 0, opacity: 0 },
+          itemStyle: { color: palette.ci },
           areaStyle: { color: ciBandColor },
           silent: true
         });
