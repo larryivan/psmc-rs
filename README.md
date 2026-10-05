@@ -697,7 +697,7 @@ From `psmc-rs --help` (0.2.0), which gives the full text. Inference,
 | `--bootstrap-block-size BINS` | 500000 | trunk size (splitfa); alias `--bootstrap-trunk-size` |
 | `--bootstrap-seed SEED` | 42 | seed of the resampling |
 | `--bootstrap-iters N` | N_ITER | EM iterations per replicate |
-| `--bootstrap-dir DIR` | `OUTPUT` with `.bootstrap` | replicate and summary files |
+| `--bootstrap-dir DIR` | `OUTPUT` with `.bootstrap` | replicate and summary files; an earlier bootstrap's `replicate_NNN.*` and `summary.*` there are removed first |
 | `--qc-json FILE` | | input QC report as JSON (`-` for stdout) |
 | `--psmc-out FILE` | | C psmc's `.psmc` output |
 | `--tmrca-out FILE` | | posterior TMRCA per bin (TSV; gzip for `.gz`) |

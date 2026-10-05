@@ -735,7 +735,9 @@ pub struct InferArgs {
     pub bootstrap_iters: Option<usize>,
 
     /// Directory of the replicate files (replicate_NNN.json and .psmc) and
-    /// the summary (default: OUTPUT with .bootstrap instead of .json)
+    /// the summary (default: OUTPUT with .bootstrap instead of .json); an
+    /// earlier bootstrap's replicate_NNN.* and summary.* files there are
+    /// removed first
     #[arg(long, value_name = "DIR", help_heading = "Bootstrap")]
     pub bootstrap_dir: Option<PathBuf>,
 
