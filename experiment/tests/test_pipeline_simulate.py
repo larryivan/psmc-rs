@@ -32,6 +32,15 @@ class Layout(unittest.TestCase):
         self.assertEqual(simulate.n_bins(200_000, 100), 2000)
         self.assertEqual(simulate.n_bins(200_001, 100), 2001)
 
+    def test_longest_stretch_without_a_heterozygous_site(self):
+        # Sites at 10 and 500 of 1000 bases: stretches 0-9 (10), 11-499 (489), 501-999 (499).
+        self.assertEqual(simulate.longest_het_gap([10, 500], 1000), (499, 501))
+        self.assertEqual(simulate.longest_het_gap([], 1000), (1000, 0))
+        self.assertEqual(simulate.longest_het_gap([0, 999], 1000), (998, 1))
+        # Bins of 100: heterozygous bins 0 and 5 of 10; T runs of 4 (bins 1-4) and 4 (6-9).
+        self.assertEqual(simulate.longest_hetfree_bins([10, 500], 1000, 100), 4)
+        self.assertEqual(simulate.longest_hetfree_bins([], 1050, 100), 11)
+
 
 @unittest.skipUnless(HAS_MSPRIME, "msprime not installed")
 class SimulatedGenome(unittest.TestCase):
@@ -78,6 +87,9 @@ class SimulatedGenome(unittest.TestCase):
             self.assertEqual(ch["bins"], 2000)
         het_bins = sum(ch["het_bins"] for ch in rec["chromosomes"])
         self.assertEqual(het_bins, self.psmcfa.count("K"))
+        for ch in rec["chromosomes"]:
+            self.assertGreater(ch["longest_het_gap_bp"], 0)
+            self.assertLessEqual(ch["longest_hetfree_bins"] * 100, ch["longest_het_gap_bp"])
         self.assertEqual(rec["truth"]["model"], "bottleneck")
         self.assertEqual(rec["simulation"]["recombination_rate"], 1e-8)
         self.assertIn("msprime", rec["software"])

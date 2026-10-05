@@ -660,7 +660,8 @@ def seed_rows(cfg: config.E3, truths: Dict[int, Dict]) -> List[Dict]:
         for ch in truths[size]["chromosomes"]:
             out.append(
                 {"size_mb": size, "chromosome": ch["name"], "ancestry_seed": ch["seeds"]["ancestry"],
-                 "mutation_seed": ch["seeds"]["mutations"], "het_sites": ch["het_sites"], "het_bins": ch["het_bins"]}
+                 "mutation_seed": ch["seeds"]["mutations"], "het_sites": ch["het_sites"], "het_bins": ch["het_bins"],
+                 "trees": ch.get("trees"), "longest_het_gap_bp": ch.get("longest_het_gap_bp")}
             )
     return out
 

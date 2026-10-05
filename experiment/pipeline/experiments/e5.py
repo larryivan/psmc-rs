@@ -60,7 +60,9 @@ Tables (``tables/``):
 * ``E5_datasets.csv``: per dataset and trunk size, the bootstrap run: its
   replicates, trunks, seed, checks, wall time and peak RSS.
 * ``E5_fits.csv``: per genome, the fit: theta, rho, t_max, N0,
-  log-likelihood, RMSE against the truth, wall time and peak RSS.
+  log-likelihood, RMSE against the truth, wall time and peak RSS, and the
+  genome's longest stretch without a heterozygous site (an outlier's
+  likely cause: a long segment of very recent coalescence).
 * ``E5_seeds.csv``: every seed.
 """
 
@@ -763,12 +765,16 @@ def fit_rows(cfg: config.E5, genomes: List[GenomeFit], epochs, grids: Dict) -> L
     rows = []
     for gn in genomes:
         fit, run = gn.fit, gn.run
+        gaps = [(ch.get("longest_het_gap_bp") or 0, ch["name"]) for ch in gn.truth["chromosomes"]]
+        gap, gap_chrom = max(gaps) if gaps else (None, None)
         rows.append(
             {
                 "replicate": gn.replicate,
                 "bins": sum(ch["bins"] for ch in gn.truth["chromosomes"]),
                 "het_bins": sum(ch["het_bins"] for ch in gn.truth["chromosomes"]),
                 "het_sites": gn.truth["totals"]["het_sites"],
+                "longest_het_gap_bp": gap,
+                "longest_het_gap_chromosome": gap_chrom,
                 "theta": fit.theta,
                 "rho": fit.rho,
                 "t_max": fit.t_max,

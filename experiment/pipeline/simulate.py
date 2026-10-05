@@ -213,8 +213,41 @@ def software_versions() -> Dict[str, str]:
     }
 
 
+def longest_het_gap(positions, length: int) -> Tuple[int, int]:
+    """``(bases, start)`` of the longest stretch of the chromosome without a heterozygous site.
+
+    Stretches run between consecutive heterozygous sites (exclusive) and
+    from either end of the chromosome to its nearest one; with no
+    heterozygous site the whole chromosome is one stretch.
+    """
+    import numpy as np
+
+    p = np.asarray(positions, dtype=np.int64)
+    bounds = np.concatenate([[-1], p, [int(length)]])
+    gaps = np.diff(bounds) - 1
+    k = int(np.argmax(gaps))
+    return int(gaps[k]), int(bounds[k] + 1)
+
+
+def longest_hetfree_bins(positions, length: int, bin_size: int) -> int:
+    """The longest run of consecutive bins without a heterozygous site (``T`` bins of the psmcfa)."""
+    import numpy as np
+
+    het = np.unique(np.asarray(positions, dtype=np.int64) // bin_size)
+    bounds = np.concatenate([[-1], het, [n_bins(length, bin_size)]])
+    return int(np.max(np.diff(bounds) - 1))
+
+
 def chromosome_summary(chrom: Chromosome, bin_size: int) -> Dict:
+    """Counts and checksums of one simulated chromosome, for its truth record.
+
+    The longest stretch without a heterozygous site flags a long segment of
+    very recent coalescence (a genuine, if rare, coalescent outcome) that
+    can make a replicate an outlier; it is recorded so that such replicates
+    can be explained without dropping seeds.
+    """
     het_bins = len(set((chrom.het_positions // bin_size).tolist())) if len(chrom.het_positions) else 0
+    gap, gap_start = longest_het_gap(chrom.het_positions, chrom.length)
     return {
         "name": chrom.name,
         "length": chrom.length,
@@ -224,6 +257,9 @@ def chromosome_summary(chrom: Chromosome, bin_size: int) -> Dict:
         "derived_hom_sites": len(chrom.records) - int(len(chrom.het_positions)),
         "trees": chrom.trees,
         "last_het_position": int(chrom.het_positions[-1]) if len(chrom.het_positions) else None,
+        "longest_het_gap_bp": gap,
+        "longest_het_gap_start": gap_start,
+        "longest_hetfree_bins": longest_hetfree_bins(chrom.het_positions, chrom.length, bin_size),
         "het_positions_sha256": positions_digest(chrom.het_positions),
         "seeds": chrom.seeds,
     }
@@ -458,6 +494,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "Chromosome", "PSMCFA_NAME", "VCF_NAME", "n_bins", "psmcfa_bins", "psmcfa_record", "read_tmrca_track",
+    "Chromosome", "PSMCFA_NAME", "VCF_NAME", "longest_het_gap", "longest_hetfree_bins", "n_bins", "psmcfa_bins",
+    "psmcfa_record", "read_tmrca_track",
     "seeds_for", "simulate_chromosome", "simulate_genome", "tmrca_intervals", "write_tmrca",
 ]

@@ -27,7 +27,9 @@ Tables (``tables/``):
   t_max after each iteration, for both tools.
 * ``E1_curves.csv``: the final Ne(t) step curves of every fit (Fig 2).
 * ``E1_truth.csv``: the true Ne(t) of every model on a dense grid (Fig 2).
-* ``E1_seeds.csv``: every simulation seed.
+* ``E1_seeds.csv``: every simulation seed, with each chromosome's
+  heterozygous sites, trees and longest stretch without a heterozygous
+  site (a long recent-coalescence segment makes a replicate an outlier).
 """
 
 from __future__ import annotations
@@ -419,7 +421,10 @@ def report(ctx: Context) -> Dict[str, Path]:
                 seed_rows.append(
                     {"model": model, "replicate": r, "chromosome": ch["name"],
                      "ancestry_seed": ch["seeds"]["ancestry"], "mutation_seed": ch["seeds"]["mutations"],
-                     "het_sites": ch["het_sites"], "het_bins": ch["het_bins"]}
+                     "het_sites": ch["het_sites"], "het_bins": ch["het_bins"], "trees": ch.get("trees"),
+                     "longest_het_gap_bp": ch.get("longest_het_gap_bp"),
+                     "longest_het_gap_start": ch.get("longest_het_gap_start"),
+                     "longest_hetfree_bins": ch.get("longest_hetfree_bins")}
                 )
         table1.append(table1_row(model, window, reps_rows, pair_rows))
     written = {}
