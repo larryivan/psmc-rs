@@ -693,6 +693,7 @@ class E4Costs:
     crosscheck_gb: float = 0.5
     # psmc-rs fit (the VCF routes hold the merged mask intervals)
     fit_gb: float = 0.3
+    figure_s: float = 20.0
 
 
 E4_COSTS = E4Costs()
