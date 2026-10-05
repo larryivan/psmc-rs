@@ -310,6 +310,17 @@ Replicates run in parallel, and replicate i draws from its own seeded
 ChaCha8 stream (`--bootstrap-seed`, 42), so a seed gives the same
 replicates on any platform and with any `--threads`.
 
+A replicate's fresh start takes θ0 from its own resampled data, so when the
+main start is close to the limit on ρ0 (see [Fitting](#fitting)), the
+replicates more heterozygous than the input can start past it, from
+negative transition probabilities, which EM cannot fit. The run finds them
+before the main fit and warns that they will be skipped, that the bands
+then come from the other replicates and can be too narrow, and which
+`--tr-ratio` (or `--rho0`) would fit them all; it stops before the main
+fit when that is every replicate. Skipped replicates get no files, so the
+numbering has gaps. Replicates started from `--init-params` share the main
+fit's start and are never skipped.
+
 An input that forms a single trunk is refused before fitting, since every
 replicate would equal the input; with fewer than 20 trunks the run warns
 that the bands are coarse. Pick a trunk size that leaves a few dozen trunks
@@ -403,7 +414,7 @@ refused with `--tui`, whose screen is stdout.
 | `--psmc-out FILE` | on request | C psmc's `.psmc` output, rounds 0 to N_ITER |
 | `--tmrca-out FILE` | on request | posterior TMRCA of every bin (TSV, gzip when FILE ends in `.gz`) |
 | `--qc-json FILE` | on request | the input QC report (`-` for stdout; result lines then go to stderr) |
-| `--bootstrap-dir DIR` | with `--bootstrap` | `replicate_NNN.json`, `replicate_NNN.psmc`, `summary.tsv`, `summary.json` (default `OUTPUT` with `.bootstrap` instead of `.json`) |
+| `--bootstrap-dir DIR` | with `--bootstrap` | `replicate_NNN.json`, `replicate_NNN.psmc`, `summary.tsv`, `summary.json` (default `OUTPUT` with `.bootstrap` instead of `.json`); an earlier bootstrap's files there are removed first |
 
 Output paths are checked before the input is read: each must be writable,
 and no two of them, nor any of them and the input, may be the same file.
@@ -420,8 +431,9 @@ JSON files hold the 0.1 fields.
 **HTML report.** The Ne curve (with the bootstrap band and median when there
 are replicates), a run summary (input, log-likelihood, pattern, parameters,
 N0, bin size, generation time, starting values, smoothing, M-step cap), the
-QC findings, metrics and per-sequence table, the bootstrap settings with a
-coverage caveat, and, with `--tmrca-out`, TMRCA panels. Charts can be restyled
+QC findings, metrics and per-sequence table, the bootstrap settings (and
+skipped replicates) with a coverage caveat, and, with `--tmrca-out`, TMRCA
+panels. Charts can be restyled
 and saved as PNG. The page loads ECharts from cdn.jsdelivr.net; for
 offline use set `PSMC_ECHARTS_JS` to a local `echarts.min.js` when running
 psmc-rs, which embeds it (without either, the page says so).
@@ -439,15 +451,14 @@ printed command does: a run with fewer iterations has no round 20, and in a
 longer one round 20 is not the model of `fit.json` and the report. To plot
 the bootstrap as C users do, concatenate the files:
 `cat fit.psmc fit.bootstrap/replicate_*.psmc > combined.psmc`. The glob
-takes every replicate file in the directory, and a run overwrites only its
-own `replicate_001` to `replicate_N`, so files that an earlier run with
-more replicates left there would be plotted too: give each run its own
-`--bootstrap-dir`, or empty it first. `-n` picks the same round in every
-file of the combined one, so the recipe also needs replicates of N_ITER
+takes every replicate file in the directory, which holds only this run's
+(see *Bootstrap files* below). `-n` picks the same round in every file of
+the combined one, so the recipe also needs replicates of N_ITER
 iterations, the default of `--bootstrap-iters`: with fewer, the replicates
 have no round N_ITER and psmc_plot.pl stops with a division by zero; with
 more, it plots each replicate at round N_ITER instead of its final fit.
-Plot such replicates on their own, with `-n` set to their iteration count.
+Plot such replicates on their own, with `-n` set to their iteration count;
+the run warns and prints that command.
 
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
@@ -465,9 +476,19 @@ by the called length: 2e-5 on the reference data).
 time, scaled by `--gen-years`; decoding runs in parallel within and across
 sequences.
 
-**Bootstrap summary.** `summary.tsv` has `x_years`, `ne_main`, `ne_q025`,
-`ne_q500` and `ne_q975` at the main curve's time points; `summary.json` the
-same points with the replicate count, trunk size (`block_size`) and seed.
+**Bootstrap files.** `replicate_NNN.json` and `replicate_NNN.psmc` are
+numbered by replicate, from 001. `summary.tsv` has `x_years`, `ne_main`,
+`ne_q025`, `ne_q500` and `ne_q975` at the main curve's time points;
+`summary.json` the same points with the number of replicates summarised
+(`n_replicates`), the skipped ones (`skipped_replicates`, numbered from 1,
+`[]` when none), the trunk size (`block_size`) and the seed. When the
+bootstrap starts, after the main fit's JSON and `--psmc-out` are written,
+it removes every `replicate_NNN.json`, `replicate_NNN.psmc`, `summary.tsv`
+and `summary.json` in its directory, with a warning that names the
+earlier replicates beyond this run's count; other files are left alone. A
+bootstrap that fails or is stopped part way therefore leaves only the JSON
+files of the replicates it finished, never files of an earlier run. A fit
+without `--bootstrap` warns when `OUTPUT.bootstrap` holds replicates.
 
 **Console.** stdout carries only results (`Last EM loglike`, `Parameters`,
 `PSMC output`, `QC report`, `Bootstrap ...`, `TMRCA posterior`, `HTML

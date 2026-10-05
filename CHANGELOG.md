@@ -62,6 +62,13 @@ Command line and outputs:
   end in `.html`.
 - The output JSON is written right after the main fit, before the
   bootstrap, and carries run metadata (see *Added*).
+- A bootstrap starts by removing every `replicate_NNN.json`,
+  `replicate_NNN.psmc`, `summary.tsv` and `summary.json` in its directory,
+  with a warning that names the earlier replicates beyond its own count,
+  so that a rerun with fewer replicates, or one that stops part way,
+  leaves no earlier replicates for `cat replicate_*.psmc` or a glob of the
+  JSON files to pick up; other files there are left alone. A fit without
+  `--bootstrap` warns when `OUTPUT.bootstrap` holds replicates.
 - The HTML report labels the curve psmc-rs, scales it with the run's bin
   size and generation time, and has run summary, QC and bootstrap
   sections.
@@ -169,7 +176,19 @@ Reproduction package (`experiment/`):
 - `--mhs-pair I,J` selects the two haplotypes of a multihetsep file.
 - `--psmc-out FILE`: C psmc's `.psmc` output (rounds 0 to N_ITER) for
   `psmc_plot.pl`; with `--bootstrap`, `replicate_NNN.psmc` for every
-  replicate. The run prints the matching `psmc_plot.pl` command.
+  replicate. The run prints the matching `psmc_plot.pl` command, and its
+  own command for replicates whose `--bootstrap-iters` differ from N_ITER,
+  which cannot share a plot with the main fit.
+- Bootstrap replicates whose fresh start, with θ0 from their own resampled
+  data, has negative transition probabilities are found before the main
+  fit and skipped, with a warning that gives the `--tr-ratio` or `--rho0`
+  that fits them all; when every replicate is such, the run stops before
+  the main fit. `summary.json` lists them in `skipped_replicates`, the
+  output line and the report name them, and their numbers are missing
+  from the replicate files. In the library,
+  `bootstrap::invalid_replicate_starts` finds them and
+  `BootstrapOptions::skip_invalid_starts` skips them; without it, such a
+  replicate fails with EM's error.
 - `--init-params FILE` starts from the parameters of an earlier run (C
   `-i`), and its replicates start there too, as `psmc -i -b`.
 - `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet` and
