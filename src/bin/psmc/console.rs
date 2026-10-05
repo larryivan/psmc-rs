@@ -48,6 +48,7 @@ impl Console {
         }
     }
 
+    /// Show one event of the pipeline.
     pub fn emit(&self, ev: Event) {
         match ev {
             Event::Info(line) => {

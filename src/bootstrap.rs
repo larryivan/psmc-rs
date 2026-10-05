@@ -67,23 +67,37 @@ use crate::model::{PsmcModel, initial_theta};
 use crate::opt::MStepConfig;
 use crate::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 
+/// The bootstrap distribution of Ne at one time point of the main curve.
 #[derive(Debug, Clone, Serialize)]
 pub struct BootstrapCurvePoint {
+    /// Years ago (the start of a time interval of the main fit).
     pub x_years: f64,
+    /// Ne of the main fit from this time back to the next point.
     pub ne_main: f64,
+    /// 2.5% quantile of the replicates' Ne at this time.
     pub ne_q025: f64,
+    /// Median of the replicates' Ne at this time.
     pub ne_q500: f64,
+    /// 97.5% quantile of the replicates' Ne at this time.
     pub ne_q975: f64,
 }
 
+/// The replicate curves of a bootstrap, summarised at the time points of
+/// the main curve ([`summarize_bootstrap_models`]).
 #[derive(Debug, Clone, Serialize)]
 pub struct BootstrapSummary {
+    /// Number of replicates.
     pub n_replicates: usize,
+    /// Trunk size in bins ([`BootstrapConfig::trunk_size`]).
     pub block_size: usize,
+    /// Base seed of the resampling.
     pub seed: u64,
+    /// One point per positive time of the main curve.
     pub points: Vec<BootstrapCurvePoint>,
 }
 
+/// The default directory of a run's bootstrap files: the output JSON's path
+/// with `.bootstrap` in place of its extension.
 pub fn default_bootstrap_dir(output_json: &Path) -> PathBuf {
     let stem = output_json
         .file_stem()
@@ -92,6 +106,8 @@ pub fn default_bootstrap_dir(output_json: &Path) -> PathBuf {
     output_json.with_file_name(format!("{stem}.bootstrap"))
 }
 
+/// The parameter file of replicate `replicate_index_1based` in `dir`:
+/// `replicate_NNN.json`.
 pub fn replicate_json_path(dir: &Path, replicate_index_1based: usize) -> PathBuf {
     dir.join(format!("replicate_{replicate_index_1based:03}.json"))
 }
@@ -290,6 +306,8 @@ pub fn resample_chunks(chunks: &[Vec<u8>], rng: &mut impl Rng) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// Join HMM rows back into whole sequences (`row_starts` marks the rows
+/// that start one). Errors on empty or inconsistent input.
 pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Vec<u8>>> {
     if rows.is_empty() {
         bail!("cannot build sequences from empty rows");
@@ -330,6 +348,9 @@ pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Ve
     Ok(seqs)
 }
 
+/// Cut sequences into HMM rows of at most `batch_size` bins (whole
+/// sequences without it), the rows of each sequence chained in one HMM
+/// sequence; empty sequences are skipped.
 pub fn sequences_to_observations(
     seqs: &[Vec<u8>],
     batch_size: Option<usize>,
@@ -740,6 +761,10 @@ fn quantile(vals: &mut [f64], q: f64) -> f64 {
     }
 }
 
+/// The 2.5%, 50% and 97.5% quantiles of the replicates' Ne at each
+/// positive time point of the main curve ([`PsmcModel::ne_curve`] at
+/// `bin_size` and `gen_years`); each replicate's curve is read as a step
+/// function. `block_size` and `seed` are recorded as given.
 pub fn summarize_bootstrap_models(
     main_model: &PsmcModel,
     bootstrap_models: &[PsmcModel],
@@ -786,6 +811,8 @@ pub fn summarize_bootstrap_models(
     })
 }
 
+/// Write the summary's points as TSV: `x_years`, `ne_main` and the three
+/// quantiles, in `%.8e`.
 pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -807,6 +834,7 @@ pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> R
     Ok(())
 }
 
+/// Write the summary as pretty-printed JSON.
 pub fn write_bootstrap_summary_json(path: &Path, summary: &BootstrapSummary) -> Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()

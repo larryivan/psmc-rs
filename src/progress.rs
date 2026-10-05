@@ -17,6 +17,7 @@ fn spinner_style() -> ProgressStyle {
     .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 }
 
+/// A progress bar of `len` steps drawn on stderr.
 pub fn bar(len: u64, prefix: &str, msg: &str) -> ProgressBar {
     let pb = ProgressBar::with_draw_target(Some(len), ProgressDrawTarget::stderr_with_hz(15));
     pb.set_style(bar_style());
@@ -25,6 +26,7 @@ pub fn bar(len: u64, prefix: &str, msg: &str) -> ProgressBar {
     pb
 }
 
+/// A spinner drawn on stderr, ticking on its own.
 pub fn spinner(prefix: &str, msg: &str) -> ProgressBar {
     let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr_with_hz(15));
     pb.set_style(spinner_style());
@@ -34,6 +36,8 @@ pub fn spinner(prefix: &str, msg: &str) -> ProgressBar {
     pb
 }
 
+/// A progress bar styled like [`bar`], for a caller that chooses where it
+/// is drawn.
 pub fn bar_raw(len: u64, prefix: &str, msg: &str) -> ProgressBar {
     let pb = ProgressBar::new(len);
     pb.set_style(bar_style());

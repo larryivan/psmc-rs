@@ -20,14 +20,21 @@ use psmc_rs::qc::QcReport;
 
 /// A finished main fit and how it was made, as the output JSON records it.
 pub struct FitRecord<'a> {
+    /// The fitted model.
     pub model: &'a PsmcModel,
+    /// Its EM history, from the starting parameters on.
     pub history: &'a EmHistory,
+    /// Bases per bin.
     pub bin_size: usize,
+    /// Years per generation.
     pub gen_years: f64,
     /// theta0/rho0 of the starting parameters.
     pub tr_ratio: f64,
+    /// Weight of the M-step's smoothness penalty.
     pub smooth_lambda: f64,
+    /// What the input held.
     pub input: &'a InputSummary,
+    /// The input QC report, when it could be made.
     pub qc: Option<&'a QcReport>,
 }
 

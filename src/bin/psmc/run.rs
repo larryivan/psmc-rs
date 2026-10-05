@@ -77,10 +77,15 @@ pub type Sink<'a> = &'a (dyn Fn(Event) + Sync);
 /// The outputs of a finished run.
 #[derive(Debug, Clone)]
 pub struct RunSummary {
+    /// The fitted parameters.
     pub output_json: PathBuf,
+    /// The HTML report.
     pub html_report: PathBuf,
+    /// The TMRCA posterior, if asked for.
     pub tmrca_out: Option<PathBuf>,
+    /// The bootstrap files, if a bootstrap ran.
     pub bootstrap_dir: Option<PathBuf>,
+    /// Log-likelihood of the fitted parameters (none after 0 iterations).
     pub final_loglike: Option<f64>,
 }
 

@@ -400,9 +400,11 @@ Examples:
     subcommand_negates_reqs = true
 )]
 pub struct Cli {
+    /// `convert` or `qc`; inference without one.
     #[command(subcommand)]
     pub command: Option<Command>,
 
+    /// The arguments of inference.
     #[command(flatten)]
     pub infer: InferArgs,
 }
@@ -431,6 +433,7 @@ pub struct ConvertArgs {
     #[arg(value_name = "INPUT")]
     pub input_file: PathBuf,
 
+    /// How to read it.
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -465,6 +468,7 @@ pub struct QcArgs {
     #[arg(value_name = "INPUT")]
     pub input_file: PathBuf,
 
+    /// How to read it.
     #[command(flatten)]
     pub input: InputArgs,
 
@@ -504,6 +508,7 @@ pub struct InferArgs {
     #[arg(value_name = "N_ITER", required_unless_present = "tui")]
     pub n_iter: Option<usize>,
 
+    /// How to read the input.
     #[command(flatten)]
     pub input: InputArgs,
 
