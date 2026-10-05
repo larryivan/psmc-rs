@@ -3,8 +3,9 @@
 `experiment/pipeline/` produces the manuscript's experiments: it simulates
 genomes, runs C psmc and psmc-rs with identical settings, records how every
 output was made, and writes the tables. It replaces `experiment/scripts/`,
-which stays until every experiment has moved here. Experiment E1 is
-implemented; E2 to E6 have their parameters in `config.py` already.
+which stays until every experiment has moved here. Experiments E1 and E4
+are implemented; E2, E3, E5 and E6 have their parameters in `config.py`
+already.
 
 Run it from the repository root with the experiment's environment
 (`experiment/.venv`, see `experiment/requirements.txt`):
@@ -20,8 +21,10 @@ $PY -m experiment.pipeline start E1       # resume: only what is not done runs
 ```
 
 `--profile smoke` runs the same jobs at a small size (E1: 2 models x 2
-replicates x 2 chromosomes of 2 Mb, 3 EM iterations, under a minute) in
-`experiment/.runs-smoke/`; `--profile tiny` is for the unit tests.
+replicates x 2 chromosomes of 2 Mb, 3 EM iterations, under a minute; E4: 1
+replicate of 2 chromosomes of 2 Mb with every mask and route, 3 EM
+iterations, 78 jobs in about 15 s) in `experiment/.runs-smoke/`;
+`--profile tiny` is for the unit tests.
 
 ## Modules
 
@@ -37,6 +40,9 @@ replicates x 2 chromosomes of 2 Mb, 3 EM iterations, under a minute) in
 | `provenance.py` | checksums and provenance records: when a job is done |
 | `runner.py` | the job graph, scheduler, detached daemon, status |
 | `experiments/e1.py` | E1 as jobs, and its tables |
+| `inputprep.py` | E4's data steps: callable masks, masked VCF, consensus FASTA through fq2psmcfa, bins of the routes compared, generate_multihetsep.py cross-check (`python -m experiment.pipeline.inputprep STEP`) |
+| `experiments/e4.py` | E4 as jobs, and its tables |
+| `figures/fig5.py` | Fig 5 from E4's tables |
 
 ## Design
 
@@ -151,6 +157,64 @@ matrices at a time, about 0.6 GB per job, so memory does not limit E1.
 
 ```bash
 experiment/.venv/bin/python -m experiment.pipeline start E1 --keep-awake
+```
+
+## E4: input preparation
+
+Bottleneck model, 5 replicates of 500 Mb (10 chromosomes of 50 Mb). Each
+replicate gets five callable masks: the no-missing control (`nomissing`)
+and missing fractions 0.1 and 0.3, either clustered (uncallable runs with
+a mean of 20 kb) or dispersed (mean 20 bp). A mask is an alternating renewal
+process along each chromosome, callable stretches and uncallable runs of
+geometric (discrete exponential) length, with mean callable stretch
+`mean_run * (1 - f) / f`; seed stage `mask/<mask>/<chrom>`. The records at
+uncallable sites are removed from the simulated VCF, as a caller would not
+call them. The masked VCF then goes to PSMC by four routes, all fitted with
+psmc-rs 0.2 and checked with `psmc-rs qc`:
+
+| route | input |
+| --- | --- |
+| `exact` | the VCF with `--vcf-mask callable.bed.gz` (mask mode) |
+| `fq2psmcfa` | a consensus FASTA (homozygous: the base; heterozygous: the IUPAC code; uncallable: `N`; other sites: a seeded uniform ACGT base, stage `reference/<chrom>`) streamed into `fq2psmcfa -s 100 -`; the `bins` job fails unless its output equals `psmc-rs convert`'s bins of the exact route, bin for bin |
+| `multihetsep` | `psmc-rs convert --multihetsep` of the exact route's input, read back by psmc-rs (uncalled sites at the start of each interval); for replicate 1 every mask's file is compared row for row with `generate_multihetsep.py --mask` run on each chromosome, and the job fails if they differ |
+| `nomask` | the same VCF without the mask: uncallable sites count as called homozygous |
+
+Jobs per replicate and mask: `mask` (BED, masked VCF, record), `consensus`
+(the fq2psmcfa route's psmcfa), `convert` (the exact route's bins and the
+multihetsep file), `convert/<mask>/{multihetsep,nomask}` (those routes' bins
+as psmc-rs reads them), `bins` (every route against the exact route),
+`crosscheck` (replicate 1), and a `fit` and a `qc` per route; then `report`
+(tables) and `figure` (Fig 5). The report checks that every fit read the
+bins of its route's psmcfa.
+
+| table | contents |
+| --- | --- |
+| `E4_summary.csv` | per mask and route (Fig 5): realised missing fraction, share of bins unlike the exact route's, theta against the exact route and against the complete data of the same genome, RMSE of log10 Ne against the truth (informative and fixed windows) and against the exact route, fits identical to the exact route's, QC codes in every / any replicate |
+| `E4_routes.csv` | per mask, route and replicate: the fit, its input as read (bins, heterozygous and missing bins), metrics, QC codes, wall time and peak RSS |
+| `E4_bias.csv` | log10(fitted / true Ne) on the informative-window grid: mean, SD, min, max over replicates |
+| `E4_bins.csv` | per mask, replicate and route: the exact route's T/K/N bins against the route's (`N_T`: missing in the exact route, called in the route), bins only one has (the multihetsep tail after its last row) |
+| `E4_masks.csv` | per mask and replicate: target and realised missing fraction, uncallable runs and their mean length, heterozygous sites removed |
+| `E4_qc.csv` | every QC finding (mask, route, replicate, code, severity) |
+| `E4_crosscheck.csv` | per chromosome of replicate 1: rows of generate_multihetsep.py and psmc-rs, identical |
+| `E4_curves.csv`, `E4_truth.csv`, `E4_seeds.csv` | every fitted Ne(t) step curve, the true Ne(t), every seed |
+
+Layout of `experiment/runs/E4/`: `sims/repNN/` (the genome, and per mask
+`callable.bed.gz`, `variants.vcf.gz`, `fq2psmcfa.psmcfa`,
+`input.multihetsep`, `bins/*.psmcfa`; not committed), `truth/`, `masks/`,
+`consensus/`, `bins/`, `crosscheck/`, `fits/<mask>/<route>/`,
+`qc/<mask>/<route>/`, `provenance/`, `tables/`, `figures/` (committed).
+
+**Production plan** (`plan E4`; step costs measured on one 50 Mb chromosome
+with the dispersed 30% mask, the largest, at a load average of 5 to 9): 362
+jobs, about 3.7 CPU hours (100 fits 2.4, generate_multihetsep.py 0.5, the rest
+under 1), about 35 minutes of wall time on 7 cores, at most 1.5 GB per job
+(the consensus FASTA streamed through fq2psmcfa: 1.1 GB measured for 500 Mb).
+A full-size run of replicate 1 with the dispersed 30% mask (7.5 million
+uncallable runs) took 2.5 minutes on 4 cores: each fit 88 to 97 s and at
+most 154 MB, the mask 5 s, the consensus 28 s.
+
+```bash
+experiment/.venv/bin/python -m experiment.pipeline start E4 --keep-awake
 ```
 
 ## Tools
