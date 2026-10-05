@@ -352,6 +352,16 @@ fn infer(
         "Parameters: {}",
         output_file.display()
     )));
+    if bootstrap.is_none() {
+        let dir = default_bootstrap_dir(&output_file);
+        if replicate_files(&dir).is_ok_and(|mut files| files.next().is_some()) {
+            sink(Event::Warning(format!(
+                "{} holds the bootstrap of an earlier run, not of this fit; this run made \
+                 no bootstrap",
+                dir.display()
+            )));
+        }
+    }
     if let Some(path) = &cli.psmc_out {
         write_main_psmc(path, &model, &history, &data)?;
         sink(Event::Output(format!("PSMC output: {}", path.display())));
@@ -687,6 +697,13 @@ fn bootstrap_stage(
         total: cfg.replicates as u64,
         iter: None,
     };
+    let dir = cfg
+        .out_dir
+        .as_deref()
+        .expect("the CLI always writes the replicates");
+    if let Some(msg) = remove_stale_replicates(dir, cfg.replicates)? {
+        sink(Event::Warning(msg));
+    }
     sink(progress(0));
     let on_done = |n: usize| sink(progress(n));
     let opts = BootstrapOptions {
@@ -696,10 +713,6 @@ fn bootstrap_stage(
         start,
     };
     let replicates = run_bootstrap_with_options(seqs, model, cfg, mstep_config, opts)?;
-    let dir = cfg
-        .out_dir
-        .as_deref()
-        .expect("the CLI always writes the replicates");
     write_replicate_psmc(dir, &replicates)?;
     let models: Vec<PsmcModel> = replicates.into_iter().map(|r| r.model).collect();
     let summary = summarize_bootstrap_models(
@@ -721,6 +734,64 @@ fn bootstrap_stage(
         summary_json.display()
     )));
     Ok(summary)
+}
+
+/// The replicate files in `dir` (`replicate_NNN.json` and
+/// `replicate_NNN.psmc`, as a bootstrap writes them) with their replicate
+/// numbers; none when `dir` does not exist.
+fn replicate_files(dir: &Path) -> Result<impl Iterator<Item = (usize, PathBuf)>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => Some(entries),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("failed to list {}", dir.display())),
+    };
+    Ok(entries.into_iter().flatten().filter_map(|entry| {
+        let entry = entry.ok()?;
+        if !entry.file_type().ok()?.is_file() {
+            return None;
+        }
+        let name = entry.file_name();
+        let name = name.to_str()?;
+        let stem = name
+            .strip_suffix(".json")
+            .or_else(|| name.strip_suffix(".psmc"))?;
+        let number = stem.strip_prefix("replicate_")?;
+        if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        Some((number.parse().ok()?, entry.path()))
+    }))
+}
+
+/// Remove the replicate files an earlier bootstrap left in `dir` beyond
+/// this run's `replicates`, and say so. This run rewrites the files of its
+/// own replicates and the summary, but would leave the others, which
+/// `cat replicate_*.psmc` (the README's recipe for psmc_plot.pl) and globs
+/// of `replicate_*.json` would then mix with this run's while the summary
+/// and the report use only the new ones.
+fn remove_stale_replicates(dir: &Path, replicates: usize) -> Result<Option<String>> {
+    let mut stale: Vec<(usize, PathBuf)> = replicate_files(dir)?
+        .filter(|&(n, _)| n > replicates)
+        .collect();
+    if stale.is_empty() {
+        return Ok(None);
+    }
+    stale.sort();
+    for (_, path) in &stale {
+        fs::remove_file(path).with_context(|| format!("failed to remove {}", path.display()))?;
+    }
+    let (first, last) = (stale[0].0, stale[stale.len() - 1].0);
+    let which = if first == last {
+        format!("replicate {first}")
+    } else {
+        format!("replicates {first} to {last}")
+    };
+    Ok(Some(format!(
+        "{} held {which} of an earlier bootstrap, beyond this run's {replicates}; their {} \
+         files were removed so that the directory holds only this run's replicates",
+        dir.display(),
+        stale.len()
+    )))
 }
 
 fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {

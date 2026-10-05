@@ -278,6 +278,71 @@ fn bootstrap_writes_replicates_and_summary() {
     assert!(html.contains("<tr><th>Trunks resampled</th><td>9</td></tr>"));
 }
 
+/// A bootstrap into the directory of an earlier one leaves only its own
+/// replicates: `cat fit.psmc fit.bootstrap/replicate_*.psmc` (the README's
+/// psmc_plot.pl recipe) must not mix in an earlier run's. A fit without a
+/// bootstrap says that the directory next to it is not its own.
+#[test]
+fn a_rerun_bootstrap_leaves_no_earlier_replicates() {
+    let dir = TempDir::new("bootstrap_rerun");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 3000);
+    let out = dir.path("fit.json");
+    let boot = dir.path("fit.bootstrap");
+    let rep = |n: usize, ext: &str| boot.join(format!("replicate_{n:03}.{ext}"));
+    let run = |n_iter: &str, extra: &[&str]| -> String {
+        let mut args = vec![
+            input.to_str().unwrap(),
+            out.to_str().unwrap(),
+            n_iter,
+            "--no-progress",
+            "--bootstrap-block-size",
+            "1000",
+        ];
+        args.extend_from_slice(extra);
+        let o = common::run(&args);
+        assert!(o.status.success());
+        String::from_utf8(o.stderr).unwrap()
+    };
+    let first = run("1", &["--bootstrap", "4"]);
+    assert!(!first.contains("earlier"), "{first}");
+    assert!(rep(4, "json").exists() && rep(4, "psmc").exists());
+    // Not a replicate file of psmc-rs: left alone.
+    fs::write(boot.join("replicate_notes.txt"), "mine").unwrap();
+
+    let second = run("2", &["--bootstrap", "2", "--bootstrap-seed", "7"]);
+    assert!(
+        second.contains(&format!(
+            "Warning: {} held replicates 3 to 4 of an earlier bootstrap, beyond this run's 2; \
+             their 4 files were removed",
+            boot.display()
+        )),
+        "{second}"
+    );
+    for n in [1, 2] {
+        let text = fs::read_to_string(rep(n, "psmc")).unwrap();
+        assert_eq!(parse_rounds(&text).len(), 3, "replicate {n} is of this run");
+        assert!(rep(n, "json").exists());
+    }
+    for n in [3, 4] {
+        assert!(!rep(n, "json").exists() && !rep(n, "psmc").exists());
+    }
+    assert!(boot.join("replicate_notes.txt").exists());
+    assert_eq!(json(&boot.join("summary.json"))["n_replicates"], 2);
+
+    // A fit without a bootstrap leaves the directory, and says it is not
+    // of this fit.
+    let third = run("1", &[]);
+    assert!(
+        third.contains(&format!(
+            "Warning: {} holds the bootstrap of an earlier run, not of this fit",
+            boot.display()
+        )),
+        "{third}"
+    );
+    assert!(rep(1, "json").exists());
+}
+
 /// A bootstrap that cannot vary fails before the main fit.
 #[test]
 fn a_single_trunk_bootstrap_fails_before_fitting() {
