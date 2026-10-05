@@ -75,7 +75,10 @@ class Jobs(unittest.TestCase):
         self.by_id = {j.id: j for j in self.jobs}
 
     def test_four_jobs_per_genome_then_report_and_figure(self):
-        self.assertEqual(len(self.jobs), 4 * 4 + 2)
+        # Papuan chr1 forms 5 default trunks (< 20): it gets the second bootstrap, on 5 Mb trunks.
+        self.assertEqual(len(self.jobs), 4 * 4 + 1 + 2)
+        self.assertIn("E2/boot-rs/trunk50000/Papuan", self.by_id)
+        self.assertNotIn("E2/boot-rs/trunk50000/HLhydTec1", self.by_id)  # 51 default trunks
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E2/fit-c/Papuan"], [])  # reads the packaged file
         self.assertEqual(g.deps["E2/figure"], ["E2/report"])
@@ -93,7 +96,7 @@ class Jobs(unittest.TestCase):
         self.assertEqual(c.settings["inference"], rs.settings["inference"])
 
     def test_bootstrap_job(self):
-        boot = self.by_id["E2/boot-rs/Papuan"]
+        boot = self.by_id["E2/boot-rs/trunk500000/Papuan"]
         cmd = boot.command
         seed = config.seed("E2", "Papuan", 0, "bootstrap")
         self.assertEqual(boot.seeds, {"bootstrap": seed})
@@ -103,9 +106,15 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--threads") + 1], "7")
         self.assertEqual(boot.cores, 7)
         lay = e2.Layout(self.runs / "E2")
-        self.assertIn(lay.boot_replicate("Papuan", 100), boot.outputs)
-        self.assertEqual(len(boot.outputs), 3 + 100)
+        # Replicates are not declared: psmc-rs may skip one, and the report reads those the summary names.
+        self.assertEqual(boot.outputs, [lay.boot_main("Papuan", 500_000), lay.boot_summary("Papuan", 500_000),
+                                        lay.boot_summary("Papuan", 500_000, "tsv")])
         self.assertNotEqual(seed, config.seed("E2", "HLhydTec1", 0, "bootstrap"))
+        fine = self.by_id["E2/boot-rs/trunk50000/Papuan"]
+        self.assertEqual(fine.command[fine.command.index("--bootstrap-block-size") + 1], "50000")
+        self.assertEqual(fine.seeds, {"bootstrap": config.seed("E2", "Papuan", 0, "bootstrap/trunk50000")})
+        self.assertEqual(e2.trunk_sizes(config.PRODUCTION.e2, [2_487_383]), [500_000, 50_000])
+        self.assertEqual(e2.trunk_sizes(config.PRODUCTION.e2, [600_000] * 30), [500_000])
 
     def test_qc_job_checks_the_bootstrap_trunks(self):
         qc = self.by_id["E2/qc/HLpelCas1"]
@@ -240,23 +249,24 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
 
         main = json.dumps(params(scale), indent=2)
         lay.rs_json(sid).write_text(main)
-        lay.boot_dir(sid).mkdir(parents=True, exist_ok=True)
-        lay.boot_main(sid).write_text(main)
         sc = g.scaling
         main_curve = results.fit_from_rs(params(scale)).curve(sc.mu, sc.gen_years, 100)
-        reps = []
-        for r in range(1, cfg.bootstrap_replicates + 1):
-            p = params(scale * (1 + r / 10), extra=False)
-            lay.boot_replicate(sid, r).write_text(json.dumps(p))
-            reps.append(results.fit_from_rs(p).curve(sc.mu, sc.gen_years, 100))
-        xs = list(main_curve.years[1:])
-        q = e2.band(reps, xs, e2.SUMMARY_PROBS)
-        points = [{"x_years": x, "ne_main": float(main_curve.at([x])[0]), "ne_q025": float(a), "ne_q500": float(b),
-                   "ne_q975": float(c)} for x, a, b, c in zip(xs, *q)]
-        summary = {"n_replicates": cfg.bootstrap_replicates, "skipped_replicates": [],
-                   "block_size": cfg.bootstrap_trunk_bins, "seed": e2.bootstrap_seed(g), "points": points}
-        lay.boot_summary(sid).write_text(json.dumps(summary))
-        lay.boot_summary(sid, "tsv").write_text("x_years\n")
+        for trunk in e2.trunk_sizes(cfg, e2.input_lengths(cfg, g)):
+            lay.boot_dir(sid, trunk).mkdir(parents=True, exist_ok=True)
+            lay.boot_main(sid, trunk).write_text(main)
+            reps = []
+            for r in range(1, cfg.bootstrap_replicates + 1):
+                p = params(scale * (1 + r / 10), extra=False)
+                lay.boot_replicate(sid, trunk, r).write_text(json.dumps(p))
+                reps.append(results.fit_from_rs(p).curve(sc.mu, sc.gen_years, 100))
+            xs = list(main_curve.years[1:])
+            q = e2.band(reps, xs, e2.SUMMARY_PROBS)
+            points = [{"x_years": x, "ne_main": float(main_curve.at([x])[0]), "ne_q025": float(a),
+                       "ne_q500": float(b), "ne_q975": float(c)} for x, a, b, c in zip(xs, *q)]
+            summary = {"n_replicates": cfg.bootstrap_replicates, "skipped_replicates": [],
+                       "block_size": trunk, "seed": e2.bootstrap_seed(cfg, g, trunk), "points": points}
+            lay.boot_summary(sid, trunk).write_text(json.dumps(summary))
+            lay.boot_summary(sid, trunk, "tsv").write_text("x_years\n")
         qc = {"n_sequences": 1, "bin_size": 100, "bootstrap_trunk_bins": cfg.bootstrap_trunk_bins,
               "totals": {"bins": 4, "k_fraction": 0.25, "called_bases_from_bins": 400},
               "lengths": {"bootstrap_trunks": 12, "below_trunk": {"fraction": 0.0}, "n50_bases": 400},
@@ -305,16 +315,23 @@ class Tables(unittest.TestCase):
         self.assertLess(lo, hi)
 
     def test_bootstrap_summary(self):
-        boot = {r["sample_id"]: r for r in read_csv(self.lay.table("bootstrap"))}
+        rows = read_csv(self.lay.table("bootstrap"))
+        # 20,000 bins of each genome: 4 trunks of 5,000 bins (< 20), so a second bootstrap on 1,000-bin trunks.
+        self.assertEqual({(r["sample_id"], r["trunk_bins"]) for r in rows},
+                         {(s, t) for s in ("Papuan", "HLhydTec1") for t in ("5000", "1000")})
+        fine = {r["sample_id"]: r for r in rows if r["default_trunks"] == "False"}
+        self.assertEqual((fine["Papuan"]["trunks"], fine["Papuan"]["coarse_band"]), ("20", "False"))
+        self.assertEqual(fine["Papuan"]["seed"], str(config.seed("E2", "Papuan", 0, "bootstrap/trunk1000")))
+        boot = {r["sample_id"]: r for r in rows if r["default_trunks"] == "True"}
         self.assertEqual(boot["Papuan"]["replicates"], "3")
-        self.assertEqual((boot["Papuan"]["trunks"], boot["Papuan"]["coarse_band"]), ("12", "True"))  # 12 < 20
+        self.assertEqual((boot["Papuan"]["trunks"], boot["Papuan"]["coarse_band"]), ("4", "True"))  # 4 < 20
         self.assertEqual(boot["Papuan"]["seed"], str(config.seed("E2", "Papuan", 0, "bootstrap")))
         self.assertLess(float(boot["Papuan"]["summary_max_rel_diff"]), 1e-12)
         # The replicates are 1.1 to 1.3 times the main curve, which lies below the band.
         self.assertEqual(float(boot["Papuan"]["rs_in_band_fraction"]), 0.0)
         width = math.log10(1.3 - 0.005) - math.log10(1.1 + 0.005)
         self.assertAlmostEqual(float(boot["Papuan"]["band_width_log10_median"]), width, places=9)
-        reps = [r for r in read_csv(self.lay.table("replicates")) if r["sample_id"] == "Papuan"]
+        reps = [r for r in read_csv(self.lay.table("replicates")) if r["sample_id"] == "Papuan" and r["trunk_bins"] == "5000"]
         self.assertEqual([r["replicate"] for r in reps], ["1", "2", "3"])
         self.assertEqual(len(reps[0]["lam"].split()), 28)
 
@@ -335,7 +352,7 @@ class Tables(unittest.TestCase):
 
     def test_bands_and_curves(self):
         bands = [r for r in read_csv(self.lay.table("bands")) if r["sample_id"] == "Papuan"]
-        self.assertEqual(len(bands), self.profile.e2.display_years[2])
+        self.assertEqual(len(bands), 2 * self.profile.e2.display_years[2])  # two trunk sizes
         self.assertTrue(any(r["in_window"] == "True" for r in bands))
         self.assertTrue(all(float(r["ne_band_lo"]) <= float(r["ne_band_hi"]) for r in bands))
         curves = read_csv(self.lay.table("curves"))
@@ -348,7 +365,7 @@ class Tables(unittest.TestCase):
         panels = fig3.load_panels(self.lay.root / "tables")
         self.assertEqual(set(panels), {"Papuan", "HLhydTec1"})
         self.assertIn("chr1 only", fig3.title(panels["Papuan"]))
-        self.assertIn("12 trunks of 0.5 Mb (few trunks: a coarse band)", fig3.subtitle(panels["Papuan"]))
+        self.assertIn("4 trunks of 0.5 Mb (few trunks: a coarse band)", fig3.subtitle(panels["Papuan"]))
         out = self.runs / "fig" / "fig3"
         written = fig3.render(panels, ["Papuan", "HLhydTec1"], out, ["pdf", "png"])
         self.assertEqual([p.name for p in written], ["fig3.pdf", "fig3.png"])
@@ -384,7 +401,11 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E2/fits/HLemySub1.rs.psmc",
             "experiment/runs/E2/qc/HLemySub1.qc.json",
             "experiment/runs/E2/qc/HLemySub1.qc.txt",
-            "experiment/runs/E2/provenance/boot-rs/HLemySub1.json",
+            "experiment/runs/E2/provenance/boot-rs/trunk500000/HLemySub1.json",
+            "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/main.json",
+            "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/replicate_001.json",
+            "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/summary.json",
+            "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/summary.tsv",
             "experiment/runs/E2/provenance/fit-c/HLemySub1.json",
             "experiment/runs/E2/provenance/report.json",
             "experiment/runs/E2/tables/E2_bootstrap_replicates.csv",
@@ -393,12 +414,10 @@ class RunsLayout(unittest.TestCase):
         ):
             self.assertFalse(ignored(p), p)
 
-    def test_bootstrap_directories_and_local_files_are_ignored(self):
+    def test_replicate_rounds_and_local_files_are_ignored(self):
         for p in (
-            "experiment/runs/E2/bootstrap/HLemySub1/main.json",
-            "experiment/runs/E2/bootstrap/HLemySub1/replicate_001.json",
-            "experiment/runs/E2/bootstrap/HLemySub1/replicate_001.psmc",
-            "experiment/runs/E2/bootstrap/HLemySub1/summary.json",
+            "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/replicate_001.psmc",
+            "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/replicate_001.html",
             "experiment/runs/E2/inputs/HLemySub1.psmcfa",
             "experiment/runs/E2/fits/HLemySub1.rs.html",
             "experiment/runs/E2/logs/jobs/boot-rs/HLemySub1.log",
@@ -434,7 +453,10 @@ class EndToEnd(unittest.TestCase):
             boot = {r["sample_id"]: r for r in read_csv(lay.table("bootstrap"))}
             for sid, row in boot.items():
                 self.assertLess(float(row["summary_max_rel_diff"]), 1e-9, sid)
-                self.assertEqual(int(row["trunks"]), 4, sid)  # 20,000 bins in trunks of 5,000
+                self.assertEqual(row["main_identical_to_fit"], "True", sid)
+            trunks = {(r["sample_id"], r["trunk_bins"]): int(r["trunks"]) for r in read_csv(lay.table("bootstrap"))}
+            self.assertEqual(trunks[("Papuan", "5000")], 4)  # 20,000 bins in trunks of 5,000
+            self.assertEqual(trunks[("Papuan", "1000")], 20)
             self.assertTrue(all(lay.figure(ext).exists() for ext in e2.FIGURE_FORMATS))
             again = runner.job_statuses(graph, runs, daemon_pid=None)
             self.assertTrue(all(s.state == runner.DONE for s in again))

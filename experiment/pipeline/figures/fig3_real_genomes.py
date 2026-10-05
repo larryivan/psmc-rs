@@ -107,7 +107,7 @@ def load_panels(tables: Path) -> Dict[str, Panel]:
     """One :class:`Panel` per genome of the E2 tables in directory ``tables``."""
     t = {k: read_table(Path(tables) / name) for k, name in TABLE_FILES.items()}
     fits = {r["sample_id"]: r for r in t["fit_summary"]}
-    boots = {r["sample_id"]: r for r in t["bootstrap"]}
+    boots = {r["sample_id"]: r for r in t["bootstrap"] if r.get("default_trunks", "True") == "True"}
     panels: Dict[str, Panel] = {}
     for pair in t["pairs"]:
         sid = pair["sample_id"]
@@ -118,7 +118,7 @@ def load_panels(tables: Path) -> Dict[str, Panel]:
                 (r for r in t["curves"] if r["sample_id"] == sid and r["tool"] == tool), key=lambda r: int(r["interval"])
             )
             curves[tool] = ([float(r["years"]) for r in rows], [float(r["ne"]) for r in rows])
-        band_rows = [r for r in t["bands"] if r["sample_id"] == sid]
+        band_rows = [r for r in t["bands"] if r["sample_id"] == sid and r.get("trunk_bins") == boot.get("trunk_bins")]
         trunks = _num(boot.get("trunks"))
         panels[sid] = Panel(
             sample_id=sid,

@@ -320,9 +320,19 @@ class E2:
     inference: Inference = INFERENCE
     bootstrap_replicates: int = 100
     bootstrap_trunk_bins: int = 500_000  # psmc-rs default (splitfa's 50 Mb at 100 bp)
+    # A second bootstrap, with trunks of the size E5 also calibrates (50,000
+    # bins, 5 Mb), of every genome whose default trunks are fewer than
+    # ``few_trunks``: Papuan chr1 forms only 5 trunks of 50 Mb, so its default
+    # band rests on 5 resampling units. E5 calibrates bootstraps of 50 Mb
+    # chromosomes cut into 50 Mb and 5 Mb trunks; the turtles' default
+    # bootstraps resample hundreds of whole scaffolds of very different
+    # lengths (most bins lie in scaffolds shorter than a trunk), a regime E5
+    # does not calibrate. None: no second bootstrap.
+    fine_trunk_bins: Optional[int] = 50_000
     band: Tuple[float, float] = (0.025, 0.975)
     rs_threads: int = 7  # the bootstrap fits replicates in parallel
-    # Seeds: seed("E2", sample_id, 0, "bootstrap").
+    # Seeds: seed("E2", sample_id, 0, "bootstrap") for the default trunks,
+    # seed("E2", sample_id, 0, "bootstrap/trunk<bins>") for the fine ones.
 
     # -- Settings of the E2 jobs and tables (experiments/e2.py) --------------
     fit_threads: int = 1  # psmc-rs --threads of the main fit (the output does not depend on it)
@@ -850,8 +860,9 @@ def get_profile(name: str) -> Profile:
 # with trunks small enough to leave several of them for the bootstrap.
 
 # smoke: 20 Mb of each of the four genomes, 3 EM iterations, 4 bootstrap
-# replicates on 2 Mb trunks (about a minute in all).
-SMOKE = replace(SMOKE, e2=replace(SMOKE.e2, max_bins=200_000, bootstrap_trunk_bins=20_000))
+# replicates on 2 Mb trunks (10 per genome, so each genome also gets the
+# second bootstrap, on trunks of 0.5 Mb) (about a minute in all).
+SMOKE = replace(SMOKE, e2=replace(SMOKE.e2, max_bins=200_000, bootstrap_trunk_bins=20_000, fine_trunk_bins=5_000))
 
 # tiny (unit tests): 2 Mb of the human chromosome and of one turtle,
 # 2 EM iterations, 2 bootstrap replicates on 500 kb trunks (seconds).
@@ -862,6 +873,7 @@ TINY = replace(
         inference=replace(INFERENCE, n_iter=2),
         bootstrap_replicates=2,
         bootstrap_trunk_bins=5_000,
+        fine_trunk_bins=1_000,
         rs_threads=2,
         max_bins=20_000,
     ),

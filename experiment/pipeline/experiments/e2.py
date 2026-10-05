@@ -9,8 +9,9 @@ Figure 3. Layout under ``<runs>/E2/``::
 
     fits/<sample>.c.psmc                          C psmc, every round
     fits/<sample>.rs.json, <sample>.rs.psmc       psmc-rs 0.2, one thread (JSON and .psmc)
-    bootstrap/<sample>/main.json                  psmc-rs 0.2 with --bootstrap: the main fit, again
-    bootstrap/<sample>/replicate_NNN.{json,psmc}  the replicates, and summary.{json,tsv} (not committed)
+    bootstrap/<sample>/trunk<B>/main.json         psmc-rs 0.2 with --bootstrap: the main fit, again
+    bootstrap/<sample>/trunk<B>/replicate_NNN.json  the replicates' parameters, and summary.{json,tsv}
+    bootstrap/<sample>/trunk<B>/replicate_NNN.psmc  the replicates' rounds (not committed)
     qc/<sample>.qc.json, <sample>.qc.txt          psmc-rs qc: JSON and the text report
     inputs/<sample>.psmcfa                        smoke and tiny profiles only: the first bins (not committed)
     provenance/<kind>/<sample>.json               one record per job
@@ -18,10 +19,11 @@ Figure 3. Layout under ``<runs>/E2/``::
     figures/E2_fig3_real_genomes.{pdf,png}        Figure 3, drawn from the tables
     logs/                                         runner and job logs (not committed)
 
-Jobs per genome: ``fit-c`` (C psmc), ``fit-rs`` (psmc-rs 0.2), ``boot-rs``
-(psmc-rs 0.2 with ``--bootstrap``) and ``qc`` (``psmc-rs qc --json``, with
-the bootstrap's trunk size), plus ``subset`` when the profile fits only the
-first bins of each genome; then ``report`` and ``figure``.
+Jobs per genome: ``fit-c`` (C psmc), ``fit-rs`` (psmc-rs 0.2),
+``boot-rs/trunk<B>`` (psmc-rs 0.2 with ``--bootstrap``, at the default
+trunks and, where they are few, at the fine trunks) and ``qc`` (``psmc-rs qc
+--json``, with the default trunk size), plus ``subset`` when the profile
+fits only the first bins of each genome; then ``report`` and ``figure``.
 
 **Settings.** Both tools fit with the psmc README's human recipe
 (``-N25 -t15 -r5 -p "4+25*2+4+6"``; :class:`.config.Inference`). Curves are
@@ -36,10 +38,17 @@ again, then B replicates, each drawing splitfa trunks of T bins (default
 ``splitfa | psmc -b`` does. S is ``config.seed("E2", sample_id, 0,
 "bootstrap")``. psmc-rs's output does not depend on ``--threads``, so
 ``main.json`` must equal ``fit-rs``'s JSON byte for byte; the report checks
-it. The replicate ``.psmc`` files (about 100 kB each) stay out of git with
-the rest of ``bootstrap/``; every replicate's parameters are in
-``tables/E2_bootstrap_replicates.csv`` and every replicate JSON's checksum
-in the job's provenance record.
+it. A genome whose default trunks are fewer than ``few_trunks`` (Papuan
+chr1: 5 trunks of 50 Mb) is bootstrapped a second time with trunks of
+``fine_trunk_bins`` (5 Mb, a size E5 calibrates), seed stage
+``bootstrap/trunk<B>``. E5 calibrates bootstraps of chromosome-scale
+sequences; the turtles' default bootstraps resample hundreds of whole
+scaffolds of very different lengths, which E5 does not calibrate. The job
+declares ``main.json`` and the summary only: psmc-rs skips a replicate
+whose fresh start is invalid, and the report reads exactly the replicates
+the summary names. The replicates' parameters (``replicate_NNN.json``) are
+committed and tabulated in ``tables/E2_bootstrap_replicates.csv``; their
+``.psmc`` files (every EM round, about 100 kB each) are not.
 
 **Comparison window.** A real genome has no true Ne(t), so the informative
 window of :class:`.config.TimeGrid` is taken from the fitted model: the 1%
@@ -63,12 +72,13 @@ Tables (``tables/``):
   and fixed window), the largest difference, relative differences of theta,
   rho and t_max and of the log-likelihoods, and whether the bootstrap run's
   main fit equals ``fit-rs``'s output.
-* ``E2_bootstrap.csv``: per genome: replicates, trunks (``coarse_band``
-  when fewer than psmc-rs's 20), seed, the band's width, how much of C
-  psmc's and psmc-rs's curves it holds, and the check against psmc-rs's
-  own summary.
+* ``E2_bootstrap.csv``: per genome and trunk size: replicates, trunks
+  (``coarse_band`` when fewer than psmc-rs's 20), seed, the band's width,
+  how much of C psmc's and psmc-rs's curves it holds, and the check against
+  psmc-rs's own summary.
 * ``E2_bootstrap_replicates.csv``: the parameters of every replicate.
-* ``E2_bands.csv``: both curves and the band on a dense grid (Fig 3).
+* ``E2_bands.csv``: per genome and trunk size, both curves and the band on
+  a dense grid (Fig 3).
 * ``E2_curves.csv``: the fitted step curves of both tools (Fig 3).
 * ``E2_traces.csv``: log-likelihood, theta, rho and t_max per EM iteration.
 * ``E2_qc.csv`` and ``E2_qc_findings.csv``: Table S5, the metrics and the
@@ -93,6 +103,7 @@ from .. import config, demography, metrics, paths, provenance, results, simulate
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
+from .e5 import trunk_count
 
 NAME = "E2"
 TOOLS = ("c", "rs")
@@ -233,17 +244,17 @@ class Layout:
     def rs_psmc(self, sid: str) -> Path:
         return self.root / "fits" / f"{sid}.rs.psmc"
 
-    def boot_dir(self, sid: str) -> Path:
-        return self.root / "bootstrap" / sid
+    def boot_dir(self, sid: str, trunk: int) -> Path:
+        return self.root / "bootstrap" / sid / f"trunk{trunk}"
 
-    def boot_main(self, sid: str) -> Path:
-        return self.boot_dir(sid) / "main.json"
+    def boot_main(self, sid: str, trunk: int) -> Path:
+        return self.boot_dir(sid, trunk) / "main.json"
 
-    def boot_summary(self, sid: str, ext: str = "json") -> Path:
-        return self.boot_dir(sid) / f"summary.{ext}"
+    def boot_summary(self, sid: str, trunk: int, ext: str = "json") -> Path:
+        return self.boot_dir(sid, trunk) / f"summary.{ext}"
 
-    def boot_replicate(self, sid: str, i: int) -> Path:
-        return self.boot_dir(sid) / f"replicate_{i:03d}.json"
+    def boot_replicate(self, sid: str, trunk: int, i: int) -> Path:
+        return self.boot_dir(sid, trunk) / f"replicate_{i:03d}.json"
 
     def qc_json(self, sid: str) -> Path:
         return self.root / "qc" / f"{sid}.qc.json"
@@ -275,8 +286,39 @@ def fit_input(lay: Layout, cfg: config.E2, genome: config.RealGenome) -> Path:
     return source(genome) if cfg.max_bins is None else lay.subset(genome.sample_id)
 
 
-def bootstrap_seed(genome: config.RealGenome) -> int:
-    return config.seed(NAME, genome.sample_id, 0, "bootstrap")
+def boot_kind(trunk: int) -> str:
+    """The job kind (and provenance directory) of a bootstrap: ``boot-rs/trunk<B>``."""
+    return f"boot-rs/trunk{trunk}"
+
+
+def bootstrap_stage(cfg: config.E2, trunk: int) -> str:
+    """The seed stage of a bootstrap: ``bootstrap`` at the default trunks, ``bootstrap/trunk<B>`` otherwise."""
+    return "bootstrap" if trunk == cfg.bootstrap_trunk_bins else f"bootstrap/trunk{trunk}"
+
+
+def bootstrap_seed(cfg: config.E2, genome: config.RealGenome, trunk: int) -> int:
+    return config.seed(NAME, genome.sample_id, 0, bootstrap_stage(cfg, trunk))
+
+
+def input_lengths(cfg: config.E2, genome: config.RealGenome) -> Tuple[int, ...]:
+    """The bins of each sequence the fits read (the packaged file, or its first bins)."""
+    lengths = psmcfa_lengths(source(genome))
+    return prefix_lengths(lengths, cfg.max_bins) if cfg.max_bins is not None else lengths
+
+
+def trunk_sizes(cfg: config.E2, lengths: Sequence[int]) -> List[int]:
+    """The trunk sizes a genome is bootstrapped with: the default, and the fine one where the default leaves few trunks."""
+    out = [cfg.bootstrap_trunk_bins]
+    fine = cfg.fine_trunk_bins
+    if fine and fine != cfg.bootstrap_trunk_bins and trunk_count(lengths, cfg.bootstrap_trunk_bins) < cfg.few_trunks:
+        out.append(fine)
+    return out
+
+
+def below_trunk_fraction(lengths: Sequence[int], trunk: int) -> float:
+    """The share of bins in sequences shorter than one trunk (each one resampled whole)."""
+    total = sum(lengths)
+    return sum(n for n in lengths if n < trunk) / total if total else 0.0
 
 
 def rs_seconds(costs: config.Costs, mb: float, n_iter: int, parallel: int) -> float:
@@ -284,11 +326,11 @@ def rs_seconds(costs: config.Costs, mb: float, n_iter: int, parallel: int) -> fl
     return costs.rs02_s_per_mb_iter * mb * max(n_iter, 1) / max(parallel, 1)
 
 
-def bootstrap_args(cfg: config.E2, genome: config.RealGenome, boot_dir: Path) -> List[str]:
+def bootstrap_args(cfg: config.E2, genome: config.RealGenome, trunk: int, boot_dir: Path) -> List[str]:
     return [
         "--bootstrap", str(cfg.bootstrap_replicates),
-        "--bootstrap-block-size", str(cfg.bootstrap_trunk_bins),
-        "--bootstrap-seed", str(bootstrap_seed(genome)),
+        "--bootstrap-block-size", str(trunk),
+        "--bootstrap-seed", str(bootstrap_seed(cfg, genome, trunk)),
         "--bootstrap-iters", str(cfg.inference.n_iter),
         "--bootstrap-dir", str(boot_dir),
     ]
@@ -356,36 +398,39 @@ def jobs(ctx: Context) -> List[Job]:
                 description=f"psmc-rs 0.2 on {g.label}",
             )
         )
-        replicates = [lay.boot_replicate(sid, i) for i in range(1, cfg.bootstrap_replicates + 1)]
-        boot_outputs = [lay.boot_main(sid), lay.boot_summary(sid, "json"), lay.boot_summary(sid, "tsv"), *replicates]
-        out.append(
-            Job(
-                id=job_id("boot-rs", sid),
-                command=tools.rs02_fit(
-                    rs_tool, cfg.inference, g.scaling, inp, lay.boot_main(sid),
-                    threads=cfg.rs_threads, extra=bootstrap_args(cfg, g, lay.boot_dir(sid)),
-                ),
-                inputs=[inp],
-                outputs=boot_outputs,
-                cores=cfg.rs_threads,
-                mem_gb=round(costs.rs02_gb * cfg.rs_threads, 2),  # one replicate per thread at once
-                est_seconds=rs_seconds(costs, mb, n_iter, min(cfg.rs_threads, shape.sequences))
-                + cfg.bootstrap_replicates * rs_seconds(costs, mb, n_iter, cfg.rs_threads),
-                settings={
-                    "inference": inference,
-                    "scaling": scaling,
-                    "threads": cfg.rs_threads,
-                    "bootstrap": {
-                        "replicates": cfg.bootstrap_replicates,
-                        "trunk_bins": cfg.bootstrap_trunk_bins,
-                        "iterations": n_iter,
+        boot_outputs: List[Path] = []
+        for trunk in trunk_sizes(cfg, input_lengths(cfg, g)):
+            # psmc-rs skips a replicate whose fresh start is invalid (it gets no
+            # files); the report reads exactly the replicates summary.json names.
+            outputs = [lay.boot_main(sid, trunk), lay.boot_summary(sid, trunk, "json"),
+                       lay.boot_summary(sid, trunk, "tsv")]
+            boot_outputs += outputs
+            out.append(
+                Job(
+                    id=job_id(boot_kind(trunk), sid),
+                    command=tools.rs02_fit(
+                        rs_tool, cfg.inference, g.scaling, inp, lay.boot_main(sid, trunk),
+                        threads=cfg.rs_threads, extra=bootstrap_args(cfg, g, trunk, lay.boot_dir(sid, trunk)),
+                    ),
+                    inputs=[inp],
+                    outputs=outputs,
+                    cores=cfg.rs_threads,
+                    mem_gb=round(costs.rs02_gb * cfg.rs_threads, 2),  # one replicate per thread at once
+                    est_seconds=rs_seconds(costs, mb, n_iter, min(cfg.rs_threads, shape.sequences))
+                    + cfg.bootstrap_replicates * rs_seconds(costs, mb, n_iter, cfg.rs_threads),
+                    settings={
+                        "inference": inference,
+                        "scaling": scaling,
+                        "threads": cfg.rs_threads,
+                        "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": trunk, "iterations": n_iter},
                     },
-                },
-                tools=rs_ident,
-                seeds={"bootstrap": bootstrap_seed(g)},
-                description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates) on {g.label}",
+                    tools=rs_ident,
+                    seeds={"bootstrap": bootstrap_seed(cfg, g, trunk)},
+                    description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates, trunks of {trunk} "
+                                f"bins) on {g.label}",
+                )
             )
-        )
+            report_inputs.append(lay.record(boot_kind(trunk), sid))
         out.append(
             Job(
                 id=job_id("qc", sid),
@@ -405,7 +450,7 @@ def jobs(ctx: Context) -> List[Job]:
         )
         report_inputs += [
             inp, lay.c_psmc(sid), lay.rs_json(sid), lay.rs_psmc(sid), *boot_outputs, lay.qc_json(sid),
-            lay.record("fit-c", sid), lay.record("fit-rs", sid), lay.record("boot-rs", sid),
+            lay.record("fit-c", sid), lay.record("fit-rs", sid),
         ]
     out.append(
         Job(
@@ -497,20 +542,30 @@ def summary_difference(main: results.Curve, replicates: Sequence[results.Curve],
 
 
 @dataclass
+class Bootstrap:
+    """One bootstrap run of a genome, read back and checked."""
+
+    trunk: int
+    identical: bool  # its main.json equals fit-rs's JSON byte for byte
+    summary: Dict
+    replicates: List[Tuple[int, Dict]]
+    curves: List[results.Curve]
+    run: Dict
+
+
+@dataclass
 class GenomeResult:
     """The outputs of one genome, read back and checked."""
 
     genome: config.RealGenome
     input: Path
+    lengths: Tuple[int, ...]
     c: results.PsmcFile
     rs: results.PsmcFile
     rs_params: Dict
     fits: Dict[str, results.Fit]
     curves: Dict[str, results.Curve]
-    boot_identical: bool
-    summary: Dict
-    replicates: List[Tuple[int, Dict]]
-    replicate_curves: List[results.Curve]
+    boots: Dict[int, Bootstrap]  # by trunk size, the default first
     qc: Dict
     runs: Dict[str, Dict]
     window: Tuple[float, float]
@@ -539,39 +594,52 @@ def load_genome(lay: Layout, cfg: config.E2, g: config.RealGenome) -> GenomeResu
             f"{sid}: the tools read different inputs (C sum_L {c.header.get('sum_L')}, sum_n "
             f"{c.header.get('sum_n')}; psmc-rs {called} called bins, {inp.get('het_bins')} heterozygous)"
         )
-    summary = json.loads(lay.boot_summary(sid).read_text())
-    expect = {"block_size": cfg.bootstrap_trunk_bins, "seed": bootstrap_seed(g)}
-    for key, value in expect.items():
-        if summary.get(key) != value:
-            raise ValueError(f"{lay.boot_summary(sid)}: {key} {summary.get(key)}, expected {value}")
-    skipped = set(summary.get("skipped_replicates", []))
-    replicates = [
-        (i, results.read_rs_json(lay.boot_replicate(sid, i)))
-        for i in range(1, cfg.bootstrap_replicates + 1)
-        if i not in skipped
-    ]
-    if len(replicates) != summary.get("n_replicates"):
-        raise ValueError(f"{sid}: {len(replicates)} replicate files, summary.json counts {summary.get('n_replicates')}")
     sc = g.scaling
+    lengths = input_lengths(cfg, g)
+    boots = {trunk: load_bootstrap(lay, cfg, g, trunk) for trunk in trunk_sizes(cfg, lengths)}
     fits = {"c": c.last().fit(), "rs": results.fit_from_rs(rs_params)}
     curves = {k: f.curve(sc.mu, sc.gen_years, bin_size) for k, f in fits.items()}
-    replicate_curves = [results.fit_from_rs(p).curve(sc.mu, sc.gen_years, bin_size) for _, p in replicates]
-    runs = {kind: _run_record(lay.record(kind, sid)) for kind in ("fit-c", "fit-rs", "boot-rs")}
+    runs = {kind: _run_record(lay.record(kind, sid)) for kind in ("fit-c", "fit-rs")}
     return GenomeResult(
         genome=g,
         input=fit_input(lay, cfg, g),
+        lengths=lengths,
         c=c,
         rs=rs,
         rs_params=rs_params,
         fits=fits,
         curves=curves,
-        boot_identical=lay.boot_main(sid).read_bytes() == lay.rs_json(sid).read_bytes(),
-        summary=summary,
-        replicates=replicates,
-        replicate_curves=replicate_curves,
+        boots=boots,
         qc=json.loads(lay.qc_json(sid).read_text()),
         runs=runs,
         window=fitted_window(fits["c"], sc, bin_size, cfg.grid.quantiles),
+    )
+
+
+def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int) -> Bootstrap:
+    """One bootstrap run: checked to be the run the configuration asks for, its replicates as the summary names them."""
+    sid, sc = g.sample_id, g.scaling
+    summary = json.loads(lay.boot_summary(sid, trunk).read_text())
+    expect = {"block_size": trunk, "seed": bootstrap_seed(cfg, g, trunk)}
+    for key, value in expect.items():
+        if summary.get(key) != value:
+            raise ValueError(f"{lay.boot_summary(sid, trunk)}: {key} {summary.get(key)}, expected {value}")
+    skipped = set(summary.get("skipped_replicates", []))
+    replicates = [
+        (i, results.read_rs_json(lay.boot_replicate(sid, trunk, i)))
+        for i in range(1, cfg.bootstrap_replicates + 1)
+        if i not in skipped
+    ]
+    if len(replicates) != summary.get("n_replicates"):
+        raise ValueError(f"{sid} trunk{trunk}: {len(replicates)} replicate files, summary.json counts "
+                         f"{summary.get('n_replicates')}")
+    return Bootstrap(
+        trunk=trunk,
+        identical=lay.boot_main(sid, trunk).read_bytes() == lay.rs_json(sid).read_bytes(),
+        summary=summary,
+        replicates=replicates,
+        curves=[results.fit_from_rs(p).curve(sc.mu, sc.gen_years, cfg.inference.bin_size) for _, p in replicates],
+        run=_run_record(lay.record(boot_kind(trunk), sid)),
     )
 
 
@@ -667,30 +735,31 @@ def pair_row(gr: GenomeResult, cfg: config.E2) -> Dict:
         "loglike_iteration0_rel_diff": rel.get(0),
         "loglike_max_rel_diff": max(rel.values()) if rel else None,
         "loglike_common_diff": (ll["rs"][n - 1] - ll["c"][n - 1]) if (n - 1) in common else None,
-        "bootstrap_main_identical": gr.boot_identical,
+        "bootstrap_main_identical": all(b.identical for b in gr.boots.values()),
     }
 
 
-def bootstrap_row(gr: GenomeResult, cfg: config.E2) -> Dict:
+def bootstrap_row(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> Dict:
     import numpy as np
 
     grid = metrics.log_grid(gr.window[0], gr.window[1], cfg.grid.points)
-    lo, med, hi = band(gr.replicate_curves, grid, (cfg.band[0], 0.5, cfg.band[1]))
+    lo, med, hi = band(boot.curves, grid, (cfg.band[0], 0.5, cfg.band[1]))
     width = np.log10(hi) - np.log10(lo)
     c_ne, rs_ne = gr.curves["c"].at(grid), gr.curves["rs"].at(grid)
-    lengths = gr.qc.get("lengths", {})
-    thetas = [float(p["theta"]) for _, p in gr.replicates]
+    trunks = trunk_count(gr.lengths, boot.trunk)
+    thetas = [float(p["theta"]) for _, p in boot.replicates]
     return {
         "sample_id": gr.genome.sample_id,
         "label": gr.genome.label,
-        "replicates": len(gr.replicates),
-        "skipped_replicates": len(gr.summary.get("skipped_replicates", [])),
-        "seed": gr.summary.get("seed"),
-        "trunk_bins": gr.summary.get("block_size"),
-        "trunk_mb": gr.summary.get("block_size", 0) * cfg.inference.bin_size / 1e6,
-        "trunks": lengths.get("bootstrap_trunks"),
-        "coarse_band": lengths.get("bootstrap_trunks", 0) < cfg.few_trunks,
-        "bins_below_trunk_fraction": (lengths.get("below_trunk") or {}).get("fraction"),
+        "default_trunks": boot.trunk == cfg.bootstrap_trunk_bins,
+        "replicates": len(boot.replicates),
+        "skipped_replicates": len(boot.summary.get("skipped_replicates", [])),
+        "seed": boot.summary.get("seed"),
+        "trunk_bins": boot.trunk,
+        "trunk_mb": boot.trunk * cfg.inference.bin_size / 1e6,
+        "trunks": trunks,
+        "coarse_band": trunks < cfg.few_trunks,
+        "bins_below_trunk_fraction": below_trunk_fraction(gr.lengths, boot.trunk),
         "iterations": cfg.inference.n_iter,
         "band_lo_quantile": cfg.band[0],
         "band_hi_quantile": cfg.band[1],
@@ -703,16 +772,18 @@ def bootstrap_row(gr: GenomeResult, cfg: config.E2) -> Dict:
         "rmse_log10_rs_vs_band_median": metrics.rmse_log10(rs_ne, med),
         "replicate_theta_min": min(thetas),
         "replicate_theta_max": max(thetas),
-        "summary_max_rel_diff": summary_difference(gr.curves["rs"], gr.replicate_curves, gr.summary),
+        "summary_max_rel_diff": summary_difference(gr.curves["rs"], boot.curves, boot.summary),
+        "main_identical_to_fit": boot.identical,
         "threads": cfg.rs_threads,
-        **_run_fields(gr.runs["boot-rs"]),
+        **_run_fields(boot.run),
     }
 
 
-def replicate_rows(gr: GenomeResult) -> List[Dict]:
+def replicate_rows(gr: GenomeResult, boot: Bootstrap) -> List[Dict]:
     return [
         {
             "sample_id": gr.genome.sample_id,
+            "trunk_bins": boot.trunk,
             "replicate": i,
             "theta": float(p["theta"]),
             "rho": float(p["rho"]),
@@ -721,21 +792,22 @@ def replicate_rows(gr: GenomeResult) -> List[Dict]:
             "pattern": p.get("pattern") or "",
             "lam": " ".join(repr(float(x)) for x in p["lam"]),
         }
-        for i, p in gr.replicates
+        for i, p in boot.replicates
     ]
 
 
-def band_rows(gr: GenomeResult, cfg: config.E2) -> List[Dict]:
+def band_rows(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> List[Dict]:
     import numpy as np
 
     lo_y, hi_y, npts = cfg.display_years
     years = np.logspace(math.log10(lo_y), math.log10(hi_y), int(npts))
-    lo, med, hi = band(gr.replicate_curves, years, (cfg.band[0], 0.5, cfg.band[1]))
+    lo, med, hi = band(boot.curves, years, (cfg.band[0], 0.5, cfg.band[1]))
     c_ne, rs_ne = gr.curves["c"].at(years), gr.curves["rs"].at(years)
     w_lo, w_hi = gr.window
     return [
         {
             "sample_id": gr.genome.sample_id,
+            "trunk_bins": boot.trunk,
             "years": float(t),
             "in_window": bool(w_lo <= t <= w_hi),
             "ne_c": float(a),
@@ -845,9 +917,10 @@ def report(ctx: Context) -> Dict[str, Path]:
         gr = load_genome(lay, cfg, g)
         rows["fit_summary"] += fit_summary_rows(gr, cfg)
         rows["pairs"].append(pair_row(gr, cfg))
-        rows["bootstrap"].append(bootstrap_row(gr, cfg))
-        rows["replicates"] += replicate_rows(gr)
-        rows["bands"] += band_rows(gr, cfg)
+        for boot in gr.boots.values():
+            rows["bootstrap"].append(bootstrap_row(gr, cfg, boot))
+            rows["replicates"] += replicate_rows(gr, boot)
+            rows["bands"] += band_rows(gr, cfg, boot)
         rows["curves"] += curve_rows(gr)
         rows["traces"] += trace_rows(gr, cfg)
         rows["qc"].append(qc_row(gr))
@@ -882,7 +955,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "GenomeResult", "Layout", "NAME", "Shape", "TABLES", "band", "fit_epochs", "fitted_window", "input_shape",
-    "jobs", "load_genome", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "report", "summary_difference",
+    "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "TABLES", "band", "below_trunk_fraction", "boot_kind",
+    "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "jobs", "load_genome",
+    "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "report", "summary_difference", "trunk_sizes",
     "write_psmcfa_prefix",
 ]
