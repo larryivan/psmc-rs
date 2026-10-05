@@ -1,0 +1,507 @@
+"""Every parameter of the manuscript's experiments, in one place.
+
+No other module of the pipeline holds a number that shapes a result: the
+experiments read their settings from here, and every job records the
+settings it ran with in its provenance record. The file is organised as the
+experimental design is:
+
+1. inference settings shared by every PSMC fit (both tools);
+2. scaling to years and individuals;
+3. simulation settings and the demographic models;
+4. the seed scheme;
+5. the experiments E1-E6;
+6. the runner's resource budget and cost model (scheduling only);
+7. the profiles: ``production`` (the manuscript), ``smoke`` (a small
+   end-to-end check of the same code paths) and ``tiny`` (unit tests).
+
+Times of demographic models are in generations and sizes are diploid
+individuals, as in msprime, unless a comment says otherwise.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, replace
+from typing import Dict, Optional, Tuple
+
+# ---------------------------------------------------------------------------
+# 1. Inference: every PSMC fit, C psmc and psmc-rs alike
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Inference:
+    """The settings of one PSMC fit, passed explicitly to both tools.
+
+    The defaults are the canonical human recipe of the psmc README,
+    ``psmc -N25 -t15 -r5 -p "4+25*2+4+6"``, which psmc-rs takes as
+    ``N_ITER 25 --t-max 15 --tr-ratio 5 --pattern 4+25*2+4+6``, plus
+    ``--smooth-lambda 0`` (C psmc's objective has no penalty).
+    """
+
+    n_iter: int = 25  # EM iterations: C -N, psmc-rs N_ITER
+    t_max: float = 15.0  # initial maximum time, in 2*N0 generations: C -t, --t-max
+    tr_ratio: float = 5.0  # initial theta0/rho0: C -r, --tr-ratio
+    pattern: str = "4+25*2+4+6"  # free-parameter pattern (64 intervals, 28 free lambdas): C -p, --pattern
+    smooth_lambda: float = 0.0  # psmc-rs --smooth-lambda; 0 is C psmc's objective
+    mstep_iters: int = 100  # psmc-rs --mstep-iters (its default; C's Hooke-Jeeves runs to convergence)
+    bin_size: int = 100  # bases per bin: fq2psmcfa -s, psmc-rs --bin-size
+
+
+INFERENCE = Inference()
+
+# ---------------------------------------------------------------------------
+# 2. Scaling to years and individuals (plots and metrics only; the fits do
+#    not depend on it). N0 = theta / (4 * mu * bin_size), years = 2*N0*t*g.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Scaling:
+    mu: float  # mutation rate per bp per generation
+    gen_years: float  # years per generation
+
+
+# Simulations are scaled with the rate they were simulated with.
+SIMULATION_SCALING = Scaling(mu=2.5e-8, gen_years=25.0)
+
+# ---------------------------------------------------------------------------
+# 3. Simulation: direct msprime (Hudson coalescent, JC69 mutations, discrete
+#    genome), one diploid individual (two haplotypes).
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Genome:
+    """The simulated genome: independent chromosomes of equal length."""
+
+    n_chromosomes: int = 10
+    chromosome_length: int = 50_000_000  # bp
+
+    @property
+    def length(self) -> int:
+        return self.n_chromosomes * self.chromosome_length
+
+    def names(self) -> Tuple[str, ...]:
+        return tuple(f"chr{i}" for i in range(1, self.n_chromosomes + 1))
+
+
+@dataclass(frozen=True)
+class Simulation:
+    """How one diploid genome is simulated (see :mod:`.simulate`).
+
+    Chromosomes are simulated independently (unlinked), each with its own
+    ancestry and mutation seed. theta/rho = 2.5 per bp.
+    """
+
+    mutation_rate: float = 2.5e-8  # per bp per generation
+    recombination_rate: float = 1.0e-8  # per bp per generation
+    ancestry_model: str = "hudson"  # msprime.sim_ancestry(model=...)
+    mutation_model: str = "jc69"  # msprime.JC69()
+    discrete_genome: bool = True
+    ploidy: int = 2  # one diploid individual: two haplotypes
+    bin_size: int = INFERENCE.bin_size  # psmcfa bins: K if the bin holds a heterozygous site, else T
+
+
+SIMULATION = Simulation()
+GENOME_500MB = Genome(n_chromosomes=10, chromosome_length=50_000_000)
+
+
+@dataclass(frozen=True)
+class SizeChange:
+    """A change of the population size, as ``msprime.Demography.add_population_parameters_change``.
+
+    From ``time`` (generations ago) back, the size is ``size`` (diploid
+    individuals; ``None`` keeps the size reached at ``time``) and changes
+    with ``growth_rate`` (per generation, msprime's convention: going back
+    in time, N(t) = N(time) * exp(-growth_rate * (t - time))).
+    """
+
+    time: float
+    size: Optional[float]
+    growth_rate: float = 0.0
+
+
+@dataclass(frozen=True)
+class DemographicModel:
+    """A single-population model: the present size and its changes back in time."""
+
+    name: str
+    initial_size: float
+    changes: Tuple[SizeChange, ...]
+    source: str
+    # The ms definition, when the model is given in ms units: N0 and the -eN
+    # events as (time in 4*N0 generations, size / N0).
+    ms_n0: Optional[float] = None
+    ms_events: Tuple[Tuple[float, float], ...] = ()
+
+
+def ms_model(name: str, n0: float, events: Tuple[Tuple[float, float], ...], source: str) -> DemographicModel:
+    """A piecewise-constant model from ms ``-eN`` events.
+
+    ms measures time in units of 4*N0 generations and sizes as ratios to N0,
+    so ``-eN t x`` is a change at ``t * 4 * N0`` generations to ``x * N0``
+    individuals, with no growth.
+    """
+    changes = tuple(SizeChange(time=t * 4.0 * n0, size=x * n0, growth_rate=0.0) for t, x in events)
+    return DemographicModel(name, float(n0), changes, source, ms_n0=float(n0), ms_events=tuple(events))
+
+
+_MS_SOURCE = (
+    "ms-style model of the psmc-rs 0.1 manuscript pipeline "
+    "(experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+)
+
+CONSTANT = ms_model("constant", 10_000, (), _MS_SOURCE)
+BOTTLENECK = ms_model(
+    "bottleneck", 20_000, ((0.01, 0.05), (0.015, 0.5), (0.05, 0.25), (0.5, 0.5)), _MS_SOURCE
+)
+EXPANSION = ms_model(
+    "expansion", 10_000, ((0.01, 0.1), (0.06, 1.0), (0.2, 0.5), (1.0, 1.0), (2.0, 2.0)), _MS_SOURCE
+)
+
+# Zigzag_1S14 of the stdpopsim 0.3.0 HomSap catalog (Schiffels & Durbin 2014,
+# Nat Genet 46:919, doi:10.1038/ng.3015): N0 = 5 * 14312, five epochs of
+# exponential growth and decline, then a constant ancient size N0 / 10. The
+# numbers are copied from stdpopsim's definition (catalog/HomSap/
+# demographic_models.py, _zigzag); demography.check_zigzag_against_stdpopsim
+# compares the resulting msprime.Demography with stdpopsim's own, epoch by
+# epoch, with msprime's DemographyDebugger. stdpopsim's generation time (30)
+# is not used: like every simulated model it is scaled with g = 25.
+ZIGZAG = DemographicModel(
+    name="zigzag",
+    initial_size=71_560.0,
+    changes=(
+        SizeChange(time=33.333334976, size=None, growth_rate=0.02302578256),
+        SizeChange(time=133.3334544, size=None, growth_rate=-0.0057564631),
+        SizeChange(time=533.33324512, size=None, growth_rate=0.00143911578),
+        SizeChange(time=2133.3352704, size=None, growth_rate=-0.0003597785),
+        SizeChange(time=8533.329632, size=None, growth_rate=8.9944801565e-05),
+        SizeChange(time=34133.318528, size=7_156.0, growth_rate=0.0),
+    ),
+    source="stdpopsim 0.3.0 HomSap/Zigzag_1S14 (Schiffels & Durbin 2014), converted to msprime.Demography",
+)
+ZIGZAG_STDPOPSIM = ("HomSap", "Zigzag_1S14")
+
+MODELS: Dict[str, DemographicModel] = {m.name: m for m in (CONSTANT, BOTTLENECK, EXPANSION, ZIGZAG)}
+MODEL_ORDER: Tuple[str, ...] = ("constant", "bottleneck", "expansion", "zigzag")
+
+# ---------------------------------------------------------------------------
+# 4. Seeds
+# ---------------------------------------------------------------------------
+
+SEED_NAMESPACE = "psmc-rs-manuscript"
+
+
+def seed(experiment: str, model: str, replicate: int, stage: str) -> int:
+    """The seed of one random stage of one replicate, in [1, 2**31 - 1].
+
+    It is the first 8 bytes of SHA-256 over the UTF-8 string
+    ``"psmc-rs-manuscript/<experiment>/<model>/<replicate>/<stage>"``, read
+    as a big-endian integer, modulo 2**31 - 1, plus 1. ``stage`` names what
+    the seed drives, with the chromosome where there is one:
+    ``ancestry/chr3``, ``mutations/chr3``, ``mask/chr3``, ``bootstrap``.
+    Replicates count from 1. A seed therefore depends only on its own key:
+    adding a model, replicate or chromosome changes no other seed, and the
+    seeds do not depend on the order in which jobs run. Every simulation
+    records its seeds in its truth record, and every job in its provenance
+    record.
+    """
+    if replicate < 0:
+        raise ValueError(f"replicate must be >= 0, got {replicate}")
+    key = "/".join((SEED_NAMESPACE, experiment, model, str(int(replicate)), stage))
+    digest = hashlib.sha256(key.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % (2**31 - 1) + 1
+
+
+# ---------------------------------------------------------------------------
+# 5. Experiments
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TimeGrid:
+    """The common time grid of the accuracy metrics (see :mod:`.metrics`).
+
+    RMSE of log10 Ne is evaluated at ``points`` log-spaced times between the
+    ``quantiles`` of the true pairwise coalescence time of the simulated
+    model, in years. PSMC infers Ne(t) from the distribution of the two
+    haplotypes' coalescence times along the genome; before the 1% quantile
+    and after the 99% one, less than 1% of the genome carries information,
+    so both tools extrapolate their first and last lambda there and an error
+    measures the time discretisation, not the inference. The window depends
+    on the model only: it is the same for both tools and every replicate.
+    ``fixed_years`` is a second, model-independent window reported next to
+    it, for robustness.
+    """
+
+    quantiles: Tuple[float, float] = (0.01, 0.99)
+    points: int = 200
+    fixed_years: Tuple[float, float] = (1e4, 1e6)
+
+
+@dataclass(frozen=True)
+class E1:
+    """Simulated accuracy and equivalence (Fig 2, Table 1, Fig S1).
+
+    For every replicate both tools fit the identical psmcfa. Metrics: RMSE of
+    log10 Ne against the truth and between the tools on the time grid,
+    log-likelihood by EM iteration, final theta, rho and lambdas, and wall
+    time and peak RSS of every run (recorded only: timing claims come from E3).
+    """
+
+    models: Tuple[str, ...] = MODEL_ORDER
+    replicates: int = 10
+    genome: Genome = GENOME_500MB
+    simulation: Simulation = SIMULATION
+    inference: Inference = INFERENCE
+    scaling: Scaling = SIMULATION_SCALING
+    grid: TimeGrid = TimeGrid()
+    rs_threads: int = 1  # psmc-rs --threads per fit; many fits run in parallel instead
+
+
+@dataclass(frozen=True)
+class RealGenome:
+    """One empirical genome of E2 (a psmcfa in experiment/real_data)."""
+
+    sample_id: str
+    file: str
+    species: str
+    label: str  # how figures and tables name it
+    scaling: Scaling
+    scaling_source: str
+
+
+_TURTLE_SCALING_SOURCE = (
+    "UNVERIFIED: mu 7.9e-9 and g 15 are the values of the psmc-rs 0.1 runs "
+    "(experiment/scripts/run_real_data.py, experiment/runs/real_data/tables/"
+    "real_data_rust_vs_c_fit_summary.csv); the repository records no citation "
+    "for them. Confirm and cite before publication."
+)
+_HUMAN_SCALING_SOURCE = (
+    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet "
+    "13:745); g 25 as in Li & Durbin 2011. Same values as the psmc-rs 0.1 runs."
+)
+
+REAL_GENOMES: Tuple[RealGenome, ...] = (
+    RealGenome(
+        "HLemySub1", "HLemySub1_diploid.psmcfa", "Emydura subglobosa",
+        "Emydura subglobosa (HLemySub1)", Scaling(7.9e-9, 15.0), _TURTLE_SCALING_SOURCE,
+    ),
+    RealGenome(
+        "HLhydTec1", "HLhydTec1_diploid.psmcfa", "Hydromedusa tectifera",
+        "Hydromedusa tectifera (HLhydTec1)", Scaling(7.9e-9, 15.0), _TURTLE_SCALING_SOURCE,
+    ),
+    RealGenome(
+        "HLpelCas1", "HLpelCas1_diploid.psmcfa", "Pelusios castaneus",
+        "Pelusios castaneus (HLpelCas1)", Scaling(7.9e-9, 15.0), _TURTLE_SCALING_SOURCE,
+    ),
+    # One sequence, >chr1, of 2,487,383 bins: chromosome 1 only, not a genome.
+    RealGenome(
+        "Papuan", "Papuan_highlands_diploid.psmcfa", "Homo sapiens",
+        "Homo sapiens (Papuan Highlands, chr1 only)", Scaling(1.25e-8, 25.0), _HUMAN_SCALING_SOURCE,
+    ),
+)
+
+
+@dataclass(frozen=True)
+class E2:
+    """Real genomes (Fig 3; QC table S5): both tools, psmc-rs bootstrap and qc on each."""
+
+    genomes: Tuple[RealGenome, ...] = REAL_GENOMES
+    inference: Inference = INFERENCE
+    bootstrap_replicates: int = 100
+    bootstrap_trunk_bins: int = 500_000  # psmc-rs default (splitfa's 50 Mb at 100 bp)
+    band: Tuple[float, float] = (0.025, 0.975)
+    rs_threads: int = 7  # the bootstrap fits replicates in parallel
+    # Seeds: seed("E2", sample_id, 0, "bootstrap").
+
+
+@dataclass(frozen=True)
+class E3:
+    """Performance (Fig 4, Table 2, Fig S4): run exclusively, nothing else running."""
+
+    model: str = "constant"
+    genome_sizes_mb: Tuple[int, ...] = (100, 300, 1000, 3000)
+    chromosome_length: int = 100_000_000  # sizes are made of 100 Mb chromosomes
+    repeats: int = 3
+    inference: Inference = INFERENCE
+    rs02_threads: Tuple[int, ...] = (1, 8)
+    thread_scaling_size_mb: int = 3000
+    thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8)
+    c_memory_limit_gb: float = 12.0  # skip C psmc where its estimated peak exceeds this (and say why)
+    rs01_commit: str = "e50d69d"
+    # psmc-rs 0.1 has no --tr-ratio; its default start rho0 = theta0/5 is the
+    # -r5 of the recipe, so it gets the other settings (pattern, t_max,
+    # smoothing 0, iterations) and its default start.
+    rss_sample_seconds: float = 0.05
+
+
+@dataclass(frozen=True)
+class MaskSpec:
+    """A simulated callable mask: uncallable runs of exponential length, placed at random."""
+
+    name: str
+    missing_fraction: float
+    structure: str  # "clustered" or "dispersed"
+    mean_run_bp: float
+
+
+@dataclass(frozen=True)
+class E4:
+    """Input preparation (Fig 5): routes from a VCF and a callable mask to PSMC."""
+
+    model: str = "bottleneck"
+    replicates: int = 5
+    genome: Genome = GENOME_500MB
+    simulation: Simulation = SIMULATION
+    inference: Inference = INFERENCE
+    scaling: Scaling = SIMULATION_SCALING
+    masks: Tuple[MaskSpec, ...] = (
+        MaskSpec("clustered10", 0.1, "clustered", 20_000.0),
+        MaskSpec("clustered30", 0.3, "clustered", 20_000.0),
+        MaskSpec("dispersed10", 0.1, "dispersed", 20.0),
+        MaskSpec("dispersed30", 0.3, "dispersed", 20.0),
+    )
+    no_missing_control: bool = True
+    # exact: VCF + --vcf-mask; fq2psmcfa: consensus FASTA -> fq2psmcfa (asserted equal to exact);
+    # multihetsep: psmc-rs convert --multihetsep (cross-checked once with generate_multihetsep.py);
+    # nomask: the same VCF without the mask.
+    routes: Tuple[str, ...] = ("exact", "fq2psmcfa", "multihetsep", "nomask")
+    multihetsep_crosscheck_replicates: int = 1
+    grid: TimeGrid = TimeGrid()
+    rs_threads: int = 1
+
+
+@dataclass(frozen=True)
+class E5:
+    """Bootstrap calibration (Fig 6)."""
+
+    model: str = "bottleneck"
+    genome: Genome = Genome(n_chromosomes=6, chromosome_length=50_000_000)
+    simulation: Simulation = SIMULATION
+    inference: Inference = INFERENCE
+    scaling: Scaling = SIMULATION_SCALING
+    truth_replicates: int = 50  # independent genomes, each fitted once
+    bootstrap_datasets: int = 10  # the first genomes, bootstrapped
+    bootstrap_replicates: int = 50
+    trunk_bins: Tuple[int, ...] = (500_000, 50_000)  # 50 Mb (default) and 5 Mb trunks
+    band: Tuple[float, float] = (0.025, 0.975)
+    grid: TimeGrid = TimeGrid()
+    rs_threads: int = 1
+
+
+@dataclass(frozen=True)
+class E6:
+    """Supplementary analyses built on E1-E3."""
+
+    format_replicate: int = 1  # S2: E1 replicate 1 of each model as psmcfa, VCF and multihetsep
+    tmrca_model: str = "bottleneck"  # S3: one E1 replicate decoded with --tmrca-out
+    tmrca_replicate: int = 1
+    tmrca_interval: float = 0.95
+    tmrca_example_track_bp: int = 5_000_000
+
+
+# ---------------------------------------------------------------------------
+# 6. Runner: resource budget and cost model
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Budget:
+    """What the runner may use at once; exclusive jobs run alone."""
+
+    cores: int = 7
+    mem_gb: float = 12.0
+
+
+@dataclass(frozen=True)
+class Costs:
+    """Expected run time and peak memory of the jobs, for scheduling and ETA only.
+
+    Measured on the development machine (Apple M1 Pro, 8 cores, 16 GB) while
+    other work kept its load average near 6, with 25 EM iterations of the
+    64-interval pattern on one 50 Mb chromosome. Results never depend on them.
+    """
+
+    # msprime ancestry and mutations, psmcfa, VCF (bgzip, tabix) and records:
+    # 3 s (constant) to 5 s (zigzag) and 0.2 GB per 50 Mb chromosome
+    simulate_s_per_mb: float = 0.1
+    simulate_s_base: float = 5.0
+    simulate_gb: float = 1.0
+    # C psmc: time grows with bins x iterations (85 s for 50 Mb x 25); memory
+    # with the longest sequence, whose forward-backward matrices it holds at
+    # once (0.51 GB for 50 Mb; 5 GB for one sequence of 500 Mb)
+    c_psmc_s_per_mb_iter: float = 0.06
+    c_psmc_gb_per_mb_longest: float = 0.0105
+    c_psmc_gb_base: float = 0.1
+    # psmc-rs 0.2, one thread: 9.1 s and 11 MB for 50 Mb x 25 (63 s, 32 MB for 500 Mb)
+    rs02_s_per_mb_iter: float = 0.007
+    rs02_gb: float = 0.2
+    # Tables and figures
+    report_s: float = 30.0
+    report_gb: float = 1.0
+
+
+# ---------------------------------------------------------------------------
+# 7. Profiles
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Profile:
+    """A complete set of experiment parameters."""
+
+    name: str
+    e1: E1 = E1()
+    e2: E2 = E2()
+    e3: E3 = E3()
+    e4: E4 = E4()
+    e5: E5 = E5()
+    e6: E6 = E6()
+    budget: Budget = Budget()
+    costs: Costs = Costs()
+
+
+PRODUCTION = Profile(name="production")
+
+# The same code paths at a size that runs in a minute or two: 2 models x 2
+# replicates x 2 chromosomes of 2 Mb, 3 EM iterations.
+_SMOKE_GENOME = Genome(n_chromosomes=2, chromosome_length=2_000_000)
+_SMOKE_INFERENCE = replace(INFERENCE, n_iter=3)
+SMOKE = Profile(
+    name="smoke",
+    e1=E1(models=("constant", "bottleneck"), replicates=2, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
+    e2=E2(bootstrap_replicates=4, inference=_SMOKE_INFERENCE, rs_threads=2),
+    e3=E3(genome_sizes_mb=(2, 4), chromosome_length=2_000_000, repeats=1, inference=_SMOKE_INFERENCE,
+          thread_scaling_size_mb=4, thread_scaling_threads=(1, 2)),
+    e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
+    e5=replace(E5(), genome=_SMOKE_GENOME, truth_replicates=3, bootstrap_datasets=2, bootstrap_replicates=4,
+               trunk_bins=(5_000, 2_000), inference=_SMOKE_INFERENCE),
+)
+
+# For the unit tests: one replicate of one model, one chromosome of 300 kb,
+# 2 EM iterations (seconds end to end).
+_TINY_GENOME = Genome(n_chromosomes=1, chromosome_length=300_000)
+TINY = Profile(
+    name="tiny",
+    e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=replace(INFERENCE, n_iter=2)),
+)
+
+PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
+
+
+def get_profile(name: str) -> Profile:
+    """The profile called ``name`` (``production``, ``smoke`` or ``tiny``)."""
+    try:
+        return PROFILES[name]
+    except KeyError:
+        raise KeyError(f"unknown profile {name!r}; known: {', '.join(PROFILES)}") from None
+
+
+__all__ = [
+    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E5", "E6", "Genome",
+    "INFERENCE", "Inference", "MODELS", "MODEL_ORDER", "MaskSpec", "PROFILES", "Profile",
+    "REAL_GENOMES", "RealGenome", "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation",
+    "SizeChange", "TimeGrid", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
+]
