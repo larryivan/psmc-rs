@@ -385,8 +385,11 @@ pub struct ConsensusSummary {
     pub indel_records: u64,
     /// Records that add nothing (ALT `.` with a longer REF or an INDEL flag).
     pub ignored_records: u64,
-    /// Base records without INFO/FQ: vcf2fq takes them as heterozygous with
-    /// quality 0, so they are missing.
+    /// Base records without INFO/FQ. vcf2fq takes each as a heterozygous call
+    /// of quality 0, which is missing unless `fq2psmcfa -q` is 0
+    /// ([`ConsensusFilters::min_qual`]): then a record whose REF and first ALT
+    /// have an IUPAC code and that passes the MQ and depth bounds is a called
+    /// heterozygous base.
     pub records_without_fq: u64,
     /// Bases appended at a POS that already had one; each shifts the rest of
     /// its chromosome one base to the right.
@@ -413,6 +416,12 @@ pub struct ConsensusSummary {
     pub max_depth: u64,
     /// Whether they were chosen from the data ([`DepthThresholds::Auto`]).
     pub auto_depth: bool,
+    /// The minimum INFO/MQ used (`vcf2fq -Q`).
+    pub min_mq: u64,
+    /// The bases masked on each side of an INDEL (`vcf2fq -l`).
+    pub indel_window: u64,
+    /// The minimum base quality used (`fq2psmcfa -q`).
+    pub min_qual: u64,
     /// INFO/DP of the base records.
     pub depth: DepthStats,
     /// Whether callable masks were applied.
@@ -440,10 +449,17 @@ impl ConsensusSummary {
             ));
         }
         if self.records_without_fq > 0 {
+            let outcome = if self.min_qual > 0 {
+                format!("which fq2psmcfa -q {} makes missing", self.min_qual)
+            } else {
+                "and with fq2psmcfa -q 0 the ones whose REF and ALT have an IUPAC code and that \
+                 pass the MQ and depth bounds are called heterozygous"
+                    .to_string()
+            };
             out.push(format!(
-                "{} SNP/reference records have no INFO/FQ; vcf2fq reads them as heterozygous \
-                 with quality 0, so they are missing. Consensus mode needs the output of \
-                 'bcftools call -c'",
+                "{} SNP/reference records have no INFO/FQ; vcf2fq reads each as a heterozygous \
+                 call of quality 0, {outcome}. Consensus mode needs the output of 'bcftools \
+                 call -c'",
                 self.records_without_fq
             ));
         }
@@ -1140,6 +1156,9 @@ pub(crate) fn read_consensus_from(
         min_depth: bounds.min,
         max_depth: bounds.max,
         auto_depth: bounds.auto,
+        min_mq: filters.min_mq,
+        indel_window: filters.indel_window,
+        min_qual: filters.min_qual,
         ..ConsensusSummary::default()
     };
     let t = Thresholds {

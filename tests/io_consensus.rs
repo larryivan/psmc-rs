@@ -156,12 +156,13 @@ fn missing_fq_is_a_heterozygous_call_of_quality_zero() {
     assert_eq!(bases(&r, 0), "NN");
     assert_eq!(r.summary.records_without_fq, 2);
     assert_eq!(r.summary.lost.low_quality, 2);
-    assert!(
-        r.summary
-            .warnings()
-            .iter()
-            .any(|w| w.contains("no INFO/FQ"))
-    );
+    let warning = |r: &ConsensusRead| {
+        let warnings = r.summary.warnings();
+        let found = warnings.iter().find(|w| w.contains("no INFO/FQ")).cloned();
+        found.unwrap_or_else(|| panic!("no warning about FQ in {warnings:?}"))
+    };
+    let w = warning(&r);
+    assert!(w.contains("which fq2psmcfa -q 10 makes missing"), "{w}");
 
     // With -q 0 the first is heterozygous; the second has no code.
     let o = ConsensusOptions {
@@ -173,6 +174,28 @@ fn missing_fq_is_a_heterozygous_call_of_quality_zero() {
     };
     let r = read(&records, &o).unwrap();
     assert_eq!(bases(&r, 0), "KN");
+    assert_eq!((r.summary.min_qual, r.summary.het_bases), (0, 1));
+    let w = warning(&r);
+    assert!(
+        w.contains("-q 0") && w.contains("called heterozygous") && !w.contains("makes missing"),
+        "{w}"
+    );
+}
+
+#[test]
+fn the_summary_reports_the_thresholds_used() {
+    let o = ConsensusOptions {
+        filters: ConsensusFilters {
+            depth: DepthThresholds::Fixed { min: 4, max: 40 },
+            min_mq: 25,
+            indel_window: 7,
+            min_qual: 15,
+        },
+        ..opts()
+    };
+    let s = read(&good_run("c", 1, 3), &o).unwrap().summary;
+    assert_eq!((s.min_depth, s.max_depth, s.auto_depth), (4, 40, false));
+    assert_eq!((s.min_mq, s.indel_window, s.min_qual), (25, 7, 15));
 }
 
 #[test]
