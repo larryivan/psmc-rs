@@ -5,7 +5,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use rayon::prelude::*;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::bootstrap::{
@@ -15,14 +15,12 @@ use psmc_rs::bootstrap::{
 };
 use psmc_rs::em::{EmOptions, EmProgressEvent, em_train, em_train_with_options};
 use psmc_rs::hmm::{Cancelled, EStepPhase, write_tmrca_posterior_tsv};
-use psmc_rs::io::mhs::read_mhs;
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::io::vcf::read_vcf;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
-use crate::cli::{Cli, InputFormat};
+use crate::cli::Cli;
+use crate::dataset::{describe, ensure_usable, load_input, resolve_input_path};
 
 /// A stage of the pipeline with a progress count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,54 +106,6 @@ fn configure_threads(n_threads: Option<usize>) -> Result<()> {
     Ok(())
 }
 
-/// Whether the file name of `path` has an extension of `fmt` input.
-pub fn is_supported_input_file(path: &Path, fmt: InputFormat) -> bool {
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
-    match fmt {
-        InputFormat::Psmcfa => name.ends_with(".psmcfa") || name.ends_with(".psmcfa.gz"),
-        InputFormat::Mhs => {
-            name.ends_with(".mhs")
-                || name.ends_with(".mhs.gz")
-                || name.ends_with(".multihetsep")
-                || name.ends_with(".multihetsep.gz")
-        }
-        InputFormat::Vcf => name.ends_with(".vcf") || name.ends_with(".vcf.gz"),
-    }
-}
-
-/// Files in `dir` that look like `fmt` input, sorted by name.
-pub fn supported_files_in(dir: &Path, fmt: InputFormat) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
-        let p = entry?.path();
-        if p.is_file() && is_supported_input_file(&p, fmt) {
-            files.push(p);
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
-/// `path`, or for a directory the first input file in it.
-fn resolve_input_path(path: &Path, fmt: InputFormat) -> Result<PathBuf> {
-    if !path.is_dir() {
-        return Ok(path.to_path_buf());
-    }
-    supported_files_in(path, fmt)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            anyhow!(
-                "directory {} does not contain a supported {} input file",
-                path.display(),
-                fmt.name()
-            )
-        })
-}
-
 /// Run inference as `cli` describes it. `cancel` stops the run at the next
 /// check (between stages, and inside EM); the error is then [`Cancelled`].
 /// `progress_bars` lets the TMRCA decoding draw its own bar on stderr.
@@ -176,7 +126,7 @@ pub fn run_inference(
     let n_iter = cli.n_iter.ok_or_else(|| anyhow!("missing N_ITER"))?;
 
     check_cancel(cancel)?;
-    let input_file = resolve_input_path(&raw_input, cli.input_format)?;
+    let input_file = resolve_input_path(&raw_input, cli.input.input_format)?;
     if input_file != raw_input {
         sink(Event::Info(format!(
             "Input is a directory, selected file: {}",
@@ -202,26 +152,17 @@ pub fn run_inference(
         iter: None,
     };
     sink(io_progress(0));
-    let format_name = cli.input_format.name();
-    let obs = match cli.input_format {
-        InputFormat::Psmcfa => read_psmcfa(&input_file, cli.batch_size),
-        InputFormat::Mhs => read_mhs(&input_file, cli.batch_size, cli.mhs_bin_size),
-        InputFormat::Vcf => read_vcf(
-            &input_file,
-            cli.batch_size,
-            cli.mhs_bin_size,
-            cli.vcf_sample.as_deref(),
-            &cli.vcf_mask,
-            &cli.vcf_negative_mask,
-        ),
-    }
-    .with_context(|| format!("failed to read {format_name} input"))?;
+    let data = load_input(&input_file, &cli.input.to_options())?;
     sink(io_progress(io_total));
-    sink(Event::Info(format!(
-        "Loaded {} rows from {}",
-        obs.rows.len(),
-        input_file.display()
-    )));
+    for line in describe(&data) {
+        sink(Event::Info(line));
+    }
+    for line in data.warnings() {
+        sink(Event::Warning(line));
+    }
+    ensure_usable(&data)?;
+    let obs = &data.obs;
+    let format_name = data.source.format().name();
 
     let theta0 = match cli.theta0 {
         Some(v) => v,
@@ -300,10 +241,7 @@ pub fn run_inference(
     }
 
     check_cancel(cancel)?;
-    let report_bin_size = match cli.input_format {
-        InputFormat::Psmcfa => 100.0,
-        InputFormat::Mhs | InputFormat::Vcf => cli.mhs_bin_size as f64,
-    };
+    let report_bin_size = cli.input.bin_size as f64;
     model.param_recalculate()?;
 
     let mut bootstrap_report_data = None;
@@ -339,7 +277,7 @@ pub fn run_inference(
                 let mut rng = new_rng(bootstrap_replicate_seed(cli.bootstrap_seed, rep));
                 let sampled =
                     sample_sequences_block_bootstrap(&seqs, cli.bootstrap_block_size, &mut rng)?;
-                let obs_rep = sequences_to_observations(&sampled, cli.batch_size)?;
+                let obs_rep = sequences_to_observations(&sampled, cli.input.batch_size)?;
                 let mut model_rep = model.clone();
                 em_train(
                     &mut model_rep,

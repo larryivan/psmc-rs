@@ -24,8 +24,9 @@ use std::time::{Duration, Instant};
 
 use psmc_rs::hmm::Cancelled;
 
-use crate::cli::{Cli, InputFormat};
-use crate::run::{self, Event, RunSummary, Stage, is_supported_input_file};
+use crate::cli::{Cli, FormatArg};
+use crate::dataset::is_supported_input_file;
+use crate::run::{self, Event, RunSummary, Stage};
 
 const MAX_LOG_LINES: usize = 3_000;
 
@@ -36,7 +37,7 @@ const FIELD_PATTERN: usize = 3;
 const FIELD_BATCH_SIZE: usize = 4;
 const FIELD_THREADS: usize = 5;
 const FIELD_INPUT_FORMAT: usize = 6;
-const FIELD_MHS_BIN_SIZE: usize = 7;
+const FIELD_BIN_SIZE: usize = 7;
 const FIELD_MU: usize = 8;
 const FIELD_SMOOTH_LAMBDA: usize = 9;
 
@@ -146,7 +147,7 @@ struct PickerEntry {
 #[derive(Debug, Clone)]
 struct FilePicker {
     mode: PickerMode,
-    input_format: Option<InputFormat>,
+    input_format: Option<FormatArg>,
     cwd: PathBuf,
     entries: Vec<PickerEntry>,
     selected: usize,
@@ -204,13 +205,13 @@ impl App {
             },
             FormField {
                 label: "Input fmt",
-                value: "psmcfa".to_string(),
-                hint: "psmcfa, mhs, or vcf",
+                value: "auto".to_string(),
+                hint: "auto, psmcfa, mhs or vcf (Space cycles)",
             },
             FormField {
-                label: "MHS bin",
+                label: "Bin size",
                 value: "100".to_string(),
-                hint: "Used for mhs/vcf",
+                hint: "Bases per bin: binning of mhs/vcf, scaling of every format",
             },
             FormField {
                 label: "Mu",
@@ -236,18 +237,14 @@ impl App {
         if let Some(v) = &cli.pattern {
             fields[FIELD_PATTERN].value = v.clone();
         }
-        if let Some(v) = cli.batch_size {
+        if let Some(v) = cli.input.batch_size {
             fields[FIELD_BATCH_SIZE].value = v.to_string();
         }
         if let Some(v) = cli.threads {
             fields[FIELD_THREADS].value = v.to_string();
         }
-        fields[FIELD_INPUT_FORMAT].value = match cli.input_format {
-            InputFormat::Psmcfa => "psmcfa".to_string(),
-            InputFormat::Mhs => "mhs".to_string(),
-            InputFormat::Vcf => "vcf".to_string(),
-        };
-        fields[FIELD_MHS_BIN_SIZE].value = cli.mhs_bin_size.to_string();
+        fields[FIELD_INPUT_FORMAT].value = cli.input.input_format.name().to_string();
+        fields[FIELD_BIN_SIZE].value = cli.input.bin_size.to_string();
         fields[FIELD_MU].value = cli.mu.to_string();
         fields[FIELD_SMOOTH_LAMBDA].value = cli.smooth_lambda.to_string();
 
@@ -309,15 +306,14 @@ impl App {
     }
 
     fn toggle_input_format(&mut self) {
-        let v = self
-            .field_value(FIELD_INPUT_FORMAT)
-            .trim()
-            .to_ascii_lowercase();
-        self.fields[FIELD_INPUT_FORMAT].value = match v.as_str() {
-            "psmcfa" => "mhs".to_string(),
-            "mhs" => "vcf".to_string(),
-            _ => "psmcfa".to_string(),
+        let next = match parse_input_format_field(self.field_value(FIELD_INPUT_FORMAT)) {
+            Ok(f) => {
+                let i = FormatArg::ALL.iter().position(|&x| x == f).unwrap_or(0);
+                FormatArg::ALL[(i + 1) % FormatArg::ALL.len()]
+            }
+            Err(_) => FormatArg::Auto,
         };
+        self.fields[FIELD_INPUT_FORMAT].value = next.name().to_string();
     }
 
     fn scroll_up(&mut self) {
@@ -426,14 +422,12 @@ fn parse_required_f64(name: &str, v: &str) -> Result<f64> {
     Ok(n)
 }
 
-fn parse_input_format_field(v: &str) -> Result<InputFormat> {
+fn parse_input_format_field(v: &str) -> Result<FormatArg> {
     let s = v.trim().to_ascii_lowercase();
-    match s.as_str() {
-        "psmcfa" => Ok(InputFormat::Psmcfa),
-        "mhs" => Ok(InputFormat::Mhs),
-        "vcf" => Ok(InputFormat::Vcf),
-        _ => bail!("Input fmt must be psmcfa, mhs, or vcf"),
-    }
+    FormatArg::ALL
+        .into_iter()
+        .find(|f| f.name() == s)
+        .ok_or_else(|| anyhow!("Input fmt must be auto, psmcfa, mhs or vcf"))
 }
 
 fn build_cli_from_form(app: &App) -> Result<Cli> {
@@ -447,23 +441,23 @@ fn build_cli_from_form(app: &App) -> Result<Cli> {
     let pattern = app.field_value(FIELD_PATTERN).trim();
     let batch_size = parse_optional_usize("Batch size", app.field_value(FIELD_BATCH_SIZE))?;
     let threads = parse_optional_usize("Threads", app.field_value(FIELD_THREADS))?;
-    let mhs_bin =
-        parse_optional_usize("MHS bin", app.field_value(FIELD_MHS_BIN_SIZE))?.unwrap_or(100);
+    let bin_size =
+        parse_optional_usize("Bin size", app.field_value(FIELD_BIN_SIZE))?.unwrap_or(100);
 
     let mut cli = app.base_cli.clone();
     cli.tui = false;
     cli.input_file = Some(PathBuf::from(input));
     cli.output_file = Some(PathBuf::from(output));
     cli.n_iter = Some(n_iter);
-    cli.input_format = input_format;
+    cli.input.input_format = input_format;
     cli.pattern = if pattern.is_empty() {
         None
     } else {
         Some(pattern.to_string())
     };
-    cli.batch_size = batch_size;
+    cli.input.batch_size = batch_size;
     cli.threads = threads;
-    cli.mhs_bin_size = mhs_bin;
+    cli.input.bin_size = bin_size;
     cli.mu = mu;
     cli.smooth_lambda = smooth;
     cli.no_progress = true;
@@ -511,7 +505,7 @@ fn refresh_picker_entries(picker: &mut FilePicker) -> Result<()> {
         } else if path.is_file() {
             match picker.mode {
                 PickerMode::InputPath => {
-                    let fmt = picker.input_format.unwrap_or(InputFormat::Psmcfa);
+                    let fmt = picker.input_format.unwrap_or(FormatArg::Auto);
                     if is_supported_input_file(&path, fmt) {
                         files.push(PickerEntry {
                             label: name,
@@ -1016,11 +1010,12 @@ fn render_picker(f: &mut Frame, app: &App) {
     state.select(Some(picker.selected));
     let title = match picker.mode {
         PickerMode::InputPath => {
-            let fmt = picker.input_format.unwrap_or(InputFormat::Psmcfa);
+            let fmt = picker.input_format.unwrap_or(FormatArg::Auto);
             match fmt {
-                InputFormat::Psmcfa => "Input picker [psmcfa]: Enter file=select, Enter dir=open",
-                InputFormat::Mhs => "Input picker [mhs]: Enter file=select, Enter dir=open",
-                InputFormat::Vcf => "Input picker [vcf]: Enter file=select, Enter dir=open",
+                FormatArg::Auto => "Input picker [any input]: Enter file=select, Enter dir=open",
+                FormatArg::Psmcfa => "Input picker [psmcfa]: Enter file=select, Enter dir=open",
+                FormatArg::Mhs => "Input picker [mhs]: Enter file=select, Enter dir=open",
+                FormatArg::Vcf => "Input picker [vcf]: Enter file=select, Enter dir=open",
             }
         }
         PickerMode::OutputDir => "Output directory picker: Enter dir=select",

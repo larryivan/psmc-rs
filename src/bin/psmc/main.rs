@@ -2,6 +2,7 @@
 
 mod cli;
 mod console;
+mod dataset;
 mod run;
 mod tui;
 
