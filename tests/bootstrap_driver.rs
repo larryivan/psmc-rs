@@ -4,16 +4,19 @@
 //! independent of the thread count.
 
 use psmc_rs::bootstrap::{
-    BootstrapConfig, DEFAULT_BOOTSTRAP_TRUNK, replicate_initial_model, replicate_rng,
-    resample_chunks, rows_to_sequences, run_bootstrap, split_for_bootstrap,
+    BootstrapConfig, BootstrapOptions, DEFAULT_BOOTSTRAP_TRUNK, replicate_initial_model,
+    replicate_rng, resample_chunks, rows_to_sequences, run_bootstrap, run_bootstrap_with_options,
+    split_for_bootstrap,
 };
+use psmc_rs::hmm::Cancelled;
 use psmc_rs::io::params::load_params;
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::opt::MStepConfig;
 use psmc_rs::{PsmcModel, initial_theta};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 const PATTERN: &str = "4+5*3+4";
 const N_STEPS: usize = 22;
@@ -300,7 +303,110 @@ fn cancelled_bootstrap_stops_with_an_error() {
         &no_progress,
     )
     .unwrap_err();
-    assert!(err.to_string().contains("cancelled"), "{err}");
+    assert!(err.is::<Cancelled>(), "{err:#}");
+}
+
+/// A cancel during a replicate's EM stops it there, not after its last
+/// iteration: 100,000 iterations would take minutes.
+#[test]
+fn cancel_interrupts_a_running_replicate() {
+    let seqs = reference_seqs(2000);
+    let cancel = AtomicBool::new(false);
+    let started = Instant::now();
+    let err = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            std::thread::sleep(Duration::from_millis(200));
+            cancel.store(true, Ordering::Relaxed);
+        });
+        run_bootstrap(
+            &seqs,
+            &fitted_template(),
+            &config(1, 1000, 100_000),
+            &mstep(),
+            Some(&cancel),
+            &no_progress,
+        )
+        .unwrap_err()
+    });
+    assert!(err.is::<Cancelled>(), "{err:#}");
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "took {:?}",
+        started.elapsed()
+    );
+}
+
+/// The richer entry point returns what `.psmc` output needs: the EM history
+/// and the counts of the resampled data, alongside the same models.
+#[test]
+fn replicates_carry_their_history_and_data_counts() {
+    let seqs = reference_seqs(3000);
+    let template = fitted_template();
+    let cfg = config(3, 1000, 2);
+    let models = run_bootstrap(&seqs, &template, &cfg, &mstep(), None, &no_progress).unwrap();
+    let reps = run_bootstrap_with_options(
+        &seqs,
+        &template,
+        &cfg,
+        &mstep(),
+        BootstrapOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(reps.len(), 3);
+    let chunks = split_for_bootstrap(&seqs, cfg.trunk_size);
+    for (rep, r) in reps.iter().enumerate() {
+        assert_eq!(params(&r.model), params(&models[rep]), "replicate {rep}");
+        assert_eq!(r.history.loglike.len(), 2);
+        assert_eq!(r.history.params.len(), 3);
+        assert_eq!(r.history.params[0][2], cfg.t_max, "fresh start");
+
+        let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
+        let bins: Vec<u8> = sampled.concat();
+        assert_eq!(r.data.n_seqs, sampled.len());
+        assert_eq!(r.data.bins, bins.len() as u64);
+        assert_eq!(r.data.sum_l, bins.iter().filter(|&&b| b < 2).count() as u64);
+        assert_eq!(
+            r.data.sum_n,
+            bins.iter().filter(|&&b| b == 1).count() as u64
+        );
+
+        let mut out = Vec::new();
+        r.write_psmc(&mut out).unwrap();
+        let text = String::from_utf8(out).unwrap();
+        let header = format!(
+            "MM\tn_seqs:{}, sum_L:{}, sum_n:{}",
+            r.data.n_seqs, r.data.sum_l, r.data.sum_n
+        );
+        assert!(text.contains(&header), "{text}");
+        let rounds: Vec<&str> = text.lines().filter(|l| l.starts_with("RD\t")).collect();
+        assert_eq!(rounds, ["RD\t0", "RD\t1", "RD\t2"]);
+    }
+}
+
+/// `thread_pool` runs the replicates (and their callbacks) in that pool.
+#[test]
+fn replicates_run_in_the_given_pool() {
+    let seqs = reference_seqs(3000);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(3)
+        .build()
+        .unwrap();
+    let sizes = Mutex::new(Vec::new());
+    let on_done = |_: usize| sizes.lock().unwrap().push(rayon::current_num_threads());
+    let opts = BootstrapOptions {
+        thread_pool: Some(&pool),
+        on_done: Some(&on_done),
+        ..BootstrapOptions::default()
+    };
+    run_bootstrap_with_options(
+        &seqs,
+        &fitted_template(),
+        &config(4, 1000, 0),
+        &mstep(),
+        opts,
+    )
+    .unwrap();
+    assert_eq!(sizes.into_inner().unwrap(), vec![3; 4]);
 }
 
 #[test]

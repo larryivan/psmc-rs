@@ -49,6 +49,7 @@
 use anyhow::{Context, Result, bail};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rayon::ThreadPool;
 use rayon::prelude::*;
 use serde::Serialize;
 use std::fs::{self, File};
@@ -58,11 +59,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use crate::em::em_train;
+use crate::em::{EmHistory, EmOptions, em_train_with_options};
+use crate::hmm::Cancelled;
 use crate::io::Observations;
 use crate::io::common::chunk_sequences;
 use crate::model::{PsmcModel, initial_theta};
 use crate::opt::MStepConfig;
+use crate::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct BootstrapCurvePoint {
@@ -504,12 +507,16 @@ impl Default for BootstrapConfig {
 /// replicate in flight holds its own copy of the resampled data and its own
 /// E-step buffers, so peak memory grows with the number of threads.
 ///
-/// `cancel` is checked before each replicate starts; once it is set, the
-/// remaining replicates are skipped and an error is returned. `on_done(n)` is
-/// called from the worker threads once per finished replicate, with `n` the
-/// number finished so far. The calls are serialised, so `n` goes 1, 2, 3, …
-/// in call order and the last call of a successful run has
-/// `n == cfg.replicates`; other workers wait while it runs, so keep it cheap.
+/// `cancel` is checked before each replicate starts and inside its EM; once
+/// it is set, running replicates stop, the remaining ones are skipped and a
+/// [`Cancelled`] error is returned. `on_done(n)` is called from the worker
+/// threads once per finished replicate, with `n` the number finished so
+/// far. The calls are serialised, so `n` goes 1, 2, 3, … in call order and
+/// the last call of a successful run has `n == cfg.replicates`; other
+/// workers wait while it runs, so keep it cheap.
+///
+/// [`run_bootstrap_with_options`] also returns each replicate's EM history
+/// and data counts.
 pub fn run_bootstrap(
     seqs: &[Vec<u8>],
     template: &PsmcModel,
@@ -518,6 +525,95 @@ pub fn run_bootstrap(
     cancel: Option<&AtomicBool>,
     on_done: &(dyn Fn(usize) + Sync),
 ) -> Result<Vec<PsmcModel>> {
+    let opts = BootstrapOptions {
+        cancel,
+        thread_pool: None,
+        on_done: Some(on_done),
+    };
+    let replicates = run_bootstrap_with_options(seqs, template, cfg, mstep_cfg, opts)?;
+    Ok(replicates.into_iter().map(|r| r.model).collect())
+}
+
+/// Options for [`run_bootstrap_with_options`].
+#[derive(Default)]
+pub struct BootstrapOptions<'a> {
+    /// Checked before each replicate starts and inside its EM (see
+    /// [`EmOptions::cancel`]); once set, the bootstrap stops with a
+    /// [`Cancelled`] error.
+    pub cancel: Option<&'a AtomicBool>,
+    /// Run the replicates in this pool instead of the current one.
+    pub thread_pool: Option<&'a ThreadPool>,
+    /// Called once per finished replicate with the number finished so far,
+    /// as `on_done` of [`run_bootstrap`].
+    pub on_done: Option<&'a (dyn Fn(usize) + Sync)>,
+}
+
+/// The size of a replicate's resampled data, as C psmc's `MM` header line
+/// of its `.psmc` file reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplicateData {
+    /// Trunks drawn (each one a sequence of the replicate).
+    pub n_seqs: usize,
+    /// Bins over all drawn trunks.
+    pub bins: u64,
+    /// Non-missing bins (C's `sum_L`).
+    pub sum_l: u64,
+    /// Heterozygous bins (C's `sum_n`).
+    pub sum_n: u64,
+}
+
+impl ReplicateData {
+    fn of(seqs: &[Vec<u8>]) -> Self {
+        let mut data = Self {
+            n_seqs: seqs.len(),
+            bins: 0,
+            sum_l: 0,
+            sum_n: 0,
+        };
+        for &bin in seqs.iter().flatten() {
+            data.bins += 1;
+            if bin < 2 {
+                data.sum_l += 1;
+                data.sum_n += u64::from(bin);
+            }
+        }
+        data
+    }
+}
+
+/// One fitted bootstrap replicate.
+#[derive(Debug)]
+pub struct BootstrapReplicate {
+    /// The fitted model, with its matrices recalculated.
+    pub model: PsmcModel,
+    /// Its EM history, from the fresh start on.
+    pub history: EmHistory,
+    /// Its resampled data.
+    pub data: ReplicateData,
+}
+
+impl BootstrapReplicate {
+    /// Write the replicate's EM run as C psmc's `.psmc` output
+    /// ([`crate::psmc_out`]), as `psmc -b` would have written it.
+    pub fn write_psmc<W: Write>(&self, w: W) -> Result<()> {
+        let d = &self.data;
+        let info =
+            PsmcRunInfo::from_counts(&self.model, &self.history, d.n_seqs, d.sum_l, d.sum_n)?;
+        let rounds = psmc_rounds(&self.model, &self.history, d.sum_l)?;
+        write_psmc(w, &info, &rounds)?;
+        Ok(())
+    }
+}
+
+/// [`run_bootstrap`] with a thread pool, returning each replicate's model,
+/// EM history and data counts (for its `.psmc` output), in replicate order.
+pub fn run_bootstrap_with_options(
+    seqs: &[Vec<u8>],
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+    mstep_cfg: &MStepConfig,
+    opts: BootstrapOptions<'_>,
+) -> Result<Vec<BootstrapReplicate>> {
     if cfg.replicates == 0 {
         return Ok(Vec::new());
     }
@@ -532,6 +628,11 @@ pub fn run_bootstrap(
             .with_context(|| format!("failed to create bootstrap directory {dir:?}"))?;
     }
 
+    let BootstrapOptions {
+        cancel,
+        thread_pool,
+        on_done,
+    } = opts;
     let mut rep_cfg = mstep_cfg.clone();
     rep_cfg.progress = false;
     let is_cancelled = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
@@ -540,37 +641,56 @@ pub fn run_bootstrap(
     // before the one holding n, and a progress display would step backwards.
     let finished = Mutex::new(0usize);
 
-    (0..cfg.replicates)
-        .into_par_iter()
-        .map(|rep| -> Result<PsmcModel> {
-            if is_cancelled() {
-                bail!("cancelled by user");
-            }
-            let fit = || -> Result<PsmcModel> {
-                let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
-                let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
-                let mut model =
-                    replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?;
-                em_train(
-                    &mut model,
-                    &obs.rows,
-                    &obs.row_starts,
-                    cfg.em_iters,
-                    &rep_cfg,
-                )?;
-                model.param_recalculate()?;
-                if let Some(dir) = &cfg.out_dir {
-                    model.save_params(&replicate_json_path(dir, rep + 1))?;
-                }
-                Ok(model)
+    let fit_replicate = |rep: usize| -> Result<BootstrapReplicate> {
+        if is_cancelled() {
+            return Err(Cancelled.into());
+        }
+        let fit = || -> Result<BootstrapReplicate> {
+            let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
+            let data = ReplicateData::of(&sampled);
+            let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
+            let mut model = replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?;
+            let em_opts = EmOptions {
+                on_progress: None,
+                cancel,
+                thread_pool,
             };
-            let model = fit().with_context(|| format!("bootstrap replicate {}", rep + 1))?;
-            let mut n = finished.lock().unwrap_or_else(PoisonError::into_inner);
-            *n += 1;
+            let history = em_train_with_options(
+                &mut model,
+                &obs.rows,
+                &obs.row_starts,
+                cfg.em_iters,
+                &rep_cfg,
+                em_opts,
+            )?;
+            model.param_recalculate()?;
+            if let Some(dir) = &cfg.out_dir {
+                model.save_params(&replicate_json_path(dir, rep + 1))?;
+            }
+            Ok(BootstrapReplicate {
+                model,
+                history,
+                data,
+            })
+        };
+        let replicate = fit().with_context(|| format!("bootstrap replicate {}", rep + 1))?;
+        let mut n = finished.lock().unwrap_or_else(PoisonError::into_inner);
+        *n += 1;
+        if let Some(on_done) = on_done {
             on_done(*n);
-            Ok(model)
-        })
-        .collect()
+        }
+        Ok(replicate)
+    };
+    let run = || {
+        (0..cfg.replicates)
+            .into_par_iter()
+            .map(fit_replicate)
+            .collect()
+    };
+    match thread_pool {
+        Some(pool) => pool.install(run),
+        None => run(),
+    }
 }
 
 /// The points of [`PsmcModel::ne_curve`] that a log-scale plot can show
