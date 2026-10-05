@@ -300,10 +300,14 @@ Reproduction package (`experiment/`):
 
 ### Performance
 
-- The E-step works in O(states) per bin instead of O(states²) for PSMC
-  transition matrices (their triangles are rank one), with NEON kernels on
-  aarch64, and keeps one forward vector every 128 bins instead of whole
-  forward and backward matrices. On the human chromosome 1 in `experiment/real_data` (one
+- The E-step's forward and backward steps work in O(states) per bin instead
+  of O(states²) for PSMC transition matrices of up to 256 states (their
+  triangles are rank one; larger models use the dense O(states²) kernels);
+  the expected transition counts are still accumulated in O(states²) per
+  bin, by a blocked kernel with NEON code on aarch64, so the E-step as a
+  whole still grows with the square of the number of states. The E-step
+  keeps one forward vector every 128 bins instead of whole forward and
+  backward matrices. On the human chromosome 1 in `experiment/real_data` (one
   sequence of 2.49 M bins, `4+25*2+4+6`, 20 iterations, 1 thread, Apple M1
   Pro) a fit takes 25 s and 21 MB instead of 139 s and 1.95 GB; on
   HLhydTec1 (34 sequences, 18.5 M bins, 5 iterations, 8 threads) 9.9 s and
