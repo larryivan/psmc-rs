@@ -214,10 +214,10 @@ fn infer(
     let data = read_input(&input_file, cli, sink)?;
     let obs = &data.obs;
 
-    // Input QC, printed before the fit. A QC error is only reported, so
-    // that it never stops a fit.
+    // Input QC, printed before the fit, also when no sequence is left (the
+    // report then says why). A QC error is only reported, so that it never
+    // stops a fit.
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
-    // Also when no sequence is left: the report then says why.
     let qc = match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas)) {
         Ok(report) => Some(report),
         Err(e) => {
