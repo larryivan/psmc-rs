@@ -94,6 +94,9 @@ expect_error 2 "needs --run N_ITER" "${base_args[@]}" -- --pattern 4+5*3+4
 expect_error 2 "unknown argument '--frobnicate'" "${base_args[@]}" --frobnicate
 expect_error 2 "give the bin size as this script's --bin-size" "${base_args[@]}" --run 2 \
   -- --bin-size=50
+expect_error 2 "--tui does not go with this script" "${base_args[@]}" --run 2 -- --tui
+expect_error 1 "psmc-rs prints its help or version instead of fitting" "${base_args[@]}" \
+  --run 2 -- --version
 expect_error 1 "cannot read --bam" --bam "$out/missing.bam" --ref "$out/tiny.fa" --out "$out/x"
 
 printf '#!/bin/sh\necho "bcftools 1.9"\necho "Using htslib 1.9"\n' > "$out/fakebin/bcftools"
@@ -320,6 +323,45 @@ run_script --bam "$work/two.sam" --ref "$sim/ref.fa" --out "$out/two" --chroms c
 [ "$s" -eq 1 ] || fail "exit status $s with two samples"
 grep -qF "the alignments hold 2 samples" "$work/two.err" || fail "$(cat "$work/two.err")"
 ok "two samples: error"
+
+# With an index, the samples are checked before any chromosome is called.
+bgzip -c "$work/two.sam" > "$work/two.sam.gz"
+tabix -C -p sam "$work/two.sam.gz"
+s=0
+run_script --bam "$work/two.sam.gz" --ref "$sim/ref.fa" --out "$out/two-indexed" \
+  --chroms chr1,chr3 2> "$work/two-indexed.err" || s=$?
+[ "$s" -eq 1 ] || fail "exit status $s with two samples, indexed"
+grep -qF "the alignments hold 2 samples" "$work/two-indexed.err" ||
+  fail "$(cat "$work/two-indexed.err")"
+if grep -qF '# N = 1..' "$out/two-indexed.log"; then
+  fail "the calls started before the samples were checked"
+fi
+[ -z "$(leftovers two-indexed)" ] || fail "outputs left: $(leftovers two-indexed)"
+ok "two samples, indexed: error before any chromosome is called"
+
+# A mistake in the fit's options stops the run before the calls, with
+# psmc-rs's own error line and tip.
+s=0
+run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/typo" --chroms chr3 --run 1 \
+  -- --patern '4+5*3+4' 2> "$work/typo.err" || s=$?
+[ "$s" -eq 1 ] || fail "exit status $s with --patern"
+grep -qF "error: unexpected argument '--patern' found" "$work/typo.err" || fail "$(cat "$work/typo.err")"
+grep -qF "tip: a similar argument exists: '--pattern'" "$work/typo.err" || fail "$(cat "$work/typo.err")"
+if grep -qF '# N = 1..' "$out/typo.log"; then
+  fail "the calls started before the fit's options were checked"
+fi
+[ -z "$(leftovers typo)" ] || fail "outputs left: $(leftovers typo)"
+ok "a typo in the fit's options: error before any chromosome is called, with psmc-rs's error and tip"
+
+# A fit that fails only once it has read the input shows psmc-rs's error
+# line, which follows pages of QC text.
+s=0
+run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/fitfail" --chroms chr3 --run 1 \
+  -- --bootstrap 2 --bootstrap-block-size 100000000 2> "$work/fitfail.err" || s=$?
+[ "$s" -eq 1 ] || fail "exit status $s with one bootstrap trunk"
+grep -qF "Error: --bootstrap-block-size is too large for this input" "$work/fitfail.err" ||
+  fail "$(cat "$work/fitfail.err")"
+ok "a fit that fails: its error line is shown"
 
 # A --max-depth below twice the automatic upper bound (about 50 at 25x).
 s=0

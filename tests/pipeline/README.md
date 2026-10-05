@@ -90,6 +90,11 @@ of bases at quality 10, and 0.3% sequencing errors.
   a `--max-depth` below twice the automatic upper bound each end with an
   error and leave only the log (no output file, no working directory);
   `--max-depth` below twice MAX of `--depth MIN:MAX` is a usage error.
+- Checks before the calls: two samples in an indexed file, and a typo in
+  the fit's options after `--` (`--patern`), each stop the run before any
+  chromosome is called, the latter with psmc-rs's error line and tip. A fit
+  that fails after reading its input (a single bootstrap trunk) shows
+  psmc-rs's error line, which follows pages of QC text.
 - Interruptions, with a stand-in that never finishes: SIGTERM while the
   calls run, with a `PATH` that has no `pkill`, `pgrep` or `ps`, leaves only
   the log; SIGTERM to the script, and SIGINT to its process group (what

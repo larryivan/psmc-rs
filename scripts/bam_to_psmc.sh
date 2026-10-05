@@ -32,8 +32,10 @@ check it with \`psmc-rs qc\`, convert it to psmcfa with \`psmc-rs convert\`
 Required:
   --bam FILE          Alignments of one sample: BAM, CRAM or SAM, coordinate
                       sorted. With an index (.bai, .csi, .crai) each job reads
-                      only its chromosome; without one, every job streams the
-                      whole file.
+                      only its chromosome, and the read groups are checked for
+                      a single sample before any call; without one, every job
+                      streams the whole file, and the check waits until the
+                      first chromosome is called.
   --ref FILE          The reference the reads were aligned to (FASTA, plain or
                       bgzip). Its .fai is created next to it if missing.
   --out PREFIX        Output prefix; the directory is created if needed.
@@ -66,7 +68,8 @@ Options:
   --multihetsep       Also write PREFIX.<chrom>.multihetsep (for MSMC2)
   --run N_ITER        Also fit PSMC with N_ITER EM iterations: PREFIX.json,
                       PREFIX.html and PREFIX.psmc. Options after \`--\` go to
-                      this psmc-rs run (e.g. -- --pattern '4+25*2+4+6')
+                      this psmc-rs run (e.g. -- --pattern '4+25*2+4+6');
+                      psmc-rs checks them before anything is called
   --psmc-rs PATH      The psmc-rs binary [\$PSMC_RS, else psmc-rs on PATH]
   --keep-tmp          Keep the working directory (per-chromosome calls, logs)
   --dry-run           Print the chromosomes and commands, run nothing
@@ -230,6 +233,7 @@ elif [ "${#extra[@]}" -gt 0 ]; then
 fi
 ! has_extra --bin-size ||
   usage_error "give the bin size as this script's --bin-size, which also sets the psmcfa bins"
+! has_extra --tui || usage_error "--tui does not go with this script; run psmc-rs --tui on $out.psmcfa"
 case "$out" in
   */) usage_error "--out is a prefix for file names, not a directory: '$out'" ;;
 esac
@@ -405,6 +409,16 @@ done
 common_input_opts=(--input-format vcf --vcf-mode consensus --depth "$depth"
   --min-qual "$min_qual" --bin-size "$bin_size")
 
+# The inference run, with the options after --.
+fit=()
+if [ -n "$run_iters" ]; then
+  fit=("$psmc_rs" "$psmcfa" "$out.json" "$run_iters" --bin-size "$bin_size")
+  has_extra --threads || fit+=(--threads "$threads")
+  has_extra --psmc-out || fit+=(--psmc-out "$out.psmc")
+  has_extra --no-progress || fit+=(--no-progress)
+  fit+=(${extra[@]+"${extra[@]}"})
+fi
+
 mpileup_cmd() { # $1: regions file
   local where=-T
   [ "$indexed" -eq 0 ] || where=-R
@@ -431,10 +445,7 @@ if [ "$dry_run" -eq 1 ]; then
   conv=("$psmc_rs" convert "$vcf" "${common_input_opts[@]}" -q --psmcfa "$psmcfa")
   [ "$multihetsep" -eq 0 ] || conv+=(--multihetsep-per-chrom "$out")
   echo "  $(quoted "${conv[@]}")"
-  if [ -n "$run_iters" ]; then
-    echo "  $(quoted "$psmc_rs" "$psmcfa" "$out.json" "$run_iters" --bin-size "$bin_size" \
-      --threads "$threads" --psmc-out "$out.psmc" --no-progress ${extra[@]+"${extra[@]}"})"
-  fi
+  [ -z "$run_iters" ] || echo "  $(quoted "${fit[@]}")"
   exit 0
 fi
 
@@ -496,6 +507,58 @@ fi
 [ "$indexed" -eq 1 ] || [ "${#selected[@]}" -eq 1 ] ||
   warn "$bam has no index (.bai, .csi or .crai), so every chromosome job reads the whole file; index it (samtools index) to read each chromosome directly"
 
+# What psmc-rs's stderr in $1 says went wrong: its error line and clap's
+# tips, or else its last lines.
+error_lines() {
+  local lines
+  lines=$(grep -E '^(error|Error):|^ *tip: ' "$1" || true)
+  [ -n "$lines" ] || lines=$(tail -n 5 "$1")
+  printf '%s\n' "$lines"
+}
+
+# Whether the calls in $1 hold exactly one sample.
+check_samples() {
+  local samples count
+  samples=$("$bcftools" query -l "$1" 2>> "$log_file") || die "cannot read the samples of $1"
+  count=$(printf '%s\n' "$samples" | awk 'NF' | wc -l | tr -d ' ')
+  [ "$count" -eq 1 ] ||
+    die "the alignments hold $count samples (read-group SM tags: $(printf '%s\n' "$samples" | tr '\n' ' ' | sed 's/ $//')); PSMC needs the reads of one diploid genome, so give one sample's reads or fix the SM tags"
+  say "sample: $samples"
+}
+
+# ---------------------------------------------------------------------------
+# 0. What would otherwise fail only after the calls
+
+# The fit's options. psmc-rs checks its options and output paths before it
+# reads its input, so on an input that does not exist it stops at the
+# first problem; if that is the missing input, the rest is fine.
+if [ -n "$run_iters" ]; then
+  check_fit=("$psmc_rs" "$tmp/none.psmcfa" "${fit[@]:2}")
+  log_cmd "$(quoted "${check_fit[@]}")   # checks the fit's options"
+  if "${check_fit[@]}" > "$tmp/check.out" 2> "$tmp/check.err"; then
+    die "with the options after --, psmc-rs prints its help or version instead of fitting"
+  fi
+  if ! grep -qF -- "$tmp/none.psmcfa" "$tmp/check.err"; then
+    cat "$tmp/check.err" >> "$log_file"
+    die "psmc-rs rejects the fit's options, so nothing was run:
+$(error_lines "$tmp/check.err")"
+  fi
+fi
+
+# The samples, from the header that mpileup writes for one base, when the
+# alignments have an index; without one this would read the whole file, and
+# the samples are checked once the first chromosome is called.
+samples_checked=0
+if [ "$indexed" -eq 1 ]; then
+  printf '%s\t1\t1\n' "${ref_names[${selected[0]}]}" > "$tmp/samples.txt"
+  sample_cmd=("$bcftools" mpileup --no-version -f "$ref" -R "$tmp/samples.txt" -Ou
+    -o "$tmp/samples.bcf" "$bam")
+  log_cmd "$(quoted "${sample_cmd[@]}")"
+  run_step "${sample_cmd[@]}" 2>> "$log_file" || die "bcftools mpileup cannot read $bam (see $log_file)"
+  check_samples "$tmp/samples.bcf"
+  samples_checked=1
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Per-chromosome calls
 
@@ -522,8 +585,6 @@ call_one() { # $1: number of the job, $2: index into ref_names
   return "$s"
 }
 
-samples_checked=0
-
 # Wait for the oldest job; stop everything if it failed.
 wait_oldest() {
   local p=${pids[0]} name=${job_names[0]} n=${job_numbers[0]}
@@ -537,13 +598,7 @@ wait_oldest() {
   job_numbers=("${job_numbers[@]:1}")
   cat "$tmp/calls/$n.log" >> "$log_file"
   if [ "$samples_checked" -eq 0 ]; then
-    local samples count
-    samples=$("$bcftools" query -l "$tmp/calls/$n.bcf" 2>> "$log_file") ||
-      die "cannot read the calls of $name"
-    count=$(printf '%s\n' "$samples" | awk 'NF' | wc -l | tr -d ' ')
-    [ "$count" -eq 1 ] ||
-      die "the alignments hold $count samples (read-group SM tags: $(printf '%s\n' "$samples" | tr '\n' ' ' | sed 's/ $//')); PSMC needs the reads of one diploid genome, so give one sample's reads or fix the SM tags"
-    say "sample: $samples"
+    check_samples "$tmp/calls/$n.bcf"
     samples_checked=1
   fi
   say "called $name"
@@ -652,15 +707,11 @@ grep -q '^>' "$psmcfa" ||
 
 if [ -n "$run_iters" ]; then
   grep -q '^>' "$psmcfa" || die "nothing to fit: $psmcfa is empty"
-  fit=("$psmc_rs" "$psmcfa" "$out.json" "$run_iters" --bin-size "$bin_size")
-  has_extra --threads || fit+=(--threads "$threads")
-  has_extra --psmc-out || fit+=(--psmc-out "$out.psmc")
-  has_extra --no-progress || fit+=(--no-progress)
-  fit+=(${extra[@]+"${extra[@]}"})
   log_cmd "$(quoted "${fit[@]}")"
   if ! run_step "${fit[@]}" > "$tmp/fit.out" 2> "$tmp/fit.err"; then
     cat "$tmp/fit.err" >> "$log_file"
-    die "psmc-rs failed: $(tail -n 5 "$tmp/fit.err")"
+    die "psmc-rs failed (full messages in $log_file):
+$(error_lines "$tmp/fit.err")"
   fi
   cat "$tmp/fit.err" "$tmp/fit.out" >> "$log_file"
   # The QC warnings were shown already; the fit's own warnings and the
