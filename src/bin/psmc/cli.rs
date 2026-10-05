@@ -1,10 +1,12 @@
 //! Command-line arguments.
 
+use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, ValueEnum};
 use std::path::PathBuf;
 
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
+use psmc_rs::model::{T_INF, n_steps_for_pattern};
 
 /// `--input-format`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -118,6 +120,70 @@ pub fn parse_depth(s: &str) -> Result<DepthThresholds, String> {
         ));
     }
     Ok(DepthThresholds::Fixed { min, max })
+}
+
+/// A positive, finite number.
+fn positive_f64(s: &str) -> Result<f64, String> {
+    match s.parse::<f64>() {
+        Ok(v) if v > 0.0 && v.is_finite() => Ok(v),
+        Ok(v) => Err(format!("must be a positive number, got {v}")),
+        Err(_) => Err(format!("'{s}' is not a number")),
+    }
+}
+
+/// A finite number of at least 0.
+fn non_negative_f64(s: &str) -> Result<f64, String> {
+    match s.parse::<f64>() {
+        Ok(v) if v >= 0.0 && v.is_finite() => Ok(v),
+        Ok(v) => Err(format!("must be 0 or more, got {v}")),
+        Err(_) => Err(format!("'{s}' is not a number")),
+    }
+}
+
+/// `--t-max`: inside C psmc's time grid, which ends at `T_INF`.
+fn parse_t_max(s: &str) -> Result<f64, String> {
+    let v = positive_f64(s)?;
+    if v >= T_INF {
+        return Err(format!(
+            "must be below {T_INF}, where C psmc's time grid ends, got {v}"
+        ));
+    }
+    Ok(v)
+}
+
+/// C psmc's default pattern (`-p`).
+pub const DEFAULT_PATTERN: &str = "4+5*3+4";
+
+/// The model layout `(n_steps, pattern)` that `--pattern` and `--n-steps`
+/// give: C psmc's default pattern without either, `n_steps` from the
+/// pattern without `--n-steps`, and one free lambda per interval with
+/// `--n-steps` alone. Given both, `--n-steps` must match the pattern;
+/// its number of intervals (`n_steps + 1`, the form psmc-rs 0.1 used) is
+/// accepted too.
+pub fn model_layout(
+    pattern: Option<&str>,
+    n_steps: Option<usize>,
+) -> Result<(usize, Option<String>)> {
+    let Some(pattern) = pattern else {
+        return match n_steps {
+            Some(n) => Ok((n, None)),
+            None => Ok((
+                n_steps_for_pattern(DEFAULT_PATTERN)?,
+                Some(DEFAULT_PATTERN.to_string()),
+            )),
+        };
+    };
+    let derived =
+        n_steps_for_pattern(pattern).with_context(|| format!("invalid --pattern '{pattern}'"))?;
+    match n_steps {
+        None => Ok((derived, Some(pattern.to_string()))),
+        Some(n) if n == derived || n == derived + 1 => Ok((derived, Some(pattern.to_string()))),
+        Some(n) => bail!(
+            "--n-steps {n} does not match --pattern '{pattern}', which has {} intervals \
+             (n_steps {derived}); leave out --n-steps to take it from the pattern",
+            derived + 1
+        ),
+    }
 }
 
 /// A share between 0 and 1.
@@ -328,32 +394,44 @@ pub struct Cli {
     )]
     pub threads: Option<usize>,
 
-    #[arg(long, default_value_t = 15.0)]
-    pub t_max: f64,
-
-    #[arg(long, default_value_t = 64)]
-    pub n_steps: usize,
-
-    #[arg(long)]
-    pub theta0: Option<f64>,
-
-    #[arg(long)]
-    pub rho0: Option<f64>,
-
-    #[arg(long)]
+    /// Free-parameter pattern of the time intervals (C psmc -p); default
+    /// C psmc's 4+5*3+4, or one lambda per interval with --n-steps alone
+    #[arg(long, help_heading = "Model")]
     pub pattern: Option<String>,
 
-    #[arg(long, default_value_t = 2.5e-8)]
+    /// Number of time intervals minus one (C psmc's n); taken from
+    /// --pattern, and checked against it when both are given
+    #[arg(long, help_heading = "Model")]
+    pub n_steps: Option<usize>,
+
+    /// Initial t_max, in units of 2N0 generations (C psmc -t)
+    #[arg(long, default_value_t = 15.0, value_parser = parse_t_max, help_heading = "Model")]
+    pub t_max: f64,
+
+    /// Initial theta0/rho0 ratio (C psmc -r); rho0 = theta0 / this
+    #[arg(long, value_name = "RATIO", default_value_t = 4.0, value_parser = positive_f64, help_heading = "Model")]
+    pub tr_ratio: f64,
+
+    /// Initial theta0 per bin (default: -ln(1 - K/L) from the data, as C
+    /// psmc)
+    #[arg(long, value_parser = positive_f64, help_heading = "Model")]
+    pub theta0: Option<f64>,
+
+    /// Initial rho0 per bin (default: theta0 / --tr-ratio)
+    #[arg(long, value_parser = positive_f64, help_heading = "Model")]
+    pub rho0: Option<f64>,
+
+    /// Mutation rate per base pair per generation, for scaling
+    #[arg(long, default_value_t = 2.5e-8, value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
-    #[arg(long)]
-    pub mstep_iters: Option<usize>,
+    /// Maximum L-BFGS iterations per M-step
+    #[arg(long, value_name = "N", default_value_t = 100, value_parser = positive_usize, help_heading = "Model")]
+    pub mstep_iters: usize,
 
-    #[arg(
-        long,
-        default_value_t = 1e-3,
-        help = "M-step smoothness penalty on log-lambda differences"
-    )]
+    /// Weight of the M-step penalty on differences of log lambda between
+    /// neighbouring intervals (0 = C psmc's objective)
+    #[arg(long, value_name = "WEIGHT", default_value_t = 0.0, value_parser = non_negative_f64, help_heading = "Model")]
     pub smooth_lambda: f64,
 
     #[arg(
@@ -417,18 +495,40 @@ impl Cli {
             args.push(v.to_string());
         }
         args.extend(self.input.to_args());
+        let mut push = |flag: &str, value: String| {
+            args.push(flag.to_string());
+            args.push(value);
+        };
         if let Some(v) = &self.pattern {
-            args.push("--pattern".to_string());
-            args.push(v.clone());
+            push("--pattern", v.clone());
+        }
+        if let Some(v) = self.n_steps {
+            push("--n-steps", v.to_string());
+        }
+        if self.t_max != 15.0 {
+            push("--t-max", self.t_max.to_string());
+        }
+        if self.tr_ratio != 4.0 {
+            push("--tr-ratio", self.tr_ratio.to_string());
+        }
+        if let Some(v) = self.theta0 {
+            push("--theta0", v.to_string());
+        }
+        if let Some(v) = self.rho0 {
+            push("--rho0", v.to_string());
+        }
+        if self.mu != 2.5e-8 {
+            push("--mu", self.mu.to_string());
+        }
+        if self.mstep_iters != 100 {
+            push("--mstep-iters", self.mstep_iters.to_string());
+        }
+        if self.smooth_lambda != 0.0 {
+            push("--smooth-lambda", self.smooth_lambda.to_string());
         }
         if let Some(v) = self.threads {
-            args.push("--threads".to_string());
-            args.push(v.to_string());
+            push("--threads", v.to_string());
         }
-        args.push("--mu".to_string());
-        args.push(self.mu.to_string());
-        args.push("--smooth-lambda".to_string());
-        args.push(self.smooth_lambda.to_string());
         if self.bootstrap > 0 {
             args.push("--bootstrap".to_string());
             args.push(self.bootstrap.to_string());
@@ -533,6 +633,49 @@ mod tests {
         let back: Vec<&str> = back.iter().map(String::as_str).collect();
         assert_eq!(input(&back), a);
         assert_eq!(input(&[]).to_args(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_layout_follows_c_psmc() {
+        assert_eq!(
+            model_layout(None, None).unwrap(),
+            (22, Some("4+5*3+4".to_string()))
+        );
+        assert_eq!(model_layout(None, Some(63)).unwrap(), (63, None));
+        let human = Some("4+25*2+4+6".to_string());
+        assert_eq!(
+            model_layout(human.as_deref(), None).unwrap(),
+            (63, human.clone())
+        );
+        assert_eq!(
+            model_layout(human.as_deref(), Some(63)).unwrap(),
+            (63, human.clone())
+        );
+        // psmc-rs 0.1 took the number of intervals.
+        assert_eq!(
+            model_layout(human.as_deref(), Some(64)).unwrap(),
+            (63, human.clone())
+        );
+        let err = model_layout(human.as_deref(), Some(30))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("has 64 intervals (n_steps 63)"), "{err}");
+        let err = format!("{:#}", model_layout(Some("4+x"), None).unwrap_err());
+        assert!(err.contains("invalid --pattern '4+x'"), "{err}");
+    }
+
+    #[test]
+    fn model_values_are_checked() {
+        let bad = |args: &[&str]| {
+            let mut argv = vec!["psmc-rs", "in", "out", "1"];
+            argv.extend_from_slice(args);
+            Cli::try_parse_from(argv).unwrap_err().to_string()
+        };
+        assert!(bad(&["--t-max", "1000"]).contains("below 1000"));
+        assert!(bad(&["--t-max", "0"]).contains("positive"));
+        assert!(bad(&["--tr-ratio=-4"]).contains("positive"));
+        assert!(bad(&["--smooth-lambda=-1"]).contains("0 or more"));
+        assert!(bad(&["--mstep-iters", "0"]).contains("at least 1"));
     }
 
     #[test]

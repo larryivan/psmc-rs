@@ -19,7 +19,7 @@ use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
-use crate::cli::Cli;
+use crate::cli::{Cli, model_layout};
 use crate::dataset::{describe, ensure_usable, load_input, resolve_input_path};
 
 /// A stage of the pipeline with a progress count.
@@ -137,6 +137,7 @@ pub fn run_inference(
     if cli.bootstrap > 0 && cli.bootstrap_block_size == 0 {
         bail!("--bootstrap-block-size must be > 0 when --bootstrap is enabled");
     }
+    let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
     let bootstrap_iters = cli.bootstrap_iters.unwrap_or(n_iter);
     if cli.bootstrap > 0 && bootstrap_iters == 0 {
         bail!("bootstrap requires EM iterations; set N_ITER > 0 or use --bootstrap-iters");
@@ -168,18 +169,20 @@ pub fn run_inference(
         Some(v) => v,
         None => initial_theta(&obs.rows)?,
     };
-    let rho0 = cli.rho0.unwrap_or(theta0 / 5.0);
-    let mut model = PsmcModel::new(
-        cli.t_max,
-        cli.n_steps,
-        theta0,
-        rho0,
-        cli.mu,
-        cli.pattern.clone(),
-    )?;
+    let rho0 = cli.rho0.unwrap_or(theta0 / cli.tr_ratio);
+    let mut model = PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)?;
+    sink(Event::Info(format!(
+        "Model: pattern {}, {} intervals, {} free lambdas; start theta0 {theta0:.6}, rho0 \
+         {rho0:.6} (theta0/rho0 {}), t_max {}",
+        model.pattern.as_deref().unwrap_or("none"),
+        model.n_steps + 1,
+        model.lam.len(),
+        theta0 / rho0,
+        model.t_max
+    )));
 
     let mstep_config = MStepConfig {
-        max_iters: cli.mstep_iters.unwrap_or(100),
+        max_iters: cli.mstep_iters,
         lambda: cli.smooth_lambda,
         progress: false,
         ..MStepConfig::default()

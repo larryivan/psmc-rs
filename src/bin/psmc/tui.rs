@@ -190,8 +190,8 @@ impl App {
             },
             FormField {
                 label: "Pattern",
-                value: "4+25*2+4+6".to_string(),
-                hint: "PSMC pattern",
+                value: String::new(),
+                hint: "PSMC pattern (empty: C psmc's 4+5*3+4)",
             },
             FormField {
                 label: "Batch size",
@@ -220,8 +220,8 @@ impl App {
             },
             FormField {
                 label: "Smooth",
-                value: "1e-3".to_string(),
-                hint: "Smooth penalty",
+                value: "0".to_string(),
+                hint: "Smoothness penalty on log lambda (0: C psmc's objective)",
             },
         ];
 
@@ -422,6 +422,15 @@ fn parse_required_f64(name: &str, v: &str) -> Result<f64> {
     Ok(n)
 }
 
+fn parse_non_negative_f64(name: &str, v: &str) -> Result<f64> {
+    let s = parse_non_empty_str(name, v)?;
+    match s.parse::<f64>() {
+        Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
+        Ok(_) => bail!("{name} must be 0 or more"),
+        Err(_) => bail!("{name} must be a number"),
+    }
+}
+
 fn parse_input_format_field(v: &str) -> Result<FormatArg> {
     let s = v.trim().to_ascii_lowercase();
     FormatArg::ALL
@@ -435,7 +444,7 @@ fn build_cli_from_form(app: &App) -> Result<Cli> {
     let output = parse_non_empty_str("Output", app.field_value(FIELD_OUTPUT))?;
     let n_iter = parse_required_usize("N iter", app.field_value(FIELD_N_ITER))?;
     let mu = parse_required_f64("Mu", app.field_value(FIELD_MU))?;
-    let smooth = parse_required_f64("Smooth", app.field_value(FIELD_SMOOTH_LAMBDA))?;
+    let smooth = parse_non_negative_f64("Smooth", app.field_value(FIELD_SMOOTH_LAMBDA))?;
     let input_format = parse_input_format_field(app.field_value(FIELD_INPUT_FORMAT))?;
 
     let pattern = app.field_value(FIELD_PATTERN).trim();
