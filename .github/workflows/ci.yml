@@ -108,7 +108,9 @@ jobs:
       # current release does (SC2015 on `[ a ] && [ b ] || c`, for one): the
       # scripts must be clean with both.
       - name: Check the shell scripts
-        run: shellcheck -s bash scripts/bam_to_psmc.sh tests/pipeline/run_e2e.sh
+        run: |
+          shellcheck -s bash scripts/bam_to_psmc.sh tests/pipeline/run_e2e.sh \
+            .github/scripts/check-linux-binary.sh
 
       # Debian's and Ubuntu's bcftools package installs vcfutils.pl in
       # /usr/bin; otherwise take the one of the installed bcftools release.

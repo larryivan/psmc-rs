@@ -21,8 +21,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # glibc: the oldest glibc the binary is linked for (see the build
+          # steps); 2.17 is Rust's own minimum.
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            glibc: "2.17"
             archive_ext: tar.gz
             bin_name: psmc-rs
           - os: macos-15-intel
@@ -52,7 +55,30 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
+      # Linked against the runner's glibc (2.39), the Linux binary would not
+      # start on glibc 2.33 or older (RHEL/Rocky 8, Ubuntu 20.04, Debian 11),
+      # and on 2.34 to 2.38 every run would print "weak version `GLIBC_2.39'
+      # not found". cargo-zigbuild links it with zig against the symbols of
+      # the glibc in matrix.glibc instead; rustc generates the same code.
+      - name: Install Python (Linux)
+        if: matrix.glibc
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install zig and cargo-zigbuild (Linux)
+        if: matrix.glibc
+        run: |
+          python -m pip install --only-binary=:all: ziglang==0.16.0 cargo-zigbuild==0.23.4
+          python -m ziglang version
+          cargo-zigbuild --version
+
+      - name: Build release binary (Linux, glibc ${{ matrix.glibc }})
+        if: matrix.glibc
+        run: cargo zigbuild --release --locked --bin psmc-rs --target ${{ matrix.target }}.${{ matrix.glibc }}
+
       - name: Build release binary
+        if: ${{ !matrix.glibc }}
         run: cargo build --release --locked --bin psmc-rs --target ${{ matrix.target }}
 
       - name: Package archive (Unix)
@@ -69,6 +95,13 @@ jobs:
           # Hash from inside dist/, so that the file names in the checksums
           # are those of the downloaded assets.
           (cd dist && shasum -a 256 "${NAME}.${{ matrix.archive_ext }}" > "${NAME}.${{ matrix.archive_ext }}.sha256")
+
+      # The binary of the archive: no glibc symbol newer than the floor, and
+      # --version and a short fit in CentOS 7, Rocky Linux 8 and Ubuntu 22.04
+      # containers, with nothing on standard error.
+      - name: Check the Linux binary on older distributions
+        if: matrix.glibc
+        run: .github/scripts/check-linux-binary.sh "dist/psmc-rs-${RELEASE_TAG}-${{ matrix.target }}.${{ matrix.archive_ext }}" "${{ matrix.glibc }}"
 
       - name: Package archive (Windows)
         if: runner.os == 'Windows'
