@@ -88,6 +88,8 @@ expect_error 2 "--bam is required" --ref "$out/tiny.fa" --out "$out/x"
 expect_error 2 "--depth must be auto or MIN:MAX" "${base_args[@]}" --depth 10
 expect_error 2 "--depth must be auto or MIN:MAX" "${base_args[@]}" --depth 50:10
 expect_error 2 "--threads must be a whole number" "${base_args[@]}" --threads two
+expect_error 2 "--max-depth 60 is less than twice the upper depth bound 46 of --depth 8:46" \
+  "${base_args[@]}" --depth 8:46 --max-depth 60
 expect_error 2 "needs --run N_ITER" "${base_args[@]}" -- --pattern 4+5*3+4
 expect_error 2 "unknown argument '--frobnicate'" "${base_args[@]}" --frobnicate
 expect_error 2 "give the bin size as this script's --bin-size" "${base_args[@]}" --run 2 \
@@ -256,7 +258,7 @@ b=$work/routeb
 mkdir -p "$b"
 read -r mean dmin dmax < <(python3 "$helpers" auto-depth "$p.vcf.gz")
 printf 'chr1\t1\t150000\nchr2\t1\t100000\nchr3\t1\t70000\n' > "$b/autosomes.txt"
-bcftools mpileup -C50 -q20 -Q20 -a FORMAT/DP -f "$sim/ref.fa" -T "$b/autosomes.txt" \
+bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -f "$sim/ref.fa" -T "$b/autosomes.txt" \
   "$sim/aln.sam" 2> /dev/null |
   bcftools call -m -g "$dmin,$((dmax + 1))" -Oz -o "$b/sample.g.vcf.gz" 2> /dev/null
 bcftools query -i "FMT/DP>=$dmin && FMT/DP<=$dmax" -f '%CHROM\t%POS0\t%END\n' \
@@ -270,6 +272,20 @@ check qc "$b/b.qc.json" --format "vcf, mask mode" --lacks VARIANTS_ONLY_NO_MASK 
   --kept chr1,chr2,chr3 --dropped 0
 check recovery "$sim" "$b/b.psmcfa" 100 --min-recovery 0.97 --max-false-k 0.01 --min-masked-n 0.97
 check multihetsep "$sim" "$b/b.psmcfa" 100 "$b"/b.chr*.multihetsep --min-true 0.98
+
+# ---------------------------------------------------------------------------
+step "high depth: the upper depth bound still applies above 250 reads"
+
+# chr1 at 140x, with 200x of paralog reads in the collapsed repeat: about
+# 340 reads there, and an automatic upper bound of about 280. With
+# mpileup's default -d 250 the repeat's depth stayed below the bound and 20
+# of its 25 bins came out K; the script's -d 10000 counts every read.
+deep=$work/deep
+python3 "$here/simulate.py" "$deep/sim" --depth 140 --paralog-depth 200 --chroms chr1
+run_script --bam "$deep/sim/aln.sam" --ref "$deep/sim/ref.fa" --out "$deep/x" 2> "$deep/x.err"
+grep -qF -- " -d 10000 " "$deep/x.log" || fail "mpileup did not run with -d 10000"
+check region "$deep/sim" "$deep/x.psmcfa" 100 collapsed_repeat --max-k 0.5
+expect_classic "$deep/x" "140x"
 
 # ---------------------------------------------------------------------------
 step "failures leave no output"
@@ -304,6 +320,15 @@ run_script --bam "$work/two.sam" --ref "$sim/ref.fa" --out "$out/two" --chroms c
 [ "$s" -eq 1 ] || fail "exit status $s with two samples"
 grep -qF "the alignments hold 2 samples" "$work/two.err" || fail "$(cat "$work/two.err")"
 ok "two samples: error"
+
+# A --max-depth below twice the automatic upper bound (about 50 at 25x).
+s=0
+run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/capped" --chroms chr3 \
+  --max-depth 60 2> "$work/capped.err" || s=$?
+[ "$s" -eq 1 ] || fail "exit status $s with --max-depth 60"
+grep -qF "more than --max-depth 60" "$work/capped.err" || fail "$(cat "$work/capped.err")"
+[ -z "$(leftovers capped)" ] || fail "outputs left: $(leftovers capped)"
+ok "--max-depth below twice the automatic upper bound: error, only capped.log written"
 
 # Interrupted runs. A stand-in for one tool never finishes (a `sleep` with
 # a number of its own); the script is stopped while it waits for it, and

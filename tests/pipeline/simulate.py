@@ -36,9 +36,13 @@ every filter of the classic pipeline acts:
 Everywhere, 2x of extra reads have mapping quality 5 (dropped by -q20), 5%
 of bases have quality 10 (dropped by -Q20) and 0.3% are sequencing errors.
 
+--depth and --paralog-depth change the base depth (25) and the paralog
+depth of the collapsed repeat (100), and --chroms writes only the listed
+sequences; run_e2e.sh uses them for a high-depth run of chr1.
+
 Everything is drawn from one seeded random.Random, so the output depends
-only on the seed; random.Random's sequence is stable across Python 3
-releases. Standard library only.
+only on the seed and the options; random.Random's sequence is stable across
+Python 3 releases. Standard library only.
 """
 
 import argparse
@@ -71,24 +75,29 @@ PAR_END = 8_000
 
 BASES = "ACGT"
 
+
 # name, length, ploidy outside the PAR ("par" for chrX), base depth, special
-# segments as (1-based start, end, kind, depth, mapq).
-CHROMS = [
-    ("chr1", 150_000, 2, DEPTH, [
-        (30_001, 33_000, "low_depth", 2, MAPQ),
-        (60_001, 62_000, "no_reads", 0, MAPQ),
-        (90_001, 92_500, "collapsed_repeat", DEPTH, MAPQ),
-        (120_001, 123_000, "unmappable", DEPTH, 0),
-    ]),
-    ("chr2", 100_000, 2, DEPTH, [
-        (40_001, 45_000, "dip", 12, MAPQ),
-        (70_001, 71_000, "assembly_gap", 0, MAPQ),
-    ]),
-    ("chr3", 70_000, 2, DEPTH, []),
-    ("chrUn_scaffold1", 8_000, 2, DEPTH, []),
-    ("chrX", 80_000, "par", DEPTH, []),
-    ("chrM", 3_000, 1, 150, []),
-]
+# segments as (1-based start, end, kind, depth, mapq); `depth` is the base
+# depth of the nuclear sequences.
+def chromosomes(depth=DEPTH):
+    return [
+        ("chr1", 150_000, 2, depth, [
+            (30_001, 33_000, "low_depth", 2, MAPQ),
+            (60_001, 62_000, "no_reads", 0, MAPQ),
+            (90_001, 92_500, "collapsed_repeat", depth, MAPQ),
+            (120_001, 123_000, "unmappable", depth, 0),
+        ]),
+        ("chr2", 100_000, 2, depth, [
+            (40_001, 45_000, "dip", 12, MAPQ),
+            (70_001, 71_000, "assembly_gap", 0, MAPQ),
+        ]),
+        ("chr3", 70_000, 2, depth, []),
+        ("chrUn_scaffold1", 8_000, 2, depth, []),
+        ("chrX", 80_000, "par", depth, []),
+        ("chrM", 3_000, 1, 150, []),
+    ]
+
+
 # Extra depth of paralog reads in the collapsed repeat.
 PARALOG_DEPTH = 100
 # Kinds whose positions must come out missing, and kinds that are callable.
@@ -318,14 +327,26 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("outdir")
     ap.add_argument("--seed", type=int, default=SEED)
+    ap.add_argument("--depth", type=int, default=DEPTH,
+                    help=f"base depth of the nuclear sequences [{DEPTH}]")
+    ap.add_argument("--paralog-depth", type=int, default=PARALOG_DEPTH,
+                    help=f"depth of paralog reads in the collapsed repeat [{PARALOG_DEPTH}]")
+    ap.add_argument("--chroms", help="comma-separated sequences to write [all]")
     args = ap.parse_args()
+    chroms = chromosomes(args.depth)
+    if args.chroms:
+        wanted = args.chroms.split(",")
+        unknown = set(wanted) - {c[0] for c in chroms}
+        if unknown:
+            ap.error(f"unknown --chroms: {sorted(unknown)}")
+        chroms = [c for c in chroms if c[0] in wanted]
     rng = random.Random(args.seed)
     os.makedirs(args.outdir, exist_ok=True)
 
     fa = []
     sam_header = ["@HD\tVN:1.6\tSO:coordinate"]
     reads, truth_rows, design_rows, callable_rows, masked_rows = [], [], [], [], []
-    for name, length, ploidy, depth, specials in CHROMS:
+    for name, length, ploidy, depth, specials in chroms:
         segs = layout(length, depth, specials)
         chars = [rng.choice(BASES) for _ in range(length)]
         for s, e, kind, _, _ in segs:
@@ -375,7 +396,7 @@ def main():
                     r = para.read(rng, p - s)
                     return None if r is None else (r[0] + s, r[1], r[2], MAPQ)
                 reads.extend((name,) + r for r in reads_over(
-                    rng, s, e, PARALOG_DEPTH, draw_paralog))
+                    rng, s, e, args.paralog_depth, draw_paralog))
         reads.extend((name,) + r for r in reads_over(
             rng, 0, length, LOW_MAPQ_DEPTH, lambda p: draw(p, mapq=5)))
 
@@ -396,7 +417,7 @@ def main():
         callable_rows.extend(f"{name}\t{s}\t{e}" for s, e in good)
         masked_rows.extend(f"{name}\t{s}\t{e}" for s, e in shrink(runs(MASKED_KINDS), READ_LEN))
 
-    order = {name: i for i, (name, *_) in enumerate(CHROMS)}
+    order = {name: i for i, (name, *_) in enumerate(chroms)}
     reads.sort(key=lambda r: (order[r[0]], r[1]))
 
     def write(name, lines):

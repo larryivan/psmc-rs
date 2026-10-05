@@ -81,7 +81,7 @@ the same inputs writes the same bytes to every output but the log, whatever
 For each chromosome, in parallel:
 
 ```sh
-bcftools mpileup -C50 -q20 -Q20 -f ref.fa -r chr1 sample.bam \
+bcftools mpileup -C50 -q20 -Q20 -d 10000 -f ref.fa -r chr1 sample.bam \
   | bcftools call -c -Ob -o chr1.bcf
 ```
 
@@ -109,6 +109,9 @@ default is fq2psmcfa's own default, 10.
   more, by the aligner's estimate, that the read belongs elsewhere) and
   bases of base quality below 20. The psmc README keeps mpileup's defaults
   here; 20 and 20 are the values of msmc-tools' `bamCaller.py` example.
+- **`-d 10000`** lets mpileup read up to 10,000 reads per position rather
+  than 250, so that the upper depth bound still works on deep data (see
+  [depth bounds](#depth-bounds)).
 - **`bcftools call -c`** is the consensus caller. It writes a record for
   every covered position, variant or not, with the `FQ`, `AF1`, `MQ` and
   `DP` fields that `vcfutils.pl vcf2fq` reads. Positions without a record
@@ -153,8 +156,16 @@ The mean covers every chromosome in the VCF, so call only the chromosomes
 you analyse: a male X at half depth, or an organelle at hundreds of times
 the nuclear depth, moves it. (The script leaves both out by default.)
 `bcftools mpileup` reads at most 250 reads per position and file by default
-(`-d`, `--max-depth`); for samples sequenced much deeper than 100x, raise
-it, or the depths the bounds are computed from are capped.
+(`-d`, `--max-depth`), and the INFO/DP of deeper sites then stays near that
+cap. Once the upper bound comes close to it, collapsed repeats pass the
+bound and their paralog differences become heterozygous calls: in the
+end-to-end test's 140x simulation (bound 278), mpileup's default turned 20
+of the 25 bins of a collapsed repeat into `K` bins. Keep the cap at least
+twice the upper bound. The script runs mpileup with `-d 10000` (or twice
+MAX of `--depth MIN:MAX`, if that is more), takes `--max-depth N` to change
+it, and stops when the automatic bound needs more; by hand, give
+`bcftools mpileup -d` yourself whenever twice the bound exceeds 250, that is
+from a mean depth of about 60x.
 
 ### The same bytes as vcf2fq and fq2psmcfa
 
@@ -210,7 +221,7 @@ Any VCF of the sample's calls, sorted (`bcftools sort`), plain or
 compressed: GATK HaplotypeCaller and GenotypeGVCFs, DeepVariant, or
 
 ```sh
-bcftools mpileup -C50 -q20 -Q20 -a FORMAT/DP -f ref.fa sample.bam \
+bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -f ref.fa sample.bam \
   | bcftools call -m -v -Oz -o variants.vcf.gz
 ```
 
@@ -240,7 +251,7 @@ Common ways to make one:
   puts the sites with depth MIN to MAX in blocks of their own):
 
   ```sh
-  bcftools mpileup -C50 -q20 -Q20 -a FORMAT/DP -f ref.fa sample.bam \
+  bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -f ref.fa sample.bam \
     | bcftools call -m -g 8,51 -Oz -o sample.g.vcf.gz
   bcftools query -i 'FMT/DP>=8 && FMT/DP<=50' -f '%CHROM\t%POS0\t%END\n' \
     sample.g.vcf.gz > callable.bed

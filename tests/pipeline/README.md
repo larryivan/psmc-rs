@@ -75,14 +75,21 @@ of bases at quality 10, and 0.3% sequencing errors.
 - Run 4, chr3 renamed `HLA-A*01:01:01:01`: called from the plain and the
   indexed SAM, the name survives (`bcftools mpileup -r` would read the
   colons as a range) and both give the same psmcfa.
+- High depth: chr1 simulated at 140x with 200x of paralog reads in the
+  collapsed repeat (`simulate.py --depth 140 --paralog-depth 200 --chroms
+  chr1`). The automatic upper bound is about 280, above mpileup's default
+  cap of 250 reads; with the script's `-d 10000`, at most half of the
+  repeat's bins may be `K` (mpileup's default made 20 of 25 `K`), and the
+  psmcfa again equals vcf2fq | fq2psmcfa.
 - Route B of `docs/preprocessing.md` on the same reads: a gVCF from
   `bcftools call -m -g`, its depth-banded blocks as the callable mask and its
   variant records as the VCF. Without the mask, QC warns
   VARIANTS_ONLY_NO_MASK; with it, the warning is gone and recovery, `K` and
   `N` bins and the multihetsep rows meet the same thresholds as run 1.
-- Failures: no read passing `--min-mapq 255` and two samples in one file
-  each end with an error and leave only the log (no output file, no working
-  directory).
+- Failures: no read passing `--min-mapq 255`, two samples in one file, and
+  a `--max-depth` below twice the automatic upper bound each end with an
+  error and leave only the log (no output file, no working directory);
+  `--max-depth` below twice MAX of `--depth MIN:MAX` is a usage error.
 - Interruptions, with a stand-in that never finishes: SIGTERM while the
   calls run, with a `PATH` that has no `pkill`, `pgrep` or `ps`, leaves only
   the log; SIGTERM to the script, and SIGINT to its process group (what

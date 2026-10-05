@@ -14,6 +14,11 @@ for run_e2e.sh (see README.md). Standard library only.
       nr_called and two different alleles, and at least a share T of the
       rows are simulated heterozygous SNPs.
 
+  check_outputs.py region SIM_DIR PSMCFA BIN_SIZE KIND [--max-k F]
+      The bins lying wholly inside the design.tsv segments of one kind (for
+      example collapsed_repeat): prints how many are K, T and N, and exits 1
+      when the K share is above F.
+
   check_outputs.py qc QC_JSON [--sex-warning NAME] [--kept NAME,...]
                    [--dropped N] [--format TEXT] [--has CODE] [--lacks CODE]
       Without --sex-warning, no SEX_OR_ORGANELLE finding and no sequence
@@ -125,6 +130,29 @@ def recovery(args):
         fail(f"false K share {fk:.4f} > {args.max_false_k}")
     if mn < args.min_masked_n:
         fail(f"masked N share {mn:.4f} < {args.min_masked_n}")
+
+
+def region(args):
+    seqs = read_psmcfa(args.psmcfa)
+    s = args.bin_size
+    counts = {"K": 0, "T": 0, "N": 0}
+    with open(f"{args.sim}/design.tsv") as f:
+        next(f)
+        for line in f:
+            chrom, start, end, kind = line.split("\t")[:4]
+            if kind != args.kind or chrom not in seqs:
+                continue
+            first, last = (int(start) - 1 + s - 1) // s, int(end) // s
+            for i in range(first, min(last, len(seqs[chrom]))):
+                counts[seqs[chrom][i]] += 1
+    total = sum(counts.values())
+    if total == 0:
+        fail(f"no bin lies inside a {args.kind} segment")
+    share = counts["K"] / total
+    print(f"{args.kind}: {total} bins, {counts['K']} K, {counts['T']} T, {counts['N']} N "
+          f"(K share {share:.2f}, threshold {args.max_k})")
+    if share > args.max_k:
+        fail(f"{counts['K']} of the {total} bins in {args.kind} segments are K")
 
 
 def multihetsep(args):
@@ -255,6 +283,12 @@ def main():
     p.add_argument("--min-recovery", type=float, default=0.95)
     p.add_argument("--max-false-k", type=float, default=0.02)
     p.add_argument("--min-masked-n", type=float, default=0.95)
+    p = sub.add_parser("region")
+    p.add_argument("sim")
+    p.add_argument("psmcfa")
+    p.add_argument("bin_size", type=int)
+    p.add_argument("kind")
+    p.add_argument("--max-k", type=float, default=0.5)
     p = sub.add_parser("multihetsep")
     p.add_argument("sim")
     p.add_argument("psmcfa")
@@ -278,8 +312,8 @@ def main():
     p.add_argument("dry_run")
     p.add_argument("json")
     args = ap.parse_args()
-    {"recovery": recovery, "multihetsep": multihetsep, "qc": qc, "fit": fit,
-     "kinds": kinds}[args.cmd](args)
+    {"recovery": recovery, "region": region, "multihetsep": multihetsep, "qc": qc,
+     "fit": fit, "kinds": kinds}[args.cmd](args)
 
 
 if __name__ == "__main__":

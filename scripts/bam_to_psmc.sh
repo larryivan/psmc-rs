@@ -17,6 +17,7 @@ set -euo pipefail
 readonly SCRIPT_VERSION="1.0"
 readonly MIN_BCFTOOLS="1.10"
 readonly MIN_PSMC_RS="0.2.0"
+readonly DEFAULT_MAX_DEPTH=10000
 prog=$(basename "$0")
 
 usage() {
@@ -52,6 +53,13 @@ Options:
   --depth auto|MIN:MAX
                       Depth bounds of a called base (vcf2fq -d, -D). auto: a
                       third and twice the mean depth (psmc README) [auto]
+  --max-depth N       mpileup -d: the most reads used per position [10000,
+                      or twice MAX of --depth MIN:MAX if that is more]. It
+                      must be at least twice the upper depth bound: beyond
+                      the cap mpileup stops counting, so deeper sites
+                      (collapsed repeats) would pass the bound. mpileup's
+                      own default, 250, is enough only up to a mean depth
+                      of about 60x
   --min-qual N        fq2psmcfa -q: minimum consensus quality [20, as in the
                       psmc README]
   --bin-size N        fq2psmcfa -s: bases per bin [100]
@@ -130,7 +138,7 @@ log_cmd() {
 
 command_line=$(quoted "$0" "$@")
 bam="" ref="" out="" chroms_arg="" threads="" min_mapq=20 min_baseq=20
-depth="auto" min_qual=20 bin_size=100 multihetsep=0 run_iters="" psmc_rs=""
+depth="auto" max_depth="" min_qual=20 bin_size=100 multihetsep=0 run_iters="" psmc_rs=""
 keep_tmp=0 dry_run=0
 extra=()
 
@@ -155,6 +163,7 @@ while [ "$#" -gt 0 ]; do
     --min-mapq) need_value "$@"; min_mapq=$2; shift 2 ;;
     --min-baseq) need_value "$@"; min_baseq=$2; shift 2 ;;
     --depth) need_value "$@"; depth=$2; shift 2 ;;
+    --max-depth) need_value "$@"; max_depth=$2; shift 2 ;;
     --min-qual) need_value "$@"; min_qual=$2; shift 2 ;;
     --bin-size) need_value "$@"; bin_size=$2; shift 2 ;;
     --multihetsep) multihetsep=1; shift ;;
@@ -174,7 +183,7 @@ done
 [ -n "$out" ] || usage_error "--out is required"
 [ -n "$threads" ] || threads=$(default_threads)
 for pair in "--threads:$threads" "--min-mapq:$min_mapq" "--min-baseq:$min_baseq" \
-  "--min-qual:$min_qual" "--bin-size:$bin_size"; do
+  "--min-qual:$min_qual" "--bin-size:$bin_size" "--max-depth:${max_depth:-1}"; do
   is_uint "${pair#*:}" || usage_error "${pair%%:*} must be a whole number, not '${pair#*:}'"
 done
 [ "$threads" -ge 1 ] || usage_error "--threads must be at least 1"
@@ -187,6 +196,22 @@ if [ "$depth" != auto ]; then
   if ! is_uint "$dmin" || ! is_uint "$dmax" || [ "$dmin" -gt "$dmax" ]; then
     usage_error "--depth must be auto or MIN:MAX with MIN <= MAX, not '$depth'"
   fi
+fi
+# mpileup stops adding reads at a position once --max-depth are there, and
+# the INFO/DP of deeper sites then no longer grows with their depth
+# (bcftools 1.24 gave a median of 245 at -d 250 for 340 reads). The cap must
+# lie well above the upper depth bound, or those sites pass it; twice the
+# bound leaves room. With --depth auto the bound is known only once psmc-rs
+# has read the VCF, and it is checked then.
+if [ -n "$max_depth" ]; then
+  [ "$max_depth" -ge 1 ] || usage_error "--max-depth must be at least 1"
+  if [ "$depth" != auto ] && [ "$((2 * dmax))" -gt "$max_depth" ]; then
+    usage_error "--max-depth $max_depth is less than twice the upper depth bound $dmax of --depth $depth: deeper sites would pass the bound; give --max-depth $((2 * dmax)) or more"
+  fi
+elif [ "$depth" != auto ] && [ "$((2 * dmax))" -gt "$DEFAULT_MAX_DEPTH" ]; then
+  max_depth=$((2 * dmax))
+else
+  max_depth=$DEFAULT_MAX_DEPTH
 fi
 # Whether the options after -- include $1.
 has_extra() {
@@ -384,7 +409,7 @@ mpileup_cmd() { # $1: regions file
   local where=-T
   [ "$indexed" -eq 0 ] || where=-R
   printf '%s' "$(quoted "$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" \
-    -f "$ref" "$where" "$1" "$bam") | $(quoted "$bcftools" call --no-version -c -Ob -o)"
+    -d "$max_depth" -f "$ref" "$where" "$1" "$bam") | $(quoted "$bcftools" call --no-version -c -Ob -o)"
 }
 
 if [ "$dry_run" -eq 1 ]; then
@@ -485,8 +510,8 @@ call_one() { # $1: number of the job, $2: index into ref_names
   [ "$indexed" -eq 0 ] || where=-R
   printf '%s\t1\t%s\n' "${ref_names[$i]}" "${ref_lengths[$i]}" > "$tmp/regions/$n.txt"
   mkfifo "$tmp/calls/$n.fifo"
-  "$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" -f "$ref" \
-    "$where" "$tmp/regions/$n.txt" "$bam" 2>> "$tmp/calls/$n.log" > "$tmp/calls/$n.fifo" &
+  "$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" -d "$max_depth" \
+    -f "$ref" "$where" "$tmp/regions/$n.txt" "$bam" 2>> "$tmp/calls/$n.log" > "$tmp/calls/$n.fifo" &
   mp=$!
   "$bcftools" call --no-version -c -Ob -o "$tmp/calls/$n.bcf" \
     < "$tmp/calls/$n.fifo" 2>> "$tmp/calls/$n.log" &
@@ -576,6 +601,16 @@ if ! run_step "${qc[@]}" > "$tmp/qc.txt" 2> "$tmp/qc.err"; then
 fi
 cat "$tmp/qc.err" >> "$log_file"
 cat "$tmp/qc.txt" >> "$log_file"
+if [ "$depth" = auto ]; then
+  bound=$(sed -n 's/.*bases kept at depth [0-9]*-\([0-9]*\) (auto).*/\1/p' "$tmp/qc.err" | head -n 1)
+  if [ -z "$bound" ]; then
+    warn "cannot read the depth bounds from psmc-rs qc; check in $log_file that twice the upper one is at most --max-depth $max_depth"
+  elif [ "$((2 * bound))" -gt "$max_depth" ]; then
+    # The VCF's depths are capped: it would mislead whoever reuses it.
+    rm -f "$vcf" "$vcf.tbi"
+    die "the upper depth bound is $bound (twice the mean depth), so mpileup must read at least $((2 * bound)) reads per position, more than --max-depth $max_depth: deeper sites, such as collapsed repeats, would pass the bound. Rerun with --max-depth $((2 * bound)) or more"
+  fi
+fi
 # The report goes to its final name below, not to the working directory
 # that psmc-rs names.
 grep -v '^QC report: ' "$tmp/qc.err" >&2 || true
