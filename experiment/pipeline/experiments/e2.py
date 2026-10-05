@@ -120,7 +120,7 @@ TABLES = {
     "qc": "E2_qc.csv",
     "qc_findings": "E2_qc_findings.csv",
 }
-SUMMARY_PROBS = (0.025, 0.5, 0.975)  # the quantiles of psmc-rs's summary.json
+SUMMARY_PROBS = config.PSMC_RS_SUMMARY_QUANTILES  # the quantiles of psmc-rs's summary.json
 
 
 # ---------------------------------------------------------------------------

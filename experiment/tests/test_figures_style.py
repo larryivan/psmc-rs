@@ -208,7 +208,7 @@ class FiguresConfig(unittest.TestCase):
         self.assertLess(f.sim_years[0], f.sim_years[1])
         self.assertIn(f.e4_example_mask, {m.name for m in config.PRODUCTION.e4.masks})
         self.assertTrue(set(f.e4_bias_masks) <= {m.name for m in config.PRODUCTION.e4.masks})
-        self.assertLessEqual(f.e5_example_dataset, config.PRODUCTION.e5.bootstrap_datasets)
+        self.assertLessEqual(config.PRODUCTION.e5.example_dataset, config.PRODUCTION.e5.bootstrap_datasets)
         for name in config.MODEL_ORDER:
             lo = demography.coalescence_quantile(demography.epochs(config.MODELS[name]), 0.01) * 25.0
             hi = demography.coalescence_quantile(demography.epochs(config.MODELS[name]), 0.99) * 25.0

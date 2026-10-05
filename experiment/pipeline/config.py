@@ -9,11 +9,11 @@ experimental design is:
 2. scaling to years and individuals;
 3. simulation settings and the demographic models;
 4. the seed scheme;
-5. the experiments E1-E6;
-6. the runner's resource budget and cost model (scheduling only);
-7. the profiles: ``production`` (the manuscript), ``smoke`` (a small
-   end-to-end check of the same code paths) and ``tiny`` (unit tests);
-8. E2's settings in the smoke and tiny profiles.
+5. the experiments E1-E6 (each with the settings of its steps);
+6. the figures (what they show; their style is figures/style.py);
+7. the runner's resource budget and cost model (scheduling only);
+8. the profiles: ``production`` (the manuscript), ``smoke`` (a small
+   end-to-end check of the same code paths) and ``tiny`` (unit tests).
 
 Times of demographic models are in generations and sizes are diploid
 individuals, as in msprime, unless a comment says otherwise.
@@ -256,6 +256,14 @@ class TimeGrid:
     quantiles: Tuple[float, float] = (0.01, 0.99)
     points: int = 200
     fixed_years: Tuple[float, float] = (1e4, 1e6)
+
+
+# The dense grid (years: from, to, points) on which the true Ne(t) of a model
+# is tabulated for the figures (E1_truth, E4_truth, E6_S2_curves).
+TRUTH_TABLE_YEARS: Tuple[float, float, int] = (1e2, 1e8, 400)
+# The quantiles psmc-rs writes in a bootstrap's summary.json (its format, not
+# a setting): E2 and E5 recompute them from the replicates as a check.
+PSMC_RS_SUMMARY_QUANTILES: Tuple[float, float, float] = (0.025, 0.5, 0.975)
 
 
 @dataclass(frozen=True)
@@ -561,6 +569,75 @@ class E4:
     rs_threads: int = 1
 
 
+# --- E4: how its steps run, beyond the design in E4 above --------------------
+#
+# The routes from one masked VCF to PSMC (experiments/e4.py, inputprep.py):
+#
+#   exact        psmc-rs on the VCF, mask mode, --vcf-mask callable.bed.gz
+#   fq2psmcfa    consensus FASTA (hom: base, het: IUPAC, uncallable: N) streamed
+#                into fq2psmcfa -s <bin_size> (its defaults otherwise: -g 10000,
+#                and -q, which needs qualities, does nothing), then psmc-rs on
+#                the psmcfa; its bins must equal those of `psmc-rs convert` on
+#                the exact route, and the job that compares them fails if not
+#   multihetsep  `psmc-rs convert --multihetsep` of the exact route's input
+#                (nr_called = callable sites since the previous row, inclusive),
+#                read back by psmc-rs (uncalled sites at the start of each
+#                interval); replicate 1 of every mask is also checked row for
+#                row against msmc-tools' generate_multihetsep.py, run on each
+#                chromosome with its mask
+#   nomask       psmc-rs on the same VCF without --vcf-mask: uncallable sites
+#                count as called homozygous, as with a variants-only VCF
+#
+# Masks: an alternating renewal process per chromosome (inputprep.py): callable
+# stretches and uncallable runs of geometric length (the discrete exponential),
+# with mean run length MaskSpec.mean_run_bp and mean callable stretch
+# mean_run_bp * (1 - f) / f, so that the expected missing fraction is f. Records
+# at uncallable sites are removed from the VCF (a caller does not call them).
+#
+# Seeds (section 4), experiment "E4", model "bottleneck": the simulation's
+# ancestry/<chrom> and mutations/<chrom>; mask/<mask>/<chrom> for each mask; and
+# reference/<chrom> for the ancestral bases of the consensus FASTA at sites
+# without a record (uniform over ACGT, JC69's stationary distribution; they
+# do not change any bin).
+
+E4_CONTROL_MASK = "nomissing"  # the no-missing control: every site callable
+
+
+@dataclass(frozen=True)
+class E4Costs:
+    """Expected run time and peak memory of E4's steps, for scheduling and ETA only.
+
+    Measured on the development machine (load average 5 to 9) on one 50 Mb
+    chromosome of the bottleneck model with the dispersed 30% mask, the
+    largest (750,000 callable intervals), and scaled by genome size. Fits use
+    :class:`Costs`' psmc-rs rate (measured here: 11.3 s for 50 Mb x 25
+    iterations, 35 MB with the dispersed mask).
+    """
+
+    # draw the mask, write the BED, filter, bgzip and index the VCF: 0.7 s per 50 Mb;
+    # 5.4 s and 0.65 GB for the whole 500 Mb genome
+    mask_s_per_mb: float = 0.02
+    mask_gb: float = 1.0
+    # consensus FASTA streamed through fq2psmcfa (one chromosome at a time):
+    # 2.5 s per 50 Mb; 28 s and 1.1 GB (Python and fq2psmcfa) for 500 Mb
+    consensus_s_per_mb: float = 0.06
+    consensus_gb: float = 1.5
+    # psmc-rs convert and qc: one pass over the input, 0.15 s and 30 MB per 50 Mb
+    convert_s_per_mb: float = 0.005
+    convert_gb: float = 0.3
+    # the bins of four routes compared: 0.14 s per 50 Mb
+    bins_s_per_mb: float = 0.005
+    bins_gb: float = 0.5
+    # generate_multihetsep.py, a Python loop over every site: 36 s per 50 Mb
+    crosscheck_s_per_mb: float = 0.75
+    crosscheck_gb: float = 0.5
+    # psmc-rs fit (the VCF routes hold the merged mask intervals)
+    fit_gb: float = 0.3
+
+
+E4_COSTS = E4Costs()
+
+
 @dataclass(frozen=True)
 class E5:
     """Bootstrap calibration (Fig 6).
@@ -612,12 +689,12 @@ class E5:
     dataset_resamples: int = 10_000
 
 
-# --- E6: supplementary analyses S1-S5 ---------------------------------------
+# --- E6: supplementary analyses S1, S2, S3 and S5 -----------------------------
 # Every setting of E6 is in this block (experiments/e6.py reads nothing else
 # of its own). E6 reuses what other experiments made: E1's genomes, fits and
-# settings (S1-S3: models, inference, scaling, threads and time grid come
-# from profile.e1) and E2's genomes and bootstrap
-# trunk (S5). Its costs only schedule the jobs; no result depends on them.
+# settings (S1-S3: models, inference, scaling, threads and time grid come from
+# profile.e1) and E2's genomes and bootstrap trunk (S5); S4 is E3's own
+# tables. Its costs only schedule the jobs; no result depends on them.
 
 
 @dataclass(frozen=True)
@@ -700,7 +777,38 @@ class E6:
 
 
 # ---------------------------------------------------------------------------
-# 6. Runner: resource budget and cost model
+# 6. Figures (experiment/pipeline/figures): what the figures show. Their
+#    style (type, sizes, colours) is in figures/style.py; the tables they
+#    read are described in figures/schemas.py. No result depends on these.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Figures:
+    """Choices of the figures that are not style: grids, axis ranges, examples."""
+
+    # Replicate curves are summarised (medians, percentile bands) at this many
+    # log-spaced times across the axis.
+    curve_grid_points: int = 600
+    # Time axis (years) of the Ne(t) panels of simulations (Fig 2, 5, 6, S2):
+    # the fitted curves of every model start after 1 ky and the informative
+    # windows end before 2.5 My (see TimeGrid).
+    sim_years: Tuple[float, float] = (1e3, 1e7)
+    # Fig 5: the replicate whose curves are shown, the mask of the example
+    # panel, and the masks whose bias over time is shown.
+    e4_example_replicate: int = 1
+    e4_example_mask: str = "dispersed30"
+    e4_bias_masks: Tuple[str, ...] = ("clustered30", "dispersed30")
+    # Runner jobs (scheduling only): one figure takes seconds and well under 1 GB.
+    job_seconds: float = 20.0
+    job_gb: float = 1.0
+
+
+FIGURES = Figures()
+
+
+# ---------------------------------------------------------------------------
+# 7. Runner: resource budget and cost model
 # ---------------------------------------------------------------------------
 
 
@@ -751,7 +859,7 @@ class Costs:
 
 
 # ---------------------------------------------------------------------------
-# 7. Profiles
+# 8. Profiles
 # ---------------------------------------------------------------------------
 
 
@@ -772,124 +880,62 @@ class Profile:
 
 PRODUCTION = Profile(name="production")
 
-# -- E5 (bootstrap calibration) at the smoke and tiny sizes ----------------
-# Smoke: 8 genomes of 2 x 2 Mb, the first 3 bootstrapped with 8 replicates at
-# trunks of 5,000 and 2,000 bins (8 and 20 trunks, as production's 6 and 60).
-# Tiny (unit tests): 3 genomes of one 300 kb chromosome, the first
-# bootstrapped with 3 replicates at trunks of 1,000 and 500 bins.
-_SMOKE_E5 = dict(truth_replicates=8, bootstrap_datasets=3, bootstrap_replicates=8, trunk_bins=(5_000, 2_000))
-_TINY_E5 = dict(truth_replicates=3, bootstrap_datasets=1, bootstrap_replicates=3, trunk_bins=(1_000, 500))
-# ---------------------------------------------------------------------------
-
-# The same code paths at a size that runs in a minute or two: 2 models x 2
-# replicates x 2 chromosomes of 2 Mb, 3 EM iterations.
+# smoke: the same code paths at a size that runs in a few minutes, 3 EM
+# iterations everywhere.
+# - E1: 2 models x 2 replicates x 2 chromosomes of 2 Mb.
+# - E2: the first 20 Mb (200,000 bins) of each of the four genomes (job
+#   E2/subset/<sample>; the real genomes hold 0.25 to 1.94 Gb and C psmc
+#   needs about 50 minutes for each turtle), 4 bootstrap replicates on 2 Mb
+#   trunks: 10 per genome, so each genome also gets the second bootstrap, on
+#   trunks of 0.5 Mb.
+# - E3: genomes of 2 and 4 Mb (chromosomes of 2 Mb), 1 repeat, every run
+#   kept whatever the machine does (QUICK_TIMING).
+# - E4: 1 replicate of 2 x 2 Mb.
+# - E5: 8 genomes of 2 x 2 Mb, the first 3 bootstrapped with 8 replicates at
+#   trunks of 5,000 and 2,000 bins (8 and 20 trunks, as production's 6 and 60).
 _SMOKE_GENOME = Genome(n_chromosomes=2, chromosome_length=2_000_000)
 _SMOKE_INFERENCE = replace(INFERENCE, n_iter=3)
 SMOKE = Profile(
     name="smoke",
     e1=E1(models=("constant", "bottleneck"), replicates=2, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
-    e2=E2(bootstrap_replicates=4, inference=_SMOKE_INFERENCE, rs_threads=2),
+    e2=E2(bootstrap_replicates=4, inference=_SMOKE_INFERENCE, rs_threads=2, max_bins=200_000,
+          bootstrap_trunk_bins=20_000, fine_trunk_bins=5_000),
     e3=E3(genome_sizes_mb=(2, 4), chromosome_length=2_000_000, repeats=1, inference=_SMOKE_INFERENCE,
           rs01_threads=(1, 2), rs02_threads=(1, 2), rs02_default_threads=(1, 2), thread_scaling_size_mb=4,
-          thread_scaling_threads=(1, 2),
-          timing=QUICK_TIMING),
+          thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
     e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
-    e5=replace(E5(), genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, **_SMOKE_E5),
+    e5=replace(E5(), genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, truth_replicates=8, bootstrap_datasets=3,
+               bootstrap_replicates=8, trunk_bins=(5_000, 2_000)),
 )
 
-# For the unit tests: one replicate of one model, one chromosome of 300 kb,
-# 2 EM iterations (seconds end to end).
+# tiny: for the unit tests (seconds per experiment), 2 EM iterations.
+# - E1: one replicate of one model, one chromosome of 300 kb.
+# - E2: the first 2 Mb of the human chromosome and of one turtle, 2
+#   bootstrap replicates on 500 kb trunks (and on 100 kb trunks).
+# - E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats.
+# - E4: two chromosomes of 300 kb (the multihetsep cross-check runs per
+#   chromosome), the control and one mask of each structure, clustered runs
+#   shortened so that a chromosome holds several.
+# - E5: 3 genomes of one 300 kb chromosome, the first bootstrapped with 3
+#   replicates at trunks of 1,000 and 500 bins.
 _TINY_GENOME = Genome(n_chromosomes=1, chromosome_length=300_000)
+_TINY_INFERENCE = replace(INFERENCE, n_iter=2)
 TINY = Profile(
     name="tiny",
-    e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=replace(INFERENCE, n_iter=2)),
-    # E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats, 2 EM iterations.
-    e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=replace(INFERENCE, n_iter=2),
+    e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=_TINY_INFERENCE),
+    e2=E2(genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("Papuan", "HLhydTec1")), inference=_TINY_INFERENCE,
+          bootstrap_replicates=2, bootstrap_trunk_bins=5_000, fine_trunk_bins=1_000, rs_threads=2, max_bins=20_000),
+    e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=_TINY_INFERENCE,
           rs01_threads=(1,), rs02_threads=(1, 2), rs02_default_threads=(1,), thread_scaling_size_mb=1,
-          thread_scaling_threads=(1, 2),
-          timing=QUICK_TIMING),
-    # E4: two chromosomes (the multihetsep cross-check runs per chromosome),
-    # the control and one mask of each structure, clustered runs shortened
-    # so that a 300 kb chromosome holds several.
-    e4=replace(
-        E4(), replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000),
-        inference=replace(INFERENCE, n_iter=2),
-        masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0), MaskSpec("dispersed30", 0.3, "dispersed", 20.0)),
-    ),
-    e5=replace(E5(), genome=_TINY_GENOME, inference=replace(INFERENCE, n_iter=2), **_TINY_E5),
+          thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
+    e4=replace(E4(), replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000), inference=_TINY_INFERENCE,
+               masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0),
+                      MaskSpec("dispersed30", 0.3, "dispersed", 20.0))),
+    e5=replace(E5(), genome=_TINY_GENOME, inference=_TINY_INFERENCE, truth_replicates=3, bootstrap_datasets=1,
+               bootstrap_replicates=3, trunk_bins=(1_000, 500)),
 )
 
 PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
-
-# ---------------------------------------------------------------------------
-# 8. E4, input preparation: how its steps run, beyond the design in E4 above
-# ---------------------------------------------------------------------------
-#
-# The routes from one masked VCF to PSMC (experiments/e4.py, inputprep.py):
-#
-#   exact        psmc-rs on the VCF, mask mode, --vcf-mask callable.bed.gz
-#   fq2psmcfa    consensus FASTA (hom: base, het: IUPAC, uncallable: N) streamed
-#                into fq2psmcfa -s <bin_size> (its defaults otherwise: -g 10000,
-#                and -q, which needs qualities, does nothing), then psmc-rs on
-#                the psmcfa; its bins must equal those of `psmc-rs convert` on
-#                the exact route, and the job that compares them fails if not
-#   multihetsep  `psmc-rs convert --multihetsep` of the exact route's input
-#                (nr_called = callable sites since the previous row, inclusive),
-#                read back by psmc-rs (uncalled sites at the start of each
-#                interval); replicate 1 of every mask is also checked row for
-#                row against msmc-tools' generate_multihetsep.py, run on each
-#                chromosome with its mask
-#   nomask       psmc-rs on the same VCF without --vcf-mask: uncallable sites
-#                count as called homozygous, as with a variants-only VCF
-#
-# Masks: an alternating renewal process per chromosome (inputprep.py): callable
-# stretches and uncallable runs of geometric length (the discrete exponential),
-# with mean run length MaskSpec.mean_run_bp and mean callable stretch
-# mean_run_bp * (1 - f) / f, so that the expected missing fraction is f. Records
-# at uncallable sites are removed from the VCF (a caller does not call them).
-#
-# Seeds (section 4), experiment "E4", model "bottleneck": the simulation's
-# ancestry/<chrom> and mutations/<chrom>; mask/<mask>/<chrom> for each mask; and
-# reference/<chrom> for the ancestral bases of the consensus FASTA at sites
-# without a record (uniform over ACGT, JC69's stationary distribution; they
-# do not change any bin).
-
-E4_CONTROL_MASK = "nomissing"  # the no-missing control: every site callable
-
-
-@dataclass(frozen=True)
-class E4Costs:
-    """Expected run time and peak memory of E4's steps, for scheduling and ETA only.
-
-    Measured on the development machine (load average 5 to 9) on one 50 Mb
-    chromosome of the bottleneck model with the dispersed 30% mask, the
-    largest (750,000 callable intervals), and scaled by genome size. Fits use
-    :class:`Costs`' psmc-rs rate (measured here: 11.3 s for 50 Mb x 25
-    iterations, 35 MB with the dispersed mask).
-    """
-
-    # draw the mask, write the BED, filter, bgzip and index the VCF: 0.7 s per 50 Mb;
-    # 5.4 s and 0.65 GB for the whole 500 Mb genome
-    mask_s_per_mb: float = 0.02
-    mask_gb: float = 1.0
-    # consensus FASTA streamed through fq2psmcfa (one chromosome at a time):
-    # 2.5 s per 50 Mb; 28 s and 1.1 GB (Python and fq2psmcfa) for 500 Mb
-    consensus_s_per_mb: float = 0.06
-    consensus_gb: float = 1.5
-    # psmc-rs convert and qc: one pass over the input, 0.15 s and 30 MB per 50 Mb
-    convert_s_per_mb: float = 0.005
-    convert_gb: float = 0.3
-    # the bins of four routes compared: 0.14 s per 50 Mb
-    bins_s_per_mb: float = 0.005
-    bins_gb: float = 0.5
-    # generate_multihetsep.py, a Python loop over every site: 36 s per 50 Mb
-    crosscheck_s_per_mb: float = 0.75
-    crosscheck_gb: float = 0.5
-    # psmc-rs fit (the VCF routes hold the merged mask intervals)
-    fit_gb: float = 0.3
-
-
-E4_COSTS = E4Costs()
 
 
 def get_profile(name: str) -> Profile:
@@ -900,75 +946,10 @@ def get_profile(name: str) -> Profile:
         raise KeyError(f"unknown profile {name!r}; known: {', '.join(PROFILES)}") from None
 
 
-# ---------------------------------------------------------------------------
-# 8. E2 (real genomes) in the smoke and tiny profiles
-# ---------------------------------------------------------------------------
-# The real genomes hold 0.25 to 1.94 Gb in bins, and C psmc needs about 50
-# minutes and up to 3.4 GB for each turtle. The smoke and tiny profiles run
-# the same jobs on the first bins of each genome (job E2/subset/<sample>),
-# with trunks small enough to leave several of them for the bootstrap.
-
-# smoke: 20 Mb of each of the four genomes, 3 EM iterations, 4 bootstrap
-# replicates on 2 Mb trunks (10 per genome, so each genome also gets the
-# second bootstrap, on trunks of 0.5 Mb) (about a minute in all).
-SMOKE = replace(SMOKE, e2=replace(SMOKE.e2, max_bins=200_000, bootstrap_trunk_bins=20_000, fine_trunk_bins=5_000))
-
-# tiny (unit tests): 2 Mb of the human chromosome and of one turtle,
-# 2 EM iterations, 2 bootstrap replicates on 500 kb trunks (seconds).
-TINY = replace(
-    TINY,
-    e2=E2(
-        genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("Papuan", "HLhydTec1")),
-        inference=replace(INFERENCE, n_iter=2),
-        bootstrap_replicates=2,
-        bootstrap_trunk_bins=5_000,
-        fine_trunk_bins=1_000,
-        rs_threads=2,
-        max_bins=20_000,
-    ),
-)
-
-PROFILES = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
-
-
 __all__ = [
-    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_COSTS", "E4_CONTROL_MASK",
-    "E5", "E6", "Genome",
-    "INFERENCE", "Inference", "MODELS", "MODEL_ORDER", "MaskSpec", "PROFILES", "Profile",
-    "REAL_GENOMES", "RealGenome", "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation",
-    "SizeChange", "TimeGrid", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
+    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_COSTS", "E4_CONTROL_MASK", "E5",
+    "E6", "E6Costs", "FIGURES", "Figures", "Genome", "INFERENCE", "Inference", "MODELS", "MODEL_ORDER", "MaskSpec",
+    "PROFILES", "PSMC_RS_SUMMARY_QUANTILES", "Profile", "QUICK_TIMING", "REAL_GENOMES", "RealGenome", "ResourceModel",
+    "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation", "SizeChange", "TRUTH_TABLE_YEARS", "TimeGrid",
+    "TimingProtocol", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
 ]
-
-# ---------------------------------------------------------------------------
-# 8. Figures (experiment/pipeline/figures): what the figures show. Their
-#    style (type, sizes, colours) is in figures/style.py; the tables they
-#    read are described in figures/schemas.py. No result depends on these.
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Figures:
-    """Choices of the figures that are not style: grids, axis ranges, examples."""
-
-    # Replicate curves are summarised (medians, percentile bands) at this many
-    # log-spaced times across the axis.
-    curve_grid_points: int = 600
-    # Time axis (years) of the Ne(t) panels of simulations (Fig 2, 5, 6, S2):
-    # the fitted curves of every model start after 1 ky and the informative
-    # windows end before 2.5 My (see TimeGrid).
-    sim_years: Tuple[float, float] = (1e3, 1e7)
-    # Fig 5: the replicate whose curves are shown, the mask of the example
-    # panel, and the masks whose bias over time is shown.
-    e4_example_replicate: int = 1
-    e4_example_mask: str = "dispersed30"
-    e4_bias_masks: Tuple[str, ...] = ("clustered30", "dispersed30")
-    # Fig 6: the bootstrapped dataset shown with its bands.
-    e5_example_dataset: int = 1
-    # Runner jobs (scheduling only): one figure takes seconds and well under 1 GB.
-    job_seconds: float = 20.0
-    job_gb: float = 1.0
-
-
-FIGURES = Figures()
-
-__all__ += ["FIGURES", "Figures"]

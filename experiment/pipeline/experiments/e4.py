@@ -87,7 +87,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import TRUTH_GRID_YEARS, rep, write_csv
+from .e1 import rep, write_csv
 
 NAME = "E4"
 ROUTES = ("exact", "fq2psmcfa", "multihetsep", "nomask")
@@ -589,7 +589,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     truth_window = metrics.truth_on_grid(epochs, window, g)
     rows: Dict[str, List[Dict]] = {k: [] for k in TABLES}
     bias: Dict[Tuple[str, str], List] = {}
-    dense = metrics.log_grid(*TRUTH_GRID_YEARS)
+    dense = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
     for t, ne in zip(dense, metrics.truth_on_grid(epochs, dense, g)):
         rows["truth"].append({"model": cfg.model, "years": float(t), "ne": float(ne)})
     for r in range(1, cfg.replicates + 1):

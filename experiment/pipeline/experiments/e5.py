@@ -555,7 +555,7 @@ def summary_check(boot: Bootstrap) -> float:
     x = np.array([p["x_years"] for p in points])
     ne = np.array([c.at(x) for c in boot.curves])
     worst = 0.0
-    for key, q in (("ne_q025", 0.025), ("ne_q500", 0.5), ("ne_q975", 0.975)):
+    for key, q in zip(("ne_q025", "ne_q500", "ne_q975"), config.PSMC_RS_SUMMARY_QUANTILES):
         mine = quantile(ne, q)
         theirs = np.array([p[key] for p in points])
         worst = max(worst, float(np.max(np.abs(mine / theirs - 1.0))))

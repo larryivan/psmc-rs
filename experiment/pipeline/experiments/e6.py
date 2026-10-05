@@ -450,7 +450,7 @@ def report_s2(ctx: Context) -> Dict[str, Path]:
     r = cfg.format_replicate
     _require(s2_inputs(ctx))
     bins_rows, fit_rows, curves = [], [], []
-    lo, hi, npts = e1.TRUTH_GRID_YEARS
+    lo, hi, npts = config.TRUTH_TABLE_YEARS
     dense = np.logspace(np.log10(lo), np.log10(hi), npts)
     for model in e1cfg.models:
         ref = A.read_psmcfa(e1lay.psmcfa(model, r))

@@ -74,7 +74,6 @@ TABLES = {
     "truth": "E1_truth.csv",
     "seeds": "E1_seeds.csv",
 }
-TRUTH_GRID_YEARS = (1e2, 1e8, 400)  # dense grid of E1_truth.csv
 
 
 def rep(r: int) -> str:
@@ -501,7 +500,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     table1: List[Dict] = []
     truth_rows: List[Dict] = []
     seed_rows: List[Dict] = []
-    lo, hi, npts = TRUTH_GRID_YEARS
+    lo, hi, npts = config.TRUTH_TABLE_YEARS
     dense = np.logspace(math.log10(lo), math.log10(hi), npts)
     g = cfg.scaling.gen_years
     for model in cfg.models:
