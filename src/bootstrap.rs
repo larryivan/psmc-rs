@@ -9,8 +9,8 @@
 //! [`split_for_bootstrap`], [`resample_chunks`] and
 //! [`replicate_initial_model`], running replicates in parallel. Replicate `i`
 //! draws from [`replicate_rng`]`(seed, i)`, so a seed reproduces the resampled
-//! data on any platform and the fits with any thread count (see
-//! [`run_bootstrap`] for the settings they also depend on).
+//! data on any platform, and the fits with any thread count, batch size and
+//! alpha-cache budget.
 //!
 //! # Choosing the trunk size
 //!
@@ -459,14 +459,8 @@ pub struct BootstrapConfig {
     /// configured value, not the main fit's estimate.
     pub t_max: f64,
     /// Optional row length within a trunk (see [`sequences_to_observations`]).
-    /// The rows of a trunk stay one HMM chain; shorter rows shrink the
-    /// E-step's double-precision per-row buffer (longest row × states × 8
-    /// bytes). They can still move the fits slightly, because the E-step in a
-    /// bootstrap worker caches forward probabilities in single precision
-    /// except at row boundaries. On 12,000 bins in 1,000-bin trunks, 300-bin
-    /// rows moved parameters by up to 1.1e-5 (relative) after one EM
-    /// iteration and, on that weakly informative input, by up to 3% after
-    /// ten. A seed reproduces a replicate only with the same `batch_size`.
+    /// The rows of a trunk stay one HMM chain, and the E-step treats them as
+    /// one sequence, so the fits do not depend on it.
     pub batch_size: Option<usize>,
     /// When set, each fitted replicate is saved there as
     /// `replicate_NNN.json` (1-based, see [`replicate_json_path`]); the
@@ -504,13 +498,11 @@ impl Default for BootstrapConfig {
 /// `mstep_cfg` (progress output forced off).
 ///
 /// Replicates run in parallel on the current rayon pool. Each one depends
-/// only on its inputs and `(cfg.seed, i)`, so results do not depend on the
-/// thread count or on scheduling. Through the E-step's single-precision
-/// cache they do depend, slightly, on `cfg.batch_size` and, for inputs larger
-/// than the cache budget (`PSMC_ALPHA_CACHE_MB`), on that budget; keep both
-/// fixed to reproduce a run. Each replicate in flight holds its own copy
-/// of the resampled data and its own E-step buffers, so peak memory grows with
-/// the number of threads.
+/// only on its inputs and `(cfg.seed, i)`, and the E-step's results do not
+/// depend on threads, row lengths or its cache budget, so results do not
+/// depend on the thread count, on scheduling or on `cfg.batch_size`. Each
+/// replicate in flight holds its own copy of the resampled data and its own
+/// E-step buffers, so peak memory grows with the number of threads.
 ///
 /// `cancel` is checked before each replicate starts; once it is set, the
 /// remaining replicates are skipped and an error is returned. `on_done(n)` is

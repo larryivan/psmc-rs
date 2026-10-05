@@ -347,23 +347,29 @@ fn max_rel_diff(a: &PsmcModel, b: &PsmcModel) -> f64 {
         .fold(0.0, f64::max)
 }
 
-/// `batch_size` cuts each trunk into rows of one HMM chain, so after an EM
-/// iteration the fits may differ only by rounding: the E-step in a worker
-/// caches forward probabilities in single precision except at row
-/// boundaries (measured: up to 1.1e-5 relative here). Starting a new chain
-/// at every 300-bin row instead moves them by about 0.35.
+/// `batch_size` cuts each trunk into rows of one HMM chain, which the
+/// E-step runs as one sequence in double precision, so the fits are the
+/// same to the bit even after 10 EM iterations. Starting a new chain at
+/// every 300-bin row instead moves them by about 0.35.
 #[test]
 fn batch_size_keeps_each_trunk_one_chain() {
     let seqs = reference_seqs(4000);
     let t = fitted_template();
-    let plain =
-        run_bootstrap(&seqs, &t, &config(2, 1000, 1), &mstep(), None, &no_progress).unwrap();
+    let plain = run_bootstrap(
+        &seqs,
+        &t,
+        &config(2, 1000, 10),
+        &mstep(),
+        None,
+        &no_progress,
+    )
+    .unwrap();
     let batched = run_bootstrap(
         &seqs,
         &t,
         &BootstrapConfig {
             batch_size: Some(300),
-            ..config(2, 1000, 1)
+            ..config(2, 1000, 10)
         },
         &mstep(),
         None,
@@ -371,7 +377,7 @@ fn batch_size_keeps_each_trunk_one_chain() {
     )
     .unwrap();
     for (rep, (a, b)) in plain.iter().zip(&batched).enumerate() {
-        let diff = max_rel_diff(a, b);
-        assert!(diff < 1e-3, "replicate {rep}: relative difference {diff:e}");
+        assert_eq!(max_rel_diff(a, b), 0.0, "replicate {rep}");
+        assert_eq!(a.lam, b.lam, "replicate {rep}");
     }
 }
