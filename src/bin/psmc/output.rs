@@ -116,6 +116,10 @@ pub fn is_stdout(path: &Path) -> bool {
     path == Path::new("-")
 }
 
+/// Why an output other than the QC JSON cannot be `-`.
+pub const STDOUT_ONLY_QC: &str =
+    "only the QC JSON (--qc-json, qc --json) can go to stdout; give a file name";
+
 /// Write `report` as JSON to `path`, or to stdout for `-`.
 pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
     let json = report.to_json() + "\n";
@@ -132,7 +136,9 @@ pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
 /// directory; each of `dirs` is a directory or can be created. Otherwise a
 /// typo in a directory would only fail after the fit and the bootstrap,
 /// and two outputs of one name would overwrite each other. Names that
-/// collide are a usage error.
+/// collide are a usage error, and so is `-`: only the QC JSON can go to
+/// stdout, so callers leave it out when it does, and any other output
+/// named `-` would be a file of that name.
 pub fn check_destinations(
     input: &Path,
     files: &[(&str, &Path)],
@@ -141,6 +147,9 @@ pub fn check_destinations(
     let input = resolved(input);
     let mut seen: Vec<(&str, &Path, PathBuf)> = Vec::new();
     for &(what, path) in files.iter().chain(dirs) {
+        if is_stdout(path) {
+            usage_bail!("{what} cannot be '-': {STDOUT_ONLY_QC}");
+        }
         let at = resolved(path);
         if at == input {
             usage_bail!(
@@ -278,6 +287,12 @@ mod tests {
         assert!(err.contains("is a directory"), "{err}");
         let err = check(&[], &[("--bootstrap-dir", &input.join("boot"))]).unwrap_err();
         assert!(err.contains("is not a directory"), "{err}");
+        // `-` is stdout, which only the QC JSON can use.
+        let dash = Path::new("-");
+        let err = check(&[("--psmc-out", dash)], &[]).unwrap_err();
+        assert!(err.starts_with("--psmc-out cannot be '-'"), "{err}");
+        let err = check(&[], &[("--bootstrap-dir", dash)]).unwrap_err();
+        assert!(err.starts_with("--bootstrap-dir cannot be '-'"), "{err}");
         let _ = fs::remove_dir_all(dir);
     }
 }

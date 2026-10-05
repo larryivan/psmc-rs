@@ -488,11 +488,14 @@ fn check_outputs(
     for (what, path) in [
         ("--psmc-out", &cli.psmc_out),
         ("--tmrca-out", &cli.tmrca_out),
-        ("--qc-json", &cli.qc_json),
     ] {
-        if let Some(path) = path.as_deref().filter(|p| !is_stdout(p)) {
+        if let Some(path) = path.as_deref() {
             files.push((what, path));
         }
+    }
+    // Only the QC JSON can go to stdout.
+    if let Some(path) = cli.qc_json.as_deref().filter(|p| !is_stdout(p)) {
+        files.push(("--qc-json", path));
     }
     let dir_name = match cli.bootstrap_dir {
         Some(_) => "--bootstrap-dir",

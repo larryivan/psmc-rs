@@ -12,7 +12,7 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
 use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
-use crate::output::{check_destinations, is_stdout, parent_dir, write_qc_json};
+use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir, write_qc_json};
 use crate::run::{Event, qc_event, qc_failed};
 
 const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
@@ -127,14 +127,20 @@ fn check_outputs(args: &ConvertArgs) -> Result<()> {
     for (what, path) in [
         ("--psmcfa", &args.psmcfa),
         ("--multihetsep", &args.multihetsep),
-        ("--qc-json", &args.qc_json),
     ] {
-        if let Some(path) = path.as_deref().filter(|p| !is_stdout(p)) {
+        if let Some(path) = path.as_deref() {
             files.push((what, path));
         }
     }
+    // Only the QC JSON can go to stdout.
+    if let Some(path) = args.qc_json.as_deref().filter(|p| !is_stdout(p)) {
+        files.push(("--qc-json", path));
+    }
     check_destinations(&args.input_file, &files, &[])?;
     if let Some(prefix) = &args.multihetsep_per_chrom {
+        if is_stdout(prefix) {
+            usage_bail!("--multihetsep-per-chrom cannot be '-': {STDOUT_ONLY_QC}");
+        }
         let dir = parent_dir(prefix);
         if !dir.is_dir() {
             bail!(

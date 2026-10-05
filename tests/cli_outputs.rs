@@ -617,6 +617,52 @@ fn qc_json_on_stdout_is_the_only_stdout() {
     }
 }
 
+/// Only the QC JSON goes to stdout with `-`. Any other output named `-` is
+/// a usage error, not a file of that name (where two of them would
+/// overwrite each other), and nothing is written.
+#[test]
+fn other_outputs_cannot_go_to_stdout() {
+    let dir = TempDir::new("dash_outputs");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let input = input.to_str().unwrap();
+    // Run in the test's directory, where a file `-` would land.
+    let run_here = |args: &[&str]| {
+        let o = std::process::Command::new(common::bin())
+            .args(args)
+            .current_dir(dir.path(""))
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(o.stderr).unwrap();
+        assert_eq!(o.status.code(), Some(2), "{args:?}: {stderr}");
+        assert!(!stderr.contains("Input:"), "{stderr}");
+        assert!(!dir.path("-").exists(), "{args:?}");
+        stderr
+    };
+    let fit = |extra: &[&str]| {
+        let mut args = vec![input, "fit.json", "1", "--no-progress"];
+        args.extend_from_slice(extra);
+        run_here(&args)
+    };
+    for flag in ["--psmc-out", "--tmrca-out"] {
+        let err = fit(&[flag, "-"]);
+        assert!(err.contains(&format!("{flag} cannot be '-'")), "{err}");
+        assert!(err.contains("only the QC JSON"), "{err}");
+    }
+    let err = fit(&["--psmc-out", "-", "--tmrca-out", "-", "--qc-json", "-"]);
+    assert!(err.contains("--psmc-out cannot be '-'"), "{err}");
+    let err = run_here(&[input, "-", "1"]);
+    assert!(err.contains("OUTPUT cannot be '-'"), "{err}");
+    let err = fit(&["--bootstrap", "2", "--bootstrap-dir", "-"]);
+    assert!(err.contains("--bootstrap-dir cannot be '-'"), "{err}");
+    assert!(!dir.path("fit.json").exists());
+
+    for flag in ["--psmcfa", "--multihetsep", "--multihetsep-per-chrom"] {
+        let err = run_here(&["convert", input, flag, "-", "--qc-json", "-"]);
+        assert!(err.contains(&format!("{flag} cannot be '-'")), "{err}");
+    }
+}
+
 /// A reader that quits early (`psmc-rs ... | head`) only loses stdout
 /// lines: the run still writes its files and succeeds.
 #[test]
