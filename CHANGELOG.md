@@ -59,7 +59,14 @@ Command line and outputs:
   `--n-steps`.
 - Output paths are checked before the input is read: each must be
   writable, none may be the input or another output, and `OUTPUT` may not
-  end in `.html`.
+  end in `.html`. Only the QC JSON (`--qc-json`, `qc --json`) can be `-`,
+  for stdout. `convert` checks its per-sequence multihetsep files, named
+  after the sequences, once the input is read and before anything is
+  written, and the `PSMC_ECHARTS_JS` bundle is read before the input too.
+- Usage errors found after parsing (an invalid `--pattern`, outputs that
+  name one file, `--bootstrap-iters` without `--bootstrap`, multihetsep
+  output of psmcfa input, `--tui --qc-json -`, ...) exit with status 2, as
+  clap's own do; errors reading or writing files exit with 1.
 - The output JSON is written right after the main fit, before the
   bootstrap, and carries run metadata (see *Added*).
 - A bootstrap starts by removing every `replicate_NNN.json`,
@@ -194,9 +201,10 @@ Reproduction package (`experiment/`):
 - `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet` and
   `--version`.
 - Output JSON metadata: `version`, `n_iter`, `final_loglike`, `loglike`
-  (the log-likelihood after each iteration), `bin_size`, `gen_years`,
-  `tr_ratio`, `smooth_lambda`, `input` and `qc`. Files without them (0.1)
-  still load.
+  (the log-likelihood after each iteration, from the start), `bin_size`,
+  `gen_years`, `tr_ratio`, `smooth_lambda`, `input` and `qc`; with N_ITER
+  0 the run evaluates the starting model for them and for `Last EM
+  loglike`. Files without them (0.1) still load.
 - HTML report: run summary, QC findings and per-sequence table, bootstrap
   settings with a coverage caveat, and an offline notice when ECharts
   cannot load (`PSMC_ECHARTS_JS` embeds a local copy).

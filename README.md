@@ -260,8 +260,12 @@ does.
 
 Exit status: 0 on success, 1 on an error (stderr gets `Error: ...` with its
 causes), 2 on a usage error and for `qc --strict` when the report has a
-warning. The full option reference is under [Option reference](#option-reference)
-and in `psmc-rs --help`, `psmc-rs convert --help` and `psmc-rs qc --help`.
+warning. Usage errors are options that are invalid alone or together,
+also when they are found after parsing (a `--pattern` that does not parse,
+outputs that name the same file, `--psmc-out -`); a file that cannot be
+read or written is an error. The full option reference is under
+[Option reference](#option-reference) and in `psmc-rs --help`,
+`psmc-rs convert --help` and `psmc-rs qc --help`.
 
 ### Fitting
 
@@ -303,7 +307,8 @@ the ratio the bootstrap replicates need, when that is more), or, with
 
 `Last EM loglike` is the log-likelihood of the written model, which C psmc
 prints as the LK of round N_ITER + 1. The JSON's `loglike[i]`, the
-log-likelihood after i iterations, is C's LK of round i + 1.
+log-likelihood after i iterations, is C's LK of round i + 1. With N_ITER 0
+the run evaluates the starting model, so `loglike` holds its value alone.
 
 ### Bootstrap
 
@@ -368,8 +373,11 @@ psmcfa is laid out as fq2psmcfa writes it. Multihetsep is written for VCF
 and multihetsep input as `generate_multihetsep.py` would write it for the
 selected sample (heterozygous sites only; differences are listed in the
 rustdoc of `psmc_rs::io::write::write_multihetsep_to`); psmcfa input has no
-sites to write and is an error. Written from multihetsep, psmcfa places the
-uncalled sites as described above. `--qc-json FILE` writes the QC report.
+sites to write, and asking for multihetsep from it is a usage error.
+Written from multihetsep, psmcfa places the uncalled sites as described
+above. `--qc-json FILE` writes the QC report. The per-sequence files are
+named after the sequences, so they are checked against the input and the
+other outputs once the input is read, before anything is written.
 
 ### qc
 
@@ -428,7 +436,9 @@ refused with `--tui`, whose screen is stdout.
 | `--bootstrap-dir DIR` | with `--bootstrap` | `replicate_NNN.json`, `replicate_NNN.psmc`, `summary.tsv`, `summary.json` (default `OUTPUT` with `.bootstrap` instead of `.json`); an earlier bootstrap's files there are removed first |
 
 Output paths are checked before the input is read: each must be writable,
-and no two of them, nor any of them and the input, may be the same file.
+no two of them, nor any of them and the input, may be the same file, and
+only the QC JSON can be `-` (stdout). The `PSMC_ECHARTS_JS` bundle (see
+*HTML report*) is read then too.
 
 **JSON.** `theta` and `rho` (per bin), `lam` (one value per free parameter
 of the pattern, or per interval without one), `t_max`, `n_steps`, `mu` and
