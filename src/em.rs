@@ -1,6 +1,6 @@
 //! The EM driver: alternate a full forward-backward E-step with an L-BFGS M-step.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ndarray::Array2;
 use rayon::ThreadPool;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -88,7 +88,9 @@ pub fn hmm_q(transition: &Array2<f64>, emission: &Array2<f64>, stats: &Sufficien
 /// C's Q is `hmm_q - hmm_q0`, so it is at most 0.
 ///
 /// A zero count contributes 0, the limit of `x ln x`; C instead adds 1e-25
-/// to every count, which changes the value by less than 1e-20.
+/// to every count, which changes the value by less than 1e-20. A negative
+/// count, which only an E-step with negative transition probabilities
+/// gives (EM refuses to start from those), makes it NaN, as in C.
 pub fn hmm_q0(stats: &SufficientStats) -> f64 {
     fn x_ln_x_over(x: f64, total: f64) -> f64 {
         if x == 0.0 { 0.0 } else { x * (x / total).ln() }
@@ -220,6 +222,10 @@ fn cancelled_in(iter: usize, err: anyhow::Error) -> anyhow::Error {
 /// On cancellation the model holds the parameters of the last completed
 /// iteration (with its matrices recalculated) and the error is
 /// [`Cancelled`] (with the iteration as context).
+///
+/// Errors before the first E-step when the starting parameters give
+/// negative transition probabilities ([`PsmcModel::check_transitions`]),
+/// from which EM cannot move.
 pub fn em_train_with_options(
     model: &mut PsmcModel,
     rows: &[Vec<u8>],
@@ -260,6 +266,12 @@ pub fn em_train_with_options(
 
     if n_iter > 0 {
         model.param_recalculate()?;
+        // From negative transition probabilities every M-step would return
+        // its start: fail before the first E-step instead of returning that
+        // start as a fit.
+        model
+            .check_transitions()
+            .context("EM cannot start from these parameters")?;
     }
     for iter in 0..n_iter {
         check_cancel(iter + 1)?;

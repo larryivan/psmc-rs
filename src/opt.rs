@@ -653,7 +653,7 @@ pub enum MStepStop {
     /// No trial point lowered the objective: not the line search along the
     /// L-BFGS direction, nor the one along its reverse, nor the coordinate
     /// search. Near the optimum this means the objective cannot be lowered
-    /// at its precision; at the start, that it is not finite there.
+    /// at its precision.
     LineSearchFailed,
     /// [`MStepConfig::max_iters`] iterations ran.
     MaxIters,
@@ -720,6 +720,15 @@ pub fn m_step_lbfgs_with_outcome(
         .unwrap_or(false);
     if debug_mstep {
         eprintln!("M-step init: f0={:.15e}, gnorm={:.6e}", f0, norm(&gk));
+    }
+    if !f0.is_finite() {
+        // No trial point can compare as lower, so the search would spend
+        // its whole budget and return the start as if it were a result.
+        bail!(
+            "the M-step objective is {f0} at its starting parameters, so it cannot be \
+             minimised (negative transition probabilities make it NaN; see \
+             PsmcModel::check_transitions)"
+        );
     }
 
     let mut s_hist: Vec<Vec<f64>> = Vec::new();

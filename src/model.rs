@@ -509,6 +509,73 @@ impl PsmcModel {
         &self.em
     }
 
+    /// Checks that the transition probabilities of the last
+    /// [`param_recalculate`](Self::param_recalculate) are finite and not
+    /// negative, as EM needs.
+    ///
+    /// PSMC's transition probabilities assume at most about one
+    /// recombination per bin. When `rho` is too high for `t_max` and the λ,
+    /// the probability of staying in the oldest states turns negative. The
+    /// M-step's objective is then not a number at the start, so EM (C
+    /// psmc's too) never moves from it and returns a flat history. The error
+    /// says how far `rho` must come down.
+    pub fn check_transitions(&self) -> Result<()> {
+        let mut worst: Option<((usize, usize), f64)> = None;
+        for ((from, to), &p) in self.p_kl.indexed_iter() {
+            if !p.is_finite() {
+                bail!("the transition probability from state {from} to state {to} is {p}");
+            }
+            if p < 0.0 && worst.is_none_or(|(_, w)| p < w) {
+                worst = Some(((from, to), p));
+            }
+        }
+        let Some(((from, to), p)) = worst else {
+            return Ok(());
+        };
+        let found = format!(
+            "the transition probabilities are negative (down to {p:.3e}, from state {from} to \
+             state {to})"
+        );
+        let limit = self.max_valid_rho();
+        if limit <= 0.0 {
+            bail!("{found}");
+        }
+        // The smallest theta/rho ratio that brings rho below the limit,
+        // rounded up to 2 decimals.
+        let ratio = (self.theta / limit * 100.0).ceil() / 100.0;
+        bail!(
+            "{found}: PSMC assumes at most about one recombination per bin, and rho = {:.6} per \
+             bin is too high for it; with t_max {} and these lambdas rho must be below {limit:.6}. \
+             Re-bin the data with fewer base pairs per bin, or start from a smaller rho0 \
+             (--rho0, or --tr-ratio {ratio} or more; C psmc's -r)",
+            self.rho,
+            self.t_max
+        )
+    }
+
+    /// The largest `rho` (to about 9 significant digits) at which, with the
+    /// other parameters as they are, no transition probability is negative;
+    /// 0 when there is none below the current `rho`. The probabilities of a
+    /// recombination grow with `rho`, so they are valid below this value.
+    fn max_valid_rho(&self) -> f64 {
+        let mut probe = self.clone();
+        let mut valid = |rho: f64| {
+            probe.rho = rho;
+            probe.param_recalculate().is_ok()
+                && probe.p_kl.iter().all(|&p| p.is_finite() && p >= 0.0)
+        };
+        let (mut lo, mut hi) = (0.0, self.rho);
+        for _ in 0..32 {
+            let mid = 0.5 * (lo + hi);
+            if valid(mid) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
+
     pub fn pattern_spec(&self) -> Option<&[(usize, usize)]> {
         self.pattern_spec.as_deref()
     }
