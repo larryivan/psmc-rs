@@ -382,9 +382,14 @@ sex chromosome or organelle (`X`, `Y`, `Z`, `W` with or without `chr` and a
 number, `M`, `MT`, `chrM`, `Pt`, names containing `mitochondri` or
 `chloroplast`, and the RefSeq accessions of the human and mouse X, Y and
 mitochondrion), with the rule that `psmc-rs qc` uses; the end-to-end test
-checks that the two agree on 72 names. Sequences that are sex-linked but
-not named so (scaffolds of a draft assembly) need an explicit `--chroms`
-list. QC's `SEX_OR_ORGANELLE` finding is a note for every such name and a
+checks that the two agree on 72 names. The one exception is a reference
+whose chromosomes carry Roman numerals past VIII (`chrIX` or `chrXI`, as in
+the UCSC stickleback and yeast assemblies): there `chrX` is chromosome 10,
+so the script keeps it and says so, while `qc` still notes the name.
+(C. elegans's `I` to `V` and `X` stop before IX, and its X, the sex
+chromosome, is left out.) Sequences that are sex-linked but not named so
+(scaffolds of a draft assembly, or stickleback's `chrXIX`) need an explicit
+`--chroms` list. QC's `SEX_OR_ORGANELLE` finding is a note for every such name and a
 warning when the sequence is less than a quarter as heterozygous as the
 autosomes (judged once the autosomal rate predicts at least 10 `K` bins in
 it), as a single copy is; `HET_OUTLIER` flags other sequences far from the

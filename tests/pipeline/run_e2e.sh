@@ -157,14 +157,44 @@ run_script --bam "$out/empty.bam" --ref "$out/names.fa" --out "$out/names" --dry
 "$PSMC_RS" qc "$out/names.psmcfa" --json "$out/names.qc.json" > /dev/null 2>&1
 check kinds "$out/dry_run.txt" "$out/names.qc.json"
 
+# Roman numerals: in a stickleback-like reference chrX is chromosome 10 and
+# is kept; in a C. elegans-like one (I to V, X) X is the sex chromosome.
+fai_of() { # name... > .fai lines
+  local n
+  for n in "$@"; do
+    printf '%s\t4\t0\t4\t5\n' "$n"
+  done
+}
+called_in() { # dry-run output: the chromosomes to call, on one line
+  awk '/^Chromosomes to call/ { on = 1; next } /^[^ ]/ { on = 0 } on { print $1 }' "$1" |
+    tr '\n' ' '
+}
+touch "$out/roman.fa" "$out/elegans.fa"
+fai_of chrI chrII chrIII chrIV chrV chrVI chrVII chrVIII chrIX chrX chrXI chrXII chrXIII chrXIV \
+  chrXV chrXVI chrXVII chrXVIII chrXIX chrXX chrXXI chrUn chrM > "$out/roman.fa.fai"
+run_script --bam "$out/empty.bam" --ref "$out/roman.fa" --out "$out/roman" --dry-run \
+  > "$out/dry_roman.txt" 2> "$out/dry_roman.err"
+case "$(called_in "$out/dry_roman.txt")" in
+  *" chrIX chrX chrXI "*"chrXIX chrXX chrXXI chrUn ") ;;
+  *) fail "Roman numerals: called $(called_in "$out/dry_roman.txt")" ;;
+esac
+grep -qF "Left out by name (1):" "$out/dry_roman.txt" || fail "$(cat "$out/dry_roman.txt")"
+grep -qF "kept chrX: the reference numbers its chromosomes in Roman numerals" \
+  "$out/dry_roman.err" || fail "no note about chrX: $(cat "$out/dry_roman.err")"
+fai_of I II III IV V X MtDNA > "$out/elegans.fa.fai"
+run_script --bam "$out/empty.bam" --ref "$out/elegans.fa" --out "$out/elegans" --dry-run \
+  > "$out/dry_elegans.txt"
+[ "$(called_in "$out/dry_elegans.txt")" = "I II III IV V " ] ||
+  fail "C. elegans names: called $(called_in "$out/dry_elegans.txt")"
+ok "Roman numerals: chrX kept as chromosome 10 next to chrIX and chrXI; X left out after I to V"
+
 # --chroms from a BED file with Windows line ends, a track and a browser
 # line, and several rows for one chromosome: its names, each once.
 printf 'track name=callable\r\nbrowser position chr1:1-4\r\nchr1\t0\t2\r\nchr1\t2\t4\r\nscaffold_12\t0\t4\r\n' \
   > "$out/callable.bed"
 run_script --bam "$out/empty.bam" --ref "$out/names.fa" --out "$out/names" --dry-run \
   --chroms "$out/callable.bed" > "$out/dry_bed.txt"
-called=$(awk '/^Chromosomes to call/ { on = 1; next } /^[^ ]/ { on = 0 } on { print $1 }' \
-  "$out/dry_bed.txt" | tr '\n' ' ')
+called=$(called_in "$out/dry_bed.txt")
 [ "$called" = "chr1 scaffold_12 " ] || fail "--chroms callable.bed calls: $called"
 ok "--chroms from a BED file (CRLF, track and browser lines, several rows per chromosome): $called"
 

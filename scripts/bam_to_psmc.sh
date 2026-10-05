@@ -46,7 +46,9 @@ Options:
                       .fai, or a BED (only the names count: each chromosome
                       is called whole). Default: every contig of the reference
                       not named like a sex chromosome or organelle (X, Y, Z,
-                      W, M, MT, chrX, chrM, ..., the rule of \`psmc-rs qc\`).
+                      W, M, MT, chrX, chrM, ..., the rule of \`psmc-rs qc\`),
+                      except that X is kept when the names are Roman
+                      numerals past VIII (chrIX, chrXI: X is chromosome 10)
   --threads N         Chromosomes called at once, and bcftools concat
                       threads [the CPUs this process may use: $(default_threads)].
                       Passed to the fit only when given; otherwise psmc-rs
@@ -306,7 +308,11 @@ if [ ! -s "$fai" ]; then
 fi
 
 # The rule of psmc-rs's qc::classify_name: prints "sex chromosome",
-# "organelle" or nothing for each name on stdin.
+# "organelle" or nothing for each name on stdin. One exception: when the
+# names number chromosomes in Roman numerals past VIII (chrIX or chrXI, as
+# in stickleback or yeast assemblies), X is chromosome 10, not a sex
+# chromosome, and it is printed as "roman" (C. elegans's I to V and X keep
+# their sex chromosome).
 classify_names() {
   LC_ALL=C awk '
     BEGIN {
@@ -315,11 +321,10 @@ classify_names() {
       refseq["nc_000086"] = "sex chromosome"; refseq["nc_000087"] = "sex chromosome"
       refseq["nc_005089"] = "organelle"
     }
-    function kind(name,    lower, acc, rest, prefixed, tok) {
-      lower = tolower(name)
-      if (lower ~ /mitochondri|chloroplast|plastid|plastome|apicoplast/) return "organelle"
-      acc = lower; sub(/\..*/, "", acc)
-      if (acc in refseq) return refseq[acc]
+    # Sets tok to the lower-case name without its chr, chrom or chromosome
+    # prefix, up to the first character other than a letter or digit, and
+    # prefixed to whether there was such a prefix.
+    function split_name(lower,    rest) {
       rest = lower; prefixed = 1
       if (substr(rest, 1, 10) == "chromosome") rest = substr(rest, 11)
       else if (substr(rest, 1, 5) == "chrom") rest = substr(rest, 6)
@@ -328,12 +333,24 @@ classify_names() {
       if (prefixed && rest ~ /^[-_.]/) rest = substr(rest, 2)
       tok = rest
       if (match(rest, /[^a-z0-9]/)) tok = substr(rest, 1, RSTART - 1)
-      if (tok ~ /^[xyzw][0-9]*$/) return "sex chromosome"
+    }
+    function kind(name,    lower, acc) {
+      lower = tolower(name)
+      if (lower ~ /mitochondri|chloroplast|plastid|plastome|apicoplast/) return "organelle"
+      acc = lower; sub(/\..*/, "", acc)
+      if (acc in refseq) return refseq[acc]
+      split_name(lower)
+      if (tok ~ /^[xyzw][0-9]*$/) return (tok == "x" && roman) ? "roman" : "sex chromosome"
       if (tok ~ /^(m|mt|mito|mtdna|pt|cp)$/) return "organelle"
       if (tok == "c" && prefixed) return "organelle"
       return ""
     }
-    { print kind($0) }
+    {
+      names[NR] = $0
+      split_name(tolower($0))
+      if (tok == "ix" || tok == "xi") roman = 1
+    }
+    END { for (i = 1; i <= NR; i++) print kind(names[i]) }
   '
 }
 
@@ -348,7 +365,12 @@ done < "$fai"
 [ "${#ref_names[@]}" -gt 0 ] || die "$fai lists no sequence"
 
 ref_kinds=()
+roman_x=()
 while IFS= read -r k; do
+  if [ "$k" = roman ]; then
+    roman_x+=("${ref_names[${#ref_kinds[@]}]}")
+    k=""
+  fi
   ref_kinds+=("$k")
 done < <(printf '%s\n' "${ref_names[@]}" | classify_names)
 
@@ -370,6 +392,9 @@ requested_names() {
 selected=()
 excluded=()
 if [ -z "$chroms_arg" ]; then
+  if [ "${#roman_x[@]}" -gt 0 ]; then
+    say "kept ${roman_x[*]}: the reference numbers its chromosomes in Roman numerals (it has IX or XI), so X is chromosome 10, not a sex chromosome; if it is one, list the chromosomes with --chroms"
+  fi
   i=0
   while [ "$i" -lt "${#ref_names[@]}" ]; do
     if [ -n "${ref_kinds[$i]}" ]; then
