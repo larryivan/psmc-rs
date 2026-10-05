@@ -12,7 +12,8 @@ experimental design is:
 5. the experiments E1-E6;
 6. the runner's resource budget and cost model (scheduling only);
 7. the profiles: ``production`` (the manuscript), ``smoke`` (a small
-   end-to-end check of the same code paths) and ``tiny`` (unit tests).
+   end-to-end check of the same code paths) and ``tiny`` (unit tests);
+8. E2's settings in the smoke and tiny profiles.
 
 Times of demographic models are in generations and sizes are diploid
 individuals, as in msprime, unless a comment says otherwise.
@@ -306,7 +307,14 @@ REAL_GENOMES: Tuple[RealGenome, ...] = (
 
 @dataclass(frozen=True)
 class E2:
-    """Real genomes (Fig 3; QC table S5): both tools, psmc-rs bootstrap and qc on each."""
+    """Real genomes (Fig 3; QC table S5): both tools, psmc-rs bootstrap and qc on each.
+
+    Every genome's psmcfa is fitted by C psmc and psmc-rs 0.2 with
+    ``inference``; psmc-rs also fits ``bootstrap_replicates`` C-compatible
+    bootstrap replicates (splitfa trunks, fresh starts) and ``psmc-rs qc``
+    reports on the input. Curves are scaled with each genome's own
+    ``scaling``. The jobs and tables are in experiments/e2.py.
+    """
 
     genomes: Tuple[RealGenome, ...] = REAL_GENOMES
     inference: Inference = INFERENCE
@@ -315,6 +323,22 @@ class E2:
     band: Tuple[float, float] = (0.025, 0.975)
     rs_threads: int = 7  # the bootstrap fits replicates in parallel
     # Seeds: seed("E2", sample_id, 0, "bootstrap").
+
+    # -- Settings of the E2 jobs and tables (experiments/e2.py) --------------
+    fit_threads: int = 1  # psmc-rs --threads of the main fit (the output does not depend on it)
+    # The window of the curve comparisons. A real genome has no true Ne(t),
+    # so the informative window of TimeGrid comes from the fitted model: the
+    # 1% and 99% quantiles of the pairwise coalescence time under C psmc's
+    # final model (the reference implementation), in years of the genome's
+    # own scaling. Both tools and the bootstrap band are compared on it;
+    # ``grid.fixed_years`` is reported next to it.
+    grid: TimeGrid = TimeGrid()
+    display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (Fig 3)
+    panel_order: Tuple[str, ...] = ("Papuan", "HLemySub1", "HLhydTec1", "HLpelCas1")  # Fig 3 panels A-D
+    # Smoke and tiny profiles only: fit the first ``max_bins`` bins of each
+    # genome (records in file order, the last one cut) instead of the whole
+    # file. None (production) fits the packaged files themselves.
+    max_bins: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -497,6 +521,35 @@ def get_profile(name: str) -> Profile:
         return PROFILES[name]
     except KeyError:
         raise KeyError(f"unknown profile {name!r}; known: {', '.join(PROFILES)}") from None
+
+
+# ---------------------------------------------------------------------------
+# 8. E2 (real genomes) in the smoke and tiny profiles
+# ---------------------------------------------------------------------------
+# The real genomes hold 0.25 to 1.94 Gb in bins, and C psmc needs about 50
+# minutes and up to 3.4 GB for each turtle. The smoke and tiny profiles run
+# the same jobs on the first bins of each genome (job E2/subset/<sample>),
+# with trunks small enough to leave several of them for the bootstrap.
+
+# smoke: 20 Mb of each of the four genomes, 3 EM iterations, 4 bootstrap
+# replicates on 2 Mb trunks (about a minute in all).
+SMOKE = replace(SMOKE, e2=replace(SMOKE.e2, max_bins=200_000, bootstrap_trunk_bins=20_000))
+
+# tiny (unit tests): 2 Mb of the human chromosome and of one turtle,
+# 2 EM iterations, 2 bootstrap replicates on 500 kb trunks (seconds).
+TINY = replace(
+    TINY,
+    e2=E2(
+        genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("Papuan", "HLhydTec1")),
+        inference=replace(INFERENCE, n_iter=2),
+        bootstrap_replicates=2,
+        bootstrap_trunk_bins=5_000,
+        rs_threads=2,
+        max_bins=20_000,
+    ),
+)
+
+PROFILES = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
 
 
 __all__ = [
