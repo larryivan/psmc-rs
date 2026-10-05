@@ -129,7 +129,7 @@ def draw(src: Source):
     grid = time_grid(xlim, figs.curve_grid_points)
 
     fig = style.figure("double", 120)
-    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=16.0, top_mm=8.0, bottom_mm=9.0, wspace_mm=12.0,
+    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=2.0, top_mm=8.0, bottom_mm=9.0, wspace_mm=13.0,
                     hspace_mm=15.0, height_ratios=[1.0, 1.1])
     ax_t, ax_r, ax_b = (fig.add_subplot(gs[0, i]) for i in range(3))
     ax_c, ax_e, ax_f = (fig.add_subplot(gs[1, i]) for i in range(3))
