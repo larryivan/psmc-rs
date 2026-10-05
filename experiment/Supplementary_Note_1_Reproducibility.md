@@ -157,10 +157,9 @@ Tables:
 
 ## 6) Release archive integrity
 
-Release binaries are published with SHA-256 checksums (`*.sha256` and
-`SHA256SUMS.txt`). Compare the checksum of a downloaded archive with the value
-listed there:
+Each release archive is published with its SHA-256 checksum in
+`<archive>.sha256`. Check a downloaded archive next to it with:
 
 ```bash
-shasum -a 256 psmc-rs-<tag>-<target>.tar.gz   # or: sha256sum ...
+shasum -a 256 -c psmc-rs-<tag>-<target>.tar.gz.sha256   # or: sha256sum -c ...
 ```
