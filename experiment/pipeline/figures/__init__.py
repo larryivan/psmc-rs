@@ -61,8 +61,23 @@ FIGURES: Tuple[FigureSpec, ...] = (
     FigureSpec("fig2_simulated_accuracy", "fig2", "E1",
                ("E1_curves", "E1_truth", "E1_table1", "E1_replicates", "E1_rs_vs_c"),
                "Accuracy on simulated genomes, and C psmc and psmc-rs 0.2 compared"),
+    FigureSpec("fig3_real_genomes", "fig3", "E2", ("E2_curves", "E2_summary"),
+               "Four real genomes: C psmc, psmc-rs 0.2 and its bootstrap"),
+    FigureSpec("fig4_performance", "fig4", "E3", ("E3_runs", "E3_threads"),
+               "Run time and memory against genome size, and thread scaling"),
+    FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves"),
+               "How the route from a VCF and a callable mask to PSMC biases the inference"),
+    FigureSpec("fig6_bootstrap_calibration", "fig6", "E5", ("E5_calibration", "E5_curves"),
+               "Calibration of the bootstrap"),
     FigureSpec("figS1_em_convergence", "figs1", "E1", ("E1_traces",),
                "EM convergence of C psmc and psmc-rs 0.2"),
+    FigureSpec("figS2_format_consistency", "figs2", "E6", ("E6_formats", "E6_format_curves"),
+               "One genome read as psmcfa, VCF and multihetsep"),
+    FigureSpec("figS3_tmrca_decoding", "figs3", "E6",
+               ("E6_tmrca_track", "E6_tmrca_hist2d", "E6_tmrca_calibration", "E6_tmrca_summary"),
+               "Posterior TMRCA against the true TMRCA"),
+    FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_threads",),
+               "Thread scaling and determinism of psmc-rs 0.2"),
 )
 BY_NAME: Dict[str, FigureSpec] = {f.name: f for f in FIGURES}
 

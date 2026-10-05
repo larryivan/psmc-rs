@@ -28,7 +28,7 @@ class Draw(unittest.TestCase):
 
         cls._tmp = tempfile.TemporaryDirectory()
         cls.runs = Path(cls._tmp.name)
-        fake.write_all(cls.runs, config.SMOKE, ["E1"])
+        fake.write_all(cls.runs, config.SMOKE)
 
     @classmethod
     def tearDownClass(cls):
@@ -52,7 +52,7 @@ class Draw(unittest.TestCase):
         self.assertEqual(fs.name, "fig2_simulated_accuracy")
         self.assertEqual(fs.outputs(self.runs)[0], self.runs / "E1" / "figures" / "fig2_simulated_accuracy.pdf")
         self.assertEqual(figures.spec("fig1").sources, ())
-        self.assertEqual(figures.spec("figS1").sources, ("E1",))
+        self.assertEqual(figures.spec("figS4").sources, ("E3",))
         with self.assertRaises(KeyError):
             figures.spec("fig9")
 
@@ -62,11 +62,12 @@ class Draw(unittest.TestCase):
 
         used = {k for fs in figures.FIGURES for k in fs.tables}
         self.assertTrue(used <= set(SCHEMAS))
+        self.assertEqual(used, set(SCHEMAS))  # and no schema is unused
 
     def test_drawing_twice_gives_the_same_bytes(self):
         from experiment.pipeline import figures
 
-        fs = figures.spec("fig2")
+        fs = figures.spec("fig5")
         with tempfile.TemporaryDirectory() as d:
             a = [p.read_bytes() for p in figures.render(fs, self.runs, config.SMOKE, dpi=DPI, out_dir=Path(d) / "a")]
             b = [p.read_bytes() for p in figures.render(fs, self.runs, config.SMOKE, dpi=DPI, out_dir=Path(d) / "b")]
@@ -78,12 +79,12 @@ class Draw(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(main(["--list", "--runs-dir", str(self.runs)]), 0)
-        self.assertIn("figS1_em_convergence", out.getvalue())
+        self.assertIn("fig6_bootstrap_calibration", out.getvalue())
         with tempfile.TemporaryDirectory() as empty:
             err = io.StringIO()
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-                self.assertEqual(main(["fig2", "--profile", "smoke", "--runs-dir", empty, "--dpi", str(DPI)]), 1)
-            self.assertIn("skip fig2_simulated_accuracy", err.getvalue())
+                self.assertEqual(main(["fig3", "--profile", "smoke", "--runs-dir", empty, "--dpi", str(DPI)]), 1)
+            self.assertIn("skip fig3_real_genomes", err.getvalue())
 
     def test_a_truth_table_that_disagrees_with_the_models_is_refused(self):
         import pandas as pd
