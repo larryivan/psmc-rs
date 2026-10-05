@@ -124,6 +124,38 @@ class Scheduling(unittest.TestCase):
         self.assertEqual(runner.pick([ex], [], config.Budget(), {}, 0.0), [ex])
         self.assertEqual(runner.pick([normal], [runner.Slot(ex, 0.0)], config.Budget(), {}, 0.0), [])
 
+    def test_exclusive_jobs_start_in_rank_order(self):
+        # E3's repeats: every setup's first repeat, then the second, whatever the chain lengths.
+        jobs = [Job(id=f"T/{s}-rep{r}", command=["true"], est_seconds=10.0, exclusive=True, rank=r)
+                for s in ("a", "b") for r in (1, 2)]
+        prio = {"T/a-rep1": 50.0, "T/a-rep2": 50.0, "T/b-rep1": 10.0, "T/b-rep2": 10.0}
+        order = []
+        ready = list(jobs)
+        while ready:
+            (got,) = runner.pick(ready, [], config.Budget(), prio, 0.0)
+            order.append(got.id)
+            ready.remove(got)
+        self.assertEqual(order, ["T/a-rep1", "T/b-rep1", "T/a-rep2", "T/b-rep2"])
+
+    def test_machine_lock_is_shared_by_ordinary_jobs_and_held_alone_by_exclusive_ones(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "machine.lock"
+            a, b = runner.MachineLock(path), runner.MachineLock(path)
+            try:
+                self.assertTrue(a.hold("shared"))
+                self.assertTrue(b.hold("shared"))
+                self.assertFalse(b.hold("exclusive"))  # a runs ordinary jobs
+                b.release()
+                a.release()
+                self.assertTrue(a.hold("exclusive"))
+                self.assertFalse(b.hold("shared"))  # a runs an exclusive job
+                self.assertFalse(b.hold("exclusive"))
+                a.release()
+                self.assertTrue(b.hold("exclusive"))
+            finally:
+                a.release()
+                b.release()
+
     def test_priority_and_backfill(self):
         big = self.mk("T/big", mem=8.0, est=100.0)
         small_short = self.mk("T/s1", est=5.0)
@@ -211,6 +243,27 @@ class DaemonTests(Base):
         rec = json.loads(jobs[-1].record_path(self.runs).read_text())
         self.assertIn("busiest_processes_before", rec["run"])
 
+    def test_exit_status_75_defers_the_job_instead_of_failing_it(self):
+        from unittest import mock
+
+        flag = self.tmp / "busy"
+        flag.write_text("")
+        script = self.tmp / "busy.py"
+        script.write_text(
+            "import os, sys\n"
+            f"if os.path.exists({str(flag)!r}):\n"
+            f"    os.remove({str(flag)!r}); print('machine busy'); print('not quiet'); sys.exit(75)\n"
+            f"open({str(self.tmp / 'd.txt')!r}, 'w').write('done')\n"
+        )
+        j = Job(id="T/d", command=[sys.executable, str(script)], outputs=[self.tmp / "d.txt"], exclusive=True)
+        with mock.patch.object(runner, "DEFER_SECONDS", 0.2):
+            d, rc = self.run_daemon([j])
+        self.assertEqual((rc, d.state["T/d"], d.deferrals["T/d"]), (0, runner.DONE, 1))
+        statuses = [json.loads(line)["status"] for line in runner.attempts_path(self.runs, "T").read_text().splitlines()]
+        self.assertEqual(statuses, [runner.DEFERRED, runner.DONE])
+        rec = json.loads(j.record_path(self.runs).read_text())
+        self.assertIsNone(rec["run"]["peak_rss_tree_sampled_mb"])  # exclusive jobs are not sampled
+
     def test_peak_rss_of_the_job(self):
         j = self.job("T/mem", ["m.txt"], alloc_mb=80, sleep=0.3)
         self.run_daemon([j])
@@ -248,7 +301,7 @@ class DaemonTests(Base):
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
 class DetachedRunner(Base):
     def cli(self, *args) -> subprocess.CompletedProcess:
-        env = dict(os.environ, PYTHONPATH=str(ROOT))
+        env = dict(os.environ, PYTHONPATH=str(ROOT), PSMC_EXP_MACHINE_LOCK=str(self.tmp / "machine.lock"))
         return subprocess.run([sys.executable, "-m", "experiment.pipeline", *args, "--runs-dir", str(self.runs)],
                               cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
 
