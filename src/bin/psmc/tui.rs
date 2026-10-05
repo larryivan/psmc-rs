@@ -34,7 +34,7 @@ const FIELD_INPUT: usize = 0;
 const FIELD_OUTPUT: usize = 1;
 const FIELD_N_ITER: usize = 2;
 const FIELD_PATTERN: usize = 3;
-const FIELD_BATCH_SIZE: usize = 4;
+const FIELD_GEN_YEARS: usize = 4;
 const FIELD_THREADS: usize = 5;
 const FIELD_INPUT_FORMAT: usize = 6;
 const FIELD_BIN_SIZE: usize = 7;
@@ -185,8 +185,8 @@ impl App {
             },
             FormField {
                 label: "N iter",
-                value: "20".to_string(),
-                hint: "EM iterations",
+                value: "25".to_string(),
+                hint: "EM iterations (C psmc -N)",
             },
             FormField {
                 label: "Pattern",
@@ -194,14 +194,14 @@ impl App {
                 hint: "PSMC pattern (empty: C psmc's 4+5*3+4)",
             },
             FormField {
-                label: "Batch size",
-                value: "300000".to_string(),
-                hint: "Row chunk size",
+                label: "Gen years",
+                value: "25".to_string(),
+                hint: "Years per generation, for the time axis",
             },
             FormField {
                 label: "Threads",
-                value: "1".to_string(),
-                hint: "Rayon threads",
+                value: String::new(),
+                hint: "Worker threads (empty: one per core)",
             },
             FormField {
                 label: "Input fmt",
@@ -237,9 +237,7 @@ impl App {
         if let Some(v) = &cli.pattern {
             fields[FIELD_PATTERN].value = v.clone();
         }
-        if let Some(v) = cli.input.batch_size {
-            fields[FIELD_BATCH_SIZE].value = v.to_string();
-        }
+        fields[FIELD_GEN_YEARS].value = cli.gen_years.to_string();
         if let Some(v) = cli.threads {
             fields[FIELD_THREADS].value = v.to_string();
         }
@@ -386,17 +384,6 @@ fn parse_non_empty_str(name: &str, v: &str) -> Result<String> {
     Ok(s.to_string())
 }
 
-fn parse_required_usize(name: &str, v: &str) -> Result<usize> {
-    let s = parse_non_empty_str(name, v)?;
-    let n = s
-        .parse::<usize>()
-        .map_err(|_| anyhow!("{name} must be a positive integer"))?;
-    if n == 0 {
-        bail!("{name} must be >= 1");
-    }
-    Ok(n)
-}
-
 fn parse_optional_usize(name: &str, v: &str) -> Result<Option<usize>> {
     let s = v.trim();
     if s.is_empty() {
@@ -442,13 +429,15 @@ fn parse_input_format_field(v: &str) -> Result<FormatArg> {
 fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     let input = parse_non_empty_str("Input", app.field_value(FIELD_INPUT))?;
     let output = parse_non_empty_str("Output", app.field_value(FIELD_OUTPUT))?;
-    let n_iter = parse_required_usize("N iter", app.field_value(FIELD_N_ITER))?;
+    let n_iter = parse_non_empty_str("N iter", app.field_value(FIELD_N_ITER))?
+        .parse::<usize>()
+        .map_err(|_| anyhow!("N iter must be a whole number"))?;
     let mu = parse_required_f64("Mu", app.field_value(FIELD_MU))?;
+    let gen_years = parse_required_f64("Gen years", app.field_value(FIELD_GEN_YEARS))?;
     let smooth = parse_non_negative_f64("Smooth", app.field_value(FIELD_SMOOTH_LAMBDA))?;
     let input_format = parse_input_format_field(app.field_value(FIELD_INPUT_FORMAT))?;
 
     let pattern = app.field_value(FIELD_PATTERN).trim();
-    let batch_size = parse_optional_usize("Batch size", app.field_value(FIELD_BATCH_SIZE))?;
     let threads = parse_optional_usize("Threads", app.field_value(FIELD_THREADS))?;
     let bin_size =
         parse_optional_usize("Bin size", app.field_value(FIELD_BIN_SIZE))?.unwrap_or(100);
@@ -464,11 +453,11 @@ fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     } else {
         Some(pattern.to_string())
     };
-    cli.input.batch_size = batch_size;
     cli.threads = threads;
     cli.input.bin_size = bin_size;
     cli.mu = mu;
     cli.smooth_lambda = smooth;
+    cli.gen_years = gen_years;
     cli.no_progress = true;
     Ok(cli)
 }
@@ -1323,4 +1312,188 @@ pub fn run_tui(cli: &InferArgs) -> Result<()> {
     execute!(term.backend_mut(), LeaveAlternateScreen).ok();
     let _ = term.show_cursor();
     final_res
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::Cli;
+    use clap::Parser;
+
+    fn app(args: &[&str]) -> App {
+        let mut argv = vec!["psmc-rs", "--tui"];
+        argv.extend_from_slice(args);
+        let cli = Cli::try_parse_from(argv).unwrap();
+        App::new(PathBuf::from("psmc-rs"), &cli.infer)
+    }
+
+    fn set(app: &mut App, field: usize, value: &str) {
+        app.fields[field].value = value.to_string();
+    }
+
+    /// The form fills the settings it shows and keeps the others of the
+    /// command line that opened the TUI.
+    #[test]
+    fn the_form_builds_the_run_settings() {
+        let mut a = app(&["--bootstrap", "5", "--vcf-mask", "m.bed"]);
+        assert_eq!(a.field_value(FIELD_INPUT_FORMAT), "auto");
+        assert_eq!(a.field_value(FIELD_GEN_YEARS), "25");
+        for (field, value) in [
+            (FIELD_INPUT, "data/in.vcf.gz"),
+            (FIELD_OUTPUT, "out/fit.json"),
+            (FIELD_N_ITER, "30"),
+            (FIELD_PATTERN, "4+25*2+4+6"),
+            (FIELD_GEN_YEARS, "29"),
+            (FIELD_THREADS, "2"),
+            (FIELD_INPUT_FORMAT, "vcf"),
+            (FIELD_BIN_SIZE, "50"),
+            (FIELD_MU, "1.25e-8"),
+            (FIELD_SMOOTH_LAMBDA, "0"),
+        ] {
+            set(&mut a, field, value);
+        }
+        let args = build_cli_from_form(&a).unwrap();
+        assert!(!args.tui && args.no_progress);
+        assert_eq!(args.input_file, Some(PathBuf::from("data/in.vcf.gz")));
+        assert_eq!(args.output_file, Some(PathBuf::from("out/fit.json")));
+        assert_eq!(args.n_iter, Some(30));
+        assert_eq!(args.pattern.as_deref(), Some("4+25*2+4+6"));
+        assert_eq!(args.gen_years, 29.0);
+        assert_eq!(args.threads, Some(2));
+        assert_eq!(args.input.input_format, FormatArg::Vcf);
+        assert_eq!(args.input.bin_size, 50);
+        assert_eq!((args.mu, args.smooth_lambda), (1.25e-8, 0.0));
+        assert_eq!(args.bootstrap, 5);
+        assert_eq!(args.input.vcf_mask, [PathBuf::from("m.bed")]);
+        let preview = preview_cmdline(&a);
+        assert!(preview.contains("--gen-years 29"), "{preview}");
+        assert!(preview.contains("--bootstrap 5"), "{preview}");
+
+        // An empty pattern or thread count means the default.
+        set(&mut a, FIELD_PATTERN, " ");
+        set(&mut a, FIELD_THREADS, "");
+        let args = build_cli_from_form(&a).unwrap();
+        assert_eq!((args.pattern, args.threads), (None, None));
+    }
+
+    #[test]
+    fn invalid_form_values_are_explained() {
+        let mut a = app(&[]);
+        let err = |a: &App| build_cli_from_form(a).unwrap_err().to_string();
+        assert_eq!(err(&a), "Input is required");
+        set(&mut a, FIELD_INPUT, "in.psmcfa");
+        set(&mut a, FIELD_GEN_YEARS, "old");
+        assert!(err(&a).contains("Gen years"));
+        set(&mut a, FIELD_GEN_YEARS, "25");
+        set(&mut a, FIELD_INPUT_FORMAT, "bam");
+        assert!(err(&a).contains("auto, psmcfa, mhs or vcf"));
+        assert!(preview_cmdline(&a).starts_with("Invalid config"));
+    }
+
+    #[test]
+    fn the_format_field_cycles_through_every_format() {
+        let mut a = app(&[]);
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            seen.push(a.field_value(FIELD_INPUT_FORMAT).to_string());
+            a.toggle_input_format();
+        }
+        assert_eq!(seen, ["auto", "psmcfa", "mhs", "vcf", "auto"]);
+    }
+
+    #[test]
+    fn pipeline_events_reach_the_log_and_the_gauges() {
+        let mut a = app(&[]);
+        handle_pipeline_event(&mut a, Event::Info("read".to_string()));
+        handle_pipeline_event(&mut a, Event::Warning("odd".to_string()));
+        handle_pipeline_event(
+            &mut a,
+            Event::Qc {
+                text: "Input QC\nNo warnings or notes.\n".to_string(),
+                warnings: Vec::new(),
+            },
+        );
+        handle_pipeline_event(&mut a, Event::Iteration { iter: 2, total: 9 });
+        handle_pipeline_event(
+            &mut a,
+            Event::Progress {
+                stage: Stage::EForward,
+                done: 40,
+                total: 100,
+                iter: Some((2, 9)),
+            },
+        );
+        let logs: Vec<&str> = a.logs.iter().map(String::as_str).collect();
+        assert_eq!(
+            logs,
+            [
+                "read",
+                "Warning: odd",
+                "Input QC",
+                "No warnings or notes.",
+                "EM iteration 2/9"
+            ]
+        );
+        let snap = &a.stages[stage_idx(Stage::EForward)];
+        assert_eq!((snap.done, snap.total, snap.iter), (40, 100, Some((2, 9))));
+    }
+
+    #[test]
+    fn the_end_of_a_run_is_shown() {
+        let mut a = app(&[]);
+        let (tx, rx) = mpsc::channel();
+        a.running = Some(RunningTask {
+            rx,
+            handle: thread::spawn(|| {}),
+            stop: Arc::new(AtomicBool::new(false)),
+        });
+        tx.send(RunnerEvent::Pipeline(Event::Output(
+            "Parameters: x".to_string(),
+        )))
+        .unwrap();
+        tx.send(RunnerEvent::Cancelled).unwrap();
+        poll_runner(&mut a);
+        assert!(a.running.is_none());
+        assert_eq!(a.status, "Cancelled");
+        assert_eq!(
+            a.logs.iter().map(String::as_str).collect::<Vec<_>>(),
+            ["Parameters: x", "Run cancelled by user."]
+        );
+    }
+
+    /// The stop key interrupts a run inside EM: 100,000 iterations would
+    /// take far longer than the test allows.
+    #[test]
+    fn stop_cancels_a_running_fit() {
+        let dir = std::env::temp_dir().join(format!("psmc_rs_tui_stop_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("in.psmcfa");
+        let bins = "TTTTKTTTTTTTNNTTKTTTTTTTTKTTTTTTTTTTKTTTTTTTTTKTT".repeat(40);
+        fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
+        let mut a = app(&[]);
+        set(&mut a, FIELD_INPUT, input.to_str().unwrap());
+        set(&mut a, FIELD_OUTPUT, dir.join("fit.json").to_str().unwrap());
+        set(&mut a, FIELD_N_ITER, "100000");
+        set(&mut a, FIELD_THREADS, "2");
+        start_run(&mut a).unwrap();
+        assert_eq!(a.page, TuiPage::Run);
+
+        let started = Instant::now();
+        while !a.logs.iter().any(|l| l.starts_with("EM iteration 3/")) {
+            poll_runner(&mut a);
+            assert!(a.running.is_some(), "the run ended early: {:?}", a.logs);
+            assert!(started.elapsed() < Duration::from_secs(60));
+            thread::sleep(Duration::from_millis(5));
+        }
+        stop_run(&mut a);
+        let stopped = Instant::now();
+        while a.running.is_some() {
+            poll_runner(&mut a);
+            assert!(stopped.elapsed() < Duration::from_secs(30));
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(a.status, "Cancelled", "{:?}", a.logs);
+        assert!(!dir.join("fit.json").exists());
+        let _ = fs::remove_dir_all(dir);
+    }
 }

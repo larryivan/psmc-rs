@@ -484,7 +484,7 @@ pub struct QcArgs {
 }
 
 /// Inference: `psmc-rs INPUT OUTPUT N_ITER [options]`.
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, PartialEq)]
 pub struct InferArgs {
     /// Open the interactive interface (the other arguments fill its form)
     #[arg(long)]
@@ -706,7 +706,16 @@ impl InferArgs {
             args.push("--qc-json".to_string());
             args.push(v.display().to_string());
         }
-        args.push("--no-progress".to_string());
+        if let Some(v) = &self.tmrca_out {
+            args.push("--tmrca-out".to_string());
+            args.push(v.display().to_string());
+        }
+        if self.quiet {
+            args.push("--quiet".to_string());
+        }
+        if self.no_progress {
+            args.push("--no-progress".to_string());
+        }
         args
     }
 }
@@ -899,6 +908,75 @@ mod tests {
         assert!(bad(&["--depth", "lots"]).contains("MIN:MAX"));
         assert!(bad(&["--bin-size", "0"]).contains("at least 1"));
         assert!(bad(&["--min-good-fraction", "1.5"]).contains("between 0 and 1"));
+    }
+
+    /// The TUI shows and runs `to_args`, so it must give back every
+    /// setting.
+    #[test]
+    fn to_args_round_trips_every_inference_setting() {
+        let argv = [
+            "psmc-rs",
+            "in.vcf",
+            "out.json",
+            "7",
+            "--input-format",
+            "vcf",
+            "--bin-size",
+            "50",
+            "--vcf-mask",
+            "m.bed",
+            "--depth",
+            "5:60",
+            "--pattern",
+            "4+25*2+4+6",
+            "--n-steps",
+            "63",
+            "--t-max",
+            "20",
+            "--tr-ratio",
+            "5",
+            "--theta0",
+            "0.01",
+            "--rho0",
+            "0.002",
+            "--mu",
+            "1.25e-8",
+            "--mstep-iters",
+            "300",
+            "--smooth-lambda",
+            "0.5",
+            "--threads",
+            "3",
+            "--gen-years",
+            "29",
+            "--bootstrap",
+            "20",
+            "--bootstrap-block-size",
+            "100000",
+            "--bootstrap-seed",
+            "7",
+            "--bootstrap-iters",
+            "5",
+            "--bootstrap-dir",
+            "boot",
+            "--psmc-out",
+            "out.psmc",
+            "--qc-json",
+            "qc.json",
+            "--tmrca-out",
+            "t.tsv.gz",
+            "--quiet",
+            "--no-progress",
+        ];
+        let args = parse(argv).unwrap();
+        let mut again = vec!["psmc-rs".to_string()];
+        again.extend(args.to_args());
+        assert_eq!(parse(again).unwrap(), args);
+
+        let saved = parse(["psmc-rs", "in", "out", "1", "--init-params", "fit.json"]).unwrap();
+        let mut again = vec!["psmc-rs".to_string()];
+        again.extend(saved.to_args());
+        assert_eq!(parse(again).unwrap(), saved);
     }
 
     #[test]
