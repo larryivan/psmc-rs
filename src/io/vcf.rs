@@ -40,7 +40,9 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use crate::io::Observations;
-use crate::io::common::{Binner, HetCall, HetTracker, chunk_sequences, open_reader};
+use crate::io::common::{
+    Binner, DepthCounter, DepthStats, HetCall, HetTracker, chunk_sequences, open_reader,
+};
 use crate::io::consensus::utf8_chrom;
 
 pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
@@ -401,7 +403,7 @@ impl Default for VcfOptions {
 }
 
 /// What [`read_vcf_with`] read, for reporting and sanity warnings.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 pub struct VcfSummary {
     /// Data records (non-header lines).
     pub records: u64,
@@ -442,6 +444,14 @@ pub struct VcfSummary {
     pub chroms_outside_mask: Vec<String>,
     /// Chromosomes whose sequence was extended to their `##contig` length.
     pub contig_lengths_used: Vec<String>,
+    /// Read depth of the sample over all data records, for QC (the bins do
+    /// not depend on it): FORMAT/DP of the sample, or INFO/DP when FORMAT
+    /// has no DP key and the VCF has this one sample only (INFO/DP sums over
+    /// the samples). A DP of `.` or a FORMAT with no DP in a multi-sample
+    /// VCF counts as a record without DP.
+    pub depth: DepthStats,
+    /// Of the records counted in `depth`, those whose DP is INFO/DP.
+    pub depth_from_info: u64,
 }
 
 impl VcfSummary {
@@ -503,8 +513,48 @@ struct Record<'a> {
     ref_allele: &'a [u8],
     alt: &'a [u8],
     filter: &'a [u8],
+    info: &'a [u8],
     format: &'a [u8],
     sample: &'a [u8],
+}
+
+/// Finds the sample's read depth for [`VcfSummary::depth`]. The FORMAT
+/// column rarely changes, so the position of its DP key is kept for the last
+/// FORMAT seen.
+#[derive(Default)]
+struct DepthReader {
+    format: Vec<u8>,
+    dp_index: Option<usize>,
+}
+
+impl DepthReader {
+    /// The sample's depth, and whether it is INFO/DP.
+    fn depth(&mut self, rec: &Record<'_>, single_sample: bool) -> (Option<u64>, bool) {
+        if rec.format != self.format.as_slice() {
+            self.format.clear();
+            self.format.extend_from_slice(rec.format);
+            self.dp_index = rec.format.split(|&b| b == b':').position(|k| k == b"DP");
+        }
+        if let Some(i) = self.dp_index {
+            let value = rec.sample.split(|&b| b == b':').nth(i);
+            return (value.and_then(parse_u64), false);
+        }
+        if !single_sample {
+            return (None, false);
+        }
+        // The value of the first `DP=` key of INFO.
+        let mut rest = rec.info;
+        let value = loop {
+            if let Some(v) = rest.strip_prefix(b"DP=") {
+                break Some(&v[..v.iter().position(|&b| b == b';').unwrap_or(v.len())]);
+            }
+            match rest.iter().position(|&b| b == b';') {
+                Some(i) => rest = &rest[i + 1..],
+                None => break None,
+            }
+        };
+        (value.and_then(parse_u64), true)
+    }
 }
 
 fn lossy(b: &[u8]) -> std::borrow::Cow<'_, str> {
@@ -564,6 +614,7 @@ fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<
         ref_allele: cols[3],
         alt: cols[4],
         filter: cols[6],
+        info: cols[7],
         format: cols[8],
         sample,
     })
@@ -1021,6 +1072,9 @@ pub(crate) fn read_vcf_seqs_from(
     let mut line = Vec::<u8>::new();
     let mut row_no = 0usize;
     let mut sample_idx: Option<usize> = None;
+    let mut single_sample = false;
+    let mut depth = DepthCounter::default();
+    let mut depth_reader = DepthReader::default();
     let mut contig_lens = HashMap::<Vec<u8>, u64>::new();
     let mut finished_chroms = HashSet::<Vec<u8>>::new();
     let mut cur: Option<ChromBuilder> = None;
@@ -1044,6 +1098,7 @@ pub(crate) fn read_vcf_seqs_from(
                 let header = lossy(s);
                 let fields: Vec<&str> = header.split('\t').collect();
                 sample_idx = Some(resolve_sample_index(&fields, opts.sample.as_deref())?);
+                single_sample = fields.len() == 10;
             } else if let Some((id, len)) = parse_contig_header(s) {
                 contig_lens.insert(id.to_vec(), len);
             }
@@ -1052,6 +1107,9 @@ pub(crate) fn read_vcf_seqs_from(
         let idx = sample_idx.with_context(|| "VCF header '#CHROM' not found before records")?;
         let rec = parse_record(s, idx, row_no)?;
         summary.records += 1;
+        let (dp, from_info) = depth_reader.depth(&rec, single_sample);
+        depth.add(dp);
+        summary.depth_from_info += u64::from(from_info && dp.is_some());
 
         if cur.as_ref().is_none_or(|c| c.name != rec.chrom) {
             if let Some(done) = cur.take() {
@@ -1127,6 +1185,7 @@ pub(crate) fn read_vcf_seqs_from(
     if let Some(done) = cur.take() {
         seqs.push(done.finish(&mut summary));
     }
+    summary.depth = depth.stats();
     Ok((seqs, summary))
 }
 

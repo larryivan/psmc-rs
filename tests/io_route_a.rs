@@ -416,3 +416,42 @@ fn multihetsep_round_trip_keeps_positions_and_called_counts() {
         }
     }
 }
+
+#[test]
+fn mask_mode_reports_the_depth_of_the_sample() {
+    // `bcftools call -mv` writes no FORMAT/DP; with one sample, INFO/DP is
+    // the sample's depth.
+    let data = load_snps("snps.vcf.gz", &fixture("masks/mask_chr1.bed.gz"));
+    let SourceSummary::Vcf(v) = &data.source else {
+        panic!("not a VCF summary")
+    };
+    let VcfDetails::Mask(m) = &v.details else {
+        panic!("not mask mode")
+    };
+    let text = String::from_utf8(read_bytes(&fixture("snps.vcf.gz"))).unwrap();
+    let depths: Vec<u64> = text
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(|l| {
+            let info = l.split('\t').nth(7).unwrap();
+            let dp = info.split(';').find_map(|kv| kv.strip_prefix("DP="));
+            dp.unwrap().parse().unwrap()
+        })
+        .collect();
+    assert_eq!(m.records, depths.len() as u64);
+    assert_eq!(
+        (
+            m.depth.records,
+            m.depth.records_without_dp,
+            m.depth_from_info
+        ),
+        (m.records, 0, m.records)
+    );
+    let mean = depths.iter().sum::<u64>() as f64 / depths.len() as f64;
+    assert!(
+        (m.depth.mean - mean).abs() < 1e-9,
+        "{} {mean}",
+        m.depth.mean
+    );
+    assert_eq!(m.depth.histogram.iter().sum::<u64>(), m.records);
+}

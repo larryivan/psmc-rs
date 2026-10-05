@@ -1,8 +1,10 @@
 //! Helpers shared by the input readers: transparent (b)gzip decoding,
-//! `fq2psmcfa`-style binning, and splitting sequences into HMM rows.
+//! `fq2psmcfa`-style binning, depth statistics, and splitting sequences into
+//! HMM rows.
 
 use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
+use serde::Serialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek};
 use std::path::Path;
@@ -201,6 +203,98 @@ impl HetTracker {
     pub fn take(&mut self) -> Vec<HetCall> {
         self.called_since = 0;
         std::mem::take(&mut self.sites)
+    }
+}
+
+/// Distribution of read depth (DP) over VCF records: INFO/DP of vcf2fq's
+/// SNP/reference records in consensus mode, the sample's DP of every record
+/// in mask mode ([`crate::io::vcf::VcfSummary::depth`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct DepthStats {
+    /// Records counted.
+    pub records: u64,
+    /// Records without a DP value (in consensus mode, always lowercase in
+    /// vcf2fq).
+    pub records_without_dp: u64,
+    /// The mean depth (0 when no record was counted).
+    pub mean: f64,
+    /// The middle value (the mean of the two middle values for an even count).
+    pub median: f64,
+    /// `histogram[d]` records have `DP == d`, for `d <` [`DP_HISTOGRAM_CAP`];
+    /// the last entry counts `DP >= DP_HISTOGRAM_CAP`.
+    pub histogram: Vec<u64>,
+}
+
+/// Depths from this value on share the last bin of [`DepthStats::histogram`].
+pub const DP_HISTOGRAM_CAP: usize = 1000;
+
+/// Exact counts of every DP value, compact for the usual small values.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct DepthCounter {
+    small: Vec<u64>,
+    large: std::collections::BTreeMap<u64, u64>,
+    without_dp: u64,
+}
+
+impl DepthCounter {
+    const SMALL: u64 = 1 << 16;
+
+    pub fn add(&mut self, dp: Option<u64>) {
+        let Some(dp) = dp else {
+            self.without_dp += 1;
+            return;
+        };
+        if dp < Self::SMALL {
+            let i = dp as usize;
+            if i >= self.small.len() {
+                self.small.resize(i + 1, 0);
+            }
+            self.small[i] += 1;
+        } else {
+            *self.large.entry(dp).or_insert(0) += 1;
+        }
+    }
+
+    fn counts(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        let small = self
+            .small
+            .iter()
+            .enumerate()
+            .filter(|&(_, &n)| n > 0)
+            .map(|(d, &n)| (d as u64, n));
+        small.chain(self.large.iter().map(|(&d, &n)| (d, n)))
+    }
+
+    pub fn stats(&self) -> DepthStats {
+        let n: u64 = self.counts().map(|(_, c)| c).sum();
+        let sum: u128 = self.counts().map(|(d, c)| d as u128 * c as u128).sum();
+        let mut histogram = vec![0u64; DP_HISTOGRAM_CAP + 1];
+        for (d, c) in self.counts() {
+            histogram[(d as usize).min(DP_HISTOGRAM_CAP)] += c;
+        }
+        // The values of rank n/2 and (n-1)/2 (0-based) are the middle ones.
+        let value_at = |rank: u64| {
+            let mut seen = 0;
+            for (d, c) in self.counts() {
+                seen += c;
+                if seen > rank {
+                    return d;
+                }
+            }
+            0
+        };
+        let median = if n == 0 {
+            0.0
+        } else {
+            (value_at((n - 1) / 2) as f64 + value_at(n / 2) as f64) / 2.0
+        };
+        DepthStats {
+            records: n,
+            records_without_dp: self.without_dp,
+            mean: if n == 0 { 0.0 } else { sum as f64 / n as f64 },
+            median,
+            histogram,
+        }
     }
 }
 

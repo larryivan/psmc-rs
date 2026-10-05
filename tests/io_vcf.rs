@@ -672,3 +672,48 @@ fn read_vcf_summary_counts_records_by_kind() {
     let _ = fs::remove_file(vcf);
     let _ = fs::remove_file(neg);
 }
+
+#[test]
+fn read_vcf_summary_reports_the_sample_depth() {
+    // One sample: FORMAT/DP, else INFO/DP; a DP of '.' is no depth.
+    let vcf = write_text(
+        "vcf_depth",
+        "vcf",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+         c\t1\t.\tA\tC\t.\tPASS\tDP=99\tGT:DP\t0/1:10\n\
+         c\t2\t.\tA\t.\t.\tPASS\t.\tGT:DP\t0/0:20\n\
+         c\t3\t.\tA\t.\t.\tPASS\tDP=5\tGT:DP\t0/0:.\n\
+         c\t4\t.\tA\tG\t.\tq10\tMQ=3;DP=7\tGT\t0/1\n\
+         c\t5\t.\tA\t.\t.\tPASS\tDP4=1,2,3,4\tGT\t0/0\n",
+    );
+    let read = read_vcf_with(&vcf, &VcfOptions::default()).expect("failed to parse VCF");
+    let d = &read.summary.depth;
+    assert_eq!((d.records, d.records_without_dp), (3, 2));
+    assert_eq!(read.summary.depth_from_info, 1);
+    assert_eq!((d.mean, d.median), (37.0 / 3.0, 10.0));
+    assert_eq!(d.histogram.len(), 1001);
+    let counted: Vec<usize> = (0..d.histogram.len())
+        .filter(|&i| d.histogram[i] > 0)
+        .collect();
+    assert_eq!(counted, [7, 10, 20]);
+    let _ = fs::remove_file(vcf);
+
+    // Several samples: the selected sample's FORMAT/DP only, since INFO/DP
+    // sums over all of them.
+    let vcf = write_text(
+        "vcf_depth_multi",
+        "vcf",
+        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n\
+         c\t1\t.\tA\tC\t.\tPASS\tDP=130\tGT:DP\t0/0:100\t0/1:30\n\
+         c\t2\t.\tA\t.\t.\tPASS\tDP=50\tGT\t0/0\t0/0\n",
+    );
+    let opts = VcfOptions {
+        sample: Some("s2".to_string()),
+        ..VcfOptions::default()
+    };
+    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
+    let d = &read.summary.depth;
+    assert_eq!((d.records, d.records_without_dp, d.mean), (1, 1, 30.0));
+    assert_eq!(read.summary.depth_from_info, 0);
+    let _ = fs::remove_file(vcf);
+}

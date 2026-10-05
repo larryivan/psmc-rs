@@ -555,7 +555,7 @@ pub struct PsmcfaSummary {
 pub enum VcfDetails {
     /// Filter counts, depth statistics and warnings of consensus mode.
     Consensus(ConsensusSummary),
-    /// Genotype and mask counts of mask mode.
+    /// Genotype, mask and depth counts of mask mode.
     Mask(VcfSummary),
 }
 
