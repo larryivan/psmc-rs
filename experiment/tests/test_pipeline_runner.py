@@ -98,6 +98,12 @@ class GraphTests(Base):
         with self.assertRaises(ValueError):
             Job(id="no-experiment", command=["true"])
 
+    @unittest.skipUnless(sys.platform == "darwin", "case-insensitive file systems")
+    def test_outputs_that_differ_only_in_case_collide(self):
+        # FIG's figS2_format_consistency.pdf and E6's FigS2_format_consistency.pdf were one file.
+        with self.assertRaises(runner.GraphError):
+            Graph([self.job("T/a", ["figS2.pdf"]), self.job("T/b", ["FigS2.pdf"])], self.runs)
+
     def test_record_paths(self):
         j = self.job("E9/fit-c/model/rep01", ["o"])
         self.assertEqual(j.record_path(self.runs), self.runs / "E9" / "provenance" / "fit-c" / "model" / "rep01.json")

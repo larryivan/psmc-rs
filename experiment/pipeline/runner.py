@@ -138,6 +138,17 @@ class GraphError(ValueError):
     pass
 
 
+def path_key(p: Path) -> str:
+    """A path as the file system tells files apart: resolved, and without case on macOS and Windows.
+
+    macOS's default file systems ignore case, so ``figS2.pdf`` and
+    ``FigS2.pdf`` are one file there, and two jobs writing them would
+    overwrite each other's output.
+    """
+    s = str(Path(p).resolve())
+    return s.lower() if sys.platform in ("darwin", "win32") else s
+
+
 class Graph:
     """Jobs and their file dependencies."""
 
@@ -151,7 +162,7 @@ class Graph:
         producer: Dict[str, str] = {}
         for j in jobs:
             for p in [*j.outputs, j.record_path(self.runs_dir)]:
-                key = str(Path(p).resolve())
+                key = path_key(p)
                 if key in producer:
                     raise GraphError(f"{p} is an output of both {producer[key]} and {j.id}")
                 producer[key] = j.id
@@ -161,7 +172,7 @@ class Graph:
         for j in jobs:
             deps, static = [], []
             for p in j.inputs:
-                pid = producer.get(str(Path(p).resolve()))
+                pid = producer.get(path_key(p))
                 if pid is None:
                     static.append(Path(p))
                 elif pid == j.id:
