@@ -521,6 +521,22 @@ fn usage_errors_exit_with_status_2() {
         "1",
     ]);
     assert_eq!(o.status.code(), Some(2));
+    // The TUI's refusal of the QC JSON on stdout, before the interface
+    // starts.
+    let o = common::run([
+        input.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "1",
+        "--tui",
+        "--qc-json",
+        "-",
+    ]);
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert_eq!(o.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("give --qc-json a file with --tui"),
+        "{stderr}"
+    );
 
     // Not usage errors: a file that cannot be read or written.
     let missing = dir.path("missing.json");

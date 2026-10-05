@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use psmc_rs::hmm::Cancelled;
 
-use crate::cli::{FormatArg, InferArgs};
+use crate::cli::{FormatArg, InferArgs, usage_bail};
 use crate::dataset::is_supported_input_file;
 use crate::output::is_stdout;
 use crate::run::{self, Event, RunSummary, Stage};
@@ -823,10 +823,12 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
-/// Settings the TUI cannot honour: stdout is the interface.
+/// Settings the TUI cannot honour: stdout is the interface. Like the
+/// option combinations the CLI refuses before reading the input, they are
+/// usage errors.
 fn check_tui_args(cli: &InferArgs) -> Result<()> {
     if cli.qc_json.as_deref().is_some_and(is_stdout) {
-        bail!("--qc-json - would print over the interface; give --qc-json a file with --tui");
+        usage_bail!("--qc-json - would print over the interface; give --qc-json a file with --tui");
     }
     Ok(())
 }
@@ -882,7 +884,7 @@ pub fn run_tui(cli: &InferArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::Cli;
+    use crate::cli::{Cli, UsageError};
     use clap::Parser;
 
     fn app(args: &[&str]) -> App {
@@ -950,6 +952,7 @@ mod tests {
         };
         let err = check_tui_args(&cli(&["--qc-json", "-"])).unwrap_err();
         assert!(err.to_string().contains("give --qc-json a file"), "{err}");
+        assert!(UsageError::is_in(&err), "{err}");
         assert!(check_tui_args(&cli(&["--qc-json", "qc.json"])).is_ok());
         assert!(check_tui_args(&cli(&[])).is_ok());
     }
