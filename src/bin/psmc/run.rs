@@ -4,19 +4,22 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use rayon::ThreadPool;
-use rayon::prelude::*;
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::io::BufWriter;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::bootstrap::{
-    default_bootstrap_dir, new_rng, replicate_json_path, rows_to_sequences,
-    sample_sequences_block_bootstrap, sequences_to_observations, summarize_bootstrap_models,
-    write_bootstrap_summary_json, write_bootstrap_summary_tsv,
+    BootstrapConfig, BootstrapOptions, BootstrapSummary, bootstrap_trunk_count,
+    default_bootstrap_dir, replicate_json_path, rows_to_sequences, run_bootstrap_with_options,
+    summarize_bootstrap_models, write_bootstrap_summary_json, write_bootstrap_summary_tsv,
 };
-use psmc_rs::em::{EmOptions, EmProgressEvent, em_train, em_train_with_options};
+use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{Cancelled, EStepPhase, write_tmrca_posterior_tsv};
+use psmc_rs::io::Observations;
+use psmc_rs::io::input::{Dataset, SourceSummary};
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
+use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
@@ -78,15 +81,6 @@ fn check_cancel(cancel: &AtomicBool) -> Result<()> {
     Ok(())
 }
 
-fn bootstrap_replicate_seed(base_seed: u64, rep_idx: usize) -> u64 {
-    // SplitMix-like deterministic stream splitting per replicate.
-    base_seed.wrapping_add(
-        (rep_idx as u64)
-            .wrapping_add(1)
-            .wrapping_mul(0x9E37_79B9_7F4A_7C15),
-    )
-}
-
 /// Run inference as `cli` describes it, in a thread pool of its own with
 /// `--threads` workers. `cancel` stops the run at the next check (between
 /// stages, and inside EM and the bootstrap); the error is then
@@ -107,6 +101,52 @@ pub fn run_inference(
     pool.install(|| infer(cli, cancel, sink, progress_bars, &pool))
 }
 
+/// The bootstrap a run asks for.
+struct BootstrapPlan {
+    replicates: usize,
+    trunk_size: usize,
+    seed: u64,
+    em_iters: usize,
+    dir: PathBuf,
+}
+
+impl BootstrapPlan {
+    /// The bootstrap of `cli`, if any, checked before any work is done.
+    fn of(cli: &Cli, n_iter: usize, output: &Path) -> Result<Option<Self>> {
+        if cli.bootstrap == 0 {
+            for (set, flag) in [
+                (cli.bootstrap_iters.is_some(), "--bootstrap-iters"),
+                (cli.bootstrap_dir.is_some(), "--bootstrap-dir"),
+            ] {
+                if set {
+                    bail!("{flag} applies to a bootstrap; add --bootstrap N to run N replicates");
+                }
+            }
+            return Ok(None);
+        }
+        let em_iters = cli.bootstrap_iters.unwrap_or(n_iter);
+        if em_iters == 0 {
+            bail!(
+                "the bootstrap replicates would run 0 EM iterations; set N_ITER above 0 or give \
+                 --bootstrap-iters"
+            );
+        }
+        Ok(Some(Self {
+            replicates: cli.bootstrap,
+            trunk_size: cli.bootstrap_block_size,
+            seed: cli.bootstrap_seed,
+            em_iters,
+            dir: cli
+                .bootstrap_dir
+                .clone()
+                .unwrap_or_else(|| default_bootstrap_dir(output)),
+        }))
+    }
+}
+
+/// Trunk counts below this make coarse bootstrap bands.
+const FEW_TRUNKS: usize = 20;
+
 /// [`run_inference`] inside its pool.
 fn infer(
     cli: &Cli,
@@ -125,6 +165,10 @@ fn infer(
         .ok_or_else(|| anyhow!("missing OUTPUT_FILE"))?;
     let n_iter = cli.n_iter.ok_or_else(|| anyhow!("missing N_ITER"))?;
 
+    // Settings that can be checked without the data fail first.
+    let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
+    let bootstrap = BootstrapPlan::of(cli, n_iter, &output_file)?;
+
     check_cancel(cancel)?;
     let input_file = resolve_input_path(&raw_input, cli.input.input_format)?;
     if input_file != raw_input {
@@ -133,35 +177,33 @@ fn infer(
             input_file.display()
         )));
     }
-
-    if cli.bootstrap > 0 && cli.bootstrap_block_size == 0 {
-        bail!("--bootstrap-block-size must be > 0 when --bootstrap is enabled");
-    }
-    let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
-    let bootstrap_iters = cli.bootstrap_iters.unwrap_or(n_iter);
-    if cli.bootstrap > 0 && bootstrap_iters == 0 {
-        bail!("bootstrap requires EM iterations; set N_ITER > 0 or use --bootstrap-iters");
-    }
-
-    let io_total = fs::metadata(&input_file).map(|m| m.len()).unwrap_or(1);
-    let io_progress = |done| Event::Progress {
-        stage: Stage::Io,
-        done,
-        total: io_total,
-        iter: None,
-    };
-    sink(io_progress(0));
-    let data = load_input(&input_file, &cli.input.to_options())?;
-    sink(io_progress(io_total));
-    for line in describe(&data) {
-        sink(Event::Info(line));
-    }
-    for line in data.warnings() {
-        sink(Event::Warning(line));
-    }
-    ensure_usable(&data)?;
+    let data = read_input(&input_file, cli, sink)?;
     let obs = &data.obs;
     let format_name = data.source.format().name();
+
+    // A bootstrap that cannot vary fails before the main fit, not after.
+    let boot_seqs = match &bootstrap {
+        Some(plan) => {
+            let seqs = rows_to_sequences(&obs.rows, &obs.row_starts)?;
+            let trunks = bootstrap_trunk_count(&seqs, plan.trunk_size)
+                .context("--bootstrap-block-size is too large for this input")?;
+            sink(Event::Info(format!(
+                "Bootstrap: {} replicates of {} EM iterations, resampling {trunks} trunks of {} \
+                 bins (seed {})",
+                plan.replicates, plan.em_iters, plan.trunk_size, plan.seed
+            )));
+            if trunks < FEW_TRUNKS {
+                sink(Event::Warning(format!(
+                    "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
+                     differ only in which of them they draw and the bands are coarse; a \
+                     smaller --bootstrap-block-size gives more trunks",
+                    plan.trunk_size
+                )));
+            }
+            Some((seqs, trunks))
+        }
+        None => None,
+    };
 
     let theta0 = match cli.theta0 {
         Some(v) => v,
@@ -178,6 +220,8 @@ fn infer(
         theta0 / rho0,
         model.t_max
     )));
+    // The replicates start where the main fit started, as C psmc -b does.
+    let start = (model.t_max, model.theta / model.rho);
 
     let mstep_config = MStepConfig {
         max_iters: cli.mstep_iters,
@@ -185,142 +229,47 @@ fn infer(
         progress: false,
         ..MStepConfig::default()
     };
+    let history = fit(&mut model, obs, n_iter, &mstep_config, cancel, sink, pool)?;
+    let final_loglike = history.final_loglike();
+    if let Some(ll) = final_loglike {
+        sink(Event::Output(format!("Last EM loglike: {ll}")));
+    }
+    if n_iter > 0
+        && let Some(msg) = near_bounds_warning(&model, &mstep_config)
+    {
+        sink(Event::Warning(msg));
+    }
+    check_cancel(cancel)?;
 
-    let mut final_loglike = None;
-    if n_iter > 0 {
-        let mut on_progress = |ev: EmProgressEvent| match ev {
-            EmProgressEvent::IterStart { iter, total_iters } => sink(Event::Iteration {
-                iter,
-                total: total_iters,
-            }),
-            EmProgressEvent::EStep {
-                iter,
-                total_iters,
-                phase,
-                done,
-                total,
-            } => sink(Event::Progress {
-                stage: match phase {
-                    EStepPhase::Forward => Stage::EForward,
-                    EStepPhase::Backward => Stage::EBackward,
-                },
-                done,
-                total,
-                iter: Some((iter, total_iters)),
-            }),
-            EmProgressEvent::MStep {
-                iter,
-                total_iters,
-                done,
-                total,
-            } => sink(Event::Progress {
-                stage: Stage::MStep,
-                done: done as u64,
-                total: total as u64,
-                iter: Some((iter, total_iters)),
-            }),
-        };
-        let history = em_train_with_options(
-            &mut model,
-            &obs.rows,
-            &obs.row_starts,
-            n_iter,
-            &mstep_config,
-            EmOptions {
-                on_progress: Some(&mut on_progress),
-                cancel: Some(cancel),
-                thread_pool: Some(pool),
-            },
-        )?;
-        final_loglike = history.final_loglike();
-        if let Some(ll) = final_loglike {
-            sink(Event::Output(format!("Last EM loglike: {ll}")));
-        }
-        if let Some(msg) = near_bounds_warning(&model, &mstep_config) {
-            sink(Event::Warning(msg));
-        }
+    if let Some(path) = &cli.psmc_out {
+        write_main_psmc(path, &model, &history, &data)?;
+        sink(Event::Output(format!("PSMC output: {}", path.display())));
     }
 
-    check_cancel(cancel)?;
-    let report_bin_size = cli.input.bin_size as f64;
-    model.param_recalculate()?;
-
-    let mut bootstrap_report_data = None;
-    let mut bootstrap_dir_out = None;
-    if cli.bootstrap > 0 {
-        let bootstrap_dir = cli
-            .bootstrap_dir
-            .clone()
-            .unwrap_or_else(|| default_bootstrap_dir(&output_file));
-        fs::create_dir_all(&bootstrap_dir).with_context(|| {
-            format!(
-                "failed to create bootstrap output directory {}",
-                bootstrap_dir.display()
-            )
-        })?;
-        let boot_progress = |done: usize| Event::Progress {
-            stage: Stage::Bootstrap,
-            done: done as u64,
-            total: cli.bootstrap as u64,
-            iter: None,
+    let bin_size = cli.input.bin_size as f64;
+    let mut boot_summary = None;
+    if let (Some(plan), Some((seqs, trunks))) = (&bootstrap, &boot_seqs) {
+        let cfg = BootstrapConfig {
+            replicates: plan.replicates,
+            trunk_size: plan.trunk_size,
+            seed: plan.seed,
+            em_iters: plan.em_iters,
+            t_max: start.0,
+            tr_ratio: start.1,
+            batch_size: cli.input.batch_size,
+            out_dir: Some(plan.dir.clone()),
         };
-        sink(boot_progress(0));
-        sink(Event::Info(format!(
-            "Bootstrap: running {} replicates in parallel",
-            cli.bootstrap
-        )));
-
-        let seqs = rows_to_sequences(&obs.rows, &obs.row_starts)?;
-        let boot_models = (0..cli.bootstrap)
-            .into_par_iter()
-            .map(|rep| -> Result<PsmcModel> {
-                check_cancel(cancel)?;
-                let mut rng = new_rng(bootstrap_replicate_seed(cli.bootstrap_seed, rep));
-                let sampled =
-                    sample_sequences_block_bootstrap(&seqs, cli.bootstrap_block_size, &mut rng)?;
-                let obs_rep = sequences_to_observations(&sampled, cli.input.batch_size)?;
-                let mut model_rep = model.clone();
-                em_train(
-                    &mut model_rep,
-                    &obs_rep.rows,
-                    &obs_rep.row_starts,
-                    bootstrap_iters,
-                    &mstep_config,
-                )?;
-                model_rep.param_recalculate()?;
-                model_rep.save_params(&replicate_json_path(&bootstrap_dir, rep + 1))?;
-                Ok(model_rep)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        check_cancel(cancel)?;
-        sink(boot_progress(cli.bootstrap));
-
-        let bootstrap_summary = summarize_bootstrap_models(
+        let summary = bootstrap_stage(
+            seqs,
             &model,
-            &boot_models,
-            report_bin_size,
-            cli.gen_years,
-            cli.bootstrap_block_size,
-            cli.bootstrap_seed,
+            &cfg,
+            &mstep_config,
+            (bin_size, cli.gen_years),
+            cancel,
+            sink,
+            pool,
         )?;
-        let summary_tsv = bootstrap_dir.join("summary.tsv");
-        let summary_json = bootstrap_dir.join("summary.json");
-        write_bootstrap_summary_tsv(&summary_tsv, &bootstrap_summary)?;
-        write_bootstrap_summary_json(&summary_json, &bootstrap_summary)?;
-        sink(Event::Output(format!(
-            "Bootstrap dir: {}",
-            bootstrap_dir.display()
-        )));
-        sink(Event::Output(format!(
-            "Bootstrap summary TSV: {}",
-            summary_tsv.display()
-        )));
-        sink(Event::Output(format!(
-            "Bootstrap summary JSON: {}",
-            summary_json.display()
-        )));
-        bootstrap_report_data = Some(bootstrap_summary);
-        bootstrap_dir_out = Some(bootstrap_dir);
+        boot_summary = Some((summary, *trunks));
     }
 
     check_cancel(cancel)?;
@@ -328,7 +277,7 @@ fn infer(
     if let Some(tmrca_out) = &cli.tmrca_out {
         // Each state's average coalescent time, the time of its emission
         // (C psmc's TC column).
-        let tmrca_years = model.state_tmrca_years(report_bin_size, cli.gen_years);
+        let tmrca_years = model.state_tmrca_years(bin_size, cli.gen_years);
         let tmrca = write_tmrca_posterior_tsv(
             model.prior_matrix(),
             model.transition_matrix(),
@@ -352,7 +301,7 @@ fn infer(
     let report_html = default_html_path(&output_file);
     let report = ReportData {
         model: &model,
-        bin_size: report_bin_size,
+        bin_size,
         gen_years: cli.gen_years,
         input_file: &input_file,
         output_json: &output_file,
@@ -361,13 +310,13 @@ fn infer(
         final_loglike,
         settings: vec![("Input format".to_string(), format_name.to_string())],
         qc: None,
-        bootstrap: bootstrap_report_data
-            .as_ref()
-            .map(|summary| BootstrapReport {
+        bootstrap: boot_summary.as_ref().zip(bootstrap.as_ref()).map(
+            |((summary, trunks), plan)| BootstrapReport {
                 summary,
-                em_iters: bootstrap_iters,
-                trunks: None,
-            }),
+                em_iters: plan.em_iters,
+                trunks: Some(*trunks),
+            },
+        ),
         tmrca: tmrca_report_data.as_ref(),
     };
     write_html_report(&report_html, &report)?;
@@ -380,9 +329,172 @@ fn infer(
         output_json: output_file,
         html_report: report_html,
         tmrca_out: cli.tmrca_out.clone(),
-        bootstrap_dir: bootstrap_dir_out,
+        bootstrap_dir: bootstrap.map(|plan| plan.dir),
         final_loglike,
     })
+}
+
+/// Read the input as `cli` says, report how it was read, and check that it
+/// can be fitted.
+fn read_input(path: &Path, cli: &Cli, sink: Sink) -> Result<Dataset> {
+    let io_total = fs::metadata(path).map(|m| m.len()).unwrap_or(1);
+    let io_progress = |done| Event::Progress {
+        stage: Stage::Io,
+        done,
+        total: io_total,
+        iter: None,
+    };
+    sink(io_progress(0));
+    let data = load_input(path, &cli.input.to_options())?;
+    sink(io_progress(io_total));
+    for line in describe(&data) {
+        sink(Event::Info(line));
+    }
+    for line in data.warnings() {
+        sink(Event::Warning(line));
+    }
+    ensure_usable(&data)?;
+    Ok(data)
+}
+
+/// `n_iter` EM iterations, reporting progress.
+fn fit(
+    model: &mut PsmcModel,
+    obs: &Observations,
+    n_iter: usize,
+    mstep_config: &MStepConfig,
+    cancel: &AtomicBool,
+    sink: Sink,
+    pool: &ThreadPool,
+) -> Result<EmHistory> {
+    let mut on_progress = |ev: EmProgressEvent| match ev {
+        EmProgressEvent::IterStart { iter, total_iters } => sink(Event::Iteration {
+            iter,
+            total: total_iters,
+        }),
+        EmProgressEvent::EStep {
+            iter,
+            total_iters,
+            phase,
+            done,
+            total,
+        } => sink(Event::Progress {
+            stage: match phase {
+                EStepPhase::Forward => Stage::EForward,
+                EStepPhase::Backward => Stage::EBackward,
+            },
+            done,
+            total,
+            iter: Some((iter, total_iters)),
+        }),
+        EmProgressEvent::MStep {
+            iter,
+            total_iters,
+            done,
+            total,
+        } => sink(Event::Progress {
+            stage: Stage::MStep,
+            done: done as u64,
+            total: total as u64,
+            iter: Some((iter, total_iters)),
+        }),
+    };
+    let history = em_train_with_options(
+        model,
+        &obs.rows,
+        &obs.row_starts,
+        n_iter,
+        mstep_config,
+        EmOptions {
+            on_progress: Some(&mut on_progress),
+            cancel: Some(cancel),
+            thread_pool: Some(pool),
+        },
+    )?;
+    model.param_recalculate()?;
+    Ok(history)
+}
+
+/// Write the main fit as C psmc's `.psmc` output.
+fn write_main_psmc(
+    path: &Path,
+    model: &PsmcModel,
+    history: &EmHistory,
+    data: &Dataset,
+) -> Result<()> {
+    let mut info = PsmcRunInfo::from_history(model, history, &data.obs.rows, &data.obs.row_starts)?;
+    // C psmc counts the empty records of a psmcfa file in n_seqs.
+    if let SourceSummary::Psmcfa(p) = &data.source {
+        info.n_seqs = p.records;
+    }
+    let rounds = psmc_rounds(model, history, info.sum_l)?;
+    let file =
+        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
+    write_psmc(BufWriter::new(file), &info, &rounds)
+        .with_context(|| format!("failed to write {}", path.display()))
+}
+
+/// Run the bootstrap and write its files: each replicate's JSON and
+/// `.psmc` output, and the summary of the curves.
+#[allow(clippy::too_many_arguments)]
+fn bootstrap_stage(
+    seqs: &[Vec<u8>],
+    model: &PsmcModel,
+    cfg: &BootstrapConfig,
+    mstep_config: &MStepConfig,
+    (bin_size, gen_years): (f64, f64),
+    cancel: &AtomicBool,
+    sink: Sink,
+    pool: &ThreadPool,
+) -> Result<BootstrapSummary> {
+    let progress = |done: usize| Event::Progress {
+        stage: Stage::Bootstrap,
+        done: done as u64,
+        total: cfg.replicates as u64,
+        iter: None,
+    };
+    sink(progress(0));
+    let on_done = |n: usize| sink(progress(n));
+    let opts = BootstrapOptions {
+        cancel: Some(cancel),
+        thread_pool: Some(pool),
+        on_done: Some(&on_done),
+    };
+    let replicates = run_bootstrap_with_options(seqs, model, cfg, mstep_config, opts)?;
+    let dir = cfg
+        .out_dir
+        .as_deref()
+        .expect("the CLI always writes the replicates");
+    for (i, rep) in replicates.iter().enumerate() {
+        let path = replicate_json_path(dir, i + 1).with_extension("psmc");
+        let file =
+            File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
+        rep.write_psmc(BufWriter::new(file))
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    let models: Vec<PsmcModel> = replicates.into_iter().map(|r| r.model).collect();
+    let summary = summarize_bootstrap_models(
+        model,
+        &models,
+        bin_size,
+        gen_years,
+        cfg.trunk_size,
+        cfg.seed,
+    )?;
+    let summary_tsv = dir.join("summary.tsv");
+    let summary_json = dir.join("summary.json");
+    write_bootstrap_summary_tsv(&summary_tsv, &summary)?;
+    write_bootstrap_summary_json(&summary_json, &summary)?;
+    sink(Event::Output(format!(
+        "Bootstrap replicates (replicate_NNN.json, replicate_NNN.psmc): {}",
+        dir.display()
+    )));
+    sink(Event::Output(format!(
+        "Bootstrap summary: {}, {}",
+        summary_tsv.display(),
+        summary_json.display()
+    )));
+    Ok(summary)
 }
 
 fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {

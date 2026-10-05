@@ -1,9 +1,11 @@
 //! The outputs of an inference run through the binary: determinism across
-//! thread counts, TMRCA decoding and time scaling.
+//! thread counts, C psmc's .psmc output, the bootstrap, TMRCA decoding and
+//! time scaling.
 
 mod common;
 
-use common::{TempDir, json, run_ok, small_psmcfa};
+use common::psmc_text::{header_value, parse_rounds};
+use common::{TempDir, json, run_err, run_ok, small_psmcfa};
 use psmc_rs::PsmcModel;
 use psmc_rs::io::params::load_params;
 use std::fs;
@@ -48,33 +50,195 @@ fn tmrca_rows(text: &str) -> Vec<(usize, Vec<f64>)> {
         .collect()
 }
 
-/// The same run with 1 and 4 threads writes the same bytes.
+/// The same run with 1 and 4 threads writes the same bytes: the JSON, the
+/// .psmc output, the TMRCA posterior and every bootstrap file.
 #[test]
 fn outputs_do_not_depend_on_the_thread_count() {
     let dir = TempDir::new("threads");
     let input = dir.path("in.psmcfa");
     small_psmcfa(&input, 20_000);
-    let run = |threads: &str| {
+    let run = |threads: &str| -> Vec<(String, Vec<u8>)> {
         let tmrca = dir.path(&format!("t{threads}.tsv"));
+        let psmc = dir.path(&format!("t{threads}.psmc"));
+        let boot = dir.path(&format!("boot{threads}"));
         let out = fit(
             &dir,
             &input,
             &format!("t{threads}"),
             3,
-            &["--threads", threads, "--tmrca-out", tmrca.to_str().unwrap()],
+            &[
+                "--threads",
+                threads,
+                "--tmrca-out",
+                tmrca.to_str().unwrap(),
+                "--psmc-out",
+                psmc.to_str().unwrap(),
+                "--bootstrap",
+                "3",
+                "--bootstrap-block-size",
+                "5000",
+                "--bootstrap-iters",
+                "2",
+                "--bootstrap-dir",
+                boot.to_str().unwrap(),
+            ],
         );
-        (fs::read(out).unwrap(), fs::read(tmrca).unwrap())
+        let mut files = vec![out, tmrca, psmc];
+        let mut boot_files: Vec<PathBuf> = fs::read_dir(&boot)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        boot_files.sort();
+        assert_eq!(boot_files.len(), 3 * 2 + 2, "{boot_files:?}");
+        files.extend(boot_files);
+        files
+            .into_iter()
+            .map(|p| {
+                let name = p
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace(threads, "N");
+                (name, fs::read(&p).unwrap())
+            })
+            .collect()
     };
-    let (json1, tmrca1) = run("1");
-    let (json4, tmrca4) = run("4");
-    assert!(
-        json1 == json4,
-        "JSON output differs between 1 and 4 threads"
+    let one = run("1");
+    let four = run("4");
+    for ((name, a), (_, b)) in one.iter().zip(&four) {
+        assert!(a == b, "{name} differs between 1 and 4 threads");
+    }
+}
+
+/// --psmc-out writes C psmc's format with rounds 0 to N_ITER; the header
+/// counts the input as C does, including empty records.
+#[test]
+fn psmc_output_has_a_round_per_iteration() {
+    let dir = TempDir::new("psmc_out");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 4000);
+    // An empty record, which C psmc counts in n_seqs.
+    let mut text = fs::read_to_string(&input).unwrap();
+    text.push_str(">empty\n");
+    fs::write(&input, text).unwrap();
+    let psmc = dir.path("fit.psmc");
+    let out = fit(
+        &dir,
+        &input,
+        "fit",
+        3,
+        &["--psmc-out", psmc.to_str().unwrap()],
     );
-    assert!(
-        tmrca1 == tmrca4,
-        "TMRCA output differs between 1 and 4 threads"
+    let text = fs::read_to_string(&psmc).unwrap();
+    let rounds = parse_rounds(&text);
+    assert_eq!(rounds.len(), 4);
+    assert_eq!(header_value(&text, "n_iterations"), Some("3"));
+    assert_eq!(header_value(&text, "n_seqs"), Some("4"));
+    assert_eq!(header_value(&text, "pattern"), Some("4+5*3+4"));
+    assert_eq!(header_value(&text, "theta/rho"), Some("4"));
+    assert!(text.contains(&format!(
+        "MM\tVersion: psmc-rs {}",
+        env!("CARGO_PKG_VERSION")
+    )));
+    // Round 0 holds the start, the last round the parameters written.
+    let v = json(&out);
+    let last = rounds.last().unwrap();
+    let theta = v["theta"].as_f64().unwrap();
+    assert!((last.tr.0 - theta).abs() < 1e-6, "{} vs {theta}", last.tr.0);
+    assert_eq!(rounds[0].lk, 0.0);
+    assert!(rounds[1..].iter().all(|r| r.lk < 0.0));
+    assert_eq!(rounds[0].rs.len(), 23);
+}
+
+/// A bootstrap writes every replicate's JSON and .psmc file and the summary,
+/// and the report shows it.
+#[test]
+fn bootstrap_writes_replicates_and_summary() {
+    let dir = TempDir::new("bootstrap");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 3000);
+    let out = fit(
+        &dir,
+        &input,
+        "fit",
+        2,
+        &["--bootstrap", "3", "--bootstrap-block-size", "1000"],
     );
+    let boot = dir.path("fit.bootstrap");
+    for rep in 1..=3 {
+        let params = load_params(&boot.join(format!("replicate_{rep:03}.json"))).unwrap();
+        assert_eq!(params.pattern.as_deref(), Some("4+5*3+4"));
+        let text = fs::read_to_string(boot.join(format!("replicate_{rep:03}.psmc"))).unwrap();
+        let rounds = parse_rounds(&text);
+        assert_eq!(rounds.len(), 3, "replicate {rep}");
+        // Each replicate fits its own resampled trunks from a fresh start.
+        assert_eq!(rounds[0].mt, 15.0);
+        assert!((rounds[2].tr.0 - params.theta).abs() < 1e-6);
+        let n_seqs: usize = header_value(&text, "n_seqs").unwrap().parse().unwrap();
+        assert!(
+            (7..=11).contains(&n_seqs),
+            "{n_seqs} trunks of about 1000 bins"
+        );
+    }
+    assert!(!boot.join("replicate_004.json").exists());
+    let summary = json(&boot.join("summary.json"));
+    assert_eq!(summary["n_replicates"], 3);
+    assert_eq!(summary["block_size"], 1000);
+    assert_eq!(summary["seed"], 42);
+    let tsv = fs::read_to_string(boot.join("summary.tsv")).unwrap();
+    assert!(tsv.starts_with("x_years\tne_main\tne_q025\tne_q500\tne_q975\n"));
+
+    let html = fs::read_to_string(out.with_extension("html")).unwrap();
+    assert!(html.contains("<h2>Bootstrap</h2>"));
+    assert!(html.contains("<tr><th>Trunks resampled</th><td>9</td></tr>"));
+}
+
+/// A bootstrap that cannot vary fails before the main fit.
+#[test]
+fn a_single_trunk_bootstrap_fails_before_fitting() {
+    let dir = TempDir::new("one_trunk");
+    let input = dir.path("in.psmcfa");
+    // One sequence of 3,000 bins.
+    fs::write(
+        &input,
+        format!(">chr1\n{}\n", "TTTTTTTTKTTTTTTTTTNT".repeat(150)),
+    )
+    .unwrap();
+    let out = dir.path("fit.json");
+    let err = run_err([
+        input.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "30",
+        "--bootstrap",
+        "10",
+        "--bootstrap-block-size",
+        "100000",
+    ]);
+    assert!(err.contains("--bootstrap-block-size is too large"), "{err}");
+    assert!(err.contains("single trunk"), "{err}");
+    assert!(!out.exists());
+
+    let err = run_err([
+        input.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "5",
+        "--bootstrap-dir",
+        dir.path("boot").to_str().unwrap(),
+    ]);
+    assert!(
+        err.contains("--bootstrap-dir applies to a bootstrap"),
+        "{err}"
+    );
+    let err = run_err([
+        input.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "0",
+        "--bootstrap",
+        "2",
+        "--bootstrap-block-size",
+        "1000",
+    ]);
+    assert!(err.contains("0 EM iterations"), "{err}");
 }
 
 /// TMRCA times are each state's average coalescent time (C's TC), scaled
@@ -119,8 +283,8 @@ fn tmrca_times_are_the_states_average_times() {
     assert_eq!(gunzip(&gz), text);
 }
 
-/// --gen-years scales every time: doubling it doubles the TMRCA years
-/// and leaves the fit alone.
+/// --gen-years scales every time: doubling it doubles the TMRCA years and
+/// the bootstrap summary's time axis, and leaves the fits alone.
 #[test]
 fn generation_time_scales_the_time_axis() {
     let dir = TempDir::new("gen_years");
@@ -133,12 +297,34 @@ fn generation_time_scales_the_time_axis() {
             &input,
             &format!("g{years}"),
             1,
-            &["--gen-years", years, "--tmrca-out", tmrca.to_str().unwrap()],
+            &[
+                "--gen-years",
+                years,
+                "--tmrca-out",
+                tmrca.to_str().unwrap(),
+                "--bootstrap",
+                "2",
+                "--bootstrap-block-size",
+                "1000",
+            ],
         );
-        (json(&out), tmrca_rows(&fs::read_to_string(tmrca).unwrap()))
+        let summary = json(&dir.path(&format!("g{years}.bootstrap/summary.json")));
+        (
+            json(&out),
+            tmrca_rows(&fs::read_to_string(tmrca).unwrap()),
+            summary,
+        )
     };
-    let (fit25, rows25) = run("25");
-    let (fit50, rows50) = run("50");
+    let (fit25, rows25, boot25) = run("25");
+    let (fit50, rows50, boot50) = run("50");
+    let points = |v: &serde_json::Value| v["points"].as_array().unwrap().clone();
+    for (a, b) in points(&boot25).iter().zip(&points(&boot50)) {
+        assert_eq!(
+            b["x_years"].as_f64().unwrap(),
+            2.0 * a["x_years"].as_f64().unwrap()
+        );
+        assert_eq!(b["ne_q500"], a["ne_q500"]);
+    }
     assert_eq!(fit25["lam"], fit50["lam"]);
     assert_eq!(fit25["theta"], fit50["theta"]);
     for ((s25, a), (s50, b)) in rows25.iter().zip(&rows50) {

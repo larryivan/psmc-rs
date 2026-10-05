@@ -4,6 +4,7 @@ use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, ValueEnum};
 use std::path::PathBuf;
 
+use psmc_rs::bootstrap::DEFAULT_BOOTSTRAP_TRUNK;
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
 use psmc_rs::model::{T_INF, n_steps_for_pattern};
@@ -434,37 +435,47 @@ pub struct Cli {
     #[arg(long, value_name = "WEIGHT", default_value_t = 0.0, value_parser = non_negative_f64, help_heading = "Model")]
     pub smooth_lambda: f64,
 
+    /// Bootstrap replicates to fit (0: none). As C psmc's bootstrap, each
+    /// draws trunks of the input with replacement and is fitted from a fresh
+    /// start
     #[arg(
         long,
+        value_name = "N",
         default_value_t = 0,
-        help = "Number of block-bootstrap replicates (0 disables bootstrap)"
+        help_heading = "Bootstrap"
     )]
     pub bootstrap: usize,
 
-    #[arg(long, default_value_t = 50_000, help = "Bootstrap block size in bins")]
+    /// Bootstrap trunk size in bins (C splitfa; 500000 = 50 Mb at 100 bp
+    /// bins); it must leave the input at least two trunks
+    #[arg(long, value_name = "BINS", default_value_t = DEFAULT_BOOTSTRAP_TRUNK, value_parser = positive_usize, alias = "bootstrap-trunk-size", help_heading = "Bootstrap")]
     pub bootstrap_block_size: usize,
 
+    /// Seed of the bootstrap resampling
     #[arg(
         long,
+        value_name = "SEED",
         default_value_t = 42,
-        help = "Random seed for bootstrap resampling"
+        help_heading = "Bootstrap"
     )]
     pub bootstrap_seed: u64,
 
-    #[arg(
-        long,
-        help = "EM iterations for each bootstrap replicate (default: same as N_ITER)"
-    )]
+    /// EM iterations of each replicate (default: N_ITER)
+    #[arg(long, value_name = "N", help_heading = "Bootstrap")]
     pub bootstrap_iters: Option<usize>,
 
-    #[arg(
-        long,
-        help = "Directory for bootstrap replicate JSON files and summary outputs"
-    )]
+    /// Directory of the replicate files (replicate_NNN.json and .psmc) and
+    /// the summary (default: OUTPUT with .bootstrap instead of .json)
+    #[arg(long, value_name = "DIR", help_heading = "Bootstrap")]
     pub bootstrap_dir: Option<PathBuf>,
 
     #[arg(long)]
     pub no_progress: bool,
+
+    /// Also write C psmc's .psmc output (rounds 0 to N_ITER), for
+    /// psmc_plot.pl and other tools made for C psmc
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
+    pub psmc_out: Option<PathBuf>,
 
     #[arg(
         long,
@@ -533,6 +544,26 @@ impl Cli {
         if self.bootstrap > 0 {
             args.push("--bootstrap".to_string());
             args.push(self.bootstrap.to_string());
+            if self.bootstrap_block_size != DEFAULT_BOOTSTRAP_TRUNK {
+                args.push("--bootstrap-block-size".to_string());
+                args.push(self.bootstrap_block_size.to_string());
+            }
+            if self.bootstrap_seed != 42 {
+                args.push("--bootstrap-seed".to_string());
+                args.push(self.bootstrap_seed.to_string());
+            }
+        }
+        if let Some(v) = self.bootstrap_iters {
+            args.push("--bootstrap-iters".to_string());
+            args.push(v.to_string());
+        }
+        if let Some(v) = &self.bootstrap_dir {
+            args.push("--bootstrap-dir".to_string());
+            args.push(v.display().to_string());
+        }
+        if let Some(v) = &self.psmc_out {
+            args.push("--psmc-out".to_string());
+            args.push(v.display().to_string());
         }
         args.push("--no-progress".to_string());
         args
