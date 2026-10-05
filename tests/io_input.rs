@@ -88,6 +88,99 @@ fn formats_are_recognised_from_the_content() {
 }
 
 #[test]
+fn bcf_input_is_refused_with_a_conversion_hint() {
+    // BCF 2.2 as bcftools writes it: magic, header length, header text,
+    // then binary records. -Ob compresses it (gzip framing here).
+    let mut bcf = b"BCF\x02\x02".to_vec();
+    let header = format!("{HEADER}\0");
+    bcf.extend_from_slice(&(header.len() as u32).to_le_bytes());
+    bcf.extend_from_slice(header.as_bytes());
+    bcf.extend_from_slice(&[0x1c, 0, 0, 0, 0xff, 0xfe, 0x80, 0x7f]);
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut gz, &bcf).unwrap();
+    let gz = gz.finish().unwrap();
+    for (bytes, format) in [
+        (&bcf, None),
+        (&gz, None),
+        (&gz, Some(InputFormat::Vcf)),
+        (&gz, Some(InputFormat::Mhs)),
+    ] {
+        let path = unique_temp_path("bcf_input", "bcf");
+        fs::write(&path, bytes).unwrap();
+        let err = load(
+            &path,
+            &InputOptions {
+                format,
+                ..InputOptions::default()
+            },
+        )
+        .unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(
+            msg.contains("is a BCF file") && msg.contains("bcftools view -Oz"),
+            "{format:?}: {msg}"
+        );
+        let _ = fs::remove_file(path);
+    }
+}
+
+#[test]
+fn a_utf8_byte_order_mark_is_skipped() {
+    const BOM: &str = "\u{feff}";
+    let psmcfa = TempFile::new("bom", "psmcfa", &format!("{BOM}>chr1\nTTKN\n"));
+    let data = load(&psmcfa.0, &InputOptions::default()).unwrap();
+    assert_eq!(data.source.format(), InputFormat::Psmcfa);
+    assert_eq!(data.seqs[0].name, "chr1");
+    assert_eq!(data.obs.rows, vec![vec![0, 0, 1, 2]]);
+
+    let mhs = TempFile::new("bom", "mhs", &format!("{BOM}chr1\t10\t10\tAC\n"));
+    let data = load(
+        &mhs.0,
+        &InputOptions {
+            bin_size: 5,
+            filter: SeqFilter::DISABLED,
+            ..InputOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(data.source.format(), InputFormat::Mhs);
+    assert_eq!(data.seqs[0].name, "chr1");
+
+    let vcf = TempFile::new(
+        "bom",
+        "vcf",
+        &format!("{BOM}{}", call_c_vcf("c", 30, 3, 20)),
+    );
+    let data = load(
+        &vcf.0,
+        &InputOptions {
+            filter: SeqFilter::DISABLED,
+            ..InputOptions::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(data.source.format(), InputFormat::Vcf);
+    assert_eq!(data.seqs[0].het_sites, Some(10));
+}
+
+#[test]
+fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
+    let text = TempFile::new("guess", "txt", "Some notes, not data\n");
+    let err = format!("{:#}", load(&text.0, &InputOptions::default()).unwrap_err());
+    assert!(
+        err.contains("failed to read multihetsep")
+            && err.contains("recognised from the first line"),
+        "{err}"
+    );
+    let forced = InputOptions {
+        format: Some(InputFormat::Mhs),
+        ..InputOptions::default()
+    };
+    let err = format!("{:#}", load(&text.0, &forced).unwrap_err());
+    assert!(!err.contains("recognised from the first line"), "{err}");
+}
+
+#[test]
 fn vcf_headers_need_not_start_with_fileformat() {
     let body = call_c_vcf("c", 40, 4, 20);
     let records: String = body.lines().skip(2).map(|l| format!("{l}\n")).collect();

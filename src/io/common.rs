@@ -23,6 +23,9 @@ use crate::io::Observations;
 /// checks: reading one without it to the end is an error, because a bgzip
 /// file cut at a block boundary (by an interrupted job) decodes cleanly and
 /// would otherwise pass for the whole input.
+///
+/// The decoded text must not be BCF, which is refused with a hint to
+/// convert it; a leading UTF-8 byte order mark is dropped.
 pub fn open_reader(path: &Path) -> Result<Box<dyn BufRead>> {
     let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
     decoding_reader(file, path)
@@ -64,7 +67,7 @@ fn decoding_reader(file: File, path: &Path) -> Result<Box<dyn BufRead>> {
     let is_gzip = head.starts_with(&[0x1f, 0x8b]);
     let is_bgzf = is_gzip && head.len() == 14 && head[3] & 4 != 0 && head[12..14] == *b"BC";
     let raw = Cursor::new(head).chain(file);
-    Ok(if is_bgzf {
+    let decoded: Box<dyn BufRead> = if is_bgzf {
         Box::new(BufReader::new(BgzfReader {
             decoder: MultiGzDecoder::new(TailKeeper::new(raw)),
         }))
@@ -72,7 +75,36 @@ fn decoding_reader(file: File, path: &Path) -> Result<Box<dyn BufRead>> {
         Box::new(BufReader::new(MultiGzDecoder::new(raw)))
     } else {
         Box::new(BufReader::new(raw))
-    })
+    };
+    check_text_start(decoded, path)
+}
+
+/// Refuse BCF, which every reader would otherwise misread as text, and
+/// drop a leading UTF-8 byte order mark, which some editors write and which
+/// would otherwise become part of the first line (C psmc skips it in a
+/// psmcfa file, as it skips everything before the first `>`).
+fn check_text_start(mut reader: Box<dyn BufRead>, path: &Path) -> Result<Box<dyn BufRead>> {
+    let mut head = Vec::with_capacity(4);
+    (&mut reader)
+        .take(4)
+        .read_to_end(&mut head)
+        .with_context(|| format!("failed to read {path:?}"))?;
+    // BCF 2 starts with "BCF\2", the old BCF 1 with "BCF\4".
+    if head.starts_with(b"BCF") && matches!(head.get(3), Some(1 | 2 | 4)) {
+        bail!(
+            "{path:?} is a BCF file, which psmc-rs does not read; convert it to a VCF \
+             first: bcftools view -Oz -o OUT.vcf.gz {}",
+            path.display()
+        );
+    }
+    let start = if head.starts_with(b"\xef\xbb\xbf") {
+        3
+    } else {
+        0
+    };
+    let mut head = Cursor::new(head);
+    head.set_position(start);
+    Ok(Box::new(head.chain(reader)))
 }
 
 /// A reader that remembers the last [`BGZF_EOF`]`.len()` bytes it passed on.

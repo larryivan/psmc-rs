@@ -55,8 +55,9 @@ impl InputFormat {
         }
     }
 
-    /// Guess the format from the content (gzip is decoded first), skipping
-    /// blank lines:
+    /// Guess the format from the content (gzip is decoded first, a UTF-8
+    /// byte order mark dropped and BCF refused, see
+    /// [`crate::io::common::open_reader`]), skipping blank lines:
     ///
     /// - a line starting with `##` (VCF meta-information such as
     ///   `##fileformat`, `##contig` or `##source`) or `#CHROM` makes it a VCF;
@@ -797,9 +798,18 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
                 batch_size: opts.batch_size,
                 pair: opts.mhs_pair,
             };
+            // Multihetsep is also what the format guess falls back to, so
+            // its errors say how the format was chosen.
+            let guessed = if opts.format.is_none() {
+                " (the format was recognised from the first line, which does not start with '>' \
+                 or '@' as in psmcfa and has fewer than the 8 tab-separated fields of a VCF \
+                 record; give the input format if the file is something else)"
+            } else {
+                ""
+            };
             let (seqs, summary) =
                 read_mhs_seqs_from(input.into_reader(), path, &mhs_opts, opts.collect_het_sites)
-                    .with_context(|| format!("failed to read multihetsep {path:?}"))?;
+                    .with_context(|| format!("failed to read multihetsep {path:?}{guessed}"))?;
             let raw = seqs
                 .into_iter()
                 .map(|s| RawSeq {
