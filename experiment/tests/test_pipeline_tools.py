@@ -8,6 +8,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -60,6 +61,15 @@ class Identities(unittest.TestCase):
         state = tools.rs02_source_state()
         self.assertRegex(state["source_commit"], r"^[0-9a-f]{40}$")
         self.assertTrue(state["source_dirty"] == "" or re.match(r"^[0-9a-f]{64}$", state["source_dirty"]))
+
+    def test_psmc_rs_outside_a_checkout_is_identified_by_its_binary(self):
+        binary = ROOT / "target" / "release" / "psmc-rs"
+        if not binary.exists():
+            self.skipTest("target/release/psmc-rs not built")
+        with mock.patch.object(tools, "rs02_source_state", side_effect=tools.ToolError("not a repository")):
+            t = tools.psmc_rs_02(build=False)
+        self.assertEqual(t.identity["binary_sha256"], tools.sha256_file(binary))
+        self.assertIn("unknown", t.identity["source_commit"])
 
     def test_missing_tools_are_reported(self):
         with self.assertRaises(tools.ToolError):

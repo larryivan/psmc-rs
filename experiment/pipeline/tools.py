@@ -109,14 +109,22 @@ def _version(binary: Path) -> str:
 
 
 def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
-    """psmc-rs 0.2 from this checkout, built first when ``build``."""
+    """psmc-rs 0.2 from this checkout, built first when ``build``.
+
+    Outside a git checkout (an unpacked archive of the repository) the
+    sources have no commit, and the binary's SHA-256 identifies it instead.
+    """
     binary = build_rs02(log) if build else rs02_binary()
     if not binary.exists():
         raise ToolError(f"{binary} does not exist; build it with cargo build --release")
     version = _version(binary)
     if not version.startswith("psmc-rs 0.2"):
         raise ToolError(f"{binary} is {version!r}, not psmc-rs 0.2")
-    return Tool("psmc-rs-0.2", binary, {"version": version, **rs02_source_state()})
+    try:
+        source = rs02_source_state()
+    except (ToolError, OSError):
+        source = {"source_commit": "unknown: not a git checkout", "binary_sha256": sha256_file(binary)}
+    return Tool("psmc-rs-0.2", binary, {"version": version, **source})
 
 
 # ---------------------------------------------------------------------------
