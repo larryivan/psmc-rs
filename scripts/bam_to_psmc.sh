@@ -46,8 +46,10 @@ Options:
                       BED works too). Default: every contig of the reference
                       not named like a sex chromosome or organelle (X, Y, Z,
                       W, M, MT, chrX, chrM, ..., the rule of \`psmc-rs qc\`).
-  --threads N         Chromosomes called at once, and psmc-rs threads
-                      [number of CPUs: $(default_threads)]
+  --threads N         Chromosomes called at once, and bcftools concat
+                      threads [the CPUs this process may use: $(default_threads)].
+                      Passed to the fit only when given; otherwise psmc-rs
+                      picks its own default, which also follows CPU quotas
   --min-mapq N        mpileup -q: minimum mapping quality of a read [20]
                       (vcf2fq's -Q, on the RMS mapping quality of a site,
                       stays at its default 10)
@@ -92,8 +94,11 @@ $MIN_PSMC_RS are required. See docs/preprocessing.md.
 EOF
 }
 
+# The CPUs this process may use. nproc follows the affinity mask (taskset,
+# cpusets, a batch scheduler's binding), where getconf counts every online
+# CPU of the machine; macOS has no nproc, and no affinity masks either.
 default_threads() {
-  getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1
+  nproc 2> /dev/null || getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1
 }
 
 # ---------------------------------------------------------------------------
@@ -140,7 +145,7 @@ log_cmd() {
 # Arguments
 
 command_line=$(quoted "$0" "$@")
-bam="" ref="" out="" chroms_arg="" threads="" min_mapq=20 min_baseq=20
+bam="" ref="" out="" chroms_arg="" threads="" threads_given=0 min_mapq=20 min_baseq=20
 depth="auto" max_depth="" min_qual=20 bin_size=100 multihetsep=0 run_iters="" psmc_rs=""
 keep_tmp=0 dry_run=0
 extra=()
@@ -162,7 +167,7 @@ while [ "$#" -gt 0 ]; do
     --ref) need_value "$@"; ref=$2; shift 2 ;;
     --out) need_value "$@"; out=$2; shift 2 ;;
     --chroms) need_value "$@"; chroms_arg=$2; shift 2 ;;
-    --threads) need_value "$@"; threads=$2; shift 2 ;;
+    --threads) need_value "$@"; threads=$2; threads_given=1; shift 2 ;;
     --min-mapq) need_value "$@"; min_mapq=$2; shift 2 ;;
     --min-baseq) need_value "$@"; min_baseq=$2; shift 2 ;;
     --depth) need_value "$@"; depth=$2; shift 2 ;;
@@ -413,7 +418,9 @@ common_input_opts=(--input-format vcf --vcf-mode consensus --depth "$depth"
 fit=()
 if [ -n "$run_iters" ]; then
   fit=("$psmc_rs" "$psmcfa" "$out.json" "$run_iters" --bin-size "$bin_size")
-  has_extra --threads || fit+=(--threads "$threads")
+  if [ "$threads_given" -eq 1 ] && ! has_extra --threads; then
+    fit+=(--threads "$threads")
+  fi
   has_extra --psmc-out || fit+=(--psmc-out "$out.psmc")
   has_extra --no-progress || fit+=(--no-progress)
   fit+=(${extra[@]+"${extra[@]}"})

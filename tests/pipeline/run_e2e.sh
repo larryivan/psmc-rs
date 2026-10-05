@@ -110,6 +110,27 @@ expect_error 1 "psmc-rs not found" "${base_args[@]}" --psmc-rs "$out/no-such-psm
 expect_error 1 "--chroms: 'c2' is not a sequence of" "${base_args[@]}" --chroms c1,c2
 expect_error 1 "--chroms names c1 twice" "${base_args[@]}" --chroms c1,c1
 
+# The fit gets --threads only when it is given, and otherwise picks its own
+# default. The script's default follows the CPU affinity (checked where
+# taskset exists, on Linux).
+run_script "${base_args[@]}" --run 2 --dry-run > "$out/dry_fit.txt"
+fitline=$(grep -F -- "$out/x.psmcfa $out/x.json 2 " "$out/dry_fit.txt") ||
+  fail "no fit in the dry run: $(cat "$out/dry_fit.txt")"
+case "$fitline" in
+  *--threads*) fail "the fit gets --threads although none was given: $fitline" ;;
+esac
+run_script "${base_args[@]}" --run 2 --threads 3 --dry-run > "$out/dry_fit.txt"
+grep -qF -- "$out/x.json 2 --bin-size 100 --threads 3 " "$out/dry_fit.txt" ||
+  fail "the fit does not get --threads 3: $(cat "$out/dry_fit.txt")"
+ok "the fit gets --threads only when it is given"
+if command -v taskset > /dev/null; then
+  taskset -c 0 ${E2E_BASH:+"$E2E_BASH"} "$script" "${base_args[@]}" --dry-run > "$out/dry_cpu.txt"
+  grep -qF "1 at a time" "$out/dry_cpu.txt" || fail "taskset -c 0: $(cat "$out/dry_cpu.txt")"
+  ok "the default number of jobs follows the CPU affinity (taskset -c 0: 1 at a time)"
+else
+  printf 'skipped: no taskset, so the CPU affinity default is not checked\n'
+fi
+
 # The names left out by default are those psmc-rs qc calls sex chromosomes
 # or organelles.
 names="chr1 1 2L chr2R chrX X chrY Y chrM M MT chrMT Mt mito mtDNA chrW chrZ Z W X1 chrX2

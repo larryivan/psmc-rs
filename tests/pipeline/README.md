@@ -44,7 +44,9 @@ of bases at quality 10, and 0.3% sequencing errors.
 
 - The command line: `--help`, usage errors (exit 2), a missing input, a
   bcftools older than 1.10 and a psmc-rs older than 0.2.0 (fake binaries),
-  unknown or repeated `--chroms` names. The dry run leaves out exactly the
+  unknown or repeated `--chroms` names. The fit gets `--threads` only when
+  it is given; where `taskset` exists (Linux), `taskset -c 0` makes the
+  script run one job at a time. The dry run leaves out exactly the
   names that `psmc-rs qc` classifies as sex chromosomes or organelles, for
   72 names in the styles of UCSC, Ensembl, RefSeq and other assemblies.
 - Run 1, the plain SAM (no index, so each job streams the file), 3 jobs,
