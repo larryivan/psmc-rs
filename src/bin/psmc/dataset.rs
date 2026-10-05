@@ -5,7 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use psmc_rs::io::consensus::LossReason;
+use psmc_rs::io::consensus::{DepthThresholds, LossReason};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, QcContext, QcInput, QcReport, QcSeq,
@@ -204,9 +204,23 @@ pub fn resolve_input_path(path: &Path, fmt: FormatArg) -> Result<PathBuf> {
         })
 }
 
-/// [`load`] with the path in the error.
+/// [`load`] with the path in the error, and the option to use when the
+/// automatic depth bounds cannot read a pipe twice.
 pub fn load_input(path: &Path, opts: &InputOptions) -> Result<Dataset> {
-    load(path, opts).with_context(|| format!("failed to read the input {}", path.display()))
+    load(path, opts).map_err(|e| {
+        let e = e.context(format!("failed to read the input {}", path.display()));
+        let two_passes = opts.consensus.depth == DepthThresholds::Auto
+            && !path.is_file()
+            && format!("{e:#}").contains("automatic depth thresholds need two passes");
+        if two_passes {
+            anyhow!(
+                "{e:#}. Give them as --depth MIN:MAX to read the VCF in one pass (vcf2fq's \
+                 defaults are 3:100000)"
+            )
+        } else {
+            e
+        }
+    })
 }
 
 /// [`Dataset::ensure_usable`], naming the options that keep sequences the

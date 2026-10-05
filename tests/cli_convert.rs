@@ -298,3 +298,45 @@ fn convert_writes_an_empty_file_when_everything_is_dropped() {
     assert!(stderr.contains("no sequence is left to write"), "{stderr}");
     assert_eq!(fs::read(&out).unwrap(), b"");
 }
+
+/// Run convert on `bytes` written to its stdin through a pipe.
+fn convert_piped(bytes: Vec<u8>, args: &[&str]) -> std::process::Output {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(common::bin())
+        .args(["convert", "/dev/stdin"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        // The reader may stop early, closing the pipe.
+        let _ = stdin.write_all(&bytes);
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    out
+}
+
+/// A pipe can be read once, so the automatic depth bounds (two passes)
+/// cannot read it; the error names the option that can.
+#[test]
+fn a_piped_vcf_needs_explicit_depth_bounds() {
+    let dir = TempDir::new("convert_pipe");
+    let vcf = fs::read(route_a("allsites.vcf.gz")).unwrap();
+    let out = dir.path("out.psmcfa");
+    let o = convert_piped(vcf.clone(), &["--psmcfa", out.to_str().unwrap()]);
+    assert!(!o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(stderr.contains("Give them as --depth MIN:MAX"), "{stderr}");
+
+    let o = convert_piped(
+        vcf,
+        &["--psmcfa", out.to_str().unwrap(), "--depth", "3:100000"],
+    );
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(read_bytes(&out) == read_bytes(&route_a("expected/default.psmcfa")));
+}
