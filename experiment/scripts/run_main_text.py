@@ -147,8 +147,9 @@ class Runner:
             inp = self.input_path(key)
             rust_out = self.outputs / f"{key}.rust.main.json"
             c_out = self.outputs / f"{key}.c.main.psmc"
-            # Reuse only finished runs: an interrupted C psmc leaves fewer rounds.
-            if force or not exp_common.psmc_rs_output_ok(rust_out):
+            # Reuse only finished runs of N_ITER iterations (an interrupted C psmc
+            # leaves fewer rounds; a psmc-rs JSON records its n_iter).
+            if force or not exp_common.psmc_rs_output_ok(rust_out, self.settings.n_iter):
                 print(f"[main] psmc-rs {key}", flush=True)
                 self.rust(inp, rust_out)
             if force or not exp_common.c_psmc_complete(c_out, self.settings.n_iter):

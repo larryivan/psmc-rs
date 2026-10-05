@@ -501,17 +501,24 @@ def psmc_rs_loglikes(path: Path, n_iter: int) -> Optional[List[Tuple[int, float]
     return [(i + 1, float(trace[i])) for i in range(n_iter)]
 
 
-def psmc_rs_output_ok(path: Path) -> bool:
-    """Whether ``path`` is a readable psmc-rs parameter JSON.
+def psmc_rs_output_ok(path: Path, n_iter: int) -> bool:
+    """Whether ``path`` is the parameter JSON of a finished psmc-rs run of ``n_iter`` iterations.
 
-    psmc-rs writes the JSON once, after its last EM iteration, so a file that
-    parses is a finished run; an interrupted write leaves invalid JSON.
+    psmc-rs writes the JSON once, right after its last EM iteration, so a
+    file that parses is a finished run; an interrupted write leaves invalid
+    JSON. From 0.2 on the file records ``n_iter``; a file from another
+    ``N_ITER``, or from 0.1 (which recorded none), is not reused, just as a
+    C psmc output must hold ``N_ITER + 1`` rounds (:func:`c_psmc_complete`).
     """
     try:
         params = json.loads(Path(path).read_text())
     except (OSError, ValueError):
         return False
-    return isinstance(params, dict) and all(k in params for k in ("theta", "rho", "lam", "n_steps", "t_max"))
+    return (
+        isinstance(params, dict)
+        and all(k in params for k in ("theta", "rho", "lam", "n_steps", "t_max"))
+        and params.get("n_iter") == n_iter
+    )
 
 
 def require_modules(names: Sequence[str], purpose: str) -> None:

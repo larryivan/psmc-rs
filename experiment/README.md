@@ -210,11 +210,15 @@ with these model options and stop with an explanation unless it starts from
 `theta0/RHO_T_RATIO`. `MSTEP_ITERS` stays at psmc-rs's default; C psmc's
 optimiser runs each M-step to convergence, which psmc-rs matches more
 closely with about 1000 (at ten times the M-step's small share of the run
-time). The scripts reuse finished runs: a psmc-rs JSON that parses, and a C psmc output
-with exactly `N_ITER + 1` rounds. C psmc writes each round as it goes, so it
-writes to `<output>.partial`, which is renamed only when the run succeeds; an
-interrupted run therefore leaves no output, and an incomplete one (or one made
-with another `N_ITER`) is run again. `--force-run` (main text), `--force`
+time).
+
+The scripts reuse finished runs of the requested `N_ITER`: a psmc-rs JSON
+that parses and records that `n_iter` (psmc-rs 0.2 writes it; 0.1 outputs
+are run again), and a C psmc output with exactly `N_ITER + 1` rounds. C
+psmc writes each round as it goes, so it writes to `<output>.partial`, which
+is renamed only when the run succeeds; an interrupted run therefore leaves
+no output, and an incomplete one (or one made with another `N_ITER`) is run
+again. `--force-run` (main text), `--force`
 (real data, supplementary) re-run everything. Timing steps (`perf`, S3, S4)
 always re-run because cached outputs carry no timing.
 

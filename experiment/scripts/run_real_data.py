@@ -88,8 +88,9 @@ def run_samples(
         if not inp.exists():
             raise FileNotFoundError(f"input missing: {inp}")
         r_out, c_out = rust_json_path(out_dir, s), c_psmc_path(out_dir, s)
-        # Reuse only finished runs: an interrupted C psmc leaves fewer rounds.
-        if force or not exp_common.psmc_rs_output_ok(r_out):
+        # Reuse only finished runs of N_ITER iterations (an interrupted C psmc
+        # leaves fewer rounds; a psmc-rs JSON records its n_iter).
+        if force or not exp_common.psmc_rs_output_ok(r_out, settings.n_iter):
             print(f"[run] psmc-rs {s.sid}", flush=True)
             exp_common.run_command(settings.rust_cmd(rust_bin, inp, r_out, mu=s.mu), log_path=log, cwd=exp_common.ROOT)
         if force or not exp_common.c_psmc_complete(c_out, settings.n_iter):

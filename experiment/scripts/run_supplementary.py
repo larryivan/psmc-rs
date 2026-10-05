@@ -862,7 +862,7 @@ def run_s1_smooth_ablation(force: bool = False):
         for lam in S1_SMOOTH_LAMBDAS:
             lam_tag = f"{lam:g}".replace("+", "").replace("/", "_")
             rust_json = S1_DIR / "outputs" / f"{key}.rust.lambda_{lam_tag}.json"
-            if force or not exp_common.psmc_rs_output_ok(rust_json):
+            if force or not exp_common.psmc_rs_output_ok(rust_json, N_ITER):
                 run_rust(inp, rust_json, n_iter=N_ITER, threads=RUST_THREADS_BASE, smooth_lambda=lam)
             xr, yr, _ = curve_from_json(rust_json)
             rust_curves[lam] = (xr, yr)
@@ -1309,7 +1309,7 @@ def run_s5_format_consistency(force: bool = False):
         p_vcf = S5_DIR / "outputs" / f"{key}.vcf.rust.json"
 
         for inp, out, fmt in ((psmcfa_in, p_psmcfa, "psmcfa"), (mhs_in, p_mhs, "mhs"), (vcf_in, p_vcf, "vcf")):
-            if force or not exp_common.psmc_rs_output_ok(out):
+            if force or not exp_common.psmc_rs_output_ok(out, N_ITER):
                 run_rust(inp, out, n_iter=N_ITER, input_format=fmt, bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE)
 
         x_psmcfa, y_psmcfa, params_psmcfa = curve_from_json(p_psmcfa)

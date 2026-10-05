@@ -336,7 +336,7 @@ class InterruptedRuns(FakeToolsCase):
         self.assertFalse(self.c_out.exists(), "a partial C output was left at the final path")
 
     def test_incomplete_cached_c_output_is_run_again(self):
-        fixtures.write_rust_json(self.r_out)
+        fixtures.write_rust_json(self.r_out, n_iter=self.N_ITER)
         fixtures.write_c_psmc(self.c_out, rounds=range(3))  # interrupted after round 2 of 5
         self.run_real_data()
         self.assertEqual(c_rounds(self.c_out), self.N_ITER + 1)
@@ -359,12 +359,25 @@ class InterruptedRuns(FakeToolsCase):
         runner = mt.Runner(out, str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
         runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
         c_out = out / "outputs" / "constant.c.main.psmc"
-        fixtures.write_rust_json(out / "outputs" / "constant.rust.main.json")
+        fixtures.write_rust_json(out / "outputs" / "constant.rust.main.json", n_iter=self.N_ITER)
         fixtures.write_c_psmc(c_out, rounds=range(2))
         with contextlib.redirect_stdout(io.StringIO()):
             runner.main_runs(["constant"], force=False)
         self.assertEqual(c_rounds(c_out), self.N_ITER + 1)
         self.assertEqual(len(self.calls("c", c_out.name)), 1)
+        self.assertEqual(self.calls("psmc-rs", "constant.rust.main"), [])
+
+    def test_psmc_rs_output_of_another_n_iter_is_run_again(self):
+        # As C outputs with another round count are: N_ITER changed, or the
+        # file came from psmc-rs 0.1, which recorded no n_iter.
+        fixtures.write_c_psmc(self.c_out, rounds=range(self.N_ITER + 1))
+        for stale in (dict(n_iter=self.N_ITER - 1), dict(n_iter=None)):
+            fixtures.write_rust_json(self.r_out, **stale)
+            self.run_real_data()
+        self.assertEqual(len(self.calls("psmc-rs", self.r_out.name)), 2)
+        self.run_real_data()
+        self.assertEqual(len(self.calls("psmc-rs", self.r_out.name)), 2, "a matching output is reused")
+        self.assertEqual(self.calls("c", self.c_out.name), [])
 
     def test_supplementary_c_runs_are_staged(self):
         rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_int")
