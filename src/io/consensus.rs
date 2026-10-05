@@ -555,11 +555,12 @@ fn alt_is_snp_or_ref(alt: &[u8]) -> bool {
     let Some((&first, rest)) = alt.split_first() else {
         return false;
     };
+    let (pairs, odd) = rest.as_chunks::<2>();
     (first.is_ascii_alphabetic() || first == b'.')
-        && rest.len() % 2 == 0
-        && rest
-            .chunks_exact(2)
-            .all(|c| c[0] == b',' && c[1].is_ascii_alphabetic())
+        && odd.is_empty()
+        && pairs
+            .iter()
+            .all(|&[comma, base]| comma == b',' && base.is_ascii_alphabetic())
 }
 
 fn is_num_char(b: u8) -> bool {
