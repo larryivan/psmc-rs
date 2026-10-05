@@ -90,5 +90,23 @@ class Identities(unittest.TestCase):
             tools.utility("fq2psmcfa", Path("/nonexistent/tools"))
 
 
+class RequirementsLock(unittest.TestCase):
+    def test_the_lock_pins_what_the_pipeline_imports(self):
+        lock = tools.read_lock()
+        for name in ("msprime", "tskit", "numpy", "stdpopsim", "scipy", "matplotlib", "pandas", "psutil", "demes"):
+            self.assertRegex(lock[name], r"^[0-9][0-9A-Za-z.+-]*$", name)
+        self.assertIn("python", lock)
+
+    def test_differences_are_named(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            lock = Path(d) / "requirements.lock"
+            lock.write_text("# python==0.0.1\nnumpy==0.0.1\nno-such-package-here==1.0\n")
+            diffs = tools.lock_differences(lock)
+        self.assertEqual(len(diffs), 3)
+        self.assertTrue(any(d.startswith("no-such-package-here missing") for d in diffs))
+
+
 if __name__ == "__main__":
     unittest.main()

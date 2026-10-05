@@ -341,6 +341,41 @@ def rs02_qc(tool: Tool, inp: Path, json_out: Path, extra: Sequence[str] = ()) ->
     return [str(tool.path), "qc", str(inp), "--json", str(json_out), *[str(x) for x in extra]]
 
 
+LOCK = paths.EXPERIMENT / "pipeline" / "requirements.lock"
+
+
+def read_lock(path: Path = LOCK) -> Dict[str, str]:
+    """``{package: version}`` of the requirements lock (``python`` from its ``# python==`` line)."""
+    out: Dict[str, str] = {}
+    for line in Path(path).read_text().splitlines():
+        line = line.strip()
+        if line.startswith("# python=="):
+            out["python"] = line.split("==", 1)[1]
+        elif line and not line.startswith("#") and "==" in line:
+            name, version = line.split("==", 1)
+            out[name.strip().lower()] = version.strip()
+    return out
+
+
+def lock_differences(path: Path = LOCK) -> List[str]:
+    """How the running interpreter differs from the requirements lock (empty when it matches)."""
+    import platform
+    from importlib import metadata
+
+    out = []
+    for name, want in read_lock(path).items():
+        if name == "python":
+            have = platform.python_version()
+        else:
+            try:
+                have = metadata.version(name)
+            except metadata.PackageNotFoundError:
+                have = "missing"
+        if have != want:
+            out.append(f"{name} {have} (the lock has {want})")
+    return out
+
+
 def describe(tools: Sequence[Tool]) -> str:
     lines = []
     for t in tools:

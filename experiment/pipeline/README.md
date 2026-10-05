@@ -8,7 +8,7 @@ and E5 are implemented; the others have their parameters in `config.py`
 already.
 
 Run it from the repository root with the experiment's environment
-(`experiment/.venv`, see `experiment/requirements.txt`):
+(`experiment/.venv` with the exact versions of `experiment/pipeline/requirements.lock`; `tools` and `start` warn when they differ):
 
 ```bash
 PY=experiment/.venv/bin/python

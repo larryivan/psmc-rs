@@ -2,6 +2,10 @@
 # Install into the interpreter you run the scripts with:
 #     python3 -m pip install -r experiment/requirements.txt
 #
+# The experiment pipeline (python -m experiment.pipeline) needs the exact
+# versions of experiment/pipeline/requirements.lock instead: its simulations
+# must reproduce the committed ones byte for byte.
+#
 # Figures and tables from the packaged results (experiment/run.py):
 numpy>=1.21
 pandas>=1.3
@@ -12,6 +16,7 @@ msprime>=1.0      # coalescent simulation (S5 and the msprime engine of stdpopsi
 stdpopsim>=0.2    # simulate_msprime_to_psmcfa.py (dict-style samples API)
 tskit>=0.5
 psutil>=5.8       # peak RSS of the timed runs
+scipy>=1.10       # statistics of the pipeline's E5 and E6
 #
 # Optional: Markdown copies of the supplementary tables.
 tabulate>=0.8

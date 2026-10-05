@@ -1,0 +1,40 @@
+# The exact Python environment of the experiment pipeline (python -m experiment.pipeline).
+#
+# The pipeline regenerates its large inputs that are not committed (simulated
+# genomes, VCFs, masks) from the seeds and relies on them being byte-identical,
+# so that the committed fits stay done in a clone. That holds only with these
+# exact versions (msprime, tskit, numpy and stdpopsim above all; scipy for E5
+# and E6). `python -m experiment.pipeline tools` and `start` warn when the
+# running interpreter differs from this file. Install with:
+#     python3.13 -m venv experiment/.venv
+#     experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.lock
+# python==3.13.13
+appdirs==1.4.4
+attrs==26.1.0
+contourpy==1.4.0
+cycler==0.12.1
+demes==0.2.3
+fonttools==4.66.1
+humanize==4.16.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+kiwisolver==1.5.1
+matplotlib==3.11.2
+msprime==1.4.4
+newick==1.11.0
+numpy==2.5.3
+packaging==26.3
+pandas==3.0.6
+pillow==12.3.0
+psutil==7.2.2
+pyparsing==3.3.3
+pyslim==1.1.1
+python-dateutil==2.9.0.post0
+referencing==0.37.0
+rpds-py==2026.9.1
+ruamel.yaml==0.19.1
+scipy==1.18.1
+six==1.17.0
+stdpopsim==0.3.0
+tabulate==0.10.0
+tskit==1.0.3

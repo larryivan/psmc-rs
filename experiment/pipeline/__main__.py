@@ -117,6 +117,9 @@ def cmd_start(args) -> int:
         print(f"a runner is already running for {runs_dir} (pid {pid}); `stop` it first or wait", file=sys.stderr)
         return 1
     budget = config.Budget(cores=args.cores, mem_gb=args.mem_gb)
+    for d in tools.lock_differences():
+        print(f"warning: {d} (experiment/pipeline/requirements.lock); simulations may not reproduce the "
+              "committed ones", file=sys.stderr)
     graph = make_graph(args, runs_dir, build_tools=True)  # fail here, not in the daemon
     exps = graph.experiments()
     meta = {
@@ -251,6 +254,8 @@ def cmd_tools(args) -> int:
         print(f"{k:24s} {v}")
     for p in problems:
         print(f"missing  {p}")
+    for d in tools.lock_differences():
+        print(f"warning  {d}: simulations may not reproduce the committed ones")
     return 0
 
 
