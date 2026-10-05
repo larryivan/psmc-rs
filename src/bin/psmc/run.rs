@@ -350,6 +350,12 @@ fn infer(
     if let Some(path) = &cli.psmc_out {
         write_main_psmc(path, &model, &history, &data)?;
         sink(Event::Output(format!("PSMC output: {}", path.display())));
+        if n_iter > 0 {
+            sink(Event::Info(format!(
+                "To plot it: {} (-s is the bin size, which the .psmc file does not record)",
+                psmc_plot_command(cli, n_iter, &path.display().to_string())
+            )));
+        }
     }
 
     let bin_size = cli.input.bin_size as f64;
@@ -377,6 +383,9 @@ fn infer(
             pool,
         )?;
         boot_summary = Some((summary, *trunks));
+        if plan.em_iters != n_iter {
+            sink(Event::Warning(replicate_plot_warning(cli, n_iter, plan)));
+        }
     }
 
     check_cancel(cancel)?;
@@ -491,6 +500,33 @@ fn check_outputs(
         .into_iter()
         .collect();
     check_destinations(input, &files, &dirs)
+}
+
+/// The psmc_plot.pl command that plots round `n_iter` of the `.psmc` files
+/// `files` as the report does. The files do not record the bin size, and
+/// psmc_plot.pl assumes `-s 100 -u 2.5e-8 -g 25` and round 20.
+fn psmc_plot_command(cli: &InferArgs, n_iter: usize, files: &str) -> String {
+    format!(
+        "psmc_plot.pl -s {} -u {:e} -g {} -n {n_iter} PREFIX {files}",
+        cli.input.bin_size, cli.mu, cli.gen_years,
+    )
+}
+
+/// The warning of a bootstrap whose replicates ran another number of EM
+/// iterations than the main fit. psmc_plot.pl -n takes the same round of
+/// every run in its input, so the replicates cannot share a plot command
+/// with the main fit's `.psmc` output (as concatenated for C psmc's
+/// bootstrap): with fewer rounds it fails, with more it plots them at an
+/// intermediate round.
+fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) -> String {
+    let replicates = plan.dir.join("replicate_*.psmc");
+    format!(
+        "the bootstrap replicates ran {} EM iterations and the main fit {n_iter}; psmc_plot.pl \
+         -n takes the same round of every run it reads, so do not plot the replicates in one \
+         file with the main fit's .psmc output, but on their own: {}",
+        plan.em_iters,
+        psmc_plot_command(cli, plan.em_iters, &replicates.display().to_string())
+    )
 }
 
 /// The starting model of `--init-params`: the saved parameters, with the

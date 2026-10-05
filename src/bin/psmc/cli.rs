@@ -705,7 +705,9 @@ pub struct InferArgs {
     pub qc_json: Option<PathBuf>,
 
     /// Also write C psmc's .psmc output (rounds 0 to N_ITER), for
-    /// psmc_plot.pl and other tools made for C psmc
+    /// psmc_plot.pl and other tools made for C psmc. The file does not
+    /// record the bin size: plot it with psmc_plot.pl -s BIN_SIZE -u MU -g
+    /// GEN_YEARS -n N_ITER (its defaults are -s 100 -u 2.5e-8 -g 25 -n 20)
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub psmc_out: Option<PathBuf>,
 

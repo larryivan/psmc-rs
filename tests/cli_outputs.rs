@@ -150,6 +150,80 @@ fn psmc_output_has_a_round_per_iteration() {
     assert_eq!(rounds[0].rs.len(), 23);
 }
 
+/// The .psmc file does not record the bin size, mutation rate or generation
+/// time that psmc_plot.pl scales by, so the run prints the options to give
+/// it.
+#[test]
+fn the_psmc_plot_options_are_printed() {
+    let dir = TempDir::new("psmc_plot_hint");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let psmc = dir.path("fit.psmc");
+    let o = common::run([
+        input.to_str().unwrap(),
+        dir.path("fit.json").to_str().unwrap(),
+        "2",
+        "--no-progress",
+        "--psmc-out",
+        psmc.to_str().unwrap(),
+        "--bin-size",
+        "50",
+        "--mu",
+        "1.25e-8",
+        "--gen-years",
+        "29",
+    ]);
+    assert!(o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "To plot it: psmc_plot.pl -s 50 -u 1.25e-8 -g 29 -n 2 PREFIX {} (-s is the bin size",
+            psmc.display()
+        )),
+        "{stderr}"
+    );
+    let help = run_ok(["--help"]);
+    assert!(
+        help.contains("psmc_plot.pl -s BIN_SIZE -u MU -g GEN_YEARS -n N_ITER"),
+        "{help}"
+    );
+
+    // Replicates of another iteration count need their own -n: plotted in
+    // one file with the main fit at -n 2, the 3-round replicates would make
+    // psmc_plot.pl fail.
+    let bootstrap = |iters: &str| {
+        let o = common::run([
+            input.to_str().unwrap(),
+            dir.path("fit.json").to_str().unwrap(),
+            "2",
+            "--no-progress",
+            "--psmc-out",
+            psmc.to_str().unwrap(),
+            "--bootstrap",
+            "2",
+            "--bootstrap-block-size",
+            "1000",
+            "--bootstrap-iters",
+            iters,
+        ]);
+        assert!(o.status.success());
+        String::from_utf8(o.stderr).unwrap()
+    };
+    let stderr = bootstrap("3");
+    assert!(
+        stderr.contains(&format!(
+            "Warning: the bootstrap replicates ran 3 EM iterations and the main fit 2; \
+             psmc_plot.pl -n takes the same round of every run it reads, so do not plot the \
+             replicates in one file with the main fit's .psmc output, but on their own: \
+             psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 3 PREFIX {}",
+            dir.path("fit.bootstrap/replicate_*.psmc").display()
+        )),
+        "{stderr}"
+    );
+    let stderr = bootstrap("2");
+    assert!(!stderr.contains("bootstrap replicates ran"), "{stderr}");
+}
+
 /// A bootstrap writes every replicate's JSON and .psmc file and the summary,
 /// and the report shows it.
 #[test]
