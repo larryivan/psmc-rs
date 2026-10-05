@@ -53,7 +53,8 @@ of bases at quality 10, and 0.3% sequencing errors.
   72 names in the styles of UCSC, Ensembl, RefSeq and other assemblies,
   except that a reference numbered in Roman numerals past VIII (chrI to
   chrXXI) keeps chrX, its chromosome 10, while one numbered I to V and X
-  (C. elegans) leaves X out.
+  (C. elegans) leaves X out. With GRCh38-like names, the default selection
+  warns about the unplaced, ALT, decoy, EBV and HLA contigs it calls.
 - Run 1, the plain SAM (no index, so each job streams the file), 3 jobs,
   `--multihetsep --run 3`:
   - chrX and chrM are left out by name, and the VCF holds only the other

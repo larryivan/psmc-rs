@@ -52,7 +52,15 @@ scripts/bam_to_psmc.sh --bam sample.bam --ref ref.fa --out results/sample \
 ```
 
 This calls every chromosome that is not named like a sex chromosome or an
-organelle (the log lists what it leaves out), 8 at a time, and writes:
+organelle (the log lists what it leaves out), 8 at a time. Every other
+contig of the reference is called too: with a reference that also holds
+unplaced and unlocalized contigs (`chrUn_*`, `*_random`), ALT haplotypes
+(`*_alt`), decoys, EBV or HLA alleles, as GRCh38's analysis sets do, list
+the primary autosomes with `--chroms`. ALT haplotypes are other versions
+of parts of the primary chromosomes, so the reads mapped to them could
+put those regions into the input twice; the other contigs are mostly
+short, and each one is one more calling job. The script warns when the
+default selection holds such names. It writes:
 
 | File | What it is |
 | --- | --- |

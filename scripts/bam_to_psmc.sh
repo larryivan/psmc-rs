@@ -48,7 +48,10 @@ Options:
                       not named like a sex chromosome or organelle (X, Y, Z,
                       W, M, MT, chrX, chrM, ..., the rule of \`psmc-rs qc\`),
                       except that X is kept when the names are Roman
-                      numerals past VIII (chrIX, chrXI: X is chromosome 10)
+                      numerals past VIII (chrIX, chrXI: X is chromosome 10).
+                      Unplaced, ALT, decoy, viral and HLA contigs are called
+                      too, with a warning: with a reference such as a GRCh38
+                      analysis set, list the primary autosomes
   --threads N         Chromosomes called at once, and bcftools concat
                       threads [the CPUs this process may use: $(default_threads)].
                       Passed to the fit only when given; otherwise psmc-rs
@@ -404,6 +407,22 @@ if [ -z "$chroms_arg" ]; then
     fi
     i=$((i + 1))
   done
+  # Contigs that are not chromosomes of the primary assembly, in the naming
+  # of GRCh37, GRCh38 and their analysis sets: unplaced and unlocalized
+  # (chrUn_*, *_random, GL*/KI* accessions), ALT haplotypes and patches,
+  # decoys, EBV and HLA alleles. All of them would be called.
+  others=$(for i in ${selected[@]+"${selected[@]}"}; do printf '%s\n' "${ref_names[$i]}"; done |
+    LC_ALL=C awk '{ l = tolower($0) }
+      l ~ /_(alt|decoy|random|fix)$/ || l ~ /_hap[0-9]+$/ || l ~ /^(chr)?un[_.-]/ ||
+      l ~ /^(chr)?ebv$/ || l ~ /^nc_007605/ || l ~ /^hs3[78]d/ || l ~ /^hla-/ ||
+      l ~ /^(gl|ki)[0-9]+\.[0-9]+$/ {
+        n++
+        if (n <= 3) ex = ex (n > 1 ? ", " : "") $0
+      }
+      END { if (n) printf "%d (%s%s)", n, ex, (n > 3 ? ", ..." : "") }')
+  if [ -n "$others" ]; then
+    warn "the contigs to call include $others that look like unplaced, ALT, decoy, patch, viral or HLA contigs; with a reference such as a GRCh38 analysis set, list the primary autosomes with --chroms: ALT haplotypes repeat parts of the primary chromosomes, and every contig is one more calling job"
+  fi
 else
   wanted=$(requested_names)
   [ -n "$wanted" ] || die "--chroms $chroms_arg names no chromosome"

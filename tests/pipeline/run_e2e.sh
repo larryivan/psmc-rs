@@ -188,6 +188,22 @@ run_script --bam "$out/empty.bam" --ref "$out/elegans.fa" --out "$out/elegans" -
   fail "C. elegans names: called $(called_in "$out/dry_elegans.txt")"
 ok "Roman numerals: chrX kept as chromosome 10 next to chrIX and chrXI; X left out after I to V"
 
+# A GRCh38-like reference: the default selection calls the unplaced, ALT,
+# decoy, viral and HLA contigs, with a warning that names them.
+touch "$out/grch38.fa"
+fai_of chr1 chr2 chrX chrY chrM chr1_KI270706v1_random chrUn_KI270302v1 chr6_GL000250v2_alt \
+  chrUn_JTFH01000001v1_decoy chrEBV 'HLA-A*01:01:01:01' > "$out/grch38.fa.fai"
+run_script --bam "$out/empty.bam" --ref "$out/grch38.fa" --out "$out/grch38" --dry-run \
+  > "$out/dry_grch38.txt" 2> "$out/dry_grch38.err"
+grep -qF "warning: the contigs to call include 6 (chr1_KI270706v1_random, chrUn_KI270302v1, chr6_GL000250v2_alt, ...) that look like unplaced, ALT, decoy, patch, viral or HLA contigs" \
+  "$out/dry_grch38.err" || fail "no warning about the GRCh38 contigs: $(cat "$out/dry_grch38.err")"
+run_script --bam "$out/empty.bam" --ref "$out/grch38.fa" --out "$out/grch38" --dry-run \
+  --chroms chr1,chr2 > /dev/null 2> "$out/dry_grch38.err"
+if grep -qF "look like unplaced" "$out/dry_grch38.err"; then
+  fail "a warning about other contigs although --chroms lists the autosomes"
+fi
+ok "GRCh38-like contigs (unplaced, ALT, decoy, EBV, HLA): called by default with a warning, none with --chroms"
+
 # --chroms from a BED file with Windows line ends, a track and a browser
 # line, and several rows for one chromosome: its names, each once.
 printf 'track name=callable\r\nbrowser position chr1:1-4\r\nchr1\t0\t2\r\nchr1\t2\t4\r\nscaffold_12\t0\t4\r\n' \
