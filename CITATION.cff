@@ -9,15 +9,18 @@ authors:
   - alias: larryivanhan
 repository-code: "https://github.com/larryivan/psmc-rs"
 license: MIT
-# TODO(release): add `version` and `date-released` when a release is tagged,
-# and a `doi` once the software is archived (e.g. on Zenodo).
+# The version of Cargo.toml. TODO(release): add `date-released` when v0.2.0
+# is tagged, and a `doi` once the software is archived (e.g. on Zenodo).
+version: "0.2.0"
 abstract: >-
   psmc-rs reimplements Heng Li's PSMC (Pairwise Sequentially Markovian
   Coalescent) in Rust. It infers the history of effective population size
-  from a single diploid genome, reads psmcfa, multihetsep and VCF input,
-  supports block-bootstrap confidence intervals and TMRCA posterior decoding,
-  and writes JSON parameters and an interactive HTML report. Its results are
-  checked against the original C implementation.
+  from a single diploid genome with C psmc's model and defaults, reads
+  psmcfa, multihetsep and VCF input (including the vcf2fq | fq2psmcfa route
+  in one step), checks inputs before fitting, runs C psmc's bootstrap and
+  TMRCA posterior decoding, and writes JSON parameters, an interactive HTML
+  report and C psmc's .psmc output. Its results are checked against the
+  original C implementation.
 keywords:
   - population genetics
   - demographic inference

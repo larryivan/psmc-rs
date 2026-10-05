@@ -9,12 +9,13 @@ fixes and code contributions are all welcome.
   <https://github.com/larryivan/psmc-rs/issues> (a blank issue is fine) and
   include the command you ran and what you expected.
 - **Bugs**: open an issue with the *Bug report* template. Please include the
-  psmc-rs version (release tag, or `git rev-parse --short HEAD` for a source
-  build), your OS and CPU, the exact command line, the full error output and,
-  if possible, a small input that reproduces the problem (for example a few
-  thousand lines of the psmcfa file). If the result differs from the original
-  C psmc, also give the `psmc` command and its version (printed by `psmc`
-  without arguments).
+  psmc-rs version (`psmc-rs --version`, plus `git rev-parse --short HEAD`
+  for a source build), your OS and CPU, the exact command line, the full
+  error output and, if possible, a small input that reproduces the problem
+  (for example a few thousand lines of the psmcfa file). The output of
+  `psmc-rs qc INPUT --json -` describes an input without sharing it. If the
+  result differs from the original C psmc, also give the `psmc` command and
+  its version (printed by `psmc` without arguments).
 - **Feature requests**: open an issue with the *Feature request* template and
   describe the use case first, then the proposed interface.
 - **Security issues**: please do not open a public issue; report them
@@ -39,13 +40,16 @@ cargo build --release        # optimised binary: target/release/psmc-rs
 Run the same checks as CI (`.github/workflows/ci.yml`):
 
 ```bash
-cargo fmt --all              # CI runs `cargo fmt --all --check`
-cargo clippy --workspace --all-targets
-cargo test --workspace --all-targets
+cargo fmt --all --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+python3 -m unittest discover -s experiment/tests
 ```
 
-- The whole test suite must pass, and clippy must not gain warnings in the
-  files you touched.
+CI also builds every target with Rust 1.88 (`cargo +1.88 build --workspace
+--all-targets --locked`).
+
+- The whole test suite must pass, and clippy must report no warning.
 - Every behavioural fix needs a test that fails without the fix and passes
   with it. Please check this (for example by temporarily reverting the source
   change) and say so in the pull request.
@@ -53,8 +57,9 @@ cargo test --workspace --all-targets
   non-obvious reasoning, not restate the code.
 - Keep existing public functions compiling with their current signatures
   where possible; add new functions or option structs instead of changing
-  signatures, and record user-visible changes in `CHANGELOG.md` under
-  *Unreleased*.
+  signatures, and record user-visible changes in the top section of
+  `CHANGELOG.md`, the one not released yet (`## [X.Y.Z] - Unreleased`, or
+  `## [Unreleased]` before a version number is chosen).
 
 ### Equivalence with the original C psmc
 
@@ -74,6 +79,20 @@ protects the numerical core, so:
   `tests/data/c_reference/README.md` (`cc -O1 cli.c core.c em.c khmm.c kmin.c
   main.c aux.c -lm -lz`; an `-O2` build segfaults on macOS arm64), in a
   separate commit that states the exact `psmc` command.
+
+The other comparisons with the original tools work the same way: their
+outputs live under `tests/data/` next to the script that made them
+(`psmc_out/generate.sh` and `qc_c_reference/generate.sh` for C psmc, and
+`route_a/make_fixtures.sh` and `route_a_keep_alts/make_fixtures.sh` for
+bcftools, `vcfutils.pl`, `fq2psmcfa` and `generate_multihetsep.py`), and
+each directory's README names the tool versions. Two ignored tests run the
+tools directly:
+
+```bash
+VCFUTILS=/path/to/vcfutils.pl FQ2PSMCFA=/path/to/fq2psmcfa \
+  cargo test --release --test io_consensus_tools -- --ignored
+FQ2PSMCFA=/path/to/fq2psmcfa cargo test --release --test io_vcf_exact -- --ignored
+```
 
 ### Performance changes
 
@@ -106,7 +125,35 @@ What was wrong or missing, why this change is right, and numbers where you
 measured something.
 ```
 
-where `type` is one of `fix`, `feat`, `perf`, `refactor`, `test` or `docs`.
+where `type` is one of `fix`, `feat`, `perf`, `refactor`, `test`, `docs`,
+`style` or `ci`.
+
+## Releasing (maintainers)
+
+1. Set the version in `Cargo.toml` and run `cargo build` to update
+   `Cargo.lock`.
+2. In `CHANGELOG.md`, replace `Unreleased` in the version's heading with the
+   date (`## [X.Y.Z] - YYYY-MM-DD`) and update the comparison links at the
+   bottom.
+3. Set `version` and `date-released` in `CITATION.cff`, and give every
+   author `given-names` and `family-names` (and `orcid` where there is
+   one): the README asks users to cite from this file, and GitHub's *Cite
+   this repository* and reference managers otherwise credit only the
+   GitHub handle.
+4. Commit, tag and push the default branch with the tag:
+
+   ```bash
+   git commit -am "release: vX.Y.Z"
+   git tag vX.Y.Z
+   git push origin master --tags
+   ```
+
+The tag starts `.github/workflows/release.yml`, which builds `psmc-rs` for
+Linux (x86-64), macOS (x86-64 and Apple silicon) and Windows (x86-64),
+packages each binary with `README.md` and `LICENSE`, and publishes the
+archives and their `.sha256` files as a GitHub release. If a run fails,
+re-run *Release* from the Actions tab (`workflow_dispatch`) with the same
+tag instead of moving it.
 
 ## License
 
