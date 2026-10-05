@@ -693,6 +693,22 @@ mod tests {
     }
 
     #[test]
+    fn parameters_on_their_bounds_are_reported() {
+        let cfg = MStepConfig::default();
+        let mut model =
+            PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into())).unwrap();
+        assert_eq!(near_bounds_warning(&model, &cfg), None);
+        model.lam[2] = cfg.lam_hi;
+        model.rho = cfg.rho_lo;
+        let msg = near_bounds_warning(&model, &cfg).unwrap();
+        assert!(
+            msg.starts_with("2 params are on/near optimization bounds (lo=1, hi=1)"),
+            "{msg}"
+        );
+        assert!(msg.contains("lam[2]") && msg.contains("rho"), "{msg}");
+    }
+
+    #[test]
     fn a_set_cancel_flag_stops_the_run() {
         let dir = temp_dir("cancel");
         let cli = cli(&dir, &[]);

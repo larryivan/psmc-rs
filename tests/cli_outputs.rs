@@ -157,12 +157,23 @@ fn bootstrap_writes_replicates_and_summary() {
     let dir = TempDir::new("bootstrap");
     let input = dir.path("in.psmcfa");
     small_psmcfa(&input, 3000);
-    let out = fit(
-        &dir,
-        &input,
-        "fit",
-        2,
-        &["--bootstrap", "3", "--bootstrap-block-size", "1000"],
+    let out = dir.path("fit.json");
+    let o = common::run([
+        input.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "2",
+        "--no-progress",
+        "--bootstrap",
+        "3",
+        "--bootstrap-block-size",
+        "1000",
+    ]);
+    assert!(o.status.success());
+    // 3 sequences of 3 trunks: few enough for a warning.
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains("Warning: the input forms only 9 bootstrap trunks of 1000 bins"),
+        "{stderr}"
     );
     let boot = dir.path("fit.bootstrap");
     for rep in 1..=3 {

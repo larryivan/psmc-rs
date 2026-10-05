@@ -341,6 +341,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_directory_gives_its_first_input_file() {
+        let dir = std::env::temp_dir().join(format!("psmc_rs_dir_input_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        for name in ["notes.txt", "c.psmcfa", "b.vcf.gz"] {
+            fs::write(dir.join(name), "").unwrap();
+        }
+        assert_eq!(
+            resolve_input_path(&dir, FormatArg::Auto).unwrap(),
+            dir.join("b.vcf.gz")
+        );
+        assert_eq!(
+            resolve_input_path(&dir, FormatArg::Psmcfa).unwrap(),
+            dir.join("c.psmcfa")
+        );
+        let err = resolve_input_path(&dir, FormatArg::Mhs)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("does not contain a mhs input file"), "{err}");
+        let file = dir.join("notes.txt");
+        assert_eq!(resolve_input_path(&file, FormatArg::Auto).unwrap(), file);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn input_files_are_recognised_by_extension() {
         let yes = |name: &str, fmt| is_supported_input_file(Path::new(name), fmt);
         assert!(yes("a.psmcfa", FormatArg::Psmcfa));
