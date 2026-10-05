@@ -138,10 +138,11 @@ pub enum QcCode {
     /// pattern psmc's README uses for human data, `4+25*2+4+6` (28 free λ),
     /// the most recent group gets 3.6% and the oldest 0.005% of the
     /// segments, and only 13 of the 28 groups reach 10. With C psmc's
-    /// default pattern `4+5*3+4` (7 free λ), 5 of the 7 groups reach 10;
-    /// with one λ per interval, which psmc-rs fits when no pattern is given
-    /// (65 at 64 steps), none does. Fewer `K` bins leave most parameters
-    /// undetermined. Given [`super::QcContext::free_lambdas`], the message
+    /// default pattern `4+5*3+4` (7 free λ), which psmc-rs also fits when
+    /// no pattern is given, 5 of the 7 groups reach 10; with one λ per
+    /// interval (`--n-steps 64` without a pattern: 65 free λ), none does.
+    /// Fewer `K` bins leave most parameters undetermined. Given
+    /// [`super::QcContext::free_lambdas`], the message
     /// divides C's expected recombinations by the fit's own parameter count;
     /// the oldest group usually gets far fewer than that average (less than
     /// a tenth of it in each of the three patterns above).

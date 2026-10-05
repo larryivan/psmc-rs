@@ -87,9 +87,8 @@ fn few_hets_and_too_short_figures() {
     assert_eq!(groups_reaching_10(&c_default, few), 5);
     assert_eq!(groups_reaching_10(&c_default, n), 7);
 
-    // "with one λ per interval, which psmc-rs fits when no pattern is given
-    // (65 at 64 steps), none does"; "55 of 65 single intervals" reach 10 at
-    // 100 Mb.
+    // "with one λ per interval (--n-steps 64 without a pattern: 65 free
+    // λ), none does"; "55 of 65 single intervals" reach 10 at 100 Mb.
     let per_interval = group_shares(theta, None, 64, &[1; 65]);
     assert_eq!(groups_reaching_10(&per_interval, few), 0);
     assert_eq!(groups_reaching_10(&per_interval, n), 55);
