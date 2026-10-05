@@ -42,7 +42,7 @@ iterations, 78 jobs in about 15 s) in `experiment/.runs-smoke/`;
 | `experiments/e1.py` | E1 as jobs, and its tables |
 | `inputprep.py` | E4's data steps: callable masks, masked VCF, consensus FASTA through fq2psmcfa, bins of the routes compared, generate_multihetsep.py cross-check (`python -m experiment.pipeline.inputprep STEP`) |
 | `experiments/e4.py` | E4 as jobs, and its tables |
-| `figures/fig5.py` | Fig 5 from E4's tables |
+| `figures/e4.py` | Fig 5, from E4's tables |
 | `experiments/e5.py` | E5 as jobs, and its tables |
 | `figures/e5.py` | Fig 6, from E5's tables |
 

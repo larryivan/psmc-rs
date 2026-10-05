@@ -1,4 +1,4 @@
-"""Tests for experiment.pipeline.figures.fig5 (Fig 5 from E4's tables)."""
+"""Tests for experiment.pipeline.figures.e4 (Fig 5 from E4's tables)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from experiment.pipeline.figures import fig5  # noqa: E402
+from experiment.pipeline.figures import e4 as fig5  # noqa: E402
 
 SUMMARY = [
     {"mask": m, "route": r, "structure": s, "missing_fraction_target": f}

@@ -440,13 +440,13 @@ def _report_jobs(ctx: Context, cfg: config.E4, lay: Layout) -> List[Job]:
     )
     figure = Job(
         id=job_id("figure"),
-        command=[paths.python(), "-m", "experiment.pipeline.figures.fig5", "--tables", str(lay.root / "tables"),
+        command=[paths.python(), "-m", "experiment.pipeline.figures.e4", "--tables", str(lay.root / "tables"),
                  "--out-dir", str(lay.root / "figures")],
         inputs=[lay.table(k) for k in ("summary", "bias", "bins", "curves", "truth", "routes")],
         outputs=[lay.figure(f) for f in FIGURES],
         mem_gb=costs.report_gb,
         est_seconds=ec.figure_s,
-        tools={"pipeline": provenance.python_identity(["figures/fig5.py"], ["matplotlib", "numpy"])},
+        tools={"pipeline": provenance.python_identity(["figures/e4.py"], ["matplotlib", "numpy"])},
         description="Fig 5",
     )
     return [report, figure]

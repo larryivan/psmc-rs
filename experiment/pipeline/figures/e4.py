@@ -17,7 +17,7 @@ The fq2psmcfa route is not drawn separately: its bins equal the exact
 route's bin for bin (asserted by the ``bins`` jobs), so its fits do too; the
 legend says so and ``E4_summary.csv`` counts the identical fits.
 
-Run as ``python -m experiment.pipeline.figures.fig5 --tables DIR --out-dir DIR``.
+Run as ``python -m experiment.pipeline.figures.e4 --tables DIR --out-dir DIR``.
 """
 
 from __future__ import annotations
@@ -267,7 +267,7 @@ def save(fig, out_dir: Path, names: Sequence[str] = NAMES) -> List[Path]:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    p = argparse.ArgumentParser(prog="python -m experiment.pipeline.figures.fig5", description=__doc__,
+    p = argparse.ArgumentParser(prog="python -m experiment.pipeline.figures.e4", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--tables", type=Path, required=True, help="E4's tables directory")
     p.add_argument("--out-dir", type=Path, required=True)
