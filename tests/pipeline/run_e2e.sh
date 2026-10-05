@@ -83,9 +83,10 @@ mkdir -p "$out/notmine"
 echo keep > "$out/notmine/data.txt"
 s=0
 E2E_WORK=$out/notmine "$here/run_e2e.sh" > "$out/notmine.out" 2>&1 || s=$?
-[ "$s" -eq 1 ] && [ -f "$out/notmine/data.txt" ] &&
-  grep -qF "is not empty and was not made by run_e2e.sh" "$out/notmine.out" ||
+if [ "$s" -ne 1 ] || [ ! -f "$out/notmine/data.txt" ] ||
+  ! grep -qF "is not empty and was not made by run_e2e.sh" "$out/notmine.out"; then
   fail "E2E_WORK on a directory of other files: exit $s, $(cat "$out/notmine.out")"
+fi
 ok "E2E_WORK refuses a non-empty directory that run_e2e.sh did not make"
 
 run_script --help > "$out/help.txt" || fail "--help"

@@ -99,8 +99,8 @@ log, whatever --threads is. When a rerun makes a different psmcfa, the
 earlier run's PREFIX.json, .html, .psmc and multihetsep files no longer
 match it and are removed, with a warning unless this run writes them
 again. A PREFIX.bootstrap directory is then only reported, and so are
-working directories that a killed run left. bcftools >= $MIN_BCFTOOLS and psmc-rs >=
-$MIN_PSMC_RS are required. See docs/preprocessing.md.
+working directories that a killed run left. bcftools >= $MIN_BCFTOOLS and
+psmc-rs >= $MIN_PSMC_RS are required. See docs/preprocessing.md.
 EOF
 }
 
@@ -519,7 +519,9 @@ log_file=$log_path
 # this prefix may be going, so they are only reported.
 leftover_dirs=""
 for d in "$out_dir/.$base.tmp."*; do
-  [ -d "$d" ] && leftover_dirs="$leftover_dirs $d"
+  if [ -d "$d" ]; then
+    leftover_dirs="$leftover_dirs $d"
+  fi
 done
 [ -z "$leftover_dirs" ] ||
   warn "working directories of earlier runs that did not finish:$leftover_dirs; remove them unless another run with this prefix is going"
