@@ -95,7 +95,11 @@ leaves none of them half written; psmc-rs writes the fit's files itself.
 Ctrl+C or SIGTERM stops whatever runs (the calls, concat, qc, convert or
 the fit) at once and removes the working directory (exit 130 or 143). A
 rerun with the same inputs writes the same bytes to every output but the
-log, whatever --threads is. bcftools >= $MIN_BCFTOOLS and psmc-rs >=
+log, whatever --threads is. When a rerun makes a different psmcfa, the
+earlier run's PREFIX.json, .html, .psmc and multihetsep files no longer
+match it and are removed, with a warning unless this run writes them
+again. A PREFIX.bootstrap directory is then only reported, and so are
+working directories that a killed run left. bcftools >= $MIN_BCFTOOLS and psmc-rs >=
 $MIN_PSMC_RS are required. See docs/preprocessing.md.
 EOF
 }
@@ -510,6 +514,16 @@ mkdir -p "$out_dir" || die "cannot create the output directory $out_dir"
 : > "$log_path" || die "cannot write $log_path"
 log_file=$log_path
 
+# Working directories of earlier runs with this prefix that were killed
+# before they could remove them (SIGKILL, a lost node). Another run with
+# this prefix may be going, so they are only reported.
+leftover_dirs=""
+for d in "$out_dir/.$base.tmp."*; do
+  [ -d "$d" ] && leftover_dirs="$leftover_dirs $d"
+done
+[ -z "$leftover_dirs" ] ||
+  warn "working directories of earlier runs that did not finish:$leftover_dirs; remove them unless another run with this prefix is going"
+
 tmp=$(mktemp -d "$out_dir/.$base.tmp.XXXXXX") || die "cannot create a working directory in $out_dir"
 # The calling jobs running, and the step that run_step waits for.
 pids=()
@@ -744,13 +758,44 @@ fi
 # convert reads the input as qc did and repeats its warnings: they go to the
 # log only.
 cat "$tmp/convert.err" "$tmp/convert.out" >> "$log_file"
+# When the psmcfa differs from the one an earlier run left here, that run's
+# fit and multihetsep files no longer match it, and they are removed: in
+# silence when this run writes them again (so that a failure leaves none
+# behind), with a warning otherwise. A bootstrap directory is reported.
+changed=1
+if [ -f "$psmcfa" ] && cmp -s "$tmp/convert/out.psmcfa" "$psmcfa"; then
+  changed=0
+fi
 mv -f "$tmp/convert/out.psmcfa" "$psmcfa"
-if [ "$multihetsep" -eq 1 ]; then
-  # Files of an earlier run whose chromosome is no longer called would be
-  # stale; every name this script could have written is removed.
-  for name in "${ref_names[@]}"; do
-    rm -f "$out.$name.multihetsep"
+stale=()
+if [ "$changed" -eq 1 ]; then
+  for f in "$out.json" "$out.html" "$out.psmc"; do
+    [ -e "$f" ] || continue
+    rm -f "$f"
+    if [ -z "$run_iters" ] || { [ "$f" = "$out.psmc" ] && has_extra --psmc-out; }; then
+      stale+=("$f")
+    fi
   done
+fi
+if [ "$multihetsep" -eq 1 ] || [ "$changed" -eq 1 ]; then
+  # Every name this script could have written: a chromosome no longer
+  # called leaves a file too.
+  n=0
+  for name in "${ref_names[@]}"; do
+    if [ -e "$out.$name.multihetsep" ]; then
+      rm -f "$out.$name.multihetsep"
+      n=$((n + 1))
+    fi
+  done
+  [ "$multihetsep" -eq 1 ] || [ "$n" -eq 0 ] || stale+=("$n file(s) $out.<chrom>.multihetsep")
+fi
+if [ "${#stale[@]}" -gt 0 ]; then
+  warn "removed the outputs of an earlier run, made from another $psmcfa: $(printf '%s, ' "${stale[@]}" | sed 's/, $//')"
+fi
+if [ "$changed" -eq 1 ] && [ -d "$out.bootstrap" ]; then
+  warn "$out.bootstrap holds the bootstrap of an earlier run, made from another $psmcfa"
+fi
+if [ "$multihetsep" -eq 1 ]; then
   for f in "$tmp/convert/$base".*.multihetsep; do
     [ -e "$f" ] || continue
     mv -f "$f" "$out_dir/"

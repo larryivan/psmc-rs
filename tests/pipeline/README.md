@@ -77,6 +77,11 @@ of bases at quality 10, and 0.3% sequencing errors.
 - Run 2, the same reads as bgzipped SAM with a CSI index (`tabix -C -p
   sam`), so each job reads its chromosome by region, 1 job, the same prefix:
   every output, the HTML report included, is byte-identical to run 1.
+- Reruns with one prefix: a rerun that makes the same psmcfa keeps the
+  earlier fit and multihetsep files; one that makes another psmcfa removes
+  those it does not write again, with a warning (with `--run`, the fit's
+  files are simply written again), and reports a `PREFIX.bootstrap`
+  directory and the working directory of a killed run.
 - Run 3, `--chroms` from a file that adds chrX: the script warns, the psmcfa
   again equals vcf2fq | fq2psmcfa, and QC gives a SEX_OR_ORGANELLE warning
   calling chrX hemizygous.

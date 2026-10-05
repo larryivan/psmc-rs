@@ -83,7 +83,9 @@ with the bash 3.2 that macOS ships as well as with current bash. The files
 it writes itself (VCF, QC reports, psmcfa, multihetsep) are written in a
 working directory next to them and renamed when complete, and a rerun with
 the same inputs writes the same bytes to every output but the log, whatever
-`--threads` is.
+`--threads` is. When a rerun makes a different psmcfa (other chromosomes or
+thresholds), the earlier run's fit and multihetsep files no longer match it
+and are removed, with a warning unless the rerun writes them again.
 
 ### What it runs
 

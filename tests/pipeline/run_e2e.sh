@@ -307,6 +307,50 @@ expect_classic "$q" "run 3"
 check qc "$q.qc.json" --sex-warning chrX --kept chr1,chr2,chr3,chrX --dropped 0
 
 # ---------------------------------------------------------------------------
+step "reruns: the outputs of an earlier run that no longer match go"
+
+r=$out/re
+run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr3 --multihetsep \
+  --run 1 2> "$work/re1.err"
+for f in "$r.json" "$r.html" "$r.psmc" "$r.chr3.multihetsep"; do
+  [ -s "$f" ] || fail "missing output $f"
+done
+# The same psmcfa: the fit and the multihetsep file still match and stay.
+run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr3 \
+  2> "$work/re2.err"
+for f in "$r.json" "$r.html" "$r.psmc" "$r.chr3.multihetsep"; do
+  [ -s "$f" ] || fail "$f removed although the psmcfa did not change"
+done
+if grep -qF "removed the outputs of an earlier run" "$work/re2.err"; then
+  fail "outputs reported stale although the psmcfa did not change"
+fi
+# Another psmcfa and a fit: the fit's files are written again, and the
+# multihetsep file, which this run does not write, goes with a warning.
+run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr2,chr3 \
+  --run 1 2> "$work/re3.err"
+grep -qF "removed the outputs of an earlier run, made from another $r.psmcfa: 1 file(s) $r.<chrom>.multihetsep" \
+  "$work/re3.err" || fail "no warning about the removed multihetsep file: $(cat "$work/re3.err")"
+[ ! -e "$r.chr3.multihetsep" ] || fail "$r.chr3.multihetsep of the earlier run is still there"
+check fit "$r.json" "$r.psmc" 1 2
+# Another psmcfa and no fit: the fit's files go, with a warning; a
+# bootstrap directory and the working directory of a killed run are
+# reported.
+mkdir "$r.bootstrap" "$out/.re.tmp.killed"
+run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr3 \
+  2> "$work/re4.err"
+for f in "$r.json" "$r.html" "$r.psmc"; do
+  [ ! -e "$f" ] || fail "$f of the earlier run is still there"
+done
+grep -qF "removed the outputs of an earlier run, made from another $r.psmcfa: $r.json, $r.html, $r.psmc" \
+  "$work/re4.err" || fail "no warning about the removed outputs: $(cat "$work/re4.err")"
+grep -qF "$r.bootstrap holds the bootstrap of an earlier run" "$work/re4.err" ||
+  fail "no warning about $r.bootstrap"
+grep -qF "working directories of earlier runs that did not finish: $out/.re.tmp.killed;" \
+  "$work/re4.err" || fail "no warning about $out/.re.tmp.killed"
+rmdir "$r.bootstrap" "$out/.re.tmp.killed"
+ok "a rerun with the same psmcfa keeps the fit and multihetsep files; with another, removes those it does not write again and says so"
+
+# ---------------------------------------------------------------------------
 step "run 4: a contig name with colons, read by region and streamed"
 
 # bcftools -r would take the colons for a range ("the sequence "HLA-A*01"
