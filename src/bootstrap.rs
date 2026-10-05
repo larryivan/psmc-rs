@@ -573,21 +573,15 @@ pub fn run_bootstrap(
         .collect()
 }
 
+/// The points of [`PsmcModel::ne_curve`] that a log-scale plot can show
+/// (positive and finite), as x and y columns.
 fn model_curve(model: &PsmcModel, bin_size: f64, gen_years: f64) -> Result<(Vec<f64>, Vec<f64>)> {
-    let lam_full = model.map_lam(&model.lam)?;
-    let t = model.compute_t(0.1);
-    let n0 = model.theta / (4.0 * model.mu * bin_size);
-
-    let mut xs = Vec::<f64>::with_capacity(model.n_steps + 1);
-    let mut ys = Vec::<f64>::with_capacity(model.n_steps + 1);
-    for k in 0..=model.n_steps {
-        let x = t[k] * 2.0 * n0 * gen_years;
-        let y = lam_full[k] * n0;
-        if x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0 {
-            xs.push(x);
-            ys.push(y);
-        }
-    }
+    let (xs, ys): (Vec<f64>, Vec<f64>) = model
+        .ne_curve(bin_size, gen_years)?
+        .into_iter()
+        .filter(|&[x, y]| x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0)
+        .map(|[x, y]| (x, y))
+        .unzip();
     if xs.is_empty() {
         bail!("model curve has no valid points");
     }

@@ -174,14 +174,10 @@ fn fit(seqs: &[Vec<u8>], template: &PsmcModel, iters: usize) -> Result<PsmcModel
 
 /// (time in years, Ne) at each interval start.
 fn curve(m: &PsmcModel) -> Result<(Vec<f64>, Vec<f64>)> {
-    let lam = m.map_lam(&m.lam)?;
-    let t = m.compute_t(0.1);
-    let n0 = m.theta / (4.0 * m.mu * BIN);
-    let xs = (0..=m.n_steps)
-        .map(|k| t[k] * 2.0 * n0 * GEN_YEARS)
-        .collect();
-    let ys = lam.iter().map(|l| l * n0).collect();
-    Ok((xs, ys))
+    Ok(m.ne_curve(BIN, GEN_YEARS)?
+        .into_iter()
+        .map(|[x, y]| (x, y))
+        .unzip())
 }
 
 fn log10_ne_on_grid(m: &PsmcModel, grid: &[f64]) -> Result<Vec<f64>> {
