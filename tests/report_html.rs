@@ -204,7 +204,14 @@ fn the_bootstrap_section_states_its_caveat() {
     assert!(html.contains("<tr><th>Trunks resampled</th><td>61</td></tr>"));
     assert!(html.contains("<tr><th>Replicates start from</th><td>a fresh start</td></tr>"));
     assert!(html.contains("Read it as a lower bound on the uncertainty"));
-    assert!(html.contains("0.90 to 0.92 of the true sampling standard deviation"));
+    // The calibration of the README, at the CLI's defaults.
+    assert!(html.contains("with psmc-rs's default start and objective"));
+    assert!(html.contains(
+        "a median 0.85 (whole sequences as trunks) to 0.91 (1,000-bin trunks) of the true \
+         sampling standard deviation, and 0.74 to 0.78 at the oldest times"
+    ));
+    assert!(html.contains("about a third of that standard deviation"));
+    assert!(!html.contains("0.90 to 0.92"));
     assert!(html.contains("each fitted from a fresh start"));
     assert!(!html.contains("C psmc -i -b"));
     let series = js_const(&html, "series");

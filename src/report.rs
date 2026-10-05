@@ -378,8 +378,9 @@ fn qc_section(r: &QcReport) -> String {
     out
 }
 
-/// The bootstrap section, with the coverage caveat measured in
-/// [`crate::bootstrap`].
+/// The bootstrap section, with the coverage caveat that
+/// `examples/bootstrap_calibration.rs` measures at the CLI's default start
+/// and objective (the numbers the README gives).
 fn bootstrap_section(b: &BootstrapReport) -> String {
     let s = b.summary;
     let mut out =
@@ -410,7 +411,7 @@ fn bootstrap_section(b: &BootstrapReport) -> String {
     };
     let _ = write!(
         out,
-        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, {fitted} on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations (documented in psmc-rs's bootstrap module), the bootstrap standard deviation of log10 Ne was a median 0.90 to 0.92 of the true sampling standard deviation, and 0.74 at the oldest times; the estimator's bias, about half that standard deviation, does not show in the band at all. Few trunks give coarse bands.{saved_note}</div>"#,
+        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, {fitted} on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations with psmc-rs's default start and objective (examples/bootstrap_calibration.rs, described in the README), the bootstrap standard deviation of log10 Ne was a median 0.85 (whole sequences as trunks) to 0.91 (1,000-bin trunks) of the true sampling standard deviation, and 0.74 to 0.78 at the oldest times, though at the most recent times whole-sequence trunks gave a band wider than the true spread; the estimator's bias, about a third of that standard deviation, does not show in the band at all. Few trunks give coarse bands.{saved_note}</div>"#,
     );
     out.push_str("</div></section>");
     out
