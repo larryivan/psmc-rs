@@ -18,9 +18,10 @@ made with 0.1 and are being regenerated.
 Defaults, each of which changes the results of a run that relied on it:
 
 - Without `--pattern` the model is C psmc's default pattern `4+5*3+4` (23
-  intervals, 7 free λ); 0.1 fitted 64 intervals with one λ each (65 free
-  parameters). `--n-steps` follows the pattern, and accepts the interval
-  count that 0.1 took; `--n-steps` alone keeps one λ per interval.
+  intervals, 7 free λ); 0.1 fitted 65 intervals (`--n-steps 64`) with one λ
+  each. `--n-steps` follows the pattern, and accepts the interval count
+  that 0.1 took; `--n-steps` alone keeps one λ per interval, so
+  `--n-steps 64` gives 0.1's layout.
 - EM starts from ρ0 = θ0/4 (C psmc's `-r 4`, new `--tr-ratio`) instead of
   θ0/5.
 - `--smooth-lambda` defaults to 0, C psmc's objective, instead of 1e-3.
@@ -38,7 +39,8 @@ Defaults, each of which changes the results of a run that relied on it:
 - VCF and multihetsep sequences go through fq2psmcfa's output filter
   (`--min-good-bases 10000`, `--min-good-fraction 0.2`; 0 disables).
 - A VCF read in mask mode runs to each chromosome's `##contig` length
-  instead of stopping at the last record (`--vcf-no-contig-end`).
+  (`--vcf-no-contig-end`: to its last record) instead of stopping at the
+  last heterozygous SNP.
 - TMRCA output gives each state its average coalescent time, the time its
   emission uses, instead of the left edge of its interval; every
   `tmrca_*_years` column changes.

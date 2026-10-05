@@ -446,16 +446,17 @@ gives a different fit:
 
 | setting | 0.1 | 0.2 | why |
 | --- | --- | --- | --- |
-| pattern | none: 64 intervals, 65 free λ | `4+5*3+4` (23 intervals, 7 free λ) | C psmc's default; each free λ needs enough recombinations in its intervals to be determined |
+| pattern | none: 65 intervals (`--n-steps 64`), 65 free λ | `4+5*3+4` (23 intervals, 7 free λ) | C psmc's default; each free λ needs enough recombinations in its intervals to be determined |
 | initial ρ0 | θ0/5 | θ0/4 (`--tr-ratio`) | C psmc's `-r` default |
 | `--smooth-lambda` | 1e-3 | 0 | C psmc's objective |
 | bootstrap | 50,000-bin blocks within each sequence, replicates started from the fit | splitfa trunks of 500,000 bins across the input, fresh start | C psmc's scheme; the old one gave zero spread for sequences shorter than a block |
 | `--input-format` | psmcfa | auto | |
 | VCF and multihetsep sequences | all kept | fq2psmcfa's filter | as fq2psmcfa does |
-| VCF sequence end (mask mode) | last record | `##contig` length | the sites after the last record are data (called where callable) |
+| VCF sequence end (mask mode) | last heterozygous SNP | `##contig` length (`--vcf-no-contig-end`: last record) | the sites after the last heterozygous SNP are data (called where callable) |
 | TMRCA years | left edge of each interval | average coalescent time of each state | the time the emission uses |
 | `Last EM loglike` | log-likelihood before the last iteration | of the written model | |
 
+`--n-steps 64` without `--pattern` fits 0.1's model layout.
 `--mhs-bin-size` is now `--bin-size` and `--tmrca-gen-years` is now
 `--gen-years`; the old names still work. The same `--bootstrap-seed` draws
 different replicates than in 0.1. 0.1 also read psmcfa headers as bins (one
