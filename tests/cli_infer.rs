@@ -167,6 +167,46 @@ fn init_params_continues_a_saved_fit() {
     assert!(err.contains("cannot be used with"), "{err}");
 }
 
+/// N_ITER 0 writes the starting model with its log-likelihood: `loglike`
+/// holds N_ITER + 1 = 1 value, `final_loglike` equals it, and the run
+/// prints it. For saved parameters it is their saved log-likelihood, to
+/// the bit, and for a fresh start the first value of a longer fit.
+#[test]
+fn zero_iterations_record_the_starting_loglike() {
+    let dir = TempDir::new("zero_iter_loglike");
+    let two = fit_json(&dir, "two", "2", &[]);
+    let saved_ll = two["final_loglike"].as_f64().unwrap();
+    let fresh = fit_json(&dir, "fresh", "0", &[]);
+    assert_eq!(fresh["n_iter"], 0);
+    assert_eq!(fresh["loglike"], serde_json::json!([two["loglike"][0]]));
+    assert_eq!(fresh["final_loglike"], two["loglike"][0]);
+
+    let saved = dir.path("two.json");
+    let out = run_ok([
+        dir.path("in.psmcfa").to_str().unwrap(),
+        dir.path("again.json").to_str().unwrap(),
+        "0",
+        "--no-progress",
+        "--init-params",
+        saved.to_str().unwrap(),
+    ]);
+    assert!(
+        out.contains(&format!("Last EM loglike: {saved_ll}\n")),
+        "{out}"
+    );
+    let again = json(&dir.path("again.json"));
+    assert_eq!(again["loglike"], serde_json::json!([saved_ll]));
+    assert_eq!(again["final_loglike"].as_f64(), Some(saved_ll));
+    // The report shows it too.
+    let html = std::fs::read_to_string(dir.path("again.html")).unwrap();
+    assert!(
+        html.contains(&format!(
+            "<tr><th>Final log-likelihood</th><td>{saved_ll:.6}</td></tr>"
+        )),
+        "{html}"
+    );
+}
+
 /// With --init-params, the bootstrap replicates start from the saved
 /// parameters, as the main fit does (C psmc -i -b), not from flat lambdas.
 #[test]

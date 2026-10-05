@@ -14,7 +14,10 @@ use psmc_rs::bootstrap::{
     summarize_bootstrap_models,
 };
 use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
-use psmc_rs::hmm::{Cancelled, EStepPhase, write_tmrca_posterior_tsv};
+use psmc_rs::hmm::{
+    Cancelled, EStepOptions, EStepPhase, EStepProgress, log_likelihood_with_options,
+    write_tmrca_posterior_tsv,
+};
 use psmc_rs::io::Observations;
 use psmc_rs::io::input::Dataset;
 use psmc_rs::io::params::{InputSummary, load_params};
@@ -88,7 +91,8 @@ pub struct RunSummary {
     pub tmrca_out: Option<PathBuf>,
     /// The bootstrap files, if a bootstrap ran.
     pub bootstrap_dir: Option<PathBuf>,
-    /// Log-likelihood of the fitted parameters (none after 0 iterations).
+    /// Log-likelihood of the written parameters: the fitted ones, or the
+    /// starting ones after 0 iterations.
     pub final_loglike: Option<f64>,
 }
 
@@ -323,10 +327,14 @@ fn infer(
         ..MStepConfig::default()
     };
     let history = fit(&mut model, obs, n_iter, &mstep_config, cancel, sink, pool)?;
-    let final_loglike = history.final_loglike();
-    if let Some(ll) = final_loglike {
-        sink(Event::Output(format!("Last EM loglike: {ll}")));
-    }
+    let final_loglike = match history.final_loglike() {
+        Some(ll) => ll,
+        // EM evaluates no parameters in 0 iterations; the written model is
+        // the starting one, and the JSON's loglike starts with its value.
+        None => model_loglike(&model, obs, cancel, sink, pool)?,
+    };
+    sink(Event::Output(format!("Last EM loglike: {final_loglike}")));
+    let final_loglike = Some(final_loglike);
     if n_iter > 0
         && let Some(msg) = near_bounds_warning(&model, &mstep_config)
     {
@@ -340,6 +348,7 @@ fn infer(
     let record = FitRecord {
         model: &model,
         history: &history,
+        final_loglike,
         bin_size: cli.input.bin_size,
         gen_years: cli.gen_years,
         tr_ratio,
@@ -674,6 +683,39 @@ fn fit(
     )?;
     model.param_recalculate()?;
     Ok(history)
+}
+
+/// Log-likelihood of `model` on `obs`, by the forward pass with which EM
+/// evaluates the parameters it ends with.
+fn model_loglike(
+    model: &PsmcModel,
+    obs: &Observations,
+    cancel: &AtomicBool,
+    sink: Sink,
+    pool: &ThreadPool,
+) -> Result<f64> {
+    let mut on_progress = |p: EStepProgress| {
+        sink(Event::Progress {
+            stage: Stage::EForward,
+            done: p.done,
+            total: p.total,
+            iter: None,
+        })
+    };
+    let opts = EStepOptions {
+        on_progress: Some(&mut on_progress),
+        cancel: Some(cancel),
+        thread_pool: Some(pool),
+        ..EStepOptions::default()
+    };
+    log_likelihood_with_options(
+        model.prior_matrix(),
+        model.transition_matrix(),
+        model.emission_matrix(),
+        &obs.rows,
+        &obs.row_starts,
+        opts,
+    )
 }
 
 /// Run the bootstrap and write its files: each replicate's JSON and

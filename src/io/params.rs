@@ -49,7 +49,8 @@ pub struct RunMetadata {
     /// EM iterations run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_iter: Option<usize>,
-    /// Log-likelihood of these parameters (none after 0 iterations).
+    /// Log-likelihood of these parameters (after 0 iterations, the starting
+    /// parameters these are).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_loglike: Option<f64>,
     /// `loglike[i]`: log-likelihood of the parameters after `i` EM

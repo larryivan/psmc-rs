@@ -33,7 +33,8 @@ pub struct ReportData<'a> {
     pub input: Option<&'a InputSummary>,
     /// EM iterations run.
     pub n_iter: usize,
-    /// Log-likelihood of the fitted parameters (none after 0 iterations).
+    /// Log-likelihood of the fitted parameters (of the starting ones after 0
+    /// iterations), if known.
     pub final_loglike: Option<f64>,
     /// Further settings of the run to list, as (name, value).
     pub settings: Vec<(String, String)>,
