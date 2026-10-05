@@ -518,8 +518,8 @@ pub struct InferArgs {
     #[arg(long, help_heading = "Model")]
     pub pattern: Option<String>,
 
-    /// Number of time intervals minus one (C psmc's n); taken from
-    /// --pattern, and checked against it when both are given
+    /// Number of time intervals minus one (C psmc's n; at most 9999);
+    /// taken from --pattern, and checked against it when both are given
     #[arg(long, help_heading = "Model")]
     pub n_steps: Option<usize>,
 
@@ -550,7 +550,9 @@ pub struct InferArgs {
     #[arg(long, default_value_t = 2.5e-8, value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
-    /// Maximum L-BFGS iterations per M-step
+    /// Maximum L-BFGS iterations per M-step (C psmc's search runs to
+    /// convergence; about 1000 matches it more closely, at ten times the
+    /// M-step's small share of the run time)
     #[arg(long, value_name = "N", default_value_t = 100, value_parser = positive_usize, help_heading = "Model")]
     pub mstep_iters: usize,
 
@@ -611,15 +613,15 @@ pub struct InferArgs {
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub psmc_out: Option<PathBuf>,
 
-    #[arg(
-        long,
-        help = "Write per-bin TMRCA posterior TSV and add TMRCA charts into HTML report"
-    )]
+    /// Write the posterior TMRCA of every bin as TSV (gzip when FILE ends in
+    /// .gz), each state at its average coalescent time in years; the HTML
+    /// report then shows the TMRCA panels
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub tmrca_out: Option<PathBuf>,
 
     /// Years per generation, for the time axis of the Ne curve (report),
     /// the bootstrap summary and the TMRCA output
-    #[arg(long, value_name = "YEARS", default_value_t = 25.0, value_parser = positive_f64, alias = "tmrca-gen-years")]
+    #[arg(long, value_name = "YEARS", default_value_t = 25.0, value_parser = positive_f64, alias = "tmrca-gen-years", help_heading = "Output")]
     pub gen_years: f64,
 }
 
