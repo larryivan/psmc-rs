@@ -16,8 +16,10 @@ repository from its own path, so any working directory works.
   Tables 1-2 and Supplementary Tables S2-S5 therefore describes 0.1. The C
   psmc runs were made with `-r5` to match 0.1; for 0.2 both tools are run
   with `RHO_T_RATIO` [4] (C `-r4`, psmc-rs `--tr-ratio 4`), so regenerate
-  both sides. The scripts pass every setting that shapes the fit to psmc-rs
-  explicitly (see the table in step 2), so they need a psmc-rs 0.2 build:
+  both sides (the scripts do: they reuse no output made with other
+  settings, see step 2). The scripts pass every setting that shapes the
+  fit to psmc-rs explicitly (see the table in step 2), so they need a
+  psmc-rs 0.2 build:
   before the first run compared with C psmc they check, with a
   zero-iteration run, that the binary starts from `theta0/RHO_T_RATIO`, and
   a 0.1 build (which has no `--tr-ratio`) is refused with an explanation.
@@ -93,7 +95,8 @@ experiment/
 ```
 
 Committed: `real_data/`, every `runs/*/tables/*.csv`, `runs/*/figures/`, and
-the small `runs/**/outputs/*.json` and `*.psmc` files.
+the small `runs/**/outputs/*.json` (psmc-rs outputs and their
+`.settings.json` records) and `*.psmc` files.
 Ignored as regenerable: simulated inputs (5 MB per 500 Mb model, more for
 VCF), timing repeats (`main_text/perf/`, `supplementary/s3_memory/outputs/`,
 `supplementary/s4_threads/outputs/`), logs, HTML reports, bootstrap
@@ -212,15 +215,29 @@ optimiser runs each M-step to convergence, which psmc-rs matches more
 closely with about 1000 (at ten times the M-step's small share of the run
 time).
 
-The scripts reuse finished runs of the requested `N_ITER`: a psmc-rs JSON
-that parses and records that `n_iter` (psmc-rs 0.2 writes it; 0.1 outputs
-are run again), and a C psmc output with exactly `N_ITER + 1` rounds. C
-psmc writes each round as it goes, so it writes to `<output>.partial`, which
-is renamed only when the run succeeds; an interrupted run therefore leaves
-no output, and an incomplete one (or one made with another `N_ITER`) is run
-again. `--force-run` (main text), `--force`
-(real data, supplementary) re-run everything. Timing steps (`perf`, S3, S4)
-always re-run because cached outputs carry no timing.
+The scripts reuse an existing output only if it is a finished run of the
+current settings, and otherwise say why they run it again (for example
+`HomoSapiens.c.psmc was made with -r5 (RHO_T_RATIO is 4); re-running`):
+
+- a C psmc output must have exactly `N_ITER + 1` rounds, and its header
+  (`MM pattern:...` and `MM n_iterations:..., max_t:..., theta/rho:...`)
+  must give the current `PATTERN`, `N_ITER`, `T_MAX` and `RHO_T_RATIO`;
+- a psmc-rs JSON must parse, record the current `n_iter` (0.1 outputs
+  record none), and come with a matching `<name>.settings.json`. The
+  scripts write that record after each successful psmc-rs run, since the
+  JSON does not record the starting `t_max` or the M-step cap. It lists
+  the run's arguments except the input and output paths and `--threads`,
+  `--batch-size` and `--no-progress`, which do not change the results, so
+  changing `RUST_THREADS` or `BATCH_SIZE` reuses an output and changing any
+  other setting (`MU` included) does not.
+
+So outputs left from the 0.1 runs (C psmc at `-r5`, psmc-rs JSON without
+`n_iter`) are run again on both sides without `--force`. C psmc writes each
+round as it goes, so it writes to `<output>.partial`, which is renamed only
+when the run succeeds; an interrupted run therefore leaves no output.
+`--force-run` (main text), `--force` (real data, supplementary) re-run
+everything. Timing steps (`perf`, S3, S4) always re-run because cached
+outputs carry no timing.
 
 Expect hours: on the 0.1 runs C psmc needed about 7.5 min and 5 GB RSS per
 500 Mb model (7.8 GB at 1 Gb in S3), psmc-rs about 5 min and 1.4 GB;

@@ -48,24 +48,43 @@ def write_rust_json(
 
 
 def write_c_psmc(
-    path: Path, scale: float = 1.0, theta: float = 0.002, rounds: Sequence[int] = (0, 20)
+    path: Path,
+    scale: float = 1.0,
+    theta: float = 0.002,
+    rounds: Sequence[int] = (0, 20),
+    *,
+    n_iter: Optional[int] = None,
+    t_max: float = 15.0,
+    tr_ratio: float = 4.0,
+    pattern: str = PATTERN,
 ) -> None:
     """A C psmc output with one block per round in ``rounds``, all with the same curve.
 
-    The default is a two-round output (RD 0 unfitted, RD 20 final).
+    The default is a two-round output (RD 0 unfitted, RD 20 final). The
+    header records ``-N`` (``n_iter``, default the last round), ``-t``,
+    ``-r`` and ``-p`` as C psmc does; the curve is always that of ``PATTERN``
+    and t_max 15.
     """
+    rounds = list(rounds)
+    if n_iter is None:
+        n_iter = rounds[-1] if rounds else 0
     path.parent.mkdir(parents=True, exist_ok=True)
-    alpha, t_max = 0.1, 15.0
-    beta = math.log(1 + t_max / alpha) / N_STEPS
-    t = [alpha * (math.exp(beta * k) - 1.0) for k in range(N_STEPS)] + [t_max]
+    alpha, t_end = 0.1, 15.0
+    beta = math.log(1 + t_end / alpha) / N_STEPS
+    t = [alpha * (math.exp(beta * k) - 1.0) for k in range(N_STEPS)] + [t_end]
     groups = [(1, 4), (25, 2), (1, 4), (1, 6)]
     lam = []
     for (nr, gl), v in zip([g for g in groups for _ in range(g[0])], _lams(scale)):
         lam.extend([v] * gl)
-    lines = ["CC\tsynthetic", "MM\tVersion: test"]
+    lines = [
+        "CC\tsynthetic",
+        "MM\tVersion: test",
+        f"MM\tpattern:{pattern}, n:{N_STEPS}, n_free_lambdas:{N_FREE}",
+        f"MM\tn_iterations:{n_iter}, skip:1, max_t:{t_max:g}, theta/rho:{tr_ratio:g}",
+    ]
     for rd in rounds:
         lk = 0.0 if rd == 0 else -12345.6
-        lines += [f"RD\t{rd}", f"LK\t{lk}", f"TR\t{theta}\t{theta / 4}"]
+        lines += [f"RD\t{rd}", f"LK\t{lk}", f"TR\t{theta}\t{theta / tr_ratio}"]
         lines += [f"RS\t{k}\t{t[k]:.6f}\t{lam[k]:.6f}\t0\t0\t0" for k in range(N_STEPS + 1)]
         lines += ["PA\t" + PATTERN, "//"]
     path.write_text("\n".join(lines) + "\n")
@@ -110,12 +129,20 @@ sys.path.insert(0, {fixtures_dir!r})
 import fixtures
 
 args = sys.argv[1:]
-n_iter = next(int(a[2:]) for a in args if a.startswith("-N"))
+opt = {{a[:2]: a[2:] for a in args if a[:2] in ("-N", "-t", "-r")}}
+n_iter = int(opt["-N"])
 out = Path(args[args.index("-o") + 1])
 if os.environ.get("FAKE_TOOL_LOG"):
     with open(os.environ["FAKE_TOOL_LOG"], "a") as f:
         f.write(f"c {{out.name}} {{n_iter}}\\n")
-fixtures.write_c_psmc(out, rounds=range(int(os.environ.get("FAKE_C_ROUNDS", n_iter + 1))))
+fixtures.write_c_psmc(
+    out,
+    rounds=range(int(os.environ.get("FAKE_C_ROUNDS", n_iter + 1))),
+    n_iter=n_iter,
+    t_max=float(opt.get("-t", 15)),
+    tr_ratio=float(opt.get("-r", 4)),
+    pattern=args[args.index("-p") + 1] if "-p" in args else "4+5*3+4",
+)
 sys.exit(int(os.environ.get("FAKE_C_EXIT", "0")))
 '''
 

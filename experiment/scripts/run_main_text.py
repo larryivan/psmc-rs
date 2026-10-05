@@ -118,11 +118,17 @@ class Runner:
         """Exit before any comparison run unless both tools start from the same theta/rho ratio."""
         self.settings.check_psmc_rs(self.psmc_rs)
 
+    def rust_cmd(self, inp: Path, out_json: Path, psmc_rs: Optional[Path] = None) -> List[str]:
+        """The psmc-rs command for ``inp``, run by ``psmc_rs`` (default: the resolved binary)."""
+        return self.settings.rust_cmd(psmc_rs or self.psmc_rs, inp, out_json, mu=MU)
+
     def rust(self, inp: Path, out_json: Path) -> Dict:
         self.check_matched()
         env = os.environ.copy()
         env["PSMC_ALPHA_CACHE_MB"] = str(ALPHA_CACHE_MB)
-        return self.run(self.settings.rust_cmd(self.psmc_rs, inp, out_json, mu=MU), env=env)
+        return exp_common.run_psmc_rs(
+            self.rust_cmd(inp, out_json), out_json, log_path=self.log, cwd=exp_common.ROOT, env=env
+        )
 
     def c(self, inp: Path, out_psmc: Path) -> Dict:
         self.check_matched()
@@ -147,14 +153,15 @@ class Runner:
             inp = self.input_path(key)
             rust_out = self.outputs / f"{key}.rust.main.json"
             c_out = self.outputs / f"{key}.c.main.psmc"
-            # Reuse only finished runs of N_ITER iterations (an interrupted C psmc
-            # leaves fewer rounds; a psmc-rs JSON records its n_iter).
-            if force or not exp_common.psmc_rs_output_ok(rust_out, self.settings.n_iter):
+            # Reuse only finished runs of these settings (an interrupted C psmc
+            # leaves fewer rounds; C's header and psmc-rs's settings record
+            # name the settings a file was made with). The binary's path is
+            # not a setting, so the check needs no build.
+            stale = exp_common.psmc_rs_stale(rust_out, self.rust_cmd(inp, rust_out, psmc_rs=Path("psmc-rs")))
+            if exp_common.must_run(rust_out, stale, force, tag="main"):
                 print(f"[main] psmc-rs {key}", flush=True)
                 self.rust(inp, rust_out)
-            if force or not exp_common.c_psmc_complete(c_out, self.settings.n_iter):
-                if c_out.exists() and not force:
-                    print(f"[main] {c_out.name} is not a finished {self.settings.n_iter}-iteration run; re-running")
+            if exp_common.must_run(c_out, exp_common.c_psmc_stale(c_out, self.settings), force, tag="main"):
                 print(f"[main] C psmc {key}", flush=True)
                 self.c(inp, c_out)
 

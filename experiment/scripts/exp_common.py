@@ -451,14 +451,72 @@ def c_psmc_rounds(path: Path) -> int:
     return rounds
 
 
-def c_psmc_complete(path: Path, n_iter: int) -> bool:
-    """Whether ``path`` holds a finished C psmc run of ``n_iter`` iterations.
+def c_psmc_header(path: Path) -> Dict[str, object]:
+    """The settings C psmc records in the ``MM`` lines of its output header.
 
-    A finished run has ``n_iter + 1`` rounds (round 0 is the starting point).
-    Fewer rounds mean an interrupted run, whose last round must not be taken
-    as the result; a different count means other settings.
+    ``pattern`` (``-p``), ``n_iter`` (``-N``), ``t_max`` (``-t``) and
+    ``tr_ratio`` (``-r``), from ``MM pattern:P, n:..., n_free_lambdas:...``
+    and ``MM n_iterations:N, skip:1, max_t:T, theta/rho:R``; keys whose line
+    is missing are left out.
     """
-    return c_psmc_rounds(path) == n_iter + 1
+    out: Dict[str, object] = {}
+    try:
+        with Path(path).open(encoding="utf-8", errors="replace") as f:
+            for ln in f:
+                if ln.startswith("RD\t"):
+                    break
+                if not ln.startswith("MM\t"):
+                    continue
+                fields = dict(
+                    kv.split(":", 1) for kv in ln[3:].rstrip("\n").split(", ") if ":" in kv
+                )
+                try:
+                    if "pattern" in fields:
+                        out["pattern"] = fields["pattern"]
+                    if "n_iterations" in fields:
+                        out["n_iter"] = int(fields["n_iterations"])
+                    if "max_t" in fields:
+                        out["t_max"] = float(fields["max_t"])
+                    if "theta/rho" in fields:
+                        out["tr_ratio"] = float(fields["theta/rho"])
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def c_psmc_stale(path: Path, settings: "MatchedSettings") -> Optional[str]:
+    """Why ``path`` cannot be reused as the C psmc output of ``settings``; None when it can.
+
+    A reusable output was made with the settings' ``-N``, ``-p``, ``-t`` and
+    ``-r`` (read from its header; ``-t`` and ``-r`` as printed, to six
+    significant digits) and has ``n_iter + 1`` rounds (round 0 is the
+    starting point): fewer mean an interrupted run, whose last round must
+    not be taken as the result.
+    """
+    path = Path(path)
+    if not path.exists():
+        return "does not exist"
+    rounds = c_psmc_rounds(path)
+    if rounds != settings.n_iter + 1:
+        return f"is not a finished {settings.n_iter}-iteration run ({rounds} rounds)"
+    header = c_psmc_header(path)
+    made = []
+    if header.get("n_iter") != settings.n_iter:
+        made.append(f"-N{header.get('n_iter', '?')} (N_ITER is {settings.n_iter})")
+    if header.get("pattern") != settings.pattern:
+        made.append(f"-p {header.get('pattern', '?')} (PATTERN is {settings.pattern})")
+    for key, flag, var, want in (
+        ("t_max", "-t", "T_MAX", settings.t_max),
+        ("tr_ratio", "-r", "RHO_T_RATIO", settings.rho_t_ratio),
+    ):
+        got = header.get(key)
+        if got is None or not math.isclose(float(got), float(want), rel_tol=1e-5):
+            made.append(f"{flag}{'?' if got is None else format(got, 'g')} ({var} is {float(want):g})")
+    if made:
+        return "was made with " + ", ".join(made)
+    return None
 
 
 def c_psmc_loglikes(path: Path) -> List[Tuple[int, float]]:
@@ -508,7 +566,8 @@ def psmc_rs_output_ok(path: Path, n_iter: int) -> bool:
     file that parses is a finished run; an interrupted write leaves invalid
     JSON. From 0.2 on the file records ``n_iter``; a file from another
     ``N_ITER``, or from 0.1 (which recorded none), is not reused, just as a
-    C psmc output must hold ``N_ITER + 1`` rounds (:func:`c_psmc_complete`).
+    C psmc output must hold ``N_ITER + 1`` rounds (:func:`c_psmc_stale`).
+    The other settings are checked by :func:`psmc_rs_stale`.
     """
     try:
         params = json.loads(Path(path).read_text())
@@ -519,6 +578,114 @@ def psmc_rs_output_ok(path: Path, n_iter: int) -> bool:
         and all(k in params for k in ("theta", "rho", "lam", "n_steps", "t_max"))
         and params.get("n_iter") == n_iter
     )
+
+
+# Options of a psmc-rs run that change neither its fit nor its JSON.
+_RESULT_NEUTRAL_FLAGS = {"--threads": 1, "--batch-size": 1, "--no-progress": 0}
+
+
+def psmc_rs_fit_args(cmd: Sequence[str]) -> List[str]:
+    """The arguments of a psmc-rs inference command ``psmc-rs INPUT OUTPUT N_ITER ...`` that shape its JSON.
+
+    N_ITER and every option, without the input and output paths and without
+    ``--threads``, ``--batch-size`` and ``--no-progress``, which change
+    neither the fit nor the output.
+    """
+    out: List[str] = []
+    rest = [str(x) for x in cmd[3:]]
+    i = 0
+    while i < len(rest):
+        flag = rest[i].split("=", 1)[0]
+        if flag in _RESULT_NEUTRAL_FLAGS:
+            i += 1 if "=" in rest[i] else 1 + _RESULT_NEUTRAL_FLAGS[flag]
+            continue
+        out.append(rest[i])
+        i += 1
+    return out
+
+
+def psmc_rs_settings_path(out_json: Path) -> Path:
+    """Where :func:`record_psmc_rs_run` keeps the settings of ``out_json``: ``X.json`` -> ``X.settings.json``."""
+    out_json = Path(out_json)
+    return out_json.with_name(out_json.stem + ".settings.json")
+
+
+def record_psmc_rs_run(out_json: Path, cmd: Sequence[str]) -> None:
+    """Record next to ``out_json`` the arguments of the command that wrote it (:func:`psmc_rs_fit_args`).
+
+    The JSON records the pattern, ``tr_ratio`` and ``smooth_lambda`` but not
+    the starting ``t_max`` or the M-step cap, so reuse is decided from this
+    record (:func:`psmc_rs_stale`).
+    """
+    psmc_rs_settings_path(out_json).write_text(
+        json.dumps({"psmc_rs_args": psmc_rs_fit_args(cmd)}, indent=1) + "\n", encoding="utf-8"
+    )
+
+
+def run_psmc_rs(cmd: Sequence[str], out_json: Path, **kwargs) -> Dict:
+    """:func:`run_command` for a psmc-rs run that writes ``out_json``, then :func:`record_psmc_rs_run`.
+
+    The old record is removed first, so a failed run leaves none.
+    """
+    psmc_rs_settings_path(out_json).unlink(missing_ok=True)
+    rec = run_command(cmd, **kwargs)
+    if rec["returncode"] == 0:
+        record_psmc_rs_run(out_json, cmd)
+    return rec
+
+
+def psmc_rs_stale(out_json: Path, cmd: Sequence[str]) -> Optional[str]:
+    """Why ``out_json`` cannot be reused as the output of the psmc-rs command ``cmd``; None when it can.
+
+    A reusable output is the JSON of a finished run of ``cmd``'s N_ITER
+    (:func:`psmc_rs_output_ok`) with a record (:func:`record_psmc_rs_run`)
+    of the same :func:`psmc_rs_fit_args`. An output without a record, such
+    as one from psmc-rs 0.1 or written before the scripts kept records, is
+    run again.
+    """
+    out_json = Path(out_json)
+    if not out_json.exists():
+        return "does not exist"
+    n_iter = int(cmd[3])
+    if not psmc_rs_output_ok(out_json, n_iter):
+        return f"is not the output of a finished {n_iter}-iteration psmc-rs 0.2 run"
+    try:
+        recorded = json.loads(psmc_rs_settings_path(out_json).read_text(encoding="utf-8"))["psmc_rs_args"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return f"has no record of its settings ({psmc_rs_settings_path(out_json).name})"
+    want = psmc_rs_fit_args(cmd)
+    if recorded != want:
+        old, new = _arg_items([str(x) for x in recorded]), _arg_items(want)
+        gone = [x for x in old if x not in new] or old
+        now = [x for x in new if x not in old] or ["the same options in another order"]
+        return f"was made with {', '.join(gone)} (now {', '.join(now)})"
+    return None
+
+
+def _arg_items(args: Sequence[str]) -> List[str]:
+    """``N_ITER n`` and one ``--flag value`` (or ``--flag``) item per option of :func:`psmc_rs_fit_args`."""
+    out = [f"N_ITER {args[0]}"] if args else []
+    i = 1
+    while i < len(args):
+        if args[i].startswith("-") and i + 1 < len(args) and not args[i + 1].startswith("-"):
+            out.append(f"{args[i]} {args[i + 1]}")
+            i += 2
+        else:
+            out.append(args[i])
+            i += 1
+    return out
+
+
+def must_run(out: Path, stale: Optional[str], force: bool, tag: str = "run") -> bool:
+    """Whether ``out`` must be made: with ``force``, or when ``stale`` (from :func:`c_psmc_stale` or
+    :func:`psmc_rs_stale`) gives a reason. Prints the reason when an existing file is replaced."""
+    if force:
+        return True
+    if stale is None:
+        return False
+    if Path(out).exists():
+        print(f"[{tag}] {Path(out).name} {stale}; re-running", flush=True)
+    return True
 
 
 def require_modules(names: Sequence[str], purpose: str) -> None:

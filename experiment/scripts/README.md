@@ -11,7 +11,7 @@ used by `experiment/notebooks/all_plots_precomputed.ipynb`. See
 | `run_main_text.py` | `runs/main_text/`: simulated inputs, psmc-rs and C outputs (Figure 2, Table 1), timing tables (Figure 4 A/B, Table 2) |
 | `run_real_data.py` | `runs/real_data/`: psmc-rs and C outputs on `experiment/real_data/` and the fit summary (Figure 3) |
 | `run_supplementary.py` | `runs/supplementary/tables/`: S2-S5 (Supplementary Figures S1, S2 and Figure 4 C/D); S1 smoothing ablation optional |
-| `exp_common.py` | shared helpers: repository paths, tool lookup, matched EM settings, command log, Ne curves |
+| `exp_common.py` | shared helpers: repository paths, tool lookup, matched EM settings, which outputs can be reused, command log, Ne curves |
 
 All scripts locate the repository from their own path, so they can be run from
 any working directory. Output locations are command-line arguments; tool

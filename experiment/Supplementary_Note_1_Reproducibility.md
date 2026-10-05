@@ -118,8 +118,12 @@ the binary starts from the same ratio and stop if it does not (a 0.1 build
 has no `--tr-ratio` and always started from `theta0/5`). Each script logs every command with its wall time and peak
 memory to `experiment/runs/<part>/logs/commands.jsonl`. The full regeneration
 takes hours and up to about 8 GB of memory (C psmc on 1 Gb in S3); timing
-experiments should run on an otherwise idle machine. Commit the regenerated
-`experiment/runs/**/outputs/*.json` and `*.psmc` files with the tables (the
+experiments should run on an otherwise idle machine. An existing output is
+reused only if it is a finished run of the current settings (C psmc's header
+records `-p`, `-N`, `-t` and `-r`; the scripts record psmc-rs's arguments in
+`<output>.settings.json`), so outputs left from the 0.1 runs are made again
+on both sides. Commit the regenerated `experiment/runs/**/outputs/*.json`
+(with the `.settings.json` records) and `*.psmc` files with the tables (the
 S3/S4 timing repeats are ignored by git: they are re-run every time and only
 their timings, in the tables, are used).
 

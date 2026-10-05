@@ -88,14 +88,14 @@ def run_samples(
         if not inp.exists():
             raise FileNotFoundError(f"input missing: {inp}")
         r_out, c_out = rust_json_path(out_dir, s), c_psmc_path(out_dir, s)
-        # Reuse only finished runs of N_ITER iterations (an interrupted C psmc
-        # leaves fewer rounds; a psmc-rs JSON records its n_iter).
-        if force or not exp_common.psmc_rs_output_ok(r_out, settings.n_iter):
+        # Reuse only finished runs of these settings (an interrupted C psmc
+        # leaves fewer rounds; C's header and psmc-rs's settings record name
+        # the settings a file was made with).
+        r_cmd = settings.rust_cmd(rust_bin, inp, r_out, mu=s.mu)
+        if exp_common.must_run(r_out, exp_common.psmc_rs_stale(r_out, r_cmd), force):
             print(f"[run] psmc-rs {s.sid}", flush=True)
-            exp_common.run_command(settings.rust_cmd(rust_bin, inp, r_out, mu=s.mu), log_path=log, cwd=exp_common.ROOT)
-        if force or not exp_common.c_psmc_complete(c_out, settings.n_iter):
-            if c_out.exists() and not force:
-                print(f"[run] {c_out.name} is not a finished {settings.n_iter}-iteration run; re-running")
+            exp_common.run_psmc_rs(r_cmd, r_out, log_path=log, cwd=exp_common.ROOT)
+        if exp_common.must_run(c_out, exp_common.c_psmc_stale(c_out, settings), force):
             print(f"[run] C psmc {s.sid}", flush=True)
             exp_common.run_staged(
                 lambda tmp: settings.c_cmd(c_bin, inp, tmp), c_out, log_path=log, cwd=exp_common.ROOT

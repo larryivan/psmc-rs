@@ -196,6 +196,55 @@ class SharedHelpers(unittest.TestCase):
             fixtures.write_c_psmc(p, rounds=range(4))  # round 0 prints LK 0.0
             self.assertEqual(self.ec.c_psmc_loglikes(p), [(1, -12345.6), (2, -12345.6), (3, -12345.6)])
 
+    def test_c_header_is_read_as_c_psmc_writes_it(self):
+        real = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
+        self.assertEqual(
+            self.ec.c_psmc_header(real), {"pattern": "4+25*2+4+6", "n_iter": 5, "t_max": 15.0, "tr_ratio": 4.0}
+        )
+        settings = self.ec.MatchedSettings(n_iter=5)
+        self.assertIsNone(self.ec.c_psmc_stale(real, settings))
+        other = self.ec.MatchedSettings(n_iter=5, pattern="4+5*3+4", t_max=20.0, rho_t_ratio=5)
+        self.assertEqual(
+            self.ec.c_psmc_stale(real, other),
+            "was made with -p 4+25*2+4+6 (PATTERN is 4+5*3+4), -t15 (T_MAX is 20), -r4 (RHO_T_RATIO is 5)",
+        )
+        self.assertIn("not a finished 4-iteration run (6 rounds)", self.ec.c_psmc_stale(real, self.ec.MatchedSettings(n_iter=4)))
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(self.ec.c_psmc_stale(Path(tmp) / "none.psmc", settings), "does not exist")
+
+    def test_psmc_rs_fit_args_leave_out_what_does_not_change_the_fit(self):
+        s = self.ec.MatchedSettings(threads=8, batch_size=1000)
+        cmd = s.rust_cmd(Path("/a/psmc-rs"), Path("/b/in.psmcfa"), Path("/c/out.json"), mu=1e-8, extra=["--bin-size", "50"])
+        args = self.ec.psmc_rs_fit_args(cmd)
+        self.assertEqual(args[0], "20")
+        for gone in ("--threads", "8", "--batch-size", "1000", "--no-progress", "/b/in.psmcfa", "/c/out.json"):
+            self.assertNotIn(gone, args)
+        for kept in ("--pattern", "--t-max", "--tr-ratio", "--smooth-lambda", "--mstep-iters", "--mu", "--bin-size"):
+            self.assertIn(kept, args)
+        self.assertEqual(self.ec.psmc_rs_fit_args([*cmd, "--threads=2"]), args)
+        self.assertEqual(self.ec.psmc_rs_fit_args(self.ec.MatchedSettings().rust_cmd(
+            Path("psmc-rs"), Path("x"), Path("y"), mu=1e-8, extra=["--bin-size", "50"])), args)
+
+    def test_psmc_rs_stale_names_the_changed_options(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "fit.json"
+            s = self.ec.MatchedSettings(n_iter=3)
+            cmd = s.rust_cmd(Path("psmc-rs"), Path("in"), out, mu=1e-8)
+            self.assertEqual(self.ec.psmc_rs_stale(out, cmd), "does not exist")
+            fixtures.write_rust_json(out, n_iter=3)
+            self.assertIn("has no record of its settings (fit.settings.json)", self.ec.psmc_rs_stale(out, cmd))
+            self.ec.record_psmc_rs_run(out, cmd)
+            self.assertIsNone(self.ec.psmc_rs_stale(out, cmd))
+            other = self.ec.MatchedSettings(n_iter=3, t_max=20.0, mstep_iters=1000).rust_cmd(
+                Path("psmc-rs"), Path("in"), out, mu=1e-8
+            )
+            self.assertEqual(
+                self.ec.psmc_rs_stale(out, other),
+                "was made with --t-max 15.0, --mstep-iters 100 (now --t-max 20.0, --mstep-iters 1000)",
+            )
+            more = self.ec.MatchedSettings(n_iter=4).rust_cmd(Path("psmc-rs"), Path("in"), out, mu=1e-8)
+            self.assertIn("finished 4-iteration", self.ec.psmc_rs_stale(out, more))
+
     def test_psmc_rs_loglikes_are_numbered_like_c_rounds(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "fit.json"
@@ -317,6 +366,7 @@ class InterruptedRuns(FakeToolsCase):
     def setUp(self):
         super().setUp()
         self.rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_int")
+        self.ec = self.rd.exp_common
         self.sample = self.rd.SAMPLES[-1]
         self.inputs = self.tmp / "in"
         self.inputs.mkdir()
@@ -336,14 +386,14 @@ class InterruptedRuns(FakeToolsCase):
         self.assertFalse(self.c_out.exists(), "a partial C output was left at the final path")
 
     def test_incomplete_cached_c_output_is_run_again(self):
-        fixtures.write_rust_json(self.r_out, n_iter=self.N_ITER)
-        fixtures.write_c_psmc(self.c_out, rounds=range(3))  # interrupted after round 2 of 5
+        self.run_real_data()
+        fixtures.write_c_psmc(self.c_out, rounds=range(3), n_iter=self.N_ITER)  # interrupted after round 2 of 5
         self.run_real_data()
         self.assertEqual(c_rounds(self.c_out), self.N_ITER + 1)
-        self.assertEqual(len(self.calls("c", self.c_out.name)), 1)
-        self.assertEqual(self.calls("psmc-rs", self.r_out.name), [], "a finished psmc-rs output is reused")
+        self.assertEqual(len(self.calls("c", self.c_out.name)), 2)
+        self.assertEqual(len(self.calls("psmc-rs", self.r_out.name)), 1, "a finished psmc-rs output is reused")
         self.run_real_data()
-        self.assertEqual(len(self.calls("c", self.c_out.name)), 1, "a finished C output is reused")
+        self.assertEqual(len(self.calls("c", self.c_out.name)), 2, "a finished C output is reused")
 
     def test_truncated_psmc_rs_output_is_run_again(self):
         fixtures.write_rust_json(self.r_out)
@@ -359,13 +409,14 @@ class InterruptedRuns(FakeToolsCase):
         runner = mt.Runner(out, str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
         runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
         c_out = out / "outputs" / "constant.c.main.psmc"
-        fixtures.write_rust_json(out / "outputs" / "constant.rust.main.json", n_iter=self.N_ITER)
-        fixtures.write_c_psmc(c_out, rounds=range(2))
+        with contextlib.redirect_stdout(io.StringIO()):
+            runner.main_runs(["constant"], force=False)
+        fixtures.write_c_psmc(c_out, rounds=range(2), n_iter=self.N_ITER)
         with contextlib.redirect_stdout(io.StringIO()):
             runner.main_runs(["constant"], force=False)
         self.assertEqual(c_rounds(c_out), self.N_ITER + 1)
-        self.assertEqual(len(self.calls("c", c_out.name)), 1)
-        self.assertEqual(self.calls("psmc-rs", "constant.rust.main"), [])
+        self.assertEqual(len(self.calls("c", c_out.name)), 2)
+        self.assertEqual(len(self.calls("psmc-rs", "constant.rust.main")), 1)
 
     def test_psmc_rs_output_of_another_n_iter_is_run_again(self):
         # As C outputs with another round count are: N_ITER changed, or the
@@ -378,6 +429,47 @@ class InterruptedRuns(FakeToolsCase):
         self.run_real_data()
         self.assertEqual(len(self.calls("psmc-rs", self.r_out.name)), 2, "a matching output is reused")
         self.assertEqual(self.calls("c", self.c_out.name), [])
+
+    def test_outputs_of_other_settings_are_run_again(self):
+        # Regenerating over 0.1-era outputs: C psmc ran with -r5 and the
+        # psmc-rs JSON records no settings. Both must be made again at -r4.
+        fixtures.write_c_psmc(self.c_out, rounds=range(self.N_ITER + 1), tr_ratio=5)
+        fixtures.write_rust_json(self.r_out, rho_ratio=5)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.rd.run_samples([self.sample], self.out, str(self.psmc_rs), str(self.c_psmc), False, self.inputs)
+        self.assertIn(f"{self.c_out.name} was made with -r5 (RHO_T_RATIO is 4); re-running", out.getvalue())
+        self.assertEqual(len(self.calls("c", self.c_out.name)), 1)
+        self.assertEqual(len(self.calls("psmc-rs", self.r_out.name)), 1)
+        self.assertEqual(self.ec.c_psmc_header(self.c_out)["tr_ratio"], 4.0)
+        self.assertEqual(json.loads(self.r_out.read_text())["tr_ratio"], 4.0)
+
+    def test_changed_settings_rerun_both_tools_and_threads_do_not(self):
+        self.run_real_data()
+        for env, rust, c in (
+            ({"RUST_THREADS": "4", "BATCH_SIZE": "1000"}, 0, 0),  # results do not depend on these
+            ({"T_MAX": "20"}, 1, 1),  # psmc-rs's JSON does not record its starting t_max
+            ({"T_MAX": "20", "PATTERN": "4+5*3+4"}, 1, 1),
+            ({"T_MAX": "20", "PATTERN": "4+5*3+4", "MSTEP_ITERS": "1000"}, 1, 0),  # psmc-rs's alone
+            ({"T_MAX": "20", "PATTERN": "4+5*3+4", "MSTEP_ITERS": "1000", "N_ITER": "3"}, 1, 1),
+        ):
+            before = (len(self.calls("psmc-rs", self.r_out.name)), len(self.calls("c", self.c_out.name)))
+            with mock.patch.dict(os.environ, env):
+                self.run_real_data()
+            after = (len(self.calls("psmc-rs", self.r_out.name)), len(self.calls("c", self.c_out.name)))
+            self.assertEqual(after, (before[0] + rust, before[1] + c), env)
+
+    def test_a_failed_psmc_rs_run_leaves_no_settings_record(self):
+        self.run_real_data()
+        record = self.ec.psmc_rs_settings_path(self.r_out)
+        self.assertEqual(record.name, "HomoSapiens.rust.settings.json")
+        self.assertTrue(record.exists())
+        cmd = self.ec.MatchedSettings.from_env().rust_cmd(self.psmc_rs, self.inputs / self.sample.file, self.r_out, mu=1e-8)
+        with mock.patch.dict(os.environ, {"FAKE_PRE_0_2": "1"}), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError):
+                self.ec.run_psmc_rs(cmd, self.r_out, log_path=self.tmp / "log.jsonl")
+        self.assertFalse(record.exists())
+        self.assertIn("has no record of its settings", self.ec.psmc_rs_stale(self.r_out, cmd))
 
     def test_supplementary_c_runs_are_staged(self):
         rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_int")

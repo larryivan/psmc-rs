@@ -482,10 +482,23 @@ def rust_cmd(
 
 
 def run_rust(input_file: Path, output_json: Path, n_iter: int, **kwargs):
-    """Run :func:`rust_cmd` and log it; keyword arguments go to :func:`rust_cmd`."""
+    """Run :func:`rust_cmd`, log it and record its settings; keyword arguments go to :func:`rust_cmd`."""
     env = os.environ.copy()
     env["PSMC_ALPHA_CACHE_MB"] = str(ALPHA_CACHE_MB)
-    return run_cmd(rust_cmd(input_file, output_json, n_iter, **kwargs), cwd=ROOT, env=env)
+    return exp_common.run_psmc_rs(
+        rust_cmd(input_file, output_json, n_iter, **kwargs),
+        output_json,
+        log_path=LOG_DIR / "commands.jsonl",
+        cwd=ROOT,
+        env=env,
+    )
+
+
+def ensure_rust(input_file: Path, output_json: Path, n_iter: int, force: bool = False, **kwargs) -> None:
+    """:func:`run_rust`, unless ``output_json`` is a finished run of the same command (``psmc_rs_stale``)."""
+    cmd = rust_cmd(input_file, output_json, n_iter, **kwargs)
+    if exp_common.must_run(output_json, exp_common.psmc_rs_stale(output_json, cmd), force):
+        run_rust(input_file, output_json, n_iter, **kwargs)
 
 
 def run_c(input_psmcfa: Path, output_psmc: Path, n_iter: int, bootstrap: bool = False):
@@ -500,6 +513,12 @@ def run_c(input_psmcfa: Path, output_psmc: Path, n_iter: int, bootstrap: bool = 
     # C psmc writes each round as it goes; staging keeps a partial file of an
     # interrupted run away from output_psmc, where it would be reused.
     return exp_common.run_staged(cmd_for, output_psmc, log_path=LOG_DIR / "commands.jsonl", cwd=ROOT)
+
+
+def ensure_c(input_psmcfa: Path, output_psmc: Path, force: bool = False) -> None:
+    """:func:`run_c` for ``N_ITER`` iterations, unless ``output_psmc`` is a finished run of ``SETTINGS``."""
+    if exp_common.must_run(output_psmc, exp_common.c_psmc_stale(output_psmc, SETTINGS), force):
+        run_c(input_psmcfa, output_psmc, n_iter=N_ITER)
 
 
 def parse_pattern_spec(pattern):
@@ -850,8 +869,7 @@ def run_s1_smooth_ablation(force: bool = False):
         inp = shared_input_path(key, SIM_LENGTH_BP)
         c_psmc = S1_DIR / "outputs" / f"{key}.c.C.psmc"
 
-        if force or not exp_common.c_psmc_complete(c_psmc, N_ITER):
-            run_c(inp, c_psmc, n_iter=N_ITER)
+        ensure_c(inp, c_psmc, force=force)
 
         true_curve = true_curve_for_model(key)
         c_curve = load_c_curve(c_psmc)
@@ -862,8 +880,7 @@ def run_s1_smooth_ablation(force: bool = False):
         for lam in S1_SMOOTH_LAMBDAS:
             lam_tag = f"{lam:g}".replace("+", "").replace("/", "_")
             rust_json = S1_DIR / "outputs" / f"{key}.rust.lambda_{lam_tag}.json"
-            if force or not exp_common.psmc_rs_output_ok(rust_json, N_ITER):
-                run_rust(inp, rust_json, n_iter=N_ITER, threads=RUST_THREADS_BASE, smooth_lambda=lam)
+            ensure_rust(inp, rust_json, N_ITER, force=force, threads=RUST_THREADS_BASE, smooth_lambda=lam)
             xr, yr, _ = curve_from_json(rust_json)
             rust_curves[lam] = (xr, yr)
             rmse_r = rmse_log10(true_curve, (xr, yr))
@@ -1027,21 +1044,18 @@ def s2_trace_rows(force: bool = False) -> List[Dict]:
         inp = shared_input_path(key, SIM_LENGTH_BP)
 
         c_psmc = S2_DIR / "outputs" / f"{key}.c.trace.psmc"
-        if force or not exp_common.c_psmc_complete(c_psmc, N_ITER):
-            run_c(inp, c_psmc, n_iter=N_ITER)
+        ensure_c(inp, c_psmc, force=force)
         for rd, lk in exp_common.c_psmc_loglikes(c_psmc):
             rows.append({"model": key, "tool": "c", "iter": rd, "loglike": lk})
 
         rust_json = S2_DIR / "outputs" / f"{key}.rust.trace.json"
-        trace = None if force else exp_common.psmc_rs_loglikes(rust_json, N_ITER)
+        ensure_rust(inp, rust_json, N_ITER, force=force, threads=RUST_THREADS_BASE)
+        trace = exp_common.psmc_rs_loglikes(rust_json, N_ITER)
         if trace is None:
-            run_rust(inp, rust_json, n_iter=N_ITER, threads=RUST_THREADS_BASE)
-            trace = exp_common.psmc_rs_loglikes(rust_json, N_ITER)
-            if trace is None:
-                raise RuntimeError(
-                    f"{rust_json} holds no log-likelihood trace of {N_ITER} iterations "
-                    "(the JSON key 'loglike' needs psmc-rs 0.2)"
-                )
+            raise RuntimeError(
+                f"{rust_json} holds no log-likelihood trace of {N_ITER} iterations "
+                "(the JSON key 'loglike' needs psmc-rs 0.2)"
+            )
         for rd, lk in trace:
             rows.append({"model": key, "tool": "rust", "iter": rd, "loglike": lk})
     return rows
@@ -1309,8 +1323,9 @@ def run_s5_format_consistency(force: bool = False):
         p_vcf = S5_DIR / "outputs" / f"{key}.vcf.rust.json"
 
         for inp, out, fmt in ((psmcfa_in, p_psmcfa, "psmcfa"), (mhs_in, p_mhs, "mhs"), (vcf_in, p_vcf, "vcf")):
-            if force or not exp_common.psmc_rs_output_ok(out, N_ITER):
-                run_rust(inp, out, n_iter=N_ITER, input_format=fmt, bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE)
+            ensure_rust(
+                inp, out, N_ITER, force=force, input_format=fmt, bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE
+            )
 
         x_psmcfa, y_psmcfa, params_psmcfa = curve_from_json(p_psmcfa)
         x_mhs, y_mhs, params_mhs = curve_from_json(p_mhs)

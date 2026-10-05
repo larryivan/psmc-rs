@@ -276,9 +276,14 @@ Reproduction package (`experiment/`):
   reused; `--models` and `--samples` subsets dropped the other rows of
   Table 2 and of the fit summary; `run_main_text.py` ignored `$SIM_SCRIPT`.
 - Reproduction package: S2 plotted C psmc's round 0, whose LK is a
-  placeholder 0, and a cached psmc-rs output was reused whatever `N_ITER`
-  it was made with (C outputs were checked); it is now reused only when its
-  `n_iter` matches.
+  placeholder 0.
+- Reproduction package: cached outputs were reused whatever settings made
+  them (a C psmc output only needed `N_ITER + 1` rounds, a psmc-rs output
+  only had to parse), so a rerun over the 0.1 outputs compared new psmc-rs
+  fits with C psmc runs made at `-r5`. An output is now reused only when C
+  psmc's header, or the record the scripts keep next to a psmc-rs JSON
+  (`<name>.settings.json`), shows the current settings; otherwise the
+  script says why and runs it again.
 - The documented minimum Rust version is 1.88, which the locked
   dependencies of `ratatui` 0.30 need.
 
