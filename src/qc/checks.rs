@@ -605,9 +605,10 @@ fn bin_saturation(report: &QcReport) -> Option<Finding> {
     let advice = match sat.max_bin_size_below_target {
         Some(r) => format!(
             "Re-bin the per-site data at {r} bp per bin or less, the largest size that \
-             keeps the share below {} at this heterozygosity (`fq2psmcfa -s {r}`, or the \
-             bin size option for VCF and multihetsep input), and scale the results with \
-             the same bin size.",
+             keeps the share below {} at this heterozygosity: `--bin-size {r}` for VCF and \
+             multihetsep input, or `fq2psmcfa -s {r}` for a psmcfa file, which psmc-rs \
+             then reads with `--bin-size {r}` so that the results are scaled with the \
+             same bin size.",
             pct(SATURATION_TARGET_SHARE)
         ),
         None => "Re-bin the per-site data with smaller bins.".to_string(),
@@ -739,7 +740,7 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
         let trunk = largest_trunk_within(seq_bins, SHORT_SEQUENCES_MAX_FRACTION);
         advice.push(format!(
             "For the bootstrap, a trunk of at most {} bins keeps at least {} of bins in \
-             sequences of one trunk or more.",
+             sequences of one trunk or more (--bootstrap-block-size).",
             count(trunk),
             pct(1.0 - SHORT_SEQUENCES_MAX_FRACTION)
         ));

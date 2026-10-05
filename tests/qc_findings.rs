@@ -261,6 +261,7 @@ fn bin_saturation_threshold() {
         f.recommendation
     );
     assert!(f.recommendation.contains(&format!("fq2psmcfa -s {best}")));
+    assert!(f.recommendation.contains(&format!("`--bin-size {best}`")));
 }
 
 #[test]
@@ -444,6 +445,7 @@ fn short_sequences_below_the_trunk() {
         "{}",
         f.recommendation
     );
+    assert!(f.recommendation.contains("--bootstrap-block-size"));
 
     // No bootstrap planned: no trunk check.
     let r = qc(&with_long(10_000), 100, 0, QcContext::default());
