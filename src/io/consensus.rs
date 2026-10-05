@@ -103,8 +103,9 @@ pub enum DepthThresholds {
     Fixed { min: u64, max: u64 },
     /// Chosen from the data in a first pass over the file: with `mean` the
     /// mean INFO/DP of the records in vcf2fq's SNP/reference branch,
-    /// `min = max(1, round(mean / 3))` and `max = round(2 * mean)`, as Li and
-    /// Durbin (2011) recommend.
+    /// `min = max(1, round(mean / 3))` and `max = round(2 * mean)`, as the
+    /// psmc README recommends for `vcf2fq -d` and `-D`. (Li & Durbin 2011
+    /// masked sites below half or above twice the mean depth.)
     Auto,
 }
 

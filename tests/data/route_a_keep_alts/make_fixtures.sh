@@ -37,7 +37,7 @@ bcftools annotate --no-version \
   "$work/keep_alts_raw.vcf.gz" 2>/dev/null | gzip -9n > keep_alts.vcf.gz
 gzip -9n < "$work/variants_c.vcf" > variants_c.vcf.gz
 
-# 3. vcf2fq | fq2psmcfa with the depth bounds Li and Durbin recommend,
+# 3. vcf2fq | fq2psmcfa with the depth bounds the psmc README recommends,
 #    computed independently of psmc-rs.
 read -r mean dmin dmax < <(python3 ../route_a/helpers.py auto-depth keep_alts.vcf.gz)
 printf '%s\t%s\t%s\n' "$mean" "$dmin" "$dmax" > expected/auto_depth.tsv

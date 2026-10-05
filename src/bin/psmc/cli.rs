@@ -272,7 +272,7 @@ pub struct InputArgs {
     pub vcf_no_contig_end: bool,
 
     /// VCF consensus mode: INFO/DP bounds of a called base (vcf2fq -d, -D).
-    /// auto uses a third and twice the mean depth (Li & Durbin), which reads
+    /// auto uses a third and twice the mean depth (the psmc README), which reads
     /// the file twice; vcf2fq's own defaults are 3:100000
     #[arg(long, value_name = "auto|MIN:MAX", default_value = "auto", value_parser = parse_depth)]
     pub depth: DepthThresholds,
