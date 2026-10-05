@@ -2,7 +2,8 @@
 """Run supplementary experiments S1-S5 and export the supplementary tables.
 
 S1: smoothness ablation (A/B/C); optional, not used by the current manuscript
-S2: EM convergence (log-likelihood vs iteration)
+S2: EM convergence: each tool's log-likelihood after 0..N_ITER-1 EM
+    iterations (C psmc's rounds 1..N_ITER), from one run of each tool
 S3: memory scaling by sequence length
 S4: Rust thread scaling (with ideal speedup line)
 S5: format consistency (psmcfa/mhs/vcf). The three inputs hold the same
@@ -30,7 +31,6 @@ import dataclasses
 import json
 import math
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -687,31 +687,6 @@ def rmse_log10(curve_a, curve_b, x_min=1e3, x_max=1e8, n=400):
     return float(np.sqrt(np.mean((np.log10(va) - np.log10(vb)) ** 2)))
 
 
-def parse_c_lk_trace(psmc_path: Path) -> pd.DataFrame:
-    rd = None
-    rows = []
-    for ln in psmc_path.read_text().splitlines():
-        if ln.startswith("RD\t"):
-            rd = int(ln.split("\t")[1])
-        elif ln.startswith("LK\t") and rd is not None:
-            try:
-                lk = float(ln.split("\t")[1])
-                rows.append({"iter": rd, "loglike": lk})
-            except Exception:
-                pass
-    return pd.DataFrame(rows).sort_values("iter")
-
-
-def parse_rust_last_loglike(text: str) -> Optional[float]:
-    m = re.search(r"Last EM loglike:\s*([-+0-9.eE]+)", text)
-    if not m:
-        return None
-    try:
-        return float(m.group(1))
-    except Exception:
-        return None
-
-
 def simulate_three_formats(model_key: str, length_bp: int, window_bp: int, force: bool = False):
     import msprime
 
@@ -1034,38 +1009,48 @@ def run_s1_smooth_ablation(force: bool = False):
     return table_wide
 
 
-def run_s2_em_convergence(force: bool = False):
-    ensure_pydeps()
-    print("[S2] EM convergence")
+def s2_trace_rows(force: bool = False) -> List[Dict]:
+    """The rows of the S2 table: ``model``, ``tool``, ``iter``, ``loglike``.
+
+    Row ``iter`` k holds each tool's log-likelihood of its parameters after
+    k - 1 EM iterations: C psmc's LK of round k, and ``loglike[k - 1]`` of a
+    psmc-rs run of ``N_ITER`` iterations (whose ``Last EM loglike``, the
+    written model, is C's round ``N_ITER + 1`` and has no C counterpart).
+    k runs from 1 to ``N_ITER``; C's round 0, which runs no E-step and
+    prints LK 0, is left out. One psmc-rs run per model gives the whole
+    trace, since a run of fewer iterations repeats its first values exactly.
+    """
     ensure_tools(require_c=True)
     ensure_shared_inputs(SIM_LENGTH_BP, force=force)
-
-    trace_rows = []
-
+    rows: List[Dict] = []
     for key in MODEL_ORDER:
         inp = shared_input_path(key, SIM_LENGTH_BP)
 
         c_psmc = S2_DIR / "outputs" / f"{key}.c.trace.psmc"
         if force or not exp_common.c_psmc_complete(c_psmc, N_ITER):
             run_c(inp, c_psmc, n_iter=N_ITER)
-        c_df = parse_c_lk_trace(c_psmc)
-        for _, r in c_df.iterrows():
-            trace_rows.append({"model": key, "tool": "c", "iter": int(r["iter"]), "loglike": float(r["loglike"])})
+        for rd, lk in exp_common.c_psmc_loglikes(c_psmc):
+            rows.append({"model": key, "tool": "c", "iter": rd, "loglike": lk})
 
-        for it in range(1, N_ITER + 1):
-            rust_json = S2_DIR / "outputs" / f"{key}.rust.iter{it:02d}.json"
-            stamp = S2_DIR / "outputs" / f"{key}.rust.iter{it:02d}.loglike.txt"
-            if force or not exp_common.psmc_rs_output_ok(rust_json) or not stamp.exists():
-                rec = run_rust(inp, rust_json, n_iter=it, threads=RUST_THREADS_BASE, smooth_lambda=None)
-                lk = parse_rust_last_loglike((rec.get("stdout") or "") + "\n" + (rec.get("stderr") or ""))
-                if lk is None:
-                    raise RuntimeError(f"failed to parse Rust loglike for {key} iter={it}")
-                stamp.write_text(f"{lk}\n", encoding="utf-8")
-            else:
-                lk = float(stamp.read_text().strip())
-            trace_rows.append({"model": key, "tool": "rust", "iter": it, "loglike": lk})
+        rust_json = S2_DIR / "outputs" / f"{key}.rust.trace.json"
+        trace = None if force else exp_common.psmc_rs_loglikes(rust_json, N_ITER)
+        if trace is None:
+            run_rust(inp, rust_json, n_iter=N_ITER, threads=RUST_THREADS_BASE)
+            trace = exp_common.psmc_rs_loglikes(rust_json, N_ITER)
+            if trace is None:
+                raise RuntimeError(
+                    f"{rust_json} holds no log-likelihood trace of {N_ITER} iterations "
+                    "(the JSON key 'loglike' needs psmc-rs 0.2)"
+                )
+        for rd, lk in trace:
+            rows.append({"model": key, "tool": "rust", "iter": rd, "loglike": lk})
+    return rows
 
-    trace_df = pd.DataFrame(trace_rows).sort_values(["model", "tool", "iter"])
+
+def run_s2_em_convergence(force: bool = False):
+    ensure_pydeps()
+    print("[S2] EM convergence")
+    trace_df = pd.DataFrame(s2_trace_rows(force=force)).sort_values(["model", "tool", "iter"])
     save_table_multi(trace_df, "S2_em_convergence_trace")
 
     fig = plt.figure(figsize=(14.8, 11.8), dpi=220, constrained_layout=True)

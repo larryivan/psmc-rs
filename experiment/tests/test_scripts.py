@@ -190,6 +190,26 @@ class SharedHelpers(unittest.TestCase):
         self.assertEqual(c[:4], ["psmc", "-N3", f"-t{rs.T_MAX}", f"-r{rs.RHO_T_RATIO}"])
         self.assertEqual(c[c.index("-b") + 1 :], ["-o", "out.psmc", "in.psmcfa"])
 
+    def test_c_loglikes_leave_out_round_0(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "c.psmc"
+            fixtures.write_c_psmc(p, rounds=range(4))  # round 0 prints LK 0.0
+            self.assertEqual(self.ec.c_psmc_loglikes(p), [(1, -12345.6), (2, -12345.6), (3, -12345.6)])
+
+    def test_psmc_rs_loglikes_are_numbered_like_c_rounds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "fit.json"
+            fixtures.write_rust_json(p, n_iter=3)
+            # loglike[i], after i iterations, is C's round i + 1; loglike[3] has no C round.
+            want = [(k, fixtures.rust_loglike(k - 1)) for k in (1, 2, 3)]
+            self.assertEqual(self.ec.psmc_rs_loglikes(p, 3), want)
+            self.assertIsNone(self.ec.psmc_rs_loglikes(p, 4), "another N_ITER")
+            fixtures.write_rust_json(p)  # a 0.1 file: no trace
+            self.assertIsNone(self.ec.psmc_rs_loglikes(p, 3))
+            p.write_text("{")
+            self.assertIsNone(self.ec.psmc_rs_loglikes(p, 3))
+            self.assertIsNone(self.ec.psmc_rs_loglikes(Path(tmp) / "missing.json", 3))
+
     def test_bins_after_last_het(self):
         rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_bins")
         with tempfile.TemporaryDirectory() as tmp:
@@ -359,6 +379,44 @@ class InterruptedRuns(FakeToolsCase):
             rs.run_c(self.inputs / self.sample.file, out, n_iter=self.N_ITER)
         self.assertEqual(c_rounds(out), self.N_ITER + 1)
         self.assertEqual(list(out.parent.glob("*.partial")), [])
+
+
+class SupplementaryConvergence(FakeToolsCase):
+    """S2 pairs the two tools by what their log-likelihoods measure, from one run each."""
+
+    def setUp(self):
+        super().setUp()
+        self.rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_s2")
+        self.rs.configure_paths(self.tmp / "supp")
+        self.rs.configure_tools(str(self.psmc_rs), str(self.c_psmc), None)
+        for key in self.rs.MODEL_ORDER:
+            self.rs.shared_input_path(key, self.rs.SIM_LENGTH_BP).write_text(">chr1\nTTTTKTTTTK\n")
+
+    def rows(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return self.rs.s2_trace_rows()
+
+    def test_rows_pair_the_rounds_of_both_tools(self):
+        rows = self.rows()
+        for key in self.rs.MODEL_ORDER:
+            for tool in ("c", "rust"):
+                iters = [r["iter"] for r in rows if r["model"] == key and r["tool"] == tool]
+                self.assertEqual(iters, list(range(1, self.N_ITER + 1)), (key, tool))
+            rust = {r["iter"]: r["loglike"] for r in rows if r["model"] == key and r["tool"] == "rust"}
+            # Row k: the log-likelihood after k - 1 iterations, not the line printed after k.
+            self.assertEqual(rust, {k: fixtures.rust_loglike(k - 1) for k in range(1, self.N_ITER + 1)})
+            self.assertEqual(
+                [ln.split()[2] for ln in self.calls("psmc-rs", f"{key}.rust")], [str(self.N_ITER)], key
+            )
+
+    def test_a_finished_trace_is_reused_and_another_n_iter_is_run_again(self):
+        self.rows()
+        self.rows()
+        self.assertEqual(len(self.calls("psmc-rs", "constant.rust")), 1)
+        out = self.rs.S2_DIR / "outputs" / "constant.rust.trace.json"
+        fixtures.write_rust_json(out, n_iter=self.N_ITER + 1)
+        self.rows()
+        self.assertEqual(len(self.calls("psmc-rs", "constant.rust")), 2)
 
 
 class RhoRatioGuard(FakeToolsCase):

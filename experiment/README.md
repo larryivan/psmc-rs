@@ -53,6 +53,10 @@ repository from its own path, so any working directory works.
   tables record the count in `psmcfa_bins_after_last_het`, and the Figure
   S2 caption should explain what S5 measures. To compare the readers on
   identical data instead, trim the psmcfa to its last heterozygous bin.
+- **The packaged S2 table includes C psmc's round 0**, whose `LK 0` is a
+  placeholder (no E-step has run), and Supplementary Figure S1 plots it, which
+  squeezes both curves into a flat line. The S2 runner now leaves it out
+  (see step 3).
 - **The human sample is chromosome 1 only.**
   `real_data/Papuan_highlands_diploid.psmcfa` holds one sequence, `>chr1`,
   of 2,487,383 bins (about 249 Mb). The tables and the notebook now label it
@@ -89,7 +93,7 @@ experiment/
 ```
 
 Committed: `real_data/`, every `runs/*/tables/*.csv`, `runs/*/figures/`, and
-the small `runs/**/outputs/*.json`, `*.psmc` and `*.loglike.txt` files.
+the small `runs/**/outputs/*.json` and `*.psmc` files.
 Ignored as regenerable: simulated inputs (5 MB per 500 Mb model, more for
 VCF), timing repeats (`main_text/perf/`, `supplementary/s3_memory/outputs/`,
 `supplementary/s4_threads/outputs/`), logs, HTML reports, bootstrap
@@ -215,9 +219,9 @@ with another `N_ITER`) is run again. `--force-run` (main text), `--force`
 always re-run because cached outputs carry no timing.
 
 Expect hours: on the 0.1 runs C psmc needed about 7.5 min and 5 GB RSS per
-500 Mb model (7.8 GB at 1 Gb in S3), psmc-rs about 5 min and 1.4 GB; `perf`
-repeats each run 10 times and S2 re-runs psmc-rs for 1..20 iterations. Run
-the timing steps on an otherwise idle machine and report its hardware.
+500 Mb model (7.8 GB at 1 Gb in S3), psmc-rs about 5 min and 1.4 GB;
+`perf` repeats each run 10 times. Run the timing steps on an otherwise idle
+machine and report its hardware.
 
 Every command, with wall time and peak RSS (psutil, sampled every 20 ms over
 the process tree), is appended to `runs/<part>/logs/commands.jsonl`.
@@ -238,6 +242,14 @@ the process tree), is appended to `runs/<part>/logs/commands.jsonl`.
 
 Paths stored in tables are repository-relative. RMSE is that of log10 Ne on
 500 log-spaced points between 1e3 and 1e8 years.
+
+In the S2 table, row `iter` k holds each tool's log-likelihood of its
+parameters after k - 1 EM iterations, for k = 1 to `N_ITER`: C psmc's `LK`
+of round k, and `loglike[k-1]` from the JSON of one psmc-rs run of `N_ITER`
+iterations. psmc-rs's `Last EM loglike`, the log-likelihood of the model it
+writes, is what C psmc would print as round `N_ITER + 1`, so it is not in
+the table; C's round 0 runs no E-step and prints a placeholder `LK 0`,
+which is left out too.
 
 ### 4. Figures
 

@@ -36,8 +36,8 @@ class IgnoreRules(unittest.TestCase):
             "experiment/runs/main_text/outputs/constant.c.main.psmc",
             "experiment/runs/real_data/outputs/HomoSapiens.rust.json",
             "experiment/runs/real_data/outputs/HomoSapiens.c.psmc",
-            "experiment/runs/supplementary/s2_em/outputs/zigzag.rust.iter01.json",
-            "experiment/runs/supplementary/s2_em/outputs/zigzag.rust.iter01.loglike.txt",
+            "experiment/runs/supplementary/s2_em/outputs/zigzag.rust.trace.json",
+            "experiment/runs/supplementary/s2_em/outputs/zigzag.c.trace.psmc",
             "experiment/runs/main_text/outputs/.gitkeep",
             "experiment/runs/supplementary/tables/S2_em_convergence_trace.csv",
         ):

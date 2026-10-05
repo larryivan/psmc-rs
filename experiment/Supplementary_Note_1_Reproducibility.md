@@ -41,6 +41,11 @@ Known limitations of the packaged results:
   trailing bins. Regenerated tables record their count per model
   (`psmcfa_bins_after_last_het`), and the caption of Supplementary Figure S2
   should state what S5 measures.
+- `S2_em_convergence_trace.csv` includes C psmc's round 0, whose LK of 0 is a
+  placeholder (no E-step has run), and Supplementary Figure S1 plots it. A
+  regenerated table leaves it out; its row `iter` k holds both tools'
+  log-likelihood after k - 1 EM iterations (C's round k, psmc-rs's
+  `loglike[k-1]`).
 - The human sample (`Papuan_highlands_diploid.psmcfa`) contains chromosome 1
   only (one sequence, 2,487,383 bins of 100 bp) and is labelled accordingly.
 - The stdpopsim/msprime versions used for the 0.1 simulations were not

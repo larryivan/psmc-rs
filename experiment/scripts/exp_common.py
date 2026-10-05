@@ -461,6 +461,46 @@ def c_psmc_complete(path: Path, n_iter: int) -> bool:
     return c_psmc_rounds(path) == n_iter + 1
 
 
+def c_psmc_loglikes(path: Path) -> List[Tuple[int, float]]:
+    """``(round, LK)`` of every round of a C psmc output but round 0.
+
+    C psmc's round k (k >= 1) prints the log-likelihood of the parameters
+    after k - 1 EM iterations, computed by that round's E-step. Round 0 runs
+    no E-step and prints a placeholder ``LK 0.000000``, which is left out.
+    """
+    out: List[Tuple[int, float]] = []
+    rd: Optional[int] = None
+    for ln in Path(path).read_text().splitlines():
+        f = ln.split("\t")
+        if f[0] == "RD" and len(f) > 1:
+            rd = int(f[1])
+        elif f[0] == "LK" and len(f) > 1 and rd:
+            out.append((rd, float(f[1])))
+    return out
+
+
+def psmc_rs_loglikes(path: Path, n_iter: int) -> Optional[List[Tuple[int, float]]]:
+    """psmc-rs's log-likelihoods of a run of ``n_iter`` iterations, numbered like C psmc's rounds.
+
+    The output JSON's ``loglike[i]`` (psmc-rs >= 0.2) is the log-likelihood
+    after i iterations, which C psmc prints as the LK of round i + 1, so this
+    returns ``(i + 1, loglike[i])`` for i < ``n_iter``, the rounds an
+    ``n_iter``-iteration C run prints (the last value, of the written model,
+    has no C counterpart). None when the file is missing, unreadable, from
+    another ``n_iter``, or from a version that wrote no trace (0.1).
+    """
+    try:
+        params = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(params, dict) or params.get("n_iter") != n_iter:
+        return None
+    trace = params.get("loglike")
+    if not isinstance(trace, list) or len(trace) != n_iter + 1:
+        return None
+    return [(i + 1, float(trace[i])) for i in range(n_iter)]
+
+
 def psmc_rs_output_ok(path: Path) -> bool:
     """Whether ``path`` is a readable psmc-rs parameter JSON.
 

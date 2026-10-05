@@ -7,7 +7,7 @@ import math
 import stat
 import sys
 from pathlib import Path
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 PATTERN = "4+25*2+4+6"
 N_STEPS = 63  # 4 + 25*2 + 4 + 6 = 64 intervals
@@ -18,7 +18,15 @@ def _lams(scale: float):
     return [scale * (1.0 + 0.5 * math.sin(i / 3.0)) for i in range(N_FREE)]
 
 
-def write_rust_json(path: Path, scale: float = 1.0, theta: float = 0.002, rho_ratio: float = 4.0) -> None:
+def rust_loglike(i: int) -> float:
+    """The log-likelihood the stand-in psmc-rs reports after ``i`` iterations."""
+    return -1000.0 - i
+
+
+def write_rust_json(
+    path: Path, scale: float = 1.0, theta: float = 0.002, rho_ratio: float = 4.0, n_iter: Optional[int] = None
+) -> None:
+    """A psmc-rs parameter JSON: the 0.1 fields, plus 0.2's run metadata when ``n_iter`` is given."""
     path.parent.mkdir(parents=True, exist_ok=True)
     params = {
         "theta": theta,
@@ -29,6 +37,13 @@ def write_rust_json(path: Path, scale: float = 1.0, theta: float = 0.002, rho_ra
         "mu": 2.5e-8,
         "pattern": PATTERN,
     }
+    if n_iter is not None:
+        params.update(
+            version="0.2.0",
+            n_iter=n_iter,
+            loglike=[rust_loglike(i) for i in range(n_iter + 1)],
+            tr_ratio=rho_ratio,
+        )
     path.write_text(json.dumps(params, indent=2))
 
 
@@ -81,8 +96,9 @@ if os.environ.get("FAKE_PRE_0_2") and "--tr-ratio" in args:
     sys.stderr.write("error: unexpected argument '--tr-ratio' found\\n")
     sys.exit(2)
 ratio = args[args.index("--tr-ratio") + 1] if "--tr-ratio" in args else "4"
-fixtures.write_rust_json(out, rho_ratio=float(os.environ.get("FAKE_RHO_RATIO", ratio)))
-print(f"Last EM loglike: {{-1000.0 - n_iter}}")
+fixtures.write_rust_json(out, rho_ratio=float(os.environ.get("FAKE_RHO_RATIO", ratio)), n_iter=n_iter)
+if n_iter > 0:
+    print(f"Last EM loglike: {{fixtures.rust_loglike(n_iter)}}")
 '''
 
 _FAKE_C_PSMC = '''#!{python}
