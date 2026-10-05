@@ -6,6 +6,13 @@ genomes, the scripts that simulate data and run `psmc-rs` and the original C
 commands below are run from the repository root, but every script locates the
 repository from its own path, so any working directory works.
 
+The results are being regenerated with the experiment pipeline in
+[`pipeline/`](pipeline/README.md) (`python -m experiment.pipeline`), which
+writes `runs/<experiment>/` (`runs/E1/`, ...) and so far implements E1
+(simulated accuracy and equivalence). The scripts and notebook described
+below are the earlier pipeline; they stay until the new one covers every
+figure.
+
 ## Read first: state of the packaged results
 
 - **All psmc-rs results must be regenerated after the 0.2 fixes.** The tables
