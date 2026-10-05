@@ -196,3 +196,54 @@ fn multihetsep_writer_errors() {
         "{err:#}"
     );
 }
+
+#[test]
+fn rejected_writes_leave_an_existing_file_as_it_was() {
+    let data = mhs_dataset();
+    let without_sites = {
+        let input = unique_temp_path("write_keep", "psmcfa");
+        fs::write(&input, ">a\nTK\n").unwrap();
+        let data = load(&input, &InputOptions::default()).unwrap();
+        let _ = fs::remove_file(input);
+        data
+    };
+    let mut bad_name = data.clone();
+    bad_name.seqs[0].name = "chr 1".to_string();
+    let mut bad_bin = data.clone();
+    bad_bin.obs.rows[0][0] = 3;
+
+    for ext in ["out", "out.gz"] {
+        let existing = unique_temp_path("write_keep", ext);
+        let content = b"output of an earlier run\n";
+        fs::write(&existing, content).unwrap();
+        let missing = MultihetsepOptions {
+            sequence: Some("chrX".to_string()),
+        };
+        let errors = [
+            write_multihetsep(&existing, &data, &missing).unwrap_err(),
+            write_multihetsep(&existing, &without_sites, &MultihetsepOptions::default())
+                .unwrap_err(),
+            write_psmcfa(&existing, &bad_name).unwrap_err(),
+            write_psmcfa(&existing, &bad_bin).unwrap_err(),
+        ];
+        let expected = [
+            "no kept sequence is named 'chrX'",
+            "loaded without heterozygous sites",
+            "whitespace",
+            "invalid bin symbol 3",
+        ];
+        for (err, text) in errors.iter().zip(expected) {
+            let msg = format!("{err:#}");
+            assert!(
+                msg.contains(text) && msg.contains("failed to write"),
+                "{msg}"
+            );
+        }
+        assert_eq!(fs::read(&existing).unwrap(), content, "{ext}");
+
+        // A valid request still replaces the file.
+        write_multihetsep(&existing, &data, &MultihetsepOptions::default()).unwrap();
+        assert_ne!(fs::read(&existing).unwrap(), content, "{ext}");
+        let _ = fs::remove_file(existing);
+    }
+}
