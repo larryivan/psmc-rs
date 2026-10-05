@@ -9,8 +9,9 @@ For every sample this writes ``outputs/{sample}.rust.json`` and
 Figure 3 is drawn from these files by ``experiment/run.py``.
 
 Both tools use the matched settings of ``exp_common.MatchedSettings``
-(``-N20 -t15 -p 4+25*2+4+6``, no psmc-rs smoothing, one psmc-rs thread);
-``mu`` and the generation time only scale the curves.
+(``-N20 -t15 -r4 -p 4+25*2+4+6``, passed to psmc-rs as the corresponding
+options, with no smoothing and one psmc-rs thread); ``mu`` and the
+generation time only scale the curves.
 
 This is the run logic of ``experiment/notebooks/real_data_rust_vs_c.ipynb``
 (deleted in commit 79ac364), updated to the four samples of the current figure.

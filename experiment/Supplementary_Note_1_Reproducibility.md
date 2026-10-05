@@ -18,23 +18,27 @@ authors' machines. `experiment/README.md` gives the full details.
 
 Known limitations of the packaged results:
 
-- They were computed with psmc-rs 0.1. psmc-rs 0.2 changes defaults (initial
-  `rho0 = theta0/4`, smoothing), the numerics and the bootstrap, so every
-  psmc-rs result has to be regenerated with 0.2 before publication; the C
-  baseline is re-run as well so that both tools start from the same
-  theta/rho ratio (`-r4`).
+- They were computed with psmc-rs 0.1. psmc-rs 0.2 changes the numerics,
+  the input readers, the bootstrap and several defaults (initial
+  `rho0 = theta0/4`, the `4+5*3+4` pattern, no smoothing), so every psmc-rs
+  result has to be regenerated with 0.2 before publication; the C baseline
+  is re-run as well so that both tools start from the same theta/rho ratio
+  (`-r4`, psmc-rs `--tr-ratio 4`).
 - The inference outputs behind Figures 2 and 3 were never committed (the
   repository's `.gitignore` excluded them). Until they are, `run.py` reports
   them as missing and names the regeneration commands.
 - In `S5_format_consistency.csv` the zigzag row is exactly zero in every
-  column. This is the expected result, not an artefact, and re-running S5
-  reproduces it. psmc-rs reads a multihetsep or VCF sequence only up to its
-  last heterozygous site, so the three S5 inputs of a model differ only in
-  the homozygous 100 bp bins after that site, which only the psmcfa holds.
-  The zigzag simulation has its last heterozygous site in the final bin, so
-  its three inputs are identical. The other models drop a few bins (14 for
-  the constant model; trimming them from the psmcfa gives byte-identical
-  psmc-rs output). Regenerated tables record this count per model
+  column. This is the expected result, not an artefact. psmc-rs 0.1 read a
+  multihetsep or VCF sequence only up to its last heterozygous site, so the
+  three S5 inputs of a model differed only in the homozygous 100 bp bins
+  after that site, which only the psmcfa held. The zigzag simulation has its
+  last heterozygous site in the final bin, so its three inputs are
+  identical. The other models drop a few bins (14 for the constant model;
+  trimming them from the psmcfa gives byte-identical psmc-rs output).
+  psmc-rs 0.2 extends a VCF sequence to its `##contig` length, which
+  msprime's VCF writer records, so in a regenerated table the VCF columns
+  are zero for every model and only the multihetsep input lacks the
+  trailing bins. Regenerated tables record their count per model
   (`psmcfa_bins_after_last_het`), and the caption of Supplementary Figure S2
   should state what S5 measures.
 - The human sample (`Papuan_highlands_diploid.psmcfa`) contains chromosome 1
@@ -102,10 +106,11 @@ python experiment/run.py                        # Table 1, all figures
 
 Both tools are run with matched settings: 20 EM iterations, `t_max = 15`,
 pattern `4+25*2+4+6`, initial theta/rho ratio 4, no psmc-rs smoothing, one
-psmc-rs thread. The ratio 4 is the psmc-rs 0.2 default (`rho0 = theta0/4`);
-the scripts check the psmc-rs binary's starting ratio before the first run
-compared with C psmc and stop if it differs (a 0.1 build starts from
-`theta0/5`). Each script logs every command with its wall time and peak
+psmc-rs thread. The scripts pass these to psmc-rs explicitly (`--pattern`,
+`--t-max`, `--tr-ratio`, `--smooth-lambda 0`, `--mstep-iters 100`), so they
+need psmc-rs 0.2; before the first run compared with C psmc they check that
+the binary starts from the same ratio and stop if it does not (a 0.1 build
+has no `--tr-ratio` and always started from `theta0/5`). Each script logs every command with its wall time and peak
 memory to `experiment/runs/<part>/logs/commands.jsonl`. The full regeneration
 takes hours and up to about 8 GB of memory (C psmc on 1 Gb in S3); timing
 experiments should run on an otherwise idle machine. Commit the regenerated
@@ -117,7 +122,8 @@ To spot-check one empirical sample by hand:
 
 ```bash
 ./target/release/psmc-rs experiment/real_data/Papuan_highlands_diploid.psmcfa \
-  HomoSapiens.rust.json 20 --pattern '4+25*2+4+6' --smooth-lambda 0 --no-progress
+  HomoSapiens.rust.json 20 --pattern '4+25*2+4+6' --t-max 15 --tr-ratio 4 \
+  --smooth-lambda 0 --mu 1.25e-8 --threads 1 --no-progress
 "$C_PSMC_BIN" -N20 -t15 -r4 -p '4+25*2+4+6' -o HomoSapiens.c.psmc \
   experiment/real_data/Papuan_highlands_diploid.psmcfa
 ```

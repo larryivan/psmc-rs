@@ -165,59 +165,71 @@ class MatchedSettings:
     """EM settings applied identically to psmc-rs and C psmc.
 
     Defaults are the manuscript settings; each field can be overridden through
-    the environment variable named in :meth:`from_env`. psmc-rs smoothing is
-    off (C has none) and psmc-rs runs single-threaded for a fair runtime
-    comparison. ``rho_t_ratio`` is C's ``-r``; it has to equal the psmc-rs
-    default ``rho0 = theta0 / ratio``, which is 4 from psmc-rs 0.2 on (as in
-    lh3/psmc) and was 5 in psmc-rs 0.1. :meth:`check_psmc_rs` enforces this.
+    the environment variable named in :meth:`from_env`. Every setting that
+    shapes the fit is passed to psmc-rs explicitly, so the comparison does not
+    depend on its defaults: the pattern (which also fixes the number of
+    intervals, as in C psmc), ``t_max``, the initial ``theta0/rho0`` ratio
+    (C's ``-r``, psmc-rs ``--tr-ratio``), no smoothing (C has none) and the
+    M-step iteration cap. psmc-rs runs single-threaded for a fair runtime
+    comparison; ``batch_size`` (``--batch-size``) is passed only when set,
+    since from psmc-rs 0.2 on it changes neither results nor memory.
     """
 
     n_iter: int = 20
     t_max: float = 15.0
-    n_steps: int = 64
     pattern: str = "4+25*2+4+6"
     rho_t_ratio: int = 4
-    batch_size: int = 300_000
     smooth_lambda: float = 0.0
+    mstep_iters: int = 100
     threads: int = 1
+    batch_size: Optional[int] = None
 
     @classmethod
     def from_env(cls) -> "MatchedSettings":
         env = os.environ
         d = cls()
+        batch = env.get("BATCH_SIZE", "").strip()
         return cls(
             n_iter=int(env.get("N_ITER", d.n_iter)),
             t_max=float(env.get("T_MAX", d.t_max)),
-            n_steps=int(env.get("N_STEPS", d.n_steps)),
             pattern=env.get("PATTERN", d.pattern),
             rho_t_ratio=int(env.get("RHO_T_RATIO", d.rho_t_ratio)),
-            batch_size=int(env.get("BATCH_SIZE", d.batch_size)),
             smooth_lambda=float(env.get("SMOOTH_LAMBDA", d.smooth_lambda)),
+            mstep_iters=int(env.get("MSTEP_ITERS", d.mstep_iters)),
             threads=int(env.get("RUST_THREADS", d.threads)),
+            batch_size=int(batch) if batch else d.batch_size,
         )
+
+    def rust_model_args(self) -> List[str]:
+        """The psmc-rs options that set the starting model, as C psmc's ``-p -t -r``."""
+        return [
+            "--pattern",
+            self.pattern,
+            "--t-max",
+            str(self.t_max),
+            "--tr-ratio",
+            str(self.rho_t_ratio),
+        ]
 
     def rust_cmd(
         self, psmc_rs: Path, inp: Path, out_json: Path, *, mu: float, extra: Sequence[str] = ()
     ) -> List[str]:
+        batch = ["--batch-size", str(self.batch_size)] if self.batch_size else []
         return [
             str(psmc_rs),
             str(inp),
             str(out_json),
             str(self.n_iter),
-            "--t-max",
-            str(self.t_max),
-            "--n-steps",
-            str(self.n_steps),
-            "--pattern",
-            self.pattern,
-            "--mu",
-            str(mu),
+            *self.rust_model_args(),
             "--smooth-lambda",
             str(self.smooth_lambda),
-            "--batch-size",
-            str(self.batch_size),
+            "--mstep-iters",
+            str(self.mstep_iters),
+            "--mu",
+            str(mu),
             "--threads",
             str(self.threads),
+            *batch,
             "--no-progress",
             *extra,
         ]
@@ -236,8 +248,8 @@ class MatchedSettings:
         ]
 
     def check_psmc_rs(self, psmc_rs: Path) -> None:
-        """Exit unless ``psmc_rs`` starts from the theta/rho ratio given to C psmc."""
-        check_rho_ratio(psmc_rs, self.rho_t_ratio)
+        """Exit unless ``psmc_rs``, run with these settings, starts from C psmc's theta/rho ratio."""
+        check_rho_ratio(psmc_rs, self.rho_t_ratio, self.rust_model_args())
 
 
 # 2,000 bins, one in 20 heterozygous: enough for psmc-rs to set theta0.
@@ -245,12 +257,12 @@ _RATIO_PROBE_SEQ = ("T" * 19 + "K") * 100
 _RATIOS_CHECKED: set = set()
 
 
-def psmc_rs_default_rho_ratio(psmc_rs: Path) -> float:
-    """``theta0 / rho0`` that ``psmc_rs`` starts EM from when ``--rho0`` is not given.
+def psmc_rs_start_ratio(psmc_rs: Path, args: Sequence[str] = ()) -> float:
+    """``theta0 / rho0`` that ``psmc_rs`` starts EM from when run with ``args``.
 
-    psmc-rs has no version flag and the default changed between releases
-    (5 in 0.1, 4 from 0.2 on), so it is read from a zero-iteration run on a
-    small synthetic input, which writes the starting parameters.
+    Read from a zero-iteration run on a small synthetic input, which writes
+    the starting parameters. Exits with an explanation when the run fails,
+    for example because a psmc-rs build older than 0.2 has no ``--tr-ratio``.
     """
     with tempfile.TemporaryDirectory(prefix="psmc-rs-ratio-") as tmp:
         inp = Path(tmp) / "probe.psmcfa"
@@ -258,34 +270,43 @@ def psmc_rs_default_rho_ratio(psmc_rs: Path) -> float:
         inp.write_text(">probe\n" + "\n".join(seq[i : i + 60] for i in range(0, len(seq), 60)) + "\n")
         out = Path(tmp) / "probe.json"
         res = subprocess.run(
-            [str(psmc_rs), str(inp), str(out), "0", "--no-progress"], capture_output=True, text=True
+            [str(psmc_rs), str(inp), str(out), "0", "--no-progress", *args], capture_output=True, text=True
         )
         if res.returncode != 0 or not out.exists():
-            raise RuntimeError(
-                f"cannot read the starting theta/rho ratio of {psmc_rs}: a zero-iteration run "
-                f"failed (rc={res.returncode}).\n{res.stderr}"
+            hint = ""
+            if "--tr-ratio" in res.stderr:
+                hint = (
+                    "\nThis psmc-rs build has no --tr-ratio, which psmc-rs 0.2 added: build this "
+                    "checkout (cargo build --release --locked) or pass a 0.2 binary with --psmc-rs."
+                )
+            raise SystemExit(
+                f"error: cannot read the starting theta/rho ratio of {psmc_rs}: a zero-iteration run "
+                f"with {' '.join(args)} failed (rc={res.returncode}).\n{res.stderr.strip()}{hint}"
             )
         params = json.loads(out.read_text())
     return float(params["theta"]) / float(params["rho"])
 
 
-def check_rho_ratio(psmc_rs: Path, ratio: float) -> None:
-    """Exit unless ``psmc_rs`` defaults to ``rho0 = theta0 / ratio``, as C psmc with ``-r<ratio>``.
+def check_rho_ratio(psmc_rs: Path, ratio: float, args: Sequence[str] = ()) -> None:
+    """Exit unless ``psmc_rs`` run with ``args`` starts from ``rho0 = theta0 / ratio``.
 
-    Otherwise the two tools start EM from different parameters and the
-    comparison is not matched. Each binary is probed once per process.
+    ``ratio`` is what C psmc gets as ``-r``; otherwise the two tools start EM
+    from different parameters and the comparison is not matched. ``args`` are
+    the model options of the real runs (:meth:`MatchedSettings.rust_model_args`,
+    which pass ``--tr-ratio``), so this checks that the binary honours them.
+    Each binary and set of options is probed once per process.
     """
-    key = (str(psmc_rs), float(ratio))
+    key = (str(psmc_rs), float(ratio), tuple(args))
     if key in _RATIOS_CHECKED:
         return
-    found = psmc_rs_default_rho_ratio(psmc_rs)
+    found = psmc_rs_start_ratio(psmc_rs, args)
     if not math.isclose(found, ratio, rel_tol=1e-6):
         raise SystemExit(
             f"error: {psmc_rs} starts EM from rho0 = theta0/{found:.6g}, but C psmc is run with "
             f"-r{ratio:g} (RHO_T_RATIO), so the two tools would not start from the same parameters.\n"
-            "psmc-rs 0.2 uses rho0 = theta0/4, as lh3/psmc does; psmc-rs 0.1 used theta0/5. Use a "
-            "psmc-rs build with the 0.2 default, or set RHO_T_RATIO to the ratio above to compare "
-            "against this build (the packaged 0.1 results were made with RHO_T_RATIO=5)."
+            "psmc-rs 0.2 starts from rho0 = theta0/--tr-ratio (default 4, as lh3/psmc); psmc-rs 0.1 "
+            "always used theta0/5. Use a psmc-rs 0.2 build (the packaged 0.1 results were made with "
+            "RHO_T_RATIO=5)."
         )
     _RATIOS_CHECKED.add(key)
 

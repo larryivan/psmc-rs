@@ -145,8 +145,50 @@ class SharedHelpers(unittest.TestCase):
         self.assertIn("-r4", c)
         self.assertIn("-N20", c)
         rust = s.rust_cmd(Path("psmc-rs"), Path("in.psmcfa"), Path("out.json"), mu=2.5e-8)
+        self.assertEqual(rust[3], "20")
         self.assertEqual(rust[rust.index("--smooth-lambda") + 1], "0.0")
         self.assertEqual(rust[rust.index("--pattern") + 1], c[c.index("-p") + 1])
+        self.assertEqual(f"-t{rust[rust.index('--t-max') + 1]}", "-t15.0")
+        self.assertIn("-t15.0", c)
+        self.assertEqual(f"-r{rust[rust.index('--tr-ratio') + 1]}", "-r4")
+        self.assertEqual(rust[rust.index("--mstep-iters") + 1], "100")
+        # The pattern sets the interval count, as in C psmc; batching changes nothing in 0.2.
+        self.assertNotIn("--n-steps", rust)
+        self.assertNotIn("--batch-size", rust)
+
+    def test_matched_settings_from_the_environment(self):
+        env = {"PATTERN": "4+5*3+4", "RHO_T_RATIO": "5", "MSTEP_ITERS": "1000", "BATCH_SIZE": "300000", "N_ITER": "3"}
+        with mock.patch.dict(os.environ, env):
+            s = self.ec.MatchedSettings.from_env()
+        rust = s.rust_cmd(Path("psmc-rs"), Path("in.psmcfa"), Path("out.json"), mu=2.5e-8, extra=["-q"])
+        c = s.c_cmd(Path("psmc"), Path("in.psmcfa"), Path("out.psmc"))
+        self.assertEqual(rust[rust.index("--pattern") + 1], "4+5*3+4")
+        self.assertEqual(rust[rust.index("--tr-ratio") + 1], "5")
+        self.assertEqual(rust[rust.index("--mstep-iters") + 1], "1000")
+        self.assertEqual(rust[rust.index("--batch-size") + 1], "300000")
+        self.assertEqual(rust[-1], "-q")
+        self.assertEqual(c[1:4], ["-N3", "-t15.0", "-r5"])
+
+    def test_supplementary_runs_use_the_matched_settings(self):
+        rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_cmd")
+        rs.PSMC_RS_BIN = Path("psmc-rs")
+        ec_cmd = rs.SETTINGS.rust_cmd(Path("psmc-rs"), Path("in"), Path("out.json"), mu=rs.MU)
+        for fmt in ("psmcfa", "mhs", "vcf"):
+            cmd = rs.rust_cmd(Path("in"), Path("out.json"), 3, input_format=fmt, bin_size=50, threads=2)
+            self.assertEqual(cmd[3], "3")
+            for flag in ("--pattern", "--t-max", "--tr-ratio", "--mstep-iters", "--mu"):
+                self.assertEqual(cmd[cmd.index(flag) + 1], ec_cmd[ec_cmd.index(flag) + 1], flag)
+            self.assertEqual(cmd[cmd.index("--smooth-lambda") + 1], "0.0")
+            self.assertEqual(cmd[cmd.index("--threads") + 1], "2")
+            self.assertEqual(cmd[cmd.index("--input-format") + 1], fmt)
+            self.assertEqual(cmd[cmd.index("--bin-size") + 1], "50")
+            self.assertEqual("--vcf-mode" in cmd, fmt == "vcf", fmt)
+        c = []
+        rs.C_PSMC_BIN = Path("psmc")
+        with mock.patch.object(rs.exp_common, "run_staged", lambda cmd_for, out, **kw: c.extend(cmd_for(out))):
+            rs.run_c(Path("in.psmcfa"), Path("out.psmc"), n_iter=3, bootstrap=True)
+        self.assertEqual(c[:4], ["psmc", "-N3", f"-t{rs.T_MAX}", f"-r{rs.RHO_T_RATIO}"])
+        self.assertEqual(c[c.index("-b") + 1 :], ["-o", "out.psmc", "in.psmcfa"])
 
     def test_bins_after_last_het(self):
         rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_bins")
@@ -347,6 +389,19 @@ class RhoRatioGuard(FakeToolsCase):
     def test_matching_ratio_runs_both_tools(self):
         self.run_real_data(FAKE_RHO_RATIO="5", RHO_T_RATIO="5")
         self.assertEqual(sorted(ln.split()[0] for ln in self.comparison_runs()), ["c", "psmc-rs"])
+
+    def test_the_probe_passes_the_ratio_given_to_c(self):
+        # The stand-in starts from theta0/--tr-ratio, as psmc-rs 0.2 does, so the
+        # check passes only if the probe gets the --tr-ratio of the real runs.
+        self.run_real_data(RHO_T_RATIO="7")
+        self.assertEqual(sorted(ln.split()[0] for ln in self.comparison_runs()), ["c", "psmc-rs"])
+
+    def test_a_build_without_tr_ratio_is_refused_with_advice(self):
+        with self.assertRaises(SystemExit) as cm:
+            self.run_real_data(FAKE_PRE_0_2="1")
+        self.assertIn("unexpected argument '--tr-ratio'", str(cm.exception))
+        self.assertIn("psmc-rs 0.2", str(cm.exception))
+        self.assertEqual(self.comparison_runs(), [])
 
     def test_main_text_checks_before_running_c(self):
         mt = load_module(SCRIPTS / "run_main_text.py", "run_main_text_ratio")

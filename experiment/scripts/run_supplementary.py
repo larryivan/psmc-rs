@@ -6,9 +6,11 @@ S2: EM convergence (log-likelihood vs iteration)
 S3: memory scaling by sequence length
 S4: Rust thread scaling (with ideal speedup line)
 S5: format consistency (psmcfa/mhs/vcf). The three inputs hold the same
-    simulation and differ only in the homozygous bins after the last
-    heterozygous site, which the psmcfa has and psmc-rs's multihetsep and VCF
-    readers drop; the table records their number per model.
+    simulation. From psmc-rs 0.2 on, the VCF reader extends a sequence to
+    its ##contig length, so the VCF gives exactly the psmcfa's bins; the
+    multihetsep reader ends a sequence at its last heterozygous site, so the
+    homozygous bins after it are its one difference. The table records their
+    number per model.
 
 The tables land in ``<out-dir>/tables`` (default
 ``experiment/runs/supplementary/tables``), where
@@ -24,6 +26,7 @@ parameters are read from environment variables (see the block below and
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import os
@@ -108,15 +111,16 @@ _C_PSMC_ARG: Optional[str] = None
 MU = float(os.environ.get("MU", "2.5e-8"))
 GEN_YEARS = float(os.environ.get("GEN_YEARS", "25"))
 BIN_SIZE = int(os.environ.get("BIN_SIZE", "100"))
-N_ITER = int(os.environ.get("N_ITER", "20"))
-T_MAX = float(os.environ.get("T_MAX", "15"))
-N_STEPS = int(os.environ.get("N_STEPS", "64"))
-PATTERN = os.environ.get("PATTERN", "4+25*2+4+6")
-# C `-r` (initial theta/rho ratio). It must equal the psmc-rs default rho0 =
-# theta0 / RHO_T_RATIO for a matched comparison: 4 for psmc-rs >= 0.2 and
-# lh3/psmc. The precomputed 0.1 tables used 5 (psmc-rs 0.1 used theta0 / 5).
-RHO_T_RATIO = int(os.environ.get("RHO_T_RATIO", "4"))
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "300000"))
+# EM settings shared with C psmc (N_ITER, T_MAX, PATTERN, RHO_T_RATIO,
+# MSTEP_ITERS, BATCH_SIZE); see exp_common.MatchedSettings. Smoothing and the
+# thread count are set per run.
+SETTINGS = exp_common.MatchedSettings.from_env()
+N_ITER = SETTINGS.n_iter
+T_MAX = SETTINGS.t_max
+PATTERN = SETTINGS.pattern
+# C `-r` and psmc-rs `--tr-ratio` (initial theta0/rho0). The precomputed 0.1
+# tables used 5, the fixed psmc-rs 0.1 start (rho0 = theta0 / 5).
+RHO_T_RATIO = SETTINGS.rho_t_ratio
 RUST_THREADS_BASE = int(os.environ.get("RUST_THREADS_BASE", "1"))
 ALPHA_CACHE_MB = int(os.environ.get("PSMC_ALPHA_CACHE_MB", "2048"))
 
@@ -338,7 +342,7 @@ def ensure_tools(require_c: bool = True) -> bool:
         print("[warn] C psmc binary not found; C baseline runs are skipped")
     elif require_c:
         # The steps that compare with C need both tools to start from the same rho0.
-        exp_common.check_rho_ratio(PSMC_RS_BIN, RHO_T_RATIO)
+        SETTINGS.check_psmc_rs(PSMC_RS_BIN)
     return has_c
 
 
@@ -394,9 +398,12 @@ def _read_psmcfa_seq(path: Path) -> str:
 def bins_after_last_het(psmcfa: Path) -> int:
     """Bins after the last heterozygous (``K``) bin of a single-sequence psmcfa.
 
-    psmc-rs ends a multihetsep or VCF sequence at its last heterozygous site,
-    so in S5 these bins are part of the psmcfa input only: they are the one
-    difference between the three inputs, and S5 measures their effect.
+    psmc-rs ends a multihetsep sequence at its last heterozygous site (it has
+    no positions after it), so in S5 these bins are missing from the
+    multihetsep input only: they are its one difference from the psmcfa and
+    VCF inputs, and S5 measures their effect. psmc-rs 0.1 also ended VCF
+    sequences there; 0.2 extends them to the ``##contig`` length that
+    msprime's VCF writer records.
     """
     seq = _read_psmcfa_seq(psmcfa)
     return len(seq) - 1 - seq.rfind("K")
@@ -448,66 +455,47 @@ def ensure_s4_parallel_input(force: bool = False) -> Path:
     return out_path
 
 
-def run_rust(
+def rust_cmd(
     input_file: Path,
     output_json: Path,
     n_iter: int,
     *,
     input_format: str = "psmcfa",
-    mhs_bin_size: int = BIN_SIZE,
+    bin_size: int = BIN_SIZE,
     threads: int = 1,
     smooth_lambda: Optional[float] = None,
     extra: Optional[List[str]] = None,
-):
+) -> List[str]:
+    """The psmc-rs command of one run: the matched settings plus the input's format and bin size."""
     if smooth_lambda is None:
         # Fair C-vs-Rust baseline: disable smoothness unless explicitly requested.
         smooth_lambda = 0.0
-    cmd = [
-        str(PSMC_RS_BIN),
-        str(input_file),
-        str(output_json),
-        str(n_iter),
-        "--input-format",
-        input_format,
-        "--t-max",
-        str(T_MAX),
-        "--n-steps",
-        str(N_STEPS),
-        "--pattern",
-        PATTERN,
-        "--mu",
-        str(MU),
-        "--smooth-lambda",
-        str(float(smooth_lambda)),
-        "--batch-size",
-        str(BATCH_SIZE),
-        "--threads",
-        str(max(1, threads)),
-        "--no-progress",
-    ]
-    if input_format in ("mhs", "vcf"):
-        cmd += ["--mhs-bin-size", str(mhs_bin_size)]
-    if extra:
-        cmd += extra
+    settings = dataclasses.replace(
+        SETTINGS, n_iter=n_iter, threads=max(1, threads), smooth_lambda=float(smooth_lambda)
+    )
+    fmt = ["--input-format", input_format, "--bin-size", str(bin_size)]
+    if input_format == "vcf":
+        # msprime writes a variants-only VCF, where every position without a
+        # record is a called homozygous site: psmc-rs's mask mode, without a mask.
+        fmt += ["--vcf-mode", "mask"]
+    return settings.rust_cmd(PSMC_RS_BIN, input_file, output_json, mu=MU, extra=[*fmt, *(extra or [])])
 
+
+def run_rust(input_file: Path, output_json: Path, n_iter: int, **kwargs):
+    """Run :func:`rust_cmd` and log it; keyword arguments go to :func:`rust_cmd`."""
     env = os.environ.copy()
     env["PSMC_ALPHA_CACHE_MB"] = str(ALPHA_CACHE_MB)
-    return run_cmd(cmd, cwd=ROOT, env=env)
+    return run_cmd(rust_cmd(input_file, output_json, n_iter, **kwargs), cwd=ROOT, env=env)
 
 
 def run_c(input_psmcfa: Path, output_psmc: Path, n_iter: int, bootstrap: bool = False):
+    settings = dataclasses.replace(SETTINGS, n_iter=n_iter)
+
     def cmd_for(out: Path) -> List[str]:
-        cmd = [
-            str(C_PSMC_BIN),
-            f"-N{n_iter}",
-            f"-t{T_MAX}",
-            f"-r{RHO_T_RATIO}",
-            "-p",
-            PATTERN,
-        ]
+        cmd = settings.c_cmd(C_PSMC_BIN, input_psmcfa, out)
         if bootstrap:
-            cmd.append("-b")
-        return cmd + ["-o", str(out), str(input_psmcfa)]
+            cmd.insert(cmd.index("-o"), "-b")
+        return cmd
 
     # C psmc writes each round as it goes; staging keeps a partial file of an
     # interrupted run away from output_psmc, where it would be reused.
@@ -1335,12 +1323,9 @@ def run_s5_format_consistency(force: bool = False):
         p_mhs = S5_DIR / "outputs" / f"{key}.mhs.rust.json"
         p_vcf = S5_DIR / "outputs" / f"{key}.vcf.rust.json"
 
-        if force or not exp_common.psmc_rs_output_ok(p_psmcfa):
-            run_rust(psmcfa_in, p_psmcfa, n_iter=N_ITER, input_format="psmcfa", threads=RUST_THREADS_BASE, smooth_lambda=None)
-        if force or not exp_common.psmc_rs_output_ok(p_mhs):
-            run_rust(mhs_in, p_mhs, n_iter=N_ITER, input_format="mhs", mhs_bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE, smooth_lambda=None)
-        if force or not exp_common.psmc_rs_output_ok(p_vcf):
-            run_rust(vcf_in, p_vcf, n_iter=N_ITER, input_format="vcf", mhs_bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE, smooth_lambda=None)
+        for inp, out, fmt in ((psmcfa_in, p_psmcfa, "psmcfa"), (mhs_in, p_mhs, "mhs"), (vcf_in, p_vcf, "vcf")):
+            if force or not exp_common.psmc_rs_output_ok(out):
+                run_rust(inp, out, n_iter=N_ITER, input_format=fmt, bin_size=SIM_WINDOW_BP, threads=RUST_THREADS_BASE)
 
         x_psmcfa, y_psmcfa, params_psmcfa = curve_from_json(p_psmcfa)
         x_mhs, y_mhs, params_mhs = curve_from_json(p_mhs)

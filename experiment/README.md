@@ -10,15 +10,17 @@ repository from its own path, so any working directory works.
 
 - **All psmc-rs results must be regenerated after the 0.2 fixes.** The tables
   and figures in `runs/` were produced with psmc-rs 0.1. Version 0.2 changes
-  defaults (initial `rho0 = theta0/4` instead of `theta0/5`, as in lh3/psmc,
-  and the smoothing default), the numerics, and the bootstrap. Every psmc-rs
-  number in Figures 2-4, Tables 1-2 and Supplementary Tables S2-S5 therefore
-  describes 0.1. The C psmc runs were made with
-  `-r5` to match 0.1; for a matched comparison with 0.2 they are re-run with
-  `-r4` (the scripts' default, `RHO_T_RATIO`), so regenerate both sides.
-  So the scripts need a psmc-rs build with the 0.2 default: they check the
-  starting ratio of the psmc-rs binary and stop if it is not `RHO_T_RATIO`
-  (a 0.1 build is refused unless `RHO_T_RATIO=5`).
+  the numerics, the input readers, the bootstrap and several defaults
+  (initial `rho0 = theta0/4` instead of `theta0/5`, as in lh3/psmc; the
+  `4+5*3+4` pattern; no smoothing). Every psmc-rs number in Figures 2-4,
+  Tables 1-2 and Supplementary Tables S2-S5 therefore describes 0.1. The C
+  psmc runs were made with `-r5` to match 0.1; for 0.2 both tools are run
+  with `RHO_T_RATIO` [4] (C `-r4`, psmc-rs `--tr-ratio 4`), so regenerate
+  both sides. The scripts pass every setting that shapes the fit to psmc-rs
+  explicitly (see the table in step 2), so they need a psmc-rs 0.2 build:
+  before the first run compared with C psmc they check, with a
+  zero-iteration run, that the binary starts from `theta0/RHO_T_RATIO`, and
+  a 0.1 build (which has no `--tr-ratio`) is refused with an explanation.
 - **Inference outputs are not committed yet.** `runs/main_text/outputs/` and
   `runs/real_data/outputs/` (psmc-rs JSON, C `.psmc`), from which Figures 2
   and 3 and Table 1 are computed, were excluded by `.gitignore` and never
@@ -27,24 +29,30 @@ repository from its own path, so any working directory works.
   command that regenerates them, and `run.py --keep-going` draws the figures
   whose inputs are present (Figure 4 and Supplementary Figures S1-S3).
 - **The zigzag row of `S5_format_consistency.csv` is exactly 0.0 by
-  construction, and stays 0.0 when S5 is re-run.** S5 writes one simulation
-  per model as psmcfa, multihetsep and VCF. The psmcfa covers the whole
-  500 Mb (5,000,000 bins of 100 bp), but psmc-rs's multihetsep and VCF
-  readers end a sequence at its last heterozygous site, so the homozygous
-  bins after it exist only in the psmcfa. They are the only difference
-  between the three inputs, so S5 measures their effect, not a disagreement
-  between readers: multihetsep and VCF agree exactly for every model
-  (`rmse_curve_log10_vcf_vs_mhs` is 0). In the zigzag simulation (seed 45) the last
-  heterozygous site, at position 499,999,906, falls in the final bin, so the
-  three inputs are identical and every column is 0. Checked with msprime
-  1.4.4: zigzag gives byte-identical psmc-rs output from the three files,
-  and the constant model drops 14 bins, after whose removal its psmcfa
-  output is byte-identical to the multihetsep one. Regenerated tables
-  record the count in `psmcfa_bins_after_last_het`. Like every psmc-rs
-  table, S5 is regenerated for 0.2, and the Figure S2 caption should
-  explain what it measures. To compare the readers on identical data
-  instead, trim the psmcfa to its last heterozygous bin; all differences
-  then vanish.
+  construction.** S5 writes one simulation per model as psmcfa, multihetsep
+  and VCF. The psmcfa covers the whole 500 Mb (5,000,000 bins of 100 bp),
+  but psmc-rs 0.1 ended a multihetsep or VCF sequence at its last
+  heterozygous site, so the homozygous bins after it existed only in the
+  psmcfa. They were the only difference between the three inputs, so the
+  packaged table measures their effect, not a disagreement between readers:
+  multihetsep and VCF agree exactly for every model
+  (`rmse_curve_log10_vcf_vs_mhs` is 0). In the zigzag simulation (seed 45)
+  the last heterozygous site, at position 499,999,906, falls in the final
+  bin, so the three inputs are identical and every column is 0. Checked
+  with msprime 1.4.4: zigzag gives byte-identical psmc-rs output from the
+  three files, and the constant model drops 14 bins, after whose removal
+  its psmcfa output is byte-identical to the multihetsep one. **With 0.2 the
+  VCF columns change meaning:** the VCF reader extends each sequence to the
+  `##contig` length that msprime's VCF writer records, so the VCF input
+  gives exactly the psmcfa's bins, and the `vcf_vs_psmcfa` columns become 0
+  for every model, while the multihetsep input still ends at the last
+  heterozygous site (multihetsep has no positions after it). Checked with
+  psmc-rs 0.2 on a tskit-style VCF of 200 kb with its last heterozygous
+  site 59 bins before the end: `psmc-rs convert` gives the psmcfa's 2,000
+  bins from the VCF and the first 1,941 from the multihetsep. Regenerated
+  tables record the count in `psmcfa_bins_after_last_het`, and the Figure
+  S2 caption should explain what S5 measures. To compare the readers on
+  identical data instead, trim the psmcfa to its last heterozygous bin.
 - **The human sample is chromosome 1 only.**
   `real_data/Papuan_highlands_diploid.psmcfa` holds one sequence, `>chr1`,
   of 2,487,383 bins (about 249 Mb). The tables and the notebook now label it
@@ -164,8 +172,8 @@ seeds (identical files) in `runs/supplementary/shared_inputs/`, plus the
 constant model at 100, 250, 500 and 1000 Mb for S3, 8 zigzag contigs of 75 Mb
 (seeds 7400-7407) for S4, and, for S5, one msprime simulation per model
 (recombination rate 1.25e-8) written as psmcfa, multihetsep and VCF. The
-three S5 files differ only in the homozygous bins after the last
-heterozygous site (see "Read first").
+multihetsep file lacks the homozygous bins after the last heterozygous site
+(see "Read first").
 
 ### 2. Run psmc-rs and C psmc
 
@@ -175,24 +183,30 @@ python3 experiment/scripts/run_real_data.py                    # Figure 3
 python3 experiment/scripts/run_supplementary.py                # S2-S5 (S1 with --steps S1)
 ```
 
-Both tools get the same EM settings:
+Both tools get the same EM settings, passed to psmc-rs explicitly so that
+the comparison does not depend on its defaults:
 
 | setting | psmc-rs | C psmc | variable |
 | --- | --- | --- | --- |
 | EM iterations | `N_ITER` positional (20) | `-N20` | `N_ITER` |
 | max coalescent time | `--t-max 15` | `-t15` | `T_MAX` |
-| free-parameter pattern | `--pattern 4+25*2+4+6` | `-p 4+25*2+4+6` | `PATTERN` |
-| initial theta/rho ratio | default `rho0 = theta0/4` (0.2) | `-r4` | `RHO_T_RATIO` |
+| free-parameter pattern (and so the 64 intervals) | `--pattern 4+25*2+4+6` | `-p 4+25*2+4+6` | `PATTERN` |
+| initial theta0/rho0 | `--tr-ratio 4` | `-r4` | `RHO_T_RATIO` |
 | smoothing penalty | `--smooth-lambda 0` | none | `SMOOTH_LAMBDA` |
+| M-step iteration cap | `--mstep-iters 100` | (Hooke-Jeeves to convergence) | `MSTEP_ITERS` |
 | threads | `--threads 1` | 1 | `RUST_THREADS` |
 
-plus `--n-steps 64 --batch-size 300000 --mu <mu> --no-progress` for psmc-rs
-(`--mu` only scales the HTML report). `RHO_T_RATIO` must equal the psmc-rs
-default ratio, otherwise the two tools start from different parameters.
-Before the first run that is compared with C psmc, the scripts read the
-starting `theta0/rho0` of the psmc-rs binary from a zero-iteration run on a
-tiny synthetic input and stop with an explanation if it differs from
-`RHO_T_RATIO`. The scripts reuse finished runs: a psmc-rs JSON that parses, and a C psmc output
+plus `--mu <mu> --no-progress` for psmc-rs (`--mu` only scales the curve),
+`--batch-size` only when `BATCH_SIZE` is set (from 0.2 on it changes neither
+results nor memory), and, in S5, `--input-format`, `--bin-size` and, for the
+VCF, `--vcf-mode mask`. The supplementary runner builds its commands from
+the same settings. Before the first run that is compared with C psmc, the
+scripts run the psmc-rs binary for zero iterations on a tiny synthetic input
+with these model options and stop with an explanation unless it starts from
+`theta0/RHO_T_RATIO`. `MSTEP_ITERS` stays at psmc-rs's default; C psmc's
+optimiser runs each M-step to convergence, which psmc-rs matches more
+closely with about 1000 (at ten times the M-step's small share of the run
+time). The scripts reuse finished runs: a psmc-rs JSON that parses, and a C psmc output
 with exactly `N_ITER + 1` rounds. C psmc writes each round as it goes, so it
 writes to `<output>.partial`, which is renamed only when the run succeeds; an
 interrupted run therefore leaves no output, and an incomplete one (or one made
@@ -254,10 +268,13 @@ upward from the working directory, or from `PSMC_RS_ROOT` if set.
 
 Environment variables read by the scripts (defaults in brackets):
 
-- EM settings: `N_ITER` [20], `T_MAX` [15], `N_STEPS` [64], `PATTERN`
-  [`4+25*2+4+6`], `RHO_T_RATIO` [4], `BATCH_SIZE` [300000], `MU` [2.5e-8],
-  `SMOOTH_LAMBDA` [0] and `RUST_THREADS` [1] (main text, real data),
-  `RUST_THREADS_BASE` [1] (supplementary), `PSMC_ALPHA_CACHE_MB` [2048].
+- EM settings: `N_ITER` [20], `T_MAX` [15], `PATTERN` [`4+25*2+4+6`],
+  `RHO_T_RATIO` [4], `MSTEP_ITERS` [100], `BATCH_SIZE` [unset], `MU`
+  [2.5e-8], `SMOOTH_LAMBDA` [0] and `RUST_THREADS` [1] (main text, real
+  data), `RUST_THREADS_BASE` [1] (supplementary), `PSMC_ALPHA_CACHE_MB`
+  [2048; psmc-rs uses it only when a model has more than 256 states]. The
+  number of intervals follows `PATTERN`, as in C psmc (`N_STEPS` is no
+  longer read).
 - Simulation: `SIM_LENGTH_BP` [500000000], `SIM_WINDOW_BP` [100],
   `SIM_MUTATION` [`MU`], `SIM_RECOMB` [catalog rate].
 - Repeats and grids: `PERF_REPEATS` [10], `S3_REPEATS` [3], `S3_LENGTHS_MB`

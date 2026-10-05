@@ -59,7 +59,9 @@ def write_c_psmc(
 # Stand-ins for the two tools, so the runners can be exercised without a
 # psmc-rs build or lh3/psmc. Environment variables steer them:
 #   FAKE_TOOL_LOG   append one line per call ("<tool> <output name> <n_iter>")
-#   FAKE_RHO_RATIO  psmc-rs: theta/rho of the written parameters [4]
+#   FAKE_RHO_RATIO  psmc-rs: theta/rho of the written parameters, whatever
+#                   --tr-ratio says [--tr-ratio, else 4]
+#   FAKE_PRE_0_2    psmc-rs: reject --tr-ratio, as psmc-rs 0.1 does [unset]
 #   FAKE_C_ROUNDS   C psmc: number of rounds written [N_ITER + 1]
 #   FAKE_C_EXIT     C psmc: exit status [0]
 _FAKE_PSMC_RS = '''#!{python}
@@ -70,11 +72,16 @@ from pathlib import Path
 sys.path.insert(0, {fixtures_dir!r})
 import fixtures
 
-out, n_iter = Path(sys.argv[2]), int(sys.argv[3])
+args = sys.argv[1:]
+out, n_iter = Path(args[1]), int(args[2])
 if os.environ.get("FAKE_TOOL_LOG"):
     with open(os.environ["FAKE_TOOL_LOG"], "a") as f:
         f.write(f"psmc-rs {{out.name}} {{n_iter}}\\n")
-fixtures.write_rust_json(out, rho_ratio=float(os.environ.get("FAKE_RHO_RATIO", "4")))
+if os.environ.get("FAKE_PRE_0_2") and "--tr-ratio" in args:
+    sys.stderr.write("error: unexpected argument '--tr-ratio' found\\n")
+    sys.exit(2)
+ratio = args[args.index("--tr-ratio") + 1] if "--tr-ratio" in args else "4"
+fixtures.write_rust_json(out, rho_ratio=float(os.environ.get("FAKE_RHO_RATIO", ratio)))
 print(f"Last EM loglike: {{-1000.0 - n_iter}}")
 '''
 
