@@ -249,3 +249,25 @@ fn gzip_is_detected_by_content_not_extension() {
     let _ = fs::remove_file(gz_no_ext);
     let _ = fs::remove_file(plain_with_gz_ext);
 }
+
+/// A cut-short bgzip of a real multihetsep file is that file's error: the
+/// note about how the format was recognised, which suits a file of another
+/// format, is not added to it.
+#[test]
+fn a_truncated_bgzip_multihetsep_is_not_blamed_on_the_format_guess() {
+    use psmc_rs::io::input::{InputOptions, load};
+    let rows: Vec<String> = (1..=400u64)
+        .map(|i| format!("chr1\t{}\t100\tAC\n", i * 100))
+        .collect();
+    let (first, rest) = rows.split_at(200);
+    let (first, rest) = (first.concat(), rest.concat());
+    let path = unique_temp_path("bgzf_mhs", "mhs.gz");
+    fs::write(&path, bgzf(&[first.as_bytes(), rest.as_bytes()], false)).unwrap();
+    let err = format!("{:#}", load(&path, &InputOptions::default()).unwrap_err());
+    assert!(
+        err.contains("end-of-file marker") && err.contains("truncated"),
+        "{err}"
+    );
+    assert!(!err.contains("recognised from the first line"), "{err}");
+    let _ = fs::remove_file(path);
+}

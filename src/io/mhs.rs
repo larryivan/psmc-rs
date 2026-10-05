@@ -317,8 +317,10 @@ fn read_rows(
 
     loop {
         line.clear();
-        // Text that is not UTF-8 is not multihetsep.
-        *maybe_other_format = true;
+        // Text that is not UTF-8 from the start is not multihetsep; a read
+        // error after a data row (e.g. a truncated bgzip) is one of a
+        // multihetsep file.
+        *maybe_other_format = summary.rows == 0;
         let bytes = reader
             .read_line(&mut line)
             .with_context(|| format!("failed to read {path:?}"))?;
@@ -332,6 +334,9 @@ fn read_rows(
             continue;
         }
 
+        // A row without four columns may be a file of another format,
+        // wherever it is.
+        *maybe_other_format = true;
         let cols: Vec<&str> = trimmed.split_whitespace().take(4).collect();
         let &[chrom, pos_str, called_str, alleles] = cols.as_slice() else {
             let missing = ["chrom", "pos", "nr_called", "alleles"][cols.len()];
