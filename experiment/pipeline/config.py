@@ -615,9 +615,87 @@ TINY = Profile(
     e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=replace(INFERENCE, n_iter=2),
           rs01_threads=(1,), rs02_threads=(1, 2), thread_scaling_size_mb=1, thread_scaling_threads=(1, 2),
           timing=QUICK_TIMING),
+    # E4: two chromosomes (the multihetsep cross-check runs per chromosome),
+    # the control and one mask of each structure, clustered runs shortened
+    # so that a 300 kb chromosome holds several.
+    e4=replace(
+        E4(), replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000),
+        inference=replace(INFERENCE, n_iter=2),
+        masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0), MaskSpec("dispersed30", 0.3, "dispersed", 20.0)),
+    ),
 )
 
 PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
+
+# ---------------------------------------------------------------------------
+# 8. E4, input preparation: how its steps run, beyond the design in E4 above
+# ---------------------------------------------------------------------------
+#
+# The routes from one masked VCF to PSMC (experiments/e4.py, inputprep.py):
+#
+#   exact        psmc-rs on the VCF, mask mode, --vcf-mask callable.bed.gz
+#   fq2psmcfa    consensus FASTA (hom: base, het: IUPAC, uncallable: N) streamed
+#                into fq2psmcfa -s <bin_size> (its defaults otherwise: -g 10000,
+#                and -q, which needs qualities, does nothing), then psmc-rs on
+#                the psmcfa; its bins must equal those of `psmc-rs convert` on
+#                the exact route, and the job that compares them fails if not
+#   multihetsep  `psmc-rs convert --multihetsep` of the exact route's input
+#                (nr_called = callable sites since the previous row, inclusive),
+#                read back by psmc-rs (uncalled sites at the start of each
+#                interval); replicate 1 of every mask is also checked row for
+#                row against msmc-tools' generate_multihetsep.py, run on each
+#                chromosome with its mask
+#   nomask       psmc-rs on the same VCF without --vcf-mask: uncallable sites
+#                count as called homozygous, as with a variants-only VCF
+#
+# Masks: an alternating renewal process per chromosome (inputprep.py): callable
+# stretches and uncallable runs of geometric length (the discrete exponential),
+# with mean run length MaskSpec.mean_run_bp and mean callable stretch
+# mean_run_bp * (1 - f) / f, so that the expected missing fraction is f. Records
+# at uncallable sites are removed from the VCF (a caller does not call them).
+#
+# Seeds (section 4), experiment "E4", model "bottleneck": the simulation's
+# ancestry/<chrom> and mutations/<chrom>; mask/<mask>/<chrom> for each mask; and
+# reference/<chrom> for the ancestral bases of the consensus FASTA at sites
+# without a record (uniform over ACGT, JC69's stationary distribution; they
+# do not change any bin).
+
+E4_CONTROL_MASK = "nomissing"  # the no-missing control: every site callable
+
+
+@dataclass(frozen=True)
+class E4Costs:
+    """Expected run time and peak memory of E4's steps, for scheduling and ETA only.
+
+    Measured on the development machine (load average 5 to 9) on one 50 Mb
+    chromosome of the bottleneck model with the dispersed 30% mask, the
+    largest (750,000 callable intervals), and scaled by genome size. Fits use
+    :class:`Costs`' psmc-rs rate (measured here: 11.3 s for 50 Mb x 25
+    iterations, 35 MB with the dispersed mask).
+    """
+
+    # draw the mask, write the BED, filter, bgzip and index the VCF: 0.7 s per 50 Mb;
+    # 5.4 s and 0.65 GB for the whole 500 Mb genome
+    mask_s_per_mb: float = 0.02
+    mask_gb: float = 1.0
+    # consensus FASTA streamed through fq2psmcfa (one chromosome at a time):
+    # 2.5 s per 50 Mb; 28 s and 1.1 GB (Python and fq2psmcfa) for 500 Mb
+    consensus_s_per_mb: float = 0.06
+    consensus_gb: float = 1.5
+    # psmc-rs convert and qc: one pass over the input, 0.15 s and 30 MB per 50 Mb
+    convert_s_per_mb: float = 0.005
+    convert_gb: float = 0.3
+    # the bins of four routes compared: 0.14 s per 50 Mb
+    bins_s_per_mb: float = 0.005
+    bins_gb: float = 0.5
+    # generate_multihetsep.py, a Python loop over every site: 36 s per 50 Mb
+    crosscheck_s_per_mb: float = 0.75
+    crosscheck_gb: float = 0.5
+    # psmc-rs fit (the VCF routes hold the merged mask intervals)
+    fit_gb: float = 0.3
+
+
+E4_COSTS = E4Costs()
 
 
 def get_profile(name: str) -> Profile:
@@ -658,7 +736,8 @@ PROFILES = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
 
 
 __all__ = [
-    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E5", "E6", "Genome",
+    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_COSTS", "E4_CONTROL_MASK",
+    "E5", "E6", "Genome",
     "INFERENCE", "Inference", "MODELS", "MODEL_ORDER", "MaskSpec", "PROFILES", "Profile",
     "REAL_GENOMES", "RealGenome", "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation",
     "SizeChange", "TimeGrid", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
