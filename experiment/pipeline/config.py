@@ -541,15 +541,95 @@ class E5:
     example_dataset: int = 1  # the dataset whose bands Fig 6 shows
 
 
+# --- E6: supplementary analyses S1-S5 ---------------------------------------
+# Every setting of E6 is in this block (experiments/e6.py reads nothing else
+# of its own). E6 reuses what other experiments made: E1's genomes, fits and
+# settings (S1-S3: models, inference, scaling, threads and time grid come
+# from profile.e1), E3's psmc-rs 0.2 runs (S4) and E2's genomes and bootstrap
+# trunk (S5). Its costs only schedule the jobs; no result depends on them.
+
+
+@dataclass(frozen=True)
+class E6Costs:
+    """Expected run time and peak memory of E6's own jobs, for scheduling and ETA only.
+
+    Measured on the development machine with E1's 500 Mb bottleneck replicate
+    (10 x 50 Mb): re-simulating it with its TMRCA intervals took 11.5 s and
+    261 MB; decoding its psmc-rs fit on 4 threads (5 million bins, a gzipped
+    TSV of 114 MB) 5.6 s and 46 MB; the S3 tables 13-17 s and 1.3 GB.
+    """
+
+    convert_s_per_mb: float = 0.05  # psmc-rs convert (VCF -> psmcfa + multihetsep; multihetsep -> psmcfa)
+    convert_s_base: float = 2.0
+    convert_gb: float = 0.5
+    tmrca_truth_s_per_mb: float = 0.025  # msprime re-simulation from the truth record, TMRCA intervals
+    tmrca_truth_s_base: float = 5.0
+    tmrca_truth_gb: float = 1.0  # every chromosome's tree sequence is held until the track is written
+    decode_s_per_mb: float = 0.015  # psmc-rs posterior decoding, per-bin TSV (gzip) included
+    decode_gb: float = 0.5
+    tmrca_report_s_per_mb: float = 0.04  # reading 5 million posterior rows, the metrics
+    tmrca_report_s_base: float = 5.0
+    tmrca_report_gb: float = 2.5
+    table_s: float = 20.0  # S1, S2, S4 and S5 tables
+    table_gb: float = 1.0
+    qc_s: float = 5.0  # psmc-rs qc of a real genome (0.1 s for 1.9 Gb)
+    qc_gb: float = 0.5
+    figure_s: float = 30.0
+    figure_gb: float = 1.0
+
+
 @dataclass(frozen=True)
 class E6:
-    """Supplementary analyses built on E1-E3."""
+    """Supplementary analyses built on E1-E3 (Figs S1-S4, Table S5).
 
-    format_replicate: int = 1  # S2: E1 replicate 1 of each model as psmcfa, VCF and multihetsep
-    tmrca_model: str = "bottleneck"  # S3: one E1 replicate decoded with --tmrca-out
+    S1  EM convergence: E1's log-likelihood and parameter traces, both tools.
+    S2  Format consistency: replicate ``format_replicate`` of every E1 model
+        read as psmcfa (E1's psmc-rs fit), as its VCF (no missing data, so no
+        mask) and as multihetsep (``psmc-rs convert --multihetsep`` of that
+        VCF); the bins must agree except for the multihetsep's missing tail
+        after the last heterozygous site, which is counted; the fits are compared.
+    S3  TMRCA decoding: E1's psmc-rs fit of ``tmrca_model`` replicate
+        ``tmrca_replicate`` decoded per bin (``--tmrca-out``) and compared with
+        the true pairwise TMRCA re-simulated from the replicate's seeds.
+    S4  Thread scaling and determinism: E3's psmc-rs 0.2 runs.
+    S5  QC table: ``psmc-rs qc`` of E2's four real genomes.
+    """
+
+    # S1. EM traces. An iteration "converged" once the log-likelihood is
+    # within this many units of the last iteration both tools evaluate
+    # (C psmc never evaluates its final model), and a decrease larger than
+    # the tolerance counts as non-monotone (both M-steps are numerical
+    # searches, so EM's monotonicity holds only up to their precision).
+    convergence_within_loglike: float = 1.0
+    loglike_decrease_tolerance: float = 1e-3
+
+    # S2. The E1 replicate of every model read as psmcfa, VCF and multihetsep.
+    format_replicate: int = 1
+
+    # S3. TMRCA decoding. psmc-rs writes the 2.5% and 97.5% quantiles of the
+    # per-bin posterior, so the interval is the 95% one. The example track is
+    # the first 5 Mb of chr1 (fixed, not chosen after looking), shortened to the
+    # chromosome in profiles with shorter ones. Calibration is tabulated in
+    # deciles of the true TMRCA and of the posterior mean; the density of
+    # (true, posterior mean) is binned on a log10 grid of this many cells per axis.
+    tmrca_model: str = "bottleneck"
     tmrca_replicate: int = 1
     tmrca_interval: float = 0.95
     tmrca_example_track_bp: int = 5_000_000
+    tmrca_example_chrom: str = "chr1"
+    tmrca_example_start_bp: int = 0
+    tmrca_calibration_classes: int = 10
+    tmrca_density_cells: int = 60
+    tmrca_decode_threads: int = 4  # psmc-rs --threads; the posterior does not depend on it
+
+    # S4. The experiment whose psmc-rs 0.2 runs are read (see experiments/e6.py).
+    thread_scaling_experiment: str = "E3"
+
+    # S5. psmc-rs qc of E2's genomes, with E2's bin size and bootstrap trunk
+    # (--bootstrap-block-size), as E2 bootstraps them.
+    qc_experiment: str = "E2"
+
+    costs: E6Costs = E6Costs()
 
 
 # ---------------------------------------------------------------------------
