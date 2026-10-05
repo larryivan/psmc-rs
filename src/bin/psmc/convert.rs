@@ -1,0 +1,159 @@
+//! `psmc-rs convert`: write an input, read as inference reads it, as psmcfa
+//! or multihetsep.
+
+use anyhow::{Result, bail};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use psmc_rs::io::input::{Dataset, InputFormat};
+use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
+
+use crate::cli::{ConvertArgs, FormatArg};
+use crate::console::Console;
+use crate::dataset::{describe, load_input, loader_warnings, qc_report};
+use crate::run::{Event, qc_event, write_qc_json};
+
+const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
+                        whether each holds a heterozygous site, not where. Convert the VCF or \
+                        multihetsep file the psmcfa was made from instead";
+
+/// Run `convert`.
+pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
+    let console = Console::new(args.quiet, false);
+    let sink = |ev| console.emit(ev);
+    let want_sites = args.multihetsep.is_some() || args.multihetsep_per_chrom.is_some();
+    if want_sites && args.input.input_format == FormatArg::Psmcfa {
+        bail!("{NO_SITES}");
+    }
+    let mut opts = args.input.to_options();
+    opts.collect_het_sites = want_sites;
+    let data = load_input(&args.input_file, &opts)?;
+    let format = data.source.format();
+    if want_sites && format == InputFormat::Psmcfa {
+        bail!("{NO_SITES}");
+    }
+    for line in describe(&data) {
+        sink(Event::Info(line));
+    }
+
+    let qc = if data.obs.rows.is_empty() {
+        None
+    } else {
+        match qc_report(&data, args.input.bin_size, 0, None) {
+            Ok(report) => Some(report),
+            Err(e) => {
+                sink(Event::Warning(format!("input QC failed: {e:#}")));
+                None
+            }
+        }
+    };
+    for line in loader_warnings(&data, qc.as_ref()) {
+        sink(Event::Warning(line));
+    }
+    if let Some(report) = &qc {
+        sink(qc_event(report));
+        if let Some(path) = &args.qc_json {
+            write_qc_json(path, report)?;
+            sink(Event::Output(format!("QC report: {}", path.display())));
+        }
+    }
+    if data.obs.rows.is_empty() {
+        // fq2psmcfa writes an empty file too; the outputs say so.
+        sink(Event::Warning(
+            "no sequence is left to write, so the outputs are empty".to_string(),
+        ));
+    }
+
+    if let Some(path) = &args.psmcfa {
+        if format == InputFormat::Mhs {
+            sink(Event::Info(
+                "multihetsep gives no position for the uncalled sites between two rows, so they \
+                 were placed at the start of each interval; which bins are missing can differ \
+                 from fq2psmcfa's binning of the same calls (read the VCF with its callable \
+                 mask for exact bins)"
+                    .to_string(),
+            ));
+        }
+        write_psmcfa(path, &data)?;
+        sink(Event::Output(format!(
+            "psmcfa: {} ({} sequences, {} bins)",
+            path.display(),
+            data.seqs.len(),
+            data.n_bins()
+        )));
+    }
+    if let Some(path) = &args.multihetsep {
+        write_multihetsep(path, &data, &MultihetsepOptions::default())?;
+        sink(Event::Output(format!(
+            "multihetsep: {} ({} heterozygous sites)",
+            path.display(),
+            het_sites(&data, None)
+        )));
+    }
+    if let Some(prefix) = &args.multihetsep_per_chrom {
+        let mut written = HashSet::new();
+        for seq in &data.seqs {
+            if !written.insert(seq.name.as_str()) {
+                // A repeated chromosome went into the file of its first
+                // block already.
+                continue;
+            }
+            let path = per_chrom_path(prefix, &seq.name)?;
+            let opts = MultihetsepOptions {
+                sequence: Some(seq.name.clone()),
+            };
+            write_multihetsep(&path, &data, &opts)?;
+            sink(Event::Output(format!(
+                "multihetsep: {} ({} heterozygous sites)",
+                path.display(),
+                het_sites(&data, Some(&seq.name))
+            )));
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Heterozygous sites of `data`, of the sequences named `name` if given.
+fn het_sites(data: &Dataset, name: Option<&str>) -> usize {
+    data.het_sites.as_ref().map_or(0, |sites| {
+        sites
+            .iter()
+            .filter(|h| name.is_none_or(|n| data.seqs[h.seq as usize].name == n))
+            .count()
+    })
+}
+
+/// The file of sequence `name` under `--multihetsep-per-chrom PREFIX`:
+/// `PREFIX.<name>.multihetsep`, with `.gz` at the end when `PREFIX` ends in
+/// `.gz`.
+fn per_chrom_path(prefix: &Path, name: &str) -> Result<PathBuf> {
+    if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+        bail!("the sequence name '{name}' cannot be part of a file name");
+    }
+    let prefix = prefix.to_string_lossy();
+    Ok(PathBuf::from(match prefix.strip_suffix(".gz") {
+        Some(stem) => format!("{stem}.{name}.multihetsep.gz"),
+        None => format!("{prefix}.{name}.multihetsep"),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn per_chromosome_files_are_named_after_the_prefix() {
+        let path = |prefix: &str, name: &str| per_chrom_path(Path::new(prefix), name);
+        assert_eq!(
+            path("out/snps", "chr1").unwrap(),
+            PathBuf::from("out/snps.chr1.multihetsep")
+        );
+        assert_eq!(
+            path("out/snps.gz", "chr2").unwrap(),
+            PathBuf::from("out/snps.chr2.multihetsep.gz")
+        );
+        assert!(path("snps", "a/b").is_err());
+        assert!(path("snps", "..").is_err());
+    }
+}

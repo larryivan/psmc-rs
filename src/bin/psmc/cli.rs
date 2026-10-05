@@ -1,7 +1,7 @@
 //! Command-line arguments.
 
 use anyhow::{Context, Result, bail};
-use clap::{Args, Parser, ValueEnum};
+use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 use psmc_rs::bootstrap::DEFAULT_BOOTSTRAP_TRUNK;
@@ -370,20 +370,108 @@ impl InputArgs {
     }
 }
 
+const ABOUT: &str = "PSMC: population size history from one diploid genome";
+
+const LONG_ABOUT: &str = "\
+PSMC (Li & Durbin 2011): population size history from one diploid genome.
+
+psmc-rs INPUT OUTPUT N_ITER fits the model to INPUT (psmcfa, multihetsep or
+VCF) with N_ITER EM iterations and writes the parameters to OUTPUT (JSON)
+with an HTML report next to it. `psmc-rs convert` writes psmcfa and
+multihetsep files, and --tui opens an interactive interface.";
+
+const AFTER_HELP: &str = "\
+Examples:
+  psmc-rs sample.psmcfa fit.json 25 --psmc-out fit.psmc
+  psmc-rs calls.vcf.gz fit.json 25 --bootstrap 100 --threads 8
+  psmc-rs convert calls.vcf.gz --psmcfa sample.psmcfa.gz";
+
+/// The command line: inference unless a subcommand is given.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "psmc-rs")]
-#[command(about = "PSMC in Rust", long_about = None)]
+#[command(
+    name = "psmc-rs",
+    version,
+    about = ABOUT,
+    long_about = LONG_ABOUT,
+    after_help = AFTER_HELP,
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true
+)]
 pub struct Cli {
-    #[arg(long, help = "Launch interactive TUI")]
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    #[command(flatten)]
+    pub infer: InferArgs,
+}
+
+/// The subcommands.
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    /// Write an input (VCF, multihetsep or psmcfa) as psmcfa or
+    /// multihetsep, read exactly as inference reads it
+    Convert(ConvertArgs),
+}
+
+/// `psmc-rs convert`.
+#[derive(Args, Debug, Clone)]
+#[command(group(
+    ArgGroup::new("outputs")
+        .required(true)
+        .multiple(true)
+        .args(["psmcfa", "multihetsep", "multihetsep_per_chrom"])
+))]
+pub struct ConvertArgs {
+    /// Input file: psmcfa, multihetsep or VCF (gzip/bgzip allowed)
+    #[arg(value_name = "INPUT")]
+    pub input_file: PathBuf,
+
+    #[command(flatten)]
+    pub input: InputArgs,
+
+    /// Write psmcfa, as fq2psmcfa lays it out (gzip when FILE ends in .gz)
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
+    pub psmcfa: Option<PathBuf>,
+
+    /// Write the heterozygous sites of every sequence as multihetsep, as
+    /// generate_multihetsep.py writes them (VCF and multihetsep input)
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
+    pub multihetsep: Option<PathBuf>,
+
+    /// Write one multihetsep file per sequence, PREFIX.<name>.multihetsep
+    /// (with .gz added, gzip-compressed, when PREFIX ends in .gz), as MSMC2
+    /// takes them
+    #[arg(long, value_name = "PREFIX", help_heading = "Output")]
+    pub multihetsep_per_chrom: Option<PathBuf>,
+
+    /// Write the input QC report as JSON ('-' for stdout)
+    #[arg(long, value_name = "FILE", help_heading = "Output")]
+    pub qc_json: Option<PathBuf>,
+
+    /// Print only results and warnings
+    #[arg(long, short = 'q')]
+    pub quiet: bool,
+}
+
+/// Inference: `psmc-rs INPUT OUTPUT N_ITER [options]`.
+#[derive(Args, Debug, Clone)]
+pub struct InferArgs {
+    /// Open the interactive interface (the other arguments fill its form)
+    #[arg(long)]
     pub tui: bool,
 
-    #[arg(required_unless_present = "tui")]
+    /// Input file: psmcfa, multihetsep or VCF (gzip/bgzip allowed); a
+    /// directory takes its first input file
+    #[arg(value_name = "INPUT", required_unless_present = "tui")]
     pub input_file: Option<PathBuf>,
 
-    #[arg(required_unless_present = "tui")]
+    /// Output JSON of the fitted parameters; the HTML report is written
+    /// next to it
+    #[arg(value_name = "OUTPUT", required_unless_present = "tui")]
     pub output_file: Option<PathBuf>,
 
-    #[arg(required_unless_present = "tui")]
+    /// EM iterations (C psmc -N; 0 writes the starting model)
+    #[arg(value_name = "N_ITER", required_unless_present = "tui")]
     pub n_iter: Option<usize>,
 
     #[command(flatten)]
@@ -505,7 +593,7 @@ pub struct Cli {
     pub gen_years: f64,
 }
 
-impl Cli {
+impl InferArgs {
     /// The arguments that reproduce this inference run on the command line
     /// (without `--tui`), as the TUI shows and runs it.
     pub fn to_args(&self) -> Vec<String> {
@@ -597,10 +685,19 @@ impl Cli {
 mod tests {
     use super::*;
 
+    /// The inference arguments of a command line.
+    fn parse<I, T>(argv: I) -> Result<InferArgs, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<std::ffi::OsString> + Clone,
+    {
+        Cli::try_parse_from(argv).map(|c| c.infer)
+    }
+
     fn input(args: &[&str]) -> InputArgs {
         let mut argv = vec!["psmc-rs", "in", "out", "1"];
         argv.extend_from_slice(args);
-        Cli::try_parse_from(argv).unwrap().input
+        parse(argv).unwrap().input
     }
 
     #[test]
@@ -721,15 +818,15 @@ mod tests {
 
     #[test]
     fn saved_parameters_replace_the_starting_values() {
-        let parse = |args: &[&str]| {
+        let with_saved = |args: &[&str]| {
             let mut argv = vec!["psmc-rs", "in", "out", "1", "--init-params", "fit.json"];
             argv.extend_from_slice(args);
-            Cli::try_parse_from(argv)
+            parse(argv)
         };
-        assert!(parse(&[]).is_ok());
-        assert!(parse(&["--pattern", "4+5*3+4", "--mu", "1e-8"]).is_ok());
+        assert!(with_saved(&[]).is_ok());
+        assert!(with_saved(&["--pattern", "4+5*3+4", "--mu", "1e-8"]).is_ok());
         for flag in ["--theta0", "--rho0", "--t-max", "--tr-ratio"] {
-            let err = parse(&[flag, "5"]).unwrap_err().to_string();
+            let err = with_saved(&[flag, "5"]).unwrap_err().to_string();
             assert!(err.contains("cannot be used with"), "{flag}: {err}");
         }
     }
@@ -739,7 +836,7 @@ mod tests {
         let bad = |args: &[&str]| {
             let mut argv = vec!["psmc-rs", "in", "out", "1"];
             argv.extend_from_slice(args);
-            Cli::try_parse_from(argv).unwrap_err().to_string()
+            parse(argv).unwrap_err().to_string()
         };
         assert!(bad(&["--t-max", "1000"]).contains("below 1000"));
         assert!(bad(&["--t-max", "0"]).contains("positive"));
@@ -755,7 +852,7 @@ mod tests {
 
     #[test]
     fn the_old_generation_time_flag_still_works() {
-        let cli = Cli::try_parse_from(["psmc-rs", "in", "out", "1", "--tmrca-gen-years", "29"]);
+        let cli = parse(["psmc-rs", "in", "out", "1", "--tmrca-gen-years", "29"]);
         assert_eq!(cli.unwrap().gen_years, 29.0);
     }
 
@@ -764,7 +861,7 @@ mod tests {
         let bad = |args: &[&str]| {
             let mut argv = vec!["psmc-rs", "in", "out", "1"];
             argv.extend_from_slice(args);
-            Cli::try_parse_from(argv).unwrap_err().to_string()
+            parse(argv).unwrap_err().to_string()
         };
         assert!(bad(&["--mhs-pair", "1,1"]).contains("must differ"));
         assert!(bad(&["--mhs-pair", "1"]).contains("I,J"));
@@ -772,5 +869,53 @@ mod tests {
         assert!(bad(&["--depth", "lots"]).contains("MIN:MAX"));
         assert!(bad(&["--bin-size", "0"]).contains("at least 1"));
         assert!(bad(&["--min-good-fraction", "1.5"]).contains("between 0 and 1"));
+    }
+
+    #[test]
+    fn subcommands_take_their_own_arguments() {
+        let cli = Cli::try_parse_from([
+            "psmc-rs",
+            "convert",
+            "in.vcf.gz",
+            "--psmcfa",
+            "out.psmcfa",
+            "--bin-size",
+            "50",
+        ])
+        .unwrap();
+        let Some(Command::Convert(c)) = cli.command else {
+            panic!("not convert")
+        };
+        assert_eq!(c.input_file, PathBuf::from("in.vcf.gz"));
+        assert_eq!(c.input.bin_size, 50);
+
+        // Inference still takes its three positional arguments.
+        let cli = Cli::try_parse_from(["psmc-rs", "in", "out", "5"]).unwrap();
+        assert!(cli.command.is_none());
+        assert_eq!(cli.infer.n_iter, Some(5));
+        assert!(Cli::try_parse_from(["psmc-rs", "--tui"]).is_ok());
+        assert!(Cli::try_parse_from(["psmc-rs", "in", "out"]).is_err());
+    }
+
+    #[test]
+    fn invalid_subcommand_uses_are_rejected() {
+        let err = |argv: &[&str]| Cli::try_parse_from(argv).unwrap_err().to_string();
+        // convert needs an output.
+        assert!(err(&["psmc-rs", "convert", "in.vcf"]).contains("--psmcfa"));
+        // Inference options do not apply to a subcommand: before it, the
+        // subcommand's name is read as the inference input.
+        assert!(err(&["psmc-rs", "--threads", "4", "convert", "in.vcf"]).contains("N_ITER"));
+        assert!(
+            err(&[
+                "psmc-rs",
+                "convert",
+                "in.vcf",
+                "--psmcfa",
+                "o",
+                "--threads",
+                "4"
+            ])
+            .contains("--threads")
+        );
     }
 }

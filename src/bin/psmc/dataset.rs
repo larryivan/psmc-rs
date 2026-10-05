@@ -17,7 +17,7 @@ use crate::cli::FormatArg;
 /// The input format as QC and the report name it, with the VCF mode.
 pub fn format_label(data: &Dataset) -> String {
     match &data.source {
-        SourceSummary::Vcf(v) => format!("vcf ({} mode)", v.mode.mode.name()),
+        SourceSummary::Vcf(v) => format!("vcf, {} mode", v.mode.mode.name()),
         s => s.format().name().to_string(),
     }
 }
@@ -66,7 +66,7 @@ pub fn qc_report(
                     // HIGH_MISSING covers, rather than a filter.
                     filters: LossReason::ALL
                         .iter()
-                        .filter(|&&r| r != LossReason::NoRecord)
+                        .filter(|&&r| r != LossReason::NoRecord && c.lost.get(r) > 0)
                         .map(|&r| FilterCount {
                             name: r.label().to_string(),
                             bases: c.lost.get(r),

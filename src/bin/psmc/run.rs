@@ -25,7 +25,7 @@ use psmc_rs::qc::{QcReport, Severity, render_text};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
-use crate::cli::{Cli, model_layout};
+use crate::cli::{InferArgs, model_layout};
 use crate::dataset::{
     describe, ensure_usable, load_input, loader_warnings, qc_report, resolve_input_path,
 };
@@ -94,7 +94,7 @@ fn check_cancel(cancel: &AtomicBool) -> Result<()> {
 /// [`Cancelled`]. `progress_bars` lets the TMRCA decoding draw its own bar
 /// on stderr.
 pub fn run_inference(
-    cli: &Cli,
+    cli: &InferArgs,
     cancel: &AtomicBool,
     sink: Sink,
     progress_bars: bool,
@@ -119,7 +119,7 @@ struct BootstrapPlan {
 
 impl BootstrapPlan {
     /// The bootstrap of `cli`, if any, checked before any work is done.
-    fn of(cli: &Cli, n_iter: usize, output: &Path) -> Result<Option<Self>> {
+    fn of(cli: &InferArgs, n_iter: usize, output: &Path) -> Result<Option<Self>> {
         if cli.bootstrap == 0 {
             for (set, flag) in [
                 (cli.bootstrap_iters.is_some(), "--bootstrap-iters"),
@@ -156,7 +156,7 @@ const FEW_TRUNKS: usize = 20;
 
 /// [`run_inference`] inside its pool.
 fn infer(
-    cli: &Cli,
+    cli: &InferArgs,
     cancel: &AtomicBool,
     sink: Sink,
     progress_bars: bool,
@@ -428,7 +428,7 @@ fn infer(
 /// The starting model of `--init-params`: the saved parameters, with the
 /// layout checked against `--pattern` and `--n-steps` when they are given,
 /// and `--mu` for scaling.
-fn saved_start(path: &Path, cli: &Cli) -> Result<PsmcModel> {
+fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     let what = || format!("--init-params {}", path.display());
     let saved = load_params(path).with_context(what)?;
     let mut model = PsmcModel::from_params_file(&saved).with_context(what)?;
@@ -483,7 +483,7 @@ pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
 }
 
 /// Read the input as `cli` says and report how it was read.
-fn read_input(path: &Path, cli: &Cli, sink: Sink) -> Result<Dataset> {
+fn read_input(path: &Path, cli: &InferArgs, sink: Sink) -> Result<Dataset> {
     let io_total = fs::metadata(path).map(|m| m.len()).unwrap_or(1);
     let io_progress = |done| Event::Progress {
         stage: Stage::Io,
@@ -703,7 +703,7 @@ mod tests {
         dir
     }
 
-    fn cli(dir: &std::path::Path, extra: &[&str]) -> Cli {
+    fn cli(dir: &std::path::Path, extra: &[&str]) -> InferArgs {
         let input = dir.join("in.psmcfa");
         let bins = "TTTTKTTTTTTTNNTTKTTTTTTTTKTTTTTTTTTTKTTTTTTTTTKTT".repeat(4);
         fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
@@ -714,7 +714,7 @@ mod tests {
             "1".to_string(),
         ];
         args.extend(extra.iter().map(|s| s.to_string()));
-        Cli::try_parse_from(args).unwrap()
+        crate::cli::Cli::try_parse_from(args).unwrap().infer
     }
 
     /// Each run uses a pool of its own size, also when a process (the TUI)

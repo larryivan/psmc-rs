@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use psmc_rs::hmm::Cancelled;
 
-use crate::cli::{Cli, FormatArg};
+use crate::cli::{FormatArg, InferArgs};
 use crate::dataset::is_supported_input_file;
 use crate::run::{self, Event, RunSummary, Stage};
 
@@ -155,7 +155,7 @@ struct FilePicker {
 
 struct App {
     self_bin: PathBuf,
-    base_cli: Cli,
+    base_cli: InferArgs,
     page: TuiPage,
     fields: Vec<FormField>,
     selected: usize,
@@ -171,7 +171,7 @@ struct App {
 }
 
 impl App {
-    fn new(self_bin: PathBuf, cli: &Cli) -> Self {
+    fn new(self_bin: PathBuf, cli: &InferArgs) -> Self {
         let mut fields = vec![
             FormField {
                 label: "Input",
@@ -439,7 +439,7 @@ fn parse_input_format_field(v: &str) -> Result<FormatArg> {
         .ok_or_else(|| anyhow!("Input fmt must be auto, psmcfa, mhs or vcf"))
 }
 
-fn build_cli_from_form(app: &App) -> Result<Cli> {
+fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     let input = parse_non_empty_str("Input", app.field_value(FIELD_INPUT))?;
     let output = parse_non_empty_str("Output", app.field_value(FIELD_OUTPUT))?;
     let n_iter = parse_required_usize("N iter", app.field_value(FIELD_N_ITER))?;
@@ -1279,7 +1279,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
 }
 
 /// Run the TUI until the user quits; `cli` fills the form.
-pub fn run_tui(cli: &Cli) -> Result<()> {
+pub fn run_tui(cli: &InferArgs) -> Result<()> {
     let self_bin = std::env::current_exe().context("failed to resolve executable path")?;
     let mut app = App::new(self_bin, cli);
 
