@@ -333,6 +333,7 @@ warnings), and the output JSON keeps its finding codes.
 
 | code | severity | when |
 | --- | --- | --- |
+| `INVALID_START` | warning | the fit's start (for `qc`, the default start) has negative transition probabilities, from which EM cannot move: ρ0 per bin is too large for the time grid; names the bin size, `--tr-ratio` or `--rho0` that fixes it |
 | `VARIANTS_ONLY_NO_MASK` | warning | a VCF read in mask mode without a callable mask |
 | `HIGH_MISSING` | warning above 50%, note above 25% | missing bins, or uncalled sites when they are counted |
 | `BIN_SATURATION` | warning | more than 10% of heterozygous bins likely hold two or more sites; names the largest bin size that brings it below 5% |

@@ -8,11 +8,12 @@ use std::path::{Path, PathBuf};
 use psmc_rs::io::consensus::{DepthThresholds, LossReason};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
 use psmc_rs::qc::{
-    ConsensusStats, DepthStats, DroppedSequences, FilterCount, QcContext, QcInput, QcReport, QcSeq,
-    try_analyze,
+    ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
+    QcReport, QcSeq, try_analyze,
 };
+use psmc_rs::{PsmcModel, initial_theta};
 
-use crate::cli::{FormatArg, InputArgs};
+use crate::cli::{DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout};
 
 /// The input format as QC and the report name it, with the VCF mode.
 pub fn format_label(data: &Dataset) -> String {
@@ -22,14 +23,44 @@ pub fn format_label(data: &Dataset) -> String {
     }
 }
 
+/// A model of this layout, for its free lambdas and time grid only: its
+/// rates are small enough for a valid transition matrix at every t_max the
+/// command line accepts (ρ0 per bin must stay below about 2 / t_max).
+pub fn layout_model(
+    t_max: f64,
+    n_steps: usize,
+    pattern: Option<String>,
+    mu: f64,
+) -> Result<PsmcModel> {
+    const RATE: f64 = 1e-4;
+    PsmcModel::new(t_max, n_steps, RATE, RATE, mu, pattern)
+}
+
+/// The start of a fit of `data` with the default settings (C psmc's: θ0
+/// from the data, ρ0 = θ0 / 4, t_max 15, pattern `4+5*3+4`), which `qc` and
+/// `convert` check having no fit of their own; `None` when the data give no
+/// θ0.
+pub fn default_start(data: &Dataset) -> Option<FitStart> {
+    let theta0 = initial_theta(&data.obs.rows).ok()?;
+    let (n_steps, pattern) = model_layout(None, None).ok()?;
+    let layout = layout_model(DEFAULT_T_MAX, n_steps, pattern, DEFAULT_MU).ok()?;
+    Some(FitStart::new(
+        &layout,
+        theta0,
+        theta0 / DEFAULT_TR_RATIO,
+        true,
+    ))
+}
+
 /// Input QC of a loaded dataset. `bootstrap_trunk` is the bootstrap trunk
-/// size in bins (0 without a bootstrap) and `free_lambdas` the number of
-/// free lambdas of the model to fit, when known.
+/// size in bins (0 without a bootstrap), `free_lambdas` the number of free
+/// lambdas of the model to fit and `start` its starting model, when known.
 pub fn qc_report(
     data: &Dataset,
     bin_size: usize,
     bootstrap_trunk: usize,
     free_lambdas: Option<usize>,
+    start: Option<FitStart>,
 ) -> Result<QcReport> {
     let seqs: Vec<QcSeq> = data
         .seqs
@@ -44,6 +75,7 @@ pub fn qc_report(
     let mut context = QcContext {
         input_format: Some(format_label(data)),
         free_lambdas,
+        start,
         dropped: dropped_groups(data),
         ..QcContext::default()
     };

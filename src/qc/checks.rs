@@ -9,7 +9,7 @@ use super::fmt::{bases, count, pct, sig};
 use super::names::SeqKind;
 use super::stats::median;
 use super::{
-    QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, SeqInfo,
+    DEFAULT_TR_RATIO, QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, SeqInfo,
     largest_trunk_within,
 };
 
@@ -82,6 +82,28 @@ const MAX_LISTED: usize = 10;
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[non_exhaustive]
 pub enum QcCode {
+    /// The fit's starting model has negative transition probabilities
+    /// (warning; [`super::QcContext::start`]): ρ0 is too large per bin for
+    /// the time grid, and EM cannot move from such a start.
+    ///
+    /// C psmc's transition matrix (`psmc_update_hmm`, ported in
+    /// [`crate::PsmcModel::param_recalculate`]) stays in state `k` with
+    /// probability `1 - r_k (1 - q_kk)`, where `r_k`, the chance of a
+    /// recombination counted in state `k`, grows with ρ. Above a limit it
+    /// turns negative for some states: with flat λ, ρ0 of about 1/6 per bin
+    /// at C's default t_max of 15 (0.167 for `4+5*3+4`, 0.161 for
+    /// `4+25*2+4+6`), and about 2 / t_max for larger t_max. The expected
+    /// log-likelihood the M-step maximises then takes the logarithm of a
+    /// negative probability, so it is undefined everywhere the search
+    /// starts: C psmc prints `QD -1e300`, keeps the starting parameters in
+    /// every round and reports a flat curve. With C's starting θ0/ρ0 of 4
+    /// the limit lies at θ0 of about 0.67, 49% of called bins heterozygous,
+    /// far beyond [`QcCode::BinSaturation`]; with `--tr-ratio 1` at about
+    /// 15%, where nothing else warns. θ0 and ρ0 per bin shrink in proportion
+    /// with the bin size (θ0 = -s ln(1 - h) for bins of `s` sites at
+    /// heterozygosity `h`), so smaller bins, a larger θ0/ρ0 or a smaller
+    /// `--rho0` bring the start back into range.
+    InvalidStart,
     /// A VCF was read in mask mode without a positive callable-sites mask
     /// (warning).
     ///
@@ -244,6 +266,7 @@ pub enum QcCode {
 impl QcCode {
     /// Every code, in report order within a severity.
     pub const ALL: &'static [QcCode] = &[
+        Self::InvalidStart,
         Self::VariantsOnlyNoMask,
         Self::HighMissing,
         Self::BinSaturation,
@@ -260,6 +283,7 @@ impl QcCode {
     /// The stable name, as serialised (`HIGH_MISSING`, ...).
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::InvalidStart => "INVALID_START",
             Self::VariantsOnlyNoMask => "VARIANTS_ONLY_NO_MASK",
             Self::HighMissing => "HIGH_MISSING",
             Self::BinSaturation => "BIN_SATURATION",
@@ -333,6 +357,7 @@ pub(super) fn run(
     let seq_bins: Vec<u64> = seqs.iter().map(|s| s.stats.bins).collect();
     let mut named = Vec::new();
     let mut out: Vec<Finding> = [
+        invalid_start(input, report),
         variants_only_no_mask(input, report),
         high_missing(report),
         bin_saturation(report),
@@ -518,6 +543,74 @@ fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> 
     );
     f.sequences = outliers.iter().map(|(s, _)| s.name.clone()).collect();
     Some(f)
+}
+
+fn invalid_start(input: &QcInput, report: &QcReport) -> Option<Finding> {
+    let start = input.context.start.as_ref()?;
+    if start.is_valid() {
+        return None;
+    }
+    let (theta, rho, t_max) = (sig(start.theta0, 3), sig(start.rho0, 3), start.t_max);
+    let pattern = start
+        .pattern
+        .as_deref()
+        .map_or(String::new(), |p| format!(" and pattern {p}"));
+    let whose = if start.assumed {
+        format!(
+            "A fit with psmc-rs's default settings would start from theta0 {theta} per bin \
+             (from these data) and rho0 = theta0/{} = {rho} per bin, with t_max \
+             {t_max}{pattern}",
+            DEFAULT_TR_RATIO
+        )
+    } else {
+        format!(
+            "The fit starts from theta0 {theta} and rho0 {rho} per bin, with t_max \
+             {t_max}{pattern}"
+        )
+    };
+    let lowest = if start.min_transition.is_finite() {
+        format!(" (down to {})", sig(start.min_transition, 3))
+    } else {
+        String::new()
+    };
+    let limit = start.max_rho0.map_or(String::new(), |m| {
+        format!(", which allows up to about {}", sig(m, 3))
+    });
+    let message = format!(
+        "{whose}. Some of PSMC's transition probabilities are then negative{lowest}: rho0 is \
+         too large per bin for the model's time grid{limit}. That is not a valid model, and EM \
+         cannot move from it: the expected log-likelihood that the M-step maximises is \
+         undefined there. C psmc keeps the starting parameters and reports a flat curve; \
+         psmc-rs refuses to fit from such a start."
+    );
+    // theta0 and rho0 per bin shrink in proportion with the bin size; a
+    // tenth below the limit leaves a margin.
+    let recommendation = match start.max_rho0 {
+        Some(max) => {
+            let target = 0.9 * max;
+            let s = report.bin_size;
+            let bins = ((s as f64 * target / start.rho0).floor() as usize).max(1);
+            let ratio = (10.0 * start.theta0 / target).ceil() / 10.0;
+            format!(
+                "Start from a smaller rho0. Smaller bins shrink theta0 and rho0 per bin in \
+                 proportion: re-bin the per-site data at {bins} bp per bin or less \
+                 (`--bin-size {bins}` for VCF and multihetsep input, or `fq2psmcfa -s {bins}` \
+                 for a psmcfa file, which psmc-rs then reads with `--bin-size {bins}`). \
+                 Otherwise fit with `--tr-ratio {ratio}` or more, or `--rho0 {}` or less.",
+                sig(target, 2)
+            )
+        }
+        None => "Start from a smaller rho0: re-bin the per-site data with smaller bins, which \
+                 shrink theta0 and rho0 per bin in proportion, or fit with a larger \
+                 --tr-ratio or a smaller --rho0."
+            .to_string(),
+    };
+    Some(Finding::new(
+        QcCode::InvalidStart,
+        Severity::Warning,
+        message,
+        recommendation,
+    ))
 }
 
 fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> {

@@ -93,6 +93,84 @@ fn qc_without_warnings_passes_strict() {
     assert!(!stdout.contains("WARNING"), "{stdout}");
 }
 
+/// A start whose transition probabilities are negative is named by QC:
+/// `qc` checks the start of a fit with the default settings, inference the
+/// start of its own settings (here `--tr-ratio 1`, at which nothing else
+/// warns about 17% heterozygous bins).
+#[test]
+fn an_invalid_start_is_reported() {
+    let dir = TempDir::new("qc_invalid_start");
+    // 120 Mb of one repeated unit, with K bins at a given share.
+    let write = |name: &str, unit: &str| {
+        let path = dir.path(name);
+        fs::write(
+            &path,
+            format!(">chr1\n{}\n", unit.repeat(1_200_000 / unit.len())),
+        )
+        .unwrap();
+        path
+    };
+    let k60 = write("k60.psmcfa", "KKKKKKTTTT");
+    let o = run(["qc", k60.to_str().unwrap(), "--json", "-"]);
+    let report: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(report["findings"][0]["code"], "INVALID_START");
+    let message = report["findings"][0]["message"].as_str().unwrap();
+    assert!(
+        message.starts_with("A fit with psmc-rs's default settings would start from theta0 0.916"),
+        "{message}"
+    );
+    let text = String::from_utf8(o.stderr).unwrap();
+    assert!(text.contains("WARNING  INVALID_START"), "{text}");
+
+    let k17 = write(
+        "k17.psmcfa",
+        &format!("{}{}", "K".repeat(17), "T".repeat(83)),
+    );
+    let o = run(["qc", k17.to_str().unwrap(), "--strict"]);
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stdout)
+    );
+
+    // Inference checks its own start. The QC JSON is written before the
+    // fit, whatever the fit then does.
+    let qc_json = |name: &str, extra: &[&str]| {
+        let path = dir.path(&format!("{name}.qc.json"));
+        let mut args = vec![
+            k17.to_str().unwrap().to_string(),
+            dir.path(&format!("{name}.json")).display().to_string(),
+            "0".to_string(),
+            "--no-progress".to_string(),
+            "--qc-json".to_string(),
+            path.display().to_string(),
+        ];
+        args.extend(extra.iter().map(|s| s.to_string()));
+        run(&args);
+        json(&path)
+    };
+    let codes = |v: &serde_json::Value| -> Vec<String> {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["code"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let r1 = qc_json("r1", &["--tr-ratio", "1"]);
+    assert_eq!(codes(&r1), ["INVALID_START"]);
+    assert!(
+        r1["findings"][0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("The fit starts from theta0 0.186 and rho0 0.186 per bin"),
+        "{r1}"
+    );
+    assert!(codes(&qc_json("r4", &[])).is_empty());
+    assert!(codes(&qc_json("rho", &["--rho0", "0.2"])).contains(&"INVALID_START".to_string()));
+}
+
 /// --json is checked as inference and convert check their outputs, before
 /// the input is read: it may not be the input, and its directory must
 /// exist.

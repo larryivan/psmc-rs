@@ -363,9 +363,10 @@ psmc-rs picks mask mode for a VCF that is not an all-sites `bcftools call
 `psmc-rs qc INPUT` reads any input as inference would and reports on it:
 missing data, heterozygosity per sequence, depth, sequence lengths, bin
 saturation and what the bootstrap would have to work with, with findings
-that name a code (`VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`, `BIN_SATURATION`,
-`FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`,
-`HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`),
+that name a code (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`,
+`BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`,
+`SEX_OR_ORGANELLE`, `HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`,
+`DROPPED_SEQUENCES`),
 a severity and a recommendation. `--json FILE` writes it for scripts,
 `--strict` exits with status 2 when a finding is a warning, and every
 inference run prints the same findings and stores their codes in its JSON

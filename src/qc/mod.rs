@@ -44,6 +44,8 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::Range;
 
+use crate::model::PsmcModel;
+
 mod checks;
 pub(crate) mod fmt;
 mod names;
@@ -195,6 +197,95 @@ pub struct QcContext {
     /// gives the recombinations per parameter of this fit rather than of
     /// psmc's human pattern.
     pub free_lambdas: Option<usize>,
+    /// The starting model of the fit, when known ([`QcCode::InvalidStart`]).
+    pub start: Option<FitStart>,
+}
+
+/// The starting model of a fit, as [`QcCode::InvalidStart`] checks it: its
+/// θ0, ρ0 and t_max, and whether its transition matrix is valid.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FitStart {
+    /// θ0 per bin.
+    pub theta0: f64,
+    /// ρ0 per bin.
+    pub rho0: f64,
+    /// Initial t_max, in units of 2N0 generations.
+    pub t_max: f64,
+    /// The pattern of the model, if any.
+    pub pattern: Option<String>,
+    /// The smallest entry of the starting transition matrix; NaN when an
+    /// entry is not finite or the model cannot be computed at all.
+    pub min_transition: f64,
+    /// The largest ρ0 per bin whose transition matrix is valid, with this
+    /// start's time grid and λ, when the start is invalid and the model has
+    /// fewer than [`FitStart::MAX_SEARCHED_STATES`] states.
+    pub max_rho0: Option<f64>,
+    /// The start is not a fit's own but the one psmc-rs would take with its
+    /// default settings (θ0 from the data, ρ0 = θ0 / [`DEFAULT_TR_RATIO`],
+    /// t_max 15 and pattern `4+5*3+4`), for a report made without a fit
+    /// (`psmc-rs qc`, `convert`).
+    pub assumed: bool,
+}
+
+impl FitStart {
+    /// [`FitStart::max_rho0`] is searched for in models of fewer states
+    /// than this; the search recomputes the model about 60 times.
+    pub const MAX_SEARCHED_STATES: usize = 1000;
+
+    /// The start at θ0 = `theta0` and ρ0 = `rho0` of a model laid out as
+    /// `layout`: its pattern, time intervals, t_max and λ (flat for a fresh
+    /// start), whatever its own θ and ρ are. Every entry of the transition
+    /// matrix must be a probability, at least 0.
+    pub fn new(layout: &PsmcModel, theta0: f64, rho0: f64, assumed: bool) -> Self {
+        let min_at = |rho: f64| {
+            let mut model = layout.clone();
+            model.theta = theta0;
+            model.rho = rho;
+            model.param_recalculate().ok()?;
+            model
+                .transition_matrix()
+                .iter()
+                .try_fold(f64::INFINITY, |min, &p| p.is_finite().then(|| min.min(p)))
+        };
+        let valid = |rho: f64| min_at(rho).is_some_and(|min| min >= 0.0);
+        let min_transition = min_at(rho0).unwrap_or(f64::NAN);
+        let searchable = layout.n_steps + 1 < Self::MAX_SEARCHED_STATES && rho0 > 0.0;
+        let max_rho0 = if min_transition >= 0.0 || !searchable {
+            None
+        } else {
+            // ρ only grows the chance of leaving a state, so the valid ρ0
+            // form an interval from 0; bisect its end on a log scale.
+            let (mut lo, mut hi) = (rho0 * 1e-9, rho0);
+            if valid(lo) {
+                for _ in 0..60 {
+                    let mid = (lo * hi).sqrt();
+                    if valid(mid) {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                Some(lo)
+            } else {
+                None
+            }
+        };
+        Self {
+            theta0,
+            rho0,
+            t_max: layout.t_max,
+            pattern: layout.pattern.clone(),
+            min_transition,
+            max_rho0,
+            assumed,
+        }
+    }
+
+    /// Whether every entry of the starting transition matrix is a
+    /// probability (finite and at least 0).
+    pub fn is_valid(&self) -> bool {
+        self.min_transition >= 0.0
+    }
 }
 
 /// What [`analyze`] looks at.

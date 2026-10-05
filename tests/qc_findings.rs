@@ -1,7 +1,8 @@
 //! Every QC warning, triggered and not triggered at its threshold.
 
+use psmc_rs::PsmcModel;
 use psmc_rs::qc::{
-    Finding, HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES,
+    Finding, FitStart, HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION, MIN_CALLED_BASES,
     MIN_HET_BINS, QcCode, QcContext, QcInput, QcReport, QcSeq, SATURATION_TARGET_SHARE,
     SATURATION_WARN_SHARE, SHORT_SEQUENCES_MAX_FRACTION, Severity, analyze, het_per_site,
     largest_trunk_within, max_bin_size_for_share, multi_het_share,
@@ -64,6 +65,7 @@ fn codes_serialise_to_their_stable_names() {
     assert_eq!(
         names,
         [
+            "INVALID_START",
             "VARIANTS_ONLY_NO_MASK",
             "HIGH_MISSING",
             "BIN_SATURATION",
@@ -262,6 +264,120 @@ fn bin_saturation_threshold() {
     );
     assert!(f.recommendation.contains(&format!("fq2psmcfa -s {best}")));
     assert!(f.recommendation.contains(&format!("`--bin-size {best}`")));
+}
+
+/// A model of this layout with rates far inside the valid range.
+fn layout(t_max: f64, n_steps: usize, pattern: Option<&str>) -> PsmcModel {
+    PsmcModel::new(
+        t_max,
+        n_steps,
+        1e-4,
+        1e-4,
+        2.5e-8,
+        pattern.map(str::to_string),
+    )
+    .unwrap()
+}
+
+/// A start whose rho0 per bin is too large for the time grid has negative
+/// transition probabilities, from which EM cannot move: INVALID_START, the
+/// first warning, with the limit and how to get below it.
+#[test]
+fn invalid_start() {
+    let c_default = layout(15.0, 22, Some("4+5*3+4"));
+    // 60% K bins: theta0 = -ln(0.4), rho0 = theta0 / 4 = 0.229.
+    let theta0 = -(0.4f64.ln());
+    let start = FitStart::new(&c_default, theta0, theta0 / 4.0, false);
+    assert!(!start.is_valid());
+    assert!(start.min_transition < -0.1, "{}", start.min_transition);
+    assert_eq!((start.t_max, start.assumed), (15.0, false));
+    // The limit of C psmc's default start: rho0 of about 1/6 per bin.
+    let max = start.max_rho0.unwrap();
+    assert!((0.1665..0.1668).contains(&max), "{max}");
+    // Every rho0 below the limit is valid, and every one above is not.
+    for i in 1..=40 {
+        let rho = max * i as f64 / 20.0;
+        let s = FitStart::new(&c_default, theta0, rho, false);
+        assert_eq!(s.is_valid(), rho <= max, "rho0 {rho}");
+        assert_eq!(s.max_rho0.is_none(), s.is_valid());
+    }
+    // psmc's human pattern and a larger t_max allow less.
+    let human = FitStart::new(&layout(15.0, 63, Some("4+25*2+4+6")), 0.9, 0.9, false);
+    assert!((0.160..0.162).contains(&human.max_rho0.unwrap()));
+    let wide = FitStart::new(&layout(50.0, 22, Some("4+5*3+4")), 0.9, 0.9, false);
+    assert!((0.042..0.043).contains(&wide.max_rho0.unwrap()));
+
+    let d = data(&[("chr1", 400_000, 600_000, 0)]);
+    let with = |start: Option<FitStart>| {
+        qc(
+            &d,
+            100,
+            0,
+            QcContext {
+                start,
+                ..QcContext::default()
+            },
+        )
+    };
+    assert_eq!(severity(&with(None), QcCode::InvalidStart), None);
+    let valid = FitStart::new(&c_default, theta0, 0.15, false);
+    assert_eq!(severity(&with(Some(valid)), QcCode::InvalidStart), None);
+
+    let r = with(Some(start.clone()));
+    let f = &r.findings[0];
+    assert_eq!(
+        (f.code, f.severity),
+        (QcCode::InvalidStart, Severity::Warning)
+    );
+    assert!(r.has_warnings());
+    assert!(
+        f.message.starts_with(
+            "The fit starts from theta0 0.916 and rho0 0.229 per bin, with t_max 15 and pattern \
+             4+5*3+4. Some of PSMC's transition probabilities are then negative (down to -0.1"
+        ),
+        "{}",
+        f.message
+    );
+    assert!(
+        f.message.contains("which allows up to about 0.167"),
+        "{}",
+        f.message
+    );
+    assert!(
+        f.message.contains("EM cannot move from it"),
+        "{}",
+        f.message
+    );
+    // A tenth below the limit: 0.9 * 0.1667 / 0.229 of 100 bp, and the
+    // ratio theta0 / (0.9 * 0.1667) rounded up.
+    for advice in [
+        "re-bin the per-site data at 65 bp per bin or less",
+        "`--bin-size 65`",
+        "`fq2psmcfa -s 65`",
+        "`--tr-ratio 6.2` or more",
+        "`--rho0 0.15` or less",
+    ] {
+        assert!(
+            f.recommendation.contains(advice),
+            "{advice}: {}",
+            f.recommendation
+        );
+    }
+
+    // Without a fit (psmc-rs qc), the default start is assumed.
+    let assumed = FitStart {
+        assumed: true,
+        ..start
+    };
+    let f = with(Some(assumed)).findings[0].clone();
+    assert!(
+        f.message.starts_with(
+            "A fit with psmc-rs's default settings would start from theta0 0.916 per bin (from \
+             these data) and rho0 = theta0/4 = 0.229 per bin"
+        ),
+        "{}",
+        f.message
+    );
 }
 
 #[test]

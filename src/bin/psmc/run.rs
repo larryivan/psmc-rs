@@ -23,7 +23,7 @@ use psmc_rs::io::input::Dataset;
 use psmc_rs::io::params::{InputSummary, load_params};
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::psmc_out::c_pattern;
-use psmc_rs::qc::{QcReport, Severity, render_text};
+use psmc_rs::qc::{FitStart, QcReport, Severity, render_text};
 use psmc_rs::report::{
     BootstrapReport, ReportData, check_echarts_bundle, default_html_path, write_html_report,
 };
@@ -31,7 +31,7 @@ use psmc_rs::{PsmcModel, initial_theta};
 
 use crate::cli::{InferArgs, model_layout, usage_bail};
 use crate::dataset::{
-    describe, ensure_usable, ignored_options, load_input, loader_warnings, qc_report,
+    describe, ensure_usable, ignored_options, layout_model, load_input, loader_warnings, qc_report,
     resolve_input_path,
 };
 use crate::output::{
@@ -237,18 +237,18 @@ fn infer(
         None => None,
     };
     let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
-    let free_lambdas = match &saved {
-        Some(model) => model.lam.len(),
-        None => PsmcModel::new(cli.t_max, n_steps, 1.0, 1.0, cli.mu, pattern.clone())?
-            .lam
-            .len(),
+    // The layout of the starting model: its free lambdas, and the time grid
+    // on which QC checks the start.
+    let layout = match &saved {
+        Some(model) => model.clone(),
+        None => layout_model(cli.t_max, n_steps, pattern.clone(), cli.mu)?,
     };
+    let free_lambdas = layout.lam.len();
     let bootstrap = BootstrapPlan::of(cli, n_iter, &output_file)?;
-    if n_iter > 0 || bootstrap.is_some() {
-        let states = saved.as_ref().map_or(n_steps, |m| m.n_steps) + 1;
-        if let Some(msg) = mstep_memory_warning(states, free_lambdas) {
-            sink(Event::Warning(msg));
-        }
+    if (n_iter > 0 || bootstrap.is_some())
+        && let Some(msg) = mstep_memory_warning(layout.n_steps + 1, free_lambdas)
+    {
+        sink(Event::Warning(msg));
     }
 
     check_cancel(cancel)?;
@@ -274,7 +274,8 @@ fn infer(
     // report then says why). A QC error is only reported, so that it never
     // stops a fit.
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
-    let qc = match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas)) {
+    let start = fit_start(cli, &layout, obs);
+    let qc = match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas), start) {
         Ok(report) => Some(report),
         Err(e) => {
             sink(qc_failed(e, cli.qc_json.as_deref()));
@@ -342,11 +343,7 @@ fn infer(
             model
         }
         None => {
-            let theta0 = match cli.theta0 {
-                Some(v) => v,
-                None => initial_theta(&obs.rows)?,
-            };
-            let rho0 = cli.rho0.unwrap_or(theta0 / cli.tr_ratio);
+            let (theta0, rho0) = start_rates(cli, obs)?;
             PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)?
         }
     };
@@ -605,6 +602,28 @@ fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) 
     )
 }
 
+/// θ0 and ρ0 of a fresh start: `--theta0` or C psmc's -ln(1 - K/L) of the
+/// data, and `--rho0` or θ0 / `--tr-ratio`.
+fn start_rates(cli: &InferArgs, obs: &Observations) -> Result<(f64, f64)> {
+    let theta0 = match cli.theta0 {
+        Some(v) => v,
+        None => initial_theta(&obs.rows)?,
+    };
+    Ok((theta0, cli.rho0.unwrap_or(theta0 / cli.tr_ratio)))
+}
+
+/// The start of the fit, as QC checks it ([`FitStart`]): the saved
+/// parameters of `--init-params` (then `layout`), or the rates of
+/// [`start_rates`] on `layout`'s time grid; `None` when the data give no
+/// θ0, which the run then reports.
+fn fit_start(cli: &InferArgs, layout: &PsmcModel, obs: &Observations) -> Option<FitStart> {
+    let (theta0, rho0) = match cli.init_params {
+        Some(_) => (layout.theta, layout.rho),
+        None => start_rates(cli, obs).ok()?,
+    };
+    Some(FitStart::new(layout, theta0, rho0, false))
+}
+
 /// The starting model of `--init-params`: the saved parameters, with the
 /// layout checked against `--pattern` and `--n-steps` when they are given
 /// (a mismatch is a usage error), and `--mu` for scaling.
@@ -614,7 +633,7 @@ fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     let mut model = PsmcModel::from_params_file(&saved).with_context(what)?;
     if cli.pattern.is_some() || cli.n_steps.is_some() {
         let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
-        let wanted = PsmcModel::new(model.t_max, n_steps, 1.0, 1.0, model.mu, pattern)?;
+        let wanted = layout_model(model.t_max, n_steps, pattern, model.mu)?;
         if (wanted.n_steps, c_pattern(&wanted)) != (model.n_steps, c_pattern(&model)) {
             usage_bail!(
                 "{} holds a model with pattern {} ({} intervals), but --pattern/--n-steps ask \

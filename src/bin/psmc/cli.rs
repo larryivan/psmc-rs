@@ -210,6 +210,15 @@ fn parse_n_steps(s: &str) -> Result<usize, String> {
 /// C psmc's default pattern (`-p`).
 pub const DEFAULT_PATTERN: &str = "4+5*3+4";
 
+/// C psmc's default initial t_max (`-t`).
+pub const DEFAULT_T_MAX: f64 = 15.0;
+
+/// C psmc's default initial θ0/ρ0 (`-r`).
+pub const DEFAULT_TR_RATIO: f64 = 4.0;
+
+/// The default mutation rate per base pair per generation (`--mu`).
+pub const DEFAULT_MU: f64 = 2.5e-8;
+
 /// The model layout `(n_steps, pattern)` that `--pattern` and `--n-steps`
 /// give: C psmc's default pattern without either, `n_steps` from the
 /// pattern without `--n-steps`, and one free lambda per interval with
@@ -658,11 +667,11 @@ pub struct InferArgs {
 
     /// Initial t_max, in units of 2N0 generations (C psmc -t; 1 to 200, the
     /// range the M-step searches)
-    #[arg(long, default_value_t = 15.0, value_parser = parse_t_max, help_heading = "Model")]
+    #[arg(long, default_value_t = DEFAULT_T_MAX, value_parser = parse_t_max, help_heading = "Model")]
     pub t_max: f64,
 
     /// Initial theta0/rho0 ratio (C psmc -r); rho0 = theta0 / this
-    #[arg(long, value_name = "RATIO", default_value_t = 4.0, value_parser = positive_f64, help_heading = "Model")]
+    #[arg(long, value_name = "RATIO", default_value_t = DEFAULT_TR_RATIO, value_parser = positive_f64, help_heading = "Model")]
     pub tr_ratio: f64,
 
     /// Initial theta0 per bin (default: -ln(1 - K/L) from the data, as C
@@ -787,10 +796,10 @@ impl InferArgs {
         if let Some(v) = self.n_steps {
             push("--n-steps", v.to_string());
         }
-        if self.t_max != 15.0 {
+        if self.t_max != DEFAULT_T_MAX {
             push("--t-max", self.t_max.to_string());
         }
-        if self.tr_ratio != 4.0 {
+        if self.tr_ratio != DEFAULT_TR_RATIO {
             push("--tr-ratio", self.tr_ratio.to_string());
         }
         if let Some(v) = self.theta0 {
@@ -802,7 +811,7 @@ impl InferArgs {
         if let Some(v) = &self.init_params {
             push("--init-params", v.display().to_string());
         }
-        if self.mu != 2.5e-8 {
+        if self.mu != DEFAULT_MU {
             push("--mu", self.mu.to_string());
         }
         if self.mstep_iters != 100 {
@@ -994,6 +1003,17 @@ mod tests {
         assert!(UsageError::is_in(&err));
         let err = format!("{err:#}");
         assert!(err.contains("invalid --pattern '4+x'"), "{err}");
+    }
+
+    #[test]
+    fn the_defaults_are_c_psmcs() {
+        let args = parse(["psmc-rs", "in", "out", "1"]).unwrap();
+        assert_eq!(
+            (args.t_max, args.tr_ratio, args.mu),
+            (DEFAULT_T_MAX, DEFAULT_TR_RATIO, DEFAULT_MU)
+        );
+        // QC's messages about a default start name the same ratio.
+        assert_eq!(DEFAULT_TR_RATIO, psmc_rs::qc::DEFAULT_TR_RATIO);
     }
 
     #[test]

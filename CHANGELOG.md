@@ -129,10 +129,10 @@ Reproduction package (`experiment/`):
 - `psmc-rs qc INPUT`: a report of an input's suitability, without fitting:
   bin counts, θ0, heterozygosity, called length, N50, missing runs, bin
   saturation, read depth, per-sequence statistics, and findings with stable
-  codes (`VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`, `BIN_SATURATION`,
-  `FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`,
-  `HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`)
-  and recommendations. `--json`, `--strict` (exit 2 on a warning) and
+  codes (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`,
+  `BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`,
+  `SEX_OR_ORGANELLE`, `HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`,
+  `DROPPED_SEQUENCES`) and recommendations. `--json`, `--strict` (exit 2 on a warning) and
   `--bootstrap-block-size` (trunk checks). Every fit and conversion prints
   the same report and `--qc-json` writes it.
 - `psmc-rs convert INPUT`: psmcfa as fq2psmcfa lays it out, and multihetsep

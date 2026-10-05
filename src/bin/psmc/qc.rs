@@ -7,7 +7,9 @@ use psmc_rs::qc::render_text;
 
 use crate::cli::QcArgs;
 use crate::console::{Console, print_err, print_out};
-use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
+use crate::dataset::{
+    default_start, describe, ignored_options, load_input, loader_warnings, qc_report,
+};
 use crate::output::{check_destinations, is_stdout, write_qc_json};
 use crate::run::Event;
 
@@ -36,6 +38,7 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
         args.input.bin_size,
         args.bootstrap_block_size.unwrap_or(0),
         None,
+        default_start(&data),
     )?;
     for line in loader_warnings(&data, Some(&report)) {
         sink(Event::Warning(line));

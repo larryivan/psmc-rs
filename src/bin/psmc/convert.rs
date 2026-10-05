@@ -11,7 +11,9 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 
 use crate::cli::{ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
-use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
+use crate::dataset::{
+    default_start, describe, ignored_options, load_input, loader_warnings, qc_report,
+};
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir, write_qc_json};
 use crate::run::{Event, qc_event, qc_failed};
 
@@ -61,7 +63,7 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     }
 
     // Also when no sequence is left: the report then says why.
-    let qc = match qc_report(&data, args.input.bin_size, 0, None) {
+    let qc = match qc_report(&data, args.input.bin_size, 0, None, default_start(&data)) {
         Ok(report) => Some(report),
         Err(e) => {
             sink(qc_failed(e, args.qc_json.as_deref()));
