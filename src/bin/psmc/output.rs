@@ -118,7 +118,7 @@ pub fn is_stdout(path: &Path) -> bool {
 pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
     let json = report.to_json() + "\n";
     if is_stdout(path) {
-        print!("{json}");
+        crate::console::print_out(&json);
         return Ok(());
     }
     fs::write(path, json).with_context(|| format!("failed to write {}", path.display()))

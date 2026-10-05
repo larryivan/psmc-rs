@@ -543,6 +543,43 @@ fn qc_json_on_stdout_is_the_only_stdout() {
     }
 }
 
+/// A reader that quits early (`psmc-rs ... | head`) only loses stdout
+/// lines: the run still writes its files and succeeds.
+#[test]
+fn a_closed_stdout_does_not_stop_the_run() {
+    use std::process::{Command, Stdio};
+    let dir = TempDir::new("closed_stdout");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let out = dir.path("fit.json");
+    let run_closed = |args: &[&str]| {
+        let mut child = Command::new(common::bin())
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        // Close the reading end before the run prints anything.
+        drop(child.stdout.take());
+        let o = child.wait_with_output().unwrap();
+        assert!(
+            o.status.success(),
+            "{}: {}",
+            o.status,
+            String::from_utf8_lossy(&o.stderr)
+        );
+    };
+    run_closed(&[
+        input.to_str().unwrap(),
+        out.to_str().unwrap(),
+        "2",
+        "-q",
+        "--no-progress",
+    ]);
+    assert!(out.exists() && out.with_extension("html").exists());
+    run_closed(&["qc", input.to_str().unwrap()]);
+}
+
 /// A VCF read without a callable mask gets one warning about it, from QC.
 #[test]
 fn the_missing_mask_warning_is_given_once() {

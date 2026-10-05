@@ -2,11 +2,24 @@
 //! bars on stderr.
 
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget};
+use std::io::{self, Write};
 use std::sync::Mutex;
 
 use psmc_rs::progress;
 
 use crate::run::{Event, Stage};
+
+/// Print `text` on stdout. A closed stdout (a reader that quit early, as
+/// `| head` does) only loses the text: the run goes on and writes its
+/// files, where `print!` would panic.
+pub fn print_out(text: &str) {
+    let _ = io::stdout().lock().write_all(text.as_bytes());
+}
+
+/// Print `text` on stderr, ignoring a closed stderr as [`print_out`] does.
+pub fn print_err(text: &str) {
+    let _ = io::stderr().lock().write_all(text.as_bytes());
+}
 
 /// Prints [`Event`]s for the command line.
 pub struct Console {
@@ -54,9 +67,10 @@ impl Console {
 
     /// Print `line` on stderr without breaking the progress bars.
     fn eprint(&self, line: &str) {
+        let line = format!("{line}\n");
         match &self.bars {
-            Some(b) => b.multi.suspend(|| eprintln!("{line}")),
-            None => eprintln!("{line}"),
+            Some(b) => b.multi.suspend(|| print_err(&line)),
+            None => print_err(&line),
         }
     }
 
@@ -79,10 +93,13 @@ impl Console {
                 }
             }
             Event::Output(line) if self.results_on_stderr => self.eprint(&line),
-            Event::Output(line) => match &self.bars {
-                Some(b) => b.multi.suspend(|| println!("{line}")),
-                None => println!("{line}"),
-            },
+            Event::Output(line) => {
+                let line = format!("{line}\n");
+                match &self.bars {
+                    Some(b) => b.multi.suspend(|| print_out(&line)),
+                    None => print_out(&line),
+                }
+            }
             Event::Iteration { iter, total } => {
                 if let Some(b) = &self.bars {
                     b.iteration(iter, total);

@@ -40,7 +40,7 @@ fn main() -> ExitCode {
     match result {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("Error: {e:#}");
+            console::print_err(&format!("Error: {e:#}\n"));
             ExitCode::FAILURE
         }
     }

@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use psmc_rs::qc::render_text;
 
 use crate::cli::QcArgs;
-use crate::console::Console;
+use crate::console::{Console, print_err, print_out};
 use crate::dataset::{describe, load_input, loader_warnings, qc_report};
 use crate::output::{is_stdout, write_qc_json};
 use crate::run::Event;
@@ -35,9 +35,9 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
     let text = render_text(&report);
     let json_to_stdout = args.json.as_deref().is_some_and(is_stdout);
     if json_to_stdout {
-        eprint!("{text}");
+        print_err(&text);
     } else {
-        print!("{text}");
+        print_out(&text);
     }
     if let Some(path) = &args.json {
         write_qc_json(path, &report)?;
