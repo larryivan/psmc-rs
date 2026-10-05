@@ -204,9 +204,10 @@ Reproduction package (`experiment/`):
   runs it on simulated reads and compares its psmcfa with `vcf2fq |
   fq2psmcfa` and with the simulation, and runs route B with the guide's
   commands.
-- CI: formatting, clippy with warnings denied, tests on Linux and macOS, a
-  Rust 1.88 build, the Python tests of the reproduction package, and a
-  `pipeline` job that checks the shell scripts with shellcheck, runs the
+- CI: formatting and clippy with warnings denied (pinned to Rust 1.99.0),
+  tests on Linux and macOS, a Rust 1.88 build, the Python tests of the
+  reproduction package, and a `pipeline` job that checks the shell
+  scripts with shellcheck, runs the
   end-to-end test with Ubuntu's bcftools and `vcfutils.pl` and with
   `fq2psmcfa` built from lh3/psmc 0.6.5-r74, and runs the ignored tests
   that compare consensus and mask mode with those tools.

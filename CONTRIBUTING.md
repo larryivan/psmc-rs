@@ -40,16 +40,21 @@ cargo build --release        # optimised binary: target/release/psmc-rs
 Run the same checks as CI (`.github/workflows/ci.yml`):
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --locked -- -D warnings
+rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy   # once
+cargo +1.99.0 fmt --all --check
+cargo +1.99.0 clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 python3 -m unittest discover -s experiment/tests
 ```
 
-CI also builds every target with Rust 1.88 (`cargo +1.88 build --workspace
---all-targets --locked`).
+CI formats and lints with Rust 1.99.0, the release pinned in its `lint`
+job, because every Rust release adds clippy lints: clippy of another
+release can pass code that CI rejects, or the other way round. The pin
+moves on purpose, together with the fixes its new lints ask for. Tests run
+on the current stable release, and CI also builds every target with Rust
+1.88 (`cargo +1.88 build --workspace --all-targets --locked`).
 
-- The whole test suite must pass, and clippy must report no warning.
+- The whole test suite must pass, and clippy 1.99.0 must report no warning.
 - Every behavioural fix needs a test that fails without the fix and passes
   with it. Please check this (for example by temporarily reverting the source
   change) and say so in the pull request.
