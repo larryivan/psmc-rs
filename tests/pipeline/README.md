@@ -15,7 +15,9 @@ It needs bcftools (1.10 or later), bgzip, tabix, perl and python3 on `PATH`;
 `vcfutils.pl` (shipped with bcftools, as `misc/vcfutils.pl` in its sources and
 in `/usr/bin` of Debian's and Ubuntu's package) and `fq2psmcfa` (built from
 `utils/fq2psmcfa.c` of lh3/psmc) default to the copies on `PATH`, and
-psmc-rs to `target/release/psmc-rs` (`PSMC_RS`). `E2E_WORK=DIR` works in DIR
+psmc-rs to `target/release/psmc-rs` (`PSMC_RS`). It works in a temporary
+directory whose name holds a space, so that every run checks that the
+script and the test handle such paths. `E2E_WORK=DIR` works in DIR instead
 and keeps the files there; DIR must be new or empty, or a directory that an
 earlier run made (it holds a `.run_e2e_work` marker), which is emptied
 first. `E2E_BASH=/bin/bash` runs the script with macOS's bash 3.2. It

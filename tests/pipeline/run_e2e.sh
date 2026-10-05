@@ -9,8 +9,9 @@
 # VCFUTILS and FQ2PSMCFA default to vcfutils.pl and fq2psmcfa on PATH, and
 # PSMC_RS to target/release/psmc-rs. bcftools (>= 1.10), bgzip, tabix, perl
 # and python3 must be on PATH. E2E_WORK=DIR works in DIR instead of a
-# temporary directory and keeps the files there: DIR must be new or empty,
-# or a directory that an earlier run made, which is emptied first.
+# temporary directory (whose name holds a space) and keeps the files there:
+# DIR must be new or empty, or a directory that an earlier run made, which is
+# emptied first.
 # E2E_BASH=PATH runs the script with that bash (for example /bin/bash,
 # macOS's bash 3.2).
 
@@ -61,8 +62,12 @@ if [ -n "${E2E_WORK:-}" ]; then
   mkdir -p "$work"
   : > "$work/.run_e2e_work"
 else
-  work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT
+  # A space in the name, so that every run checks that the script and this
+  # test handle such paths.
+  tmp_root=$(mktemp -d)
+  trap 'rm -rf "$tmp_root"' EXIT
+  work="$tmp_root/e2e work"
+  mkdir "$work"
 fi
 printf 'work directory: %s\n' "$work"
 # $BASH_VERSION is that of the bash running the script.
@@ -156,17 +161,23 @@ ok "versions read past a loader warning on standard error and a line before them
 expect_error 1 "cannot read the psmc-rs version from 'psmc-rs, a test stand-in" \
   "${base_args[@]}" --psmc-rs "$out/fakebin/psmc-rs-stderr"
 
+# An argument as the dry run prints it: printf %q of the script's bash.
+quoted() {
+  # shellcheck disable=SC2016
+  "${E2E_BASH:-bash}" -c 'printf %q "$1"' quoted "$1"
+}
+
 # The fit gets --threads only when it is given, and otherwise picks its own
 # default. The script's default follows the CPU affinity (checked where
 # taskset exists, on Linux).
 run_script "${base_args[@]}" --run 2 --dry-run > "$out/dry_fit.txt"
-fitline=$(grep -F -- "$out/x.psmcfa $out/x.json 2 " "$out/dry_fit.txt") ||
+fitline=$(grep -F -- "$(quoted "$out/x.psmcfa") $(quoted "$out/x.json") 2 " "$out/dry_fit.txt") ||
   fail "no fit in the dry run: $(cat "$out/dry_fit.txt")"
 case "$fitline" in
   *--threads*) fail "the fit gets --threads although none was given: $fitline" ;;
 esac
 run_script "${base_args[@]}" --run 2 --threads 3 --dry-run > "$out/dry_fit.txt"
-grep -qF -- "$out/x.json 2 --bin-size 100 --threads 3 " "$out/dry_fit.txt" ||
+grep -qF -- "$(quoted "$out/x.json") 2 --bin-size 100 --threads 3 " "$out/dry_fit.txt" ||
   fail "the fit does not get --threads 3: $(cat "$out/dry_fit.txt")"
 ok "the fit gets --threads only when it is given"
 if command -v taskset > /dev/null; then
