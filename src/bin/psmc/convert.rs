@@ -11,7 +11,7 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 
 use crate::cli::{ConvertArgs, FormatArg};
 use crate::console::Console;
-use crate::dataset::{describe, load_input, loader_warnings, qc_report};
+use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
 use crate::output::{check_destinations, is_stdout, parent_dir, write_qc_json};
 use crate::run::{Event, qc_event};
 
@@ -39,6 +39,9 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     }
     for line in describe(&data) {
         sink(Event::Info(line));
+    }
+    if let Some(line) = ignored_options(&args.input, &data) {
+        sink(Event::Warning(line));
     }
 
     let qc = if data.obs.rows.is_empty() {

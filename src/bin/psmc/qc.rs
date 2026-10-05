@@ -7,7 +7,7 @@ use psmc_rs::qc::render_text;
 
 use crate::cli::QcArgs;
 use crate::console::{Console, print_err, print_out};
-use crate::dataset::{describe, load_input, loader_warnings, qc_report};
+use crate::dataset::{describe, ignored_options, load_input, loader_warnings, qc_report};
 use crate::output::{is_stdout, write_qc_json};
 use crate::run::Event;
 
@@ -22,6 +22,9 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
     let data = load_input(&args.input_file, &args.input.to_options())?;
     for line in describe(&data) {
         sink(Event::Info(line));
+    }
+    if let Some(line) = ignored_options(&args.input, &data) {
+        sink(Event::Warning(line));
     }
     let report = qc_report(
         &data,

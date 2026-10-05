@@ -92,3 +92,50 @@ fn qc_without_warnings_passes_strict() {
     assert_eq!(o.status.code(), Some(0), "{stdout}");
     assert!(!stdout.contains("WARNING"), "{stdout}");
 }
+
+/// Options of the other VCF mode are named in a warning.
+#[test]
+fn options_of_the_other_vcf_mode_are_reported() {
+    let vcf = fixture("route_a/allsites.vcf.gz");
+    let o = run([
+        "qc",
+        vcf.to_str().unwrap(),
+        "--depth",
+        "3:100000",
+        "--vcf-keep-filtered",
+    ]);
+    assert!(o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains(
+            "Warning: --vcf-keep-filtered does not apply to a VCF read in consensus mode and \
+             was ignored"
+        ),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("--vcf-sample"), "{stderr}");
+
+    // Consensus mode checks --vcf-sample against its one sample, but
+    // selects nothing with it; the warning says so, after the flags it
+    // ignores.
+    let o = run([
+        "qc",
+        vcf.to_str().unwrap(),
+        "--depth",
+        "3:100000",
+        "--vcf-keep-filtered",
+        "--vcf-sample",
+        "aln.sam",
+    ]);
+    assert!(o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains(
+            "Warning: --vcf-keep-filtered does not apply to a VCF read in consensus mode and \
+             was ignored; --vcf-sample selects no sample in consensus mode, which reads the \
+             INFO fields that bcftools computes over all samples together; it was only checked \
+             against the VCF's one sample"
+        ),
+        "{stderr}"
+    );
+}

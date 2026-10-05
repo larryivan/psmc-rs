@@ -288,6 +288,50 @@ fn output_paths_are_checked_before_the_fit() {
     assert_eq!(std::fs::read(&input).unwrap(), original);
 }
 
+/// Options of another input format are named in a warning rather than
+/// dropped without a word.
+#[test]
+fn options_of_another_format_are_reported() {
+    let dir = TempDir::new("ignored_options");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let o = common::run([
+        input.to_str().unwrap(),
+        dir.path("fit.json").to_str().unwrap(),
+        "0",
+        "-q",
+        "--no-progress",
+        "--vcf-mask",
+        dir.path("missing.bed").to_str().unwrap(),
+        "--vcf-sample",
+        "s1",
+        "--depth",
+        "5:10",
+        "--mhs-pair",
+        "2,3",
+    ]);
+    assert!(o.status.success());
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains(
+            "Warning: --vcf-sample, --vcf-mask, --depth and --mhs-pair do not apply to psmcfa \
+             input and were ignored"
+        ),
+        "{stderr}"
+    );
+    let o = common::run([
+        input.to_str().unwrap(),
+        dir.path("plain.json").to_str().unwrap(),
+        "0",
+        "--no-progress",
+    ]);
+    assert!(
+        !String::from_utf8(o.stderr)
+            .unwrap()
+            .contains("do not apply")
+    );
+}
+
 /// The JSON of psmc-rs 0.1, without run metadata, is a valid start.
 #[test]
 fn init_params_reads_files_of_version_0_1() {

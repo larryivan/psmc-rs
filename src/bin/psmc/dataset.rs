@@ -12,7 +12,7 @@ use psmc_rs::qc::{
     try_analyze,
 };
 
-use crate::cli::FormatArg;
+use crate::cli::{FormatArg, InputArgs};
 
 /// The input format as QC and the report name it, with the VCF mode.
 pub fn format_label(data: &Dataset) -> String {
@@ -150,6 +150,46 @@ pub fn loader_warnings(data: &Dataset, qc: Option<&QcReport>) -> Vec<String> {
         out.retain(|w| w != no_mask);
     }
     out
+}
+
+/// A warning naming the options of `args` that the input, as read, does
+/// not use: those of another format or of the other VCF mode, and those it
+/// only checks (`--vcf-sample` in consensus mode).
+pub fn ignored_options(args: &InputArgs, data: &Dataset) -> Option<String> {
+    let (vcf_mode, what) = match &data.source {
+        SourceSummary::Psmcfa(_) => (None, "psmcfa input".to_string()),
+        SourceSummary::Mhs(_) => (None, "multihetsep input".to_string()),
+        SourceSummary::Vcf(v) => (
+            Some(v.mode.mode),
+            format!("a VCF read in {} mode", v.mode.mode.name()),
+        ),
+    };
+    let format = data.source.format();
+    let flags = args.ignored_flags(format, vcf_mode);
+    let mut parts = Vec::new();
+    if !flags.is_empty() {
+        let (list, verb) = match flags.as_slice() {
+            [one] => (one.to_string(), "does"),
+            [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "do"),
+            [] => unreachable!(),
+        };
+        parts.push(format!(
+            "{list} {verb} not apply to {what} and {} ignored",
+            if flags.len() == 1 { "was" } else { "were" }
+        ));
+    }
+    if args
+        .checked_only_flags(format, vcf_mode)
+        .contains(&"--vcf-sample")
+    {
+        parts.push(
+            "--vcf-sample selects no sample in consensus mode, which reads the INFO fields that \
+             bcftools computes over all samples together; it was only checked against the \
+             VCF's one sample"
+                .to_string(),
+        );
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
 }
 
 /// Whether the file name of `path` has an extension of `fmt` input (any

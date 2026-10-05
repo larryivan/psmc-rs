@@ -328,6 +328,74 @@ impl InputArgs {
         }
     }
 
+    /// The flags given a value other than their default that do not apply
+    /// to input of `format` (read in `vcf_mode`, for VCF), as they are
+    /// spelt on the command line. `--vcf-sample` is not among them in
+    /// consensus mode, which checks it ([`InputArgs::checked_only_flags`]).
+    pub fn ignored_flags(
+        &self,
+        format: InputFormat,
+        vcf_mode: Option<VcfMode>,
+    ) -> Vec<&'static str> {
+        let vcf = format == InputFormat::Vcf;
+        let consensus = vcf && vcf_mode == Some(VcfMode::Consensus);
+        let mask = vcf && vcf_mode == Some(VcfMode::Mask);
+        let seq_filter = format != InputFormat::Psmcfa;
+        [
+            ("--vcf-sample", self.vcf_sample.is_some(), vcf),
+            ("--vcf-mode", self.vcf_mode != VcfModeArg::Auto, vcf),
+            ("--vcf-mask", !self.vcf_mask.is_empty(), vcf),
+            (
+                "--vcf-negative-mask",
+                !self.vcf_negative_mask.is_empty(),
+                vcf,
+            ),
+            ("--vcf-keep-filtered", self.vcf_keep_filtered, mask),
+            ("--vcf-no-contig-end", self.vcf_no_contig_end, mask),
+            ("--depth", self.depth != DepthThresholds::Auto, consensus),
+            ("--min-mapq", self.min_mapq != 10, consensus),
+            ("--indel-window", self.indel_window != 5, consensus),
+            ("--min-qual", self.min_qual != 10, consensus),
+            (
+                "--mhs-pair",
+                self.mhs_pair != (0, 1),
+                format == InputFormat::Mhs,
+            ),
+            (
+                "--min-good-bases",
+                self.min_good_bases != 10_000,
+                seq_filter,
+            ),
+            (
+                "--min-good-fraction",
+                self.min_good_fraction != 0.2,
+                seq_filter,
+            ),
+        ]
+        .into_iter()
+        .filter(|&(_, given, applies)| given && !applies)
+        .map(|(flag, ..)| flag)
+        .collect()
+    }
+
+    /// The flags given that input of `format` (read in `vcf_mode`, for VCF)
+    /// only checks, without their selecting anything: `--vcf-sample` in
+    /// consensus mode. That mode reads the INFO fields, which bcftools
+    /// computes over all samples together, so it needs a one-sample VCF;
+    /// the name must be that sample's, but it selects nothing.
+    pub fn checked_only_flags(
+        &self,
+        format: InputFormat,
+        vcf_mode: Option<VcfMode>,
+    ) -> Vec<&'static str> {
+        let consensus = format == InputFormat::Vcf && vcf_mode == Some(VcfMode::Consensus);
+        if consensus && self.vcf_sample.is_some() {
+            vec!["--vcf-sample"]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// The arguments that give these options; defaults are left out.
     pub fn to_args(&self) -> Vec<String> {
         let mut args = Vec::new();
@@ -923,6 +991,82 @@ mod tests {
         assert!(bad(&["--tr-ratio=-4"]).contains("positive"));
         assert!(bad(&["--smooth-lambda=-1"]).contains("0 or more"));
         assert!(bad(&["--mstep-iters", "0"]).contains("at least 1"));
+    }
+
+    #[test]
+    fn options_of_another_format_are_found() {
+        let all = [
+            "--vcf-sample",
+            "s1",
+            "--vcf-mode",
+            "mask",
+            "--vcf-mask",
+            "a.bed",
+            "--vcf-negative-mask",
+            "b.bed",
+            "--vcf-keep-filtered",
+            "--vcf-no-contig-end",
+            "--depth",
+            "3:100000",
+            "--min-mapq",
+            "20",
+            "--indel-window",
+            "7",
+            "--min-qual",
+            "0",
+            "--mhs-pair",
+            "2,3",
+            "--min-good-bases",
+            "0",
+            "--min-good-fraction",
+            "0",
+        ];
+        let a = input(&all);
+        let flags: Vec<&str> = all
+            .iter()
+            .copied()
+            .filter(|f| f.starts_with("--"))
+            .collect();
+        assert_eq!(a.ignored_flags(InputFormat::Psmcfa, None), flags);
+        assert_eq!(
+            a.ignored_flags(InputFormat::Mhs, None),
+            &flags[..10],
+            "multihetsep takes the pair and the sequence filter"
+        );
+        assert_eq!(
+            a.ignored_flags(InputFormat::Vcf, Some(VcfMode::Mask)),
+            [
+                "--depth",
+                "--min-mapq",
+                "--indel-window",
+                "--min-qual",
+                "--mhs-pair"
+            ]
+        );
+        assert_eq!(
+            a.ignored_flags(InputFormat::Vcf, Some(VcfMode::Consensus)),
+            ["--vcf-keep-filtered", "--vcf-no-contig-end", "--mhs-pair"]
+        );
+        // Consensus mode only checks the sample; mask mode selects it.
+        assert_eq!(
+            a.checked_only_flags(InputFormat::Vcf, Some(VcfMode::Consensus)),
+            ["--vcf-sample"]
+        );
+        for (format, mode) in [
+            (InputFormat::Vcf, Some(VcfMode::Mask)),
+            (InputFormat::Psmcfa, None),
+            (InputFormat::Mhs, None),
+        ] {
+            assert!(a.checked_only_flags(format, mode).is_empty());
+        }
+        assert!(
+            input(&[])
+                .checked_only_flags(InputFormat::Vcf, Some(VcfMode::Consensus))
+                .is_empty()
+        );
+        // Defaults are never reported, even when spelt out.
+        let defaults = input(&["--depth", "auto", "--mhs-pair", "0,1", "--min-qual", "10"]);
+        assert!(defaults.ignored_flags(InputFormat::Psmcfa, None).is_empty());
     }
 
     #[test]

@@ -26,7 +26,8 @@ use psmc_rs::{PsmcModel, initial_theta};
 
 use crate::cli::{InferArgs, model_layout};
 use crate::dataset::{
-    describe, ensure_usable, load_input, loader_warnings, qc_report, resolve_input_path,
+    describe, ensure_usable, ignored_options, load_input, loader_warnings, qc_report,
+    resolve_input_path,
 };
 use crate::output::{
     FitRecord, check_destinations, is_stdout, save_fit, write_bootstrap_summary, write_main_psmc,
@@ -548,6 +549,9 @@ fn read_input(path: &Path, cli: &InferArgs, sink: Sink) -> Result<Dataset> {
     sink(io_progress(io_total));
     for line in describe(&data) {
         sink(Event::Info(line));
+    }
+    if let Some(line) = ignored_options(&cli.input, &data) {
+        sink(Event::Warning(line));
     }
     Ok(data)
 }
