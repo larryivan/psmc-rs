@@ -109,10 +109,15 @@ pub fn write_bootstrap_summary(
     Ok((tsv, json))
 }
 
+/// Whether `path` names stdout (`-`).
+pub fn is_stdout(path: &Path) -> bool {
+    path == Path::new("-")
+}
+
 /// Write `report` as JSON to `path`, or to stdout for `-`.
 pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
     let json = report.to_json() + "\n";
-    if path == Path::new("-") {
+    if is_stdout(path) {
         print!("{json}");
         return Ok(());
     }

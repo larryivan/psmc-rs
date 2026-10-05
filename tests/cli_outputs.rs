@@ -513,6 +513,36 @@ fn qc_text_is_printed_unless_quiet() {
     );
 }
 
+/// With --qc-json -, stdout holds the QC JSON alone, so that it parses; the
+/// result lines go to stderr.
+#[test]
+fn qc_json_on_stdout_is_the_only_stdout() {
+    let dir = TempDir::new("qc_stdout");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    for quiet in [true, false] {
+        let mut args = vec![
+            input.display().to_string(),
+            dir.path("fit.json").display().to_string(),
+            "1".to_string(),
+            "--qc-json".to_string(),
+            "-".to_string(),
+        ];
+        if quiet {
+            args.push("-q".to_string());
+        }
+        let out = common::run(&args);
+        assert!(out.status.success());
+        let qc: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(qc["n_sequences"], 3);
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        for line in ["Last EM loglike: ", "Parameters: ", "HTML report: "] {
+            assert!(stderr.contains(line), "quiet {quiet}: {stderr}");
+        }
+        assert!(!stderr.contains("QC report: -"), "{stderr}");
+    }
+}
+
 /// A VCF read without a callable mask gets one warning about it, from QC.
 #[test]
 fn the_missing_mask_warning_is_given_once() {

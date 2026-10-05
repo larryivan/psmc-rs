@@ -29,7 +29,7 @@ use crate::dataset::{
     describe, ensure_usable, load_input, loader_warnings, qc_report, resolve_input_path,
 };
 use crate::output::{
-    FitRecord, save_fit, write_bootstrap_summary, write_main_psmc, write_qc_json,
+    FitRecord, is_stdout, save_fit, write_bootstrap_summary, write_main_psmc, write_qc_json,
     write_replicate_psmc,
 };
 
@@ -226,7 +226,9 @@ fn infer(
         sink(qc_event(report));
         if let Some(path) = &cli.qc_json {
             write_qc_json(path, report)?;
-            sink(Event::Output(format!("QC report: {}", path.display())));
+            if !is_stdout(path) {
+                sink(Event::Output(format!("QC report: {}", path.display())));
+            }
         }
     }
     ensure_usable(&data)?;

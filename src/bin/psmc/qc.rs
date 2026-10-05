@@ -1,7 +1,6 @@
 //! `psmc-rs qc`: the input QC report of a file, read as inference reads it.
 
 use anyhow::Result;
-use std::path::Path;
 use std::process::ExitCode;
 
 use psmc_rs::qc::render_text;
@@ -9,7 +8,7 @@ use psmc_rs::qc::render_text;
 use crate::cli::QcArgs;
 use crate::console::Console;
 use crate::dataset::{describe, load_input, loader_warnings, qc_report};
-use crate::output::write_qc_json;
+use crate::output::{is_stdout, write_qc_json};
 use crate::run::Event;
 
 /// The exit status of `qc --strict` when the report has a warning.
@@ -34,7 +33,7 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
         sink(Event::Warning(line));
     }
     let text = render_text(&report);
-    let json_to_stdout = args.json.as_deref() == Some(Path::new("-"));
+    let json_to_stdout = args.json.as_deref().is_some_and(is_stdout);
     if json_to_stdout {
         eprint!("{text}");
     } else {

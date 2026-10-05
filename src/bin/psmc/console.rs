@@ -11,6 +11,7 @@ use crate::run::{Event, Stage};
 /// Prints [`Event`]s for the command line.
 pub struct Console {
     quiet: bool,
+    results_on_stderr: bool,
     bars: Option<Bars>,
 }
 
@@ -37,7 +38,18 @@ impl Console {
             multi: MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(15)),
             state: Mutex::new(BarState::default()),
         });
-        Self { quiet, bars }
+        Self {
+            quiet,
+            results_on_stderr: false,
+            bars,
+        }
+    }
+
+    /// Print results on stderr too, keeping stdout for a report written
+    /// there (`--qc-json -`).
+    pub fn results_on_stderr(mut self, yes: bool) -> Self {
+        self.results_on_stderr = yes;
+        self
     }
 
     /// Print `line` on stderr without breaking the progress bars.
@@ -66,6 +78,7 @@ impl Console {
                     self.eprint(text.trim_end());
                 }
             }
+            Event::Output(line) if self.results_on_stderr => self.eprint(&line),
             Event::Output(line) => match &self.bars {
                 Some(b) => b.multi.suspend(|| println!("{line}")),
                 None => println!("{line}"),

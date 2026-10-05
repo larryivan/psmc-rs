@@ -23,6 +23,7 @@ use psmc_rs::hmm::Cancelled;
 
 use crate::cli::{FormatArg, InferArgs};
 use crate::dataset::is_supported_input_file;
+use crate::output::is_stdout;
 use crate::run::{self, Event, RunSummary, Stage};
 
 mod view;
@@ -812,8 +813,17 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     Ok(())
 }
 
+/// Settings the TUI cannot honour: stdout is the interface.
+fn check_tui_args(cli: &InferArgs) -> Result<()> {
+    if cli.qc_json.as_deref().is_some_and(is_stdout) {
+        bail!("--qc-json - would print over the interface; give --qc-json a file with --tui");
+    }
+    Ok(())
+}
+
 /// Run the TUI until the user quits; `cli` fills the form.
 pub fn run_tui(cli: &InferArgs) -> Result<()> {
+    check_tui_args(cli)?;
     let self_bin = std::env::current_exe().context("failed to resolve executable path")?;
     let mut app = App::new(self_bin, cli);
 
@@ -919,6 +929,19 @@ mod tests {
         set(&mut a, FIELD_THREADS, "");
         let args = build_cli_from_form(&a).unwrap();
         assert_eq!((args.pattern, args.threads), (None, None));
+    }
+
+    #[test]
+    fn the_qc_json_cannot_go_to_the_terminal_of_the_interface() {
+        let cli = |args: &[&str]| {
+            let mut argv = vec!["psmc-rs", "--tui"];
+            argv.extend_from_slice(args);
+            Cli::try_parse_from(argv).unwrap().infer
+        };
+        let err = check_tui_args(&cli(&["--qc-json", "-"])).unwrap_err();
+        assert!(err.to_string().contains("give --qc-json a file"), "{err}");
+        assert!(check_tui_args(&cli(&["--qc-json", "qc.json"])).is_ok());
+        assert!(check_tui_args(&cli(&[])).is_ok());
     }
 
     #[test]

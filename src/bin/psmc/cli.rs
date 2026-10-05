@@ -452,7 +452,8 @@ pub struct ConvertArgs {
     #[arg(long, value_name = "PREFIX", help_heading = "Output")]
     pub multihetsep_per_chrom: Option<PathBuf>,
 
-    /// Write the input QC report as JSON ('-' for stdout)
+    /// Write the input QC report as JSON ('-' for stdout; the result lines
+    /// then go to stderr)
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub qc_json: Option<PathBuf>,
 
@@ -609,7 +610,8 @@ pub struct InferArgs {
     #[arg(long, short = 'q', help_heading = "Run")]
     pub quiet: bool,
 
-    /// Write the input QC report as JSON ('-' for stdout)
+    /// Write the input QC report as JSON ('-' for stdout; the result lines
+    /// then go to stderr)
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub qc_json: Option<PathBuf>,
 

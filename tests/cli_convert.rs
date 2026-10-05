@@ -245,6 +245,36 @@ fn psmcfa_has_no_sites_for_multihetsep() {
     assert!(err.contains("--psmcfa"), "{err}");
 }
 
+/// With --qc-json -, stdout holds the QC JSON alone; the result lines go to
+/// stderr.
+#[test]
+fn qc_json_on_stdout_is_the_only_stdout() {
+    let dir = TempDir::new("convert_qc_stdout");
+    let input = dir.path("in.psmcfa");
+    fs::write(&input, format!(">a\n{}\n", "TTTTKTTTTN".repeat(30))).unwrap();
+    let out = dir.path("out.psmcfa");
+    let o = run([
+        "convert",
+        input.to_str().unwrap(),
+        "--psmcfa",
+        out.to_str().unwrap(),
+        "--qc-json",
+        "-",
+    ]);
+    assert!(o.status.success());
+    let qc: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(qc["n_sequences"], 1);
+    let stderr = String::from_utf8(o.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "psmcfa: {} (1 sequences, 300 bins)",
+            out.display()
+        )),
+        "{stderr}"
+    );
+    assert!(!stderr.contains("QC report: -"), "{stderr}");
+}
+
 /// Multihetsep can be binned, with a note that missing sites were placed by
 /// assumption.
 #[test]

@@ -12,7 +12,7 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{ConvertArgs, FormatArg};
 use crate::console::Console;
 use crate::dataset::{describe, load_input, loader_warnings, qc_report};
-use crate::output::write_qc_json;
+use crate::output::{is_stdout, write_qc_json};
 use crate::run::{Event, qc_event};
 
 const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
@@ -21,7 +21,9 @@ const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its b
 
 /// Run `convert`.
 pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
-    let console = Console::new(args.quiet, false);
+    // With the QC JSON on stdout, the result lines go to stderr.
+    let json_to_stdout = args.qc_json.as_deref().is_some_and(is_stdout);
+    let console = Console::new(args.quiet, false).results_on_stderr(json_to_stdout);
     let sink = |ev| console.emit(ev);
     let want_sites = args.multihetsep.is_some() || args.multihetsep_per_chrom.is_some();
     if want_sites && args.input.input_format == FormatArg::Psmcfa {
@@ -56,7 +58,9 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         sink(qc_event(report));
         if let Some(path) = &args.qc_json {
             write_qc_json(path, report)?;
-            sink(Event::Output(format!("QC report: {}", path.display())));
+            if !json_to_stdout {
+                sink(Event::Output(format!("QC report: {}", path.display())));
+            }
         }
     }
     if data.obs.rows.is_empty() {

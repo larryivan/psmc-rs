@@ -18,9 +18,11 @@ use std::sync::atomic::AtomicBool;
 use crate::cli::{Cli, Command, InferArgs};
 use crate::console::Console;
 
-/// Inference on the command line.
+/// Inference on the command line. With the QC JSON on stdout, the result
+/// lines go to stderr.
 fn infer(args: &InferArgs) -> Result<ExitCode> {
-    let console = Console::new(args.quiet, !args.no_progress);
+    let json_to_stdout = args.qc_json.as_deref().is_some_and(output::is_stdout);
+    let console = Console::new(args.quiet, !args.no_progress).results_on_stderr(json_to_stdout);
     let never = AtomicBool::new(false);
     let result = run::run_inference(args, &never, &|ev| console.emit(ev), !args.no_progress);
     console.finish();
