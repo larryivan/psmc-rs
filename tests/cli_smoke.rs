@@ -2,26 +2,21 @@ use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+
+/// A path no other test of this process uses: tests run in parallel, and
+/// the clock alone is too coarse to tell them apart.
 fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time is before unix epoch")
-        .as_nanos();
-    path.push(format!("{prefix}_{}_{}.{}", std::process::id(), nanos, ext));
-    path
+    let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
 }
 
+/// A directory path no other test of this process uses.
 fn unique_temp_dir(prefix: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time is before unix epoch")
-        .as_nanos();
-    path.push(format!("{prefix}_{}_{}", std::process::id(), nanos));
-    path
+    let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}_{}_{n}", std::process::id()))
 }
 
 fn find_psmc_binary() -> PathBuf {
