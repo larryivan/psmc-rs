@@ -132,9 +132,17 @@ fn bgzip_style_mask_is_read_in_full() {
     let vcf = unique_temp_path("mask_vcf", "vcf");
     fs::write(&vcf, vcf_text()).expect("write failed");
 
-    let with_gz = read_vcf(&vcf, None, 100, None, &[mask.clone()], &[]).expect("parse failed");
-    let with_plain =
-        read_vcf(&vcf, None, 100, None, &[plain_mask.clone()], &[]).expect("parse failed");
+    let with_gz =
+        read_vcf(&vcf, None, 100, None, std::slice::from_ref(&mask), &[]).expect("parse failed");
+    let with_plain = read_vcf(
+        &vcf,
+        None,
+        100,
+        None,
+        std::slice::from_ref(&plain_mask),
+        &[],
+    )
+    .expect("parse failed");
     assert_eq!(with_gz.rows, with_plain.rows);
     // A truncated mask would leave everything after the first block uncallable.
     assert!(with_gz.rows[0].iter().all(|&v| v != 2));

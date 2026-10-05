@@ -42,13 +42,15 @@ impl Dual {
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-impl<'a, 'b> Add<&'b Dual> for &'a Dual {
+impl Add<&Dual> for &Dual {
     type Output = Dual;
-    fn add(self, rhs: &'b Dual) -> Dual {
-        let mut grad = vec![0.0; self.grad.len()];
-        for i in 0..grad.len() {
-            grad[i] = self.grad[i] + rhs.grad[i];
-        }
+    fn add(self, rhs: &Dual) -> Dual {
+        let grad = self
+            .grad
+            .iter()
+            .zip(&rhs.grad)
+            .map(|(a, b)| a + b)
+            .collect();
         Dual {
             re: self.re + rhs.re,
             grad,
@@ -56,13 +58,15 @@ impl<'a, 'b> Add<&'b Dual> for &'a Dual {
     }
 }
 
-impl<'a, 'b> Sub<&'b Dual> for &'a Dual {
+impl Sub<&Dual> for &Dual {
     type Output = Dual;
-    fn sub(self, rhs: &'b Dual) -> Dual {
-        let mut grad = vec![0.0; self.grad.len()];
-        for i in 0..grad.len() {
-            grad[i] = self.grad[i] - rhs.grad[i];
-        }
+    fn sub(self, rhs: &Dual) -> Dual {
+        let grad = self
+            .grad
+            .iter()
+            .zip(&rhs.grad)
+            .map(|(a, b)| a - b)
+            .collect();
         Dual {
             re: self.re - rhs.re,
             grad,
@@ -70,13 +74,17 @@ impl<'a, 'b> Sub<&'b Dual> for &'a Dual {
     }
 }
 
-impl<'a, 'b> Mul<&'b Dual> for &'a Dual {
+impl Mul<&Dual> for &Dual {
     type Output = Dual;
-    fn mul(self, rhs: &'b Dual) -> Dual {
-        let mut grad = vec![0.0; self.grad.len()];
-        for i in 0..grad.len() {
-            grad[i] = self.grad[i] * rhs.re + rhs.grad[i] * self.re;
-        }
+    // The product rule adds the two partial products.
+    #[allow(clippy::suspicious_arithmetic_impl)]
+    fn mul(self, rhs: &Dual) -> Dual {
+        let grad = self
+            .grad
+            .iter()
+            .zip(&rhs.grad)
+            .map(|(a, b)| a * rhs.re + b * self.re)
+            .collect();
         Dual {
             re: self.re * rhs.re,
             grad,
@@ -84,14 +92,16 @@ impl<'a, 'b> Mul<&'b Dual> for &'a Dual {
     }
 }
 
-impl<'a, 'b> Div<&'b Dual> for &'a Dual {
+impl Div<&Dual> for &Dual {
     type Output = Dual;
-    fn div(self, rhs: &'b Dual) -> Dual {
+    fn div(self, rhs: &Dual) -> Dual {
         let denom = rhs.re * rhs.re;
-        let mut grad = vec![0.0; self.grad.len()];
-        for i in 0..grad.len() {
-            grad[i] = (self.grad[i] * rhs.re - rhs.grad[i] * self.re) / denom;
-        }
+        let grad = self
+            .grad
+            .iter()
+            .zip(&rhs.grad)
+            .map(|(a, b)| (a * rhs.re - b * self.re) / denom)
+            .collect();
         Dual {
             re: self.re / rhs.re,
             grad,
@@ -99,7 +109,7 @@ impl<'a, 'b> Div<&'b Dual> for &'a Dual {
     }
 }
 
-impl<'a> Add<f64> for &'a Dual {
+impl Add<f64> for &Dual {
     type Output = Dual;
     fn add(self, rhs: f64) -> Dual {
         Dual {
@@ -109,7 +119,7 @@ impl<'a> Add<f64> for &'a Dual {
     }
 }
 
-impl<'a> Sub<f64> for &'a Dual {
+impl Sub<f64> for &Dual {
     type Output = Dual;
     fn sub(self, rhs: f64) -> Dual {
         Dual {
@@ -119,7 +129,7 @@ impl<'a> Sub<f64> for &'a Dual {
     }
 }
 
-impl<'a> Mul<f64> for &'a Dual {
+impl Mul<f64> for &Dual {
     type Output = Dual;
     fn mul(self, rhs: f64) -> Dual {
         let grad = self.grad.iter().map(|g| g * rhs).collect();
@@ -130,7 +140,7 @@ impl<'a> Mul<f64> for &'a Dual {
     }
 }
 
-impl<'a> Div<f64> for &'a Dual {
+impl Div<f64> for &Dual {
     type Output = Dual;
     fn div(self, rhs: f64) -> Dual {
         let grad = self.grad.iter().map(|g| g / rhs).collect();
@@ -141,9 +151,9 @@ impl<'a> Div<f64> for &'a Dual {
     }
 }
 
-impl<'a> Add<&'a Dual> for f64 {
+impl Add<&Dual> for f64 {
     type Output = Dual;
-    fn add(self, rhs: &'a Dual) -> Dual {
+    fn add(self, rhs: &Dual) -> Dual {
         Dual {
             re: self + rhs.re,
             grad: rhs.grad.clone(),
@@ -151,9 +161,9 @@ impl<'a> Add<&'a Dual> for f64 {
     }
 }
 
-impl<'a> Sub<&'a Dual> for f64 {
+impl Sub<&Dual> for f64 {
     type Output = Dual;
-    fn sub(self, rhs: &'a Dual) -> Dual {
+    fn sub(self, rhs: &Dual) -> Dual {
         let grad = rhs.grad.iter().map(|g| -g).collect();
         Dual {
             re: self - rhs.re,
@@ -162,9 +172,9 @@ impl<'a> Sub<&'a Dual> for f64 {
     }
 }
 
-impl<'a> Mul<&'a Dual> for f64 {
+impl Mul<&Dual> for f64 {
     type Output = Dual;
-    fn mul(self, rhs: &'a Dual) -> Dual {
+    fn mul(self, rhs: &Dual) -> Dual {
         let grad = rhs.grad.iter().map(|g| g * self).collect();
         Dual {
             re: self * rhs.re,
@@ -173,9 +183,9 @@ impl<'a> Mul<&'a Dual> for f64 {
     }
 }
 
-impl<'a> Div<&'a Dual> for f64 {
+impl Div<&Dual> for f64 {
     type Output = Dual;
-    fn div(self, rhs: &'a Dual) -> Dual {
+    fn div(self, rhs: &Dual) -> Dual {
         let denom = rhs.re * rhs.re;
         let grad = rhs.grad.iter().map(|g| -self * g / denom).collect();
         Dual {
@@ -185,7 +195,7 @@ impl<'a> Div<&'a Dual> for f64 {
     }
 }
 
-impl<'a> Neg for &'a Dual {
+impl Neg for &Dual {
     type Output = Dual;
     fn neg(self) -> Dual {
         let grad = self.grad.iter().map(|g| -g).collect();
@@ -384,13 +394,16 @@ fn expand_lam_dual(
     }
 }
 
+/// Transition and emission matrices of [`compute_params_dual`], row by row.
+type DualMatrices = (Vec<Vec<Dual>>, Vec<Vec<Dual>>);
+
 fn compute_params_dual(
     n_steps: usize,
     theta: &Dual,
     rho: &Dual,
     t_max: &Dual,
     lam_full: &[Dual],
-) -> Result<(Vec<Vec<Dual>>, Vec<Vec<Dual>>)> {
+) -> Result<DualMatrices> {
     let n = n_steps;
     let n_params = theta.grad.len();
     if lam_full.len() != n + 1 {
@@ -526,6 +539,8 @@ fn smooth_penalty_dual(lam_full: &[Dual]) -> Dual {
     sum
 }
 
+// The loops index parallel arrays (matrices and expected counts) by state.
+#[allow(clippy::needless_range_loop)]
 fn q_function_stats_dual(a: &[Vec<Dual>], em: &[Vec<Dual>], stats: &SufficientStats) -> Dual {
     let n_params = a[0][0].grad.len();
     let n_states = a.len();

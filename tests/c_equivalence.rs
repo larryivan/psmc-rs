@@ -57,9 +57,11 @@ fn check(pattern: &str, c_file: &str) {
         Some(pattern.to_string()),
     )
     .unwrap();
-    let mut cfg = MStepConfig::default();
-    cfg.progress = false;
-    cfg.lambda = 0.0;
+    let cfg = MStepConfig {
+        progress: false,
+        lambda: 0.0,
+        ..MStepConfig::default()
+    };
     let history = em_train(&mut model, &obs.rows, &obs.row_starts, c_lk.len(), &cfg).unwrap();
     let rust_lk: Vec<f64> = history.loglike.iter().map(|(before, _)| *before).collect();
 
