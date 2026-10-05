@@ -6,7 +6,8 @@ replicates at each time, ``E2_bands.csv``), and grey shading outside the
 comparison window (1% to 99% of pairwise coalescence times under C psmc's
 model). Above each panel: the genome (the human input is chromosome 1
 only), its scaling, the RMSE of log10 Ne between the tools on the window,
-and the bootstrap's replicates and trunks. Everything is read from the E2
+and the bootstrap's replicates and trunks, marked when there are fewer
+than 20, which psmc-rs warns makes the band coarse. Everything is read from the E2
 tables, so the figure can be redrawn from a clone without the fits::
 
     python -m experiment.pipeline.figures.fig3_real_genomes \\
@@ -87,6 +88,7 @@ class Panel:
     replicates: int
     trunks: Optional[int]
     trunk_mb: Optional[float]
+    coarse_band: bool  # fewer trunks than psmc-rs's threshold for a coarse band
     band_quantiles: Tuple[float, float]
     curves: Dict[str, Tuple[List[float], List[float]]]  # tool -> (years, ne) of the steps
     band: Tuple[List[float], List[float], List[float]]  # years, lower, upper
@@ -129,6 +131,7 @@ def load_panels(tables: Path) -> Dict[str, Panel]:
             replicates=int(boot["replicates"]),
             trunks=None if trunks is None else int(trunks),
             trunk_mb=_num(boot.get("trunk_mb")),
+            coarse_band=boot.get("coarse_band") == "True",
             band_quantiles=(float(boot["band_lo_quantile"]), float(boot["band_hi_quantile"])),
             curves=curves,
             band=(
@@ -178,10 +181,11 @@ def title(panel: Panel) -> str:
 
 
 def subtitle(panel: Panel) -> str:
-    """Two lines: the scaling and the tools' RMSE; the bootstrap's replicates and trunks."""
+    """Two lines: the scaling and the tools' RMSE; the bootstrap's replicates and trunks (and a coarse band)."""
     trunks = ""
     if panel.trunks is not None:
         trunks = f", {panel.trunks} trunks" + (f" of {panel.trunk_mb:g} Mb" if panel.trunk_mb else "")
+        trunks += " (few trunks: a coarse band)" if panel.coarse_band else ""
     return (
         rf"$\mu$ = ${sci(panel.mu)}$, g = {panel.gen_years:g} y;  "
         rf"RMSE of log$_{{10}}$ $N_e$, psmc-rs vs C: {panel.rmse:.2g}"

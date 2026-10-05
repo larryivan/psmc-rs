@@ -335,6 +335,10 @@ class E2:
     grid: TimeGrid = TimeGrid()
     display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (Fig 3)
     panel_order: Tuple[str, ...] = ("Papuan", "HLemySub1", "HLhydTec1", "HLpelCas1")  # Fig 3 panels A-D
+    # Below this many trunks psmc-rs warns that the bands are coarse
+    # (FEW_TRUNKS in src/bin/psmc/run.rs); the tables and Fig 3 say so. Papuan
+    # chr1 (2.49 M bins) forms 5 trunks of the default 500,000 bins.
+    few_trunks: int = 20
     # Smoke and tiny profiles only: fit the first ``max_bins`` bins of each
     # genome (records in file order, the last one cut) instead of the whole
     # file. None (production) fits the packaged files themselves.

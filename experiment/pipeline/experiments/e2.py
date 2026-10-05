@@ -63,9 +63,10 @@ Tables (``tables/``):
   and fixed window), the largest difference, relative differences of theta,
   rho and t_max and of the log-likelihoods, and whether the bootstrap run's
   main fit equals ``fit-rs``'s output.
-* ``E2_bootstrap.csv``: per genome: replicates, trunks, seed, the band's
-  width, how much of C psmc's and psmc-rs's curves it holds, and the check
-  against psmc-rs's own summary.
+* ``E2_bootstrap.csv``: per genome: replicates, trunks (``coarse_band``
+  when fewer than psmc-rs's 20), seed, the band's width, how much of C
+  psmc's and psmc-rs's curves it holds, and the check against psmc-rs's
+  own summary.
 * ``E2_bootstrap_replicates.csv``: the parameters of every replicate.
 * ``E2_bands.csv``: both curves and the band on a dense grid (Fig 3).
 * ``E2_curves.csv``: the fitted step curves of both tools (Fig 3).
@@ -688,6 +689,7 @@ def bootstrap_row(gr: GenomeResult, cfg: config.E2) -> Dict:
         "trunk_bins": gr.summary.get("block_size"),
         "trunk_mb": gr.summary.get("block_size", 0) * cfg.inference.bin_size / 1e6,
         "trunks": lengths.get("bootstrap_trunks"),
+        "coarse_band": lengths.get("bootstrap_trunks", 0) < cfg.few_trunks,
         "bins_below_trunk_fraction": (lengths.get("below_trunk") or {}).get("fraction"),
         "iterations": cfg.inference.n_iter,
         "band_lo_quantile": cfg.band[0],

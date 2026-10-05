@@ -307,6 +307,7 @@ class Tables(unittest.TestCase):
     def test_bootstrap_summary(self):
         boot = {r["sample_id"]: r for r in read_csv(self.lay.table("bootstrap"))}
         self.assertEqual(boot["Papuan"]["replicates"], "3")
+        self.assertEqual((boot["Papuan"]["trunks"], boot["Papuan"]["coarse_band"]), ("12", "True"))  # 12 < 20
         self.assertEqual(boot["Papuan"]["seed"], str(config.seed("E2", "Papuan", 0, "bootstrap")))
         self.assertLess(float(boot["Papuan"]["summary_max_rel_diff"]), 1e-12)
         # The replicates are 1.1 to 1.3 times the main curve, which lies below the band.
@@ -347,6 +348,7 @@ class Tables(unittest.TestCase):
         panels = fig3.load_panels(self.lay.root / "tables")
         self.assertEqual(set(panels), {"Papuan", "HLhydTec1"})
         self.assertIn("chr1 only", fig3.title(panels["Papuan"]))
+        self.assertIn("12 trunks of 0.5 Mb (few trunks: a coarse band)", fig3.subtitle(panels["Papuan"]))
         out = self.runs / "fig" / "fig3"
         written = fig3.render(panels, ["Papuan", "HLhydTec1"], out, ["pdf", "png"])
         self.assertEqual([p.name for p in written], ["fig3.pdf", "fig3.png"])
