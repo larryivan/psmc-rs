@@ -422,6 +422,12 @@ pub struct Cli {
     #[arg(long, value_parser = positive_f64, help_heading = "Model")]
     pub rho0: Option<f64>,
 
+    /// Start from the parameters saved in this JSON output of an earlier
+    /// run (C psmc -i), instead of from theta0, rho0, t_max and flat
+    /// lambdas; its pattern and n_steps are used unless given
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["theta0", "rho0", "t_max", "tr_ratio"], help_heading = "Model")]
+    pub init_params: Option<PathBuf>,
+
     /// Mutation rate per base pair per generation, for scaling
     #[arg(long, default_value_t = 2.5e-8, value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
@@ -525,6 +531,9 @@ impl Cli {
         }
         if let Some(v) = self.rho0 {
             push("--rho0", v.to_string());
+        }
+        if let Some(v) = &self.init_params {
+            push("--init-params", v.display().to_string());
         }
         if self.mu != 2.5e-8 {
             push("--mu", self.mu.to_string());
@@ -694,6 +703,21 @@ mod tests {
         assert!(err.contains("has 64 intervals (n_steps 63)"), "{err}");
         let err = format!("{:#}", model_layout(Some("4+x"), None).unwrap_err());
         assert!(err.contains("invalid --pattern '4+x'"), "{err}");
+    }
+
+    #[test]
+    fn saved_parameters_replace_the_starting_values() {
+        let parse = |args: &[&str]| {
+            let mut argv = vec!["psmc-rs", "in", "out", "1", "--init-params", "fit.json"];
+            argv.extend_from_slice(args);
+            Cli::try_parse_from(argv)
+        };
+        assert!(parse(&[]).is_ok());
+        assert!(parse(&["--pattern", "4+5*3+4", "--mu", "1e-8"]).is_ok());
+        for flag in ["--theta0", "--rho0", "--t-max", "--tr-ratio"] {
+            let err = parse(&[flag, "5"]).unwrap_err().to_string();
+            assert!(err.contains("cannot be used with"), "{flag}: {err}");
+        }
     }
 
     #[test]

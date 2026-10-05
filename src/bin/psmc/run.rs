@@ -18,8 +18,9 @@ use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{Cancelled, EStepPhase, write_tmrca_posterior_tsv};
 use psmc_rs::io::Observations;
 use psmc_rs::io::input::{Dataset, SourceSummary};
+use psmc_rs::io::params::load_params;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
-use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
+use psmc_rs::psmc_out::{PsmcRunInfo, c_pattern, psmc_rounds, write_psmc};
 use psmc_rs::report::{BootstrapReport, ReportData, default_html_path, write_html_report};
 use psmc_rs::{PsmcModel, initial_theta};
 
@@ -166,6 +167,10 @@ fn infer(
     let n_iter = cli.n_iter.ok_or_else(|| anyhow!("missing N_ITER"))?;
 
     // Settings that can be checked without the data fail first.
+    let saved = match &cli.init_params {
+        Some(path) => Some(saved_start(path, cli)?),
+        None => None,
+    };
     let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
     let bootstrap = BootstrapPlan::of(cli, n_iter, &output_file)?;
 
@@ -205,12 +210,27 @@ fn infer(
         None => None,
     };
 
-    let theta0 = match cli.theta0 {
-        Some(v) => v,
-        None => initial_theta(&obs.rows)?,
+    let mut model = match saved {
+        Some(model) => {
+            sink(Event::Info(format!(
+                "Starting from the parameters in {}",
+                cli.init_params
+                    .as_deref()
+                    .unwrap_or(Path::new(""))
+                    .display()
+            )));
+            model
+        }
+        None => {
+            let theta0 = match cli.theta0 {
+                Some(v) => v,
+                None => initial_theta(&obs.rows)?,
+            };
+            let rho0 = cli.rho0.unwrap_or(theta0 / cli.tr_ratio);
+            PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)?
+        }
     };
-    let rho0 = cli.rho0.unwrap_or(theta0 / cli.tr_ratio);
-    let mut model = PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)?;
+    let (theta0, rho0) = (model.theta, model.rho);
     sink(Event::Info(format!(
         "Model: pattern {}, {} intervals, {} free lambdas; start theta0 {theta0:.6}, rho0 \
          {rho0:.6} (theta0/rho0 {}), t_max {}",
@@ -332,6 +352,32 @@ fn infer(
         bootstrap_dir: bootstrap.map(|plan| plan.dir),
         final_loglike,
     })
+}
+
+/// The starting model of `--init-params`: the saved parameters, with the
+/// layout checked against `--pattern` and `--n-steps` when they are given,
+/// and `--mu` for scaling.
+fn saved_start(path: &Path, cli: &Cli) -> Result<PsmcModel> {
+    let what = || format!("--init-params {}", path.display());
+    let saved = load_params(path).with_context(what)?;
+    let mut model = PsmcModel::from_params_file(&saved).with_context(what)?;
+    if cli.pattern.is_some() || cli.n_steps.is_some() {
+        let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
+        let wanted = PsmcModel::new(model.t_max, n_steps, 1.0, 1.0, model.mu, pattern)?;
+        if (wanted.n_steps, c_pattern(&wanted)) != (model.n_steps, c_pattern(&model)) {
+            bail!(
+                "{} holds a model with pattern {} ({} intervals), but --pattern/--n-steps ask \
+                 for {} ({} intervals); leave them out to continue the saved model",
+                what(),
+                c_pattern(&model),
+                model.n_steps + 1,
+                c_pattern(&wanted),
+                wanted.n_steps + 1
+            );
+        }
+    }
+    model.mu = cli.mu;
+    Ok(model)
 }
 
 /// Read the input as `cli` says, report how it was read, and check that it
