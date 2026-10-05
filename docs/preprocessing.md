@@ -29,7 +29,8 @@ steps below assume:
 
 - **One sample.** All reads come from one individual. bcftools treats each
   read-group `SM` tag as a sample; `scripts/bam_to_psmc.sh` stops when it
-  finds more than one.
+  finds more than one, and psmc-rs refuses a VCF of several samples in
+  consensus mode.
 - **Duplicates marked.** `bcftools mpileup` skips reads flagged as
   duplicates, unmapped, secondary or failing QC by default (its
   `--skip-any-set`), so marking is enough; nothing needs to be removed.
@@ -328,8 +329,9 @@ psmc-rs intersects all `--vcf-mask` files (a site must be in every one) and
 removes every `--vcf-negative-mask` region. A mask row with three or more
 columns is BED (`chrom start end`, 0-based, end-exclusive); a row with
 exactly two is `start end`, 1-based inclusive, for every chromosome.
-Overlapping and adjacent intervals are fine, so per-site rows work, and
-rows need not be sorted.
+Overlapping and adjacent intervals are fine, and rows need not be sorted.
+Rows are merged as they are read, so a mask of one row per callable site
+costs only the memory of its merged intervals.
 
 Each `--vcf-mask` file must therefore cover every chromosome you analyse:
 a chromosome that one of them lacks has no callable site at all (psmc-rs
@@ -511,12 +513,14 @@ when it is made; changing it means converting again.
 `tabix` and `bcftools index` need BGZF compression, which `bgzip` and
 `bcftools ... -Oz` write; a file compressed with plain `gzip` cannot be
 indexed (`bcftools index` stops with "the file is not BGZF compressed").
-psmc-rs itself reads plain, gzip and bgzip files, but a VCF must be sorted
-(`bcftools sort`): unsorted positions are an error, and so, in mask mode, is
-a chromosome that comes back after another (in consensus mode psmc-rs does
-what vcf2fq does and starts a second sequence, with a warning). Chromosome
-names must agree between the alignments, the reference, the VCF and every
-mask (`chr1` against `1`): psmc-rs warns about
+psmc-rs itself reads plain, gzip and bgzip files, but not BCF (convert it
+with `bcftools view -Oz`), and it refuses a bgzip file that lacks BGZF's
+end-of-file block, as a file cut short by an interrupted job does. A VCF
+must be sorted (`bcftools sort`): unsorted positions are an error, and so,
+in mask mode, is a chromosome that comes back after another (in consensus
+mode psmc-rs does what vcf2fq does and starts a second sequence, with a
+warning). Chromosome names must agree between the alignments, the
+reference, the VCF and every mask (`chr1` against `1`): psmc-rs warns about
 chromosomes that a mask does not cover, and the script stops when bcftools
 calls no site at all.
 

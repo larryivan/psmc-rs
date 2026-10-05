@@ -70,6 +70,11 @@ Command line and outputs:
   of selecting the default (2048).
 - `--threads` builds a thread pool per run; the TUI no longer keeps the
   first run's thread count.
+- BCF input is an error that gives the `bcftools view -Oz` command to
+  convert it, and a UTF-8 byte order mark at the start of an input is
+  skipped. When a file recognised as multihetsep does not read as one from
+  its start, the error says how its format was recognised and names
+  `--input-format`.
 
 Library API:
 
@@ -141,7 +146,10 @@ Reproduction package (`experiment/`):
 - VCF consensus mode: an all-sites VCF from `bcftools call -c` is read
   exactly as `vcfutils.pl vcf2fq | fq2psmcfa` would read it (`--depth
   auto|MIN:MAX`, `--min-mapq`, `--indel-window`, `--min-qual`), with
-  automatic detection between consensus and mask mode (`--vcf-mode`).
+  automatic detection between consensus and mask mode (`--vcf-mode`). It
+  refuses a VCF of several samples, whose INFO fields bcftools computes
+  over all of them; `--vcf-sample` only checks the one sample's name
+  there, with a warning that it selected nothing.
 - `scripts/bam_to_psmc.sh`: from the aligned reads of one diploid sample
   (BAM, CRAM or SAM) to psmc-rs input by the classic route: `bcftools
   mpileup -C50 -q20 -Q20 | bcftools call -c` per chromosome in parallel,
@@ -173,9 +181,12 @@ Reproduction package (`experiment/`):
 - HTML report: run summary, QC findings and per-sequence table, bootstrap
   settings with a coverage caveat, and an offline notice when ECharts
   cannot load (`PSMC_ECHARTS_JS` embeds a local copy).
-- Warnings for input options that do not apply to the input as read and
-  for bootstraps of fewer than 20 trunks; a single-trunk bootstrap is an
-  error before fitting.
+- Warnings for input options that do not apply to the input as read, for
+  a psmcfa input that looks like a per-base consensus (a FASTQ quality
+  block, or at least 1% of bins written as letters fq2psmcfa never
+  writes), which is read one base per bin, for chromosomes that only some
+  `--vcf-mask` files cover, and for bootstraps of fewer than 20 trunks; a
+  single-trunk bootstrap is an error before fitting.
 - Input from pipes and FIFOs (the file is read once; only `--depth auto`
   needs a regular file).
 - TUI: the stop key interrupts EM and the bootstrap mid-step, the form has
@@ -223,7 +234,9 @@ Reproduction package (`experiment/`):
 
 - Gzip input with several members (bgzip: `.vcf.gz` from bcftools, GATK or
   tabix, bgzipped psmcfa and BED masks) is read in full instead of only its
-  first block.
+  first block, and a bgzip file that lacks BGZF's end-of-file block, as
+  one cut short by an interrupted job does, is refused instead of being
+  read as the whole input.
 - psmcfa: header lines were read as bins, so names containing T, K or N
   (GenBank, RefSeq and UCSC accessions) added bins (HLpelCas1: 523 extra
   T bins), and every byte other than T, K and N was dropped, shifting later
@@ -231,8 +244,10 @@ Reproduction package (`experiment/`):
 - Multihetsep: a site was heterozygous when any two haplotypes differed, so
   multi-sample files gave a K bin at almost every row; now only the
   selected pair counts, and an unknown allele (`?`, `N`) is missing instead
-  of heterozygous. An out-of-range haplotype index panicked, and a row
-  widened by an indel silently shifted the pair; both are errors now.
+  of heterozygous. An out-of-range haplotype index panicked, a row
+  widened by an indel silently shifted the pair, and the rows of a
+  chromosome that comes back after another became a new sequence whose
+  uncalled sites were counted from position 0; all are errors now.
 - VCF mask mode classifies every base: 0.1 moved the missing sites of each
   interval between heterozygous SNPs together, which got 14.7% of bins
   wrong at 20% random missingness, counted missing genotypes as callable,
@@ -330,6 +345,9 @@ Reproduction package (`experiment/`):
   numbers without the standard library's float formatter.
 - psmcfa input is streamed instead of read whole, and the VCF reader is two
   to three times as fast.
+- Callable masks are merged as they are read, so their memory follows the
+  merged intervals instead of the rows (40 million adjacent per-site rows:
+  646 MB to 3.9 MB).
 
 ### Deprecated
 

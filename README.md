@@ -85,15 +85,20 @@ is described in [docs/preprocessing.md](docs/preprocessing.md).
 ## Input
 
 psmc-rs reads three formats, each plain, gzip or bgzip (gzip is recognised
-from its magic bytes, and every member of a bgzip file is read).
-`--input-format auto` (the default) recognises the format from the content:
-a `##` or `#CHROM` line makes it VCF; other `#` lines and blank lines are
-skipped; then a line starting with `>` or `@` means psmcfa, a line of at
-least 8 tab-separated fields a VCF without header, and anything else
-multihetsep. For inference (not `convert` or `qc`), INPUT may also be a
-directory: it stands for its first file, by name, ending in `.psmcfa`,
-`.vcf`, `.mhs` or `.multihetsep` (each optionally `.gz`), or only in the
-extensions of `--input-format` when that is set.
+from its magic bytes, and every member of a bgzip file is read). A bgzip
+file must end with BGZF's end-of-file block, as htslib checks: without it,
+the file was probably cut short by an interrupted job, and it is refused.
+BCF is refused too (`bcftools view -Oz` converts it), and a UTF-8 byte
+order mark is skipped. `--input-format auto` (the default) recognises the
+format from the content: a `##` or `#CHROM` line makes it VCF; other `#`
+lines and blank lines are skipped; then a line starting with `>` or `@`
+means psmcfa, a line of at least 8 tab-separated fields a VCF without
+header, and anything else multihetsep (if such a file fails to read as
+multihetsep from the start, the error says how its format was recognised).
+For inference (not `convert` or `qc`), INPUT may also be a directory: it
+stands for its first file, by name, ending in `.psmcfa`, `.vcf`, `.mhs` or
+`.multihetsep` (each optionally `.gz`), or only in the extensions of
+`--input-format` when that is set.
 
 `--bin-size` (default 100, `fq2psmcfa -s`) is the number of bases per bin. It
 bins VCF and multihetsep input, and scales time and Ne for every format, so
@@ -115,14 +120,19 @@ bytes are skipped. Differences from C psmc: a file without any `>` record is
 an error, a truncated FASTQ quality block is an error (C psmc silently stops
 reading), and empty records are dropped from the fit (they still count in the
 `.psmc` header's `n_seqs`, as in C). psmcfa input is not filtered further.
+When a record has a FASTQ quality block, or at least 1% of the bins are
+letters that fq2psmcfa never writes (`A`, `C`, `G`, other IUPAC codes,
+lowercase), the run warns that the input looks like a per-base consensus,
+such as `vcfutils.pl vcf2fq` output, which is then read one base per bin.
 
 ### VCF
 
 One diploid sample is read, in one of two modes. Mask mode reads the
 genotypes of one sample column, which `--vcf-sample NAME` picks when the
 VCF has several. Consensus mode, like `vcfutils.pl vcf2fq`, reads INFO
-fields that bcftools computes over all samples together, so `--vcf-sample`
-cannot pick a sample there: give it a VCF of one sample.
+fields that bcftools computes over all samples together, so it refuses a
+VCF of several samples, and `--vcf-sample` only checks the name of the one
+sample there (the run warns that it selected nothing).
 
 **Consensus mode** reproduces the classic PSMC input pipeline,
 `vcfutils.pl vcf2fq | fq2psmcfa`, in one streaming pass over the all-sites
@@ -178,10 +188,13 @@ is a record beyond its `##contig` length.
 
 **Masks.** `--vcf-mask BED` gives callable sites and `--vcf-negative-mask
 BED` sites to exclude; both repeat, and a site is callable when every
-`--vcf-mask` contains it and no negative mask does. Rows of three or more
-columns are BED (`chrom start end`, 0-based, end-exclusive); rows of exactly
-two columns are `start end`, 1-based inclusive, and apply to every
-chromosome. **A variants-only VCF needs a mask**: without one, every
+`--vcf-mask` contains it and no negative mask does, so masks that come one
+per chromosome must be joined into one file first (the run warns about a
+chromosome that only some masks cover). Rows of three or more columns are
+BED (`chrom start end`, 0-based, end-exclusive); rows of exactly two
+columns are `start end`, 1-based inclusive, and apply to every chromosome.
+Rows are merged as they are read, so memory follows the merged intervals,
+not the rows. **A variants-only VCF needs a mask**: without one, every
 position the caller could not call counts as homozygous, which hides the
 missing data and pulls θ and Ne down, while false heterozygous calls in
 repeats that a mask would remove push them up. QC then reports
@@ -216,7 +229,9 @@ heterozygous when the two differ in every comma-separated ordering, called
 when they are equal in every ordering, and missing when the orderings
 disagree (a pair across two unphased samples) or an allele is `?` or `N`.
 Every row must list as many haplotypes as the first, so remove indels before
-`generate_multihetsep.py`.
+`generate_multihetsep.py`, and the rows of each chromosome must form one
+block in position order: a chromosome that comes back after another is an
+error.
 
 Multihetsep does not say where the uncalled sites are, only how many lie
 between two rows. psmc-rs places them at the start of each interval, which
