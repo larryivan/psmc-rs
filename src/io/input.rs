@@ -29,7 +29,7 @@ use crate::io::consensus::{
     ensure_rereadable, info_has_fq, read_consensus_from, scan_depth_from,
 };
 use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
-use crate::io::psmcfa::parse_psmcfa;
+use crate::io::psmcfa::parse_psmcfa_with_stats;
 use crate::io::vcf::{
     VcfOptions, VcfSummary, gvcf_block_end_of, no_het_snp_message, read_vcf_seqs_from,
 };
@@ -559,6 +559,41 @@ pub struct PsmcfaSummary {
     pub called_bins: u64,
     /// Heterozygous bins (C psmc's `sum_n`).
     pub het_bins: u64,
+    /// Records with a FASTQ quality block (a `+` line), which `fq2psmcfa`
+    /// output never has.
+    pub fastq_records: usize,
+    /// Bins written as letters `fq2psmcfa` never writes: `A`, `C`, `G`, the
+    /// other IUPAC codes, or lowercase letters.
+    pub base_letters: u64,
+}
+
+impl PsmcfaSummary {
+    /// Whether the file looks like a per-base consensus (the FASTQ of
+    /// `vcfutils.pl vcf2fq`, or a FASTA of bases) rather than `fq2psmcfa`
+    /// output: a record has a FASTQ quality block, or at least 1% of the
+    /// bins are written as base letters.
+    pub fn looks_like_per_base_consensus(&self) -> bool {
+        self.fastq_records > 0 || self.base_letters.saturating_mul(100) >= self.bins.max(1)
+    }
+
+    /// Warnings worth showing to the user about how the input was read.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.looks_like_per_base_consensus() {
+            out.push(format!(
+                "the psmcfa input looks like a per-base consensus (such as the FASTQ of \
+                 vcfutils.pl vcf2fq) rather than fq2psmcfa output: {} of its {} records have a \
+                 FASTQ quality block and {} of its {} bins are written as A, C, G, other IUPAC \
+                 codes or lowercase letters, which fq2psmcfa never writes. Like C psmc, psmc-rs \
+                 reads every character as one bin and lowercase (filtered) bases as called \
+                 bins, so each base became a bin and the missing data are undercounted; the \
+                 time scale, theta and Ne come out as if each base were a whole bin. Bin the \
+                 consensus with fq2psmcfa first, or give psmc-rs the VCF it was made from",
+                self.fastq_records, self.records, self.base_letters, self.bins
+            ));
+        }
+        out
+    }
 }
 
 /// The mode-specific part of [`VcfInputSummary`].
@@ -679,7 +714,8 @@ impl Dataset {
                 VcfDetails::Consensus(c) => c.warnings(),
                 VcfDetails::Mask(m) => m.warnings(),
             },
-            _ => Vec::new(),
+            SourceSummary::Psmcfa(p) => p.warnings(),
+            SourceSummary::Mhs(_) => Vec::new(),
         };
         let filtered: Vec<&DroppedSeq> = self
             .dropped
@@ -890,8 +926,8 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
 }
 
 fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)> {
-    let records =
-        parse_psmcfa(input.into_reader()).with_context(|| format!("failed to parse {path:?}"))?;
+    let (records, stats) = parse_psmcfa_with_stats(input.into_reader())
+        .with_context(|| format!("failed to parse {path:?}"))?;
     if records.is_empty() {
         bail!(
             "no psmcfa records found in {path:?}: each sequence must start with a '>name' header \
@@ -900,6 +936,8 @@ fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)
     }
     let mut summary = PsmcfaSummary {
         records: records.len(),
+        fastq_records: stats.fastq_records,
+        base_letters: stats.base_letters,
         ..PsmcfaSummary::default()
     };
     let raw = records

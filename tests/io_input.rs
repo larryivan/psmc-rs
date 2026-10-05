@@ -811,6 +811,44 @@ fn psmcfa_input_is_not_filtered() {
     );
     assert_eq!(data.obs.rows, read_psmcfa(&psmcfa.0, None).unwrap().rows);
     data.ensure_usable().unwrap();
+    assert_eq!((p.fastq_records, p.base_letters), (0, 0));
+    assert!(data.warnings().is_empty(), "{:?}", data.warnings());
+}
+
+#[test]
+fn a_per_base_consensus_given_as_psmcfa_is_pointed_out() {
+    let psmcfa_of = |text: &str| {
+        let file = TempFile::new("per_base", "psmcfa", text);
+        let data = load(&file.0, &InputOptions::default()).unwrap();
+        let SourceSummary::Psmcfa(p) = data.source.clone() else {
+            panic!("not a psmcfa summary")
+        };
+        (data, p)
+    };
+    // The FASTQ of vcfutils.pl vcf2fq: one character per base, lowercase
+    // where filtered, with a quality block. It is read as C psmc reads it.
+    let (data, p) = psmcfa_of("@chr1\nnnaaggTTCACRcga\n+\n!!!!!!IIIIII!!!\n");
+    assert_eq!(
+        data.obs.rows,
+        vec![vec![2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]]
+    );
+    assert_eq!((p.fastq_records, p.base_letters), (1, 13));
+    assert!(p.looks_like_per_base_consensus());
+    let warnings = data.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("per-base consensus") && warnings[0].contains("fq2psmcfa first"),
+        "{warnings:?}"
+    );
+    // A FASTA of bases, without quality.
+    let (data, p) = psmcfa_of(">chr1\nACGTACGTTTGCAY\n");
+    assert_eq!((p.fastq_records, p.base_letters), (0, 10));
+    assert_eq!(data.warnings().len(), 1);
+    // fq2psmcfa output, and stray letters in under 1% of the bins.
+    let (data, p) = psmcfa_of(&format!(">chr1\nK{}A\n", "T".repeat(150)));
+    assert_eq!(p.base_letters, 1);
+    assert!(!p.looks_like_per_base_consensus());
+    assert!(data.warnings().is_empty());
 }
 
 #[test]

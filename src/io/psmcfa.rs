@@ -107,12 +107,42 @@ enum State {
     },
 }
 
+/// Letters `fq2psmcfa` never writes (it writes `T`, `K` and `N`) but a
+/// per-base consensus is made of: `A`, `C`, `G`, the other IUPAC codes and
+/// every lowercase letter (vcf2fq's filtered bases).
+const BASE_LETTER: [bool; 256] = {
+    let mut t = [false; 256];
+    let mut b = 0;
+    while b < 256 {
+        let c = b as u8;
+        t[b] =
+            c.is_ascii_lowercase() || (c.is_ascii_uppercase() && !matches!(c, b'T' | b'K' | b'N'));
+        b += 1;
+    }
+    t
+};
+
+/// What a psmcfa file holds besides its records: signs that it is a
+/// per-base consensus (such as the FASTQ of `vcfutils.pl vcf2fq`) rather
+/// than `fq2psmcfa` output. C psmc reads such a file without complaint, one
+/// bin per base.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PsmcfaTextStats {
+    /// Records with a FASTQ quality block (a `+` line).
+    pub fastq_records: usize,
+    /// Bins written as letters `fq2psmcfa` never writes ([`BASE_LETTER`]).
+    pub base_letters: u64,
+}
+
 /// Incremental psmcfa parser following `kseq_read` byte for byte.
 struct Parser {
     state: State,
     name: Vec<u8>,
     seq: Vec<u8>,
     records: Vec<PsmcfaRecord>,
+    /// Whether the current record has a FASTQ quality block.
+    fastq: bool,
+    stats: PsmcfaTextStats,
 }
 
 impl Parser {
@@ -122,10 +152,13 @@ impl Parser {
             name: Vec::new(),
             seq: Vec::new(),
             records: Vec::new(),
+            fastq: false,
+            stats: PsmcfaTextStats::default(),
         }
     }
 
     fn end_record(&mut self) {
+        self.stats.fastq_records += usize::from(std::mem::take(&mut self.fastq));
         self.records.push(PsmcfaRecord {
             name: String::from_utf8_lossy(&self.name).into_owned(),
             seq: std::mem::take(&mut self.seq),
@@ -188,9 +221,13 @@ impl Parser {
                             }
                             QUAL_SEP => {
                                 self.state = State::QualLine;
+                                self.fastq = true;
                                 break;
                             }
-                            sym => self.seq.push(sym),
+                            sym => {
+                                self.seq.push(sym);
+                                self.stats.base_letters += u64::from(BASE_LETTER[b as usize]);
+                            }
                         }
                     }
                 }
@@ -207,7 +244,7 @@ impl Parser {
         }
     }
 
-    fn finish(mut self) -> Result<Vec<PsmcfaRecord>> {
+    fn finish(mut self) -> Result<(Vec<PsmcfaRecord>, PsmcfaTextStats)> {
         match self.state {
             // A `>` as the very last byte: kseq reports end of file, no record.
             State::SeekHeader | State::HeaderStart => {}
@@ -225,7 +262,7 @@ impl Parser {
                 );
             }
         }
-        Ok(self.records)
+        Ok((self.records, self.stats))
     }
 }
 
@@ -245,7 +282,14 @@ impl Parser {
 ///
 /// The input is streamed through the reader's buffer, so memory use is that of
 /// the parsed bins (one byte each) rather than of the whole text.
-pub fn parse_psmcfa<R: BufRead>(mut reader: R) -> Result<Vec<PsmcfaRecord>> {
+pub fn parse_psmcfa<R: BufRead>(reader: R) -> Result<Vec<PsmcfaRecord>> {
+    Ok(parse_psmcfa_with_stats(reader)?.0)
+}
+
+/// [`parse_psmcfa`], also counting the signs of a per-base consensus.
+pub(crate) fn parse_psmcfa_with_stats<R: BufRead>(
+    mut reader: R,
+) -> Result<(Vec<PsmcfaRecord>, PsmcfaTextStats)> {
     let mut parser = Parser::new();
     loop {
         let buf = match reader.fill_buf() {
