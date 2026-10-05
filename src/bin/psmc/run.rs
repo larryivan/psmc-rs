@@ -186,6 +186,12 @@ fn infer(
         None => None,
     };
     let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
+    let free_lambdas = match &saved {
+        Some(model) => model.lam.len(),
+        None => PsmcModel::new(cli.t_max, n_steps, 1.0, 1.0, cli.mu, pattern.clone())?
+            .lam
+            .len(),
+    };
     let bootstrap = BootstrapPlan::of(cli, n_iter, &output_file)?;
 
     check_cancel(cancel)?;
@@ -209,12 +215,6 @@ fn infer(
 
     // Input QC, printed before the fit. A QC error is only reported, so
     // that it never stops a fit.
-    let free_lambdas = match &saved {
-        Some(model) => model.lam.len(),
-        None => PsmcModel::new(15.0, n_steps, 1.0, 1.0, 1.0, pattern.clone())?
-            .lam
-            .len(),
-    };
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
     let qc = if obs.rows.is_empty() {
         None

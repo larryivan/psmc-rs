@@ -7,7 +7,8 @@ use std::path::PathBuf;
 use psmc_rs::bootstrap::DEFAULT_BOOTSTRAP_TRUNK;
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
-use psmc_rs::model::{T_INF, n_steps_for_pattern};
+use psmc_rs::model::{MAX_STATES, n_steps_for_pattern};
+use psmc_rs::opt::MStepConfig;
 
 /// `--input-format`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -141,15 +142,34 @@ fn non_negative_f64(s: &str) -> Result<f64, String> {
     }
 }
 
-/// `--t-max`: inside C psmc's time grid, which ends at `T_INF`.
+/// `--t-max`: inside the range the M-step searches. A start outside it
+/// would be moved to its edge by the first M-step, and one near `T_INF`,
+/// where the time grid ends, breaks the first E-step.
 fn parse_t_max(s: &str) -> Result<f64, String> {
     let v = positive_f64(s)?;
-    if v >= T_INF {
+    let MStepConfig {
+        tmax_lo, tmax_hi, ..
+    } = MStepConfig::default();
+    if !(tmax_lo..=tmax_hi).contains(&v) {
         return Err(format!(
-            "must be below {T_INF}, where C psmc's time grid ends, got {v}"
+            "must be between {tmax_lo} and {tmax_hi}, the range the M-step searches, got {v}"
         ));
     }
     Ok(v)
+}
+
+/// `--n-steps`: a model of 2 to `MAX_STATES` intervals.
+fn parse_n_steps(s: &str) -> Result<usize, String> {
+    let n: usize = s
+        .parse()
+        .map_err(|_| format!("'{s}' is not a whole number"))?;
+    if !(1..MAX_STATES).contains(&n) {
+        return Err(format!(
+            "must be between 1 and {} (2 to {MAX_STATES} intervals), got {n}",
+            MAX_STATES - 1
+        ));
+    }
+    Ok(n)
 }
 
 /// C psmc's default pattern (`-p`).
@@ -524,12 +544,13 @@ pub struct InferArgs {
     #[arg(long, help_heading = "Model")]
     pub pattern: Option<String>,
 
-    /// Number of time intervals minus one (C psmc's n; at most 9999);
-    /// taken from --pattern, and checked against it when both are given
-    #[arg(long, value_name = "N", help_heading = "Model")]
+    /// Number of time intervals minus one (C psmc's n; 1 to 9999); taken
+    /// from --pattern, and checked against it when both are given
+    #[arg(long, value_name = "N", value_parser = parse_n_steps, help_heading = "Model")]
     pub n_steps: Option<usize>,
 
-    /// Initial t_max, in units of 2N0 generations (C psmc -t)
+    /// Initial t_max, in units of 2N0 generations (C psmc -t; 1 to 200, the
+    /// range the M-step searches)
     #[arg(long, default_value_t = 15.0, value_parser = parse_t_max, help_heading = "Model")]
     pub t_max: f64,
 
@@ -886,8 +907,19 @@ mod tests {
             argv.extend_from_slice(args);
             parse(argv).unwrap_err().to_string()
         };
-        assert!(bad(&["--t-max", "1000"]).contains("below 1000"));
+        for t_max in ["1000", "900", "200.5", "0.5"] {
+            let err = bad(&["--t-max", t_max]);
+            assert!(
+                err.contains("must be between 1 and 200, the range the M-step searches"),
+                "{t_max}: {err}"
+            );
+        }
         assert!(bad(&["--t-max", "0"]).contains("positive"));
+        for n in ["0", "10000", "100000"] {
+            let err = bad(&["--n-steps", n]);
+            assert!(err.contains("must be between 1 and 9999"), "{n}: {err}");
+        }
+        assert!(bad(&["--n-steps", "x"]).contains("not a whole number"));
         assert!(bad(&["--tr-ratio=-4"]).contains("positive"));
         assert!(bad(&["--smooth-lambda=-1"]).contains("0 or more"));
         assert!(bad(&["--mstep-iters", "0"]).contains("at least 1"));
