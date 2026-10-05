@@ -145,14 +145,16 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 
 ## Production
 
-The figures run last, as `FIG` jobs after each experiment's `report` job:
+The figures run last, as `FIG` jobs after each experiment's `report` job,
+in the production run of [the pipeline's README](../README.md#production):
 
 ```bash
-experiment/.venv/bin/python -m experiment.pipeline start E1 E2 E3 E4 E5 E6 FIG
+$PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG
 ```
 
 Ten jobs of a few seconds each (1 core, 0.1-0.4 GB peak; a few CPU
 minutes in all), none exclusive; `plan` counts 20 s and 1 GB each
-(`config.FIGURES.job_seconds`, `job_gb`). A figure whose experiment has not run yet
-stays blocked on its missing tables and runs at the next `start`. Commit the
+(`config.FIGURES.job_seconds`, `job_gb`). A figure whose experiment has not
+run yet (Fig 4 and Fig S4 until E3 is done) stays blocked on its missing
+tables and runs at the next `start`. Commit the
 `figures/` directories and `FIG/provenance/` with the tables.

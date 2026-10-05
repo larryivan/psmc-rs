@@ -1,4 +1,4 @@
-"""E2: real genomes (Fig 3; Table S5).
+"""E2: real genomes (Fig 3).
 
 For every genome of :class:`.config.E2` (three turtle assemblies and the
 chromosome 1 of a Papuan Highlands human, which is not a whole genome) the
@@ -43,8 +43,10 @@ it. A genome whose default trunks are fewer than ``few_trunks`` (Papuan
 chr1: 5 trunks of 50 Mb) is bootstrapped a second time with trunks of
 ``fine_trunk_bins`` (5 Mb, a size E5 calibrates), seed stage
 ``bootstrap/trunk<B>``. E5 calibrates bootstraps of chromosome-scale
-sequences; the turtles' default bootstraps resample hundreds of whole
-scaffolds of very different lengths, which E5 does not calibrate. The job
+sequences; the turtles' default bootstraps resample whole scaffolds of
+very different lengths (``bins_below_trunk_fraction`` of
+``E2_bootstrap.csv``: 50%, 23% and 97% of their bins lie in scaffolds
+shorter than a trunk), which E5 does not calibrate. The job
 declares ``main.json`` and the summary only: psmc-rs skips a replicate
 whose fresh start is invalid, and the report reads exactly the replicates
 the summary names. The replicates' parameters (``replicate_NNN.json``) are
@@ -82,8 +84,9 @@ Tables (``tables/``):
   a dense grid (Fig 3).
 * ``E2_curves.csv``: the fitted step curves of both tools (Fig 3).
 * ``E2_traces.csv``: log-likelihood, theta, rho and t_max per EM iteration.
-* ``E2_qc.csv`` and ``E2_qc_findings.csv``: Table S5, the metrics and the
-  findings of ``psmc-rs qc`` for each genome.
+* ``E2_qc.csv`` and ``E2_qc_findings.csv``: the metrics and the findings
+  of ``psmc-rs qc`` for each input E2 fitted (in production the packaged
+  files, whose reports Table S5 shows: E6's ``E6_S5_*``).
 
 Run ``python -m experiment.pipeline.experiments.e2 subset SRC DST
 --max-bins N`` to write the first N bins of a psmcfa (the ``subset`` job).

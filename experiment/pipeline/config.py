@@ -355,9 +355,10 @@ class E2:
     # ``few_trunks``: Papuan chr1 forms only 5 trunks of 50 Mb, so its default
     # band rests on 5 resampling units. E5 calibrates bootstraps of 50 Mb
     # chromosomes cut into 50 Mb and 5 Mb trunks; the turtles' default
-    # bootstraps resample hundreds of whole scaffolds of very different
-    # lengths (most bins lie in scaffolds shorter than a trunk), a regime E5
-    # does not calibrate. None: no second bootstrap.
+    # bootstraps resample whole scaffolds of very different lengths (50%, 23%
+    # and 97% of the bins of HLemySub1, HLhydTec1 and HLpelCas1 lie in
+    # scaffolds shorter than a trunk), a regime E5 does not calibrate. None:
+    # no second bootstrap.
     fine_trunk_bins: Optional[int] = 50_000
     band: Tuple[float, float] = (0.025, 0.975)
     rs_threads: int = 7  # the bootstrap fits replicates in parallel
@@ -676,7 +677,7 @@ class E5:
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1  # psmc-rs --threads per fit
     # psmc-rs --threads per bootstrap run: one each, so that the 20 runs of
-    # about 45 CPU minutes share the cores without idle threads at their ends
+    # a few CPU hours each share the cores without idle threads at their ends
     # (results do not depend on it).
     bootstrap_threads: int = 1
     example_dataset: int = 1  # the dataset whose bands Fig 6 shows

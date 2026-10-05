@@ -11,7 +11,9 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
 2. fits every size with every tool, ``repeats`` times, with the inference
    recipe (``psmc -N25 -t15 -r5 -p "4+25*2+4+6"``): C psmc on its one
    thread, psmc-rs 0.1 (commit e50d69d, built out of tree) and psmc-rs 0.2
-   at each of their thread counts; psmc-rs 0.2 also fits the 3000 Mb genome
+   at each of their thread counts, and psmc-rs 0.2 with its default M-step
+   budget (``rs02-default``, ``--mstep-iters 100``; every other run uses
+   the 1000 of every experiment); psmc-rs 0.2 also fits the 3000 Mb genome
    on 1, 2, 4 and 8 threads (thread scaling). Each run is an exclusive job
    (nothing else runs, on this runner or any other: see the runner's
    machine lock) timed by ``e3_run measure`` (wall time, CPU time, peak RSS
@@ -50,11 +52,11 @@ Tables (``tables/``):
 
 * ``E3_table2.csv`` (Table 2): one row per tool, thread count and size:
   status (measured, skipped with the reason, or incomplete), estimated peak
-  memory, median, minimum and maximum wall time over the repeats, median
-  CPU time and peak RSS, seconds per EM iteration, speed-up over C psmc and
-  over psmc-rs 0.1 at the same thread count, C psmc's peak RSS over the
-  tool's, whether every repeat ran on a quiet machine, and whether the
-  repeats' outputs are byte-identical.
+  memory, the clean repeats and every repeat measured, median, minimum and
+  maximum wall time over the clean repeats, median CPU time and peak RSS,
+  seconds per EM iteration, speed-up over C psmc and over psmc-rs 0.1 at the
+  same thread count, C psmc's peak RSS over the tool's, the M-step budget,
+  and whether the repeats' outputs are byte-identical.
 * ``E3_runs.csv``: one row per run: every measurement, the machine's state
   before and during it, the fitted theta, rho and t_max, and the SHA-256 of
   the output.
