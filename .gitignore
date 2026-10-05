@@ -31,3 +31,20 @@ __pycache__/
 # used, and they are re-run every time.
 /experiment/runs/supplementary/s3_memory/outputs/*
 /experiment/runs/supplementary/s4_threads/outputs/*
+
+# The experiment pipeline (python -m experiment.pipeline) writes
+# experiment/runs/<experiment>/. Simulated genomes (psmcfa, VCF, masks, tree
+# sequences, TMRCA tracks) are large and regenerated exactly from the seeds
+# recorded in truth/ and provenance/; logs and the runner's state are local.
+# Fits (.psmc, JSON), truth and provenance records, tables and figures are
+# small and committed. psmc-rs writes an HTML report next to every JSON, and
+# interrupted runs leave *.partial files: neither is kept.
+/experiment/runs/*/sims/
+/experiment/runs/*/logs/
+/experiment/runs/_runner/
+/experiment/runs/**/*.html
+/experiment/runs/**/*.partial
+# Runs of the pipeline's smoke profile, and the tools it builds or finds
+# (C psmc and its utilities, psmc-rs 0.1 built from e50d69d).
+/experiment/.runs-smoke/
+/experiment/.tools/
