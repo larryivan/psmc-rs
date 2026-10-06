@@ -22,10 +22,10 @@
 //! and its expected counts are known before it is computed. Each row is
 //! evaluated and immediately differentiated, accumulating adjoints of the
 //! shared quantities, which are then propagated back to the parameters in
-//! one O(states) sweep. An evaluation thus costs O(states²) (one logarithm
-//! and one division per expected transition count, as the value alone
-//! needs) and O(states) memory besides the counts: the transition matrix is
-//! never stored, and nothing is allocated once the workspace exists.
+//! one O(states) sweep. An evaluation thus costs O(states²), a logarithm (as
+//! the value alone needs) and a division per expected transition count, and
+//! O(states) memory besides the counts: the transition matrix is never
+//! stored, and nothing is allocated once the workspace exists.
 //! Forward-mode differentiation, which this replaces, carried the
 //! derivatives with respect to every parameter through each of the
 //! states² transition probabilities, at O(states² × parameters) time and

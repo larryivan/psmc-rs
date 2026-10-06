@@ -585,8 +585,11 @@ matrix at a time: an evaluation costs O(states²), about as much as one bin
 of the E-step's expected counts, and holds O(states) values besides those
 counts. An M-step evaluates its objective once per free parameter, for the
 curvatures that scale its search, and once or twice per L-BFGS iteration
-(10 to 50), so it costs about as much as an E-step on as many bins; with
-pattern `4+25*2+4+6` it takes a few milliseconds. With one λ per interval
+(10 to 50), so it costs about as much as an E-step on as many bins. With
+pattern `4+25*2+4+6` on one thread, an M-step took 1.7 ms on a simulated
+500 Mb sequence, whose E-steps took 3.5 s (0.05%), and 2.7 ms on a
+simulated 4 × 25 Mb genome, against 0.7 s (medians of three runs of 25
+EM iterations). With one λ per interval
 (`--n-steps` alone) on the 180,000-bin test input, one EM iteration on one
 thread peaked at 4.5, 7.6, 182 and 248 MB with 101, 201, 301 and 401
 intervals and took 0.8, 0.8, 11 and 20 s; the forward-mode differentiation
@@ -619,6 +622,17 @@ The suite compares psmc-rs with the original tools' outputs, stored under
   against `generate_multihetsep.py`, byte for byte.
 - `tests/bootstrap_split.rs` and `tests/bootstrap_resample.rs`: trunks
   against `splitfa`, draws against `psmc_resamp`.
+
+Beyond the tests: on a simulated 4 × 25 Mb bottleneck genome (msprime,
+Hudson, μ = 2.5e-8, r = 1e-8) fitted as `psmc -N25 -t15 -r5 -p
+"4+25*2+4+6"`, the psmc-rs curve is within 7.4e-5 of C psmc's (RMSE of
+log10 Ne over the 1% to 99% quantiles of the true coalescence time; at
+most 2.5e-4), with θ, ρ and t_max within 1.6e-4 and the log-likelihood
+within 7e-9 (relative). The rest is C's: psmc-rs fits with convergence
+thresholds from 1e-11 down to the precision limit are within 6e-6 of one
+another (the default within 1.2e-6 of the limit), while from the same
+expected counts C's Hooke-Jeeves M-step stops short of the maximum of Q by
+1e-5 to 7e-5 (relative) in θ, t_max and λ.
 
 Two ignored tests run the tools themselves:
 `VCFUTILS=/path/to/vcfutils.pl FQ2PSMCFA=/path/to/fq2psmcfa cargo test

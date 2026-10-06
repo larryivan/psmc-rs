@@ -72,7 +72,8 @@ on the current stable release, and CI also builds every target with Rust
 implementation (lh3/psmc 0.6.5-r74) stored in `tests/data/c_reference/`.
 With C's initialisation the first E-step sees identical parameters, so its
 log-likelihood must agree to C's printed precision (1e-5); later rounds depend
-on the M-step optimiser and must stay within a relative 1e-5. This test
+on the M-step optimiser, which runs to convergence as C's does, and must stay
+within a relative 2e-7 (they agree to 7.3e-8). This test
 protects the numerical core, so:
 
 - A change must not loosen these tolerances or edit the reference outputs to

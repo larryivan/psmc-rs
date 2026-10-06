@@ -424,6 +424,17 @@ Reproduction package (`experiment/`):
   and took 20 s instead of 63 s; with 201 intervals 7.6 MB and 0.8 s
   instead of 159 MB and 6.3 s. The warning that such models' M-steps would
   need gigabytes, given before the input was read, is gone.
+- With that gradient and a curvature-scaled L-BFGS, the M-step converges
+  (see *Changed*) in a small fraction of the E-step's time: with
+  `4+25*2+4+6` on one thread, 1.7 ms per EM iteration on a simulated
+  500 Mb sequence (E-step 3.5 s), where 100 forward-mode L-BFGS iterations
+  took 185 ms and 1000 took 1.98 s, and 2.7 ms on a simulated 4 × 25 Mb
+  genome (E-step 0.7 s), where they took 156 ms and 9.1 s (71 s in one
+  round). 25 EM iterations on the 4 × 25 Mb genome take 19.8 s, against
+  25.4 s with 100 forward-mode iterations and 243 s with 1000; on the
+  500 Mb sequence, where the E-step dominates, 85.3 s, against 85.6 s and
+  125.8 s. (Medians of three runs, interleaved, on a machine shared with
+  other jobs: load averages 14 to 79.)
 - Callable masks are merged as they are read, so their memory follows the
   merged intervals instead of the rows (40 million adjacent per-site rows:
   646 MB to 3.9 MB).
