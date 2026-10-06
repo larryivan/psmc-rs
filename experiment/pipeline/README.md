@@ -132,7 +132,7 @@ for both tools and all replicates (constant: 5.0 ky to 2.30 My; bottleneck:
 A fixed window, 10 ky to 1 My, is reported next to it. The truth is
 evaluated exactly at each time (exponential growth included); fitted curves
 are C psmc's step functions, scaled as `psmc_plot.pl` does. The first free
-lambda of `4+25*2+4+6` spans intervals 0-3 (about 0-28 ky for zigzag,
+lambda of `4+25*2+4+6` spans intervals 0-3 (about 0-37 ky for zigzag,
 whose window starts at 7 ky), so part of the RMSE against the truth is the
 error of approximating the truth by the pattern's steps. Each fit is therefore also compared with the truth
 projected onto its own free-parameter spans (the true Ne averaged over each
@@ -261,6 +261,9 @@ Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 **Cost** (`plan E1`): 121 jobs, about 10 CPU hours (C psmc 8.3, psmc-rs 1.0,
 simulations 0.6), about 1.4 hours alone on the default budget. C psmc holds
 one chromosome's forward-backward matrices at a time, about 0.6 GB per job.
+Measured in the production run on Ibex ([Production](#production)): 13.0
+CPU hours; C psmc 918 to 1,049 s per fit (11.1 hours in all) and 0.52 GB,
+psmc-rs 112 to 133 s (1.4 hours) and 84 MB, the simulations 0.5 hours.
 
 ## E2: real genomes
 
@@ -313,7 +316,11 @@ files are not committed), `qc/`, `provenance/`, `tables/`, `figures/`;
 31, each on 50 threads, one replicate per thread, so the runner needs
 `--cores 50`; C psmc 2.5, up to 49 minutes and 3.4 GB for HLhydTec1), about
 1.6 hours alone on 50 cores. The bootstraps' output does not depend on
-their threads (replicate i draws from its own seed).
+their threads (replicate i draws from its own seed). Measured on Ibex: 43.8
+CPU hours; the bootstrap runs 40.3 (934 to 979 s each for the turtles, 159
+and 169 s for Papuan, at most 1.4 GB), C psmc 3.1 (3,419 to 3,610 s for
+the turtles and 475 s for Papuan, at most 3.3 GB, HLhydTec1's), psmc-rs
+0.4 (414 to 439 s for the turtles and 54 s for Papuan, at most 86 MB).
 
 ## E3: performance
 
@@ -509,7 +516,9 @@ Layout of `experiment/runs/E4/`: `sims/repNN/` (the genome, and per mask
 
 **Cost** (`plan E4`): 286 jobs, about 4 CPU hours (the 125 fits 3.1; the
 generate_multihetsep.py cross-checks 0.5), about 0.6 hours alone, at most
-1.5 GB per job (the consensus FASTA streamed through fq2psmcfa).
+1.5 GB per job (the consensus FASTA streamed through fq2psmcfa). Measured on
+Ibex: 5.2 CPU hours; the fits 4.4 (124 to 136 s each), the cross-checks
+0.6; at most 0.7 GB (the consensus FASTA).
 
 ## E5: bootstrap calibration
 
@@ -597,7 +606,8 @@ not committed), `provenance/`, `tables/`, `figures/`, `logs/` (not committed).
 
 **Cost** (`plan E5`): 121 jobs, about 16 CPU hours (the 20 bootstrap runs,
 51 fits each on one thread, about 45 minutes each), about 2.3 hours alone;
-at most 0.2 GB per job.
+at most 0.2 GB per job. Measured on Ibex: 19.1 CPU hours; the bootstrap runs
+3,270 to 3,307 s each (18.0 hours), the fits 65 to 86 s; at most 0.11 GB.
 
 ## E6: supplementary analyses
 
@@ -629,6 +639,7 @@ E6 reads what E1 and E2 make and adds the runs only it needs
   bin size and trunk (`E6_S5_qc`, `_findings`).
 
 **Cost** (`plan E6`): 26 jobs, under 1 CPU hour, minutes once E1 is done.
+Measured on Ibex: 0.3 CPU hours; S3's decoding at most 1.3 GB.
 
 ## Figures
 
@@ -663,17 +674,21 @@ $PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG --cores 50 --mem-gb 64   # o
 `start` refuses while a runner of the same runs directory lives. Running
 E3 first gives it the quiet machine its timings need while nothing of the
 pipeline runs; `start E1 E2 E3 E4 E5 E6 FIG` at once also works, and then
-E3's exclusive runs wait until nothing else is left.
+E3's exclusive runs wait until nothing else is left. On a SLURM cluster,
+the scripts of [`experiment/slurm/`](../slurm/README.md) run the same
+commands in allocations: the manuscript's production ran there, on KAUST's
+Ibex, and drew the figures on a laptop from the runs directory copied
+back.
 
-| experiment | jobs | CPU hours | wall hours alone (7 cores) | limits |
-| --- | --- | --- | --- | --- |
-| E1 | 121 | 10 | 1.4 | C psmc 12.5 min and 0.6 GB per fit |
-| E2 | 18 | 35 | 1.6 (50 cores) | bootstraps on 50 threads: `--cores 50`; C psmc up to 49 min and 3.4 GB |
-| E3 | 160 | 95 | 21 (exclusive) | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
-| E4 | 286 | 4 | 0.6 | at most 1.5 GB per job |
-| E5 | 121 | 16 | 2.3 | 20 bootstrap runs of about 45 min on one thread |
-| E6 | 26 | under 1 | 0.1 after E1 | S1-S3 wait for E1 |
-| FIG | 10 | under 0.1 | minutes | each figure waits for its tables |
+| experiment | jobs | CPU hours | wall hours alone (7 cores) | CPU hours measured on Ibex | limits |
+| --- | --- | --- | --- | --- | --- |
+| E1 | 121 | 10 | 1.4 | 13.0 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
+| E2 | 18 | 35 | 1.6 (50 cores) | 43.8 | bootstraps on 50 threads: `--cores 50`; C psmc up to 49 min (Ibex: 60) and 3.4 GB |
+| E3 | 160 | 95 | 21 (exclusive) | not yet run | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
+| E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
+| E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
+| E6 | 26 | under 1 | 0.1 after E1 | 0.3 | S1-S3 wait for E1 |
+| FIG | 10 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
@@ -682,9 +697,17 @@ ms per EM iteration (allowed 0.02 s), its E-steps the rest. E3 alone takes
 about 21 hours (psmc-rs 0.1's M-steps of 1000 forward-mode iterations and C
 psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 1.5 hours on 50
 cores and 64 GB (E2's bootstraps dominate; E2 cannot start on fewer than 50
-cores): about 22 hours in all, either way. Every job is resumable: `stop` (or a crash, or a reboot) and
-`start` again rerun only what is not done, at most the jobs that were
-running.
+cores): about 22 hours in all, either way. Every job is resumable: `stop`
+(or a crash, or a reboot) and `start` again rerun only what is not done, at
+most the jobs that were running.
+
+The production run of E1, E2, E4, E5 and E6 (`experiment/slurm`'s `prod`
+job on one Ibex node, a runner budget of 62 cores and 180 GB) ran its 572
+jobs in 1 hour 48 minutes, 81 CPU hours in all; the measured costs above
+come from its provenance records and `runs/_runner/runner.log` (not
+committed). Its jobs shared the node with one another (load averages of 13
+to 72 when they started), so their times are costs, not controlled timings:
+E3 times the tools.
 
 Afterwards commit, for every experiment, `experiment/runs/<EXP>/` without
 what `.gitignore` drops (simulated genomes, masks, logs, HTML reports,
@@ -712,10 +735,17 @@ refused, since its identity could not tell what changed it.
 `$PSMC_C_CFLAGS` (default the Makefile's `-g -Wall -O2 -Wno-unused-function`)
 and `$LDFLAGS`, and records the compiler, flags, commands and checksums in
 `psmc_c/BUILD.json`, which adds the compiler and CFLAGS to C psmc's
-identity and E3's environment table. That is the cluster's build (gcc 11.4.1,
-`-O2`). On macOS arm64 the default is `-O1`, since an `-O2` build
-segfaults there; the laptop's psmc, built by hand with `-O1`, has no
-`BUILD.json` and is identified by its version and checksum. `--build-c`
+identity and E3's environment table. The cluster's build, which made every
+C psmc fit of the production run, is gcc 11.4.1 with `-g -Wall -O3
+-march=x86-64-v3 -ffp-contract=off -Wno-unused-function`
+(`experiment/slurm/site.env.example`; every C psmc provenance record holds
+the compiler and the flags): its output was byte-identical to the
+Makefile's `-O2` on AMD Zen 2, Zen 5 and Intel Cascade Lake nodes, and it
+ran 1.2 to 2.0 times as fast (`-ffp-contract=off` keeps gcc from fusing
+multiply-adds, which would change the results). On macOS arm64 the default
+is `-O1`, since an `-O2` build segfaults there; the laptop's psmc, built by
+hand with `-O1`, has no `BUILD.json` and is identified by its version and
+checksum, so its compiler and flags are in no provenance record. `--build-c`
 does not replace programs that `BUILD.json` does not describe unless given
 `--force`, and keeps whatever it replaces as `<program>.prev` (and
 `BUILD.json.prev`).
