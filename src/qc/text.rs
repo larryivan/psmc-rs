@@ -175,10 +175,11 @@ fn metrics(out: &mut String, r: &QcReport) {
         rows.push((
             "Callable bases",
             format!(
-                "called bins hold {} of their {} bases on average; {}",
+                "called bins hold {} of their {} bases on average; {}{}",
                 pct(c.mean_fraction),
                 c.bin_size,
-                super::checks::callable_distribution(c)
+                super::checks::callable_distribution(c),
+                super::approximate_counts_note(r)
             ),
         ));
     }

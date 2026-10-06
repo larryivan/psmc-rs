@@ -83,6 +83,13 @@ pub const PARTLY_CALLABLE_NOTE_FRACTION: f64 = 0.01;
 /// come out more than 10% low.
 pub const PARTLY_CALLABLE_WARN_MEAN: f64 = 0.9;
 
+/// [`QcCode::ApproxMissingPlacement`] warns when more than this share of
+/// the sites of multihetsep input are uncalled: the reader's placement of
+/// them then biases θ, the times and Ne low by a few percent or more
+/// (validation: θ 7-11% low with 30% of the sites uncalled in runs of about
+/// 20 kb, 14-18% with 10% in runs of about 20 bp).
+pub const APPROX_PLACEMENT_WARN_FRACTION: f64 = 0.05;
+
 /// At most this many sequence names are listed in a message (all are in
 /// [`Finding::sequences`]).
 const MAX_LISTED: usize = 10;
@@ -276,7 +283,9 @@ pub enum QcCode {
     /// (inbreeding, which is real signal), deletions, or a mask that removed
     /// most variable sites.
     HetOutlier,
-    /// Multihetsep input, where uncalled sites have no positions (info).
+    /// Multihetsep input, where uncalled sites have no positions (info; a
+    /// warning when more than [`APPROX_PLACEMENT_WARN_FRACTION`] of the
+    /// sites are uncalled).
     ///
     /// Multihetsep gives, for each segregating site, how many sites since
     /// the previous one were called, but not where the uncalled ones are.
@@ -285,10 +294,23 @@ pub enum QcCode {
     /// keep their numbers and the heterozygous sites their positions, but a
     /// bin is `N` only when more than 90% of its sites are uncalled, so
     /// moving the uncalled sites changes which bins are `N`, `T` or `K`
-    /// compared with `fq2psmcfa` on the same calls. The callable bases of
-    /// its bins follow the same placement, so `--bin-callable auto` does not
-    /// fit them (`--bin-callable approximate` does). VCF input with a
-    /// callable mask bins exactly.
+    /// compared with `fq2psmcfa` on the same calls: missing sites scattered
+    /// among called ones become runs of `N` bins after heterozygous sites,
+    /// the bin of a heterozygous site followed by uncalled sites is partly
+    /// callable or lost, and θ, the times and Ne come out low whatever the
+    /// emission model. On the simulated genomes of
+    /// `experiment/validation/` (three seeds of the bottleneck model and
+    /// three of the expansion model), θ of the multihetsep fit was 0.82 to
+    /// 0.86 of the fit of the same genome without missing data with 10% of
+    /// the sites uncalled in runs of about 20 bp, 0.67 to 0.70 with 30%, and
+    /// 0.89 to 0.93 with 30% in runs of about 20 kb, against 0.94 to 1.00
+    /// for the VCF read with its callable mask; the share of uncalled sites
+    /// is the measure the finding has, as multihetsep cannot tell scattered
+    /// missing data from long runs. The callable bases of its bins follow
+    /// the same placement, so `--bin-callable auto` does not fit them;
+    /// `--bin-callable approximate` does, which lowered θ further (0.52 to
+    /// 0.60 with 30% in short runs). VCF input with a callable mask bins
+    /// exactly.
     ApproxMissingPlacement,
     /// Consensus-mode read depth (warning): mean depth below
     /// [`MIN_MEAN_DEPTH`], or one filter removing more than
@@ -420,7 +442,7 @@ pub(super) fn run(
         short_sequences(report, &seq_bins),
         sex_or_organelle(report, seqs, &mut named),
         het_outliers(report, seqs, &mut named),
-        approx_missing_placement(input),
+        approx_missing_placement(input, report),
         depth(report),
         dropped_sequences(report),
     ]
@@ -868,8 +890,12 @@ fn high_missing(input: &QcInput, report: &QcReport) -> Option<Finding> {
         return None;
     };
     // The fit corrects the bias of partly called bins when it weighs each
-    // bin by its exact callable bases.
-    let corrected = if counts_used(input) && !input.context.approximate_missing_placement {
+    // bin by its exact callable bases; multihetsep's placement of the
+    // uncalled sites biases the fit whatever it does.
+    let corrected = if input.context.approximate_missing_placement {
+        " Multihetsep does not say where the uncalled sites are, and where its reader places \
+         them biases theta and Ne low whatever --bin-callable (see APPROX_MISSING_PLACEMENT)."
+    } else if counts_used(input) {
         " The fit weighs each called bin by its callable bases (--bin-callable auto), which \
          corrects that bias (see PARTLY_CALLABLE_BINS); the other effects of missing data \
          remain."
@@ -1076,32 +1102,62 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
     ))
 }
 
-fn approx_missing_placement(input: &QcInput) -> Option<Finding> {
+fn approx_missing_placement(input: &QcInput, report: &QcReport) -> Option<Finding> {
     if !input.context.approximate_missing_placement {
         return None;
     }
     let counts = if counts_used(input) {
-        " The callable bases of each bin, which the fit uses (--bin-callable approximate), \
-         follow the same placement: their sum over each interval between rows is exact, but \
-         how it is split among the bins, and the count of the bin holding the next \
-         heterozygous site, are approximate."
+        " The fit weighs each called bin by the callable bases that placement gives it \
+         (--bin-callable approximate): their sum over each interval between rows is exact, \
+         but how it is split among the bins, and the count of the bin holding the next \
+         heterozygous site, are not, and in those simulations they lowered theta further \
+         (0.52-0.60 of the complete-data fit with 30% of the sites uncalled in short runs)."
     } else if input.callable.is_some() {
         " The callable bases of each bin follow the same placement, so the fit treats every \
          called bin as full (--bin-callable auto uses exact counts only)."
     } else {
         ""
     };
+    let t = &report.totals;
+    // The loader counts the called sites of multihetsep exactly; the N
+    // share is a lower bound without them.
+    let uncalled = t.uncalled_site_fraction.unwrap_or(t.missing_fraction);
+    let placement = "Multihetsep gives the number of called sites between variant rows but not \
+                     their positions, so the uncalled sites of each interval were placed \
+                     together at its start.";
+    if uncalled <= APPROX_PLACEMENT_WARN_FRACTION {
+        return Some(Finding::new(
+            QcCode::ApproxMissingPlacement,
+            Severity::Info,
+            format!(
+                "{placement} {} of the sites are uncalled. Called and heterozygous sites keep \
+                 their counts, but which bins are missing (more than 90% of sites uncalled) \
+                 depends on that placement, so the T/K/N bins can differ from fq2psmcfa \
+                 binning of the same calls.{counts}",
+                pct(uncalled)
+            ),
+            "For exact bins and callable bases, read the VCF with its callable-sites mask \
+             instead."
+                .to_string(),
+        ));
+    }
     Some(Finding::new(
         QcCode::ApproxMissingPlacement,
-        Severity::Info,
+        Severity::Warning,
         format!(
-            "Multihetsep gives the number of called sites between variant rows but not their \
-             positions, so the uncalled sites of each interval were placed together at its \
-             start. Called and heterozygous sites keep their counts, but which bins are \
-             missing (more than 90% of sites uncalled) depends on that placement, so the T/K/N \
-             bins can differ from fq2psmcfa binning of the same calls.{counts}"
+            "{placement} {} of the sites are uncalled. That changes which bins are missing \
+             (more than 90% of sites uncalled): uncalled sites scattered among called ones \
+             become runs of N bins after heterozygous sites, and the bin of a heterozygous \
+             site followed by uncalled sites is partly callable or lost. It biases theta, the \
+             times and Ne low whatever --bin-callable: on simulated genomes theta came out \
+             0.82-0.86 of the fit of the same genome without missing data with 10% of the \
+             sites uncalled in runs of about 20 bp, 0.67-0.70 with 30%, and 0.89-0.93 with \
+             30% in runs of about 20 kb, against 0.94-1.00 for the VCF read with its callable \
+             mask.{counts}",
+            pct(uncalled)
         ),
-        "For exact bins and callable bases, read the VCF with its callable-sites mask instead."
+        "Fit the VCF the multihetsep was made from, with its callable-sites mask \
+         (--vcf-mask): it bins exactly and weighs each called bin by its callable bases."
             .to_string(),
     ))
 }

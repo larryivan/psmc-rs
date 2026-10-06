@@ -441,10 +441,15 @@ callable. psmcfa input cannot tell; when at least 1% of its called bins
 border a missing run, the note counts them and says how to measure the rest
 from the VCF the psmcfa was made from. Multihetsep's counts do not measure
 the bias, which the placement makes nearly every called bin hide, so the
-finding is not given for multihetsep input. `HIGH_MISSING` says that the fit
-corrects the bias of partly called bins when it uses exact counts, and
-`APPROX_MISSING_PLACEMENT` that multihetsep's counts follow its placement
-and whether the fit uses them.
+finding is not given for multihetsep input. `APPROX_MISSING_PLACEMENT`
+says instead that multihetsep's bins and counts follow its placement,
+whether the fit uses the counts, and, as a warning when more than 5% of
+the sites are uncalled (`APPROX_PLACEMENT_WARN_FRACTION`), the bias the
+placement caused in the validation whatever `--bin-callable`: multihetsep
+does not tell scattered missing data from long runs, and both bias θ, if
+by different amounts ([Validation](#validation)). `HIGH_MISSING` says that
+the fit corrects the bias of partly called bins when it uses exact counts,
+and points to `APPROX_MISSING_PLACEMENT` for multihetsep.
 With counts, sequences are compared per callable base
 (`BinStats::theta0_callable`, `theta0_comparable`): the autosomal
 reference, the table's het/kb and `vs ref`, `SEX_OR_ORGANELLE` (whose

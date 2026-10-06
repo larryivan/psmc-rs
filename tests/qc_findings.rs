@@ -711,7 +711,8 @@ fn warnings_come_first() {
 /// key metrics.
 #[test]
 fn summary_lists_codes_and_key_metrics() {
-    // Few K bins (a warning) and placement by assumption (a note).
+    // Few K bins (a warning), placement by assumption with 32% of the
+    // bins missing (a warning) and that much missing data (a note).
     let d = data(&[("chr1", 3000, 40, 1500), ("chrM", 160, 0, 0)]);
     let r = qc(
         &d,
@@ -734,9 +735,10 @@ fn summary_lists_codes_and_key_metrics() {
     assert_eq!(s.notes, codes(Severity::Info));
     assert!(s.warnings.iter().any(|c| c == "FEW_HETS"), "{s:?}");
     assert!(
-        s.notes.iter().any(|c| c == "APPROX_MISSING_PLACEMENT"),
+        s.warnings.iter().any(|c| c == "APPROX_MISSING_PLACEMENT"),
         "{s:?}"
     );
+    assert!(s.notes.iter().any(|c| c == "HIGH_MISSING"), "{s:?}");
     assert_eq!((s.sequences, s.bins), (2, 4700));
     assert_eq!(s.missing_fraction, r.totals.missing_fraction);
     assert_eq!(s.theta0_per_bin, r.totals.theta0_per_bin);

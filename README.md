@@ -241,10 +241,16 @@ error.
 
 Multihetsep does not say where the uncalled sites are, only how many lie
 between two rows. psmc-rs places them at the start of each interval, which
-changes which bins are missing compared with fq2psmcfa on the same calls
-(QC notes `APPROX_MISSING_PLACEMENT`), and the callable bases of each bin
-follow the same placement: their sum over each interval is exact, how it is
-split among the bins is not. `--bin-callable auto` therefore fits every
+changes which bins are missing compared with fq2psmcfa on the same calls:
+uncalled sites scattered among called ones become runs of `N` bins after
+heterozygous sites, and the bin of a heterozygous site is partly callable
+or lost. With missing data this biases θ, the times and Ne low (on
+simulated genomes θ came out 0.67 to 0.70 of the fit without missing data
+with 30% of the sites uncalled in runs of about 20 bp, and 0.89 to 0.93 in
+runs of about 20 kb), and QC warns (`APPROX_MISSING_PLACEMENT`) when more
+than 5% of the sites are uncalled. The callable bases of each bin follow
+the same placement: their sum over each interval is exact, how it is split
+among the bins is not. `--bin-callable auto` therefore fits every
 called bin of multihetsep input as `--bin-size` bases, as C psmc would fit
 its bins; `--bin-callable approximate` fits the approximate counts, which
 made the fit worse in the validation ([Partly callable
@@ -493,7 +499,7 @@ warnings), and the output JSON keeps its finding codes.
 | `SHORT_SEQUENCES` | warning | more than 20% of bins in sequences shorter than 1 Mb or than the bootstrap trunk |
 | `SEX_OR_ORGANELLE` | note; warning when one looks hemizygous | sequences named like sex chromosomes or organelles |
 | `HET_OUTLIER` | note | sequences whose heterozygosity is far from the others' median |
-| `APPROX_MISSING_PLACEMENT` | note | multihetsep input (see above) |
+| `APPROX_MISSING_PLACEMENT` | note; warning when more than 5% of the sites are uncalled | multihetsep input, whose reader places the uncalled sites (see above): gives their share and the bias that placement caused in simulations, whatever `--bin-callable` |
 | `DEPTH` | warning | consensus mode: mean depth below 18x, or one filter removing more than 30% of the bases |
 | `DROPPED_SEQUENCES` | note | the loader left out whole sequences |
 

@@ -118,8 +118,13 @@ Command line and outputs:
   `vs ref`, the autosomal reference, `SEX_OR_ORGANELLE` and `HET_OUTLIER`),
   so that a sequence with more missing data does not look less
   heterozygous; `HIGH_MISSING` says when the fit corrects the bias of
-  partly called bins, and `APPROX_MISSING_PLACEMENT` that multihetsep's
-  counts follow its placement of the uncalled sites. The start that `qc`
+  partly called bins. `APPROX_MISSING_PLACEMENT` gives the share of
+  uncalled sites of multihetsep input and is a warning above 5%: its
+  reader's placement of them biases θ, the times and Ne low whatever
+  `--bin-callable` (θ 0.67 to 0.70 of the complete-data fit with 30% of
+  the sites uncalled in 20 bp runs, 0.89 to 0.93 in 20 kb runs, on
+  simulated genomes). `convert --multihetsep` of a VCF with uncalled sites
+  says so. The start that `qc`
   and `convert` check (`INVALID_START`) takes θ0 from the callable bases
   of each bin when a fit with `--bin-callable auto` does (VCF).
 - A bootstrap starts by removing every `replicate_NNN.json`,
@@ -268,7 +273,8 @@ Library API:
   `theta0_comparable` and `het_per_kb_comparable`,
   `QcCode::PartlyCallableBins` (between `VariantsOnlyNoMask` and
   `HighMissing` in report order) and `PARTLY_CALLABLE_NOTE_FRACTION`,
-  `PARTLY_CALLABLE_WARN_MEAN`.
+  `PARTLY_CALLABLE_WARN_MEAN`; `APPROX_PLACEMENT_WARN_FRACTION`, above
+  which `QcCode::ApproxMissingPlacement` is a warning.
 
 Reproduction package (`experiment/`):
 

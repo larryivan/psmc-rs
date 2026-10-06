@@ -326,9 +326,10 @@ fn qc_section(r: &QcReport) -> String {
             &mut out,
             "Callable bases of called bins",
             &escape_html(&format!(
-                "{} on average; {}",
+                "{} on average; {}{}",
                 pct(c.mean_fraction),
-                crate::qc::callable_distribution(c)
+                crate::qc::callable_distribution(c),
+                crate::qc::approximate_counts_note(r)
             )),
         );
     }

@@ -122,6 +122,22 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
             data.n_bins()
         )));
     }
+    if want_sites
+        && format == InputFormat::Vcf
+        && let Some(uncalled) = qc
+            .as_ref()
+            .and_then(|r| r.totals.uncalled_site_fraction)
+            .filter(|&u| u > 0.0)
+    {
+        sink(Event::Info(format!(
+            "multihetsep records how many sites between two rows are called, not which ({:.1}% \
+             of the sites here are uncalled); psmc-rs reads the uncalled sites of each interval \
+             back at its start, which biases theta and Ne low whatever --bin-callable (QC's \
+             APPROX_MISSING_PLACEMENT on the multihetsep says how much), so to fit with psmc-rs, \
+             fit the VCF itself",
+            100.0 * uncalled
+        )));
+    }
     if let Some(path) = &args.multihetsep {
         write_multihetsep(path, &data, &MultihetsepOptions::default())?;
         sink(Event::Output(format!(

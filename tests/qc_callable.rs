@@ -4,8 +4,8 @@
 
 use psmc_rs::io::CallableBases;
 use psmc_rs::qc::{
-    PARTLY_CALLABLE_WARN_MEAN, QcCode, QcContext, QcInput, QcReport, QcSeq, Severity, analyze,
-    render_text,
+    APPROX_PLACEMENT_WARN_FRACTION, PARTLY_CALLABLE_WARN_MEAN, QcCode, QcContext, QcInput,
+    QcReport, QcSeq, Severity, analyze, render_text,
 };
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -149,28 +149,83 @@ fn psmcfa_input_says_how_to_check() {
 }
 
 /// Multihetsep's counts follow the reader's placement of the uncalled
-/// sites, so PARTLY_CALLABLE_BINS does not size a bias from them, and
-/// APPROX_MISSING_PLACEMENT says whether the fit uses them
-/// (`--bin-callable approximate`) or not (`auto`, `ignore`).
+/// sites, so PARTLY_CALLABLE_BINS does not size a bias from them, the
+/// reports call them approximate, and APPROX_MISSING_PLACEMENT says whether
+/// the fit uses them (`--bin-callable approximate`) or not (`auto`,
+/// `ignore`). Above APPROX_PLACEMENT_WARN_FRACTION of the sites uncalled it
+/// warns, with the bias measured in the validation, whatever the mode, and
+/// HIGH_MISSING does not say that the fit corrects anything.
 #[test]
-fn multihetsep_counts_are_approximate() {
+fn multihetsep_placement_is_a_warning_whatever_the_mode() {
     let specs = [("chr1", 50_000, 0.8, 0.01)];
     let (rows, counts) = sequences(&specs, 3);
     let callable = CallableBases::from_counts(100, counts).unwrap();
-    for (ignored, says) in [
-        (false, "which the fit uses (--bin-callable approximate)"),
-        (true, "--bin-callable auto uses exact counts only"),
+    let extent = 50_000 * 100;
+    for (uncalled, severity) in [
+        (0.3, Severity::Warning),
+        (0.06, Severity::Warning),
+        (0.04, Severity::Info),
     ] {
-        let ctx = QcContext {
-            approximate_missing_placement: true,
-            counts_ignored: ignored,
-            ..QcContext::default()
-        };
-        let r = qc(&specs, &rows, Some(&callable), ctx);
-        assert!(r.finding(QcCode::PartlyCallableBins).is_none());
-        let f = r.finding(QcCode::ApproxMissingPlacement).unwrap();
-        assert!(f.message.contains(says), "{}", f.message);
+        for (ignored, says) in [
+            (false, "(--bin-callable approximate)"),
+            (true, "--bin-callable auto uses exact counts only"),
+        ] {
+            let ctx = QcContext {
+                approximate_missing_placement: true,
+                counts_ignored: ignored,
+                ..QcContext::default()
+            };
+            let seqs = [QcSeq {
+                extent_bases: Some(extent),
+                called_bases: Some(((1.0 - uncalled) * extent as f64) as u64),
+                ..QcSeq::new("chr1", rows[0].len())
+            }];
+            let starts = [true];
+            let r = analyze(&QcInput {
+                rows: &rows,
+                row_starts: &starts,
+                seqs: &seqs,
+                bin_size: 100,
+                bootstrap_trunk_bins: 0,
+                context: ctx,
+                callable: Some(&callable),
+            });
+            assert!(r.finding(QcCode::PartlyCallableBins).is_none());
+            let f = r.finding(QcCode::ApproxMissingPlacement).unwrap();
+            assert_eq!(f.severity, severity, "{uncalled} {ignored}");
+            assert!(f.message.contains(says), "{}", f.message);
+            let share = format!("{:.1}% of the sites are uncalled", 100.0 * uncalled);
+            assert!(f.message.contains(&share), "{}", f.message);
+            if severity == Severity::Warning {
+                assert!(
+                    f.message.contains("whatever --bin-callable")
+                        && f.message.contains("0.67-0.70 with 30%"),
+                    "{}",
+                    f.message
+                );
+                assert!(f.recommendation.contains("--vcf-mask"));
+            }
+            if let Some(h) = r.finding(QcCode::HighMissing) {
+                assert!(
+                    h.message.contains("APPROX_MISSING_PLACEMENT"),
+                    "{}",
+                    h.message
+                );
+                assert!(!h.message.contains("corrects"), "{}", h.message);
+            }
+            assert_eq!(
+                r.finding(QcCode::HighMissing).is_some(),
+                uncalled > 0.25,
+                "{uncalled}"
+            );
+            let text = render_text(&r);
+            assert!(
+                text.contains("(approximate: they follow multihetsep"),
+                "{text}"
+            );
+        }
     }
+    const { assert!(APPROX_PLACEMENT_WARN_FRACTION > 0.04 && APPROX_PLACEMENT_WARN_FRACTION < 0.06) };
 }
 
 /// A sequence with more missing data has fewer heterozygous called bins,

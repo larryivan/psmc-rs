@@ -447,9 +447,13 @@ the routes above:
   worse in the validation, so `--bin-callable auto` does not use them and
   fits every called bin of multihetsep input as a full bin
   (`--bin-callable approximate` uses them). The placement itself still
-  biases θ and Ne low when missing data are scattered, whatever the mode
-  (QC: `APPROX_MISSING_PLACEMENT`); the VCF with its callable mask gives
-  exact bins and counts.
+  biases θ and Ne low whatever the mode: on simulated genomes θ came out
+  0.82 to 0.86 of the fit without missing data with 10% of the sites
+  uncalled in runs of about 20 bp, 0.67 to 0.70 with 30%, and 0.89 to 0.93
+  with 30% in runs of about 20 kb (QC warns, `APPROX_MISSING_PLACEMENT`,
+  when more than 5% of the sites are uncalled). The VCF with its callable
+  mask gives exact bins and counts; `psmc-rs convert --multihetsep` says
+  so when the VCF has uncalled sites.
 
 `--bin-callable ignore` reproduces C psmc's model on any input.
 

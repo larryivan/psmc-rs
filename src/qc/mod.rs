@@ -55,12 +55,26 @@ mod stats;
 mod text;
 
 pub(crate) use checks::callable_distribution;
+
+/// What the reports add to the callable bases of the called bins when they
+/// follow multihetsep's placement of the uncalled sites, which
+/// [`QcCode::ApproxMissingPlacement`] describes (that finding is given for
+/// every multihetsep input); empty otherwise.
+pub(crate) fn approximate_counts_note(r: &QcReport) -> &'static str {
+    if r.callable.is_some() && r.finding(QcCode::ApproxMissingPlacement).is_some() {
+        " (approximate: they follow multihetsep's placement of the uncalled sites, see \
+         APPROX_MISSING_PLACEMENT)"
+    } else {
+        ""
+    }
+}
 pub use checks::{
-    Finding, HEMIZYGOUS_MAX_RATIO, HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS,
-    HET_OUTLIER_MIN_FOLD, HET_OUTLIER_MIN_SEQUENCES, HIGH_MISSING_INFO_FRACTION,
-    HIGH_MISSING_WARN_FRACTION, MAX_FILTER_FRACTION, MIN_CALLED_BASES, MIN_HET_BINS,
-    MIN_MEAN_DEPTH, PARTLY_CALLABLE_NOTE_FRACTION, PARTLY_CALLABLE_WARN_MEAN, QcCode,
-    REFERENCE_MIN_CALLED_BASES, SHORT_SEQUENCES_MAX_FRACTION, Severity,
+    APPROX_PLACEMENT_WARN_FRACTION, Finding, HEMIZYGOUS_MAX_RATIO,
+    HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS, HET_OUTLIER_MIN_FOLD,
+    HET_OUTLIER_MIN_SEQUENCES, HIGH_MISSING_INFO_FRACTION, HIGH_MISSING_WARN_FRACTION,
+    MAX_FILTER_FRACTION, MIN_CALLED_BASES, MIN_HET_BINS, MIN_MEAN_DEPTH,
+    PARTLY_CALLABLE_NOTE_FRACTION, PARTLY_CALLABLE_WARN_MEAN, QcCode, REFERENCE_MIN_CALLED_BASES,
+    SHORT_SEQUENCES_MAX_FRACTION, Severity,
 };
 pub use names::{SeqKind, classify_name};
 pub use text::{TextOptions, render_text, render_text_with};

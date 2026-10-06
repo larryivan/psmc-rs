@@ -353,15 +353,23 @@ fn auto_does_not_fit_multihetseps_approximate_counts() {
     let (vcf, bed) = synthetic(&dir, 0.3);
     let mhs = dir.path("calls.multihetsep");
     let psmcfa = dir.path("calls_mhs.psmcfa");
-    run_ok([
+    // Writing multihetsep from a VCF with uncalled sites says what reading
+    // it back costs.
+    let out = common::run([
         "convert",
         vcf.to_str().unwrap(),
         "--vcf-mask",
         bed.unwrap().to_str().unwrap(),
         "--multihetsep",
         mhs.to_str().unwrap(),
-        "--quiet",
     ]);
+    assert!(out.status.success());
+    let says = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        says.contains("of the sites here are uncalled")
+            && says.contains("so to fit with psmc-rs, fit the VCF itself"),
+        "{says}"
+    );
     run_ok([
         "convert",
         mhs.to_str().unwrap(),
@@ -379,6 +387,21 @@ fn auto_does_not_fit_multihetseps_approximate_counts() {
         (&b["mode"], &b["model"], &b["counts"]),
         (&"auto".into(), &"full-bins".into(), &"approximate".into())
     );
+    // With 30% of the sites uncalled, QC warns about the placement in
+    // every mode, and sizes no bias from the approximate counts.
+    for v in [&auto, &approx] {
+        let codes = |list: &str| -> Vec<String> {
+            v["qc"][list]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c.as_str().unwrap().to_string())
+                .collect()
+        };
+        assert!(codes("warnings").contains(&"APPROX_MISSING_PLACEMENT".to_string()));
+        assert!(!codes("warnings").contains(&"PARTLY_CALLABLE_BINS".to_string()));
+        assert!(!codes("notes").contains(&"PARTLY_CALLABLE_BINS".to_string()));
+    }
     assert!(b["callable"]["partial_bins"].as_u64().unwrap() > 0);
     assert_eq!(fit_bits(&auto), fit_bits(&ignore));
     assert_eq!(fit_bits(&auto), fit_bits(&plain));
