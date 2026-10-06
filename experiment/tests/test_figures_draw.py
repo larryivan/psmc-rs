@@ -123,6 +123,36 @@ class Draw(unittest.TestCase):
             if len(z) == 2:
                 self.assertGreater(min(z[style.BLUE_650]), max(z[style.MAGENTA]))
 
+    def test_fig6_legend_names_every_element_and_the_projected_truth_when_given(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        fig = self._draw("fig6")
+        labels = self._labels(fig)
+        for want in ("True sampling SD and its 95% interval (b, c)", "Covers the fits' mean (d)",
+                     "Clopper-Pearson 95% interval", "Interquartile range over the genomes (c)", "Nominal 95% (d)",
+                     "window coverage of the true"):
+            self.assertTrue(any(want in label for label in labels), want)
+        self.assertFalse(any("projected" in label for label in labels))
+        with tempfile.TemporaryDirectory() as d:
+            runs = Path(d)
+            shutil.copytree(self.runs / "E5" / "tables", runs / "E5" / "tables")
+            path = SCHEMAS["E5_coverage"].path(runs)
+            cov = pd.read_csv(path)
+            cov["coverage_projected"] = cov["coverage_fit_mean"]
+            cov.to_csv(path, index=False)
+            path = SCHEMAS["E5_summary"].path(runs)
+            summary = pd.read_csv(path)
+            summary["coverage_projected_mean"] = 0.5
+            summary.to_csv(path, index=False)
+            fig = self._draw("fig6", runs)
+        labels = self._labels(fig)
+        self.assertIn("Covers the projected truth (d)", labels)
+        self.assertTrue(any("projected truth 50%" in label for label in labels))
+        trunks = cov["trunk_bins"].nunique()
+        self.assertEqual(sum(1 for ln in fig.axes[3].lines if ln.get_marker() not in ("None", "", None)), trunks)
+
     def test_a_truth_table_that_disagrees_with_the_models_is_refused(self):
         import pandas as pd
 

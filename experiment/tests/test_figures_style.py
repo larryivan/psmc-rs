@@ -296,6 +296,40 @@ class FigureContent(unittest.TestCase):
         self.assertGreater(fig5.LINE_Z["mask_ignore"], fig5.LINE_Z["nomask"])
         self.assertGreater(fig5.LINE_Z["mask_ignore"], fig5.LINE_Z["mask_auto"])
 
+    def test_fig6_finds_projected_truth_coverage_when_given(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures import fig6
+
+        cov = pd.DataFrame(columns=["trunk_bins", "coverage", "coverage_ci_lo", "coverage_ci_hi", "coverage_fit_mean"])
+        summary = pd.DataFrame(columns=["coverage_mean", "coverage_mean_ci_lo", "coverage_mean_ci_hi",
+                                        "coverage_of_fit_mean_mean"])
+        self.assertIsNone(fig6.projected_columns(cov, summary))
+        cov["coverage_projected"] = []
+        cov["coverage_projected_ci_lo"] = []
+        cov["coverage_projected_ci_hi"] = []
+        cols = fig6.projected_columns(cov, summary)
+        self.assertEqual((cols["point"], cols["lo"], cols["hi"], cols["mean"]),
+                         ("coverage_projected", "coverage_projected_ci_lo", "coverage_projected_ci_hi", None))
+        summary["coverage_of_projected_truth_mean"] = []
+        summary["coverage_of_projected_truth_mean_ci_lo"] = []
+        summary["coverage_of_projected_truth_mean_ci_hi"] = []
+        cols = fig6.projected_columns(cov, summary)
+        self.assertEqual((cols["mean"], cols["mean_lo"], cols["mean_hi"]),
+                         ("coverage_of_projected_truth_mean", "coverage_of_projected_truth_mean_ci_lo",
+                          "coverage_of_projected_truth_mean_ci_hi"))
+
+        row = pd.DataFrame([{"trunk_mb": 50.0, "trunks": 6, "coverage_mean": 0.3715, "coverage_mean_ci_lo": 0.3145,
+                             "coverage_mean_ci_hi": 0.429, "coverage_of_fit_mean_mean": 0.827,
+                             "coverage_of_projected_truth_mean": 0.6, "coverage_of_projected_truth_mean_ci_lo": 0.5,
+                             "coverage_of_projected_truth_mean_ci_hi": 0.7}]).itertuples().__next__()
+        label = fig6.coverage_label(row, cols)
+        self.assertIn("50 Mb trunks (6 per genome)", label)
+        self.assertIn("37% (31–43%)", label)
+        self.assertIn("projected truth 60% (50–70%)", label)
+        self.assertIn("fits' mean 83%", label)
+        self.assertNotIn("projected", fig6.coverage_label(row, None))
+
 
 class Readme(unittest.TestCase):
     def test_lists_every_table_and_column(self):
