@@ -17,10 +17,12 @@
 //!
 //! which assumes `e_K = 1 - e_T`, as PSMC's emissions are. Each `(symbol,
 //! count)` pair that occurs in the input gets its own index and row, built
-//! once per pass (at most `2 (s + 1) + 1` of them, 183 for bins of 100
-//! bases), so that the inner loops stay a lookup. The rows of full bins (`c
-//! = s`) are the model's own rows, so that input whose bins are all full
-//! gives exactly the results of input without counts.
+//! once per pass, so that the inner loops stay a lookup: a `T` or `K` bin
+//! holds `ceil(s / 10)` to `s` callable bases and every `N` bin shares one
+//! index, so there are at most `2 (s - ceil(s / 10) + 1) + 1` of them, 183
+//! for bins of 100 bases. The rows of full bins (`c = s`) are the model's
+//! own rows, so that input whose bins are all full gives exactly the
+//! results of input without counts.
 
 use anyhow::{Result, bail};
 use ndarray::Array2;
@@ -313,6 +315,33 @@ mod tests {
         assert!((stats.t_weighted[3] - (0.1 + 0.57 + 1.0) * 4.0).abs() < 1e-14);
         let k_counts: Vec<u16> = stats.k_by_count.iter().map(|(c, _)| *c).collect();
         assert_eq!(k_counts, [10, 99, 100]);
+    }
+
+    /// Every valid pair of symbol and count gives at most `2 (s - ceil(s /
+    /// 10) + 1) + 1` indices (183 for `s = 100`), the bound the module
+    /// documentation and the M-step's cost state.
+    #[test]
+    fn indices_are_bounded_by_the_valid_counts() {
+        for s in [1usize, 9, 10, 37, 100, 255, 1000] {
+            let called = s.div_ceil(10)..=s;
+            let mut row = Vec::new();
+            let mut counts = Vec::new();
+            for c in called.clone() {
+                row.extend([0u8, 1]);
+                counts.extend([c as u16, c as u16]);
+            }
+            for c in 0..s.div_ceil(10) {
+                row.push(2);
+                counts.push(c as u16);
+            }
+            let callable = CallableBases::from_counts(s, vec![counts]).unwrap();
+            let table = ObsTable::counted(&[row], &callable).unwrap();
+            let k_counts = s - s.div_ceil(10) + 1;
+            assert_eq!(table.len(), 2 * k_counts + 1, "s = {s}");
+            if s == 100 {
+                assert_eq!((table.len(), k_counts), (183, 91));
+            }
+        }
     }
 
     #[test]

@@ -28,8 +28,9 @@
 //! O(states) memory besides the counts: the transition matrix is never
 //! stored, and nothing is allocated once the workspace exists. With
 //! callable bases, the `K` bins of each count add an exponential, a
-//! logarithm and a division per state (at most `s + 1` counts, 91 for bins
-//! of 100 bases).
+//! logarithm and a division per state (a `K` bin holds `ceil(s / 10)` to
+//! `s` callable bases, so there are at most `s - ceil(s / 10) + 1` counts,
+//! 91 for bins of 100 bases).
 //! Forward-mode differentiation, which this replaces, carried the
 //! derivatives with respect to every parameter through each of the
 //! states² transition probabilities, at O(states² × parameters) time and
