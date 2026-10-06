@@ -243,7 +243,9 @@ const SEMISEP_TOL: f64 = 1e-13;
 /// PSMC's matrix has this form (in `PsmcModel::param_recalculate`, row `k`
 /// is `tmp3_k * q[m]` with `q[m] = tmp_k * q_aux[m]` below the diagonal and
 /// `(alpha[m] - alpha[m + 1]) * tmp2_k` above it), so a product with a
-/// vector needs only one prefix sum and one suffix sum. The factors are
+/// vector needs only one prefix sum and one suffix sum: the linear-time
+/// forward and backward steps of Harris et al. (2014, *Decoding coalescent
+/// hidden Markov models in linear time*, RECOMB). The factors are
 /// recovered from the matrix itself and accepted only if every entry is
 /// reproduced to [`SEMISEP_TOL`].
 #[derive(Debug, Clone)]

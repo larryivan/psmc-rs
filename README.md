@@ -793,6 +793,13 @@ If you use psmc-rs, please cite it as given in [CITATION.cff](CITATION.cff)
 > individual whole-genome sequences. *Nature* 475:493-496.
 > doi:10.1038/nature10231
 
+Its O(states) forward and backward steps use the rank-one triangles of the
+transition matrix, as in:
+
+> Harris K, Sheehan S, Kamm JA, Song YS (2014). Decoding coalescent hidden
+> Markov models in linear time. In *Research in Computational Molecular
+> Biology (RECOMB 2014)*, LNCS 8394:100-114.
+
 ## Contributing and license
 
 Bug reports and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
