@@ -253,14 +253,18 @@ Library API:
   `model::ThetaCounts` give the starting θ0. Without counts, or with every
   called bin full, every one of these gives C psmc's results to the bit;
   `e_step_streaming`, `log_likelihood`, `write_tmrca_posterior_tsv`,
-  `em_train` and `initial_theta` keep their signatures and C's model.
+  `em_train` and `initial_theta` keep their signatures and C's model. The
+  new fields `EStepOptions::callable` and `EmOptions::callable` break code
+  that builds these options with a struct literal of every field; one
+  that ends in `..Default::default()` still compiles.
 - Bootstrap: `observations_to_sequences`, `split_sequences_for_bootstrap`,
   `resample_sequences` and `run_bootstrap_sequences` carry the counts with
   their bins and draw the same trunks as without them; the replicates of
   `run_bootstrap_sequences` are fitted with them, from
   `replicate_initial_model_with_callable`, and
   `invalid_replicate_starts_sequences` finds the replicates it skips.
-  `BootstrapReplicate` gains `callable`.
+  `BootstrapReplicate` gains `callable`, which breaks code that builds it
+  with a struct literal (it has no `Default`; add `callable: None`).
 - Outputs: `io::params::RunMetadata::bin_callable`
   (`io::params::BinCallableRecord`, with `CALLABLE_LENGTH_MODEL` and
   `FULL_BINS_MODEL`), `psmc_out::PsmcRunInfo::bin_callable` and
@@ -268,7 +272,8 @@ Library API:
   `report::bin_callable_rows`; struct literals of these types need the new
   fields.
 - QC: `qc::QcInput::callable` (struct literals need `callable: None`),
-  `QcContext::counts_ignored`, `QcReport::callable`,
+  `QcContext::counts_ignored` (struct literals of every field need it;
+  `..QcContext::default()` covers it), `QcReport::callable`,
   `QcReport::het_per_callable_kb` and `HET_PER_CALLABLE_KB_NOTE`,
   `QcSummary::het_per_callable_kb` (struct literals need it),
   `BinStats::{theta0_callable, mean_callable_fraction,
