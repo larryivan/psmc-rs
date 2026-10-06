@@ -394,25 +394,35 @@ class TimingProtocol:
 
     Before the run it waits ``settle_seconds``, then until the CPU use of the
     whole machine over ``quiet_window_seconds`` is at most
-    ``quiet_cpu_percent`` of all cores. During the run it samples the RSS of
-    the tool's process tree every ``rss_sample_seconds`` (the tools are
-    single processes, whose own ``ru_maxrss`` is the exact peak; the larger
-    is kept) and afterwards records the CPU time that other processes used
-    while it ran. A run is only kept when it was clean: the machine became
-    quiet within ``max_wait_seconds``, other processes used at most
-    ``max_other_cpu_share`` of all cores during it, the machine did not sleep
-    (wall-clock span within ``max_sleep_seconds`` of the monotonic run time)
-    and, with ``require_ac_power``, it ran on AC power without Low Power
-    Mode. Otherwise ``measure`` writes no record and exits with status 75,
-    and the runner starts the run again later (it defers it).
+    ``quiet_cpu_percent`` of all cores and at most ``quiet_max_cores`` cores.
+    During the run it samples the RSS of the tool's process tree every
+    ``rss_sample_seconds`` (the tools are single processes, whose own
+    ``ru_maxrss`` is the exact peak; the larger is kept) and afterwards
+    records the CPU time that other processes used while it ran. A run is
+    only kept when it was clean: the machine became quiet within
+    ``max_wait_seconds``, other processes used at most
+    ``max_other_cpu_share`` of all cores and at most ``max_other_cores``
+    cores on average during it, the machine did not sleep (wall-clock span
+    within ``max_sleep_seconds`` of the monotonic run time) and, with
+    ``require_ac_power``, it ran on AC power without Low Power Mode.
+    Otherwise ``measure`` writes no record and exits with status 75, and the
+    runner starts the run again later (it defers it).
+
+    Each limit is the smaller of a share of all cores and a number of cores:
+    on the 8 to 10 cores of a laptop the shares decide (0.8 to 1 core busy
+    before a run, 0.4 to 0.5 core of other work during it), while on a node
+    of 128 or 192 cores the shares would let 6 to 19 busy cores pass, and the
+    core counts decide.
     """
 
     settle_seconds: float = 10.0
     quiet_cpu_percent: float = 10.0
+    quiet_max_cores: float = 1.0
     quiet_window_seconds: float = 2.0
     max_wait_seconds: float = 180.0
     rss_sample_seconds: float = 0.5
     max_other_cpu_share: float = 0.05  # of all cores, over the run
+    max_other_cores: float = 0.5  # core-equivalents (CPU seconds of other processes / wall seconds)
     max_sleep_seconds: float = 2.0
     require_ac_power: bool = True
 
@@ -420,8 +430,9 @@ class TimingProtocol:
 # For the smoke and tiny profiles: no waiting, one short look at the machine,
 # and every run kept whatever else the machine does.
 QUICK_TIMING = TimingProtocol(settle_seconds=0.0, quiet_window_seconds=0.2, max_wait_seconds=0.0,
-                              rss_sample_seconds=0.05, quiet_cpu_percent=100.0, max_other_cpu_share=1.0,
-                              max_sleep_seconds=1e9, require_ac_power=False)
+                              rss_sample_seconds=0.05, quiet_cpu_percent=100.0, quiet_max_cores=1e9,
+                              max_other_cpu_share=1.0, max_other_cores=1e9, max_sleep_seconds=1e9,
+                              require_ac_power=False)
 
 
 @dataclass(frozen=True)

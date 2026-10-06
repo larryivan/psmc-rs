@@ -56,8 +56,58 @@ class Genomes(unittest.TestCase):
         self.assertEqual(args[args.index("--settle") + 1], "10")
         self.assertEqual(args[args.index("--quiet-cpu") + 1], "10")
         self.assertEqual(args[args.index("--max-wait") + 1], "180")
+        self.assertEqual(args[args.index("--quiet-max-cores") + 1], "1")
+        self.assertEqual(args[args.index("--max-other-cores") + 1], "0.5")
         parsed = e3_run.build_parser().parse_args(["measure", "--out", "x.json", *args])
         self.assertEqual(parsed.max_wait, config.TimingProtocol().max_wait_seconds)
+        self.assertEqual((parsed.quiet_max_cores, parsed.max_other_cores), (1.0, 0.5))
+
+    def test_limits_are_shares_of_a_laptop_and_core_counts_of_a_cluster_node(self):
+        p = config.TimingProtocol()
+        for cores, quiet, other in ((8, 0.8, 0.4), (128, 1.0, 0.5), (192, 1.0, 0.5)):
+            with self.subTest(cores=cores):
+                self.assertAlmostEqual(min(p.quiet_cpu_percent / 100 * cores, p.quiet_max_cores), quiet)
+                self.assertAlmostEqual(min(p.max_other_cpu_share * cores, p.max_other_cores), other)
+        res = {"during": {"other_cpu_share": 0.004, "other_cores": 0.5}, "wall_seconds": 10.0, "clock_span_seconds": 10.0}
+        self.assertIsNone(e3_run.unclean(res, p))
+        res["during"]["other_cores"] = 0.77  # 0.6% of 128 cores
+        self.assertIn("0.77 cores", e3_run.unclean(res, p))
+        del res["during"]["other_cores"]  # an older record: from the CPU seconds of the others
+        res["during"]["other_cpu_seconds"] = 7.7
+        self.assertIn("0.77 cores", e3_run.unclean(res, p))
+
+    def test_linux_machine(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            cpu = root / "sys/devices/system/cpu"
+            for i in range(2):
+                (cpu / f"cpu{i}/cpufreq").mkdir(parents=True)
+                (cpu / f"cpu{i}/cpufreq/scaling_governor").write_text("performance\n")
+            (cpu / "cpu0/cpufreq/scaling_driver").write_text("acpi-cpufreq\n")
+            (cpu / "cpufreq").mkdir()
+            (cpu / "cpufreq/boost").write_text("1\n")
+            (root / "proc").mkdir()
+            (root / "proc/cpuinfo").write_text("processor\t: 0\nmodel name\t: AMD EPYC 7702 64-Core Processor\n")
+            (root / "proc/meminfo").write_text("MemTotal:       527622968 kB\n")
+            env = {"SLURM_JOB_ID": "12345678", "SLURM_JOB_NODELIST": "cn509-02-l", "HOME": "/h"}
+            info = e3_run.linux_machine(root, env)
+            self.assertEqual(info["cpu"], "AMD EPYC 7702 64-Core Processor")
+            self.assertEqual((info["cpu_governor"], info["cpu_scaling_driver"], info["cpu_boost"]),
+                             ("performance", "acpi-cpufreq", "1"))
+            self.assertAlmostEqual(info["memory_gb"], 503.2, places=1)
+            self.assertEqual((info["slurm_job_id"], info["slurm_job_nodelist"]), ("12345678", "cn509-02-l"))
+            self.assertNotIn("slurm_cpus_on_node", info)
+            self.assertTrue(info["hostname"])
+            # Intel: no boost switch, but intel_pstate's no_turbo; governors that differ are all named
+            (cpu / "cpufreq/boost").unlink()
+            (cpu / "intel_pstate").mkdir()
+            (cpu / "intel_pstate/no_turbo").write_text("1\n")
+            (cpu / "cpu1/cpufreq/scaling_governor").write_text("powersave\n")
+            info = e3_run.linux_machine(root, {})
+            self.assertEqual((info["cpu_boost"], info["cpu_governor"]), ("0", "performance,powersave"))
+        with tempfile.TemporaryDirectory() as d:  # nothing readable: nothing claimed
+            info = e3_run.linux_machine(Path(d), {})
+            self.assertEqual(set(info), {"hostname"})
 
 
 @unittest.skipUnless(HAS_MSPRIME, "msprime not installed")
@@ -138,6 +188,12 @@ class Measure(unittest.TestCase):
         seen = e3_run.wait_until_quiet(always, log=lambda m: None)
         self.assertTrue(seen["quiet"])
         self.assertLess(seen["waited_seconds"], 5.0)
+        self.assertGreaterEqual(seen["busy_cores"], 0.0)
+        # a share that any machine meets, but no cores to spare
+        no_cores = replace(NO_WAIT, quiet_cpu_percent=100.0, quiet_max_cores=-1.0, max_wait_seconds=0.0)
+        seen = e3_run.wait_until_quiet(no_cores, log=lambda m: None)
+        self.assertFalse(seen["quiet"])
+        self.assertEqual(seen["threshold_cores"], -1.0)
 
     def test_an_unclean_run_writes_nothing_and_asks_to_be_run_later(self):
         busy = replace(NO_WAIT, quiet_cpu_percent=-1.0, max_wait_seconds=0.0)
@@ -146,7 +202,10 @@ class Measure(unittest.TestCase):
         crowded = replace(NO_WAIT, max_other_cpu_share=-1.0)
         self.assertEqual(self.measure(1, protocol=crowded), e3_run.EX_TEMPFAIL)  # contaminated: not kept
         self.assertFalse(self.out.exists())
-        res = {"during": {"other_cpu_share": 0.01}, "wall_seconds": 10.0, "clock_span_seconds": 70.0}
+        crowded = replace(NO_WAIT, max_other_cores=-1.0)
+        self.assertEqual(self.measure(1, protocol=crowded), e3_run.EX_TEMPFAIL)  # by the cores, too
+        self.assertFalse(self.out.exists())
+        res ={"during": {"other_cpu_share": 0.01}, "wall_seconds": 10.0, "clock_span_seconds": 70.0}
         protocol = config.TimingProtocol()
         self.assertIn("slept", e3_run.unclean(res, protocol))
         self.assertIsNone(e3_run.unclean({**res, "clock_span_seconds": 10.5}, protocol))
@@ -160,10 +219,13 @@ class Measure(unittest.TestCase):
     def test_command_line(self):
         with contextlib.redirect_stdout(io.StringIO()):
             rc = e3_run.main(["measure", "--out", str(self.out), "--settle", "0", "--max-wait", "0",
-                              "--quiet-cpu", "100", "--max-other-cpu", "1", "--no-require-ac",
+                              "--quiet-cpu", "100", "--quiet-max-cores", "1e9", "--max-other-cpu", "1",
+                              "--max-other-cores", "1e9", "--no-require-ac",
                               "--quiet-window", "0.05", "--", sys.executable, "-c", "pass"])
         self.assertEqual(rc, 0)
-        self.assertTrue(self.out.exists())
+        rec = json.loads(self.out.read_text())
+        self.assertEqual((rec["protocol"]["quiet_max_cores"], rec["protocol"]["max_other_cores"]), (1e9, 1e9))
+        self.assertGreaterEqual(rec["during"]["other_cores"], 0.0)
         with self.assertRaises(SystemExit):
             e3_run.main(["measure", "--out", str(self.out)])
 

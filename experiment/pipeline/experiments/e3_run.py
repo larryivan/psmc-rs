@@ -10,21 +10,24 @@
     runs ``TOOL ARGS...`` and writes how it ran to TIMING.json. Before the
     run it waits ``--settle`` seconds, then until the machine is quiet: the
     CPU use of all processes together over ``--quiet-window`` seconds is at
-    most ``--quiet-cpu`` percent of all cores. It then starts the tool, with
+    most ``--quiet-cpu`` percent of all cores and at most
+    ``--quiet-max-cores`` cores. It then starts the tool, with
     the environment cleaned of variables that change psmc-rs's behaviour or
     build (``PSMC_*``, ``RUSTFLAGS``, ...), and samples the RSS of the tool's
     process tree every ``--sample`` seconds; the peak RSS is the larger of
     the sampled peak and the tool's own ``ru_maxrss``. The record holds the
     wall time, the tool's user and system CPU time, the peak RSS, the load
     average before and after, the busiest processes before the run, the CPU
-    time that other processes used while it ran, the power source and the
-    environment. When the tool fails, nothing is written and the command
-    exits with the tool's status. When the run is not clean (the machine
-    did not become quiet within ``--max-wait`` seconds, is on battery or in
-    Low Power Mode with ``--require-ac``, slept during the run, or other
-    processes used more than ``--max-other-cpu`` of all cores), nothing is
-    written and the command exits with status 75, which the runner takes as
-    "not now": it starts the run again later.
+    time that other processes used while it ran, the power source, the
+    environment and the machine (on Linux also its CPU model, frequency
+    governor and boost, and the SLURM job). When the tool fails, nothing is
+    written and the command exits with the tool's status. When the run is
+    not clean (the machine did not become quiet within ``--max-wait``
+    seconds, is on battery or in Low Power Mode with ``--require-ac``, slept
+    during the run, or other processes used more than ``--max-other-cpu`` of
+    all cores or more than ``--max-other-cores`` cores on average), nothing
+    is written and the command exits with status 75, which the runner takes
+    as "not now": it starts the run again later.
 
 Only the tool's processes are measured, not this wrapper (the runner's own
 record of the job includes the wrapper's Python interpreter). The module is
@@ -37,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -47,7 +51,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import config, paths, provenance, simulate
 
-RECORD = "psmc-rs-manuscript/E3/timing/2"
+RECORD = "psmc-rs-manuscript/E3/timing/3"
 EX_TEMPFAIL = 75  # not a clean run: the runner defers the job
 # Variables removed from the tool's environment: psmc-rs reads PSMC_*
 # (e.g. psmc-rs 0.1's PSMC_ALPHA_CACHE_MB, which changes its memory and
@@ -99,8 +103,9 @@ def machine_activity(window: float, top: int = 5) -> Dict:
     """The CPU use of the whole machine over ``window`` seconds, and the busiest processes.
 
     ``busy_percent`` is the share of all cores in use (100 = every core
-    busy); ``busiest`` lists the processes with the most CPU in the window
-    (``cpu_percent``: 100 = one core), this process excluded.
+    busy) and ``busy_cores`` the same as a number of cores; ``busiest``
+    lists the processes with the most CPU in the window (``cpu_percent``:
+    100 = one core), this process excluded.
     """
     import psutil
 
@@ -128,9 +133,11 @@ def machine_activity(window: float, top: int = 5) -> Dict:
         except psutil.Error:
             pass
     usage.sort(key=lambda u: -u[0])
+    share = busy / total if total > 0 else 0.0
     return {
         "window_seconds": round(elapsed, 3),
-        "busy_percent": round(100.0 * busy / total, 2) if total > 0 else 0.0,
+        "busy_percent": round(100.0 * share, 2),
+        "busy_cores": round(share * (psutil.cpu_count() or 1), 3),
         "busiest": [{"pid": pid, "name": name, "cpu_percent": round(c, 1)} for c, pid, name in usage[:top]],
     }
 
@@ -168,16 +175,19 @@ def wait_until_quiet(protocol: config.TimingProtocol, log=print) -> Dict:
     while True:
         act = machine_activity(protocol.quiet_window_seconds)
         waited = time.monotonic() - t0
-        quiet = act["busy_percent"] <= protocol.quiet_cpu_percent
+        quiet = act["busy_percent"] <= protocol.quiet_cpu_percent and act["busy_cores"] <= protocol.quiet_max_cores
         if quiet or waited >= protocol.max_wait_seconds:
             break
-        log(f"[measure] machine busy ({act['busy_percent']:.0f}% of all cores); waiting")
+        log(f"[measure] machine busy ({act['busy_percent']:.0f}% of all cores, {act['busy_cores']:.1f} cores); waiting")
     if not quiet:
-        log(f"[measure] machine not quiet after {waited:.0f} s ({act['busy_percent']:.0f}% busy)")
+        log(f"[measure] machine not quiet after {waited:.0f} s ({act['busy_percent']:.0f}% busy, "
+            f"{act['busy_cores']:.1f} cores)")
     return {
         "quiet": quiet,
         "busy_percent": act["busy_percent"],
+        "busy_cores": act["busy_cores"],
         "threshold_percent": protocol.quiet_cpu_percent,
+        "threshold_cores": protocol.quiet_max_cores,
         "window_seconds": act["window_seconds"],
         "settle_seconds": protocol.settle_seconds,
         "waited_seconds": round(waited, 3),
@@ -185,9 +195,58 @@ def wait_until_quiet(protocol: config.TimingProtocol, log=print) -> Dict:
     }
 
 
+def _read_text(path: Path) -> Optional[str]:
+    try:
+        return path.read_text().strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def linux_machine(root: Path = Path("/"), env: Optional[Dict[str, str]] = None) -> Dict:
+    """What Linux tells of the CPU and the job, where it is readable (keys left out otherwise).
+
+    ``cpu`` (``model name`` of /proc/cpuinfo), ``memory_gb``, the cpufreq
+    ``cpu_governor`` (every core's, joined by "," when they differ) and
+    ``cpu_scaling_driver`` of cpu0, ``cpu_boost`` ("1" on, "0" off: the
+    ``cpufreq/boost`` switch, else the inverse of intel_pstate's
+    ``no_turbo``), the cores this process may run on (``cpus_allowed``, a
+    SLURM allocation's), the ``hostname`` and the SLURM job
+    (``SLURM_JOB_ID``, ``SLURM_JOB_NODELIST``, ``SLURM_CPUS_ON_NODE``).
+    """
+    env = dict(os.environ if env is None else env)
+    info: Dict = {}
+    m = re.search(r"^model name\s*:\s*(.+)$", _read_text(root / "proc/cpuinfo") or "", re.M)
+    if m:
+        info["cpu"] = m.group(1).strip()
+    m = re.search(r"^MemTotal:\s*(\d+)\s*kB", _read_text(root / "proc/meminfo") or "", re.M)
+    if m:
+        info["memory_gb"] = round(int(m.group(1)) / 2**20, 1)
+    cpus = root / "sys/devices/system/cpu"
+    governors = {g for g in (_read_text(p) for p in cpus.glob("cpu[0-9]*/cpufreq/scaling_governor")) if g}
+    if governors:
+        info["cpu_governor"] = ",".join(sorted(governors))
+    driver = _read_text(cpus / "cpu0/cpufreq/scaling_driver")
+    if driver:
+        info["cpu_scaling_driver"] = driver
+    boost, no_turbo = _read_text(cpus / "cpufreq/boost"), _read_text(cpus / "intel_pstate/no_turbo")
+    if boost in ("0", "1"):
+        info["cpu_boost"] = boost
+    elif no_turbo in ("0", "1"):
+        info["cpu_boost"] = "0" if no_turbo == "1" else "1"
+    if hasattr(os, "sched_getaffinity") and root == Path("/"):
+        info["cpus_allowed"] = len(os.sched_getaffinity(0))
+    info["hostname"] = platform.node()
+    for key in ("SLURM_JOB_ID", "SLURM_JOB_NODELIST", "SLURM_CPUS_ON_NODE"):
+        if env.get(key):
+            info[key.lower()] = env[key]
+    return info
+
+
 def machine() -> Dict:
-    """:func:`.provenance.machine`, with the performance and efficiency cores of Apple silicon."""
+    """:func:`.provenance.machine`, with the performance and efficiency cores of Apple silicon, or :func:`linux_machine`."""
     info = provenance.machine()
+    if sys.platform.startswith("linux"):
+        info.update(linux_machine())
     if sys.platform == "darwin":
         for key, name in (("hw.perflevel0.physicalcpu", "performance_cores"), ("hw.perflevel1.physicalcpu", "efficiency_cores")):
             try:
@@ -270,8 +329,10 @@ def run_measured(cmd: Sequence[str], sample_seconds: float, env: Optional[Dict[s
         "loadavg_after": [round(x, 2) for x in load_after],
         "during": {
             "other_cpu_seconds": round(other, 3),
-            # CPU time of other processes as a share of every core over the run
+            # CPU time of other processes as a share of every core over the run,
+            # and as the cores they kept busy on average
             "other_cpu_share": round(other / machine_total, 4) if machine_total > 0 else 0.0,
+            "other_cores": round(other / wall, 4) if wall > 0 else 0.0,
             "machine_busy_percent": round(100.0 * machine_busy / machine_total, 2) if machine_total > 0 else 0.0,
         },
     }
@@ -329,12 +390,24 @@ def measure(
     return 0
 
 
+def other_cores(res: Dict) -> float:
+    """The cores other processes kept busy on average during a run (from their CPU seconds in older records)."""
+    during = res.get("during", {})
+    if "other_cores" in during:
+        return float(during["other_cores"])
+    wall = res.get("wall_seconds") or 0.0
+    return float(during.get("other_cpu_seconds") or 0.0) / wall if wall > 0 else 0.0
+
+
 def unclean(res: Dict, protocol: config.TimingProtocol) -> Optional[str]:
     """Why a finished run is not a clean measurement, or None."""
     share = res["during"]["other_cpu_share"]
     if share > protocol.max_other_cpu_share:
         return (f"other processes used {100 * share:.1f}% of all cores during the run "
                 f"(at most {100 * protocol.max_other_cpu_share:g}%)")
+    cores = other_cores(res)
+    if cores > protocol.max_other_cores:
+        return f"other processes kept {cores:.2f} cores busy during the run (at most {protocol.max_other_cores:g})"
     slept = res["clock_span_seconds"] - res["wall_seconds"]
     if slept > protocol.max_sleep_seconds:
         return f"the machine slept for about {slept:.0f} s during the run"
@@ -346,10 +419,12 @@ def measure_args(protocol: config.TimingProtocol) -> List[str]:
     return [
         "--settle", f"{protocol.settle_seconds:g}",
         "--quiet-cpu", f"{protocol.quiet_cpu_percent:g}",
+        "--quiet-max-cores", f"{protocol.quiet_max_cores:g}",
         "--quiet-window", f"{protocol.quiet_window_seconds:g}",
         "--max-wait", f"{protocol.max_wait_seconds:g}",
         "--sample", f"{protocol.rss_sample_seconds:g}",
         "--max-other-cpu", f"{protocol.max_other_cpu_share:g}",
+        "--max-other-cores", f"{protocol.max_other_cores:g}",
         "--max-sleep", f"{protocol.max_sleep_seconds:g}",
         "--require-ac" if protocol.require_ac_power else "--no-require-ac",
     ]
@@ -375,11 +450,14 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--runs-dir", type=Path, help="runs directory, written as <runs> in the record")
     m.add_argument("--settle", type=float, default=d.settle_seconds, help="seconds to wait first")
     m.add_argument("--quiet-cpu", type=float, default=d.quiet_cpu_percent, help="quiet: CPU use at most this %% of all cores")
+    m.add_argument("--quiet-max-cores", type=float, default=d.quiet_max_cores, help="quiet: and at most this many cores")
     m.add_argument("--quiet-window", type=float, default=d.quiet_window_seconds, help="seconds over which CPU use is measured")
     m.add_argument("--max-wait", type=float, default=d.max_wait_seconds, help="run anyway after waiting this long")
     m.add_argument("--sample", type=float, default=d.rss_sample_seconds, help="seconds between RSS samples")
     m.add_argument("--max-other-cpu", type=float, default=d.max_other_cpu_share,
                    help="clean: other processes used at most this share of all cores during the run")
+    m.add_argument("--max-other-cores", type=float, default=d.max_other_cores,
+                   help="clean: and kept at most this many cores busy on average")
     m.add_argument("--max-sleep", type=float, default=d.max_sleep_seconds,
                    help="clean: the machine slept at most this many seconds during the run")
     m.add_argument("--require-ac", action=argparse.BooleanOptionalAction, default=d.require_ac_power,
@@ -404,10 +482,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     protocol = config.TimingProtocol(
         settle_seconds=args.settle,
         quiet_cpu_percent=args.quiet_cpu,
+        quiet_max_cores=args.quiet_max_cores,
         quiet_window_seconds=args.quiet_window,
         max_wait_seconds=args.max_wait,
         rss_sample_seconds=args.sample,
         max_other_cpu_share=args.max_other_cpu,
+        max_other_cores=args.max_other_cores,
         max_sleep_seconds=args.max_sleep,
         require_ac_power=args.require_ac,
     )
@@ -420,6 +500,6 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "EX_TEMPFAIL", "clean_environment", "genome_for", "machine_activity", "measure", "measure_args", "power_state",
-    "run_measured", "simulate_size", "unclean", "wait_until_quiet",
+    "EX_TEMPFAIL", "clean_environment", "genome_for", "linux_machine", "machine_activity", "measure", "measure_args",
+    "other_cores", "power_state", "run_measured", "simulate_size", "unclean", "wait_until_quiet",
 ]

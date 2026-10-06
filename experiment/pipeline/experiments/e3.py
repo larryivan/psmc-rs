@@ -89,7 +89,7 @@ from .. import config, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
-from .e3_run import genome_for, measure_args
+from .e3_run import genome_for, measure_args, other_cores
 
 NAME = "E3"
 TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
@@ -525,8 +525,10 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
         "clean": is_clean(timing, cfg.timing),
         "quiet_before": before.get("quiet"),
         "busy_before_percent": before.get("busy_percent"),
+        "busy_before_cores": before.get("busy_cores"),
         "waited_seconds": before.get("waited_seconds"),
         "other_cpu_share_during": during.get("other_cpu_share"),
+        "other_cores_during": other_cores(timing),
         "clock_span_seconds": timing.get("clock_span_seconds"),
         "power_source": power.get("source"),
         "low_power_mode": power.get("low_power_mode"),
@@ -553,7 +555,9 @@ def is_clean(timing: Dict, protocol: config.TimingProtocol) -> bool:
     span = timing.get("clock_span_seconds")
     return bool(
         before.get("quiet")
+        and (before.get("busy_cores") or 0.0) <= protocol.quiet_max_cores
         and (during.get("other_cpu_share") or 0.0) <= protocol.max_other_cpu_share
+        and other_cores(timing) <= protocol.max_other_cores
         and (span is None or span - timing["wall_seconds"] <= protocol.max_sleep_seconds)
         and not (protocol.require_ac_power and (power.get("source") not in (None, "AC Power") or power.get("low_power_mode")))
     )

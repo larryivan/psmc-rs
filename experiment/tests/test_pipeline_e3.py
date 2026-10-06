@@ -296,6 +296,22 @@ class Report(unittest.TestCase):
         self.assertEqual((env["tool.c.build"], env["cc"]), (e3.C_PSMC_BUILD, "Apple clang version 17.0.0"))
         self.assertNotIn("tool.c.build_platform", env)
 
+    def test_a_run_with_other_work_beside_it_stays_out_of_the_medians(self):
+        run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "c" and r.repeat == 2)
+        timing = json.loads(self.lay.timing(run).read_text())
+        protocol = config.TimingProtocol()
+        self.assertTrue(e3.is_clean(timing, protocol))
+        # 1% of 192 cores is 1.9 cores of other work: within the share, not within the cores.
+        timing["during"] = {"other_cpu_share": 0.01, "other_cores": 1.9}
+        self.assertFalse(e3.is_clean(timing, protocol))
+        # a record without other_cores: from the other processes' CPU seconds over the wall time
+        timing["during"] = {"other_cpu_share": 0.01, "other_cpu_seconds": 0.6 * timing["wall_seconds"]}
+        self.assertFalse(e3.is_clean(timing, protocol))
+        timing["during"] = {"other_cpu_share": 0.01, "other_cpu_seconds": 0.4 * timing["wall_seconds"]}
+        self.assertTrue(e3.is_clean(timing, protocol))
+        timing["machine_before"]["busy_cores"] = 1.5
+        self.assertFalse(e3.is_clean(timing, protocol))
+
     def test_a_fit_of_another_genome_is_refused(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02")
         params = json.loads(self.lay.fit(run).read_text())
