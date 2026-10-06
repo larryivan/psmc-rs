@@ -1,12 +1,17 @@
-//! E-step benchmark on a psmcfa input.
+//! E-step benchmark on any input (psmcfa, VCF, multihetsep).
 //!
 //! ```text
-//! cargo run --release --example bench_estep -- INPUT.psmcfa [--threads N] [--reps R]
+//! cargo run --release --example bench_estep -- INPUT [--threads N] [--reps R]
 //!     [--pattern P] [--install] [--loglike | --tmrca OUT.tsv[.gz]]
+//!     [--mask BED] [--callable]
 //! ```
 //!
 //! `--loglike` times the forward-only `log_likelihood` instead of the E-step;
-//! `--tmrca` times posterior TMRCA decoding written to `OUT`.
+//! `--tmrca` times posterior TMRCA decoding written to `OUT`. The input is
+//! read as the CLI reads it, with the callable mask `--mask` for a VCF;
+//! `--callable` runs every pass with the callable bases of each bin (VCF and
+//! multihetsep input), as `--bin-callable auto` fits them, and without it
+//! with C psmc's emissions, so that the two time the cost of the counts.
 //! `--threads` sizes the global rayon pool (default: rayon's default). With
 //! `--install` the E-step runs inside `ThreadPool::install`, the way bootstrap
 //! replicates and a per-run `--threads` pool call it. Each repetition prints the
@@ -16,9 +21,12 @@
 //! `/usr/bin/time -v` (Linux). The alpha-cache budget follows
 //! `PSMC_ALPHA_CACHE_MB`.
 
-use psmc_rs::hmm::{EStepResult, e_step_streaming, log_likelihood, write_tmrca_posterior_tsv};
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::{PsmcModel, initial_theta};
+use psmc_rs::hmm::{
+    EStepOptions, EStepResult, TmrcaOptions, e_step_with_options, log_likelihood_with_options,
+    write_tmrca_posterior_tsv_with_options,
+};
+use psmc_rs::io::input::{InputOptions, load};
+use psmc_rs::{PsmcModel, initial_theta_with_callable};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -30,6 +38,8 @@ struct Args {
     install: bool,
     loglike: bool,
     tmrca: Option<PathBuf>,
+    mask: Option<PathBuf>,
+    callable: bool,
 }
 
 fn parse_args() -> Args {
@@ -42,6 +52,8 @@ fn parse_args() -> Args {
         install: false,
         loglike: false,
         tmrca: None,
+        mask: None,
+        callable: false,
     };
     let mut input = None;
     while let Some(a) = it.next() {
@@ -52,11 +64,13 @@ fn parse_args() -> Args {
             "--install" => args.install = true,
             "--loglike" => args.loglike = true,
             "--tmrca" => args.tmrca = it.next().map(PathBuf::from),
+            "--mask" => args.mask = it.next().map(PathBuf::from),
+            "--callable" => args.callable = true,
             _ => input = Some(PathBuf::from(a)),
         }
     }
     args.input = input.expect(
-        "usage: bench_estep INPUT.psmcfa [--threads N] [--reps R] [--pattern P] [--install] [--loglike | --tmrca OUT]",
+        "usage: bench_estep INPUT [--threads N] [--reps R] [--pattern P] [--install] [--loglike | --tmrca OUT] [--mask BED] [--callable]",
     );
     args
 }
@@ -102,9 +116,18 @@ fn main() {
             .expect("failed to build rayon pool")
     });
 
-    let obs = read_psmcfa(&args.input, None).expect("failed to read input");
+    let opts = InputOptions {
+        masks: args.mask.iter().cloned().collect(),
+        ..InputOptions::default()
+    };
+    let obs = load(&args.input, &opts).expect("failed to read input").obs;
+    let callable = obs.callable.as_ref().filter(|_| args.callable);
+    assert!(
+        callable.is_some() || !args.callable,
+        "--callable: the input has no callable bases (psmcfa?)"
+    );
     let bins: usize = obs.rows.iter().map(Vec::len).sum();
-    let theta0 = initial_theta(&obs.rows).expect("no usable bins");
+    let theta0 = initial_theta_with_callable(&obs.rows, callable).expect("no usable bins");
     let model = PsmcModel::new(
         15.0,
         n_states(&args.pattern) - 1,
@@ -118,18 +141,24 @@ fn main() {
         .as_ref()
         .map_or_else(rayon::current_num_threads, |p| p.current_num_threads());
     println!(
-        "input={} seqs={} bins={bins} states={} threads={threads} install={}",
+        "input={} seqs={} bins={bins} states={} threads={threads} install={} callable={}",
         args.input.display(),
         obs.row_starts.iter().filter(|s| **s).count(),
         model.n_steps + 1,
         args.install,
+        callable.is_some(),
     );
 
     let run = || {
         if let Some(out) = &args.tmrca {
             let t = model.compute_t(0.1);
             let years: Vec<f64> = t[..=model.n_steps].iter().map(|v| v * 1e4).collect();
-            let data = write_tmrca_posterior_tsv(
+            let opts = TmrcaOptions {
+                progress_bars: false,
+                max_points: 20_000,
+                callable,
+            };
+            let data = write_tmrca_posterior_tsv_with_options(
                 model.prior_matrix(),
                 model.transition_matrix(),
                 model.emission_matrix(),
@@ -137,32 +166,39 @@ fn main() {
                 &obs.row_starts,
                 &years,
                 out,
-                false,
-                20_000,
+                opts,
             )
             .expect("TMRCA decoding failed");
             let mass: f64 = data.state_mass.iter().sum();
             return (mass, 0);
         }
         if args.loglike {
-            let loglike = log_likelihood(
+            let opts = EStepOptions {
+                callable,
+                ..EStepOptions::default()
+            };
+            let loglike = log_likelihood_with_options(
                 model.prior_matrix(),
                 model.transition_matrix(),
                 model.emission_matrix(),
                 &obs.rows,
                 &obs.row_starts,
+                opts,
             )
             .expect("log-likelihood failed");
             return (loglike, 0);
         }
-        let e = e_step_streaming(
+        let opts = EStepOptions {
+            callable,
+            ..EStepOptions::default()
+        };
+        let e = e_step_with_options(
             model.prior_matrix(),
             model.transition_matrix(),
             model.emission_matrix(),
             &obs.rows,
             &obs.row_starts,
-            false,
-            "E",
+            opts,
         )
         .expect("E-step failed");
         (e.loglike, checksum(&e))
