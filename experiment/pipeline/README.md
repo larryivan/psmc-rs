@@ -26,9 +26,9 @@ $PY -m experiment.pipeline start E1       # resume: only what is not done runs
 ```
 
 `--profile smoke` runs the same jobs at a small size in
-`experiment/.runs-smoke/` (3 EM iterations; the 187 jobs of every
-experiment and figure took 2 minutes on the development machine, while
-`plan` expects about 15); `--profile tiny` is for the unit tests. The production run
+`experiment/.runs-smoke/` (3 EM iterations; the 164 jobs of every
+experiment and figure took under a minute on the development machine,
+while `plan` expects about 5); `--profile tiny` is for the unit tests. The production run
 is described at the end ([Production](#production)).
 
 ## Modules
@@ -71,6 +71,22 @@ default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are
 unset, and setting one of them to a cap adds a fit (`fit-rs-default`,
 `E1_mstep.csv`) or timed runs (`rs02-default`) with M-steps capped at that
 many iterations (the tiny profile does, at 5, to test them).
+`test_pipeline_fit_settings.py` checks that every psmc-rs fit of the
+production and smoke profiles passes psmc-rs's own cap
+(`DEFAULT_MSTEP_ITERS` in `src/opt.rs`) and that neither fits a capped arm.
+
+**Callable bases.** psmc-rs weighs each called bin by its callable bases
+when its input counts them (`--bin-callable auto`, its default; see E4).
+E1, E2, E3 and E5 fit psmcfa files, which record no callable bases, so
+psmc-rs fits C psmc's model there, every called bin taken as 100 bases,
+whatever `--bin-callable` says: the fits are what they were before the
+model, and their JSON only gains the record `bin_callable: {mode: auto,
+model: full-bins}`. E6's S2 reads complete
+data as VCF and multihetsep, whose bins are all full, so the callable-length
+model is C psmc's there too. Only E4 fits partly callable bins, and passes
+`--bin-callable` explicitly for every route. `test_pipeline_fit_settings.py`
+checks both: the psmcfa experiments fit psmcfa input only, and the tiny
+runs' fits record what is said here.
 
 **Simulation.** Direct msprime (no stdpopsim engine): `sim_ancestry` with
 the Hudson coalescent and a discrete genome for one diploid individual,
@@ -304,57 +320,106 @@ machine is busy (`status --jobs` says why).
 
 ## E4: input preparation
 
-Bottleneck model, 5 replicates of 500 Mb (10 chromosomes of 50 Mb). Each
-replicate gets five callable masks: the no-missing control (`nomissing`)
-and missing fractions 0.1 and 0.3, either clustered (uncallable runs with
-a mean of 20 kb) or dispersed (mean 20 bp). A mask is an alternating renewal
-process along each chromosome, callable stretches and uncallable runs of
-geometric (discrete exponential) length, with mean callable stretch
-`mean_run * (1 - f) / f`; seed stage `mask/<mask>/<chrom>`. The records at
-uncallable sites are removed from the simulated VCF, as a caller would not
-call them. The masked VCF then goes to PSMC by four routes, all fitted with
-psmc-rs 0.2 and checked with `psmc-rs qc`:
+**The question.** PSMC sees a genome as bins of s = 100 bases. fq2psmcfa
+calls a bin missing (`N`) only when more than 90% of its bases are
+uncallable, and C psmc takes every called bin as s bases. With missing data
+dispersed in short runs almost every bin is still called but holds only
+about (1 - f) of its bases, so theta per bin, N0 = theta / (4 mu s) and
+every time and size come out low by about the missing fraction f. psmc-rs
+counts the callable bases c of each bin from the VCF and its callable mask
+and, by default (`--bin-callable auto`), fits each bin by them: P(T | k) =
+exp(-theta (c / s) avg_t_k), the callable-length model of
+`docs/design/bin-callable-model.md`, which is C psmc's model to the bit
+when every bin is full. E4 measures the bias that partly callable bins
+cause, whether the model removes it, and how the two other ways of losing
+the callable sites compare: multihetsep, which records how many sites of
+each interval are callable but not which, and a VCF without its mask.
 
-| route | input |
-| --- | --- |
-| `exact` | the VCF with `--vcf-mask callable.bed.gz` (mask mode) |
-| `fq2psmcfa` | a consensus FASTA (homozygous: the base; heterozygous: the IUPAC code; uncallable: `N`; other sites: a seeded uniform ACGT base, stage `reference/<chrom>`) streamed into `fq2psmcfa -s 100 -`; the `bins` job fails unless its output equals `psmc-rs convert`'s bins of the exact route, bin for bin |
-| `multihetsep` | `psmc-rs convert --multihetsep` of the exact route's input, read back by psmc-rs (uncalled sites at the start of each interval); for replicate 1 every mask's file is compared row for row with `generate_multihetsep.py --mask` run on each chromosome, and the job fails if they differ |
-| `nomask` | the same VCF without the mask: uncallable sites count as called homozygous |
+**Data.** Bottleneck model, 5 replicates of 500 Mb (10 chromosomes of
+50 Mb). Each replicate gets five callable masks: the no-missing control
+(`nomissing`) and missing fractions 0.1 and 0.3, either clustered
+(uncallable runs with a mean of 20 kb) or dispersed (mean 20 bp). A mask is
+an alternating renewal process along each chromosome, callable stretches
+and uncallable runs of geometric (discrete exponential) length, with mean
+callable stretch `mean_run * (1 - f) / f`; seed stage `mask/<mask>/<chrom>`.
+The records at uncallable sites are removed from the simulated VCF, as a
+caller would not call them.
 
-The routes are bin-exact, not unbiased: with fq2psmcfa's rule a bin is
-missing only when nearly all its bases are uncallable, so a dispersed mask
-leaves almost every bin called with only about (1 - f) of its bases, and
-theta per bin, N0 = theta / (4 mu s) and every time and size shrink by about
-(1 - f), as without the mask. E4 fits every route with `--bin-callable
-ignore` (`config.E4.bin_callable`), C psmc's model, under which the exact
-and fq2psmcfa routes fit identically; psmc-rs's default, `auto`, fits each
-bin of the VCF and multihetsep routes by its callable bases and removes
-that bias for the exact route, which `experiment/validation/` measures.
-The routes whose input records the callable sites (`exact` and
-`multihetsep`, `config.E4.rescaled_routes`) are also reported rescaled
-(`exact_rescaled`, `multihetsep_rescaled`): s is the callable bases per
-called bin (`called_bases / (bins - missing_bins)` of their `psmc-rs qc`
-JSON), and times and sizes are multiplied by 100 / s. The `fq2psmcfa` and
-`nomask` routes cannot be rescaled, since their inputs do not know which
-sites were callable.
+**Routes.** The masked VCF goes to PSMC by five routes, all fitted with
+psmc-rs 0.2 with the inference recipe and their `--bin-callable` passed
+explicitly (`config.E4_BIN_CALLABLE`). The exact bins are psmc-rs's bins of
+the VCF with its mask (`psmc-rs convert`), which both mask routes fit:
+
+| route | input | `--bin-callable` | model fitted |
+| --- | --- | --- | --- |
+| `mask_auto` | the VCF with `--vcf-mask callable.bed.gz` (mask mode) | `auto` | callable-length, with the exact callable bases of each bin |
+| `mask_ignore` | the same | `ignore` | every called bin full: fq2psmcfa's and C psmc's |
+| `fq2psmcfa` | a consensus FASTA (homozygous: the base; heterozygous: the IUPAC code; uncallable: `N`; other sites: a seeded uniform ACGT base, stage `reference/<chrom>`) streamed into `fq2psmcfa -s 100 -`; the `bins` job fails unless its bins equal the exact bins, and the report fails unless its fit equals `mask_ignore`'s, every value of the JSON but those that describe the input (`input`, `qc`, `bin_callable`) | `auto` (a psmcfa records no callable bases) | every called bin full |
+| `multihetsep` | `psmc-rs convert --multihetsep` of the mask routes' input, read back by psmc-rs; for replicate 1 every mask's file is compared row for row with `generate_multihetsep.py --mask` run on each chromosome, and the job fails if they differ | `auto` | callable-length, with approximate callable bases: multihetsep says how many sites between two rows are callable, not which, and psmc-rs places the uncalled ones at the start of each interval, as if missing data came in one run per interval |
+| `nomask` | the same VCF without the mask (variants only): uncallable sites count as called homozygous | `auto` | every bin full |
+
+On the control every bin is full, so the callable-length model is C
+psmc's: the report fails unless `mask_auto` and `mask_ignore` fit
+identically there, and that fit is the complete-data fit with which every
+route of the replicate is compared. The tables report, per route: theta
+against the complete-data fit, the RMSE of log10 Ne against the truth
+(informative and fixed windows) and against the complete-data fit, the
+mean log10 bias and the bias at every time of the informative window, the
+callable bases of the called bins (mean share, and the share of bins
+partly callable), the bins unlike the exact bins, and the QC codes. Those
+are the codes of each fit's own QC (its JSON's `qc` record), which psmc-rs
+computes with the fit's settings, `--bin-callable` included:
+`PARTLY_CALLABLE_BINS` is a warning when a fit takes as full called bins
+that are on average less than 90% callable (a note above), a note when the
+fit weighs them by their callable bases, and for psmcfa input, which cannot
+tell, a note counting the called bins next to missing runs; `APPROX_MISSING_PLACEMENT`
+marks multihetsep, `VARIANTS_ONLY_NO_MASK` the VCF without a mask.
+
+What to expect, from the simulations of `experiment/validation/` (3
+replicates of 200 Mb, masks of the same kinds, the same recipe): dispersed
+missing data bias the full-bins routes by about the missing share (theta
+at 0.88 and 0.65 of the complete-data fit with 10% and 30% missing, RMSE
+of log10 Ne against the truth 0.348 and 0.453 against 0.307 with complete
+data), and the callable-length model removes the bias (theta within 0.7%
+and 1.8%, RMSE 0.306 and 0.309). Clustered missing data empty whole bins, which both
+models leave out, and change little either way. multihetsep does not
+recover the exact route when missing data are dispersed (RMSE 0.421 at
+30%): placing every uncalled site of an interval at its start turns
+scattered missing bases into runs of `N` bins and leaves the bin of each
+heterozygous site less callable than it is, so the VCF with its mask is the
+input to use. E4 measures all of it on 500 Mb genomes, with the control,
+the VCF without a mask and the fq2psmcfa route.
+
+**Rescaling cross-check** (`E4_rescaling.csv`; not a route, not in Fig 5).
+Before the callable-length model, E4 corrected the bias after the fit: the
+full-bins fit read with s = the mean callable bases of its called bins
+instead of 100, that is times and sizes multiplied by 100 / s (an earlier
+run, at 30% dispersed missing data: RMSE against the truth 0.447 as
+fitted, 0.334 rescaled, 0.332 with complete data). The table keeps that
+global correction of `mask_ignore` (s from its JSON's
+`bin_callable.callable.mean_fraction`) beside `mask_auto`, per mask and
+replicate, as a check of the model: the two should agree on the scale, and
+the per-bin model, which also weighs each bin by how much of it was seen,
+should be at least as close to the complete-data fit.
 
 Jobs per replicate and mask: `mask` (BED, masked VCF, record), `consensus`
-(the fq2psmcfa route's psmcfa), `convert` (the exact route's bins and the
-multihetsep file), `convert/<mask>/{multihetsep,nomask}` (those routes' bins
-as psmc-rs reads them), `bins` (every route against the exact route),
-`crosscheck` (replicate 1), and a `fit` and a `qc` per route; then `report`
-(tables; Fig 5 is drawn from them by `FIG/fig5_input_preparation`). The
-report checks that every fit read the bins of its route's psmcfa.
+(the fq2psmcfa route's psmcfa), `convert` (the exact bins and the
+multihetsep file), `convert/<mask>/{multihetsep,nomask}` (those routes'
+bins as psmc-rs reads them), `bins` (those routes against the exact bins),
+`crosscheck` (replicate 1) and a `fit` per route; then `report` (tables;
+Fig 5 is drawn from them by `FIG/fig5_input_preparation`). The report
+checks that every fit read the bins of its route and ran with its route's
+`--bin-callable`, and that the fits that must be identical are.
 
 | table | contents |
 | --- | --- |
-| `E4_summary.csv` | per mask and route, rescaled routes included (Fig 5): realised missing fraction, share of bins unlike the exact route's, callable bases per called bin and the rescaling factor, theta against the exact route and against the complete data of the same genome, RMSE of log10 Ne against the truth (informative and fixed windows), against the exact route and against the complete-data fit of the same genome, fits identical to the exact route's, QC codes in every / any replicate |
-| `E4_routes.csv` | per mask, route (rescaled routes included) and replicate: the fit, its input as read (bins, heterozygous and missing bins, callable bases), metrics, QC codes, wall time and peak RSS |
+| `E4_summary.csv` | per mask and route (Fig 5): `--bin-callable`, the model fitted and where its callable bases came from (`exact`, `approximate`, none), realised missing fraction, mean share of callable bases of the called bins and share of them partly callable, share of missing bins and of bins unlike the exact bins, theta against the complete-data fit, RMSE of log10 Ne against the truth (informative and fixed windows) and against the complete-data fit of the same genome, mean log10 bias, fits identical to `mask_auto`'s and to `mask_ignore`'s, QC codes in every / any replicate |
+| `E4_routes.csv` | per mask, route and replicate: the fit, the model, its input as read (bins, heterozygous and missing bins, called bases, callable bases of the called bins), metrics, QC codes, wall time and peak RSS |
 | `E4_bias.csv` | log10(fitted / true Ne) on the informative-window grid: mean, SD, min, max over replicates |
-| `E4_bins.csv` | per mask, replicate and route: the exact route's T/K/N bins against the route's (`N_T`: missing in the exact route, called in the route), bins only one has (the multihetsep tail after its last row) |
+| `E4_rescaling.csv` | per mask and replicate: the rescaling cross-check, `mask_auto`, `mask_ignore` and `mask_ignore` rescaled (theta against the complete-data fit, RMSE against the truth and against the complete-data fit, mean log10 bias), and the RMSE between the rescaled curve and `mask_auto`'s |
+| `E4_bins.csv` | per mask, replicate and route: the exact T/K/N bins against the route's (`N_T`: missing in the exact bins, called in the route), bins only one has (the multihetsep tail after its last row) |
 | `E4_masks.csv` | per mask and replicate: target and realised missing fraction, uncallable runs and their mean length, heterozygous sites removed |
-| `E4_qc.csv` | every QC finding (mask, route, replicate, code, severity) |
+| `E4_qc.csv` | every QC finding of every fit (mask, route, replicate, code, severity: `warning` or `note`) |
 | `E4_crosscheck.csv` | per chromosome of replicate 1: rows of generate_multihetsep.py and psmc-rs, identical |
 | `E4_curves.csv`, `E4_truth.csv`, `E4_seeds.csv` | every fitted Ne(t) step curve, the true Ne(t), every seed |
 
@@ -362,10 +427,10 @@ Layout of `experiment/runs/E4/`: `sims/repNN/` (the genome, and per mask
 `callable.bed.gz`, `variants.vcf.gz`, `fq2psmcfa.psmcfa`,
 `input.multihetsep`, `bins/*.psmcfa`; not committed), `truth/`, `masks/`,
 `consensus/`, `bins/`, `crosscheck/`, `fits/<mask>/<route>/`,
-`qc/<mask>/<route>/`, `provenance/`, `tables/`, `figures/` (committed).
+`provenance/`, `tables/`, `figures/` (committed).
 
-**Cost** (`plan E4`): 361 jobs, about 4 CPU hours (the 100 fits 2.4; the
-generate_multihetsep.py cross-checks 0.5), about 0.5 hours alone, at most
+**Cost** (`plan E4`): 286 jobs, about 4 CPU hours (the 125 fits 3.1; the
+generate_multihetsep.py cross-checks 0.5), about 0.6 hours alone, at most
 1.5 GB per job (the consensus FASTA streamed through fq2psmcfa).
 
 ## E5: bootstrap calibration
@@ -521,7 +586,7 @@ E3's exclusive runs wait until nothing else is left.
 | E1 | 121 | 10 | 1.4 | C psmc 12.5 min and 0.6 GB per fit |
 | E2 | 18 | 34 | 5.3 | bootstraps on 7 threads, up to 1.4 h each; C psmc up to 49 min and 3.4 GB |
 | E3 | 71 | 21 | 11 (exclusive) | needs the machine to itself; busy periods defer runs |
-| E4 | 361 | 4 | 0.5 | at most 1.5 GB per job |
+| E4 | 286 | 4 | 0.6 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 20 bootstrap runs of about 45 min on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | S1-S3 wait for E1 |
 | FIG | 10 | under 0.1 | minutes | each figure waits for its tables |

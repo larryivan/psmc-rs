@@ -8,10 +8,34 @@ repository from its own path, so any working directory works.
 
 The results are being regenerated with the experiment pipeline in
 [`pipeline/`](pipeline/README.md) (`python -m experiment.pipeline`), which
-writes `runs/<experiment>/` (`runs/E1/`, ...) and so far implements E1
-(simulated accuracy and equivalence). The scripts and notebook described
-below are the earlier pipeline; they stay until the new one covers every
-figure.
+writes `runs/<experiment>/` (`runs/E1/`, ...) and implements every
+experiment of the manuscript: E1 (simulated accuracy and equivalence), E2
+(real genomes), E3 (performance), E4 (input preparation), E5 (bootstrap
+calibration), E6 (supplementary analyses) and the figures. The scripts and
+notebook described below are the earlier pipeline; they stay until the new
+one's production run has replaced every packaged result.
+
+**Input preparation (E4, Fig 5).** PSMC bins a genome into 100 bp bins, and
+fq2psmcfa calls a bin missing only when more than 90% of its bases are
+uncallable, so missing data dispersed in short runs leave almost every bin
+called but only partly callable. C psmc takes every called bin as 100
+bases, which makes theta, and every time and size, low by about the
+missing fraction. psmc-rs counts the callable bases of each bin from a VCF
+and its callable mask and, by default (`--bin-callable auto`), weighs each
+bin by them; with every bin full this is C psmc's model to the bit. E4
+fits the same masked genomes four ways: with that model; with every bin
+taken as full (`--bin-callable ignore`, which the classic consensus ->
+fq2psmcfa route is asserted to equal, bins and fit); through multihetsep,
+which says how many sites of an interval are callable but not which, so
+that psmc-rs places the uncalled ones at its start, as if missing data
+came in one run per interval; and from the VCF without its mask. Each is
+compared with the truth and with the complete-data fit of the same genome
+(the pipeline's README, section E4). The simulations of
+[`validation/`](validation/README.md) show what to expect: with 30% of the
+bases missing in 20 bp runs the full-bins fit's RMSE of log10 Ne against
+the truth is 0.453 and the per-bin model's 0.309, against 0.307 for the
+complete data; multihetsep stays at 0.421. E1, E2, E3 and E5 fit psmcfa
+files, which record no callable bases, so the model changes nothing there.
 
 ## Read first: state of the packaged results
 
@@ -310,7 +334,7 @@ upward from the working directory, or from `PSMC_RS_ROOT` if set.
 Environment variables read by the scripts (defaults in brackets):
 
 - EM settings: `N_ITER` [20], `T_MAX` [15], `PATTERN` [`4+25*2+4+6`],
-  `RHO_T_RATIO` [4], `MSTEP_ITERS` [100], `BATCH_SIZE` [unset], `MU`
+  `RHO_T_RATIO` [4], `MSTEP_ITERS` [1000], `BATCH_SIZE` [unset], `MU`
   [2.5e-8], `SMOOTH_LAMBDA` [0] and `RUST_THREADS` [1] (main text, real
   data), `RUST_THREADS_BASE` [1] (supplementary), `PSMC_ALPHA_CACHE_MB`
   [2048; psmc-rs uses it only when a model has more than 256 states]. The
