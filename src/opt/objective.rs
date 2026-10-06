@@ -4,7 +4,8 @@
 //! The objective is `f(x) = -Q(x) + lambda * penalty(x)`: `Q` is C psmc's
 //! expected complete-data log-likelihood of the transitions and emissions
 //! (with the `ln(p + 1e-300)` guard and the skipped zero counts of the
-//! forward-mode code it replaces), at the parameters
+//! forward-mode code it replaces), or with callable bases that of the
+//! callable-length model ([`EmissionCounts`]), at the parameters
 //! `p_i = lo_i + (hi_i - lo_i) sigmoid(x_i)` (θ, ρ, t_max, then the free λ),
 //! whose HMM is C `psmc_update_hmm` as [`PsmcModel::param_recalculate`]
 //! ports it. The forward pass performs the operations of
@@ -25,7 +26,10 @@
 //! one O(states) sweep. An evaluation thus costs O(states²), a logarithm (as
 //! the value alone needs) and a division per expected transition count, and
 //! O(states) memory besides the counts: the transition matrix is never
-//! stored, and nothing is allocated once the workspace exists.
+//! stored, and nothing is allocated once the workspace exists. With
+//! callable bases, the `K` bins of each count add an exponential, a
+//! logarithm and a division per state (at most `s + 1` counts, 91 for bins
+//! of 100 bases).
 //! Forward-mode differentiation, which this replaces, carried the
 //! derivatives with respect to every parameter through each of the
 //! states² transition probabilities, at O(states² × parameters) time and
@@ -73,10 +77,76 @@ thread_local! {
     pub(super) static LARGEST_COORDINATE: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
 }
 
+/// The expected emission counts the objective weighs, per state: those of
+/// `T` bins, of `K` bins by their share `f = c / s` of callable bases, and
+/// of `N` bins. The emission part of `Q` for state `k` is
+///
+/// ```text
+/// t[k] ln(e_T(k) + g) + sum_(f, K) K[k] ln(1 - e_T(k)^f + g) + n[k] ln(1 + g)
+/// ```
+///
+/// with `e_T(k) = exp(-θ avg_t[k])` and the guard `g` ([`LN_GUARD`]),
+/// leaving out zero counts. Without callable bases (C psmc's model) `t` is
+/// `gobs[0]` and the one `K` entry is `(1, gobs[1])`; with them
+/// ([`SufficientStats::callable`], `docs/design/bin-callable-model.md`)
+/// `t` is the count-weighted `G_T`, since the log-probability of a `T` bin
+/// of `c` callable bases, `(c / s) ln e_T(k)`, is linear in its count, and
+/// there is one `K` entry per count. A count of `s` (`f = 1`) evaluates
+/// exactly as C psmc's term, so input whose bins are all full gives C's
+/// objective to the bit.
+pub(super) struct EmissionCounts<'a> {
+    pub(super) t: &'a [f64],
+    pub(super) k: Vec<(f64, &'a [f64])>,
+    pub(super) n: &'a [f64],
+}
+
+impl<'a> EmissionCounts<'a> {
+    /// The emission counts of `stats` for a model of `states` states;
+    /// errors when they do not fit it.
+    pub(super) fn of(stats: &'a SufficientStats, states: usize) -> Result<Self> {
+        let [g0, g1, g2] = &stats.gobs;
+        ensure!(
+            [g0, g1, g2].iter().all(|g| g.len() == states),
+            "expected emission counts of {}, {} and {} states for a model of {states} states",
+            g0.len(),
+            g1.len(),
+            g2.len()
+        );
+        let Some(c) = &stats.callable else {
+            return Ok(Self {
+                t: g0,
+                k: vec![(1.0, g1.as_slice())],
+                n: g2,
+            });
+        };
+        ensure!(c.bin_size > 0, "callable bases of bins of 0 bases");
+        ensure!(
+            c.t_weighted.len() == states && c.k_by_count.iter().all(|(_, g)| g.len() == states),
+            "expected counts of the callable-length model do not have {states} states"
+        );
+        let s = c.bin_size as f64;
+        let mut k = Vec::with_capacity(c.k_by_count.len());
+        for (count, g) in &c.k_by_count {
+            ensure!(
+                usize::from(*count) <= c.bin_size,
+                "K bins with {count} callable bases, in bins of {}",
+                c.bin_size
+            );
+            k.push((f64::from(*count) / s, g.as_slice()));
+        }
+        Ok(Self {
+            t: &c.t_weighted,
+            k,
+            n: g2,
+        })
+    }
+}
+
 /// The M-step objective of one E-step's expected counts, with its
 /// workspace.
 pub(crate) struct Objective<'a> {
-    stats: &'a SufficientStats,
+    /// The expected emission counts.
+    emissions: EmissionCounts<'a>,
     /// `stats.xi`, row-major.
     xi: Cow<'a, [f64]>,
     bounds: &'a [Bounds],
@@ -127,9 +197,10 @@ struct Workspace {
     bar_q_aux: Vec<f64>,
     /// Adjoint of `sum_t` (the start of interval `k`) as row `k` uses it.
     bar_sum_t: Vec<f64>,
-    /// Emission probabilities of `T` and `K`.
+    /// Emission probabilities of `T`, and the terms of `Q` of the `K` bins
+    /// (`None` where every count is zero).
     em0: Vec<f64>,
-    em1: Vec<f64>,
+    k_terms: Vec<Option<f64>>,
 }
 
 impl Workspace {
@@ -156,7 +227,7 @@ impl Workspace {
             bar_q_aux: vec![0.0; n],
             bar_sum_t: vec![0.0; states],
             em0: vec![0.0; states],
-            em1: vec![0.0; states],
+            k_terms: vec![None; states],
         }
     }
 }
@@ -200,19 +271,20 @@ impl<'a> Objective<'a> {
             "{} bounds for 3 + {n_free} free parameters",
             bounds.len()
         );
-        if stats.xi.dim() != (states, states) || stats.gobs.iter().any(|g| g.len() != states) {
+        if stats.xi.dim() != (states, states) {
             bail!(
                 "expected counts of {} x {} transitions for a model of {states} states",
                 stats.xi.nrows(),
                 stats.xi.ncols()
             );
         }
+        let emissions = EmissionCounts::of(stats, states)?;
         let xi = match stats.xi.as_slice() {
             Some(rows) => Cow::Borrowed(rows),
             None => Cow::Owned(stats.xi.iter().copied().collect()),
         };
         Ok(Self {
-            stats,
+            emissions,
             xi,
             bounds,
             lambda,
@@ -291,7 +363,7 @@ impl<'a> Objective<'a> {
             bar_q_aux,
             bar_sum_t,
             em0,
-            em1,
+            k_terms,
         } = &mut self.ws;
 
         // Parameters: lo + (hi - lo) * sigmoid(x).
@@ -361,7 +433,11 @@ impl<'a> Objective<'a> {
         }
         let (mut bar_theta, mut bar_rho) = (0.0, 0.0);
         let (mut bar_c_pi, mut bar_c_pi_rho, mut bar_c_sigma) = (0.0, 0.0, 0.0);
-        let [gobs0, gobs1, gobs2] = &self.stats.gobs;
+        let EmissionCounts {
+            t: count_t,
+            k: count_k,
+            n: count_n,
+        } = &self.emissions;
         let mut q_sum = 0.0;
         let mut sum_t = 0.0;
         // Whether every probability is a number in [0, 1] (for transitions,
@@ -398,9 +474,9 @@ impl<'a> Objective<'a> {
             let qk_num = (a2 * b_k + (lak * 2.0) * ak1) - (a_next * 2.0) * tau_k;
             let qk = qk_num / cpik;
             let tmp2 = if k < n { q_aux[k] / cpik } else { 0.0 };
-            let e0 = (-(theta * avg)).exp();
+            let prod = theta * avg;
+            let e0 = (-prod).exp();
             em0[k] = e0;
-            em1[k] = 1.0 - e0;
             valid &= (0.0..=1.0).contains(&e0);
 
             // The transitions out of state k, summed in C's order; the row's
@@ -455,14 +531,25 @@ impl<'a> Objective<'a> {
 
             // The emissions of T and K (that of a missing bin is 1); their
             // terms are added to Q after all transitions, as C adds them.
-            // e0 = exp(-(theta avg)), so d e0 / d(theta avg) = -e0.
+            // e0 = exp(-(theta avg)), so d e0 / d(theta avg) = -e0; a K
+            // bin with a share f of callable bases emits with probability
+            // 1 - e_f, e_f = exp(-(theta avg) f), whose derivative is f e_f.
             let mut bar_prod = 0.0;
-            if gobs0[k] != 0.0 {
-                bar_prod -= gobs0[k] * (e0 / (e0 + LN_GUARD));
+            if count_t[k] != 0.0 {
+                bar_prod -= count_t[k] * (e0 / (e0 + LN_GUARD));
             }
-            if gobs1[k] != 0.0 {
-                bar_prod += gobs1[k] * (e0 / (em1[k] + LN_GUARD));
+            let mut k_term: Option<f64> = None;
+            for &(f, g) in count_k {
+                let g = g[k];
+                if g != 0.0 {
+                    let e = (-(prod * f)).exp();
+                    let em1 = 1.0 - e;
+                    let term = (em1 + LN_GUARD).ln() * g;
+                    k_term = Some(k_term.map_or(term, |sum| sum + term));
+                    bar_prod += g * (f * e / (em1 + LN_GUARD));
+                }
             }
+            k_terms[k] = k_term;
             bar_theta += bar_prod * avg;
             let bar_avg = bar_prod * theta;
 
@@ -530,14 +617,14 @@ impl<'a> Objective<'a> {
         }
         let ln_one = (1.0f64 + LN_GUARD).ln();
         for k in 0..=n {
-            if gobs0[k] != 0.0 {
-                q_sum += (em0[k] + LN_GUARD).ln() * gobs0[k];
+            if count_t[k] != 0.0 {
+                q_sum += (em0[k] + LN_GUARD).ln() * count_t[k];
             }
-            if gobs1[k] != 0.0 {
-                q_sum += (em1[k] + LN_GUARD).ln() * gobs1[k];
+            if let Some(term) = k_terms[k] {
+                q_sum += term;
             }
-            if gobs2[k] != 0.0 {
-                q_sum += ln_one * gobs2[k];
+            if count_n[k] != 0.0 {
+                q_sum += ln_one * count_n[k];
             }
         }
 

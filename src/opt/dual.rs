@@ -19,6 +19,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use anyhow::{Result, bail};
 
 use super::Bounds;
+use super::objective::EmissionCounts;
 use crate::hmm::SufficientStats;
 use crate::model::{PsmcModel, T_INF};
 
@@ -492,10 +493,13 @@ pub(super) fn expand_lam_dual<T: Real>(
 }
 
 /// The result of [`compute_params_dual`]: the transition and emission
-/// matrices, row by row, and the states whose average time is the fallback.
+/// matrices, row by row, `θ avg_t[k]` of each state (whose exponential is
+/// the emission of `T`), and the states whose average time is the
+/// fallback.
 pub(super) struct DualParams<T: Real> {
     pub(super) p_kl: Vec<Vec<Dual<T>>>,
     pub(super) em: Vec<Vec<Dual<T>>>,
+    pub(super) prod: Vec<Dual<T>>,
     pub(super) fallbacks: Vec<usize>,
 }
 
@@ -567,6 +571,7 @@ pub(super) fn compute_params_dual<T: Real>(
     let mut p_kl = vec![vec![Dual::constant(0.0, n_params); n + 1]; n + 1];
     let mut em = vec![vec![Dual::constant(0.0, n_params); n + 1]; 3];
     let mut q = vec![Dual::constant(0.0, n_params); n + 1];
+    let mut prods = Vec::with_capacity(n + 1);
     let mut fallbacks = Vec::new();
 
     let mut sum_t = Dual::constant(0.0, n_params);
@@ -623,6 +628,7 @@ pub(super) fn compute_params_dual<T: Real>(
         em[0][k] = exp_term.clone();
         em[1][k] = &one - &exp_term;
         em[2][k] = one.clone();
+        prods.push(prod);
 
         sum_t = &sum_t + &tau[k];
     }
@@ -630,6 +636,7 @@ pub(super) fn compute_params_dual<T: Real>(
     Ok(DualParams {
         p_kl,
         em,
+        prod: prods,
         fallbacks,
     })
 }
@@ -650,12 +657,13 @@ fn smooth_penalty_dual<T: Real>(lam_full: &[Dual<T>]) -> Dual<T> {
 // The loops index parallel arrays (matrices and expected counts) by state.
 #[allow(clippy::needless_range_loop)]
 fn q_function_stats_dual<T: Real>(
-    a: &[Vec<Dual<T>>],
-    em: &[Vec<Dual<T>>],
+    params: &DualParams<T>,
     stats: &SufficientStats,
-) -> Dual<T> {
+) -> Result<Dual<T>> {
+    let (a, em) = (&params.p_kl, &params.em);
     let n_params = a[0][0].grad.len();
     let n_states = a.len();
+    let counts = EmissionCounts::of(stats, n_states)?;
     let mut q = Dual::constant(0.0, n_params);
     // Numerical guard:
     // - skip exact zero-count terms so we never evaluate 0 * log(0)
@@ -670,20 +678,34 @@ fn q_function_stats_dual<T: Real>(
         }
     }
     for k in 0..n_states {
-        let c0 = stats.gobs[0][k];
+        let c0 = counts.t[k];
         if c0 != 0.0 {
             q = &q + &(&ln_safe(&em[0][k]) * c0);
         }
-        let c1 = stats.gobs[1][k];
-        if c1 != 0.0 {
-            q = &q + &(&ln_safe(&em[1][k]) * c1);
+        // The K bins of each share f of callable bases emit with
+        // probability 1 - exp(-(θ avg) f), summed per state first, as the
+        // adjoint objective sums them.
+        let mut k_term: Option<Dual<T>> = None;
+        for &(f, g) in &counts.k {
+            let c1 = g[k];
+            if c1 != 0.0 {
+                let e = (-&(&params.prod[k] * f)).exp();
+                let term = &ln_safe(&(1.0 - &e)) * c1;
+                k_term = Some(match k_term {
+                    None => term,
+                    Some(sum) => &sum + &term,
+                });
+            }
         }
-        let c2 = stats.gobs[2][k];
+        if let Some(term) = k_term {
+            q = &q + &term;
+        }
+        let c2 = counts.n[k];
         if c2 != 0.0 {
             q = &q + &(&ln_safe(&em[2][k]) * c2);
         }
     }
-    q
+    Ok(q)
 }
 
 /// The objective at the unconstrained point `params`, its gradient and the
@@ -706,7 +728,7 @@ pub(super) fn eval_dual_in<T: Real>(
     let lam_full = expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps)?;
 
     let params = compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
-    let q = q_function_stats_dual(&params.p_kl, &params.em, stats);
+    let q = q_function_stats_dual(&params, stats)?;
     let penalty = smooth_penalty_dual(&lam_full);
     let neg_q = -&q;
     let pen = &penalty * lambda;

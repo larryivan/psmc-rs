@@ -588,6 +588,96 @@ mod tests {
         }
     }
 
+    /// Sufficient statistics of an E-step on a random sequence with callable
+    /// bases (bins of 100 bases): stretches of dispersed missing data,
+    /// whose bins hold 10 to 99 callable bases and show heterozygous sites
+    /// in proportion, between full ones, and a few missing bins.
+    fn random_counted_stats(rng: &mut Rng, model: &PsmcModel, n_bins: usize) -> SufficientStats {
+        // Enough K bins for many counts among them.
+        let het = (1.0 - (-model.theta * 2.0).exp()).max(0.03);
+        let (mut row, mut counts) = (Vec::with_capacity(n_bins), Vec::with_capacity(n_bins));
+        let mut partial = false;
+        while row.len() < n_bins {
+            if rng.next() < 0.01 {
+                partial = !partial;
+            }
+            let u = rng.next();
+            let c = if partial {
+                10 + (rng.next() * 90.0) as u16
+            } else {
+                100
+            };
+            if u < 0.02 {
+                row.push(2);
+                counts.push((rng.next() * 10.0) as u16);
+            } else {
+                row.push(u8::from(u < 0.02 + het * f64::from(c) / 100.0));
+                counts.push(c);
+            }
+        }
+        let callable = crate::io::CallableBases::from_counts(100, vec![counts]).unwrap();
+        let stats = crate::hmm::e_step_with_options(
+            model.prior_matrix(),
+            model.transition_matrix(),
+            model.emission_matrix(),
+            &[row],
+            &[true],
+            crate::hmm::EStepOptions {
+                callable: Some(&callable),
+                ..crate::hmm::EStepOptions::default()
+            },
+        )
+        .unwrap()
+        .stats;
+        assert!(stats.callable.as_ref().unwrap().k_by_count.len() > 10);
+        stats
+    }
+
+    /// [`synthetic_stats`] with the counts of the callable-length model:
+    /// `G_T` and the `K` counts of bins of 1 to 100 callable bases out of
+    /// 100, at a few counts (the full one among them), with a share `zeros`
+    /// of them 0.
+    fn synthetic_counted_stats(
+        rng: &mut Rng,
+        states: usize,
+        n_bins: f64,
+        zeros: f64,
+    ) -> SufficientStats {
+        let mut stats = synthetic_stats(rng, states, n_bins, zeros);
+        let per_state = n_bins / states as f64;
+        let mut count = |scale: f64| {
+            if rng.next() < zeros {
+                0.0
+            } else {
+                scale * rng.log_uniform(1e-4, 1.0)
+            }
+        };
+        let t_weighted = (0..states).map(|_| count(per_state)).collect();
+        let k_by_count = [1u16, 10, 37, 64, 99, 100]
+            .into_iter()
+            .map(|c| (c, (0..states).map(|_| count(0.01 * per_state)).collect()))
+            .collect();
+        stats.callable = Some(crate::hmm::CallableStats {
+            bin_size: 100,
+            t_weighted,
+            k_by_count,
+        });
+        stats
+    }
+
+    /// `stats` as an E-step with callable bases gives them when every bin
+    /// is full: `G_T` is `gobs[0]` and the one count of the `K` bins is the
+    /// bin size, with `gobs[1]`.
+    fn as_full_counts(stats: &SufficientStats) -> SufficientStats {
+        let mut full = stats.clone();
+        full.callable = Some(crate::hmm::CallableStats {
+            bin_size: 100,
+            t_weighted: stats.gobs[0].clone(),
+            k_by_count: vec![(100, stats.gobs[1].clone())],
+        });
+        full
+    }
+
     /// A model of moderate λ (0.1 to 10) whose transition probabilities are
     /// valid and in which some inner state's average time falls back to its
     /// interval's mean (which takes a large ρ, 0.02 to 1 per bin); with
@@ -936,13 +1026,27 @@ mod tests {
 
     #[test]
     fn adjoint_gradient_matches_central_differences() {
-        let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+        check_central_differences(Rng(0xD1B5_4A32_D192_ED03), random_stats);
+    }
+
+    /// With callable bases, the gradient matches central differences too.
+    #[test]
+    fn counted_gradient_matches_central_differences() {
+        check_central_differences(Rng(0x8C3F_1A5E_77D2_04B9), random_counted_stats);
+    }
+
+    /// The adjoint gradient at random models against Richardson-extrapolated
+    /// central differences, on the counts of an E-step that `stats` draws.
+    fn check_central_differences(
+        mut rng: Rng,
+        stats: fn(&mut Rng, &PsmcModel, usize) -> SufficientStats,
+    ) {
         let config = MStepConfig::default();
         for (n, pattern) in LAYOUTS {
             for lambda in [0.0, 1e-2] {
                 for _ in 0..3 {
                     let model = random_model(&mut rng, n, pattern);
-                    let stats = random_stats(&mut rng, &model, 20_000);
+                    let stats = stats(&mut rng, &model, 20_000);
                     let bounds = bounds_from_config(&model, &config);
                     let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
                     let (_, grad) = eval_adjoint(&model, &stats, &x, &bounds, lambda);
@@ -969,6 +1073,137 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// With callable bases (counted E-step statistics, and synthetic ones
+    /// with zero counts and K bins of 1 to 100 callable bases), the adjoint
+    /// and forward-mode objectives agree as without them: the value to the
+    /// bit and the gradient to 1e-10 relative, or the double-double
+    /// evaluation decides.
+    #[test]
+    fn adjoint_matches_forward_mode_with_callable_bases() {
+        let mut rng = Rng(0x452A_8C1D_19E5_7B33);
+        let config = MStepConfig::default();
+        let mut seen = Compared::default();
+        for (n, pattern) in ORACLE_LAYOUTS {
+            for case in 0..(if n >= 100 { 2 } else { 6 }) {
+                let lambda = if case % 2 == 0 { 0.0 } else { 1e-2 };
+                let model = random_model(&mut rng, n, pattern);
+                let bounds = bounds_from_config(&model, &config);
+                let stats = if n < 100 {
+                    random_counted_stats(&mut rng, &model, 5_000)
+                } else {
+                    synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.0)
+                };
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                let stats = synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.05);
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                let last = bounds.len() - 1;
+                let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
+                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+            }
+        }
+        assert_eq!(seen.points, 4 * (3 * 6 + 2 * 2));
+        assert!(seen.infeasible * 4 < seen.points, "{seen:?}");
+        let compared = seen.points - seen.infeasible - seen.underflow;
+        assert!(seen.agreed * 4 >= compared * 3, "{seen:?}");
+        assert!(seen.error_ratios.iter().all(|&r| r <= 1.1), "{seen:?}");
+        assert!(seen.inner_fallbacks >= 30, "{seen:?}");
+    }
+
+    /// Statistics with callable bases whose bins are all full give C psmc's
+    /// objective, gradient and M-step to the bit.
+    #[test]
+    fn full_callable_bases_give_c_psmc_m_step_to_the_bit() {
+        let mut rng = Rng(0x7F4A_7C15_9E37_79B9);
+        let config = MStepConfig {
+            progress: false,
+            ..MStepConfig::default()
+        };
+        for (n, pattern) in LAYOUTS {
+            let model = random_model(&mut rng, n, pattern);
+            let bounds = bounds_from_config(&model, &config);
+            for stats in [
+                random_stats(&mut rng, &model, 20_000),
+                synthetic_stats(&mut rng, n + 1, 1e6, 0.05),
+            ] {
+                let full = as_full_counts(&stats);
+                let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+                for lambda in [0.0, 1e-2] {
+                    let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                    let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, lambda);
+                    let (f_full, g_full) = eval_adjoint(&model, &full, &x, &bounds, lambda);
+                    assert_eq!(f.to_bits(), f_full.to_bits(), "{pattern:?}");
+                    assert_eq!(bits(&g), bits(&g_full), "{pattern:?}");
+                    let (f_dual, _, _) =
+                        eval_dual_in::<f64>(&model, &full, &x, &bounds, lambda).unwrap();
+                    assert_eq!(f.to_bits(), f_dual.to_bits(), "{pattern:?}");
+                }
+                let run = |s: &SufficientStats| {
+                    m_step_lbfgs_with_outcome(
+                        &model,
+                        s,
+                        &pack_params(&model),
+                        &bounds,
+                        &config,
+                        None,
+                    )
+                    .unwrap()
+                };
+                let (plain, counted) = (run(&stats), run(&full));
+                assert_eq!(bits(&plain.params), bits(&counted.params), "{pattern:?}");
+                assert_eq!(plain.evaluations, counted.evaluations);
+            }
+        }
+    }
+
+    /// With callable bases the objective is minus the expected complete-data
+    /// log-likelihood of the callable-length model, evaluated directly from
+    /// the model's matrices and average times: a `T` bin of `c` of `s`
+    /// callable bases emits with probability `exp(-θ (c / s) avg_t[k])`, a
+    /// `K` bin with one minus that.
+    #[test]
+    fn counted_objective_is_minus_the_expected_log_likelihood() {
+        let mut rng = Rng(0x1B87_3593_CC9E_2D51);
+        let config = MStepConfig::default();
+        for (n, pattern) in LAYOUTS {
+            let model = random_model(&mut rng, n, pattern);
+            let stats = random_counted_stats(&mut rng, &model, 20_000);
+            let bounds = bounds_from_config(&model, &config);
+            let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+            let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
+            let mut at_x = model.clone();
+            unpack_params(&mut at_x, &from_unconstrained(&x, &bounds).unwrap()).unwrap();
+            at_x.param_recalculate().unwrap();
+            let avg = at_x.avg_t();
+            let c = stats.callable.as_ref().unwrap();
+            let mut q = 0.0;
+            for (&count, &p) in stats.xi.iter().zip(at_x.transition_matrix().iter()) {
+                q += count * p.ln();
+            }
+            for k in 0..=n {
+                q += c.t_weighted[k] * (-at_x.theta * avg[k]);
+                for (count, g) in &c.k_by_count {
+                    let f = f64::from(*count) / 100.0;
+                    q += g[k] * (1.0 - (-at_x.theta * avg[k] * f).exp()).ln();
+                }
+            }
+            assert!(
+                (f + q).abs() <= 1e-10 * q.abs(),
+                "{pattern:?}: objective {f} vs -Q {}",
+                -q
+            );
+            // And Q differs from C psmc's on the same E-step: the partly
+            // called bins weigh less than full ones.
+            let mut plain = stats.clone();
+            plain.callable = None;
+            let (f_plain, _) = eval_adjoint(&model, &plain, &x, &bounds, 0.0);
+            assert!((f - f_plain).abs() > 1e-6 * f.abs(), "{pattern:?}");
         }
     }
 
