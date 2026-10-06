@@ -326,7 +326,7 @@ takes medians from clean runs only.
 | `E3_runs.csv` | every run: measurements, machine state, power, clean or not, theta, rho, t_max, log-likelihood, output SHA-256 |
 | `E3_thread_scaling.csv` | Fig S4: psmc-rs 0.2 on 3000 Mb per thread count: median wall time, speed-up, efficiency, peak RSS, whether the JSON is byte-identical to the one-thread run |
 | `E3_determinism.csv` | Fig S4: every output against its tool's reference at the same size (fewest threads, first repeat) |
-| `E3_environment.csv` | machine, tools (identities, binary SHA-256, rustc), C compiler, protocol, power sources, runs not clean |
+| `E3_environment.csv` | machine (each distinct value: the hosts of merged shards), tools (identities, binary SHA-256, rustc), C compiler, protocol, power sources, runs not clean |
 | `E3_seeds.csv` | every seed, with each chromosome's trees and longest stretch without a heterozygous site |
 
 Layout of `experiment/runs/E3/`: `sims/` (not committed), `truth/`,

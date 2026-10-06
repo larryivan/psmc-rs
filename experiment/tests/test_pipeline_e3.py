@@ -256,9 +256,18 @@ class Report(unittest.TestCase):
 
     def test_environment(self):
         env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
-        self.assertEqual(env["machine.cpu"], "Test CPU")
+        self.assertEqual((env["machine.cpu"], env["machine.cpu_count"]), ("Test CPU", "8"))
         self.assertEqual(env["tool.rs01.commit"], "e" * 40)
         self.assertEqual((env["runs_not_quiet"], env["runs_not_clean"]), ("0", "0"))
+
+    def test_environment_lists_every_host_of_merged_shards(self):
+        for run in e3.runs(self.cfg):
+            timing = json.loads(self.lay.timing(run).read_text())
+            timing["machine"]["hostname"] = f"cn{run.repeat}"  # repeat 2 ran on another node
+            self.lay.timing(run).write_text(json.dumps(timing))
+        e3.report(Context(self.profile, self.runs))
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertEqual((env["machine.hostname"], env["machine.cpu"]), ("cn1;cn2", "Test CPU"))
 
     def test_a_fit_of_another_genome_is_refused(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02")

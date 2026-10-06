@@ -69,7 +69,8 @@ Tables (``tables/``):
   reference at the same size (fewest threads, first repeat): byte-identical
   or not, and the largest relative difference in theta, rho, t_max and the
   lambdas (and psmc-rs 0.2's final log-likelihood).
-* ``E3_environment.csv``: the machine, the tools' identities, the timing
+* ``E3_environment.csv``: the machine (each distinct value over the runs,
+  ';'-joined: hosts, SLURM jobs), the tools' identities, the timing
   protocol and the memory limit.
 * ``E3_seeds.csv``: every simulation seed.
 """
@@ -679,10 +680,14 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
     def add(key: str, value) -> None:
         out.append({"key": key, "value": value if isinstance(value, str) else json.dumps(value, sort_keys=True)})
 
-    first = next(iter(timings.values()), None)
-    if first:
-        for k, v in sorted(first.get("machine", {}).items()):
-            add(f"machine.{k}", str(v))
+    # Every distinct value, ';'-joined: the runs of a runs directory merged from
+    # shards ran on several hosts (and SLURM jobs), and possibly CPU models.
+    values: Dict[str, set] = {}
+    for timing in timings.values():
+        for k, v in timing.get("machine", {}).items():
+            values.setdefault(k, set()).add(str(v))
+    for k, vs in sorted(values.items()):
+        add(f"machine.{k}", ";".join(sorted(vs)))
     seen = set()
     for run in sorted(rows, key=lambda r: (TOOL_ORDER.index(r.setup.tool), r.setup.threads, r.setup.size_mb, r.repeat)):
         if run.setup.tool in seen:
