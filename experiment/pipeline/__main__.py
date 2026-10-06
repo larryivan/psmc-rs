@@ -114,7 +114,9 @@ def cmd_start(args) -> int:
     runs_dir = runs_dir_of(args)
     pid = runner.daemon_alive(runs_dir)
     if pid is not None:
-        print(f"a runner is already running for {runs_dir} (pid {pid}); `stop` it first or wait", file=sys.stderr)
+        host = runner.runner_host(runs_dir)
+        where = f" on {host}" if host and host != runner.this_host() else ""
+        print(f"a runner is already running for {runs_dir} (pid {pid}{where}); `stop` it first or wait", file=sys.stderr)
         return 1
     budget = config.Budget(cores=args.cores, mem_gb=args.mem_gb)
     for d in tools.lock_differences():
@@ -178,7 +180,11 @@ def cmd_status(args) -> int:
 
 def cmd_stop(args) -> int:
     runs_dir = runs_dir_of(args)
-    pid = runner.stop_daemon(runs_dir, drain=args.drain, wait=args.wait)
+    try:
+        pid = runner.stop_daemon(runs_dir, drain=args.drain, wait=args.wait)
+    except runner.ElsewhereError as exc:
+        print(f"not stopped: {exc}", file=sys.stderr)
+        return 1
     if pid is None:
         print("no runner is running")
         return 0

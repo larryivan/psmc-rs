@@ -19,16 +19,18 @@ the same machine coordinate through a machine-wide lock (:class:`MachineLock`):
 a runner holds it shared while it runs ordinary jobs and exclusively while
 it runs an exclusive one, so an exclusive job never overlaps another
 runner's jobs. ``stop`` ends it cleanly (``--drain``: after the running
-jobs finish). A failed job is recorded (``logs/attempts.jsonl`` and its log
-file) and blocks the jobs that need its outputs; the next ``start`` retries
-it. A job that exits with status 75 (``EX_TEMPFAIL``: E3's timing wrapper
-when the machine is not quiet) is deferred instead: it runs again after
+jobs finish), and refuses a runner that ``runner.host`` places on another
+host. A failed job is recorded (``logs/attempts.jsonl`` and its log file)
+and blocks the jobs that need its outputs; the next ``start`` retries it. A
+job that exits with status 75 (``EX_TEMPFAIL``: E3's timing wrapper when
+the machine is not quiet) is deferred instead: it runs again after
 :data:`DEFER_SECONDS`. ``status`` prints done/running/failed/pending per
 experiment with an ETA.
 
 Every attempt records its wall time, the peak RSS of its process tree
-(psutil, sampled every 50 ms, plus the main process's ``ru_maxrss`` from
-``wait4``), its exit status and the machine's load average before and after;
+(psutil, sampled every 50 ms or ``$PSMC_EXP_SAMPLE_SECONDS``, plus the main
+process's ``ru_maxrss`` from ``wait4``), its exit status, the host (and
+SLURM job) it ran on and the machine's load average before and after;
 exclusive jobs also record the busiest other processes before they start,
 and are not sampled (their own wrapper measures them; a sampler would take
 CPU from the run).
@@ -52,6 +54,7 @@ import math
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -65,12 +68,38 @@ from . import config, paths, provenance
 
 DONE, READY, PENDING, RUNNING, FAILED, BLOCKED = "done", "ready", "pending", "running", "failed", "blocked"
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+=-]*(/[A-Za-z0-9_.+=-]+)+$")
-SAMPLE_SECONDS = 0.05
+SAMPLE_SECONDS_ENV = "PSMC_EXP_SAMPLE_SECONDS"
+EXIT_POLL_SECONDS = 0.05  # how often a job's exit is checked: the resolution of its wall time
 POLL_SECONDS = 0.25
 EX_TEMPFAIL = 75  # a job's "not now": deferred, not failed
 DEFER_SECONDS = 60.0
 DEFERRED = "deferred"
 MACHINE_LOCK_ENV = "PSMC_EXP_MACHINE_LOCK"
+
+
+def sample_seconds(environ: Optional[Dict[str, str]] = None) -> float:
+    """Seconds between samples of a job's process tree: ``$PSMC_EXP_SAMPLE_SECONDS``, default 0.05.
+
+    Every sample lists the machine's processes (psutil reads ``/proc`` on
+    Linux) while holding the GIL, so with ~190 jobs at once on a 192-core
+    node, 20 samples a second per job keep the runner's threads busy; a
+    longer interval misses short peaks of memory but not the job's end.
+    """
+    raw = (os.environ if environ is None else environ).get(SAMPLE_SECONDS_ENV, "")
+    if not raw.strip():
+        return 0.05
+    value = float(raw)
+    if not 0 < value < math.inf:
+        raise ValueError(f"{SAMPLE_SECONDS_ENV}={raw!r}: give a positive number of seconds")
+    return value
+
+
+SAMPLE_SECONDS = sample_seconds()
+
+
+def this_host() -> str:
+    """The name of this machine, as runners record it (a PID means nothing on another host)."""
+    return socket.gethostname()
 
 
 @dataclass
@@ -344,13 +373,15 @@ class Execution(threading.Thread):
                     ps = None
                 peak = 0
                 sample = ps is not None and not job.exclusive
+                next_sample = t0
                 while True:
                     pid, status, rusage = os.wait4(self.proc.pid, os.WNOHANG)
                     if pid != 0:
                         break
-                    if sample:
+                    if sample and time.perf_counter() >= next_sample:
                         peak = max(peak, tree_rss(ps))
-                    time.sleep(SAMPLE_SECONDS)
+                        next_sample = time.perf_counter() + SAMPLE_SECONDS
+                    time.sleep(min(SAMPLE_SECONDS, EXIT_POLL_SECONDS))
                 wall = time.perf_counter() - t0
             finally:
                 if job.stdout:
@@ -375,7 +406,10 @@ class Execution(threading.Thread):
             "mem_gb": job.mem_gb,
             "exclusive": job.exclusive,
             "executables": self.executables,
+            "host": this_host(),  # information only, like the rest of the run: not in the job's key
         }
+        if os.environ.get("SLURM_JOB_ID"):
+            run["slurm_job_id"] = os.environ["SLURM_JOB_ID"]
         if busiest is not None:
             run["busiest_processes_before"] = busiest
         if self._kill.is_set():
@@ -568,17 +602,30 @@ class Lock:
             self.fd = None
 
 
+def default_machine_lock(platform: str = sys.platform, host: Optional[str] = None) -> Path:
+    """``~/.cache/psmc-exp/machine.lock`` on macOS; elsewhere ``machine-<host>.lock`` there.
+
+    A cluster's nodes share the home directory over NFS, which passes
+    ``flock`` on to the server: one file for all of them would keep an
+    exclusive job on one node from running beside any job on another.
+    """
+    base = Path.home() / ".cache" / "psmc-exp"
+    if platform == "darwin":
+        return base / "machine.lock"
+    return base / f"machine-{host or this_host()}.lock"
+
+
 class MachineLock:
     """A machine-wide ``flock`` that every runner holds while it runs jobs: shared for ordinary jobs, exclusive for exclusive ones.
 
-    The file is ``$PSMC_EXP_MACHINE_LOCK`` or ``~/.cache/psmc-exp/machine.lock``.
+    The file is ``$PSMC_EXP_MACHINE_LOCK`` or :func:`default_machine_lock`.
     Locks are taken without blocking: a runner that cannot take the mode it
     needs starts nothing and tries again at its next poll.
     """
 
     def __init__(self, path: Optional[Path] = None):
         env = os.environ.get(MACHINE_LOCK_ENV)
-        self.path = Path(path or env or Path.home() / ".cache" / "psmc-exp" / "machine.lock").expanduser()
+        self.path = Path(path or env or default_machine_lock()).expanduser()
         self.fd: Optional[int] = None
         self.mode: Optional[str] = None  # None, "shared" or "exclusive"
 
@@ -632,6 +679,14 @@ def daemon_alive(runs_dir: Path) -> Optional[int]:
         return int((runner_dir(runs_dir) / "runner.pid").read_text().strip())
     except (OSError, ValueError):
         return -1
+
+
+def runner_host(runs_dir: Path) -> Optional[str]:
+    """The host the running (or last) daemon of ``runs_dir`` runs on, or None if it did not say."""
+    try:
+        return (runner_dir(runs_dir) / "runner.host").read_text().strip() or None
+    except OSError:
+        return None
 
 
 class Logger:
@@ -931,6 +986,8 @@ def daemon_main(graph_factory: Callable[[], Graph], runs_dir: Path, budget: conf
         print(f"another runner holds {lock.path}", file=sys.stderr)
         return 3
     pid_file = runner_dir(runs_dir) / "runner.pid"
+    host_file = runner_dir(runs_dir) / "runner.host"
+    host_file.write_text(f"{this_host()}\n")  # before the PID: `stop` must not signal it on another host
     pid_file.write_text(f"{os.getpid()}\n")
     log = Logger(runs_dir)
     daemon: Optional[Daemon] = None
@@ -949,20 +1006,21 @@ def daemon_main(graph_factory: Callable[[], Graph], runs_dir: Path, budget: conf
     signal.signal(signal.SIGUSR1, on_drain)
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
     try:
-        log(f"runner {os.getpid()} starting ({meta})")
+        log(f"runner {os.getpid()} starting on {this_host()} ({meta})")
         kill_orphans(runs_dir, log)
         graph = graph_factory()
-        meta = {**meta, "experiments": graph.experiments(), "machine": provenance.machine()}
+        meta = {**meta, "experiments": graph.experiments(), "host": this_host(), "machine": provenance.machine()}
         daemon = Daemon(graph, runs_dir, budget, log, meta, machine_lock=MachineLock())
         return daemon.run()
     except Exception:
         log("runner crashed:\n" + traceback.format_exc())
         return 2
     finally:
-        try:
-            pid_file.unlink()
-        except OSError:
-            pass
+        for p in (pid_file, host_file):
+            try:
+                p.unlink()
+            except OSError:
+                pass
         lock.release()
 
 
@@ -971,13 +1029,21 @@ def kill_orphans(runs_dir: Path, log: Callable[[str], None]) -> None:
 
     They are the process groups recorded as running in ``state.json`` whose
     leader is still the process started then (same PID, started no later
-    than 5 s after the job, leading its own process group).
+    than 5 s after the job, leading its own process group). A state written
+    on another host (a runs directory on a cluster's shared file system) is
+    left alone: its PIDs are not this machine's processes.
     """
     import psutil
 
     try:
         state = json.loads((runner_dir(runs_dir) / "state.json").read_text())
     except (OSError, ValueError):
+        return
+    host = state.get("host")
+    if host is not None and host != this_host():
+        if state.get("running"):
+            log(f"not stopping the {len(state['running'])} job(s) the last runner, on {host}, recorded as running: "
+                f"they are not processes of {this_host()}")
         return
     for jid, info in state.get("running", {}).items():
         pid = info.get("pid")
@@ -992,7 +1058,7 @@ def kill_orphans(runs_dir: Path, log: Callable[[str], None]) -> None:
         log(f"stopping job {jid} (pid {pid}) left running by an earlier runner")
         try:
             os.killpg(pid, signal.SIGTERM)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
 
@@ -1025,12 +1091,30 @@ def spawn_daemon(argv: Sequence[str], runs_dir: Path, wait: float = 60.0) -> int
     return proc.pid
 
 
+class ElsewhereError(RuntimeError):
+    """The runner of a runs directory is not a process of this host."""
+
+
 def stop_daemon(runs_dir: Path, drain: bool = False, wait: float = 60.0) -> Optional[int]:
-    """Ask the daemon to stop (SIGTERM) or drain (SIGUSR1); wait for it to exit unless draining."""
+    """Ask the daemon to stop (SIGTERM) or drain (SIGUSR1); wait for it to exit unless draining.
+
+    Raises :class:`ElsewhereError` when the runner runs on another host (its
+    PID would name an unrelated process here).
+    """
     pid = daemon_alive(runs_dir)
     if pid is None or pid <= 0:
         return None
-    os.kill(pid, signal.SIGUSR1 if drain else signal.SIGTERM)
+    host = runner_host(runs_dir)
+    if host is not None and host != this_host():
+        raise ElsewhereError(f"the runner of {runs_dir} (pid {pid}) runs on {host}, not on {this_host()}: "
+                             "stop it from there, or cancel its SLURM job")
+    try:
+        os.kill(pid, signal.SIGUSR1 if drain else signal.SIGTERM)
+    except ProcessLookupError:
+        if daemon_alive(runs_dir) is None:
+            return None  # it exited meanwhile
+        raise ElsewhereError(f"the runner of {runs_dir} holds its lock, but no process {pid} exists on "
+                             f"{this_host()}: it runs on another host") from None
     if drain:
         return pid
     deadline = time.time() + wait

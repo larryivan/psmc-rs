@@ -162,16 +162,20 @@ work first, and backfills small jobs only when they do not delay a waiting
 large one; exclusive jobs run only when nothing else runs, in order of
 their rank (E3 ranks its timing runs by repeat). Runners of different runs
 directories or worktrees coordinate through a machine-wide lock
-(`$PSMC_EXP_MACHINE_LOCK`, default `~/.cache/psmc-exp/machine.lock`): held
-shared while a runner runs ordinary jobs and exclusively while it runs an
-exclusive one. `stop` sends SIGTERM: running jobs are terminated and stay
-pending; `stop --drain` starts nothing new and exits when the running jobs
-finish. A failed job is recorded and blocks its dependents; the next
-`start` retries it. A job that exits with status 75 (E3's timing wrapper on
-a busy machine) is deferred and starts again a minute later. If the runner
-itself is killed, the next one stops the jobs it left running. `start`
-keeps the machine awake (`caffeinate -i` on macOS; `--no-keep-awake` to opt
-out).
+(`$PSMC_EXP_MACHINE_LOCK`, default `~/.cache/psmc-exp/machine.lock` on
+macOS and `~/.cache/psmc-exp/machine-<host>.lock` elsewhere, since a
+cluster's nodes share the home directory): held shared while a runner runs
+ordinary jobs and exclusively while it runs an exclusive one. `stop` sends
+SIGTERM: running jobs are terminated and stay pending; `stop --drain`
+(SIGUSR1) starts nothing new and exits when the running jobs finish. The
+runner writes its host to `runs/_runner/runner.host` and the state, so that
+`stop` refuses a runner on another host and a new runner leaves alone the
+jobs an earlier one on another host left recorded as running. A failed job
+is recorded and blocks its dependents; the next `start` retries it. A job
+that exits with status 75 (E3's timing wrapper on a busy machine) is
+deferred and starts again a minute later. If the runner itself is killed,
+the next one stops the jobs it left running. `start` keeps the machine
+awake (`caffeinate -i` on macOS; `--no-keep-awake` to opt out).
 
 The runner takes the SHA-256 of the pipeline's Python files and of every
 executable its jobs name when it starts, and starts no further job once one
@@ -184,9 +188,14 @@ Every attempt records its wall time, the peak RSS of the process tree
 measures) and the main process's `ru_maxrss`, user and system CPU time,
 exit status, the load average before and after, and the SHA-256 of the
 executables it ran; exclusive jobs also record the busiest other processes
-before they start. `status` without experiments reports those of the
-running runner, or of the last one; a job whose input no job makes is
-reported blocked.
+before they start. The interval of the samples is
+`$PSMC_EXP_SAMPLE_SECONDS` (default 0.05): each one lists the machine's
+processes, which with ~190 jobs at once on a 192-core node keeps the runner
+busy. Every attempt also records the host it ran on and `$SLURM_JOB_ID`;
+the runner's state records `provenance.machine()` (CPU model, memory, host,
+libc, usable CPUs and the SLURM job on Linux). None of this enters a job's
+key. `status` without experiments reports those of the running runner, or
+of the last one; a job whose input no job makes is reported blocked.
 
 ## E1: simulated accuracy and equivalence
 

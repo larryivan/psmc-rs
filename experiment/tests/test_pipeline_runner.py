@@ -417,5 +417,113 @@ class MachineInfo(unittest.TestCase):
             self.assertEqual(provenance.job_key(j, Path("/tmp/none"), provenance.ChecksumCache(None)), key)
 
 
+class RunnerSettings(unittest.TestCase):
+    def test_sample_seconds_from_the_environment(self):
+        self.assertEqual(runner.sample_seconds({}), 0.05)
+        self.assertEqual(runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: "1.5"}), 1.5)
+        for bad in ("0", "-1", "inf", "fast"):
+            with self.assertRaises(ValueError, msg=bad):
+                runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: bad})
+
+    def test_default_machine_lock_is_per_host_except_on_macos(self):
+        from unittest import mock
+
+        base = Path.home() / ".cache" / "psmc-exp"
+        self.assertEqual(runner.default_machine_lock("darwin", host="mac"), base / "machine.lock")
+        self.assertEqual(runner.default_machine_lock("linux", host="cn605-26-l"), base / "machine-cn605-26-l.lock")
+        with mock.patch.dict(os.environ, {runner.MACHINE_LOCK_ENV: "/node/local/m.lock"}):
+            self.assertEqual(runner.MachineLock().path, Path("/node/local/m.lock"))
+
+
+@unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
+class AcrossHosts(Base):
+    def sleeper(self) -> subprocess.Popen:
+        p = subprocess.Popen(["sleep", "30"], start_new_session=True)
+        self.addCleanup(lambda: (p.kill(), p.wait()))
+        return p
+
+    def write_state(self, host, pid) -> None:
+        state = {"running": {"T/a": {"pid": pid, "start": time.time()}}}
+        if host is not None:
+            state["host"] = host
+        provenance.write_json_atomic(self.runs / "_runner" / "state.json", state)
+
+    def test_kill_orphans_leaves_the_jobs_of_a_runner_on_another_host_alone(self):
+        p = self.sleeper()
+        logged = []
+        self.write_state("another-host", p.pid)
+        runner.kill_orphans(self.runs, logged.append)
+        time.sleep(0.2)
+        self.assertIsNone(p.poll())
+        self.assertIn("another-host", logged[0])
+        self.write_state(runner.this_host(), p.pid)
+        runner.kill_orphans(self.runs, logged.append)
+        self.assertEqual(p.wait(timeout=10), -15)
+
+    def test_kill_orphans_survives_a_process_it_may_not_signal(self):
+        from unittest import mock
+
+        p = self.sleeper()
+        self.write_state(None, p.pid)  # a state from before hosts were recorded: this host's
+        with mock.patch.object(runner.os, "killpg", side_effect=PermissionError):
+            runner.kill_orphans(self.runs, lambda msg: None)
+        self.assertIsNone(p.poll())
+
+    def hold_lock(self, pid: int, host: str) -> runner.Lock:
+        lock = runner.Lock(self.runs)
+        self.assertTrue(lock.acquire())
+        self.addCleanup(lock.release)
+        (self.runs / "_runner" / "runner.pid").write_text(f"{pid}\n")
+        (self.runs / "_runner" / "runner.host").write_text(f"{host}\n")
+        return lock
+
+    def test_stop_refuses_a_runner_on_another_host(self):
+        import contextlib
+        import io
+        from unittest import mock
+
+        from experiment.pipeline.__main__ import main
+
+        self.hold_lock(os.getpid(), "another-host")
+        with mock.patch.object(runner.os, "kill") as kill:
+            with self.assertRaises(runner.ElsewhereError):
+                runner.stop_daemon(self.runs)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                rc = main(["stop", "--runs-dir", str(self.runs)])
+        kill.assert_not_called()
+        self.assertEqual(rc, 1)
+        self.assertIn("runs on another-host", err.getvalue())
+
+    def test_stop_handles_a_runner_that_is_gone(self):
+        from unittest import mock
+
+        lock = self.hold_lock(424242, runner.this_host())
+
+        def gone(pid, sig):
+            lock.release()  # it exited between the lookup and the signal
+            raise ProcessLookupError
+
+        with mock.patch.object(runner.os, "kill", side_effect=gone):
+            self.assertIsNone(runner.stop_daemon(self.runs))
+        self.hold_lock(424242, runner.this_host())
+        with mock.patch.object(runner.os, "kill", side_effect=ProcessLookupError):
+            with self.assertRaisesRegex(runner.ElsewhereError, "no process 424242"):
+                runner.stop_daemon(self.runs)
+
+    def test_attempts_record_the_host_and_slurm_job_outside_the_key(self):
+        from unittest import mock
+
+        a = self.job("T/a", ["a.txt"])
+        with mock.patch.dict(os.environ, {"SLURM_JOB_ID": "4242"}):
+            self.run_daemon([a])
+        rec = json.loads(a.record_path(self.runs).read_text())
+        self.assertEqual((rec["run"]["host"], rec["run"]["slurm_job_id"]), (socket.gethostname(), "4242"))
+        with mock.patch.dict(os.environ, {"SLURM_JOB_ID": "4243"}), \
+                mock.patch.object(socket, "gethostname", return_value="cn1"):
+            self.run_daemon([a])  # another SLURM job on another host: still done
+        self.assertEqual(self.runs_of("T/a"), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
