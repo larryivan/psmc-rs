@@ -57,3 +57,6 @@ __pycache__/
 # bootstrap/ directory is not the earlier pipeline's ignored one.
 !/experiment/runs/E2/bootstrap/*
 /experiment/runs/E2/bootstrap/**/replicate_*.psmc
+
+# Site settings of the SLURM scripts (account, paths)
+/experiment/slurm/site.env
