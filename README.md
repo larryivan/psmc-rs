@@ -680,8 +680,13 @@ Inputs, flags and outputs are covered in detail in [CHANGELOG.md](CHANGELOG.md).
 
 Results do not depend on `--threads` or `--batch-size`: a run writes the
 same bytes (JSON, `.psmc`, TMRCA and bootstrap files) with any thread
-count, which the tests check by running the binary. Instead of whole
-forward and backward matrices, the E-step keeps one forward vector every
+count, which the tests check by running the binary. With models of up to
+256 states, the E-step's forward and backward steps take O(states) time per
+bin instead of O(states²), from the rank-one triangles of PSMC's transition
+matrix, with which Harris et al. (2014) decode coalescent HMMs in linear
+time (see [Citing](#citing)); the expected transition counts still take
+O(states²) per bin. Instead of whole forward and backward matrices, the
+E-step keeps one forward vector every
 128 bins and recomputes each 128-bin segment for the backward pass, so its
 memory still grows with sequence length, but at 1/128 of the rate: about
 bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
