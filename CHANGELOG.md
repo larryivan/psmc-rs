@@ -319,6 +319,14 @@ Reproduction package (`experiment/`):
 
 ### Fixed
 
+- The warning about fitted parameters on the M-step's bounds advised
+  "wider bounds", which no option sets. It now says what each case means:
+  λ at the upper bound (1e4) are intervals with almost no coalescences in
+  the data, whose Ne is the bound rather than an estimate (as for the
+  first λ of `4+25*2+4+6` on one of two simulated bottleneck genomes,
+  where C psmc's unbounded search reaches 1.5e5); λ at the lower bound
+  make every lineage reaching their intervals coalesce at once; θ, ρ or
+  `t_max` at a bound point to the input or the starting values.
 - Gzip input with several members (bgzip: `.vcf.gz` from bcftools, GATK or
   tabix, bgzipped psmcfa and BED masks) is read in full instead of only its
   first block, and a bgzip file that lacks BGZF's end-of-file block, as

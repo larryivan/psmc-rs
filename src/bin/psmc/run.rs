@@ -1085,7 +1085,8 @@ fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {
     ((v - lo).abs() <= tol, (v - hi).abs() <= tol)
 }
 
-/// A warning when fitted parameters sit on the M-step's bounds.
+/// A warning when fitted parameters sit on the M-step's bounds, saying
+/// what that means for each kind (the CLI has no option to move them).
 fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
     let bounds = bounds_from_config(model, cfg);
     let mut vals: Vec<(String, f64)> = Vec::with_capacity(3 + model.lam.len());
@@ -1096,33 +1097,52 @@ fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
         vals.push((format!("lam[{i}]"), *v));
     }
 
-    let mut near_lo = 0usize;
-    let mut near_hi = 0usize;
-    let mut examples: Vec<String> = Vec::new();
-    for ((name, v), b) in vals.iter().zip(&bounds) {
+    let (mut lam_hi, mut lam_lo, mut others) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, ((name, v), b)) in vals.iter().zip(&bounds).enumerate() {
         let (is_lo, is_hi) = near(*v, b.lo, b.hi);
-        if is_lo {
-            near_lo += 1;
-            if examples.len() < 6 {
-                examples.push(format!("{name}≈lo({})", b.lo));
-            }
+        if !(is_lo || is_hi) {
+            continue;
         }
-        if is_hi {
-            near_hi += 1;
-            if examples.len() < 6 {
-                examples.push(format!("{name}≈hi({})", b.hi));
-            }
+        let bound = if is_lo { b.lo } else { b.hi };
+        match (i >= 3, is_hi) {
+            (true, true) => lam_hi.push(name.clone()),
+            (true, false) => lam_lo.push(name.clone()),
+            (false, _) => others.push(format!("{name} = {bound:e}")),
         }
     }
-    (near_lo + near_hi > 0).then(|| {
-        format!(
-            "{} params are on/near optimization bounds (lo={}, hi={}). Examples: {}. Consider wider bounds.",
-            near_lo + near_hi,
-            near_lo,
-            near_hi,
-            examples.join(", ")
-        )
-    })
+    let list = |names: &[String]| {
+        if names.len() > 6 {
+            format!("{} and {} more", names[..5].join(", "), names.len() - 5)
+        } else {
+            names.join(", ")
+        }
+    };
+    let mut parts = Vec::new();
+    if !lam_hi.is_empty() {
+        parts.push(format!(
+            "{} at the M-step's upper bound of λ ({}): the data hold almost no coalescences in \
+             their intervals, so the Ne there is that bound, not an estimate (usual for the \
+             most recent intervals; a pattern that groups them, as C psmc's `4+...` patterns \
+             do, fits one λ for several)",
+            list(&lam_hi),
+            cfg.lam_hi
+        ));
+    }
+    if !lam_lo.is_empty() {
+        parts.push(format!(
+            "{} at the M-step's lower bound of λ ({}): the fit makes every lineage that reaches \
+             those intervals coalesce at once (seen for the oldest interval, beyond t_max)",
+            list(&lam_lo),
+            cfg.lam_lo
+        ));
+    }
+    if !others.is_empty() {
+        parts.push(format!(
+            "{} at the M-step's bound: check the input and the starting values",
+            others.join(", ")
+        ));
+    }
+    (!parts.is_empty()).then(|| format!("fitted parameters on their bounds: {}.", parts.join("; ")))
 }
 
 #[cfg(test)]
@@ -1183,11 +1203,21 @@ mod tests {
         model.lam[2] = cfg.lam_hi;
         model.rho = cfg.rho_lo;
         let msg = near_bounds_warning(&model, &cfg).unwrap();
+        // Each kind with what it means, and no advice the CLI cannot follow.
         assert!(
-            msg.starts_with("2 params are on/near optimization bounds (lo=1, hi=1)"),
+            msg.contains("lam[2] at the M-step's upper bound of λ (10000)")
+                && msg.contains("not an estimate"),
             "{msg}"
         );
-        assert!(msg.contains("lam[2]") && msg.contains("rho"), "{msg}");
+        assert!(msg.contains("rho = 1e-12 at the M-step's bound"), "{msg}");
+        assert!(!msg.contains("wider bounds"), "{msg}");
+        model.lam[2] = cfg.lam_lo;
+        model.rho = 0.0025;
+        let msg = near_bounds_warning(&model, &cfg).unwrap();
+        assert!(
+            msg.contains("lam[2] at the M-step's lower bound of λ"),
+            "{msg}"
+        );
     }
 
     #[test]
