@@ -148,6 +148,10 @@ def cmd_start(args) -> int:
         where = f" on {host}" if host and host != runner.this_host() else ""
         print(f"a runner is already running for {runs_dir} (pid {pid}{where}); `stop` it first or wait", file=sys.stderr)
         return 1
+    try:
+        runner.sample_seconds()  # here, not in the daemon, whose log nobody reads at once
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
     budget = config.Budget(cores=args.cores, mem_gb=args.mem_gb)
     for d in tools.lock_differences():
         print(f"warning: {d} (experiment/pipeline/requirements.lock); simulations may not reproduce the "

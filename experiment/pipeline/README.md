@@ -191,7 +191,8 @@ measures) and the main process's `ru_maxrss`, user and system CPU time,
 exit status, the load average before and after, and the SHA-256 of the
 executables it ran; exclusive jobs also record the busiest other processes
 before they start. The interval of the samples is
-`$PSMC_EXP_SAMPLE_SECONDS` (default 0.05): each one lists the machine's
+`$PSMC_EXP_SAMPLE_SECONDS` (default 0.05, at least 0.01; `start` checks
+it): each one lists the machine's
 processes, which with ~190 jobs at once on a 192-core node keeps the runner
 busy. Every attempt also records the host it ran on and `$SLURM_JOB_ID`;
 the runner's state records `provenance.machine()` (CPU model, memory, host,

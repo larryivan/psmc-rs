@@ -321,8 +321,9 @@ class DaemonTests(Base):
 
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
 class DetachedRunner(Base):
-    def cli(self, *args) -> subprocess.CompletedProcess:
-        env = dict(os.environ, PYTHONPATH=str(ROOT), PSMC_EXP_MACHINE_LOCK=str(self.tmp / "machine.lock"))
+    def cli(self, *args, **extra_env) -> subprocess.CompletedProcess:
+        env = dict(os.environ, PYTHONPATH=str(ROOT), PSMC_EXP_MACHINE_LOCK=str(self.tmp / "machine.lock"),
+                   **extra_env)
         return subprocess.run([sys.executable, "-m", "experiment.pipeline", *args, "--runs-dir", str(self.runs)],
                               cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
 
@@ -407,6 +408,18 @@ class DetachedRunner(Base):
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 1, 1, 1, 2])
 
+    def test_a_bad_sample_interval_stops_only_start(self):
+        spec = self.tmp / "jobs.json"
+        spec.write_text(json.dumps([self.job("T/a", ["a.txt"]).to_dict()]))
+        bad = {runner.SAMPLE_SECONDS_ENV: "fast"}
+        for args in (("status", "--jobs-file", str(spec)), ("stop",)):
+            res = self.cli(*args, **bad)
+            self.assertEqual(res.returncode, 0, res.stderr)
+        res = self.cli("start", "--foreground", "--jobs-file", str(spec), **bad)
+        self.assertEqual((res.returncode, self.runs_of("T/a")), (1, 0))
+        self.assertEqual(res.stderr.strip(), f"{runner.SAMPLE_SECONDS_ENV}='fast': give a number of seconds, "
+                         f"at least {runner.MIN_SAMPLE_SECONDS:g}")
+
     def test_only_rejects_a_bad_or_unmatched_pattern(self):
         spec = self.tmp / "jobs.json"
         spec.write_text(json.dumps([self.job("T/a", ["a.txt"]).to_dict()]))
@@ -489,11 +502,18 @@ class MachineInfo(unittest.TestCase):
 
 class RunnerSettings(unittest.TestCase):
     def test_sample_seconds_from_the_environment(self):
+        from unittest import mock
+
         self.assertEqual(runner.sample_seconds({}), 0.05)
         self.assertEqual(runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: "1.5"}), 1.5)
-        for bad in ("0", "-1", "inf", "fast"):
-            with self.assertRaises(ValueError, msg=bad):
+        self.assertEqual(runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: "0.01"}), 0.01)
+        for bad in ("0", "-1", "inf", "nan", "1e-9", "0.009", "fast"):
+            with self.assertRaisesRegex(ValueError, runner.SAMPLE_SECONDS_ENV, msg=bad):
                 runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: bad})
+        runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with mock.patch.dict(os.environ, {runner.SAMPLE_SECONDS_ENV: "0.5"}):  # read when a runner starts
+            d = runner.Daemon(Graph([], runs), runs, config.Budget(), runner.Logger(runs), {})
+        self.assertEqual(d.sample_every, 0.5)
 
     def test_default_machine_lock_is_per_host_except_on_macos(self):
         from unittest import mock

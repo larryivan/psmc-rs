@@ -79,6 +79,9 @@ DEFERRED = "deferred"
 MACHINE_LOCK_ENV = "PSMC_EXP_MACHINE_LOCK"
 
 
+MIN_SAMPLE_SECONDS = 0.01
+
+
 def sample_seconds(environ: Optional[Dict[str, str]] = None) -> float:
     """Seconds between samples of a job's process tree: ``$PSMC_EXP_SAMPLE_SECONDS``, default 0.05.
 
@@ -86,17 +89,19 @@ def sample_seconds(environ: Optional[Dict[str, str]] = None) -> float:
     Linux) while holding the GIL, so with ~190 jobs at once on a 192-core
     node, 20 samples a second per job keep the runner's threads busy; a
     longer interval misses short peaks of memory but not the job's end.
+    Read when a runner starts (not on import: a bad value must not break
+    ``stop`` or ``status``); below 0.01 s the job threads would busy-poll.
     """
     raw = (os.environ if environ is None else environ).get(SAMPLE_SECONDS_ENV, "")
     if not raw.strip():
         return 0.05
-    value = float(raw)
-    if not 0 < value < math.inf:
-        raise ValueError(f"{SAMPLE_SECONDS_ENV}={raw!r}: give a positive number of seconds")
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if not MIN_SAMPLE_SECONDS <= value < math.inf:
+        raise ValueError(f"{SAMPLE_SECONDS_ENV}={raw!r}: give a number of seconds, at least {MIN_SAMPLE_SECONDS:g}")
     return value
-
-
-SAMPLE_SECONDS = sample_seconds()
 
 
 def this_host() -> str:
@@ -327,11 +332,13 @@ def job_environment(job: Job) -> Dict[str, str]:
 class Execution(threading.Thread):
     """Runs one job in its own process group and measures it."""
 
-    def __init__(self, job: Job, runs_dir: Path, executables: Optional[Dict[str, str]] = None):
+    def __init__(self, job: Job, runs_dir: Path, executables: Optional[Dict[str, str]] = None,
+                 sample_every: float = 0.05):
         super().__init__(name=f"job:{job.id}", daemon=True)
         self.job = job
         self.runs_dir = Path(runs_dir)
         self.executables = dict(executables or {})  # {portable path: SHA-256} of what the command runs
+        self.sample_every = sample_every  # seconds between samples of the process tree's RSS
         self.proc: Optional[subprocess.Popen] = None
         self.result: Optional[Dict] = None
         self.started = time.time()
@@ -397,8 +404,8 @@ class Execution(threading.Thread):
                         break
                     if sample and time.perf_counter() >= next_sample:
                         peak = max(peak, tree_rss(ps))
-                        next_sample = time.perf_counter() + SAMPLE_SECONDS
-                    time.sleep(min(SAMPLE_SECONDS, EXIT_POLL_SECONDS))
+                        next_sample = time.perf_counter() + self.sample_every
+                    time.sleep(min(self.sample_every, EXIT_POLL_SECONDS))
                 wall = time.perf_counter() - t0
             finally:
                 if job.stdout:
@@ -792,6 +799,7 @@ class Daemon:
         self.halted: Optional[str] = None  # why no further job starts
         # daemon_main passes the machine-wide lock; a Daemon made directly (tests) coordinates with nothing.
         self.machine = machine_lock if machine_lock is not None else NoMachineLock()
+        self.sample_every = sample_seconds()
         self.not_before: Dict[str, float] = {}  # deferred jobs: when they may start again
         self.deferrals: Dict[str, int] = {}
         self._waiting_logged = 0.0
@@ -865,7 +873,8 @@ class Daemon:
     # -- execution -----------------------------------------------------------
     def launch(self, job: Job) -> None:
         self.keys[job.id] = provenance.job_key(job, self.runs_dir, self.cache)
-        ex = Execution(job, self.runs_dir, executables=self.watch.digests(self.exes[job.id], self.runs_dir))
+        ex = Execution(job, self.runs_dir, executables=self.watch.digests(self.exes[job.id], self.runs_dir),
+                       sample_every=self.sample_every)
         self.running[job.id] = ex
         self.state[job.id] = RUNNING
         self.log(f"start {job.id} ({self.reason.get(job.id, '')}): {' '.join(job.command)}", job.experiment)
