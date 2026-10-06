@@ -62,8 +62,9 @@ Tables (``tables/``):
   same thread count, C psmc's peak RSS over the tool's, the M-step budget,
   and whether the repeats' outputs are byte-identical.
 * ``E3_runs.csv``: one row per run: every measurement, the machine's state
-  before and during it, the fitted theta, rho and t_max, and the SHA-256 of
-  the output.
+  before and during it, the machine it ran on (CPU model, governor, boost,
+  usable cores, host, SLURM job), the fitted theta, rho and t_max, and the
+  SHA-256 of the output.
 * ``E3_thread_scaling.csv`` (Fig S4): psmc-rs 0.2 on the thread-scaling
   genome: median wall time per thread count, speed-up over one thread,
   parallel efficiency, peak RSS, and whether the JSON is byte-identical to
@@ -75,7 +76,10 @@ Tables (``tables/``):
 * ``E3_environment.csv``: the machine (each distinct value over the runs,
   ';'-joined: hosts, SLURM jobs), the tools' identities, how C psmc was
   built (its ``BUILD.json``, see :func:`.tools.build_c`), the timing
-  protocol and the memory limit.
+  protocol, the memory limit, and the kinds of machine (CPU model, governor,
+  boost) the clean runs were timed on: when there are several
+  (``clean_runs_on_mixed_machines``), the medians and speed-ups mix them,
+  and the report warns.
 * ``E3_seeds.csv``: every simulation seed.
 """
 
@@ -526,6 +530,7 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
     before = timing.get("machine_before", {})
     during = timing.get("during", {})
     power = before.get("power") or {}
+    machine = timing.get("machine", {})
     return {
         "tool": u.tool,
         "tool_label": TOOL_LABELS[u.tool],
@@ -554,6 +559,12 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
         "clock_span_seconds": timing.get("clock_span_seconds"),
         "power_source": power.get("source"),
         "low_power_mode": power.get("low_power_mode"),
+        "cpu": machine.get("cpu"),
+        "cpu_governor": machine.get("cpu_governor"),
+        "cpu_boost": machine.get("cpu_boost"),
+        "cpus_allowed": machine.get("cpus_allowed"),
+        "hostname": machine.get("hostname"),
+        "slurm_job_id": machine.get("slurm_job_id"),
         "loadavg_before_1m": (timing.get("loadavg_before") or [None])[0],
         "loadavg_after_1m": (timing.get("loadavg_after") or [None])[0],
         "start": timing.get("start"),
@@ -748,9 +759,23 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
     add("repeats", str(cfg.repeats))
     add("runs_not_quiet", str(sum(1 for r in rows.values() if not r["quiet_before"])))
     add("runs_not_clean", str(sum(1 for r in rows.values() if not r["clean"])))
+    kinds = clean_machine_kinds(rows, timings)
+    add("clean_runs_machines", ";".join(kinds))
+    add("clean_runs_on_mixed_machines", str(len(kinds) > 1))
     add("power_sources", ";".join(sorted({str(r["power_source"]) for r in rows.values()})))
     add("low_power_mode_seen", str(any(r["low_power_mode"] for r in rows.values())))
     return out
+
+
+def machine_kind(timing: Dict) -> str:
+    """The CPU model, frequency governor and boost a run was timed on: what its time depends on beyond the tool."""
+    m = timing.get("machine", {})
+    return f"{m.get('cpu', 'unknown CPU')} (governor {m.get('cpu_governor', '?')}, boost {m.get('cpu_boost', '?')})"
+
+
+def clean_machine_kinds(rows: Dict[Run, Dict], timings: Dict[Run, Dict]) -> List[str]:
+    """Every :func:`machine_kind` of the clean runs; more than one makes the medians and speed-ups mix them."""
+    return sorted({machine_kind(timings[run]) for run, row in rows.items() if row["clean"] and run in timings})
 
 
 def c_build_rows(build: Optional[Dict]) -> List[Tuple[str, str]]:
@@ -818,6 +843,10 @@ def report(ctx: Context) -> Dict[str, Path]:
         timings[run] = timing
     ordered = [rows[r] for r in sorted(rows, key=lambda r: (TOOL_ORDER.index(r.setup.tool), r.setup.threads,
                                                              r.setup.size_mb, r.repeat))]
+    kinds = clean_machine_kinds(rows, timings)
+    if len(kinds) > 1:
+        ctx.log(f"[E3] warning: the clean runs were timed on {len(kinds)} kinds of machine ({'; '.join(kinds)}); "
+                "their medians and speed-ups mix them (E3_environment.csv: clean_runs_on_mixed_machines)")
     tables = {
         "table2": table2_rows(cfg, planned, rows),
         "runs": ordered,

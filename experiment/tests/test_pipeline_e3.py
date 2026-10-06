@@ -301,6 +301,41 @@ class Report(unittest.TestCase):
         env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
         self.assertEqual((env["machine.hostname"], env["machine.cpu"]), ("cn1;cn2", "Test CPU"))
 
+    def test_runs_on_two_kinds_of_cpu_are_flagged(self):
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertEqual((env["clean_runs_on_mixed_machines"], env["clean_runs_machines"]),
+                         ("False", "Test CPU (governor ?, boost ?)"))
+        for run in e3.runs(self.cfg):
+            timing = json.loads(self.lay.timing(run).read_text())
+            rome = {"cpu": "AMD EPYC 7702 64-Core Processor", "cpu_governor": "performance", "cpu_boost": "1",
+                    "cpus_allowed": 8, "hostname": "cn509-02-l", "slurm_job_id": "41000001"}
+            turin = {**rome, "cpu": "AMD EPYC 9655 96-Core Processor", "hostname": "cn610-11-l",
+                     "slurm_job_id": "41000002"}
+            timing["machine"] = turin if run.repeat == 2 else rome  # repeat 2 ran on another kind of node
+            self.lay.timing(run).write_text(json.dumps(timing))
+        logged = []
+        e3.report(Context(self.profile, self.runs, log=logged.append))
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertEqual(env["clean_runs_on_mixed_machines"], "True")
+        self.assertEqual(env["clean_runs_machines"],
+                         "AMD EPYC 7702 64-Core Processor (governor performance, boost 1);"
+                         "AMD EPYC 9655 96-Core Processor (governor performance, boost 1)")
+        self.assertEqual(env["machine.hostname"], "cn509-02-l;cn610-11-l")
+        self.assertTrue(any("2 kinds of machine" in m for m in logged))
+        runs = read_csv(self.lay.table("runs"))
+        self.assertEqual({(r["repeat"], r["cpu"], r["hostname"], r["slurm_job_id"]) for r in runs if r["tool"] == "c"},
+                         {("1", "AMD EPYC 7702 64-Core Processor", "cn509-02-l", "41000001"),
+                          ("2", "AMD EPYC 9655 96-Core Processor", "cn610-11-l", "41000002")})
+        # Only clean runs count: with repeat 2 not clean, the medians are of one kind of machine.
+        for run in e3.runs(self.cfg):
+            if run.repeat == 2:
+                timing = json.loads(self.lay.timing(run).read_text())
+                timing["machine_before"]["quiet"] = False
+                self.lay.timing(run).write_text(json.dumps(timing))
+        e3.report(Context(self.profile, self.runs, log=logged.append))
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertEqual(env["clean_runs_on_mixed_machines"], "False")
+
     def test_environment_says_how_c_psmc_was_built(self):
         build = {"compiler": "/usr/bin/gcc", "compiler_version": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
                  "cflags": "-g -Wall -O2 -Wno-unused-function", "ldflags": "", "libs": "-lm -lz",
