@@ -40,6 +40,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -322,6 +323,8 @@ C_BUILD_RECORD_ID = "psmc-rs-manuscript/tools/c-psmc-build/1"
 C_PSMC_SOURCES = ("khmm.c", "kmin.c", "cli.c", "core.c", "em.c", "aux.c", "main.c")
 C_UTILITY_SOURCES = {"fq2psmcfa": "fq2psmcfa.c", "splitfa": "splitfa.c"}
 C_DEFAULT_CFLAGS = "-g -Wall -O2 -Wno-unused-function"
+# On macOS arm64 an -O2 build of C psmc segfaults; the laptop's is -O1.
+C_MACOS_ARM64_CFLAGS = "-g -Wall -O1 -Wno-unused-function"
 C_LIBS = "-lm -lz"
 
 
@@ -336,8 +339,13 @@ def default_cc() -> str:
 
 
 def default_cflags() -> str:
-    """The CFLAGS :func:`build_c` uses by default: ``$PSMC_C_CFLAGS``, else the Makefile's (:data:`C_DEFAULT_CFLAGS`)."""
-    return os.environ.get("PSMC_C_CFLAGS", C_DEFAULT_CFLAGS)
+    """The CFLAGS :func:`build_c` uses by default: ``$PSMC_C_CFLAGS``, else the Makefile's (:data:`C_DEFAULT_CFLAGS`).
+
+    On macOS arm64, where an ``-O2`` build segfaults, the default is the
+    laptop's ``-O1`` (:data:`C_MACOS_ARM64_CFLAGS`).
+    """
+    macos_arm64 = sys.platform == "darwin" and platform.machine() == "arm64"
+    return os.environ.get("PSMC_C_CFLAGS", C_MACOS_ARM64_CFLAGS if macos_arm64 else C_DEFAULT_CFLAGS)
 
 
 def c_sources(src: Path) -> Dict[str, str]:
@@ -348,7 +356,7 @@ def c_sources(src: Path) -> Dict[str, str]:
 
 
 def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Optional[str] = None,
-            ldflags: Optional[str] = None, log: Callable[[str], None] = print) -> Dict:
+            ldflags: Optional[str] = None, force: bool = False, log: Callable[[str], None] = print) -> Dict:
     """Build C psmc and its utilities fq2psmcfa and splitfa in ``src`` and write ``src/BUILD.json``.
 
     The compiler and flags are explicit (defaults: :func:`default_cc`,
@@ -359,6 +367,12 @@ def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Option
     compiler (path and the first line of its ``--version``), the flags, the
     commands, the SHA-256 of every source file and of every program built,
     and the platform; :func:`c_psmc` reads it. Returns the record.
+
+    A program that the old ``BUILD.json`` does not describe (one built by
+    hand, such as the laptop's) is not replaced unless ``force``: a build
+    with ``-g`` is not byte-reproducible on macOS, so it could not be made
+    again. Whatever is replaced is kept as ``<program>.prev`` and
+    ``BUILD.json.prev``.
     """
     src = Path(src) if src is not None else c_psmc_dir()
     cc = cc or default_cc()
@@ -372,8 +386,18 @@ def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Option
     missing = [str(cwd / s) for cwd, sources, _ in targets.values() for s in sources if not (cwd / s).exists()]
     if missing:
         raise ToolError(f"lh3/psmc sources missing: {', '.join(missing)}")
+    old = read_c_build(src)
+    undescribed = [name for name in targets if (src / name).exists()
+                   and (old or {}).get("binaries", {}).get(name) != sha256_file(src / name)]
+    if undescribed and not force:
+        raise ToolError(f"{', '.join(str(src / n) for n in undescribed)} not described by "
+                        f"{src / C_BUILD_RECORD}: built otherwise, and not replaced (move them away, or pass --force "
+                        "to keep them as <program>.prev)")
     sources = c_sources(src)
-    res = _run([compiler, "--version"])
+    try:
+        res = _run([compiler, "--version"])
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"{compiler} --version timed out") from None
     version = res.stdout.splitlines()[0].strip() if res.returncode == 0 and res.stdout.strip() else "unknown"
     commands: Dict[str, str] = {}
     with tempfile.TemporaryDirectory(dir=src, prefix=".build-") as tmp:
@@ -383,11 +407,21 @@ def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Option
                         *shlex.split(C_LIBS)]
 
             commands[name] = shlex.join(command(Path(name).name))  # as run, but for where the program goes
-            res = _run(command(str(Path(tmp) / Path(name).name)), cwd=cwd, timeout=600)
+            try:
+                res = _run(command(str(Path(tmp) / Path(name).name)), cwd=cwd, timeout=600)
+            except subprocess.TimeoutExpired:
+                raise ToolError(f"building {name} timed out after 600 s: {commands[name]}") from None
             if res.returncode != 0:
                 raise ToolError(f"building {name} failed: {commands[name]}\n{res.stderr[-4000:]}")
         for name in targets:
+            if (src / name).exists():
+                os.replace(src / name, src / f"{name}.prev")
             os.replace(Path(tmp) / Path(name).name, src / name)
+    prev_record = src / f"{C_BUILD_RECORD}.prev"
+    if (src / C_BUILD_RECORD).exists():
+        shutil.copy2(src / C_BUILD_RECORD, prev_record)
+    elif prev_record.exists():
+        prev_record.unlink()  # it describes no <program>.prev now
     record = {
         "record": C_BUILD_RECORD_ID,
         "built": time.strftime("%Y-%m-%dT%H:%M:%S"),

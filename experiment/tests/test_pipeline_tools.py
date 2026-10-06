@@ -225,7 +225,15 @@ class BuildC(unittest.TestCase):
 
         env = {k: v for k, v in os.environ.items() if k not in ("CC", "PSMC_C_CFLAGS")}
         with mock.patch.dict("os.environ", env, clear=True):
-            self.assertEqual(tools.default_cflags(), "-g -Wall -O2 -Wno-unused-function")  # the Makefile's
+            with mock.patch.object(tools.sys, "platform", "linux"), \
+                    mock.patch.object(tools.platform, "machine", return_value="x86_64"):
+                self.assertEqual(tools.default_cflags(), "-g -Wall -O2 -Wno-unused-function")  # the Makefile's
+            with mock.patch.object(tools.sys, "platform", "darwin"), \
+                    mock.patch.object(tools.platform, "machine", return_value="arm64"):
+                self.assertEqual(tools.default_cflags(), "-g -Wall -O1 -Wno-unused-function")  # -O2 segfaults there
+            with mock.patch.object(tools.sys, "platform", "darwin"), \
+                    mock.patch.object(tools.platform, "machine", return_value="x86_64"):
+                self.assertEqual(tools.default_cflags(), "-g -Wall -O2 -Wno-unused-function")
             self.assertEqual(tools.default_cc(), "gcc" if shutil.which("gcc") else "cc")
         with mock.patch.dict("os.environ", {"CC": "clang", "PSMC_C_CFLAGS": "-g -Wall -O1 -Wno-unused-function"}):
             self.assertEqual((tools.default_cc(), tools.default_cflags()), ("clang", "-g -Wall -O1 -Wno-unused-function"))
@@ -271,6 +279,34 @@ class BuildC(unittest.TestCase):
         with self.assertRaisesRegex(tools.ToolError, "--build-c"):
             tools.c_psmc(self.tools_dir)
 
+    def test_programs_built_otherwise_are_replaced_only_when_forced_and_kept(self):
+        first = self.build(cflags="-O1")
+        (self.src / "BUILD.json").unlink()  # as the laptop's, built by hand
+        with self.assertRaisesRegex(tools.ToolError, "not described by .*--force"):
+            self.build(cflags="-O2")
+        for name, digest in first["binaries"].items():
+            self.assertEqual(tools.sha256_file(self.src / name), digest, name)
+            self.assertFalse((self.src / f"{name}.prev").exists())
+        second = self.build(cflags="-O2", force=True)
+        for name, digest in first["binaries"].items():
+            self.assertEqual(tools.sha256_file(self.src / f"{name}.prev"), digest, name)
+        self.assertFalse((self.src / "BUILD.json.prev").exists())
+        # A build that BUILD.json describes is replaced without --force, and kept with its record.
+        self.build(cflags="-O1 -Wall")
+        self.assertEqual(json.loads((self.src / "BUILD.json.prev").read_text()), second)
+        self.assertEqual(tools.sha256_file(self.src / "psmc.prev"), second["binaries"]["psmc"])
+        self.assertEqual(tools.c_psmc(self.tools_dir).identity["cflags"], "-O1 -Wall")
+
+    def test_a_compiler_that_hangs_is_a_tool_error(self):
+        version = subprocess.CompletedProcess([], 0, stdout="cc 1.0\n", stderr="")
+        with mock.patch.object(tools, "_run", side_effect=[version, subprocess.TimeoutExpired("cc", 600)]):
+            with self.assertRaisesRegex(tools.ToolError, "building psmc timed out"):
+                self.build()
+        with mock.patch.object(tools, "_run", side_effect=subprocess.TimeoutExpired("cc", 60)):
+            with self.assertRaisesRegex(tools.ToolError, "--version timed out"):
+                self.build()
+        self.assertFalse((self.src / "psmc").exists())
+
     def test_a_failed_build_keeps_the_old_programs_and_record(self):
         record = self.build(cflags="-O1")
         (self.src / "utils" / "splitfa.c").write_text("int main(void) { return }\n")
@@ -289,8 +325,9 @@ class BuildC(unittest.TestCase):
         from experiment.pipeline import __main__ as cli
 
         args = cli.build_parser().parse_args(["tools", "--build-c"])
-        self.assertTrue(args.build_c)
+        self.assertEqual((args.build_c, args.force), (True, False))
         self.assertFalse(cli.build_parser().parse_args(["tools"]).build_c)
+        self.assertTrue(cli.build_parser().parse_args(["tools", "--build-c", "--force"]).force)
         missing = tools.ToolError("not here")
         with mock.patch.object(tools, "build_c", side_effect=tools.ToolError("cc failed")), \
                 contextlib.redirect_stderr(io.StringIO()) as err:
@@ -303,7 +340,7 @@ class BuildC(unittest.TestCase):
                 mock.patch.object(tools, "utility", side_effect=missing), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(cli.cmd_tools(args), 0)
-        build.assert_called_once_with()
+        build.assert_called_once_with(force=False)
 
 
 class RequirementsLock(unittest.TestCase):

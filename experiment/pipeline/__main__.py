@@ -105,8 +105,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--build-rs01", action="store_true", help="build psmc-rs 0.1 (commit e50d69d) into the tools directory")
     p.add_argument("--build-c", action="store_true",
                    help="build C psmc, fq2psmcfa and splitfa in <tools>/psmc_c with $CC (default gcc, else cc), "
-                        f"$PSMC_C_CFLAGS (default the Makefile's {tools.C_DEFAULT_CFLAGS!r}) and $LDFLAGS, "
-                        "and record how in its BUILD.json")
+                        f"$PSMC_C_CFLAGS (default the Makefile's {tools.C_DEFAULT_CFLAGS!r}; on macOS arm64, where "
+                        f"-O2 segfaults, {tools.C_MACOS_ARM64_CFLAGS!r}) and $LDFLAGS, and record how in its "
+                        "BUILD.json; programs its BUILD.json does not describe are not replaced without --force")
+    p.add_argument("--force", action="store_true",
+                   help="with --build-c: replace programs built otherwise too (kept as <program>.prev)")
     sub.add_parser("check-models", help="check the demographic models against msprime and stdpopsim")
     sub.add_parser("simulate", help="simulate one genome (a runner job; see --help)", add_help=False)
 
@@ -297,7 +300,7 @@ def cmd_report(args) -> int:
 def cmd_tools(args) -> int:
     if args.build_c:
         try:
-            tools.build_c()
+            tools.build_c(force=args.force)
         except (tools.ToolError, OSError) as exc:
             print(f"building C psmc failed: {exc}", file=sys.stderr)
             return 1
