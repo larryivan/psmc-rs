@@ -289,52 +289,67 @@ files are not committed), `qc/`, `provenance/`, `tables/`, `figures/`;
 `inputs/` (smoke and tiny profiles: the first bins of each genome) and
 `logs/` are not committed.
 
-**Cost** (`plan E2`): 18 jobs, about 34 CPU hours (the five bootstrap runs
-31, each on 7 threads, up to about 1.4 hours for a turtle; C psmc 2.5, up to
-49 minutes and 3.4 GB for HLhydTec1), about 5.3 hours alone.
+**Cost** (`plan E2`): 18 jobs, about 35 CPU hours (the five bootstrap runs
+31, each on 50 threads, one replicate per thread, so the runner needs
+`--cores 50`; C psmc 2.5, up to 49 minutes and 3.4 GB for HLhydTec1), about
+1.6 hours alone on 50 cores. The bootstraps' output does not depend on
+their threads (replicate i draws from its own seed).
 
 ## E3: performance
 
 Run time and peak memory of C psmc, psmc-rs 0.1 and psmc-rs 0.2 on
 constant-model genomes of 100, 300, 1000 and 3000 Mb (1, 3, 10 and 30
 chromosomes of 100 Mb; one simulation per size, the chromosomes shared
-between sizes), 25 EM iterations of the recipe, 3 repeats each: C psmc on
+between sizes), 25 EM iterations of the recipe, 5 repeats each: C psmc on
 its one thread; psmc-rs 0.1 (commit e50d69d, built out of the tree; it has
 no `--tr-ratio`, and its default start rho0 = theta0/5 is the recipe's
-`-r5`) and psmc-rs 0.2 on 1 and 8 threads (and psmc-rs 0.2 with capped
+`-r5`) and psmc-rs 0.2 on 1, 8 and 30 threads (and psmc-rs 0.2 with capped
 M-steps, `rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2 on the
-3000 Mb genome with 1, 2, 4 and 8 threads (thread scaling). A setup whose
-estimated peak memory exceeds 12 GB is not run and Table 2 says why (none
-with 100 Mb chromosomes: C psmc holds about 1 GB).
+3000 Mb genome with 1, 2, 4, 8, 16 and 30 threads (thread scaling). psmc-rs
+works on one sequence per thread, so the 30 chromosomes of the largest
+genome make 30 threads the most that can help. A setup whose estimated
+peak memory exceeds 64 GB is not run and Table 2 says why (none with
+100 Mb chromosomes: C psmc holds about 1 GB, psmc-rs 0.1 on 30 threads
+14.6 GB).
 
 Every run is an exclusive job (nothing else runs, on this runner or any
-other), ranked by repeat, and timed by `e3_run measure` (wall time, CPU
-time, peak RSS of the tool's process tree, sampled every 0.5 s with the
-tool's own `ru_maxrss`, the machine's load and the busiest processes before
-the run, the CPU other processes used during it, the power source). The
-tool runs without `PSMC_*` and Rust build variables in its environment. A
-run is kept only when it is clean: the machine became quiet (at most 10%
-of all cores busy) within 3 minutes, other processes used at most 5% of
-the cores during the run, the machine did not sleep, and it ran on AC power
-without Low Power Mode. Otherwise `measure` writes nothing and exits with
-status 75, and the runner starts the run again a minute later; the report
-takes medians from clean runs only.
+other), ranked by repeat, with as many cores as threads, and timed by
+`e3_run measure` (wall time, CPU time, peak RSS of the tool's process tree,
+sampled every 0.5 s with the tool's own `ru_maxrss`, the machine's load and
+the busiest processes before the run, the CPU other processes used during
+it, the power source, and on Linux the CPU model, cpufreq governor, boost,
+host and SLURM job). The runner starts an exclusive job whatever its
+`--cores`, but its memory must fit `--mem-gb`: start E3 with `--mem-gb 15`
+or more. `measure` refuses (exit status 69, a failure the next `start`
+retries) to time a run of more threads than the CPUs it may use (its
+affinity: a SLURM allocation's), since it would be timed oversubscribed.
+The tool runs without `PSMC_*` and Rust build variables in its environment.
+A run is kept only when it is clean: the machine became quiet (at most 10%
+of all cores and at most 1 core busy) within 3 minutes, other processes
+kept at most 5% of all cores and at most 0.5 core busy on average during
+the run, the machine did not sleep, and it ran on AC power without Low
+Power Mode. On a laptop's 8 cores the shares decide; on a node of 128 or
+192 cores the core counts do. Otherwise `measure` writes nothing and exits
+with status 75, and the runner starts the run again a minute later; the
+report takes medians from clean runs only, and flags clean runs timed on
+more than one kind of machine (CPU model, governor, boost), whose medians
+and speed-ups would mix them: keep E3's runs on nodes of one CPU model.
 
 | table | contents |
 | --- | --- |
 | `E3_table2.csv` | Table 2, per tool, thread count and size: status (measured, skipped with the reason, incomplete), estimated peak memory, clean and measured repeats, median, minimum and maximum wall time, median CPU time, seconds per iteration, peak RSS, speed-up over C psmc and over psmc-rs 0.1 at the same threads, C psmc's RSS over the tool's, the M-step budget, whether the repeats' outputs are identical |
-| `E3_runs.csv` | every run: measurements, machine state, power, clean or not, theta, rho, t_max, log-likelihood, output SHA-256 |
+| `E3_runs.csv` | every run: measurements, machine state, power, clean or not, CPU model, governor, boost, usable CPUs, host, SLURM job, theta, rho, t_max, log-likelihood, output SHA-256 |
 | `E3_thread_scaling.csv` | Fig S4: psmc-rs 0.2 on 3000 Mb per thread count: median wall time, speed-up, efficiency, peak RSS, whether the JSON is byte-identical to the one-thread run |
 | `E3_determinism.csv` | Fig S4: every output against its tool's reference at the same size (fewest threads, first repeat) |
-| `E3_environment.csv` | machine (each distinct value: the hosts of merged shards), tools (identities, binary SHA-256, rustc), C compiler, protocol, power sources, runs not clean |
+| `E3_environment.csv` | machine (each distinct value: the hosts of merged shards), tools (identities, binary SHA-256, rustc), how C psmc was built (its `BUILD.json`), protocol, power sources, runs not clean, the kinds of machine of the clean runs and whether they mix (`clean_runs_on_mixed_machines`) |
 | `E3_seeds.csv` | every seed, with each chromosome's trees and longest stretch without a heterozygous site |
 
 Layout of `experiment/runs/E3/`: `sims/` (not committed), `truth/`,
 `fits/<tool>/<size>Mb/t<threads>/rep<r>.{psmc,json}`, `timings/...` (the
 timing records), `provenance/`, `tables/`, `figures/`.
 
-**Cost** (`plan E3`): 71 jobs; the 66 timing runs take about 11 hours of
-wall time one after another (C psmc about 1 hour each on 3000 Mb; psmc-rs
+**Cost** (`plan E3`): 160 jobs; the 155 timing runs take about 21 hours of
+wall time one after another by the laptop's estimates (C psmc about 1 hour each on 3000 Mb; psmc-rs
 0.1's 1000 forward-mode L-BFGS iterations per M-step add about 200 s per
 run, 25 M-steps on one thread, whatever the size, where psmc-rs 0.2's
 converged M-steps take under a second). They need the machine to themselves: close
@@ -603,10 +618,11 @@ checkout's environment:
 PY=<main checkout>/experiment/.venv/bin/python
 $PY -m experiment.pipeline tools                 # identities; no warning about the lock
 $PY -m experiment.pipeline tools --build-rs01    # psmc-rs 0.1 from e50d69d, once
+$PY -m experiment.pipeline tools --build-c       # C psmc with a recorded build (not needed on the laptop)
 $PY -m experiment.pipeline plan                  # the estimates below
-$PY -m experiment.pipeline start E3              # first, alone, on a quiet machine on AC power
+$PY -m experiment.pipeline start E3 --mem-gb 15  # first, alone, on a quiet machine on AC power
 $PY -m experiment.pipeline status --jobs         # deferred runs say why
-$PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG   # once E3's runner has exited: everything else
+$PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG --cores 50 --mem-gb 64   # once E3's runner has exited
 ```
 
 `start` refuses while a runner of the same runs directory lives. Running
@@ -617,8 +633,8 @@ E3's exclusive runs wait until nothing else is left.
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | limits |
 | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | C psmc 12.5 min and 0.6 GB per fit |
-| E2 | 18 | 34 | 5.3 | bootstraps on 7 threads, up to 1.4 h each; C psmc up to 49 min and 3.4 GB |
-| E3 | 71 | 21 | 11 (exclusive) | needs the machine to itself; busy periods defer runs |
+| E2 | 18 | 35 | 1.6 (50 cores) | bootstraps on 50 threads: `--cores 50`; C psmc up to 49 min and 3.4 GB |
+| E3 | 160 | 95 | 21 (exclusive) | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 20 bootstrap runs of about 45 min on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | S1-S3 wait for E1 |
@@ -628,10 +644,10 @@ The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
 the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost a few
 ms per EM iteration (allowed 0.02 s), its E-steps the rest. E3 alone takes
-about 11 hours (psmc-rs 0.1's M-steps of 1000 forward-mode iterations and C
-psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 9 hours on 7
-cores and 12 GB (E2's bootstraps dominate): about 20 hours in all, either
-way. Every job is resumable: `stop` (or a crash, or a reboot) and
+about 21 hours (psmc-rs 0.1's M-steps of 1000 forward-mode iterations and C
+psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 1.5 hours on 50
+cores and 64 GB (E2's bootstraps dominate; E2 cannot start on fewer than 50
+cores): about 22 hours in all, either way. Every job is resumable: `stop` (or a crash, or a reboot) and
 `start` again rerun only what is not done, at most the jobs that were
 running.
 
@@ -644,13 +660,30 @@ QC reports, bootstrap replicates' JSON, tables and figures.
 
 The tools directory is `$PSMC_EXP_TOOLS`, else `experiment/.tools` (of the
 main checkout when run from a worktree without one): `psmc_c/psmc` (lh3/psmc
-0.6.5-r74 built with `-O1`, since `-O2` segfaults on macOS arm64),
-`psmc_c/utils/{fq2psmcfa,splitfa}`, `psmc_c/psmc_plot.pl`, `vcfutils.pl`,
-`msmc-tools/generate_multihetsep.py`. `tools --build-rs01` builds psmc-rs 0.1
-from commit e50d69d in a detached git worktree at
+0.6.5-r74), `psmc_c/utils/{fq2psmcfa,splitfa}`, `psmc_c/psmc_plot.pl`,
+`vcfutils.pl`, `msmc-tools/generate_multihetsep.py`. `tools --build-rs01`
+builds psmc-rs 0.1 from commit e50d69d in a detached git worktree at
 `<tools>/psmc-rs-0.1/src` with `CARGO_TARGET_DIR=<tools>/psmc-rs-0.1/target`
 (offline: the dependencies must be in cargo's cache). psmc-rs 0.2 is this
-checkout's `target/release/psmc-rs`, built by `start`.
+checkout's `target/release/psmc-rs`, built by `start`. A psmc-rs build is
+identified by rustc, the rustflags and `CARGO_PROFILE_RELEASE_*` variables
+and the target features they enable; one with `-C target-cpu=native`, or
+whose flags or release profile a cargo configuration file sets
+(`$CARGO_HOME/config.toml`, a `.cargo/config.toml` above the build), is
+refused, since its identity could not tell what changed it.
+
+`tools --build-c` builds C psmc, fq2psmcfa and splitfa from the sources in
+`<tools>/psmc_c` (lh3/psmc's) with `$CC` (default `gcc`, else `cc`),
+`$PSMC_C_CFLAGS` (default the Makefile's `-g -Wall -O2 -Wno-unused-function`)
+and `$LDFLAGS`, and records the compiler, flags, commands and checksums in
+`psmc_c/BUILD.json`, which adds the compiler and CFLAGS to C psmc's
+identity and E3's environment table. That is the cluster's build (gcc 11.4.1,
+`-O2`). On macOS arm64 the default is `-O1`, since an `-O2` build
+segfaults there; the laptop's psmc, built by hand with `-O1`, has no
+`BUILD.json` and is identified by its version and checksum. `--build-c`
+does not replace programs that `BUILD.json` does not describe unless given
+`--force`, and keeps whatever it replaces as `<program>.prev` (and
+`BUILD.json.prev`).
 
 ## Tests
 

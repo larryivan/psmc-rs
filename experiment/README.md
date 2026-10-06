@@ -166,12 +166,16 @@ cc -O1 -o psmc cli.c core.c em.c khmm.c kmin.c main.c aux.c -lm -lz
 export C_PSMC_BIN=/some/dir/psmc/psmc     # or pass --c-psmc, or put psmc on PATH
 ```
 
-Build lh3/psmc with `-O1` (or `-O0`). On macOS arm64 with Apple clang 21 an
-`-O2` build (the upstream Makefile's default) segfaults after the first EM
-round; `-O0` and `-O1` builds produce byte-identical output. The reference
-outputs in `tests/data/c_reference/`, which `tests/c_equivalence.rs` checks
-psmc-rs against, come from lh3/psmc 0.6.5-r74 built this way; `psmc` prints
-its version when run without arguments.
+On macOS arm64 build lh3/psmc with `-O1` (or `-O0`), as above: with Apple
+clang 21 an `-O2` build (the upstream Makefile's default) segfaults after
+the first EM round; `-O0` and `-O1` builds produce byte-identical output.
+The reference outputs in `tests/data/c_reference/`, which
+`tests/c_equivalence.rs` checks psmc-rs against, come from lh3/psmc
+0.6.5-r74 built this way; `psmc` prints its version when run without
+arguments. On Linux the Makefile's `-O2` works (the cluster's build: gcc
+11.4.1); the experiment pipeline builds it, and records how, with
+`python -m experiment.pipeline tools --build-c` (`$CC`, `$PSMC_C_CFLAGS`,
+`$LDFLAGS`; see [`pipeline/README.md`](pipeline/README.md), Tools).
 
 psmc-rs is taken from `--psmc-rs`, else `$PSMC_RS_BIN`, else
 `target/release/psmc-rs` of this checkout (built if missing; a `psmc-rs` on

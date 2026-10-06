@@ -123,6 +123,7 @@ class Documentation(unittest.TestCase):
             "### 3. Tables",
             "### 4. Figures",
             "cc -O1 -o psmc cli.c core.c em.c khmm.c kmin.c main.c aux.c -lm -lz",
+            "tools --build-c",
             "must be regenerated after the 0.2 fixes",
             "S5_format_consistency.csv",
             "chr1",
