@@ -146,6 +146,14 @@ class Scheduling(unittest.TestCase):
             ready.remove(got)
         self.assertEqual(order, ["T/a-rep1", "T/b-rep1", "T/a-rep2", "T/b-rep2"])
 
+    def test_an_exclusive_job_needs_the_memory_budget_not_the_cores(self):
+        budget = config.Budget(cores=7, mem_gb=12.0)
+        self.assertIn("30 cores", runner.fits_budget(self.mk("T/n", cores=30), budget))
+        ex = self.mk("T/x", cores=30, exclusive=True)
+        self.assertIsNone(runner.fits_budget(ex, budget))  # it runs alone
+        self.assertEqual(runner.pick([ex], [], budget, {}, 0.0), [ex])
+        self.assertIn("14.6 GB", runner.fits_budget(self.mk("T/y", cores=30, mem=14.6, exclusive=True), budget))
+
     def test_machine_lock_is_shared_by_ordinary_jobs_and_held_alone_by_exclusive_ones(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "machine.lock"

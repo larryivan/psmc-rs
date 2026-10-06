@@ -362,8 +362,10 @@ def run_cores(threads: int, machine: int) -> int:
     """The cores of a timing job: its threads, at most the machine's.
 
     A timing job is exclusive: it runs alone, so it needs only fit the
-    machine, not a share of it. (The runner still blocks a job with more
-    cores than its ``--cores`` budget: start E3 with the machine's cores.)
+    machine, not a share of it, and the runner starts it whatever its
+    ``--cores`` budget (:func:`.runner.fits_budget`). Its memory must fit
+    ``--mem-gb``: psmc-rs 0.1 on 30 threads needs 14.6 GB, so E3 is started
+    with ``--mem-gb 15`` or more.
     """
     return max(1, min(threads, machine))
 

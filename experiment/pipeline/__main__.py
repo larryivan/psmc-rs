@@ -55,8 +55,12 @@ def _only_arg(p: argparse.ArgumentParser) -> None:
 
 def _budget_args(p: argparse.ArgumentParser) -> None:
     b = config.Budget()
-    p.add_argument("--cores", type=int, default=b.cores, help=f"cores the jobs may use at once (default {b.cores})")
-    p.add_argument("--mem-gb", type=float, default=b.mem_gb, help=f"memory the jobs may use at once (default {b.mem_gb:g})")
+    p.add_argument("--cores", type=int, default=b.cores,
+                   help=f"cores the jobs may use at once (default {b.cores}; E2's bootstraps need "
+                        f"{config.E2().rs_threads}; exclusive jobs, E3's timing runs, run alone on as many cores "
+                        "as threads)")
+    p.add_argument("--mem-gb", type=float, default=b.mem_gb,
+                   help=f"memory the jobs may use at once (default {b.mem_gb:g}; E3 needs 15)")
 
 
 def build_parser() -> argparse.ArgumentParser:

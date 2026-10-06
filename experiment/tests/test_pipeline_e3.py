@@ -155,17 +155,21 @@ class Jobs(unittest.TestCase):
         self.assertEqual([e3.run_cores(t, 128) for t in (1, 8, 30)], [1, 8, 30])
         self.assertEqual([e3.run_cores(t, 7) for t in (1, 8, 30)], [1, 7, 7])
         self.assertGreaterEqual(e3.machine_cores(), 1)
-        for machine in (192, 40, 8):
+        for machine in (192, 128, 40, 8):
             with self.subTest(machine=machine), mock.patch.object(e3, "machine_cores", return_value=machine):
                 jobs = self.jobs(config.PRODUCTION)
                 big = jobs["E3/run/rs02/3000Mb/t30/rep5"]
                 self.assertEqual(big.cores, min(30, machine))  # not capped at the laptop's budget of 7
                 cmd = big.command[big.command.index("--") + 1 :]
                 self.assertEqual((cmd[cmd.index("--threads") + 1], big.env), ("30", {"RAYON_NUM_THREADS": "30"}))
-                # A runner given the machine's cores (and the memory of the largest run) can start every run.
-                budget = config.Budget(cores=machine, mem_gb=64.0)
+                # The runs are exclusive: the default budget's 7 cores start them all. Its 12 GB do not
+                # start psmc-rs 0.1 on 30 threads (14.6 GB); E3 is started with --mem-gb 15.
                 runs = [j for j in jobs.values() if j.exclusive]
-                self.assertEqual([j.id for j in runs if runner.fits_budget(j, budget)], [])
+                blocked = {j.id: runner.fits_budget(j, config.Budget()) for j in runs}
+                self.assertEqual({k for k, why in blocked.items() if why},
+                                 {f"E3/run/rs01/3000Mb/t30/rep{r}" for r in range(1, 6)})
+                self.assertTrue(all("GB" in why for why in blocked.values() if why))
+                self.assertEqual([j.id for j in runs if runner.fits_budget(j, config.Budget(mem_gb=15.0))], [])
 
     def test_the_report_reads_c_psmcs_build_record_when_there_is_one(self):
         c_dir = self.runs / "tools" / "psmc_c"

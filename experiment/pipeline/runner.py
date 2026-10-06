@@ -14,7 +14,8 @@ that survives the session that started it: it detaches into its own session
 ``<runs>/<experiment>/logs/``. It keeps the running jobs within a budget of
 cores and memory (default 7 cores, 12 GB) and runs exclusive jobs only when
 nothing else runs, in order of their ``rank`` (E3 interleaves the repeats
-of its timing runs). Runners of other runs directories (or worktrees) on
+of its timing runs); an exclusive job must fit the memory budget, not the
+cores. Runners of other runs directories (or worktrees) on
 the same machine coordinate through a machine-wide lock (:class:`MachineLock`):
 a runner holds it shared while it runs ordinary jobs and exclusively while
 it runs an exclusive one, so an exclusive job never overlaps another
@@ -516,7 +517,15 @@ class Slot:
 
 
 def fits_budget(job: Job, budget: config.Budget) -> Optional[str]:
-    if job.cores > budget.cores:
+    """Why ``job`` can never start within ``budget``, or None.
+
+    An exclusive job runs alone, so its cores (its threads: E3 gives a timing
+    run as many cores as threads, at most the machine's) need not fit the
+    budget, which is the share of the machine that ordinary jobs may use at
+    once. Its memory must: the budget is also what the machine (or a SLURM
+    allocation) has to give.
+    """
+    if job.cores > budget.cores and not job.exclusive:
         return f"needs {job.cores} cores, budget {budget.cores}"
     if job.mem_gb > budget.mem_gb:
         return f"needs {job.mem_gb:g} GB, budget {budget.mem_gb:g} GB"
