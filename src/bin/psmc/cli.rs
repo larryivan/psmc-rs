@@ -737,15 +737,16 @@ pub struct InferArgs {
     /// How to model bins that are partly callable. A VCF read with its
     /// callable mask counts exactly how many bases of each bin are
     /// callable: auto fits each called bin by them (a bin of c callable
-    /// bases emits as c of BIN_SIZE bases), so that missing data scattered
-    /// in short runs do not bias theta, times and Ne low; ignore treats
-    /// every called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do.
-    /// Multihetsep does not say which sites are uncalled, so its counts
-    /// follow the reader's placement of them and auto does not use them;
-    /// approximate does, which made the fit worse in the validation. Either
-    /// way multihetsep with scattered missing data biases theta and Ne low
-    /// (QC warns): fit the VCF with its mask instead. psmcfa input records
-    /// no counts and is fitted as C psmc fits it in every mode
+    /// bases emits as c of BIN_SIZE bases), which removes most of the bias
+    /// that missing data scattered in short runs cause (theta, times and Ne
+    /// low by the missing share or more); ignore treats every called bin
+    /// as BIN_SIZE bases, as fq2psmcfa and C psmc do. Multihetsep does
+    /// not say which sites are uncalled, so its counts follow the reader's
+    /// placement of them and auto does not use them; approximate does,
+    /// which made the fit worse in the validation. Either way multihetsep
+    /// with missing data biases theta and Ne low (QC warns above 5% of the
+    /// sites uncalled): fit the VCF with its mask instead. psmcfa input
+    /// records no counts and is fitted as C psmc fits it in every mode
     #[arg(long, value_enum, value_name = "MODE", default_value_t = BinCallableArg::Auto, help_heading = "Model")]
     pub bin_callable: BinCallableArg,
 
