@@ -73,7 +73,7 @@ class Identities(unittest.TestCase):
         self.assertEqual(set(t.identity), {"version", "source_tree", "source_dirty", *tools.BUILD_FIELDS})
         self.assertRegex(t.info["source_commit"], r"^[0-9a-f]{40}$")
         self.assertEqual(t.info["binary_sha256"], tools.sha256_file(binary))
-        with mock.patch.dict("os.environ", {"RUSTFLAGS": "-C target-cpu=native"}):
+        with mock.patch.dict("os.environ", {"RUSTFLAGS": "-C opt-level=2"}):
             self.assertNotEqual(tools.psmc_rs_02(build=False).identity, t.identity)
 
     def test_psmc_rs_outside_a_checkout_is_identified_by_its_binary(self):
@@ -166,6 +166,51 @@ class Toolchain(unittest.TestCase):
         self.assertNotEqual(tools.build_identity(tc), tools.build_identity(plain))
         self.assertEqual(set(tools.build_identity(tc)), set(tools.BUILD_FIELDS))
         self.assertNotIn("llvm", tools.build_identity(tc))
+
+    def test_a_build_for_the_compiling_cpu_is_refused(self):
+        import tempfile
+
+        self.assertTrue(tools.native_cpu(["-C", "target-cpu=native"]))
+        self.assertTrue(tools.native_cpu(["-Ctarget-cpu=native", "-C", "opt-level=3"]))
+        self.assertFalse(tools.native_cpu(["-C", "target-cpu=znver2"]))
+        self.assertFalse(tools.native_cpu([]))
+        with tempfile.TemporaryDirectory() as home:
+            env = {**without_build_vars(), "CARGO_HOME": home}
+            for var, value in (("RUSTFLAGS", "-C target-cpu=native"), ("CARGO_BUILD_RUSTFLAGS", "-Ctarget-cpu=native")):
+                with self.subTest(var=var), mock.patch.dict("os.environ", {**env, var: value}, clear=True):
+                    with self.assertRaisesRegex(tools.ToolError, "target-cpu=native"):
+                        tools.toolchain()
+            # RUSTFLAGS, set, overrides CARGO_BUILD_RUSTFLAGS: that build is not for the native CPU
+            with mock.patch.dict("os.environ", {**env, "RUSTFLAGS": "-C target-cpu=znver2",
+                                                "CARGO_BUILD_RUSTFLAGS": "-C target-cpu=native"}, clear=True):
+                self.assertEqual(tools.toolchain()["rustflags"], "-C target-cpu=znver2")
+
+    def test_cargo_configuration_that_changes_the_build_is_refused(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d).resolve()
+            work, home = d / "checkout" / "sub", d / "cargo-home"
+            work.mkdir(parents=True)
+            (d / "checkout" / ".cargo").mkdir()
+            home.mkdir()
+            comments = "# Keep default rustc CPU target.\n#   RUSTFLAGS=\"-C target-cpu=native\" cargo build\n"
+            (d / "checkout" / ".cargo" / "config.toml").write_text(comments + "[net]\ngit-fetch-with-cli = true\n")
+            env = {**without_build_vars(), "CARGO_HOME": str(home)}
+            self.assertEqual(tools.cargo_config_files(work, env), [d / "checkout" / ".cargo" / "config.toml"])
+            self.assertEqual(tools.cargo_config_problems(work, env), [])
+            (home / "config.toml").write_text('[target.x86_64-unknown-linux-gnu]\nrustflags = ["-C", "target-cpu=znver4"]\n'
+                                              "[profile.release]\nlto = true\n")
+            (d / "checkout" / ".cargo" / "config").write_text('[build]\nrustflags = "-C target-feature=+fma"\n')
+            problems = tools.cargo_config_problems(work, env)
+            self.assertEqual(problems, [f"{d / 'checkout' / '.cargo' / 'config'}: build.rustflags",
+                                        f"{home / 'config.toml'}: target.x86_64-unknown-linux-gnu.rustflags, "
+                                        "profile.release"])
+            (home / "config.toml").write_text("[build\n")
+            self.assertIn("not valid TOML", tools.cargo_config_settings(home / "config.toml")[0])
+            with mock.patch.dict("os.environ", env, clear=True):
+                with self.assertRaisesRegex(tools.ToolError, "build.rustflags"):
+                    tools.toolchain(work)
 
     @unittest.skipUnless(in_git(), "not a git checkout")
     def test_both_psmc_rs_identities_carry_the_build(self):

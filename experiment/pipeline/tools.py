@@ -10,7 +10,9 @@ information is recorded next to it and changes nothing:
   that a rebase or squash that keeps the sources keeps the identity), a
   digest of their uncommitted changes, and the build (:func:`toolchain`:
   ``rustc -vV``, the rustflags and ``CARGO_PROFILE_RELEASE_*`` variables
-  cargo reads, and the target features the flags enable). Information: the
+  cargo reads, and the target features the flags enable; a build that a
+  cargo configuration file changes, or for ``target-cpu=native``, is
+  refused). Information: the
   last commit that touched the sources and the binary's SHA-256 (it embeds
   the checkout's path, so it differs between clones of the same sources).
   Outside a git checkout the binary's SHA-256 is the identity. The binary
@@ -119,8 +121,8 @@ def effective_rustflags(env: Dict[str, str], host: str) -> List[str]:
 
     ``CARGO_ENCODED_RUSTFLAGS`` (separated by 0x1f), ``RUSTFLAGS``,
     ``CARGO_TARGET_<HOST>_RUSTFLAGS``, ``CARGO_BUILD_RUSTFLAGS``. Cargo's
-    configuration files are not read (this checkout's ``.cargo/config.toml``
-    sets no flags).
+    configuration files are not read: :func:`toolchain` refuses a build
+    that one of them changes (:func:`cargo_config_problems`).
     """
     if "CARGO_ENCODED_RUSTFLAGS" in env:
         return [f for f in env["CARGO_ENCODED_RUSTFLAGS"].split("\x1f") if f]
@@ -142,14 +144,89 @@ def target_features(flags: Sequence[str]) -> str:
     return ",".join(f for f in TARGET_FEATURES if f in enabled) or "none"
 
 
-def toolchain() -> Dict[str, str]:
-    """The build cargo makes here: ``rustc -vV``'s release, commit and host, LLVM, and what changes the code.
+def native_cpu(flags: Sequence[str]) -> bool:
+    """Whether ``flags`` build for the CPU of the machine that compiles (``-C target-cpu=native``)."""
+    return any(re.search(r"target-cpu=native\b", f) for f in flags)
+
+
+def cargo_config_files(cwd: Path, env: Dict[str, str]) -> List[Path]:
+    """The configuration files cargo reads for a build in ``cwd``.
+
+    ``.cargo/config.toml`` (or the older ``.cargo/config``) of ``cwd`` and of
+    every directory above it, and those of ``$CARGO_HOME`` (default
+    ``~/.cargo``).
+    """
+    dirs = [d / ".cargo" for d in (Path(cwd).resolve(), *Path(cwd).resolve().parents)]
+    dirs.append(Path(env["CARGO_HOME"]) if env.get("CARGO_HOME") else Path.home() / ".cargo")
+    out: List[Path] = []
+    for d in dirs:
+        for name in ("config.toml", "config"):
+            p = d / name
+            if p.is_file() and p not in out:
+                out.append(p)
+    return out
+
+
+def cargo_config_settings(path: Path) -> List[str]:
+    """The settings of a cargo configuration file that change a release build's code.
+
+    ``build.rustflags``, ``target.<triple or cfg>.rustflags`` and
+    ``profile.release``: an identity built from environment variables
+    (:func:`toolchain`) would not see them.
+    """
+    try:
+        text = path.read_text()
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"unreadable ({exc})"]
+    try:
+        import tomllib
+    except ImportError:  # Python < 3.11: any such key, as text
+        return sorted(set(re.findall(r"^\s*(rustflags|\[profile\.release)", text, re.M)))
+    try:
+        data = tomllib.loads(text)
+    except ValueError as exc:
+        return [f"not valid TOML ({exc})"]
+    found = []
+    if isinstance(data.get("build"), dict) and "rustflags" in data["build"]:
+        found.append("build.rustflags")
+    for target, table in sorted((data.get("target") or {}).items()):
+        if isinstance(table, dict) and "rustflags" in table:
+            found.append(f"target.{target}.rustflags")
+    if isinstance(data.get("profile"), dict) and "release" in data["profile"]:
+        found.append("profile.release")
+    return found
+
+
+def cargo_config_problems(cwd: Path, env: Dict[str, str]) -> List[str]:
+    """``"<file>: <settings>"`` for every cargo configuration file that changes a build in ``cwd``."""
+    out = []
+    for p in cargo_config_files(cwd, env):
+        found = cargo_config_settings(p)
+        if found:
+            out.append(f"{p}: {', '.join(found)}")
+    return out
+
+
+def toolchain(cwd: Path = paths.ROOT) -> Dict[str, str]:
+    """The build cargo makes in ``cwd``: ``rustc -vV``'s release, commit and host, LLVM, and what changes the code.
 
     That is the rustflags of every variable cargo reads them from, every
     ``CARGO_PROFILE_RELEASE_*`` variable (``KEY=VALUE``, joined by ";"), and
     which :data:`TARGET_FEATURES` the effective flags enable.
+
+    Two builds are refused (:class:`ToolError`), because what they change
+    cannot be told from here: one whose flags or profile a cargo
+    configuration file sets (:func:`cargo_config_problems`), and one with
+    ``-C target-cpu=native``, whose features are those of the machine that
+    compiled it, not of the one that asks (cargo does not rebuild when the
+    CPU changes).
     """
     env = dict(os.environ)
+    problems = cargo_config_problems(cwd, env)
+    if problems:
+        raise ToolError("cargo configuration files change the build, which the tool's identity would not record: "
+                        + "; ".join(problems) + ". Set the flags and profile through RUSTFLAGS and "
+                        "CARGO_PROFILE_RELEASE_* instead")
     out = {
         "rustflags": env.get("RUSTFLAGS", ""),
         "cargo_encoded_rustflags": env.get("CARGO_ENCODED_RUSTFLAGS", ""),
@@ -161,15 +238,21 @@ def toolchain() -> Dict[str, str]:
         res = _run(["rustc", "-vV"])
     except OSError:
         res = None
-    if res is None or res.returncode != 0:
+    ok = res is not None and res.returncode == 0
+    fields = dict(line.split(": ", 1) for line in res.stdout.splitlines()[1:] if ": " in line) if ok else {}
+    host = fields.get("host", "?")
+    flags = effective_rustflags(env, host)
+    if native_cpu(flags):
+        raise ToolError(f"the rustflags {' '.join(flags)!r} build for the CPU of whichever node compiles "
+                        "(target-cpu=native), which the tool's identity cannot tell; name the CPU "
+                        "(-C target-cpu=znver2) or the features (-C target-feature=+avx2,+fma) instead")
+    if not ok:
         out["rustc"] = out["target_features"] = "unavailable"
         return out
-    fields = dict(line.split(": ", 1) for line in res.stdout.splitlines()[1:] if ": " in line)
-    host = fields.get("host", "?")
     out["rustc"] = f"{fields.get('release', '?')} ({fields.get('commit-hash', '?')[:12]}) {host}"
     out["llvm"] = fields.get("LLVM version", "")
     out["cargo_target_rustflags"] = env.get(target_rustflags_var(host), "")
-    out["target_features"] = target_features(effective_rustflags(env, host))
+    out["target_features"] = target_features(flags)
     return out
 
 
@@ -284,7 +367,7 @@ def psmc_rs_01(build: bool = False, commit: str = config.E3().rs01_commit, log: 
         raise ToolError(f"{binary} does not exist; build it with: python -m experiment.pipeline tools --build-rs01")
     head = _git("rev-parse", "HEAD", cwd=d["src"]) if d["src"].exists() else ""
     m = re.search(r'^version\s*=\s*"([^"]+)"', (d["src"] / "Cargo.toml").read_text(), re.M) if head else None
-    tc = toolchain()
+    tc = toolchain(d["src"] if d["src"].exists() else paths.ROOT)
     digest = sha256_file(binary)
     identity = {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, **build_identity(tc)}
     if not head:
