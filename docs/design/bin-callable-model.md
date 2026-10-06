@@ -435,9 +435,12 @@ their mean share over the called bins and their distribution in tenths
 (`QcReport::callable`, a `CallableSummary`; per sequence in `BinStats`),
 and a new finding, `PARTLY_CALLABLE_BINS`, the bias of treating partly
 callable bins as full: a note when the fit corrects it, a warning when
-`--bin-callable ignore` leaves the called bins less than 90% callable on
+`--bin-callable ignore` leaves the called bins less than 95% callable on
 average (a note above), nothing when fewer than 1% of them are partly
-callable. psmcfa input cannot tell; when at least 1% of its called bins
+callable. The bias exceeds the missing share (θ of the `ignore` fits of
+the validation was 1.1 to 1.3 times the missing share of the called bins
+below the complete-data fit), so a threshold at 90% would leave a bias of
+more than 10% with a note. psmcfa input cannot tell; when at least 1% of its called bins
 border a missing run, the note counts them and says how to measure the rest
 from the VCF the psmcfa was made from. Multihetsep's counts do not measure
 the bias, which the placement makes nearly every called bin hide, so the

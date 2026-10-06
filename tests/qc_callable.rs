@@ -76,7 +76,7 @@ fn counts_used_by_the_fit_are_reported_as_corrected() {
     assert!(
         f.message
             .contains("of called bins hold fewer than 100 callable bases, 70.")
-            && f.message.contains("which removes that bias"),
+            && f.message.contains("which removes most of that bias"),
         "{}",
         f.message
     );
@@ -92,9 +92,12 @@ fn counts_ignored_by_the_fit_are_a_warning_below_the_threshold() {
         counts_ignored: true,
         ..QcContext::default()
     };
+    // 10% of the bases missing already biases theta by more than 10%, so
+    // it is a warning, as 30% is; 3% is a note.
     for (share, severity) in [
         (0.7, Some(Severity::Warning)),
-        (0.95, Some(Severity::Info)),
+        (0.9, Some(Severity::Warning)),
+        (0.97, Some(Severity::Info)),
         (0.99995, None),
     ] {
         let specs = [("chr1", 100_000, share, 0.01)];
@@ -107,7 +110,8 @@ fn counts_ignored_by_the_fit_are_a_warning_below_the_threshold() {
             assert!(f.message.contains("--bin-callable ignore"), "{}", f.message);
             assert!(f.recommendation.contains("--bin-callable auto"));
             let mean = r.callable.as_ref().unwrap().mean_fraction;
-            assert_eq!(mean < PARTLY_CALLABLE_WARN_MEAN, share < 0.9);
+            assert_eq!(mean < PARTLY_CALLABLE_WARN_MEAN, share < 0.95);
+            assert!(f.message.contains("low or more"), "{}", f.message);
         }
     }
 }

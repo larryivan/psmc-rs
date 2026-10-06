@@ -80,8 +80,13 @@ pub const PARTLY_CALLABLE_NOTE_FRACTION: f64 = 0.01;
 /// [`QcCode::PartlyCallableBins`] warns when the fit treats every called
 /// bin as full (`--bin-callable ignore`) and the called bins hold less than
 /// this share of their bases callable on average: θ, the times and Ne then
-/// come out more than 10% low.
-pub const PARTLY_CALLABLE_WARN_MEAN: f64 = 0.9;
+/// come out more than about 5% low. The bias exceeds the missing share of
+/// the called bins: on the simulated genomes of `experiment/validation/`,
+/// θ of such fits was 0.87 to 0.89 of the fit of the same genome without
+/// missing data at a mean share of 0.90, and 0.63 to 0.66 at 0.705, 1.1 to
+/// 1.3 times the missing share below it, so a threshold at 0.9 would leave
+/// a bias of more than 10% with only a note.
+pub const PARTLY_CALLABLE_WARN_MEAN: f64 = 0.95;
 
 /// [`QcCode::ApproxMissingPlacement`] warns when more than this share of
 /// the sites of multihetsep input are uncalled: the reader's placement of
@@ -841,7 +846,8 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
     );
     let bias = format!(
         "Treated as {s} bases, as fq2psmcfa's psmcfa and C psmc treat every called bin, they \
-         would make theta, the times and Ne about {} low",
+         would make theta, the times and Ne about {} low or more (in simulations 1.1 to 1.3 \
+         times the missing share)",
         pct(1.0 - c.mean_fraction)
     );
     if counts_used(input) {
@@ -850,7 +856,7 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
             Severity::Info,
             format!(
                 "{measured} {bias}; the fit weighs each called bin by its callable bases \
-                 (--bin-callable auto), which removes that bias."
+                 (--bin-callable auto), which removes most of that bias."
             ),
             "Nothing to do: keep --bin-callable auto (the default). A psmcfa written from this \
              input (psmc-rs convert --psmcfa, fq2psmcfa) cannot record the counts, so fit the \
@@ -868,7 +874,8 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
         severity,
         format!(
             "{measured} The fit treats every called bin as {s} bases (--bin-callable ignore): \
-             theta, the times and Ne come out about {} low.",
+             theta, the times and Ne come out about {} low or more (in simulations 1.1 to 1.3 \
+             times the missing share of the called bins).",
             pct(1.0 - c.mean_fraction)
         ),
         "Fit with --bin-callable auto (the default), which weighs each called bin by its \

@@ -370,7 +370,7 @@ partly callable), the bins unlike the exact bins, and the QC codes. Those
 are the codes of each fit's own QC (its JSON's `qc` record), which psmc-rs
 computes with the fit's settings, `--bin-callable` included:
 `PARTLY_CALLABLE_BINS` is a warning when a fit takes as full called bins
-that are on average less than 90% callable (a note above), a note when the
+that are on average less than 95% callable (a note above), a note when the
 fit weighs them by their callable bases, and for psmcfa input, which cannot
 tell, a note counting the called bins next to missing runs; `APPROX_MISSING_PLACEMENT`
 marks multihetsep, `VARIANTS_ONLY_NO_MASK` the VCF without a mask.

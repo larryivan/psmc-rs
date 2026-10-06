@@ -316,7 +316,9 @@ Reproduction package (`experiment/`):
   recommendations. `PARTLY_CALLABLE_BINS` reports how much of the called
   bins of a VCF is callable and the bias of treating them as full: a note
   when the fit corrects it, a warning when `--bin-callable ignore` leaves
-  called bins less than 90% callable on average, and for psmcfa input,
+  called bins less than 95% callable on average (θ then comes out more
+  than about 5% low: 1.1 to 1.3 times the missing share in simulations),
+  and for psmcfa input,
   which cannot tell, a note with the called bins next to missing runs and
   how to measure the rest. `--json`, `--strict` (exit 2
   on a warning) and `--bootstrap-block-size` (trunk checks). Every fit and
