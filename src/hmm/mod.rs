@@ -40,9 +40,11 @@ mod fb;
 mod kernel;
 mod obs;
 mod sched;
+mod simd;
 mod tmrca;
 
 pub use budget::AlphaCacheBudget;
+pub use simd::{SimdPath, set_force_portable, simd_path};
 pub use tmrca::{TmrcaOptions, write_tmrca_posterior_tsv, write_tmrca_posterior_tsv_with_options};
 
 use fb::{Ctx, Partial, Progress, SeqObs, Workspace};

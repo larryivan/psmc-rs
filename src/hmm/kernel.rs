@@ -161,11 +161,13 @@ mod neon {
 // Compiled everywhere so that the aarch64 build tests it against NEON.
 #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 mod portable {
-    //! Plain Rust kernels for other targets (no FMA: `mul_add` would be a
-    //! libm call on x86-64 builds without the `fma` target feature).
+    //! Plain Rust kernels for other targets. Their products are not fused
+    //! (Rust never contracts `a * b + c`), so they give the same bits with
+    //! or without FMA in the target features, at any vector width.
 
     use super::{ROW_TILE, TILE};
 
+    #[inline(always)]
     pub(super) fn vec_mat(x: &[f64], m: &[f64], np: usize, y: &mut [f64]) {
         for (jt, y_tile) in y.as_chunks_mut::<TILE>().0.iter_mut().enumerate() {
             let col = jt * TILE;
@@ -180,6 +182,7 @@ mod portable {
         }
     }
 
+    #[inline(always)]
     pub(super) fn outer_accumulate(
         u: &[f64],
         w: &[f64],
@@ -312,18 +315,15 @@ impl Semiseparable {
     }
 }
 
+/// `a * b + c`, rounded once when `FUSED` and twice otherwise. Each build
+/// of the passes fixes `FUSED` at compile time ([`super::simd`]): fused on
+/// aarch64 and in the x86-64 code compiled with FMA, where it is one
+/// instruction; unfused in the portable x86-64 code, where `mul_add` would
+/// call libm's `fma` in this latency-bound scan (several times slower on a
+/// CPU with FMA, and emulated in software on one without).
 #[inline(always)]
-fn fmadd(a: f64, b: f64, c: f64) -> f64 {
-    // One instruction on aarch64 and on x86-64 builds with FMA; elsewhere
-    // `mul_add` would be a libm call.
-    #[cfg(any(target_arch = "aarch64", target_feature = "fma"))]
-    {
-        a.mul_add(b, c)
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_feature = "fma")))]
-    {
-        a * b + c
-    }
+fn fmadd<const FUSED: bool>(a: f64, b: f64, c: f64) -> f64 {
+    if FUSED { a.mul_add(b, c) } else { a * b + c }
 }
 
 /// `y[i] = p[i] * sum_{l > i} x[l] q[l] + r[i] * sum_{l < i} x[l] s[l] + d[i] x[i]`.
@@ -333,7 +333,15 @@ fn fmadd(a: f64, b: f64, c: f64) -> f64 {
 /// are then added in one elementwise pass. All terms are non-negative, so
 /// the order of summation costs no accuracy.
 #[inline(always)]
-fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64], y: &mut [f64]) {
+fn semisep_mul<const FUSED: bool>(
+    x: &[f64],
+    p: &[f64],
+    q: &[f64],
+    r: &[f64],
+    s: &[f64],
+    d: &[f64],
+    y: &mut [f64],
+) {
     let n = x.len();
     let nb = n / TILE;
     assert!(nb <= MAX_SEMISEP_BLOCKS && n == nb * TILE);
@@ -355,13 +363,13 @@ fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64],
         let mut acc = 0.0;
         for t in (0..TILE).rev() {
             yb[t] = pb[t] * acc;
-            acc = fmadd(xb[t], qb[t], acc);
+            acc = fmadd::<FUSED>(xb[t], qb[t], acc);
         }
         suffix[b] = acc;
         let mut acc = 0.0;
         for t in 0..TILE {
-            yb[t] = fmadd(rb[t], acc, fmadd(db[t], xb[t], yb[t]));
-            acc = fmadd(xb[t], sb[t], acc);
+            yb[t] = fmadd::<FUSED>(rb[t], acc, fmadd::<FUSED>(db[t], xb[t], yb[t]));
+            acc = fmadd::<FUSED>(xb[t], sb[t], acc);
         }
         prefix[b] = acc;
     }
@@ -383,7 +391,7 @@ fn semisep_mul(x: &[f64], p: &[f64], q: &[f64], r: &[f64], s: &[f64], d: &[f64],
         let (pb, rb) = (tile(p, b), tile(r, b));
         let (cs, cp) = (suffix[b], prefix[b]);
         for t in 0..TILE {
-            yb[t] = fmadd(pb[t], cs, fmadd(rb[t], cp, yb[t]));
+            yb[t] = fmadd::<FUSED>(pb[t], cs, fmadd::<FUSED>(rb[t], cp, yb[t]));
         }
     }
 }
@@ -458,18 +466,18 @@ impl Kernel {
 
     /// `out = Aᵀ x`.
     #[inline(always)]
-    fn transpose_mul(&self, x: &[f64], out: &mut [f64]) {
+    fn transpose_mul<const FUSED: bool>(&self, x: &[f64], out: &mut [f64]) {
         match &self.semi {
-            Some(s) => semisep_mul(x, &s.g, &s.f, &s.j, &s.h, &s.d, out),
+            Some(s) => semisep_mul::<FUSED>(x, &s.g, &s.f, &s.j, &s.h, &s.d, out),
             None => vec_mat(x, &self.a, self.np, out),
         }
     }
 
     /// `out = A x`.
     #[inline(always)]
-    fn mul(&self, x: &[f64], out: &mut [f64]) {
+    fn mul<const FUSED: bool>(&self, x: &[f64], out: &mut [f64]) {
         match &self.semi {
-            Some(s) => semisep_mul(x, &s.h, &s.j, &s.f, &s.g, &s.d, out),
+            Some(s) => semisep_mul::<FUSED>(x, &s.h, &s.j, &s.f, &s.g, &s.d, out),
             None => vec_mat(x, &self.at, self.np, out),
         }
     }
@@ -485,7 +493,7 @@ impl Kernel {
     }
 
     /// `out = pi ∘ e(o)`, normalised; returns the normaliser.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn first(&self, o: u16, out: &mut [f64]) -> f64 {
         let em = self.em(o);
         for ((d, &p), &e) in out.iter_mut().zip(&self.pi).zip(em) {
@@ -495,9 +503,9 @@ impl Kernel {
     }
 
     /// `out = e(o) ∘ (Aᵀ prev)`, normalised; returns the normaliser.
-    #[inline]
-    pub(crate) fn forward(&self, prev: &[f64], o: u16, out: &mut [f64]) -> f64 {
-        self.transpose_mul(prev, out);
+    #[inline(always)]
+    pub(crate) fn forward<const FUSED: bool>(&self, prev: &[f64], o: u16, out: &mut [f64]) -> f64 {
+        self.transpose_mul::<FUSED>(prev, out);
         let em = self.em(o);
         for (d, &e) in out.iter_mut().zip(em) {
             *d *= e;
@@ -507,8 +515,8 @@ impl Kernel {
 
     /// One backward step from site `t` (observation `o`, scaled backward
     /// vector `beta`): `w = e(o) ∘ beta * scale` and `beta_prev = A w`.
-    #[inline]
-    pub(crate) fn backward(
+    #[inline(always)]
+    pub(crate) fn backward<const FUSED: bool>(
         &self,
         beta: &[f64],
         o: u16,
@@ -520,13 +528,13 @@ impl Kernel {
         for ((d, &b), &e) in w.iter_mut().zip(beta).zip(em) {
             *d = e * b * scale;
         }
-        self.mul(w, beta_prev);
+        self.mul::<FUSED>(w, beta_prev);
     }
 
     /// Like [`Kernel::backward`], with `scale = 1 / sum(e(o) ∘ beta)`.
     /// Used where only the direction of beta matters (posterior decoding).
-    #[inline]
-    pub(crate) fn backward_normalised(
+    #[inline(always)]
+    pub(crate) fn backward_normalised<const FUSED: bool>(
         &self,
         beta: &[f64],
         o: u16,
@@ -538,13 +546,14 @@ impl Kernel {
             *d = e * b;
         }
         normalise(w);
-        self.mul(w, beta_prev);
+        self.mul::<FUSED>(w, beta_prev);
     }
 
     /// `m[i][j] += sum_b u[b][i] * w[b][j]` over `rows` rows of `u` and `w`
     /// (each row `np` long). With `u` the forward vectors at sites `t - 1`
     /// and `w` the backward weights at sites `t`, `a[i][j] * m[i][j]` is the
     /// expected number of `i -> j` transitions (see [`Kernel::transition_counts`]).
+    #[inline(always)]
     pub(crate) fn accumulate_transitions(&self, u: &[f64], w: &[f64], rows: usize, m: &mut [f64]) {
         // Entries of u beyond the real states are zero, so only the real rows
         // of m are updated (rounded up to whole row tiles, which np allows).
@@ -625,16 +634,23 @@ mod tests {
                 for v in &mut x[..k.n_states()] {
                     *v = rng.gen_range(0.0..1.0);
                 }
-                let (mut fast, mut dense) = (vec![0.0; np], vec![0.0; np]);
-                k.transpose_mul(&x, &mut fast);
-                vec_mat(&x, &k.a, np, &mut dense);
-                assert!(max_rel(&fast, &dense) < 1e-13, "Aᵀx, n_steps {n_steps}");
-                k.mul(&x, &mut fast);
-                vec_mat(&x, &k.at, np, &mut dense);
-                assert!(max_rel(&fast, &dense) < 1e-13, "Ax, n_steps {n_steps}");
-                assert!(fast[k.n_states()..].iter().all(|v| *v == 0.0));
+                check_semiseparable::<true>(&k, &x, n_steps);
+                check_semiseparable::<false>(&k, &x, n_steps);
             }
         }
+    }
+
+    /// The semiseparable products of `k` with `x` against the dense ones.
+    fn check_semiseparable<const FUSED: bool>(k: &Kernel, x: &[f64], n_steps: usize) {
+        let np = k.np();
+        let (mut fast, mut dense) = (vec![0.0; np], vec![0.0; np]);
+        k.transpose_mul::<FUSED>(x, &mut fast);
+        vec_mat(x, &k.a, np, &mut dense);
+        assert!(max_rel(&fast, &dense) < 1e-13, "Aᵀx, n_steps {n_steps}");
+        k.mul::<FUSED>(x, &mut fast);
+        vec_mat(x, &k.at, np, &mut dense);
+        assert!(max_rel(&fast, &dense) < 1e-13, "Ax, n_steps {n_steps}");
+        assert!(fast[k.n_states()..].iter().all(|v| *v == 0.0));
     }
 
     /// The portable kernels (used on targets other than aarch64) agree with
@@ -669,6 +685,25 @@ mod tests {
             portable::outer_accumulate(&u, &w, rows, np, n, &mut plain);
             assert!(max_rel(&fast, &plain) < 1e-13, "outer_accumulate np={np}");
         }
+    }
+
+    /// `fmadd::<true>` rounds once: `(1 + e)(1 - e) - 1 = -e²` exactly;
+    /// `fmadd::<false>` rounds the product `1 - e²` to 1 and gives 0. The
+    /// passes compiled for the target as given use the unfused instance
+    /// except on aarch64: on x86-64, fusing there would call libm's `fma`.
+    #[test]
+    fn fmadd_fuses_when_asked() {
+        let e = 2f64.powi(-30);
+        let (a, b) = (std::hint::black_box(1.0 + e), std::hint::black_box(1.0 - e));
+        assert_eq!(fmadd::<true>(a, b, -1.0), -(e * e));
+        assert_eq!(fmadd::<false>(a, b, -1.0), 0.0);
+        let default = fmadd::<{ crate::hmm::simd::DEFAULT_FUSED }>(a, b, -1.0);
+        let want = if cfg!(target_arch = "aarch64") {
+            -(e * e)
+        } else {
+            0.0
+        };
+        assert_eq!(default, want);
     }
 
     #[test]

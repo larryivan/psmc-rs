@@ -7,6 +7,11 @@
 //! checkpoint. Recomputation runs the same kernel on the same inputs, so the
 //! recomputed vectors are bit-identical to the ones the forward pass produced,
 //! and results do not depend on whether full rows were cached instead.
+//!
+//! The passes are compiled twice on x86-64 ([`super::simd`]), so everything
+//! they run per site is `#[inline(always)]`, and generic over `FUSED`, the
+//! choice of fused or unfused multiply-adds that each build makes at
+//! compile time.
 
 use anyhow::{Result, bail};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -14,6 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use super::budget::AlphaCacheBudget;
 use super::kernel::Kernel;
 use super::obs::{ObsTable, obs_class};
+use super::simd::dispatch;
 use super::{CHECKPOINT_STRIDE, Cancelled};
 use crate::io::BinCounts;
 
@@ -202,7 +208,8 @@ struct FullRows {
 /// Forward recursion over the whole sequence; returns the log-likelihood
 /// (the sum of the log normalisers, in site order). Stores the checkpoints in
 /// `ws.ckpt` when `checkpoints` is set, and every row when `full` is given.
-fn forward_pass(
+#[inline(always)]
+fn forward_pass<const FUSED: bool>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &mut Workspace,
@@ -226,7 +233,7 @@ fn forward_pass(
                     let c = if g == 0 {
                         k.first(o, out)
                     } else {
-                        k.forward(&head[g * np..], o, out)
+                        k.forward::<FUSED>(&head[g * np..], o, out)
                     };
                     check_norm(c)?;
                     full.c[g] = c;
@@ -255,7 +262,7 @@ fn forward_pass(
                     let c = if start + t == 0 {
                         k.first(o, cur)
                     } else {
-                        k.forward(prev, o, cur)
+                        k.forward::<FUSED>(prev, o, cur)
                     };
                     check_norm(c)?;
                     loglike += c.ln();
@@ -274,7 +281,8 @@ fn forward_pass(
 /// `rows` (row 0: the vector before the segment) and the normalisers into `c`.
 /// For `s == 0` the recursion starts at the first site, needs no checkpoint,
 /// and `obs` may run past the first segment.
-fn recompute_segment(
+#[inline(always)]
+fn recompute_segment<const FUSED: bool>(
     k: &Kernel,
     s: usize,
     obs: &[u16],
@@ -292,24 +300,45 @@ fn recompute_segment(
         c[t] = if s == 0 && t == 0 {
             k.first(o, out)
         } else {
-            k.forward(&head[t * np..], o, out)
+            k.forward::<FUSED>(&head[t * np..], o, out)
         };
     }
 }
 
-/// Log-likelihood of one sequence (forward pass only, nothing stored).
-pub(crate) fn log_likelihood(
+dispatch! {
+    /// Log-likelihood of one sequence (forward pass only, nothing stored).
+    pub(crate) fn log_likelihood(
+        k: &Kernel,
+        seq: &SeqObs<'_>,
+        ws: &mut Workspace,
+        ctx: &Ctx<'_>,
+    ) -> Result<f64> = log_likelihood_impl;
+}
+
+#[inline(always)]
+fn log_likelihood_impl<const FUSED: bool>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &mut Workspace,
     ctx: &Ctx<'_>,
 ) -> Result<f64> {
-    forward_pass(k, seq, ws, false, None, ctx)
+    forward_pass::<FUSED>(k, seq, ws, false, None, ctx)
 }
 
-/// Forward-backward over one sequence, adding its log-likelihood, expected
-/// emissions and transition sums to `acc`.
-pub(crate) fn e_step(
+dispatch! {
+    /// Forward-backward over one sequence, adding its log-likelihood,
+    /// expected emissions and transition sums to `acc`.
+    pub(crate) fn e_step(
+        k: &Kernel,
+        seq: &SeqObs<'_>,
+        ws: &mut Workspace,
+        acc: &mut Partial,
+        ctx: &Ctx<'_>,
+    ) -> Result<()> = e_step_impl;
+}
+
+#[inline(always)]
+fn e_step_impl<const FUSED: bool>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &mut Workspace,
@@ -333,7 +362,7 @@ pub(crate) fn e_step(
         c: vec![0.0; len],
     });
 
-    acc.loglike += forward_pass(k, seq, ws, full.is_none(), full.as_mut(), ctx)?;
+    acc.loglike += forward_pass::<FUSED>(k, seq, ws, full.is_none(), full.as_mut(), ctx)?;
 
     let Workspace {
         obs,
@@ -358,7 +387,7 @@ pub(crate) fn e_step(
                 &f.c[start..start + len],
             ),
             None => {
-                recompute_segment(k, s, obs, ckpt, seg_rows, seg_c);
+                recompute_segment::<FUSED>(k, s, obs, ckpt, seg_rows, seg_c);
                 (&seg_rows[..(len + 1) * np], &seg_c[..len])
             }
         };
@@ -375,7 +404,7 @@ pub(crate) fn e_step(
             if t < t_first {
                 break;
             }
-            k.backward(beta, o, 1.0 / c[t], &mut w[t * np..(t + 1) * np], beta_next);
+            k.backward::<FUSED>(beta, o, 1.0 / c[t], &mut w[t * np..(t + 1) * np], beta_next);
             std::mem::swap(beta, beta_next);
         }
         k.accumulate_transitions(
@@ -409,36 +438,9 @@ pub(crate) fn decode_checkpoints(
     seq: &SeqObs<'_>,
     ctx: &Ctx<'_>,
 ) -> Result<DecodeCheckpoints> {
-    let np = k.np();
     let (fwd, bwd) = rayon::join(
-        || -> Result<Vec<f64>> {
-            let mut ws = Workspace::new(np);
-            forward_pass(k, seq, &mut ws, true, None, ctx)?;
-            Ok(ws.ckpt)
-        },
-        || -> Result<Vec<f64>> {
-            let n_seg = seq.n_segments();
-            let mut out = vec![0.0; n_seg * np];
-            let mut obs = [0u16; K];
-            let mut w = vec![0.0; np];
-            let mut beta = vec![0.0; np];
-            let mut beta_next = vec![0.0; np];
-            beta[..k.n_states()].fill(1.0);
-            for s in (0..n_seg).rev() {
-                ctx.check_cancel()?;
-                out[s * np..(s + 1) * np].copy_from_slice(&beta);
-                let (start, len) = seq.segment(s);
-                seq.read(start, &mut obs[..len]);
-                for t in (usize::from(s == 0)..len).rev() {
-                    k.backward_normalised(&beta, obs[t], &mut w, &mut beta_next);
-                    std::mem::swap(&mut beta, &mut beta_next);
-                }
-                ctx.progress
-                    .backward
-                    .fetch_add(len as u64, Ordering::Relaxed);
-            }
-            Ok(out)
-        },
+        || forward_checkpoints(k, seq, ctx),
+        || backward_checkpoints(k, seq, ctx),
     );
     Ok(DecodeCheckpoints {
         alpha: fwd?,
@@ -446,12 +448,66 @@ pub(crate) fn decode_checkpoints(
     })
 }
 
+dispatch! {
+    /// [`DecodeCheckpoints::alpha`].
+    fn forward_checkpoints(k: &Kernel, seq: &SeqObs<'_>, ctx: &Ctx<'_>) -> Result<Vec<f64>> =
+        forward_checkpoints_impl;
+}
+
+#[inline(always)]
+fn forward_checkpoints_impl<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ctx: &Ctx<'_>,
+) -> Result<Vec<f64>> {
+    let mut ws = Workspace::new(k.np());
+    forward_pass::<FUSED>(k, seq, &mut ws, true, None, ctx)?;
+    Ok(ws.ckpt)
+}
+
+dispatch! {
+    /// [`DecodeCheckpoints::beta`].
+    fn backward_checkpoints(k: &Kernel, seq: &SeqObs<'_>, ctx: &Ctx<'_>) -> Result<Vec<f64>> =
+        backward_checkpoints_impl;
+}
+
+#[inline(always)]
+fn backward_checkpoints_impl<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ctx: &Ctx<'_>,
+) -> Result<Vec<f64>> {
+    let np = k.np();
+    let n_seg = seq.n_segments();
+    let mut out = vec![0.0; n_seg * np];
+    let mut obs = [0u16; K];
+    let mut w = vec![0.0; np];
+    let mut beta = vec![0.0; np];
+    let mut beta_next = vec![0.0; np];
+    beta[..k.n_states()].fill(1.0);
+    for s in (0..n_seg).rev() {
+        ctx.check_cancel()?;
+        out[s * np..(s + 1) * np].copy_from_slice(&beta);
+        let (start, len) = seq.segment(s);
+        seq.read(start, &mut obs[..len]);
+        for t in (usize::from(s == 0)..len).rev() {
+            k.backward_normalised::<FUSED>(&beta, obs[t], &mut w, &mut beta_next);
+            std::mem::swap(&mut beta, &mut beta_next);
+        }
+        ctx.progress
+            .backward
+            .fetch_add(len as u64, Ordering::Relaxed);
+    }
+    Ok(out)
+}
+
 /// Walk backward over sites `0..obs.len()`, turning forward vectors into
 /// posterior state probabilities in place: row `t + 1` of `rows` holds the
 /// forward vector of site `t` on entry and its posterior on return. `beta` is
 /// the normalised backward vector of the last site; `beta_next` and `w` are
 /// scratch.
-fn posteriors_in_place<'b>(
+#[inline(always)]
+fn posteriors_in_place<'b, const FUSED: bool>(
     k: &Kernel,
     obs: &[u16],
     rows: &mut [f64],
@@ -475,17 +531,28 @@ fn posteriors_in_place<'b>(
             *d *= inv;
         }
         if t > 0 {
-            k.backward_normalised(beta, obs[t], w, beta_next);
+            k.backward_normalised::<FUSED>(beta, obs[t], w, beta_next);
             std::mem::swap(&mut beta, &mut beta_next);
         }
     }
     Ok(())
 }
 
-/// Posterior state probabilities of the sites of segment `s`, from the
-/// checkpoints. Returns the segment's observation indices and its
-/// posteriors (`np` values per site, padded entries zero), both held in `ws`.
-pub(crate) fn segment_posteriors<'w>(
+dispatch! {
+    /// Posterior state probabilities of the sites of segment `s`, from the
+    /// checkpoints. Returns the segment's observation indices and its
+    /// posteriors (`np` values per site, padded entries zero), both held in `ws`.
+    pub(crate) fn segment_posteriors<'w>(
+        k: &Kernel,
+        seq: &SeqObs<'_>,
+        ckpt: &DecodeCheckpoints,
+        s: usize,
+        ws: &'w mut Workspace,
+    ) -> Result<(&'w [u16], &'w [f64])> = segment_posteriors_impl;
+}
+
+#[inline(always)]
+fn segment_posteriors_impl<'w, const FUSED: bool>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ckpt: &DecodeCheckpoints,
@@ -506,17 +573,27 @@ pub(crate) fn segment_posteriors<'w>(
     let obs = &mut obs[..len];
     seq.read(start, obs);
     let obs: &'w [u16] = obs;
-    recompute_segment(k, s, obs, &ckpt.alpha, rows, c);
+    recompute_segment::<FUSED>(k, s, obs, &ckpt.alpha, rows, c);
     beta.copy_from_slice(&ckpt.beta[s * np..(s + 1) * np]);
-    posteriors_in_place(k, obs, rows, beta, beta_next, &mut w[..np])?;
+    posteriors_in_place::<FUSED>(k, obs, rows, beta, beta_next, &mut w[..np])?;
     Ok((obs, &rows[np..(len + 1) * np]))
 }
 
-/// Like [`segment_posteriors`] for every site of `seq` at once, from its full
-/// forward rows instead of checkpoints: one forward and one backward pass,
-/// with bit-identical results (the same recursions run on the same inputs).
-/// For short sequences: `ws` grows to hold `seq.len() + 1` forward vectors.
-pub(crate) fn sequence_posteriors<'w>(
+dispatch! {
+    /// Like [`segment_posteriors`] for every site of `seq` at once, from its
+    /// full forward rows instead of checkpoints: one forward and one backward
+    /// pass, with bit-identical results (the same recursions run on the same
+    /// inputs). For short sequences: `ws` grows to hold `seq.len() + 1`
+    /// forward vectors.
+    pub(crate) fn sequence_posteriors<'w>(
+        k: &Kernel,
+        seq: &SeqObs<'_>,
+        ws: &'w mut Workspace,
+    ) -> Result<(&'w [u16], &'w [f64])> = sequence_posteriors_impl;
+}
+
+#[inline(always)]
+fn sequence_posteriors_impl<'w, const FUSED: bool>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &'w mut Workspace,
@@ -540,12 +617,12 @@ pub(crate) fn sequence_posteriors<'w>(
     let obs = &mut obs[..len];
     seq.read(0, obs);
     let obs: &'w [u16] = obs;
-    recompute_segment(k, 0, obs, &[], rows, c);
+    recompute_segment::<FUSED>(k, 0, obs, &[], rows, c);
     for &ct in &c[..len] {
         check_norm(ct)?;
     }
     beta[..k.n_states()].fill(1.0);
     beta[k.n_states()..].fill(0.0);
-    posteriors_in_place(k, obs, rows, beta, beta_next, &mut w[..np])?;
+    posteriors_in_place::<FUSED>(k, obs, rows, beta, beta_next, &mut w[..np])?;
     Ok((obs, &rows[np..(len + 1) * np]))
 }
