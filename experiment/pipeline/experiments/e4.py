@@ -129,6 +129,11 @@ FULL_BINS_MODEL = "full-bins"  # and C psmc's
 # Keys of a psmc-rs JSON that describe the input and how it was read rather
 # than the fit: two routes fit identically when everything else is equal.
 INPUT_KEYS = ("input", "qc", "bin_callable")
+# Keys that say how the fit was computed, not what it is: two fits with the
+# same values are the same fit whichever HMM kernels computed them. (The
+# portable and the AVX2+FMA kernels differ in the last digits, so a fit on
+# a node without AVX2, or with PSMC_RS_SIMD=portable, shows in the values.)
+PROVENANCE_KEYS = ("simd",)
 TABLES = {
     "summary": "E4_summary.csv",
     "routes": "E4_routes.csv",
@@ -531,8 +536,8 @@ def _max(xs: Sequence[Optional[float]]) -> Optional[float]:
 
 
 def fit_record(params: Dict) -> Dict:
-    """What a psmc-rs JSON says about the fit: everything but the keys that describe its input."""
-    return {k: v for k, v in params.items() if k not in INPUT_KEYS}
+    """What a psmc-rs JSON says about the fit: everything but the keys that describe its input or its kernels."""
+    return {k: v for k, v in params.items() if k not in INPUT_KEYS + PROVENANCE_KEYS}
 
 
 def fit_differences(a: Dict, b: Dict) -> List[str]:

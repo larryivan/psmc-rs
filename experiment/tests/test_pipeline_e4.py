@@ -167,7 +167,7 @@ class Summary(unittest.TestCase):
         self.assertEqual((row["fits_identical_to_mask_ignore"], row["structure"]), (2, "none"))
         self.assertEqual((row["bin_model"], row["counts"], row["bin_callable"]), ("callable-length", "exact", "auto"))
 
-    def test_same_fit_ignores_only_what_describes_the_input(self):
+    def test_same_fit_ignores_only_the_input_and_the_kernels(self):
         a = fit_json(mode="auto")
         psmcfa = fit_json(mode="auto", model="full-bins", counts=None, qc={"warnings": ["X"], "notes": []})
         psmcfa["input"]["format"] = "psmcfa"
@@ -175,6 +175,7 @@ class Summary(unittest.TestCase):
         self.assertEqual(e4.fit_differences(a, fit_json(lam=(1.0, 2.0000001))), ["lam"])
         self.assertEqual(e4.fit_differences(a, {**a, "loglike": [-3.0, -2.5], "theta": 0.031}), ["loglike", "theta"])
         self.assertFalse(e4.same_fit(a, {**a, "t_max": 14.0}))
+        self.assertTrue(e4.same_fit({**a, "simd": "avx2+fma"}, {**a, "simd": "portable"}))  # the same values
 
     def test_callable_bases_of_a_fit(self):
         self.assertAlmostEqual(e4.mean_callable_fraction(fit_json(mean_fraction=0.71)), 0.71)
