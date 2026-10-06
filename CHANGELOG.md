@@ -28,10 +28,12 @@ Defaults, each of which changes the results of a run that relied on it:
 - Each M-step runs until it converges, as C psmc's Hooke-Jeeves search
   does, instead of stopping after 100 L-BFGS iterations; `--mstep-iters`
   (default 1000 instead of 100) is only a cap, which normal fits do not
-  reach (10 to 20 iterations with C psmc's patterns, up to about 70 with
-  one λ per interval). The 100-iteration M-steps stopped short of the
-  maximum of Q, and EM carried the shortfall through the rounds: on a
-  simulated 4 × 25 Mb bottleneck genome (`-N25 -t15 -r5 -p 4+25*2+4+6`)
+  reach (in the manuscript's 40 E1 fits with `4+25*2+4+6`, an M-step took
+  a median 76 evaluations of its objective and at most 160, two per free
+  parameter of them for its curvatures and its stopping check; C psmc's
+  Hooke-Jeeves search took a median 3,934). The 100-iteration M-steps
+  stopped short of the maximum of Q, and EM carried the shortfall through
+  the rounds: on a simulated 4 × 25 Mb bottleneck genome (`-N25 -t15 -r5 -p 4+25*2+4+6`)
   the curve was 0.034 (RMSE of log10 Ne over the informative window) from
   C psmc's, and is now 7.7e-5 from it, and 5e-7 from a fit whose M-steps
   run to the precision limit. The M-steps no longer differ: C's
@@ -40,6 +42,11 @@ Defaults, each of which changes the results of a run that relied on it:
   out each sequence's last bin: with that bin left out of psmc-rs's counts
   too, the curve is 6.4e-6 from C's, and on the reference data rounds 2 to
   5 agree with C's log-likelihoods to a relative 2.8e-9 instead of 7.3e-8.
+  Across the manuscript's 40 simulated 500 Mb genomes (E1) and four real
+  genomes (E2), compared interval by interval, the curves are 3.7e-6 to
+  2.8e-4 apart (RMSE of log10 Ne; at most 6.6e-4 in any interval of the
+  window), θ, ρ and t_max agree within a relative 1.0e-3 and the final
+  log-likelihood within 3.7e-7 (`experiment/pipeline/README.md`).
   Without a pattern (one λ per interval) the capped M-steps had let the fit
   drift away from C's in every interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of

@@ -59,12 +59,17 @@ are scaled with mu = 2.5e-8 and g = 25.
 
 **M-step.** C psmc's Hooke-Jeeves search runs every M-step to
 convergence, and so does psmc-rs 0.2's L-BFGS: it stops by a convergence
-test, in 10 to 70 iterations and a few ms per EM iteration on one thread,
-and `--mstep-iters` (default 1000, passed explicitly) is only a cap. On a
-simulated 4 x 25 Mb bottleneck genome the RMSE of log10 Ne between psmc-rs
-and C psmc on the informative window is 7.7e-5, as small as with C psmc's
-own Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5). psmc-rs 0.1's
-L-BFGS stopped after 100 iterations, which left the two 0.03 to 0.16 apart;
+test, in a few ms per EM iteration on one thread (in E1, a median 76
+objective evaluations per M-step and at most 160, the `IT` lines of its
+`.psmc` output, against a median 3,934 for C psmc), and `--mstep-iters`
+(default 1000, passed explicitly) is only a cap. On a simulated 4 x 25 Mb
+bottleneck genome the RMSE of log10 Ne between psmc-rs and C psmc on the
+informative window is 7.7e-5, as small as with C psmc's own Hooke-Jeeves
+search run inside psmc-rs's EM (7.5e-5); over E1's 40 genomes, compared
+interval by interval, it is 3.7e-6 to 2.0e-4 (median 2.5e-5), and over
+E2's four real genomes 7.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
+`E2_rs_vs_c.csv`). psmc-rs 0.1's L-BFGS stopped after 100 iterations,
+which left the two 0.03 to 0.16 apart;
 that is why the experiments pass the cap explicitly. Since psmc-rs's
 default M-step is the converged one, no experiment fits or times a separate
 default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are

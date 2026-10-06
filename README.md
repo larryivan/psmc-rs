@@ -362,9 +362,12 @@ The model options follow C psmc:
 - `--smooth-lambda` (default 0, C's objective) adds a penalty on
   differences of log λ between neighbouring intervals.
 - `--mstep-iters` (1000) caps the L-BFGS iterations of each M-step, which
-  runs to convergence, as C psmc's does: 10 to 20 iterations with the
-  patterns above, up to about 70 with one λ per interval. The cap is a
-  safeguard that normal fits do not reach.
+  runs to convergence, as C psmc's does: in the manuscript's 40 E1 fits
+  with `4+25*2+4+6`, an M-step took a median 76 evaluations of its
+  objective and at most 160 (the `.psmc` output's `IT`; these include the
+  evaluations for its curvatures and its stopping check, two per free
+  parameter), where C psmc's Hooke-Jeeves search took a median 3,934.
+  The cap is a safeguard that normal fits do not reach.
 - The M-step keeps each λ between 1e-6 and 1e4 (C psmc's search has no
   bound). Beyond 1e4 the f64 transition probabilities of the shortest,
   earliest intervals are rounding noise; a λ of 1e4 already means that
@@ -787,14 +790,22 @@ The suite compares psmc-rs with the original tools' outputs, stored under
 - `tests/bootstrap_split.rs` and `tests/bootstrap_resample.rs`: trunks
   against `splitfa`, draws against `psmc_resamp`.
 
-Beyond the tests: on a simulated 4 × 25 Mb bottleneck genome (msprime,
-Hudson, μ = 2.5e-8, r = 1e-8) fitted as `psmc -N25 -t15 -r5 -p
-"4+25*2+4+6"`, the psmc-rs curve is within 7.7e-5 of C psmc's (RMSE of
-log10 Ne over the 1% to 99% quantiles of the true coalescence time, 10,050
-to 1,322,585 years; at most 2.6e-4), with θ, ρ and t_max within 1.4e-4 and
-the log-likelihood within 4e-9 (relative). The M-steps are not what keeps
-them apart. psmc-rs's default fit is within 5e-7 of one whose M-steps run
-to the precision limit, and a port of C's Hooke-Jeeves search in place of
+Beyond the tests: the manuscript's experiments fit 40 simulated 500 Mb
+genomes of four models (E1) and four real genomes (E2) with both tools as
+`psmc -N25 -t15 -r5 -p "4+25*2+4+6"` and compare the curves interval by
+interval over the informative window, the 1% to 99% quantiles of the
+coalescence time (`experiment/pipeline/README.md`; `E1_rs_vs_c.csv`,
+`E2_rs_vs_c.csv`). The RMSE of log10 Ne between psmc-rs and C psmc was
+3.7e-6 to 2.0e-4 over E1's genomes (median 2.5e-5) and 7.7e-6 to 2.8e-4
+over the real ones, and no interval in the window differed by more than
+6.6e-4 (E1) and 4.5e-4 (E2). θ, ρ and t_max agreed within a relative
+5.5e-4 in E1 and 1.0e-3 in E2, and the final log-likelihood within
+3.5e-8 and 3.7e-7. On one simulated 4 × 25 Mb bottleneck genome (msprime,
+Hudson, μ = 2.5e-8, r = 1e-8), the curves are 7.7e-5 apart (at most
+2.6e-4), with θ, ρ and t_max within 1.4e-4 and the log-likelihood within
+4e-9 (relative); on this genome the sources of the difference were
+traced. The M-steps are not what keeps them apart. psmc-rs's default fit
+is within 5e-7 of one whose M-steps run to the precision limit, and a port of C's Hooke-Jeeves search in place of
 its L-BFGS gives a curve 7.5e-5 from C's. Nearly all the rest comes from
 C's expected counts, which leave out the last bin of each sequence
 (`em::posterior_sigma`): with that bin left out of psmc-rs's counts too,
@@ -805,7 +816,8 @@ can differ more: the first λ, which the data barely determine, ran to the
 M-step's upper bound of 1e4 in psmc-rs (the run says so) and to 1.5e5 in
 C psmc, whose search has no bound; Ne in the first four intervals (up to
 about 8,600 years) is then 1.2 log10 units apart, and neither is an
-estimate.
+estimate. In E1 this happened in one of the 40 genomes (an expansion
+replicate, C psmc's first λ at 1.08e6), 2.03 log10 units apart.
 
 Two ignored tests run the tools themselves:
 `VCFUTILS=/path/to/vcfutils.pl FQ2PSMCFA=/path/to/fq2psmcfa cargo test
