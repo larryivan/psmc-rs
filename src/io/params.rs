@@ -118,11 +118,10 @@ impl BinCallableRecord {
     /// partial_bins:0.850000`; `None` without counts, whose output is C's.
     pub fn psmc_line(&self) -> Option<String> {
         let (counts, c) = (self.counts.as_ref()?, self.callable.as_ref()?);
-        Some(format!(
-            "bin_model:{}, counts:{counts}, mean_callable:{:.6}, partial_bins:{:.6}",
-            self.model,
-            c.mean_fraction,
-            c.partial_fraction()
+        Some(crate::psmc_out::bin_callable_line(
+            &self.model,
+            Some(counts),
+            c,
         ))
     }
 }
