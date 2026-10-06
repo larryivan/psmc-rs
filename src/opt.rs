@@ -1488,7 +1488,10 @@ mod tests {
 
         // By default the convergence test ends it, a few iterations earlier,
         // where the objective is that of the precision limit to 1e-13 and
-        // the parameters within 1e-7.
+        // the parameters within 1e-6. An objective known to 1e-13 fixes a
+        // parameter along a flat direction only to about its square root,
+        // 3e-7, and where in that range the search stops depends on the
+        // rounding of libm's exp and ln (1.3e-7 with glibc on x86-64).
         let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
         assert_eq!(outcome.stop, MStepStop::Converged);
         assert!(done <= precise.iterations && calls < precise.evaluations);
@@ -1503,7 +1506,7 @@ mod tests {
             "{f} vs {f_precise}"
         );
         for (a, b) in outcome.params.iter().zip(&precise.params) {
-            assert!((a / b).ln().abs() < 1e-7, "{a} vs {b}");
+            assert!((a / b).ln().abs() < 1e-6, "{a} vs {b}");
         }
     }
 }
