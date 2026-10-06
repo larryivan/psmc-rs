@@ -178,8 +178,8 @@ fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<
         "{} of called bins are partly callable (they hold {} of their {bin_size} bases on \
          average), and psmcfa cannot record that: a fit of {} takes every called bin as \
          {bin_size} bases, as C psmc does, which biases theta, the times and Ne low by about \
-         the missing share ({} here). To fit with the callable bases of each bin, fit {input} \
-         itself (psmc-rs does with --bin-callable auto, its default)",
+         the missing share or more ({} here). To fit with the callable bases of each bin, fit \
+         {input} itself (psmc-rs does with --bin-callable auto, its default)",
         percent(c.partial_fraction()),
         percent(c.mean_fraction),
         path.display(),
