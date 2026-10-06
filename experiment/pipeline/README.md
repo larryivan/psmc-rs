@@ -376,20 +376,29 @@ tell, a note counting the called bins next to missing runs; `APPROX_MISSING_PLAC
 marks multihetsep, as a warning when more than 5% of its sites are
 uncalled, and `VARIANTS_ONLY_NO_MASK` the VCF without a mask.
 
-What to expect, from the simulations of `experiment/validation/` (3
-replicates of 200 Mb, masks of the same kinds, the same recipe): dispersed
-missing data bias the full-bins routes by about the missing share (theta
-at 0.88 and 0.65 of the complete-data fit with 10% and 30% missing, RMSE
-of log10 Ne against the truth 0.348 and 0.453 against 0.307 with complete
-data), and the callable-length model removes the bias (theta within 0.7%
-and 1.8%, RMSE 0.306 and 0.309). Clustered missing data empty whole bins, which both
-models leave out, and change little either way. multihetsep does not
-recover the exact route when missing data are dispersed (RMSE 0.421 at
-30%): placing every uncalled site of an interval at its start turns
-scattered missing bases into runs of `N` bins and leaves the bin of each
-heterozygous site less callable than it is, so the VCF with its mask is the
-input to use. E4 measures all of it on 500 Mb genomes, with the control,
-the VCF without a mask and the fq2psmcfa route.
+What to expect, from the simulations of `experiment/validation/` (three
+runs of three 200 Mb genomes, two of this bottleneck model and one of the
+expansion model, masks of the same kinds, the same recipe; ranges over the
+nine genomes): dispersed missing data bias the full-bins routes by more
+than the missing share (theta at 0.87 to 0.89 of the complete-data fit with
+10% missing and 0.63 to 0.66 with 30%), and the callable-length model
+removes most of the bias (0.985 to 0.999 and 0.944 to 0.991: at 30% it
+stays 2 to 4% low on average, whatever the number of iterations). Its RMSE
+of log10 Ne against the complete-data fit is about a third to a seventh of
+the full-bins routes'. Against the truth the contrast is clear at 30% (0.224
+to 0.315 against 0.353 to 0.455) but not general at 10%, where PSMC's own
+error on complete data can dominate (expansion model: 0.231 full bins,
+0.230 complete data), so theta and the RMSE against the complete-data fit
+are the measures of the bias. Clustered missing data empty whole bins,
+which both models leave out, and change little either way. multihetsep
+does not recover the exact route, dispersed or clustered (theta 0.67 to
+0.70 at 30% dispersed, 0.89 to 0.93 at 30% clustered): placing every
+uncalled site of an interval at its start turns scattered missing bases
+into runs of `N` bins and leaves the bin of each heterozygous site less
+callable than it is, so the VCF with its mask is the input to use. E4
+measures all of it on 500 Mb genomes, with the control, the VCF without a
+mask and the fq2psmcfa route; its multihetsep numbers are those of
+`--bin-callable auto`, every called bin full.
 
 **Rescaling cross-check** (`E4_rescaling.csv`; not a route, not in Fig 5).
 Before the callable-length model, E4 corrected the bias after the fit: the

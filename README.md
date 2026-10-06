@@ -289,19 +289,21 @@ input, which records no counts, is fitted as C psmc fits it.
 the fit of fq2psmcfa's psmcfa of the same calls. Counts are kept for bins
 of at most 65,535 bases.
 
-On simulated genomes (bottleneck model, 10 × 20 Mb, three replicates,
-`-N25 -t15 -r5 -p 4+25*2+4+6`) with 30% of the bases missing in runs of
-about 20 bp, the fit with the counts recovered θ of the fit of the same
-genome without missing data to within 1.8%, where ignoring them gave 0.65
-of it, and the RMSE of log10 Ne against the truth was 0.309 against 0.307
-for complete data, where ignoring the counts gave 0.453. Missing data in
-20 kb runs changed the fits little either way. Multihetsep input does not
-recover the exact fit, because of where its reader places the uncalled
-sites, with or without its approximate counts, and the counts made it
-worse (RMSE 0.42 with them, 0.41 without): `--bin-callable auto` does not
-use them, and `--bin-callable approximate` does. Use the VCF with its
-callable mask when missing data are dispersed. The numbers and the script
-that reproduces them are in
+On simulated genomes (three runs of three 10 × 20 Mb genomes, two of the
+bottleneck model and one of the expansion model, `-N25 -t15 -r5 -p
+4+25*2+4+6`) with 30% of the bases missing in runs of about 20 bp, the fit
+with the counts removed most of the bias: θ was 0.94 to 0.99 of the fit of
+the same genome without missing data (2 to 4% low on average), where
+ignoring the counts gave 0.63 to 0.66, and the RMSE of log10 Ne against the
+truth was at most 0.002 above that of the complete-data fit, where ignoring
+the counts raised it by 0.11 to 0.15. Missing data in 20 kb runs changed
+the fits little either way. Multihetsep input does not recover the exact
+fit, because of where its reader places the uncalled sites (θ 0.67 to 0.70
+of the complete-data fit with 30% in short runs, 0.89 to 0.93 in long
+runs), and its approximate counts made it worse (0.52 to 0.60):
+`--bin-callable auto` does not use them, and `--bin-callable approximate`
+does. Use the VCF with its callable mask. The numbers and the script that
+reproduces them are in
 [experiment/validation/](experiment/validation/README.md).
 
 A psmcfa file cannot hold the counts: `psmc-rs convert --psmcfa` warns when

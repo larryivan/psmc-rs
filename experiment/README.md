@@ -28,14 +28,15 @@ taken as full (`--bin-callable ignore`, which the classic consensus ->
 fq2psmcfa route is asserted to equal, bins and fit); through multihetsep,
 which says how many sites of an interval are callable but not which, so
 that psmc-rs places the uncalled ones at its start, as if missing data
-came in one run per interval; and from the VCF without its mask. Each is
-compared with the truth and with the complete-data fit of the same genome
-(the pipeline's README, section E4). The simulations of
+came in one run per interval, and fits the placed bins with C psmc's model
+(`--bin-callable auto` fits exact counts only); and from the VCF without
+its mask. Each is compared with the truth and with the complete-data fit
+of the same genome (the pipeline's README, section E4). The simulations of
 [`validation/`](validation/README.md) show what to expect: with 30% of the
-bases missing in 20 bp runs the full-bins fit's RMSE of log10 Ne against
-the truth is 0.453 and the per-bin model's 0.309, against 0.307 for the
-complete data; multihetsep stays at 0.421. E1, E2, E3 and E5 fit psmcfa
-files, which record no callable bases, so the model changes nothing there.
+bases missing in 20 bp runs theta is 0.63 to 0.66 of the complete-data fit
+with every bin full, 0.94 to 0.99 with the per-bin model, and 0.67 to 0.70
+through multihetsep. E1, E2, E3 and E5 fit psmcfa files, which record no
+callable bases, so the model changes nothing there.
 
 ## Read first: state of the packaged results
 

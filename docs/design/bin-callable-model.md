@@ -242,8 +242,10 @@ Stage 1 expected the multihetsep approximation to be mild: within the
 interval between two heterozygous rows every bin is `T` except the one that
 holds the second row, and the likelihood of a run of `T` bins in one state
 depends only on the sum of their counts, which the placement gets right.
-The validation shows that the placement itself is not mild when missing
-data are dispersed, with or without the counts ([Validation](#validation)).
+The validation shows that the placement itself is not mild, with or
+without the counts, when missing data are dispersed (θ 30% low with 30% of
+the bases missing in 20 bp runs) and less so in long runs (θ 7 to 11% low
+with 30% in 20 kb runs; [Validation](#validation)).
 Placing all of an interval's uncalled sites right after its first row
 turns scattered missing bases into a run of `N` bins after every
 heterozygous site (27.5% of the bins `N` on one simulated genome of the
@@ -556,8 +558,8 @@ departs from the plan of stage 1 in six places, each said in its section:
   input is the run's (*Command line*);
 - `auto` fits exact counts only: multihetsep's approximate counts made the
   fit worse, so they need `--bin-callable approximate` (*Command line*);
-- the multihetsep approximation is not mild with dispersed missing data
-  (*Counts from each input*, *Validation*).
+- the multihetsep approximation is not mild with missing data, above all
+  dispersed ones (*Counts from each input*, *Validation*).
 
 The storage note proposed coding each bin's symbol and count in one byte.
 Stage 2 keeps the counts in `BinCounts` beside the symbols: the E-step
@@ -604,6 +606,21 @@ The fit alone at 1,000 bases peaked at 165 MB with the counts and 66 MB
 without before, and at 88 MB and 62 MB after. Every input gains from the
 change, with or without counts: the transition sums of each item
 (`np * np` doubles) were held to the end as well.
+
+The change costs no time. psmcfa fits before (7942d83) and after it,
+interleaved, medians of three runs, 8 threads, at load averages of 5 to 20
+from other work: HLemySub1 (889 sequences, 3 iterations) 6.00 s against
+7.24 s, and its bootstrap of 8 replicates of 2 iterations 29.9 s against
+31.0 s (its large scaffolds come first in the file, and work items now
+start in order); of seven runs each, HLhydTec1 (34 sequences, 3
+iterations) 5.91 s against 6.15 s, the 500-contig genome above (25
+iterations) 4.06 s against 4.09 s, and the dispersed genome above as
+psmcfa (10 sequences, 25 iterations) 5.42 s against 5.35 s, with the same
+CPU time (28.1 s and 27.0 s both ways). With the counts, the 25-iteration
+fit of the dispersed genome took 5.95 s and 6.04 s in two series of runs
+against 5.71 s and 5.62 s without them (`--bin-callable ignore`), 4 to 7%
+more, and its counted bootstrap on 500 contigs 2.21 s against 2.26 s
+before the change.
 
 ## Validation
 
@@ -670,45 +687,59 @@ Stage 2 (in the test suite):
 - `tests/c_equivalence.rs` is unchanged and passes.
 
 Simulations (not in CI; `experiment/validation/bin_callable.py`, numbers
-and command in `experiment/validation/README.md`): three replicates of the
-bottleneck model, 10 × 20 Mb each, with callable masks of none, 10% and
-30% dispersed (20 bp runs) and 30% clustered (20 kb runs) missing data,
-fitted from the masked VCF with its mask (`-N25 -t15 -r5 -p
-4+25*2+4+6`). Means over the replicates:
+and commands in `experiment/validation/README.md`): three runs of three
+genomes of 10 × 20 Mb, two of the bottleneck model (seeds `BC` and `BC2`)
+and one of the expansion model (`BCX`), with callable masks of none, 10%
+and 30% dispersed (20 bp runs) and 30% clustered (20 kb runs) missing data,
+fitted from the masked VCF with its mask and from its multihetsep (`-N25
+-t15 -r5 -p 4+25*2+4+6`). θ relative to the complete-data fit of the same
+genome, as the range over the nine genomes, and the RMSE of log10 Ne
+against the truth and against the complete-data fit, as the range of the
+three runs' means:
 
-| mask | input | `--bin-callable` | mean share of callable bases | θ / complete-data fit | RMSE vs truth (sd) | RMSE vs complete-data fit |
-| --- | --- | --- | ---: | ---: | ---: | ---: |
-| none | VCF + mask | auto, ignore | 1.000 | 1.000 | 0.307 (0.030) | 0 |
-| dispersed 10% | VCF + mask | auto | 0.902 | 0.993 | 0.306 (0.030) | 0.027 |
-| dispersed 10% | VCF + mask | ignore | 0.902 | 0.881 | 0.348 (0.020) | 0.194 |
-| dispersed 30% | VCF + mask | auto | 0.705 | 0.982 | 0.309 (0.019) | 0.074 |
-| dispersed 30% | VCF + mask | ignore | 0.705 | 0.652 | 0.453 (0.010) | 0.355 |
-| dispersed 30% | multihetsep | approximate | 0.964 | 0.534 | 0.421 (0.009) | 0.335 |
-| dispersed 30% | multihetsep | auto, ignore | 0.964 | 0.683 | 0.406 (0.009) | 0.308 |
-| clustered 30% | VCF + mask | auto | 0.998 | 0.976 | 0.330 (0.062) | 0.088 |
-| clustered 30% | VCF + mask | ignore | 0.998 | 0.975 | 0.330 (0.061) | 0.090 |
+| mask | input | `--bin-callable` | model fitted | θ / complete-data fit | RMSE vs truth | RMSE vs complete-data fit |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| none | VCF + mask | auto, ignore | callable-length = full-bins | 1 | 0.230-0.341 | 0 |
+| dispersed 10% | VCF + mask | auto | callable-length | 0.985-0.999 | 0.222-0.314 | 0.027-0.093 |
+| dispersed 10% | VCF + mask | ignore | full-bins | 0.873-0.890 | 0.231-0.351 | 0.126-0.281 |
+| dispersed 10% | multihetsep | auto | full-bins | 0.824-0.856 | 0.233-0.363 | 0.146-0.335 |
+| dispersed 10% | multihetsep | approximate | callable-length | 0.773-0.820 | 0.239-0.371 | 0.151-0.358 |
+| dispersed 30% | VCF + mask | auto | callable-length | 0.944-0.991 | 0.224-0.315 | 0.074-0.150 |
+| dispersed 30% | VCF + mask | ignore | full-bins | 0.634-0.658 | 0.353-0.455 | 0.278-0.478 |
+| dispersed 30% | multihetsep | auto | full-bins | 0.666-0.701 | 0.275-0.412 | 0.192-0.440 |
+| dispersed 30% | multihetsep | approximate | callable-length | 0.524-0.601 | 0.300-0.425 | 0.225-0.467 |
+| clustered 30% | VCF + mask | auto | callable-length | 0.959-1.003 | 0.224-0.330 | 0.061-0.125 |
+| clustered 30% | VCF + mask | ignore | full-bins | 0.958-1.001 | 0.224-0.330 | 0.063-0.125 |
+| clustered 30% | multihetsep | auto | full-bins | 0.886-0.928 | 0.220-0.343 | 0.118-0.249 |
+| clustered 30% | multihetsep | approximate | callable-length | 0.885-0.928 | 0.220-0.342 | 0.118-0.243 |
 
 - **Complete data**: `auto` and `ignore` give the same fit, to the bit.
-- **Dispersed missing data.** `auto` recovers the complete-data fit: θ
-  within 0.7% (10%) and 1.8% (30%) of the complete-data fit of the same
-  genome, and the RMSE of log10 Ne against the truth 0.306 and 0.309
-  against 0.307 for complete data. `ignore` is biased by about the missing
-  share: θ at 0.88 and 0.65 of the complete-data fit (mean share of
-  callable bases 0.902 and 0.705), the curve 0.06 and 0.19 log10 units
-  below it on average, and RMSE 0.348 and 0.453, as E4 measured (0.447 at
-  30% on 500 Mb genomes).
+- **Dispersed missing data.** `auto` removes most of the bias, not all:
+  θ is 2 to 4% low on average with 30% of the bases missing (run means
+  0.963 to 0.982, against 0.990 to 0.994 at 10%), and fitting 80 EM
+  iterations instead of 25 does not change that (0.961 against 0.965 on
+  one genome). Its curves are about as close to the truth as the
+  complete-data fit's: the RMSE against the truth is below it in five of
+  the six runs and masks, 0.002 above it in the sixth. `ignore` is biased
+  by more than the missing share of the called bins, 1.1 to 1.3 times it
+  (θ 0.87 to 0.89 at a mean share of 0.90, 0.63 to 0.66 at 0.705), with an
+  RMSE against the complete-data fit 3 to 7 times `auto`'s. Its RMSE
+  against the truth is clearly higher at 30%, as E4 measured (0.447 on
+  500 Mb genomes), but at 10% it can match complete data (0.231 against
+  0.230 for the expansion model), where PSMC's own error dominates: θ and
+  the RMSE against the complete-data fit measure the bias, the RMSE
+  against the truth adds PSMC's error.
 - **Clustered missing data** change little either way: the called bins
-  hold 99.8% of their bases, and `auto` and `ignore` differ by 0.002 in
-  RMSE against the complete-data fit.
-- **Multihetsep.** The approximate counts do not recover the exact route:
-  the RMSE against the truth is 0.421 with `auto` and 0.406 with `ignore`,
-  against 0.309 for the VCF with its mask. The bias comes from the
-  placement of the uncalled sites, which `ignore` shows as well (*Counts
-  from each input*), not from the counts; with the counts the `K` bins
-  that the placement leaves partly callable make it worse, which is why
-  `auto` does not use them (the run reported with this table predates that
-  change: its `auto` row of multihetsep is today's `approximate`).
-  Placing the uncalled sites evenly over each interval, which would match
-  dispersed missing data, would change the bins of the reader as well and
-  is left out; the VCF with its callable mask is the input to use when
-  missing data are dispersed.
+  hold 99.8% of their bases, and `auto` and `ignore` differ by at most
+  0.002 in RMSE against the complete-data fit.
+- **Multihetsep.** No mode recovers the exact route, and missing data in
+  long runs bias it too (θ 0.89 to 0.93 where the exact route is
+  unbiased). The bias comes from the placement of the uncalled sites,
+  which the fit with C psmc's model on the placed bins (`auto`) shows
+  alone (*Counts from each input*); with the counts (`approximate`) the
+  `K` bins that the placement leaves partly callable lower θ further,
+  which is why `auto` does not use them. Placing the uncalled sites evenly
+  over each interval, which would match dispersed missing data and not
+  long runs, would change the reader's bins as well and is left out; QC
+  warns when more than 5% of a multihetsep's sites are uncalled, and the
+  VCF with its callable mask is the input to use.
