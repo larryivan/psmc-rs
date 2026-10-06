@@ -253,6 +253,42 @@ class Schemas(unittest.TestCase):
             self.assertIn(f"{s.experiment}/{s.file}", written, key)
 
 
+@unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
+class FigureContent(unittest.TestCase):
+    """What Figs 1, 5 and 6 draw, without the experiments' tables."""
+
+    def test_fig1_shows_the_callable_length_model_and_the_fit_feeds_the_outputs(self):
+        from matplotlib.colors import to_hex
+        from matplotlib.patches import FancyBboxPatch
+
+        from experiment.pipeline.figures import fig1
+
+        fig = fig1.draw()
+        ax = fig.axes[0]
+        text = "\n".join(t.get_text() for t in ax.texts)
+        self.assertIn("--bin-callable", text)
+        self.assertIn(r"e_T(k)^{\,c/s}", text)
+        self.assertIn("callable", text.split("Route B")[1].split("Inputs made")[0])
+        self.assertIn("C psmc's model and EM", text)
+        bullets = [t for t in ax.texts if t.get_text() == "•"]
+        self.assertEqual(len(bullets), len(fig1.FIT_ITEMS))
+        # One line leaves the fit box (the lowest of psmc-rs's boxes) for a bus beside the five outputs.
+        boxes = [p for p in ax.patches if isinstance(p, FancyBboxPatch)]
+        rs_boxes = [p for p in boxes if to_hex(p.get_facecolor()) == fig1.RS_FILL]
+        fit = min(rs_boxes, key=lambda p: p.get_y())
+        outputs = [p for p in boxes if p.get_x() > fit.get_x() + fit.get_width() + 1.0]
+        self.assertEqual(len(outputs), 5)
+        lines = [ln for ln in ax.lines if ln.get_color() == fig1.style.BLUE]
+        self.assertEqual(len(lines), 2)
+        out, bus = lines
+        self.assertAlmostEqual(out.get_xdata()[0], fit.get_x() + fit.get_width())
+        self.assertTrue(fit.get_y() < out.get_ydata()[0] < fit.get_y() + fit.get_height())
+        self.assertEqual(out.get_xdata()[1], bus.get_xdata()[0])
+        centres = [p.get_y() + p.get_height() / 2 for p in outputs]
+        self.assertLessEqual(min(bus.get_ydata()), min(centres))
+        self.assertGreaterEqual(max(bus.get_ydata()), max(centres))
+
+
 class Readme(unittest.TestCase):
     def test_lists_every_table_and_column(self):
         from experiment.pipeline.figures.schemas import SCHEMAS
