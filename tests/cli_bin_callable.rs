@@ -7,11 +7,25 @@
 //!   model, records it in the JSON and the `.psmc` output, shows it in the
 //!   report, and `convert` says what a psmcfa of such data loses;
 //! - `auto` on multihetsep, whose counts are approximate, fits as `ignore`
-//!   does, to the bit, and `approximate` fits the counts.
+//!   does, to the bit, and `approximate` fits the counts;
+//! - the counts reach every pass of a counted run, not only EM: the TMRCA
+//!   decoding, the log-likelihood of a run of 0 iterations and every
+//!   bootstrap replicate are the library's with the counts.
 
 mod common;
 
 use common::{TempDir, fixture, json, run_ok};
+use psmc_rs::PsmcModel;
+use psmc_rs::bootstrap::{
+    BootstrapConfig, BootstrapOptions, observations_to_sequences, run_bootstrap_sequences,
+};
+use psmc_rs::hmm::{
+    EStepOptions, TmrcaOptions, log_likelihood_with_options, write_tmrca_posterior_tsv_with_options,
+};
+use psmc_rs::io::input::{InputOptions, load};
+use psmc_rs::io::params::load_params;
+use psmc_rs::io::{CallableBases, Sequences};
+use psmc_rs::opt::MStepConfig;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use serde_json::Value;
@@ -452,4 +466,161 @@ fn auto_does_not_fit_multihetseps_approximate_counts() {
     ]);
     let says = String::from_utf8_lossy(&out.stderr);
     assert!(!says.contains("psmcfa cannot record that"), "{says}");
+}
+
+/// The model a run saved, with its matrices.
+fn saved_model(path: &Path) -> PsmcModel {
+    PsmcModel::from_params_file(&load_params(path).unwrap()).unwrap()
+}
+
+/// The counts of a counted run reach the TMRCA decoding, the log-likelihood
+/// of a run of 0 iterations and the bootstrap, as the library computes them
+/// with the counts, and each of these differs without them, so a run that
+/// dropped the counts on the way to one of them would fail here.
+#[test]
+fn the_counts_reach_decoding_the_start_and_the_bootstrap() {
+    let dir = TempDir::new("bin_callable_passes");
+    let (vcf, bed) = synthetic(&dir, 0.3);
+    let bed = bed.unwrap();
+    let data = load(
+        &vcf,
+        &InputOptions {
+            masks: vec![bed.clone()],
+            ..InputOptions::default()
+        },
+    )
+    .unwrap();
+    let obs = &data.obs;
+    let callable: &CallableBases = obs.callable.as_ref().unwrap();
+    let cli = |out: &Path, n_iter: &str, extra: &[&str]| {
+        let mut argv = vec![
+            vcf.to_str().unwrap().to_string(),
+            out.to_str().unwrap().to_string(),
+            n_iter.to_string(),
+            "--vcf-mask".to_string(),
+            bed.to_str().unwrap().to_string(),
+            "--no-progress".to_string(),
+            "--quiet".to_string(),
+        ];
+        argv.extend(extra.iter().map(|a| a.to_string()));
+        run_ok(&argv);
+    };
+
+    // The TMRCA decoding of the fitted model, with the counts.
+    let fit_json = dir.path("decoded.json");
+    let tmrca = dir.path("decoded.tmrca.tsv");
+    cli(&fit_json, "2", &["--tmrca-out", tmrca.to_str().unwrap()]);
+    let model = saved_model(&fit_json);
+    let years = model.state_tmrca_years(100.0, 25.0);
+    let decode = |path: &Path, counts: Option<&CallableBases>| {
+        write_tmrca_posterior_tsv_with_options(
+            model.prior_matrix(),
+            model.transition_matrix(),
+            model.emission_matrix(),
+            &obs.rows,
+            &obs.row_starts,
+            &years,
+            path,
+            TmrcaOptions {
+                progress_bars: false,
+                max_points: 20_000,
+                callable: counts,
+            },
+        )
+        .unwrap();
+        fs::read(path).unwrap()
+    };
+    let cli_tmrca = fs::read(&tmrca).unwrap();
+    assert!(
+        cli_tmrca == decode(&dir.path("with.tsv"), Some(callable)),
+        "the CLI decodes with the counts"
+    );
+    assert!(cli_tmrca != decode(&dir.path("without.tsv"), None));
+
+    // The log-likelihood of a run of 0 iterations: its start, with the counts.
+    let start_json = dir.path("start.json");
+    cli(&start_json, "0", &[]);
+    let start = saved_model(&start_json);
+    let loglike = |counts: Option<&CallableBases>| {
+        log_likelihood_with_options(
+            start.prior_matrix(),
+            start.transition_matrix(),
+            start.emission_matrix(),
+            &obs.rows,
+            &obs.row_starts,
+            EStepOptions {
+                callable: counts,
+                ..EStepOptions::default()
+            },
+        )
+        .unwrap()
+    };
+    let reported = json(&start_json)["final_loglike"].as_f64().unwrap();
+    assert_eq!(reported.to_bits(), loglike(Some(callable)).to_bits());
+    assert_ne!(reported, loglike(None));
+
+    // Every bootstrap replicate is fitted on its resampled bins and counts,
+    // and its .psmc file says so.
+    let boot_json = dir.path("boot.json");
+    cli(
+        &boot_json,
+        "1",
+        &[
+            "--bootstrap",
+            "2",
+            "--bootstrap-iters",
+            "1",
+            "--bootstrap-block-size",
+            "3000",
+            "--bootstrap-seed",
+            "7",
+        ],
+    );
+    let boot = json(&boot_json);
+    let cfg = BootstrapConfig {
+        replicates: 2,
+        trunk_size: 3000,
+        seed: 7,
+        em_iters: 1,
+        tr_ratio: boot["tr_ratio"].as_f64().unwrap(),
+        t_max: 15.0,
+        batch_size: None,
+        out_dir: None,
+    };
+    let mstep = MStepConfig {
+        progress: false,
+        ..MStepConfig::default()
+    };
+    let template = saved_model(&boot_json);
+    let replicates = |seqs: &Sequences| {
+        let opts = BootstrapOptions {
+            skip_invalid_starts: true,
+            ..BootstrapOptions::default()
+        };
+        run_bootstrap_sequences(seqs, &template, &cfg, &mstep, opts).unwrap()
+    };
+    let seqs = observations_to_sequences(obs).unwrap();
+    assert!(seqs.callable.is_some());
+    let bins_only = Sequences::from(seqs.bins.clone());
+    let with = replicates(&seqs);
+    let without = replicates(&bins_only);
+    assert_eq!(with.len(), 2);
+    let boot_dir = dir.path("boot.bootstrap");
+    for (r, w) in with.iter().zip(&without) {
+        let n = r.index + 1;
+        let saved = load_params(&boot_dir.join(format!("replicate_{n:03}.json"))).unwrap();
+        let fitted = |m: &PsmcModel| (m.theta, m.rho, m.t_max, m.lam.clone());
+        assert_eq!(
+            (saved.theta, saved.rho, saved.t_max, saved.lam.clone()),
+            fitted(&r.model),
+            "replicate {n}"
+        );
+        assert_ne!(saved.theta, w.model.theta, "replicate {n}");
+        let psmc = fs::read_to_string(boot_dir.join(format!("replicate_{n:03}.psmc"))).unwrap();
+        assert!(
+            psmc.lines()
+                .any(|l| l.starts_with("MM\tbin_model:callable-length, mean_callable:")),
+            "replicate {n}"
+        );
+    }
 }
