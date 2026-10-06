@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -369,6 +370,74 @@ class DetachedRunner(Base):
         st = self.cli("status")
         self.assertIn("runner: not running", st.stdout)
         self.assertRegex(st.stdout, r"\nT\s+3\s+0\s+0\s+0\s+0")
+
+    def test_only_runs_and_shows_the_matching_jobs(self):
+        # A shard: a and the rep2 jobs; b2 reads b.txt, which only the dropped b makes.
+        jobs = [self.job("T/a", ["a.txt"]), self.job("T/b", ["b.txt"]),
+                self.job("T/run/x/rep1", ["x1.txt"], inputs=["a.txt"]),
+                self.job("T/run/x/rep2", ["x2.txt"], inputs=["a.txt"]),
+                self.job("T/run/y/rep2", ["y2.txt"], inputs=["b.txt"])]
+        spec = self.tmp / "jobs.json"
+        spec.write_text(json.dumps([j.to_dict() for j in jobs]))
+        only = "T/(a$|run/.*/rep2$)"
+        listed = self.cli("list", "--jobs-file", str(spec), "--only", only)
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertEqual(re.findall(r"^(T/\S+)  \[", listed.stdout, re.M), ["T/a", "T/run/x/rep2", "T/run/y/rep2"])
+        planned = self.cli("plan", "--jobs-file", str(spec), "--only", only)
+        self.assertRegex(planned.stdout, r"\nT\s+3\s")
+        res = self.cli("start", "--foreground", "--jobs-file", str(spec), "--only", only)
+        self.assertEqual(res.returncode, 1, res.stderr)  # T/run/y/rep2 is blocked
+        self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 0, 0, 1, 0])
+        state = json.loads((self.runs / "_runner" / "state.json").read_text())
+        self.assertEqual(state["only"], only)
+        self.assertIn("input missing", state["blocked"]["T/run/y/rep2"])
+        # status without arguments: the last runner's jobs and filter.
+        st = self.cli("status", "--jobs")
+        self.assertRegex(st.stdout, r"\nT\s+2\s+0\s+0\s+1\s+0")
+        self.assertIn("input missing, and no job makes it", st.stdout)
+        self.assertNotIn("T/b ", st.stdout)
+        # Once the file exists (merged in from another shard), the kept job runs.
+        (self.tmp / "b.txt").write_text("from another runs directory")
+        res = self.cli("start", "--foreground", "--jobs-file", str(spec), "--only", only)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 0, 0, 1, 1])
+        # Without the filter, the jobs it kept are done and the others run; y/rep2
+        # again, because b now makes the b.txt it reads, with another content.
+        res = self.cli("start", "--foreground", "--jobs-file", str(spec))
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 1, 1, 1, 2])
+
+    def test_only_rejects_a_bad_or_unmatched_pattern(self):
+        spec = self.tmp / "jobs.json"
+        spec.write_text(json.dumps([self.job("T/a", ["a.txt"]).to_dict()]))
+        res = self.cli("list", "--jobs-file", str(spec), "--only", "T/(")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("not a regular expression", res.stderr)
+        res = self.cli("start", "--jobs-file", str(spec), "--only", "T/rep02$")
+        self.assertEqual(res.returncode, 1)
+        self.assertIn("matches none of the 1 jobs", res.stderr)
+        self.assertIsNone(runner.daemon_alive(self.runs))
+
+
+class Selection(unittest.TestCase):
+    def test_select_by_regex_search(self):
+        jobs = [Job(id=i, command=["true"]) for i in ("E3/sim/500Mb", "E3/run/c/500Mb/t1/rep1",
+                                                       "E3/run/c/500Mb/t1/rep2", "E3/run/rs02/50Mb/t8/rep12", "E3/report")]
+        ids = [j.id for j in runner.select(jobs, r"E3/(sim/|run/.*/rep2$)")]
+        self.assertEqual(ids, ["E3/sim/500Mb", "E3/run/c/500Mb/t1/rep2"])
+        self.assertEqual(runner.select(jobs, None), jobs)
+        self.assertEqual([j.id for j in runner.select(jobs, "report")], ["E3/report"])
+
+    def test_a_kept_job_whose_input_a_dropped_job_makes_reads_it_as_a_static_input(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d).resolve()
+            make = Job(id="T/make", command=["true"], outputs=[d / "x.txt"])
+            use = Job(id="T/use", command=["true"], inputs=[d / "x.txt"], outputs=[d / "y.txt"])
+            g = Graph(runner.select([make, use], "use"), d / "runs")
+            self.assertEqual((list(g.jobs), g.deps["T/use"], g.static_inputs["T/use"]), (["T/use"], [], [d / "x.txt"]))
+            (status,) = runner.job_statuses(g, d / "runs", daemon_pid=None)
+            self.assertEqual(status.state, runner.BLOCKED)
+
 
 class MachineInfo(unittest.TestCase):
     """What the runner records about the machine and the SLURM job."""

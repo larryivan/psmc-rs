@@ -180,6 +180,21 @@ def path_key(p: Path) -> str:
     return s.lower() if sys.platform in ("darwin", "win32") else s
 
 
+def select(jobs: Sequence[Job], pattern: Optional[str]) -> List[Job]:
+    """The jobs whose id matches ``pattern`` (:func:`re.search`), all of them when it is None.
+
+    For sharding a run over runs directories (E3's repeats over several
+    nodes, merged afterwards). A graph of the kept jobs knows nothing of the
+    others: a kept job's input that a dropped job would make is a file no
+    job makes, so the job runs if the file exists (with its content in the
+    key, like any input) and is blocked while it does not.
+    """
+    if pattern is None:
+        return list(jobs)
+    rx = re.compile(pattern)
+    return [j for j in jobs if rx.search(j.id)]
+
+
 class Graph:
     """Jobs and their file dependencies."""
 

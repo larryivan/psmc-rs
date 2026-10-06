@@ -197,7 +197,17 @@ busy. Every attempt also records the host it ran on and `$SLURM_JOB_ID`;
 the runner's state records `provenance.machine()` (CPU model, memory, host,
 libc, usable CPUs and the SLURM job on Linux). None of this enters a job's
 key. `status` without experiments reports those of the running runner, or
-of the last one; a job whose input no job makes is reported blocked.
+of the last one (with its `--only`); a job whose input no job makes is
+reported blocked.
+
+`start`, `status`, `plan` and `list` take `--only REGEX`: only the jobs
+whose id matches (`re.search`) are run or shown, and the status, the ETA
+and the plan are those of the kept jobs. A kept job whose input a dropped
+job would make treats it as an input that no job makes: it runs if the file
+exists and is blocked otherwise. This shards a run over runs directories,
+e.g. E3's timing runs by repeat over nodes of one CPU model
+(`--only 'E3/(sim/|run/.*/rep2$)'` on one node), whose runs directories
+are merged before `E3/report` runs once on the merged one.
 
 ## E1: simulated accuracy and equivalence
 
