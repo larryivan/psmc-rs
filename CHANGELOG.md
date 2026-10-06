@@ -244,11 +244,6 @@ Reproduction package (`experiment/`):
   single-trunk bootstrap is an error before fitting.
 - Input from pipes and FIFOs (the file is read once; only `--depth auto`
   needs a regular file).
-- A warning, before the input is read, when the M-steps that may run at
-  once would need more than 1 GB: with one λ per interval (`--n-steps`
-  alone) an M-step's memory grows with the cube of the intervals, and a
-  bootstrap fits up to one replicate per thread at once, each with its own
-  M-step.
 - TUI: the stop key interrupts EM and the bootstrap mid-step, the form has
   a generation-time field and shows the equivalent command line.
 - Library: `io::input::load` and `Dataset` (one loader for every format),
@@ -418,6 +413,17 @@ Reproduction package (`experiment/`):
   numbers without the standard library's float formatter.
 - psmcfa input is streamed instead of read whole, and the VCF reader is two
   to three times as fast.
+- The M-step differentiates its objective in reverse mode (adjoints written
+  out by hand) instead of with forward-mode dual numbers, which carried the
+  derivatives with respect to every parameter, in a heap vector, through
+  every operation: an evaluation takes O(states²) time and O(states) memory
+  besides the expected counts, however many λ are free (about 25 µs
+  instead of 1.2 ms for `4+25*2+4+6`). With one λ per interval, one EM
+  iteration on the 180,000-bin test input with 401 intervals peaked at 248
+  MB instead of 1.36 GB (21 MB without the E-step's cache of forward rows)
+  and took 20 s instead of 63 s; with 201 intervals 7.6 MB and 0.8 s
+  instead of 159 MB and 6.3 s. The warning that such models' M-steps would
+  need gigabytes, given before the input was read, is gone.
 - Callable masks are merged as they are read, so their memory follows the
   merged intervals instead of the rows (40 million adjacent per-site rows:
   646 MB to 3.9 MB).

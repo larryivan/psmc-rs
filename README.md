@@ -277,9 +277,9 @@ The model options follow C psmc:
   intervals and 7 free λ; `4+25*2+4+6` has 64 and 28.
 - `--n-steps` is the number of intervals minus one (C's `n`). It follows the
   pattern; given with `--pattern` it must agree (the interval count, as 0.1
-  took it, is accepted too). `--n-steps` alone fits one λ per interval; the
-  M-step's memory and time then grow with the cube of the number of
-  intervals (see [Determinism and performance](#determinism-and-performance)).
+  took it, is accepted too). `--n-steps` alone fits one λ per interval
+  (see [Determinism and performance](#determinism-and-performance) for
+  what that costs).
 - `--t-max` (C `-t`, 15) is the initial maximum time in units of 2N0
   generations, in [1, 200]; `--tr-ratio` (C `-r`, 4) sets ρ0 = θ0/ratio.
   `--theta0` and `--rho0` set the starting values directly.
@@ -579,22 +579,22 @@ psmc's PSMC_T_INF = 1000 time grid and at most 10,000 states; models of more
 than 256 states use dense kernels, which cache forward rows within a
 process-wide budget of `PSMC_ALPHA_CACHE_MB` (2048; 0 disables the cache).
 
-The M-step's memory and time grow with the number of free λ. It
-differentiates its objective in forward mode, so each evaluation holds the
-transition matrix with the gradient of every free parameter: about
-states² × (free λ + 7) × 8 bytes, with as many operations. A pattern keeps
-this small (64 states and 28 free λ: about 1 MB), but with one λ per
-interval (`--n-steps` alone) it grows with the cube of the number of states
-and takes over the run: about 0.2 GB at 301 states, 0.5 GB at 401 and
-8 GB at 1001, and the measured peaks were 1.3 to 2.6 times these figures.
-On 42,000 bins, one iteration with 201 states took 3.9 s with one λ per
-interval and 0.3 s with a single λ. Before it reads the input, a run warns
-when the M-steps that may run at once need more than 1 GB together, taking
-2.5 times the figure above for each. A fit runs one M-step at a time, but
-a bootstrap fits up to one replicate per thread at once (`--threads`, by
-default one per core or `RAYON_NUM_THREADS`), each with its own M-step:
-`--n-steps 300` needs about 0.6 GB per M-step, and 2.2 GB for a bootstrap
-on 4 threads.
+The M-step needs little memory or time, however many λ are free. It
+differentiates its objective in reverse mode, one row of the transition
+matrix at a time: an evaluation costs O(states²), about as much as one bin
+of the E-step's expected counts, and holds O(states) values besides those
+counts. An M-step evaluates its objective once per free parameter, for the
+curvatures that scale its search, and once or twice per L-BFGS iteration
+(10 to 50), so it costs about as much as an E-step on as many bins; with
+pattern `4+25*2+4+6` it takes a few milliseconds. With one λ per interval
+(`--n-steps` alone) on the 180,000-bin test input, one EM iteration on one
+thread peaked at 4.5, 7.6, 182 and 248 MB with 101, 201, 301 and 401
+intervals and took 0.8, 0.8, 11 and 20 s; the forward-mode differentiation
+of 0.1 and earlier 0.2 builds, which carried the derivatives with respect
+to every parameter through every transition probability, needed 25, 159,
+522 and 1,363 MB and 1.2, 6.3, 22 and 63 s. Above 256 intervals the memory
+is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`): without it,
+the iteration with 401 intervals peaked at 21 MB.
 
 ## Testing and C equivalence
 

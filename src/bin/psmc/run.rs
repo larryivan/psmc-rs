@@ -173,71 +173,6 @@ impl BootstrapPlan {
 /// Trunk counts below this make coarse bootstrap bands.
 const FEW_TRUNKS: usize = 20;
 
-/// [`mstep_memory_warning`] warns above this estimate, in bytes.
-const MSTEP_MEMORY_WARN_BYTES: f64 = 1e9;
-
-/// Peak memory of an M-step, in bytes, for a model of `states` hidden
-/// states and `free_lambdas` free lambdas.
-///
-/// The M-step differentiates its objective in forward mode
-/// (`psmc_rs::opt`): every intermediate value carries the derivatives with
-/// respect to all `free_lambdas + 3` parameters, and the transition matrix
-/// alone holds `states^2` of them, each a value and a vector of
-/// derivatives (8 bytes per parameter, and 48 for the value, the vector
-/// and its allocation). Measured peaks are 1.7 to 2.6 times that matrix
-/// (2.5 at 401 states and 401 free lambdas, 1.3 GB), so the estimate takes
-/// 2.5 times it. With one free lambda per interval this grows with the
-/// cube of the number of intervals.
-fn mstep_memory_bytes(states: usize, free_lambdas: usize) -> f64 {
-    let params = (free_lambdas + 3) as f64;
-    let states = states as f64;
-    2.5 * states * states * (8.0 * params + 48.0)
-}
-
-/// A warning when the M-steps of this layout that may run at once need
-/// more than [`MSTEP_MEMORY_WARN_BYTES`] together ([`mstep_memory_bytes`]
-/// each), before the run spends time reading the input and then fails or
-/// swaps in its first M-step. `at_once` is how many M-steps may run at
-/// once: 1 for a fit, and for a bootstrap the replicates that run in
-/// parallel, one per thread ([`bootstrap_m_steps_at_once`]).
-fn mstep_memory_warning(states: usize, free_lambdas: usize, at_once: usize) -> Option<String> {
-    let each = mstep_memory_bytes(states, free_lambdas);
-    let bytes = each * at_once.max(1) as f64;
-    if bytes <= MSTEP_MEMORY_WARN_BYTES {
-        return None;
-    }
-    let why = format!(
-        "carries the derivatives of all {} parameters through each of the {states} x {states} \
-         transition probabilities, which grows with the cube of the intervals when each has \
-         its own lambda. Group the intervals into fewer free parameters with --pattern (C \
-         psmc's 4+5*3+4 has 7)",
-        free_lambdas + 3
-    );
-    Some(if at_once > 1 {
-        format!(
-            "the bootstrap will need about {:.1} GB of memory for its M-steps: it fits up to \
-             {at_once} replicates at once, one per thread, and the M-step of this model \
-             ({states} intervals, {free_lambdas} free lambdas) needs about {:.1} GB each: it \
-             {why}, use fewer --n-steps, or fit fewer replicates at once with fewer --threads",
-            bytes / 1e9,
-            each / 1e9
-        )
-    } else {
-        format!(
-            "the M-step of this model ({states} intervals, {free_lambdas} free lambdas) will \
-             need about {:.1} GB of memory: it {why}, or use fewer --n-steps",
-            bytes / 1e9
-        )
-    })
-}
-
-/// How many bootstrap replicates, each with its own single-threaded
-/// M-step, may run at once: one per thread of the pool, at most all of
-/// them.
-fn bootstrap_m_steps_at_once(replicates: usize, threads: usize) -> usize {
-    replicates.min(threads).max(1)
-}
-
 /// [`run_inference`] inside its pool.
 fn infer(
     cli: &InferArgs,
@@ -270,16 +205,6 @@ fn infer(
     };
     let free_lambdas = layout.lam.len();
     let bootstrap = BootstrapPlan::of(cli, n_iter, &output_file)?;
-    // The main fit runs one M-step at a time; the bootstrap runs its
-    // replicates in parallel.
-    let m_steps_at_once = bootstrap.as_ref().map_or(1, |plan| {
-        bootstrap_m_steps_at_once(plan.replicates, pool.current_num_threads())
-    });
-    if (n_iter > 0 || bootstrap.is_some())
-        && let Some(msg) = mstep_memory_warning(layout.n_steps + 1, free_lambdas, m_steps_at_once)
-    {
-        sink(Event::Warning(msg));
-    }
 
     check_cancel(cancel)?;
     let input_file = resolve_input_path(&raw_input, cli.input.input_format)?;
@@ -1247,48 +1172,6 @@ mod tests {
             assert!(sizes.iter().all(|&n| n == threads), "{sizes:?}");
         }
         let _ = fs::remove_dir_all(dir);
-    }
-
-    /// The estimate follows the measured peaks of a fit with one M-step
-    /// iteration (macOS, peak memory footprint): 23 MB at 101 states, 118 MB
-    /// at 201, 401 MB at 301 and 1.30 GB at 401, one free lambda each.
-    #[test]
-    fn mstep_memory_is_estimated_from_the_layout() {
-        for (states, measured) in [(101, 23e6), (201, 118e6), (301, 401e6), (401, 1.30e9)] {
-            let estimate = mstep_memory_bytes(states, states);
-            assert!(
-                (0.9 * measured..2.0 * measured).contains(&estimate),
-                "{states}: {estimate} vs {measured}"
-            );
-        }
-        // C psmc's patterns stay far below the limit.
-        assert_eq!(mstep_memory_warning(23, 7, 1), None);
-        assert_eq!(mstep_memory_warning(64, 28, 1), None);
-        assert_eq!(mstep_memory_warning(301, 301, 1), None);
-        let msg = mstep_memory_warning(401, 401, 1).unwrap();
-        assert!(
-            msg.starts_with(
-                "the M-step of this model (401 intervals, 401 free lambdas) will need about \
-                 1.3 GB of memory: it carries the derivatives of all 404 parameters"
-            ),
-            "{msg}"
-        );
-        // Many intervals in few groups need little.
-        assert_eq!(mstep_memory_warning(1000, 10, 1), None);
-        // M-steps that run at once add up: 0.56 GB each, 2.2 GB for four.
-        let msg = mstep_memory_warning(301, 301, 4).unwrap();
-        assert!(
-            msg.starts_with(
-                "the bootstrap will need about 2.2 GB of memory for its M-steps: it fits up to \
-                 4 replicates at once, one per thread, and the M-step of this model (301 \
-                 intervals, 301 free lambdas) needs about 0.6 GB each"
-            ),
-            "{msg}"
-        );
-        assert!(msg.ends_with("with fewer --threads"), "{msg}");
-        assert_eq!(mstep_memory_warning(23, 7, 64), None);
-        assert_eq!(bootstrap_m_steps_at_once(100, 8), 8);
-        assert_eq!(bootstrap_m_steps_at_once(3, 8), 3);
     }
 
     #[test]
