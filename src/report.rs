@@ -162,6 +162,7 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
     let m = d.model;
     let mut out = String::new();
     row(&mut out, "psmc-rs", env!("CARGO_PKG_VERSION"));
+    row(&mut out, "HMM kernels", crate::hmm::simd_path().name());
     row(
         &mut out,
         "Input",

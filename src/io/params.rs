@@ -47,6 +47,12 @@ pub struct RunMetadata {
     /// Version of psmc-rs that wrote the file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    /// The kernels the HMM passes ran ([`crate::hmm::SimdPath::name`]):
+    /// `avx2+fma`, `portable` or `neon`. On x86-64 the portable kernels run
+    /// about half as fast as the AVX2 and FMA ones, and their results
+    /// differ in the last digits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub simd: Option<String>,
     /// EM iterations run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub n_iter: Option<usize>,

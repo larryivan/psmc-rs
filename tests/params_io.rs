@@ -60,6 +60,7 @@ fn run_metadata_round_trips_at_the_top_level() {
     let params = PsmcParamsFile {
         run: RunMetadata {
             version: Some("0.2.0".to_string()),
+            simd: Some("avx2+fma".to_string()),
             n_iter: Some(2),
             final_loglike: Some(-1234.5678901234567),
             loglike: Some(vec![-1300.25, -1240.0, -1234.5678901234567]),

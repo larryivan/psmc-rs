@@ -58,6 +58,7 @@ pub fn save_fit(path: &Path, fit: &FitRecord) -> Result<()> {
     let mut params = fit.model.params_file();
     params.run = RunMetadata {
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        simd: Some(psmc_rs::hmm::simd_path().name().to_string()),
         n_iter: Some(fit.history.loglike.len()),
         final_loglike: fit.final_loglike,
         loglike: Some(loglike_path(fit.history, fit.final_loglike)),

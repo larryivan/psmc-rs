@@ -38,7 +38,7 @@ pub enum SimdPath {
 }
 
 impl SimdPath {
-    /// `portable`, `avx2+fma` or `neon`.
+    /// `portable`, `avx2+fma` or `neon`, as the output JSON records it.
     pub fn name(self) -> &'static str {
         match self {
             SimdPath::Portable => "portable",

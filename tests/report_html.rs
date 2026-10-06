@@ -162,6 +162,10 @@ fn the_summary_shows_version_loglike_and_settings() {
         "<tr><th>psmc-rs</th><td>{}</td></tr>",
         env!("CARGO_PKG_VERSION")
     )));
+    assert!(html.contains(&format!(
+        "<tr><th>HMM kernels</th><td>{}</td></tr>",
+        psmc_rs::hmm::simd_path()
+    )));
     assert!(html.contains("<tr><th>Final log-likelihood</th><td>-12345.678901</td></tr>"));
     assert!(html.contains("<tr><th>theta/rho at start</th><td>4</td></tr>"));
     assert!(html.contains("<tr><th>Input format</th><td>vcf (consensus mode)</td></tr>"));
