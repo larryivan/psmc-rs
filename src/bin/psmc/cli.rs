@@ -695,7 +695,8 @@ pub struct InferArgs {
     pub mu: f64,
 
     /// Cap on the L-BFGS iterations of an M-step, which otherwise runs to
-    /// convergence, as C psmc's does (in 10 to 50 iterations)
+    /// convergence, as C psmc's does (in 10 to 20 iterations with C psmc's
+    /// patterns, up to about 70 with one lambda per interval)
     #[arg(long, value_name = "N", default_value_t = DEFAULT_MSTEP_ITERS, value_parser = positive_usize, help_heading = "Model")]
     pub mstep_iters: usize,
 

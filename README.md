@@ -288,9 +288,16 @@ The model options follow C psmc:
 - `--smooth-lambda` (default 0, C's objective) adds a penalty on
   differences of log λ between neighbouring intervals.
 - `--mstep-iters` (1000) caps the L-BFGS iterations of each M-step, which
-  runs to convergence, as C psmc's does: 10 to 30 iterations with the
-  patterns above, 30 to 50 with 301 free λ. The cap is a safeguard that
-  normal fits do not reach.
+  runs to convergence, as C psmc's does: 10 to 20 iterations with the
+  patterns above, up to about 70 with one λ per interval. The cap is a
+  safeguard that normal fits do not reach.
+- The M-step keeps each λ between 1e-6 and 1e4 (C psmc's search has no
+  bound). Beyond 1e4 the f64 transition probabilities of the shortest,
+  earliest intervals are rounding noise; a λ of 1e4 already means that
+  the data hold almost no coalescences in its intervals, so the Ne there
+  is the bound, not an estimate. This is common for the most recent
+  intervals when each has its own λ, and the run warns when a fitted
+  parameter sits on a bound.
 - `--mu` (2.5e-8) and `--gen-years` (25) only scale the curve to years and
   individuals: N0 = θ / (4 μ × bin size).
 
@@ -483,8 +490,8 @@ the run warns and prints that command.
 
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
-pattern (per round, 22 to 58 on the 180,000-bin test input and 22 to 49 on
-Papuan chr1 with the default pattern, where C's Hooke-Jeeves needs 1,132
+pattern (per round with the default pattern, 32 to 36 on the 180,000-bin
+test input and 32 to 56 on Papuan chr1, where C's Hooke-Jeeves needs 1,132
 to 7,002 and 939 to 1,334); `QD` leaves out the smoothing penalty; and
 `post_sigma`, `QD` and `RI` include the emission of each sequence's last bin,
 which C skips (differences of the order of the number of sequences divided
@@ -528,6 +535,7 @@ gives a different fit:
 | initial ρ0 | θ0/5 | θ0/4 (`--tr-ratio`) | C psmc's `-r` default |
 | `--smooth-lambda` | 1e-3 | 0 | C psmc's objective |
 | M-step | at most 100 L-BFGS iterations (`--mstep-iters`) | runs to convergence; `--mstep-iters` (1000) only caps it | C psmc's M-step runs to convergence; 100 iterations left the curve 0.03 to 0.16 (RMSE of log10 Ne) from C's |
+| λ range of the M-step | 1e-6 to 1e6 | 1e-6 to 1e4 | above 1e4 the earliest intervals' transition probabilities are rounding noise in f64 |
 | bootstrap | 50,000-bin blocks within each sequence, replicates started from the fit | splitfa trunks of 500,000 bins across the input, fresh start | C psmc's scheme; the old one gave zero spread for sequences shorter than a block |
 | `--input-format` | psmcfa | auto | |
 | VCF and multihetsep sequences | all kept | fq2psmcfa's filter | as fq2psmcfa does |
@@ -579,25 +587,34 @@ psmc's PSMC_T_INF = 1000 time grid and at most 10,000 states; models of more
 than 256 states use dense kernels, which cache forward rows within a
 process-wide budget of `PSMC_ALPHA_CACHE_MB` (2048; 0 disables the cache).
 
-The M-step needs little memory or time, however many λ are free. It
+The M-step needs little memory, however many λ are free. It
 differentiates its objective in reverse mode, one row of the transition
-matrix at a time: an evaluation costs O(states²), about as much as one bin
-of the E-step's expected counts, and holds O(states) values besides those
-counts. An M-step evaluates its objective once per free parameter, for the
-curvatures that scale its search, and once or twice per L-BFGS iteration
-(10 to 50), so it costs about as much as an E-step on as many bins. With
-pattern `4+25*2+4+6` on one thread, an M-step took 1.7 ms on a simulated
-500 Mb sequence, whose E-steps took 3.5 s (0.05%), and 2.7 ms on a
-simulated 4 × 25 Mb genome, against 0.7 s (medians of three runs of 25
-EM iterations). With one λ per interval
-(`--n-steps` alone) on the 180,000-bin test input, one EM iteration on one
-thread peaked at 4.5, 7.6, 182 and 248 MB with 101, 201, 301 and 401
-intervals and took 0.8, 0.8, 11 and 20 s; the forward-mode differentiation
-of 0.1 and earlier 0.2 builds, which carried the derivatives with respect
-to every parameter through every transition probability, needed 25, 159,
-522 and 1,363 MB and 1.2, 6.3, 22 and 63 s. Above 256 intervals the memory
-is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`): without it,
-the iteration with 401 intervals peaked at 21 MB.
+matrix at a time: an evaluation holds O(states) values besides the
+expected counts and costs O(states²) time, 27 µs with 64 states on one
+thread, about what the E-step spends on 60 bins. An M-step evaluates its
+objective once per free parameter for the curvatures that scale its
+search, once or twice per L-BFGS iteration, and once per free parameter
+again for the check before it stops, so its time grows with the number of
+free parameters times states². With pattern `4+25*2+4+6` (31 parameters)
+on one thread, an M-step took 12 iterations, 78 evaluations and 2.1 ms on
+a simulated 500 Mb sequence, whose E-steps took 2.3 s (0.09%), and 2.2 ms
+on a simulated 4 × 25 Mb genome, against 0.46 s (0.5%); the forward-mode
+M-step of 0.1 and earlier 0.2 builds took 122 ms on either with its 100
+iterations, and 1.35 s with 1000 on the 500 Mb sequence (medians of three
+runs of 25 EM iterations, interleaved, at load averages of 3.5 to 7.4).
+With one λ per interval (`--n-steps` alone) on the 180,000-bin test
+input, M-steps over 104 parameters took 13 to 18 ms and over 304 took
+0.29 to 0.60 s, against E-steps of 0.17 s and 4.9 to 5.0 s: on so small
+an input, many free λ make the M-step a noticeable share. One EM
+iteration there on one thread peaked at 6.2, 9.0, 176 and 235 MB of
+resident memory with 101, 201, 301 and 401 intervals and took 0.22, 0.71,
+7.6 and 13.8 s; the forward-mode differentiation of 0.1 and earlier 0.2
+builds, which carried the derivatives with respect to every parameter
+through every transition probability, needed 26, 156, 499 and 1,296 MB
+and took 0.81, 4.6, 16.3 and 36.7 s (medians of three runs, the latter
+one run each, all at load averages of 3.1 to 4.0). Above 256 intervals
+the memory is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`):
+without it, the iteration with 401 intervals peaked at 20 MB.
 
 ## Testing and C equivalence
 
@@ -625,14 +642,23 @@ The suite compares psmc-rs with the original tools' outputs, stored under
 
 Beyond the tests: on a simulated 4 × 25 Mb bottleneck genome (msprime,
 Hudson, μ = 2.5e-8, r = 1e-8) fitted as `psmc -N25 -t15 -r5 -p
-"4+25*2+4+6"`, the psmc-rs curve is within 7.4e-5 of C psmc's (RMSE of
-log10 Ne over the 1% to 99% quantiles of the true coalescence time; at
-most 2.5e-4), with θ, ρ and t_max within 1.6e-4 and the log-likelihood
-within 7e-9 (relative). The rest is C's: psmc-rs fits with convergence
-thresholds from 1e-11 down to the precision limit are within 6e-6 of one
-another (the default within 1.2e-6 of the limit), while from the same
-expected counts C's Hooke-Jeeves M-step stops short of the maximum of Q by
-1e-5 to 7e-5 (relative) in θ, t_max and λ.
+"4+25*2+4+6"`, the psmc-rs curve is within 7.7e-5 of C psmc's (RMSE of
+log10 Ne over the 1% to 99% quantiles of the true coalescence time, 10,050
+to 1,322,585 years; at most 2.6e-4), with θ, ρ and t_max within 1.4e-4 and
+the log-likelihood within 4e-9 (relative). The M-steps are not what keeps
+them apart. psmc-rs's default fit is within 5e-7 of one whose M-steps run
+to the precision limit, and a port of C's Hooke-Jeeves search in place of
+its L-BFGS gives a curve 7.5e-5 from C's. Nearly all the rest comes from
+C's expected counts, which leave out the last bin of each sequence
+(`em::posterior_sigma`): with that bin left out of psmc-rs's counts too,
+its curve is within 6.4e-6 of C's (the Hooke-Jeeves port within 8.0e-6),
+and on the reference data rounds 2 to 5 agree with C's log-likelihoods to
+a relative 2.8e-9 instead of 7.3e-8. Before the window starts the curves
+can differ more: the first λ, which the data barely determine, ran to the
+M-step's upper bound of 1e4 in psmc-rs (the run says so) and to 1.5e5 in
+C psmc, whose search has no bound; Ne in the first four intervals (up to
+about 8,600 years) is then 1.2 log10 units apart, and neither is an
+estimate.
 
 Two ignored tests run the tools themselves:
 `VCFUTILS=/path/to/vcfutils.pl FQ2PSMCFA=/path/to/fq2psmcfa cargo test

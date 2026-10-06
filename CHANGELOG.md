@@ -28,17 +28,20 @@ Defaults, each of which changes the results of a run that relied on it:
 - Each M-step runs until it converges, as C psmc's Hooke-Jeeves search
   does, instead of stopping after 100 L-BFGS iterations; `--mstep-iters`
   (default 1000 instead of 100) is only a cap, which normal fits do not
-  reach (10 to 30 iterations with C psmc's patterns, at most 46 with 301
-  free λ). The 100-iteration M-steps stopped short of the maximum of Q, and
-  EM carried the shortfall through the rounds: on a simulated 4 × 25 Mb
-  bottleneck genome (`-N25 -t15 -r5 -p 4+25*2+4+6`) the curve was 0.034
-  (RMSE of log10 Ne over the informative window) from C psmc's, and is now
-  7.4e-5 from it. That rest is C's: psmc-rs fits converged to any
-  threshold from 1e-11 to the precision limit are within 6e-6 of one
-  another, while from the same expected counts C's search stops 5e-7 to
-  2e-6 below the maximum of Q, with θ, t_max and λ 1e-5 to 7e-5 (relative)
-  from it. Without a pattern (one λ per interval) the capped M-steps had
-  let the fit drift away from C's in every interval.
+  reach (10 to 20 iterations with C psmc's patterns, up to about 70 with
+  one λ per interval). The 100-iteration M-steps stopped short of the
+  maximum of Q, and EM carried the shortfall through the rounds: on a
+  simulated 4 × 25 Mb bottleneck genome (`-N25 -t15 -r5 -p 4+25*2+4+6`)
+  the curve was 0.034 (RMSE of log10 Ne over the informative window) from
+  C psmc's, and is now 7.7e-5 from it, and 5e-7 from a fit whose M-steps
+  run to the precision limit. The M-steps no longer differ: C's
+  Hooke-Jeeves search, ported in place of the L-BFGS, gives a curve 7.5e-5
+  from C's. Nearly all the rest comes from C's expected counts, which leave
+  out each sequence's last bin: with that bin left out of psmc-rs's counts
+  too, the curve is 6.4e-6 from C's, and on the reference data rounds 2 to
+  5 agree with C's log-likelihoods to a relative 2.8e-9 instead of 7.3e-8.
+  Without a pattern (one λ per interval) the capped M-steps had let the fit
+  drift away from C's in every interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of
   `--bootstrap-block-size` bins (default 500,000 instead of 50,000) are
   drawn with replacement across the whole input, and each replicate is
@@ -132,24 +135,26 @@ Library API:
   `|s| |y|` (it was compared with 1e-12, a scale that changes with the
   input); and the line search backtracks by interpolation and, when it
   fails, restarts along the preconditioned gradient, instead of trying the
-  reverse direction and a coordinate search. Before it stops, the search
-  takes fresh curvatures: it moves each parameter along which the
-  objective does not curve upwards alone to the best of a ladder of moves,
-  and restarts with an empty memory when that or the diagonal Newton step
-  of the others promises more than the threshold (at most three times);
-  trial points keep each parameter within 1e-12 of its range from its
-  bounds, the margin of the start. Without that, weakly determined λ
-  carried past their optimum stopped M-steps short (the first λ of a
-  simulated genome at 7,387 with Q peaking at 23 along it, 3.1e-2 higher),
-  and saturated logit coordinates ran off to -57. The objective is infinite,
-  so the search never moves there, wherever the HMM computed in f64 is not
-  one: a probability negative or not a number, or a row of transition
-  probabilities whose sum differs from 1 by more than 1e-9 (or by more
-  than the start's own deviation, when that is larger). A small λ of an early interval
-  makes the survival underflow in the squares of C's formulas (below about
-  1e-154), where rows summed to up to 1.014 and Q exceeded its maximum Q0;
-  on a simulated genome fitted with one λ per interval an M-step moved
-  there, and the next E-step lowered the log-likelihood by 367.
+  reverse direction and a coordinate search.
+- Before an M-step stops, it takes fresh curvatures: it moves each
+  parameter along which the objective does not curve upwards alone to the
+  best of a ladder of moves, and restarts with an empty memory when that
+  or the diagonal Newton step of the others promises more than the
+  convergence threshold (at most three times). Trial points keep each
+  parameter within 1e-12 of its range from its bounds, the margin of the
+  start. Without that, weakly determined λ carried past their optimum
+  stopped M-steps short (the first λ of a simulated genome at 7,387 with Q
+  peaking at 23 along it, 3.1e-2 higher), and the logit coordinates of
+  parameters pushed against a bound ran off to -57.
+- The M-step's objective is infinite wherever the HMM computed in f64 is
+  not one, so that the search never moves there: a probability negative
+  or not a number, or a row of transition probabilities whose sum
+  differs from 1 by more than 1e-9 (or by more than the start's own
+  deviation, when that is larger). A small λ of an early interval makes the
+  survival underflow in the squares of C's formulas (below about 1e-154),
+  where rows summed to up to 1.014 and Q exceeded its maximum Q0; on a
+  simulated genome fitted with one λ per interval an M-step moved there,
+  and the next E-step lowered the log-likelihood by 367.
 - The last `opt::MStepProgress` event of each M-step reports the
   iterations it took as its `total` (earlier events report the cap,
   `max_iters`), and the M-step's progress bar ends there: converged
@@ -461,24 +466,28 @@ Reproduction package (`experiment/`):
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through
   every operation: an evaluation takes O(states²) time and O(states) memory
-  besides the expected counts, however many λ are free (about 25 µs
-  instead of 1.2 ms for `4+25*2+4+6`). With one λ per interval, one EM
-  iteration on the 180,000-bin test input with 401 intervals peaked at 248
-  MB instead of 1.36 GB (21 MB without the E-step's cache of forward rows)
-  and took 20 s instead of 63 s; with 201 intervals 7.6 MB and 0.8 s
-  instead of 159 MB and 6.3 s. The warning that such models' M-steps would
-  need gigabytes, given before the input was read, is gone.
+  besides the expected counts, however many λ are free (about 27 µs
+  instead of 1.0 ms for `4+25*2+4+6`). With one λ per interval, one EM
+  iteration on the 180,000-bin test input with 401 intervals peaked at 235
+  MB of resident memory instead of 1.30 GB (20 MB without the E-step's
+  cache of forward rows) and took 13.8 s instead of 36.7 s; with 201
+  intervals 9.0 MB and 0.71 s instead of 156 MB and 4.6 s (load averages
+  3 to 4). The warning that such models' M-steps would need gigabytes,
+  given before the input was read, is gone.
 - With that gradient and a curvature-scaled L-BFGS, the M-step converges
   (see *Changed*) in a small fraction of the E-step's time: with
-  `4+25*2+4+6` on one thread, 1.7 ms per EM iteration on a simulated
-  500 Mb sequence (E-step 3.5 s), where 100 forward-mode L-BFGS iterations
-  took 185 ms and 1000 took 1.98 s, and 2.7 ms on a simulated 4 × 25 Mb
-  genome (E-step 0.7 s), where they took 156 ms and 9.1 s (71 s in one
-  round). 25 EM iterations on the 4 × 25 Mb genome take 19.8 s, against
-  25.4 s with 100 forward-mode iterations and 243 s with 1000; on the
-  500 Mb sequence, where the E-step dominates, 85.3 s, against 85.6 s and
-  125.8 s. (Medians of three runs, interleaved, on a machine shared with
-  other jobs: load averages 14 to 79.)
+  `4+25*2+4+6` on one thread, 2.1 ms per EM iteration on a simulated
+  500 Mb sequence (E-step 2.3 s, so 0.09%), where 100 forward-mode L-BFGS
+  iterations took 123 ms and 1000 took 1.35 s, and 2.2 ms on a simulated
+  4 × 25 Mb genome (E-step 0.46 s), where 100 iterations took 122 ms. 25 EM
+  iterations on the 4 × 25 Mb genome take 11.9 s, against 14.7 s with 100
+  forward-mode iterations and 161 s with 1000; on the 500 Mb sequence,
+  where the E-step dominates, 58.6 s, against 61.5 s and 91.5 s. (Medians
+  of three runs, interleaved, at load averages of 3.1 to 7.4.) The M-step's
+  time grows with the free parameters times states²: with one λ per
+  interval on the 180,000-bin test input it took 13 to 18 ms with 101
+  intervals and 0.29 to 0.60 s with 301, against E-steps of 0.17 s and
+  4.9 s.
 - Callable masks are merged as they are read, so their memory follows the
   merged intervals instead of the rows (40 million adjacent per-site rows:
   646 MB to 3.9 MB).

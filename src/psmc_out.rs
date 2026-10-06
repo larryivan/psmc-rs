@@ -36,11 +36,15 @@
 //!
 //! Both M-steps run until their searches converge (ours caps them at
 //! [`MStepConfig::max_iters`](crate::opt::MStepConfig::max_iters) L-BFGS
-//! iterations, far above the 10 to 30 they take). On the reference data of
-//! `tests/psmc_out_c_reference.rs` the rounds then agree with C's to a
-//! relative 7.3e-8 in LK and 4.1e-4 in λ, with a pattern or with one λ per
-//! state. Ours evaluates its objective 20 to 250 times per round, C's 1,000
-//! to 7,000.
+//! iterations, far above the 10 to 20 they take with C psmc's patterns). On
+//! the reference data of `tests/psmc_out_c_reference.rs` the rounds then
+//! agree with C's to a relative 7.3e-8 in LK, with a pattern or with one λ
+//! per state; what is left comes from the expected counts (C leaves out the
+//! last bin of each sequence), not from the M-steps: with that bin left out
+//! of ours too, rounds 2 to 5 agree to 2.8e-9, and C's own Hooke-Jeeves
+//! search in place of ours changes that by less than 1e-9. Ours evaluates
+//! its objective 30 to 120 times per round with C psmc's patterns, C's
+//! 1,000 to 7,000.
 
 use anyhow::{Result, bail};
 use std::io::Write;

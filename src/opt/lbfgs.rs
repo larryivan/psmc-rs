@@ -14,8 +14,9 @@
 //! search reaches) and the others up to 1e-5 off. The inverse of the
 //! Hessian's diagonal, from forward differences of the gradient at the
 //! start (one evaluation per parameter), gives each direction a step of
-//! its own scale: the M-step then converges in 10 to 50 iterations, to
-//! about 1e-7 of the optimum.
+//! its own scale: the M-step then converges in 10 to 20 iterations with C
+//! psmc's patterns (up to about 70 with one λ per interval), to about 1e-7
+//! of the optimum.
 //!
 //! The search can also stop short of the maximum of Q where the L-BFGS
 //! memory, built from curvatures elsewhere, mispredicts what is left. A λ

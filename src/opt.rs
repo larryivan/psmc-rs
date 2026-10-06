@@ -38,8 +38,9 @@ pub struct Bounds {
 #[derive(Debug, Clone)]
 pub struct MStepConfig {
     /// The most L-BFGS iterations an M-step runs (default
-    /// [`DEFAULT_MSTEP_ITERS`]): a safety cap, far above the 10 to 50 that
-    /// converge an M-step.
+    /// [`DEFAULT_MSTEP_ITERS`]): a safety cap, far above the 10 to 20 that
+    /// converge an M-step with C psmc's patterns (up to about 70 with one λ
+    /// per interval).
     pub max_iters: usize,
     /// Curvature pairs the L-BFGS memory keeps (default 20).
     pub lbfgs_m: usize,
@@ -249,9 +250,10 @@ pub struct MStepOutcome {
     pub params: Vec<f64>,
     /// Evaluations of the objective (with its gradient): the one at
     /// `init_params`, one per parameter for the curvatures that scale the
-    /// search, and those of the line searches. C psmc prints its M-step's
-    /// count of objective evaluations on the `IT` line of its `.psmc`
-    /// output.
+    /// search, those of the line searches, and those of each check before
+    /// the search stops (one per parameter, and the moves of flat ones).
+    /// C psmc prints its M-step's count of objective evaluations on the `IT`
+    /// line of its `.psmc` output.
     pub evaluations: usize,
     /// L-BFGS iterations, each of which moved the parameters to a lower
     /// objective (at most [`MStepConfig::max_iters`]; 0 when the result is

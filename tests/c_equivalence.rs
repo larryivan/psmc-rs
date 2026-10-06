@@ -75,13 +75,14 @@ fn check(pattern: &str, c_file: &str) {
     );
     // Later rounds: measured within a relative 7.3e-8 (rounds 2 to 5; 6.8e-8
     // and 7.3e-8 at most for the two patterns), so 2e-7 leaves a margin of
-    // 2.7. The rest is C's: from the same E-step, C's Hooke-Jeeves M-step
-    // stops 1.6e-6 below the maximum of Q (4+25*2+4+6, rounds 2 and 5),
-    // with theta, t_max and lambda 5e-5 to 6e-5 (relative) from where this
-    // M-step converges, and C's E-step leaves out the last bin of each
-    // sequence (3 of 150,947 here, see psmc_rs::em::posterior_sigma); EM
-    // carries both into the next rounds. With the M-step capped at 100
-    // iterations, as psmc-rs's default was, 4+25*2+4+6 differed by 3.8e-7.
+    // 2.7. The rest is C's expected counts, which leave out the last bin of
+    // each sequence (3 of 150,947 here, see psmc_rs::em::posterior_sigma),
+    // and EM carries that into the next rounds: with those bins left out of
+    // psmc-rs's counts too, rounds 2 to 5 agree to 2.8e-9 and 8.1e-10, and a
+    // port of C's Hooke-Jeeves M-step in place of psmc-rs's L-BFGS gives
+    // 2.4e-9 and 1.3e-9 (6.9e-8 and 7.5e-8 with every bin), so the M-steps
+    // agree. With the M-step capped at 100 iterations, as psmc-rs 0.1's
+    // was, 4+25*2+4+6 differed by 3.8e-7.
     for (i, (r, c)) in rust_lk.iter().zip(&c_lk).enumerate().skip(1) {
         let rel = ((r - c) / c).abs();
         assert!(
