@@ -7,8 +7,9 @@ psmc-rs's default; blue); the same bins with every called bin taken as full
 C psmc do: the classic consensus FASTA -> fq2psmcfa route has the same bins
 (asserted bin for bin) and the same fit (asserted, every fitted value) and
 is not drawn separately; multihetsep (``psmc-rs convert --multihetsep``,
-read back with approximate callable bases; yellow) and the VCF read without
-its mask (pink). Masks: no missing data, and 10% or 30% of positions
+read back with its uncalled sites placed at the start of each interval and
+every called bin taken as full, ``--bin-callable auto``; yellow) and the
+VCF read without its mask (pink). Masks: no missing data, and 10% or 30% of positions
 uncallable in clustered (mean 20 kb) or dispersed (mean 20 bp) runs.
 
 fq2psmcfa's rule calls a bin missing only when more than 90% of its bases
@@ -17,8 +18,9 @@ only about (1 - f) of its bases. Taken as full, they make theta per bin,
 and every time and size with it, low by about (1 - f); weighed by their
 callable bases they do not. Clustered missing data empty whole bins, which
 both models drop. multihetsep does not say which sites of an interval are
-uncalled; psmc-rs places them at the start of each interval, which suits
-clustered missing data and not dispersed ones. Without its mask a VCF
+uncalled; psmc-rs places them at the start of each interval, which turns
+dispersed missing data into runs of N bins after heterozygous sites and
+biases theta low, less so with clustered missing data. Without its mask a VCF
 counts every uncallable site as homozygous.
 
 * a: theta per bin against the complete-data fit of the same genome, in

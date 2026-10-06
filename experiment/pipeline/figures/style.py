@@ -134,7 +134,7 @@ ROUTES: Dict[str, Entity] = {
     "mask_ignore": Entity("VCF + mask, every called bin full (= consensus → fq2psmcfa)", BLUE_650,
                           (0, (3.0, 1.5)), "D", filled=False),
     "fq2psmcfa": Entity("Consensus FASTA → fq2psmcfa", BLUE_650, DOT, "s", filled=False),
-    "multihetsep": Entity("multihetsep (approximate callable bases)", YELLOW, "-", "^"),
+    "multihetsep": Entity("multihetsep (uncalled sites placed)", YELLOW, "-", "^"),
     "nomask": Entity("VCF without its mask", MAGENTA, "-", "v"),
 }
 ROUTE_ORDER = ("mask_auto", "mask_ignore", "fq2psmcfa", "multihetsep", "nomask")

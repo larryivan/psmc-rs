@@ -549,7 +549,8 @@ class E4:
     default; docs/design/bin-callable-model.md) weighs each bin by the
     callable bases the VCF and its mask say it holds. E4 fits both models
     on the same bins, the classic fq2psmcfa route, multihetsep (whose
-    callable bases are approximate) and the VCF without its mask, each
+    callable bases are approximate, so that ``--bin-callable auto`` fits
+    its bins with C psmc's model) and the VCF without its mask, each
     against the truth and against the complete-data fit of the same genome.
     """
 
@@ -599,7 +600,9 @@ class E4:
 #                read back by psmc-rs with --bin-callable auto: multihetsep does
 #                not say which sites of an interval are uncalled, so the reader
 #                places them at its start, and the bins and their callable bases
-#                follow that placement (approximate counts); replicate 1 of
+#                follow that placement (approximate counts), which auto does not
+#                fit (it fits exact counts only): every called bin is taken as
+#                full, so the route measures the placement alone; replicate 1 of
 #                every mask is also checked row for row against msmc-tools'
 #                generate_multihetsep.py, run on each chromosome with its mask
 #   nomask       psmc-rs on the same VCF without --vcf-mask (variants only):
@@ -625,7 +628,9 @@ E4_CONTROL_MASK = "nomissing"  # the no-missing control: every site callable
 
 # psmc-rs --bin-callable of each E4 route, passed explicitly. auto is
 # psmc-rs's default; a psmcfa records no callable bases, so the fq2psmcfa
-# route fits C psmc's model with it (and ignore would only add a warning).
+# route fits C psmc's model with it (and ignore would only add a warning),
+# and auto fits exact counts only, so the multihetsep route, whose counts
+# are approximate, fits C psmc's model on its bins too (as ignore would).
 E4_BIN_CALLABLE: Dict[str, str] = {
     "mask_auto": "auto",
     "mask_ignore": "ignore",

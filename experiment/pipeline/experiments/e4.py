@@ -26,7 +26,11 @@ passed explicitly (``config.E4_BIN_CALLABLE``):
   on replicate 1). multihetsep records how many sites between two rows are
   callable, not which, so the reader places the uncalled ones at the start
   of each interval: as if missing data came in one run per interval, and
-  the bins and their callable bases follow that placement;
+  the bins and their callable bases follow that placement. ``auto`` fits
+  exact counts only, so every called bin of this route is taken as full
+  (C psmc's model): it measures the placement alone, and its summary rows
+  name the model fitted (``full-bins``) and the counts the input had
+  (``approximate``);
 * ``nomask``: psmc-rs on the VCF without the mask (variants only): every
   site counts as callable, so every bin is full.
 

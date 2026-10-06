@@ -355,7 +355,7 @@ the VCF with its mask (`psmc-rs convert`), which both mask routes fit:
 | `mask_auto` | the VCF with `--vcf-mask callable.bed.gz` (mask mode) | `auto` | callable-length, with the exact callable bases of each bin |
 | `mask_ignore` | the same | `ignore` | every called bin full: fq2psmcfa's and C psmc's |
 | `fq2psmcfa` | a consensus FASTA (homozygous: the base; heterozygous: the IUPAC code; uncallable: `N`; other sites: a seeded uniform ACGT base, stage `reference/<chrom>`) streamed into `fq2psmcfa -s 100 -`; the `bins` job fails unless its bins equal the exact bins, and the report fails unless its fit equals `mask_ignore`'s, every value of the JSON but those that describe the input (`input`, `qc`, `bin_callable`) | `auto` (a psmcfa records no callable bases) | every called bin full |
-| `multihetsep` | `psmc-rs convert --multihetsep` of the mask routes' input, read back by psmc-rs; for replicate 1 every mask's file is compared row for row with `generate_multihetsep.py --mask` run on each chromosome, and the job fails if they differ | `auto` | callable-length, with approximate callable bases: multihetsep says how many sites between two rows are callable, not which, and psmc-rs places the uncalled ones at the start of each interval, as if missing data came in one run per interval |
+| `multihetsep` | `psmc-rs convert --multihetsep` of the mask routes' input, read back by psmc-rs; for replicate 1 every mask's file is compared row for row with `generate_multihetsep.py --mask` run on each chromosome, and the job fails if they differ | `auto` | every called bin full: multihetsep says how many sites between two rows are callable, not which, and psmc-rs places the uncalled ones at the start of each interval, as if missing data came in one run per interval; the callable bases of its bins follow that placement (counts `approximate`), and `auto` fits exact counts only, so this route measures the placement alone (`experiment/validation/` also fits its counts, with `--bin-callable approximate`, which lowers theta further) |
 | `nomask` | the same VCF without the mask (variants only): uncallable sites count as called homozygous | `auto` | every bin full |
 
 On the control every bin is full, so the callable-length model is C
@@ -373,7 +373,8 @@ computes with the fit's settings, `--bin-callable` included:
 that are on average less than 95% callable (a note above), a note when the
 fit weighs them by their callable bases, and for psmcfa input, which cannot
 tell, a note counting the called bins next to missing runs; `APPROX_MISSING_PLACEMENT`
-marks multihetsep, `VARIANTS_ONLY_NO_MASK` the VCF without a mask.
+marks multihetsep, as a warning when more than 5% of its sites are
+uncalled, and `VARIANTS_ONLY_NO_MASK` the VCF without a mask.
 
 What to expect, from the simulations of `experiment/validation/` (3
 replicates of 200 Mb, masks of the same kinds, the same recipe): dispersed

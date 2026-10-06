@@ -73,9 +73,10 @@ so that it can be turned into the caption. Captions should also say:
   its fit equals the dark blue one, both asserted, so it is not drawn.
   Weighing each bin by its callable bases (`auto`, psmc-rs's default,
   blue) recovers the complete-data fit (grey in d-f). Clustered missing
-  data empty whole bins and change little; multihetsep (approximate
-  callable bases: the uncalled sites of an interval are placed at its
-  start) and a VCF without its mask are shown as they are. The complete-data
+  data empty whole bins and change little; multihetsep (the uncalled
+  sites of an interval are placed at its start, and every called bin is
+  taken as full: `auto` fits exact counts only) and a VCF without its mask
+  are shown as they are. The complete-data
   fit is the control's VCF + mask fit, identical under both models
   (asserted).
 - **Fig 6**: coverage over 10 genomes moves in steps of 10% (shaded:
