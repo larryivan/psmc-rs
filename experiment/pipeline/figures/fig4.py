@@ -4,16 +4,17 @@ Every run fits 25 EM iterations of the recipe to a constant-model genome of
 100 Mb chromosomes, alone on the machine (E3's clean runs only).
 
 * a: wall time against genome size: C psmc (one thread), psmc-rs 0.1 and
-  psmc-rs 0.2 on 1 and 8 threads (solid and dashed), and psmc-rs 0.2 with
-  its default M-step budget (dark blue). The y label gives the profile's EM
-  iterations (25 in production). Lines and markers are the medians
-  of the repeats, small dots each repeat.
+  psmc-rs 0.2 on 1 and 8 threads (solid and dashed), and, when E3 timed it
+  (``E3.default_mstep_iters``, not by default), psmc-rs 0.2 with capped
+  M-steps (dark blue). The y label gives the profile's EM iterations (25 in
+  production). Lines and markers are the medians of the repeats, small dots
+  each repeat.
 * b: peak resident memory of the tool's process tree, same runs.
 * c: speed-up over C psmc at each size, the ratio of the medians.
 
-Every psmc-rs 0.2 fit of the other experiments uses ``--mstep-iters 1000``
-(``config.Inference``): "psmc-rs 0.2" here is that setting, and "default
-M-step" is psmc-rs's own default, 100. A setup that was not run (its
+"psmc-rs 0.2" is the setting of every other experiment, ``--mstep-iters
+1000`` (``config.Inference``), its default: its M-steps converge, as C
+psmc's do, in a few ms per EM iteration. A setup that was not run (its
 estimated memory above the limit) is named in panel a with the reason
 Table 2 gives. Everything comes from ``E3_table2`` and ``E3_runs``.
 """
@@ -28,7 +29,7 @@ from .data import Source
 
 DASHED = (0, (3.0, 1.5))
 TOOL_ENTITY = {"c": style.C_PSMC, "rs01": style.RS01, "rs02": style.RS02,
-               "rs02-default": style.Entity("psmc-rs 0.2, default M-step", style.BLUE_650, "-", "^")}
+               "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}
 TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
 
 

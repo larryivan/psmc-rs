@@ -57,21 +57,20 @@ recipe: `psmc -N25 -t15 -r5 -p "4+25*2+4+6"`, which psmc-rs gets as
 --mstep-iters 1000 --bin-size 100`, plus `--threads` per job. Simulations
 are scaled with mu = 2.5e-8 and g = 25.
 
-**M-step budget.** C psmc's Hooke-Jeeves search runs every M-step to
-convergence; psmc-rs's L-BFGS stops after `--mstep-iters` iterations, 100 by
-default, and after 25 EM iterations the two can then sit at different points
-of a flat likelihood surface. On simulated bottleneck genomes the RMSE of
-log10 Ne between psmc-rs and C psmc on the informative window was 0.156
-(40 Mb) and 0.046 (300 Mb) with the default, 3.6e-3 and 3.2e-3 with 200,
-and 2.9e-4 and 5.3e-5 with 1000 (largest differences 1.6, 0.17 and 1e-3
-log10 units). Every psmc-rs 0.2 fit therefore uses 1000. E1 also fits every
-genome with the default (`fit-rs-default`, `E1_mstep.csv`) and E3 times
-psmc-rs 0.2 with the default too (`rs02-default`), so that the paper can say
-what the default costs in agreement and gains in speed. The price is an
-M-step on one thread whose length varies between genomes: on 300 Mb and one
-thread, 37.5 s with 100, 80 s with 300 and 248 s with 1000 L-BFGS
-iterations, against 471 s for C psmc; on 40 Mb, 7 s and 166 s. It dominates
-the cost of E2's and E5's bootstraps and limits psmc-rs's thread scaling.
+**M-step.** C psmc's Hooke-Jeeves search runs every M-step to
+convergence, and so does psmc-rs 0.2's L-BFGS: it stops by a convergence
+test, in 10 to 70 iterations and a few ms per EM iteration on one thread,
+and `--mstep-iters` (default 1000, passed explicitly) is only a cap. On a
+simulated 4 x 25 Mb bottleneck genome the RMSE of log10 Ne between psmc-rs
+and C psmc on the informative window is 7.7e-5, as small as with C psmc's
+own Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5). psmc-rs 0.1's
+L-BFGS stopped after 100 iterations, which left the two 0.03 to 0.16 apart;
+that is why the experiments pass the cap explicitly. Since psmc-rs's
+default M-step is the converged one, no experiment fits or times a separate
+default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are
+unset, and setting one of them to a cap adds a fit (`fit-rs-default`,
+`E1_mstep.csv`) or timed runs (`rs02-default`) with M-steps capped at that
+many iterations (the tiny profile does, at 5, to test them).
 
 **Simulation.** Direct msprime (no stdpopsim engine): `sim_ancestry` with
 the Hudson coalescent and a discrete genome for one diploid individual,
@@ -176,17 +175,17 @@ reported blocked.
 ## E1: simulated accuracy and equivalence
 
 4 models x 10 replicates of 500 Mb (10 chromosomes of 50 Mb). Per replicate:
-`sim` (simulation), `fit-c` (C psmc), `fit-rs` (psmc-rs 0.2, one thread,
-`--mstep-iters 1000`, also writing `--psmc-out`) and `fit-rs-default`
-(psmc-rs 0.2 with its default `--mstep-iters 100`) on the identical psmcfa;
-then `report` writes:
+`sim` (simulation), `fit-c` (C psmc) and `fit-rs` (psmc-rs 0.2, one thread,
+also writing `--psmc-out`) on the identical psmcfa (and `fit-rs-default`,
+psmc-rs with capped M-steps, when `E1.default_mstep_iters` sets a cap); then
+`report` writes:
 
 | table | contents |
 | --- | --- |
 | `E1_table1.csv` | Table 1, per model: RMSE of log10 Ne against the truth per tool (mean, SD; informative and fixed windows) and against the pattern-projected truth, the pattern's own error, RMSE between the tools (mean, max), largest relative difference in log-likelihood and theta |
 | `E1_replicates.csv` | per model, replicate and tool: theta, rho, t_max, N0, RMSE against the truth, log-likelihoods, wall time, peak RSS, load |
 | `E1_rs_vs_c.csv` | per model and replicate: RMSE and largest difference between the tools, relative differences of theta, rho, t_max and the log-likelihood |
-| `E1_mstep.csv` | per model and replicate: psmc-rs with its default M-step budget against C psmc, against psmc-rs with 1000 and against the truth, wall times |
+| `E1_mstep.csv` | per model and replicate (no rows without a capped fit): psmc-rs with capped M-steps against C psmc, against the main fit and against the truth, wall times |
 | `E1_traces.csv` | per iteration (Fig S1): log-likelihood, theta, rho, t_max for both tools |
 | `E1_curves.csv` | every fitted Ne(t) step curve (Fig 2) |
 | `E1_truth.csv` | the true Ne(t) of each model on a dense grid (Fig 2) |
@@ -199,11 +198,11 @@ the simulated genome (bins and heterozygous bins agree with the truth record).
 
 Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 `fits/<model>/` (`repNN.c.psmc`, `repNN.rs.json`, `repNN.rs.psmc`,
-`repNN.rs-default.json`), `provenance/`, `tables/`, `figures/` (committed),
+`repNN.rs-default.json` with a capped fit), `provenance/`, `tables/`, `figures/` (committed),
 `logs/` (not committed).
 
-**Cost** (`plan E1`): 161 jobs, about 13 CPU hours (C psmc 8.3, psmc-rs 4.4,
-simulations 0.6), about 1.9 hours alone on the default budget. C psmc holds
+**Cost** (`plan E1`): 121 jobs, about 10 CPU hours (C psmc 8.3, psmc-rs 1.0,
+simulations 0.6), about 1.4 hours alone on the default budget. C psmc holds
 one chromosome's forward-backward matrices at a time, about 0.6 GB per job.
 
 ## E2: real genomes
@@ -251,9 +250,9 @@ files are not committed), `qc/`, `provenance/`, `tables/`, `figures/`;
 `inputs/` (smoke and tiny profiles: the first bins of each genome) and
 `logs/` are not committed.
 
-**Cost** (`plan E2`): 18 jobs, about 63 CPU hours (the five bootstrap runs
-60, each on 7 threads, up to about 2.2 hours for a turtle; C psmc 2.5, up to
-49 minutes and 3.4 GB for HLhydTec1), about 9.5 hours alone.
+**Cost** (`plan E2`): 18 jobs, about 34 CPU hours (the five bootstrap runs
+31, each on 7 threads, up to about 1.4 hours for a turtle; C psmc 2.5, up to
+49 minutes and 3.4 GB for HLhydTec1), about 5.3 hours alone.
 
 ## E3: performance
 
@@ -263,8 +262,8 @@ chromosomes of 100 Mb; one simulation per size, the chromosomes shared
 between sizes), 25 EM iterations of the recipe, 3 repeats each: C psmc on
 its one thread; psmc-rs 0.1 (commit e50d69d, built out of the tree; it has
 no `--tr-ratio`, and its default start rho0 = theta0/5 is the recipe's
-`-r5`) and psmc-rs 0.2 on 1 and 8 threads; psmc-rs 0.2 with its default
-M-step budget (`rs02-default`) on 1 and 8 threads; and psmc-rs 0.2 on the
+`-r5`) and psmc-rs 0.2 on 1 and 8 threads (and psmc-rs 0.2 with capped
+M-steps, `rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2 on the
 3000 Mb genome with 1, 2, 4 and 8 threads (thread scaling). A setup whose
 estimated peak memory exceeds 12 GB is not run and Table 2 says why (none
 with 100 Mb chromosomes: C psmc holds about 1 GB).
@@ -295,10 +294,11 @@ Layout of `experiment/runs/E3/`: `sims/` (not committed), `truth/`,
 `fits/<tool>/<size>Mb/t<threads>/rep<r>.{psmc,json}`, `timings/...` (the
 timing records), `provenance/`, `tables/`, `figures/`.
 
-**Cost** (`plan E3`): 95 jobs; the 90 timing runs take about 14 hours of
+**Cost** (`plan E3`): 71 jobs; the 66 timing runs take about 11 hours of
 wall time one after another (C psmc about 1 hour each on 3000 Mb; psmc-rs
-0.2's M-step budget of 1000 adds up to about 200 s per run, 25 M-steps on
-one thread, whatever the size). They need the machine to themselves: close
+0.1's 1000 forward-mode L-BFGS iterations per M-step add about 200 s per
+run, 25 M-steps on one thread, whatever the size, where psmc-rs 0.2's
+converged M-steps take under a second). They need the machine to themselves: close
 other work, stay on AC power, and expect the runner to defer runs while the
 machine is busy (`status --jobs` says why).
 
@@ -359,8 +359,8 @@ Layout of `experiment/runs/E4/`: `sims/repNN/` (the genome, and per mask
 `consensus/`, `bins/`, `crosscheck/`, `fits/<mask>/<route>/`,
 `qc/<mask>/<route>/`, `provenance/`, `tables/`, `figures/` (committed).
 
-**Cost** (`plan E4`): 361 jobs, about 9 CPU hours (the 100 fits 8; the
-generate_multihetsep.py cross-checks 0.5), about 1.4 hours alone, at most
+**Cost** (`plan E4`): 361 jobs, about 4 CPU hours (the 100 fits 2.4; the
+generate_multihetsep.py cross-checks 0.5), about 0.5 hours alone, at most
 1.5 GB per job (the consensus FASTA streamed through fq2psmcfa).
 
 ## E5: bootstrap calibration
@@ -443,9 +443,9 @@ bootstrap run's main fit), `boot/trunk<B>/repNN/` (`replicate_NNN.json`,
 `summary.json`, `summary.tsv`; the replicates' `.psmc` files, 0.1 MB each, are
 not committed), `provenance/`, `tables/`, `figures/`, `logs/` (not committed).
 
-**Cost** (`plan E5`): 121 jobs, about 76 CPU hours (the 20 bootstrap runs,
-51 fits each on one thread, about 3.6 hours each with the M-step budget of
-1000), about 11 hours alone; at most 0.2 GB per job.
+**Cost** (`plan E5`): 121 jobs, about 16 CPU hours (the 20 bootstrap runs,
+51 fits each on one thread, about 45 minutes each), about 2.3 hours alone;
+at most 0.2 GB per job.
 
 ## E6: supplementary analyses
 
@@ -513,21 +513,22 @@ E3's exclusive runs wait until nothing else is left.
 
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | limits |
 | --- | --- | --- | --- | --- |
-| E1 | 161 | 13 | 1.9 | C psmc 12.5 min and 0.6 GB per fit |
-| E2 | 18 | 63 | 9.5 | bootstraps on 7 threads, up to 2.2 h each; C psmc up to 49 min and 3.4 GB |
-| E3 | 95 | 29 | 14 (exclusive) | needs the machine to itself; busy periods defer runs |
-| E4 | 361 | 9 | 1.4 | at most 1.5 GB per job |
-| E5 | 121 | 76 | 11 | 20 bootstrap runs of about 3.6 h on one thread |
-| E6 | 26 | 1 | 0.2 after E1 | S1-S3 wait for E1 |
+| E1 | 121 | 10 | 1.4 | C psmc 12.5 min and 0.6 GB per fit |
+| E2 | 18 | 34 | 5.3 | bootstraps on 7 threads, up to 1.4 h each; C psmc up to 49 min and 3.4 GB |
+| E3 | 71 | 21 | 11 (exclusive) | needs the machine to itself; busy periods defer runs |
+| E4 | 361 | 4 | 0.5 | at most 1.5 GB per job |
+| E5 | 121 | 16 | 2.3 | 20 bootstrap runs of about 45 min on one thread |
+| E6 | 26 | under 1 | 0.1 after E1 | S1-S3 wait for E1 |
 | FIG | 10 | under 0.1 | minutes | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
-on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load; the
-M-step term of psmc-rs (8 s per EM iteration at `--mstep-iters 1000`) is
-the largest measured, so E2, E4 and E5 may well finish sooner. E3 alone
-takes about 14 hours; E1, E2, E4, E5, E6 and FIG together about 23 hours on
-7 cores and 12 GB (E2's and E5's bootstraps dominate): about 37 hours in
-all, either way. Every job is resumable: `stop` (or a crash, or a reboot) and
+on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
+the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost a few
+ms per EM iteration (allowed 0.02 s), its E-steps the rest. E3 alone takes
+about 11 hours (psmc-rs 0.1's M-steps of 1000 forward-mode iterations and C
+psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 9 hours on 7
+cores and 12 GB (E2's bootstraps dominate): about 20 hours in all, either
+way. Every job is resumable: `stop` (or a crash, or a reboot) and
 `start` again rerun only what is not done, at most the jobs that were
 running.
 

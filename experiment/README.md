@@ -207,7 +207,7 @@ the comparison does not depend on its defaults:
 | free-parameter pattern (and so the 64 intervals) | `--pattern 4+25*2+4+6` | `-p 4+25*2+4+6` | `PATTERN` |
 | initial theta0/rho0 | `--tr-ratio 4` | `-r4` | `RHO_T_RATIO` |
 | smoothing penalty | `--smooth-lambda 0` | none | `SMOOTH_LAMBDA` |
-| M-step iteration cap | `--mstep-iters 100` | (Hooke-Jeeves to convergence) | `MSTEP_ITERS` |
+| M-step iteration cap | `--mstep-iters 1000` | (Hooke-Jeeves to convergence) | `MSTEP_ITERS` |
 | threads | `--threads 1` | 1 | `RUST_THREADS` |
 
 plus `--mu <mu> --no-progress` for psmc-rs (`--mu` only scales the curve),
@@ -217,10 +217,11 @@ VCF, `--vcf-mode mask`. The supplementary runner builds its commands from
 the same settings. Before the first run that is compared with C psmc, the
 scripts run the psmc-rs binary for zero iterations on a tiny synthetic input
 with these model options and stop with an explanation unless it starts from
-`theta0/RHO_T_RATIO`. `MSTEP_ITERS` stays at psmc-rs's default; C psmc's
-optimiser runs each M-step to convergence, which psmc-rs matches more
-closely with about 1000 (at ten times the M-step's small share of the run
-time).
+`theta0/RHO_T_RATIO`. `MSTEP_ITERS` stays at psmc-rs 0.2's default, 1000:
+like C psmc's optimiser, psmc-rs 0.2's runs each M-step to convergence (in
+10 to 70 iterations), and the cap is never reached. (psmc-rs 0.1 stopped
+after 100 iterations, which left its curves 0.03 to 0.16 in RMSE of log10
+Ne from C psmc's.)
 
 The scripts reuse an existing output only if it is a finished run of the
 current settings, and otherwise say why they run it again (for example

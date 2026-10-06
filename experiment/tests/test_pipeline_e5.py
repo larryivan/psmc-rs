@@ -109,7 +109,8 @@ class Jobs(unittest.TestCase):
         self.assertLessEqual(boot.mem_gb, 1.0)
         plan = runner.plan(runner.Graph(jobs, self.runs), config.Budget())
         self.assertGreater(plan["E5"]["cpu_hours"], 10.0)
-        self.assertLess(plan["E5"]["wall_hours_alone"], 14.0)  # the M-step budget of 1000 dominates
+        # The E-steps of the bootstrap fits; the converged M-steps take ms.
+        self.assertLess(plan["E5"]["wall_hours_alone"], 4.0)
 
 
 class TrunkCount(unittest.TestCase):

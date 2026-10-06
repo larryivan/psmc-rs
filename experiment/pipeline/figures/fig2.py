@@ -10,9 +10,10 @@
 * e-h: |log10(Ne_psmc-rs / Ne_C)| over time for every replicate (log scale;
   smaller values are drawn on the axis floor).
 * i: RMSE of log10 Ne on the informative window, per replicate: each tool
-  against the truth, psmc-rs against C psmc (with ``--mstep-iters 1000``,
-  as every fit; see ``config.Inference``), and psmc-rs with its default
-  M-step budget (100) against C psmc, with the means.
+  against the truth and psmc-rs against C psmc (psmc-rs's M-steps converge
+  as C psmc's do; see ``config.Inference``), with the means; and, when E1
+  fitted psmc-rs with capped M-steps too (``E1.default_mstep_iters``, not by
+  default), that fit against C psmc.
 """
 
 from __future__ import annotations
@@ -127,7 +128,7 @@ def draw(src: Source):
 
 
 def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
-    """RMSE of log10 Ne per replicate: C and psmc-rs against the truth, psmc-rs against C (and its default M-step)."""
+    """RMSE of log10 Ne per replicate: C and psmc-rs against the truth, psmc-rs against C (and a capped M-step fit)."""
     import numpy as np
 
     groups = [
@@ -139,7 +140,8 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
          lambda m: pairs[pairs.model == m]["rmse_log10_ne_rs_vs_c"]),
     ]
     if mstep is not None and len(mstep):
-        groups.append(("psmc-rs 0.2, default M-step (100), vs C psmc",
+        cap = int(mstep["mstep_iters_default"].iloc[0])
+        groups.append((f"psmc-rs 0.2, M-steps capped at {cap}, vs C psmc",
                        style.Entity("", style.BLUE_650, "-", "^", filled=False),
                        lambda m: mstep[mstep.model == m]["rmse_log10_ne_default_vs_c"]))
     width = 0.8 / len(groups)

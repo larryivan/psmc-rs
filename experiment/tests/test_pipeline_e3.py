@@ -84,8 +84,12 @@ class Plan(unittest.TestCase):
         c = setup_of(cfg, "c", 3000, 1).est_seconds
         self.assertGreater(c, 3000)
         one, eight = setup_of(cfg, "rs02", 3000, 1).est_seconds, setup_of(cfg, "rs02", 3000, 8).est_seconds
-        self.assertGreater(one / eight, 2)  # the M-step runs on one thread
-        self.assertLess(setup_of(cfg, "rs02-default", 3000, 8).est_seconds, eight)
+        self.assertGreater(one / eight, 4)  # 30 sequences in parallel; the M-step takes ms
+        # psmc-rs 0.1's M-step, 1000 forward-mode iterations, costs seconds per EM iteration.
+        self.assertGreater(setup_of(cfg, "rs01", 100, 1).est_seconds,
+                           setup_of(cfg, "rs02", 100, 1).est_seconds + 100)
+        capped = replace(cfg, default_mstep_iters=5)
+        self.assertLessEqual(setup_of(capped, "rs02-default", 3000, 8).est_seconds, eight)
         # one 100 Mb chromosome: no parallel speed-up
         self.assertAlmostEqual(setup_of(cfg, "rs02", 100, 1).est_seconds, setup_of(cfg, "rs02", 100, 8).est_seconds)
 
@@ -103,7 +107,9 @@ class Jobs(unittest.TestCase):
         jobs = self.jobs(config.PRODUCTION)
         cfg = config.PRODUCTION.e3
         runs = [j for j in jobs.values() if j.name.startswith("run/")]
-        self.assertEqual(len(runs), (22 + 4 * 2) * cfg.repeats)  # and psmc-rs 0.2's default M-step on 1 and 8 threads
+        # No run with capped M-steps: psmc-rs 0.2's default M-step converges.
+        self.assertEqual(len(runs), 22 * cfg.repeats)
+        self.assertFalse(any("rs02-default" in j.id for j in runs))
         self.assertEqual(len(jobs), len(runs) + 4 + 1)
         self.assertTrue(all(j.exclusive for j in runs))
         self.assertFalse(any(j.exclusive for j in jobs.values() if not j.name.startswith("run/")))
@@ -135,10 +141,11 @@ class Jobs(unittest.TestCase):
         self.assertEqual(rs02.settings["repeat"], 1)
         self.assertEqual(set(rs02.tools), {"psmc-rs-0.2", "timing"})
         self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "1000")
-        default = jobs["E3/run/rs02-default/3000Mb/t8/rep1"]
+        capped = replace(config.PRODUCTION, e3=replace(config.PRODUCTION.e3, default_mstep_iters=5))
+        default = self.jobs(capped)["E3/run/rs02-default/3000Mb/t8/rep1"]
         cmd = default.command[default.command.index("--") + 1 :]
-        self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "100")
-        self.assertEqual(default.settings["inference"]["mstep_iters"], 100)
+        self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "5")
+        self.assertEqual(default.settings["inference"]["mstep_iters"], 5)
 
     def test_simulation_jobs(self):
         jobs = self.jobs(config.PRODUCTION)

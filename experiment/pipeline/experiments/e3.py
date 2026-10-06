@@ -11,9 +11,10 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
 2. fits every size with every tool, ``repeats`` times, with the inference
    recipe (``psmc -N25 -t15 -r5 -p "4+25*2+4+6"``): C psmc on its one
    thread, psmc-rs 0.1 (commit e50d69d, built out of tree) and psmc-rs 0.2
-   at each of their thread counts, and psmc-rs 0.2 with its default M-step
-   budget (``rs02-default``, ``--mstep-iters 100``; every other run uses
-   the 1000 of every experiment); psmc-rs 0.2 also fits the 3000 Mb genome
+   at each of their thread counts (psmc-rs 0.2 also with its M-steps capped
+   at ``E3.default_mstep_iters`` iterations, ``rs02-default``, when that is
+   set; by default it is not, since psmc-rs 0.2's default M-step converges
+   like every other run's); psmc-rs 0.2 also fits the 3000 Mb genome
    on 1, 2, 4 and 8 threads (thread scaling). Each run is an exclusive job
    (nothing else runs, on this runner or any other: see the runner's
    machine lock) timed by ``e3_run measure`` (wall time, CPU time, peak RSS
@@ -91,7 +92,7 @@ from .e3_run import genome_for, measure_args
 NAME = "E3"
 TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
 TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2",
-               "rs02-default": "psmc-rs 0.2, default M-step budget"}
+               "rs02-default": "psmc-rs 0.2, capped M-step"}
 TOOL_NAMES = {"c": "c-psmc", "rs01": "psmc-rs-0.1", "rs02": "psmc-rs-0.2", "rs02-default": "psmc-rs-0.2"}  # tools.Tool.name
 RS02 = ("rs02", "rs02-default")
 TABLES = {
@@ -154,13 +155,13 @@ def setups(cfg: config.E3) -> List[Setup]:
     out |= {Setup("rs01", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs01_threads}
     out |= {Setup("rs02", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_threads}
     out |= {Setup("rs02", cfg.thread_scaling_size_mb, t) for t in cfg.thread_scaling_threads}
-    if cfg.default_mstep_iters != cfg.inference.mstep_iters:
+    if cfg.default_mstep_iters is not None and cfg.default_mstep_iters != cfg.inference.mstep_iters:
         out |= {Setup("rs02-default", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_default_threads}
     return sorted(out, key=lambda u: (TOOL_ORDER.index(u.tool), u.threads, u.size_mb))
 
 
 def inference_of(cfg: config.E3, tool: str) -> config.Inference:
-    """The inference settings a tool runs with: the experiments' recipe, or psmc-rs's default M-step budget."""
+    """The inference settings a tool runs with: the experiments' recipe, or the capped M-steps of ``rs02-default``."""
     return replace(cfg.inference, mstep_iters=cfg.default_mstep_iters) if tool == "rs02-default" else cfg.inference
 
 
@@ -207,7 +208,10 @@ def estimate_seconds(cfg: config.E3, setup: Setup) -> float:
         per = m.rs01_s_per_mb_iter if setup.tool == "rs01" else m.rs02_s_per_mb_iter
         speedup = 1.0 + (in_flight(cfg, setup.size_mb, setup.threads) - 1) * m.parallel_efficiency
         run = per * work / speedup
-        run += m.mstep_s_per_iter_1000 * cfg.inference.n_iter * inference_of(cfg, setup.tool).mstep_iters / 1000.0
+        if setup.tool == "rs01":
+            run += m.rs01_mstep_s_per_iter_1000 * cfg.inference.n_iter * cfg.inference.mstep_iters / 1000.0
+        else:
+            run += m.rs02_mstep_s_per_iter * cfg.inference.n_iter
         cached = rs01_caches(cfg, setup) if setup.tool == "rs01" else None
         if cached is not None:
             n = genome_for(cfg, setup.size_mb).n_chromosomes

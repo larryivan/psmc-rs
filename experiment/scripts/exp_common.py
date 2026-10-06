@@ -170,7 +170,9 @@ class MatchedSettings:
     depend on its defaults: the pattern (which also fixes the number of
     intervals, as in C psmc), ``t_max``, the initial ``theta0/rho0`` ratio
     (C's ``-r``, psmc-rs ``--tr-ratio``), no smoothing (C has none) and the
-    M-step iteration cap. psmc-rs runs single-threaded for a fair runtime
+    M-step iteration cap (psmc-rs 0.2's default, 1000, which its converged
+    M-steps stay far below, as C psmc's Hooke-Jeeves search runs each M-step
+    to convergence). psmc-rs runs single-threaded for a fair runtime
     comparison; ``batch_size`` (``--batch-size``) is passed only when set,
     since from psmc-rs 0.2 on it changes neither results nor memory.
     """
@@ -180,7 +182,7 @@ class MatchedSettings:
     pattern: str = "4+25*2+4+6"
     rho_t_ratio: int = 4
     smooth_lambda: float = 0.0
-    mstep_iters: int = 100
+    mstep_iters: int = 1000
     threads: int = 1
     batch_size: Optional[int] = None
 

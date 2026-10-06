@@ -47,11 +47,13 @@ class Jobs(unittest.TestCase):
         self.jobs = e1.jobs(fake_ctx(config.SMOKE, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
 
-    def test_one_simulation_and_three_fits_per_replicate(self):
+    def test_one_simulation_and_two_fits_per_replicate(self):
         cfg = config.SMOKE.e1
-        self.assertEqual(len(self.jobs), len(cfg.models) * cfg.replicates * 4 + 1)
-        default = self.by_id["E1/fit-rs-default/bottleneck/rep02"]
-        self.assertEqual(default.command[default.command.index("--mstep-iters") + 1], "100")
+        # psmc-rs 0.2's default M-step converges like the main fit's: no
+        # separate fit with the default.
+        self.assertIsNone(cfg.default_mstep_iters)
+        self.assertEqual(len(self.jobs), len(cfg.models) * cfg.replicates * 3 + 1)
+        self.assertFalse(any("fit-rs-default" in j.id for j in self.jobs))
         main = self.by_id["E1/fit-rs/bottleneck/rep02"]
         self.assertEqual(main.command[main.command.index("--mstep-iters") + 1], "1000")
         g = runner.Graph(self.jobs, self.runs)
@@ -59,6 +61,15 @@ class Jobs(unittest.TestCase):
         self.assertEqual(g.deps["E1/fit-rs/bottleneck/rep02"], ["E1/sim/bottleneck/rep02"])
         report = set(g.deps["E1/report"])
         self.assertEqual(report, {j.id for j in self.jobs if j.id.startswith(("E1/fit-", "E1/sim"))})
+
+    def test_a_cap_adds_a_fit_with_capped_m_steps(self):
+        profile = replace(config.SMOKE, e1=replace(config.SMOKE.e1, default_mstep_iters=5))
+        jobs = e1.jobs(fake_ctx(profile, self.runs))
+        cfg = profile.e1
+        self.assertEqual(len(jobs), len(cfg.models) * cfg.replicates * 4 + 1)
+        capped = {j.id: j for j in jobs}["E1/fit-rs-default/bottleneck/rep02"]
+        self.assertEqual(capped.command[capped.command.index("--mstep-iters") + 1], "5")
+        self.assertIn("capped at 5", capped.description)
 
     def test_fits_read_the_identical_psmcfa_with_identical_settings(self):
         c = self.by_id["E1/fit-c/constant/rep01"]
@@ -80,7 +91,7 @@ class Jobs(unittest.TestCase):
 
     def test_production_estimates(self):
         jobs = e1.jobs(fake_ctx(config.PRODUCTION, self.runs))
-        self.assertEqual(len(jobs), 4 * 10 * 4 + 1)
+        self.assertEqual(len(jobs), 4 * 10 * 3 + 1)  # sim, fit-c, fit-rs per replicate; the report
         c = next(j for j in jobs if j.id == "E1/fit-c/zigzag/rep10")
         self.assertLess(c.mem_gb, 1.0)  # one 50 Mb chromosome at a time
         plan = runner.plan(runner.Graph(jobs, self.runs), config.Budget())
@@ -121,7 +132,7 @@ class Tables(unittest.TestCase):
                 "input": {"bins": 150947, "het_bins": 7373},
             }
             lay.rs_json("bottleneck", r).write_text(json.dumps(params))
-            # psmc-rs's default M-step budget: 1.5 times the sizes of psmc-rs's fit
+            # psmc-rs with capped M-steps (TINY's cap, 5): 1.5 times the sizes of psmc-rs's fit
             default = dict(params, lam=[x * 1.5 for x in params["lam"]])
             lay.rs_default_json("bottleneck", r).write_text(json.dumps(default))
         self.written = e1.report(Context(self.profile, self.runs))
@@ -137,13 +148,13 @@ class Tables(unittest.TestCase):
         self.assertEqual(t1[0]["replicates"], "2")
         self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_max"]), math.log10(2), places=12)
 
-    def test_default_mstep_budget_against_c_psmc(self):
+    def test_capped_m_steps_against_c_psmc(self):
         rows = read_csv(self.lay.table("mstep"))
         self.assertEqual([r["replicate"] for r in rows], ["1", "2"])
         self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_c"]), math.log10(1.5), places=9)
         self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_rs"]), math.log10(1.5), places=9)
         self.assertEqual(float(rows[0]["theta_default_rel_c"]), 0.0)
-        self.assertEqual(rows[0]["mstep_iters_default"], "100")
+        self.assertEqual(rows[0]["mstep_iters_default"], "5")
         t1 = read_csv(self.lay.table("table1"))[0]
         self.assertGreater(float(t1["rmse_rs_default_vs_c_max"]), 0)
 

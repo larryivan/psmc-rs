@@ -3,10 +3,10 @@
 On the thread-scaling genome (3,000 Mb, 25 EM iterations, E3's clean runs):
 
 * a: wall time against threads: every repeat (dots) and the median (line),
-  with ideal scaling from one thread (dotted); psmc-rs 0.2 with its default
-  M-step budget (dark blue) at its thread counts for comparison. The M-step
-  runs on one thread, so the budget of 1000 L-BFGS iterations that matches
-  C psmc (``config.Inference``) limits the speed-up.
+  with ideal scaling from one thread (dotted); psmc-rs 0.2 with capped
+  M-steps (dark blue) at its thread counts when E3 timed it (not by
+  default). The M-step runs on one thread but converges in a few ms per EM
+  iteration, so the E-step's sequences set the speed-up.
 * b: parallel efficiency, speed-up / threads, of the medians.
 * c: peak memory of the process tree against threads.
 * d: determinism: for every tool and genome size, how many runs (thread
@@ -117,7 +117,7 @@ def determinism_panel(ax, det) -> None:
     y -= 0.1
     ax.plot([0.0, 1.0], [y + 0.015, y + 0.015], color=style.GRID, linewidth=style.LW_GRID, transform=ax.transAxes,
             clip_on=False)
-    labels = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, default M-step"}
+    labels = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
     for tool in [k for k in labels if k in set(det["tool"])]:
         sub = det[det.tool == tool]
         threads = sorted(int(x) for x in sub["threads"].unique())

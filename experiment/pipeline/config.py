@@ -41,20 +41,18 @@ class Inference:
     ``--mstep-iters 1000``.
 
     The M-step: C psmc's Hooke-Jeeves search runs each M-step to
-    convergence, psmc-rs's L-BFGS stops after ``--mstep-iters`` iterations
-    (default 100), so after 25 EM iterations the two can sit at different
-    points of a flat likelihood surface. Measured on simulated bottleneck
-    genomes (25 EM iterations, informative window), RMSE of log10 Ne
-    between psmc-rs and C psmc: 0.156 (40 Mb) and 0.046 (300 Mb) with 100
-    iterations, 3.6e-3 and 3.2e-3 with 200, 2.9e-4 and 5.3e-5 with 1000;
-    the largest difference 1.6, 0.17 and 1e-3 log10 units. Every psmc-rs
-    0.2 fit of every experiment therefore uses 1000, so that its results
-    are C psmc's; E1 also fits with psmc-rs's default
-    (:attr:`E1.default_mstep_iters`) and E3 times both, so the paper can
-    say what the default costs in agreement and gains in speed. The cost is
-    an M-step on one thread whose length varies between genomes: on 300 Mb,
-    one thread, 37.5 s with 100, 80 s with 300, 248 s with 1000 (C psmc
-    471 s); on 40 Mb, 7 s with 100 and 166 s with 1000.
+    convergence, and so does psmc-rs 0.2's L-BFGS: it stops by a
+    convergence test, and ``--mstep-iters`` (default 1000, passed
+    explicitly) is a cap that its M-steps stay far below (10 to 70
+    iterations, a few ms per EM iteration on one thread). On a simulated
+    4 x 25 Mb bottleneck genome the two tools' curves are 7.7e-5 apart
+    (RMSE of log10 Ne on the informative window), as close as C psmc's own
+    Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5). psmc-rs 0.1's
+    L-BFGS stopped after 100 iterations, which left the curves 0.03 to 0.16
+    apart. psmc-rs's default M-step is therefore the converged one, and no
+    experiment fits a separate default arm (:attr:`E1.default_mstep_iters`
+    and :attr:`E3.default_mstep_iters` are None); a cap set there fits or
+    times psmc-rs with M-steps capped at that many iterations too.
     """
 
     n_iter: int = 25  # EM iterations: C -N, psmc-rs N_ITER
@@ -62,7 +60,7 @@ class Inference:
     tr_ratio: float = 5.0  # initial theta0/rho0: C -r, --tr-ratio
     pattern: str = "4+25*2+4+6"  # free-parameter pattern (64 intervals, 28 free lambdas): C -p, --pattern
     smooth_lambda: float = 0.0  # psmc-rs --smooth-lambda; 0 is C psmc's objective
-    mstep_iters: int = 1000  # psmc-rs --mstep-iters (default 100; see above)
+    mstep_iters: int = 1000  # psmc-rs --mstep-iters: its default, a cap that converged M-steps stay below
     bin_size: int = 100  # bases per bin: fq2psmcfa -s, psmc-rs --bin-size
 
 
@@ -284,11 +282,12 @@ class E1:
     scaling: Scaling = SIMULATION_SCALING
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1  # psmc-rs --threads per fit; many fits run in parallel instead
-    # psmc-rs's default M-step budget, fitted too (job fit-rs-default,
-    # table E1_mstep.csv), so that the tables say what the default costs in
-    # agreement with C psmc (every other fit uses inference.mstep_iters).
-    # None: no such fit.
-    default_mstep_iters: Optional[int] = 100
+    # An M-step cap to fit every genome with as well (job fit-rs-default,
+    # table E1_mstep.csv), against C psmc and the main fit. None: no such
+    # fit. psmc-rs 0.2's default M-step runs to convergence like the main
+    # fit's (see Inference), so the default needs no fit of its own; a small
+    # cap (say 5) shows what an M-step stopped short of convergence does.
+    default_mstep_iters: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -472,10 +471,14 @@ class ResourceModel:
     rs01_uncached_extra: float = 0.5
     rs02_s_per_mb_iter: float = 0.006
     parallel_efficiency: float = 0.7
-    # psmc-rs's M-step runs on one thread and costs per EM iteration about
-    # this many seconds per 1000 L-BFGS iterations of its budget (8.4 s
-    # measured on 300 Mb; it varies between genomes from about 1 to 8 s).
-    mstep_s_per_iter_1000: float = 8.0
+    # psmc-rs 0.1's M-step runs on one thread for --mstep-iters forward-mode
+    # L-BFGS iterations and costs per EM iteration about this many seconds
+    # per 1000 of them (8.4 s measured on 300 Mb; it varies between genomes
+    # from about 1 to 8 s). psmc-rs 0.2's converges in a few ms per EM
+    # iteration whatever the size (with 64 states, measured on 100 and
+    # 500 Mb); rs02_mstep_s_per_iter is generous, and covers a capped arm.
+    rs01_mstep_s_per_iter_1000: float = 8.0
+    rs02_mstep_s_per_iter: float = 0.02
 
 
 @dataclass(frozen=True)
@@ -505,11 +508,12 @@ class E3:
     inference: Inference = INFERENCE
     rs01_threads: Tuple[int, ...] = (1, 8)
     rs02_threads: Tuple[int, ...] = (1, 8)
-    # psmc-rs 0.2 is also timed with its default M-step budget ("rs02-default"),
-    # at these thread counts; every other run uses inference.mstep_iters, the
-    # setting every other experiment fits with (see Inference).
+    # psmc-rs 0.2 timed with its M-steps capped at default_mstep_iters too
+    # ("rs02-default"), at these thread counts; None: no such runs. Every
+    # other run uses inference.mstep_iters, psmc-rs's default, whose M-steps
+    # converge (see Inference).
     rs02_default_threads: Tuple[int, ...] = (1, 8)
-    default_mstep_iters: int = 100
+    default_mstep_iters: Optional[int] = None
     thread_scaling_size_mb: int = 3000
     thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8)
     memory_limit_gb: float = 12.0  # skip any run whose estimated peak exceeds this (and say why)
@@ -842,12 +846,10 @@ class Costs:
     c_psmc_gb_per_mb_longest: float = 0.0105
     c_psmc_gb_base: float = 0.1
     # psmc-rs 0.2, one thread: 9.1 s and 11 MB for 50 Mb x 25 (63 s, 32 MB for
-    # 500 Mb) with --mstep-iters 100. Its M-step runs on one thread and costs
-    # per EM iteration about rs02_mstep_s_per_iter_1000 seconds per 1000
-    # L-BFGS iterations of its budget (8.4 s measured on 300 Mb; between about
-    # 1 and 8 s depending on the genome): 248 s for 300 Mb with 1000.
+    # 500 Mb). Its M-step runs on one thread and converges in a few ms per
+    # EM iteration whatever the size; rs02_mstep_s_per_iter is generous.
     rs02_s_per_mb_iter: float = 0.007
-    rs02_mstep_s_per_iter_1000: float = 8.0
+    rs02_mstep_s_per_iter: float = 0.02
     rs02_gb: float = 0.2
     # Tables and figures
     report_s: float = 30.0
@@ -856,7 +858,7 @@ class Costs:
     def rs02_seconds(self, mb: float, inference: Inference, threads: int = 1) -> float:
         """One psmc-rs 0.2 fit: E-steps over ``mb`` Mb on ``threads`` threads, M-steps on one."""
         e_step = self.rs02_s_per_mb_iter * mb * inference.n_iter / max(threads, 1)
-        return e_step + self.rs02_mstep_s_per_iter_1000 * inference.n_iter * inference.mstep_iters / 1000.0
+        return e_step + self.rs02_mstep_s_per_iter * inference.n_iter
 
 
 # ---------------------------------------------------------------------------
@@ -902,7 +904,7 @@ SMOKE = Profile(
     e2=E2(bootstrap_replicates=4, inference=_SMOKE_INFERENCE, rs_threads=2, max_bins=200_000,
           bootstrap_trunk_bins=20_000, fine_trunk_bins=5_000),
     e3=E3(genome_sizes_mb=(2, 4), chromosome_length=2_000_000, repeats=1, inference=_SMOKE_INFERENCE,
-          rs01_threads=(1, 2), rs02_threads=(1, 2), rs02_default_threads=(1, 2), thread_scaling_size_mb=4,
+          rs01_threads=(1, 2), rs02_threads=(1, 2), thread_scaling_size_mb=4,
           thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
     e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
     e5=replace(E5(), genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, truth_replicates=8, bootstrap_datasets=3,
@@ -910,10 +912,12 @@ SMOKE = Profile(
 )
 
 # tiny: for the unit tests (seconds per experiment), 2 EM iterations.
-# - E1: one replicate of one model, one chromosome of 300 kb.
+# - E1: one replicate of one model, one chromosome of 300 kb; a second
+#   psmc-rs fit with M-steps capped at 5 iterations exercises that arm.
 # - E2: the first 2 Mb of the human chromosome and of one turtle, 2
 #   bootstrap replicates on 500 kb trunks (and on 100 kb trunks).
-# - E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats.
+# - E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats, and
+#   psmc-rs 0.2 with M-steps capped at 5 iterations.
 # - E4: two chromosomes of 300 kb (the multihetsep cross-check runs per
 #   chromosome), the control and one mask of each structure, clustered runs
 #   shortened so that a chromosome holds several.
@@ -923,11 +927,13 @@ _TINY_GENOME = Genome(n_chromosomes=1, chromosome_length=300_000)
 _TINY_INFERENCE = replace(INFERENCE, n_iter=2)
 TINY = Profile(
     name="tiny",
-    e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=_TINY_INFERENCE),
+    e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=_TINY_INFERENCE,
+          default_mstep_iters=5),
     e2=E2(genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("Papuan", "HLhydTec1")), inference=_TINY_INFERENCE,
           bootstrap_replicates=2, bootstrap_trunk_bins=5_000, fine_trunk_bins=1_000, rs_threads=2, max_bins=20_000),
     e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=_TINY_INFERENCE,
-          rs01_threads=(1,), rs02_threads=(1, 2), rs02_default_threads=(1,), thread_scaling_size_mb=1,
+          rs01_threads=(1,), rs02_threads=(1, 2), rs02_default_threads=(1,), default_mstep_iters=5,
+          thread_scaling_size_mb=1,
           thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
     e4=replace(E4(), replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000), inference=_TINY_INFERENCE,
                masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0),

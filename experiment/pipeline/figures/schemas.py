@@ -92,7 +92,8 @@ _add("E1_rs_vs_c", "E1", "model and replicate", {
 _add("E1_mstep", "E1", "model and replicate", {
     "model": "demographic model",
     "replicate": "replicate",
-    "rmse_log10_ne_default_vs_c": "RMSE of log10 Ne between psmc-rs with its default M-step budget and C psmc",
+    "mstep_iters_default": "the M-step cap of the capped psmc-rs fit (E1.default_mstep_iters)",
+    "rmse_log10_ne_default_vs_c": "RMSE of log10 Ne between psmc-rs with capped M-steps and C psmc",
 })
 _add("E1_traces", "E1", "model, replicate, tool and EM iteration", {
     "model": "demographic model",

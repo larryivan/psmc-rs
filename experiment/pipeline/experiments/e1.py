@@ -9,7 +9,7 @@ identical settings), and finally writes the tables. Layout under
     truth/<model>/repNN.json                               seeds, counts, checksums, true Ne(t)
     fits/<model>/repNN.c.psmc                              C psmc, every round
     fits/<model>/repNN.rs.json, repNN.rs.psmc              psmc-rs 0.2 (JSON and .psmc)
-    fits/<model>/repNN.rs-default.json                     psmc-rs 0.2 with its default M-step budget
+    fits/<model>/repNN.rs-default.json                     psmc-rs 0.2 with capped M-steps (only with E1.default_mstep_iters)
     provenance/<job>.json                                  one record per job
     tables/E1_*.csv                                        written by ``report E1``
     logs/                                                  runner and job logs (not committed)
@@ -25,10 +25,12 @@ Tables (``tables/``):
   rho, t_max and N0, RMSE against the truth, log-likelihoods, and the run's
   wall time, peak RSS and load (recorded, not used for timing claims).
 * ``E1_rs_vs_c.csv``: one row per model and replicate: the two tools compared.
-* ``E1_mstep.csv``: one row per model and replicate: psmc-rs with its default
-  M-step budget (``--mstep-iters 100``, ``E1.default_mstep_iters``) against C
-  psmc and against psmc-rs with the budget of every other fit (1000; see
-  :class:`.config.Inference`), its RMSE against the truth and its wall time.
+* ``E1_mstep.csv`` (header only unless ``E1.default_mstep_iters`` sets a
+  cap; by default it does not, since psmc-rs 0.2's default M-step converges
+  like the main fit's, see :class:`.config.Inference`): one row per model
+  and replicate: psmc-rs with its M-steps capped at that many iterations
+  against C psmc and against the main fit (``--mstep-iters 1000``), its RMSE
+  against the truth and its wall time.
 
 **Pattern-projected truth.** The first free lambda of ``4+25*2+4+6`` spans
 intervals 0-3 (about 0-28 ky for the zigzag model, whose window starts at
@@ -122,7 +124,7 @@ def job_id(kind: str, model: str, r: int) -> str:
 
 
 def default_inference(cfg: config.E1) -> Optional[config.Inference]:
-    """The inference settings of the fit with psmc-rs's default M-step budget, or None when there is none."""
+    """The inference settings of the fit with capped M-steps (``E1.default_mstep_iters``), or None when there is none."""
     m = cfg.default_mstep_iters
     if m is None or m == cfg.inference.mstep_iters:
         return None
@@ -212,7 +214,7 @@ def jobs(ctx: Context) -> List[Job]:
                         est_seconds=costs.rs02_seconds(genome_mb, default, cfg.rs_threads),
                         settings={"inference": asdict(default), "scaling": scaling, "threads": cfg.rs_threads},
                         tools={rs_tool.name: rs_tool.identity},
-                        description=f"psmc-rs 0.2, default M-step budget, on {model} replicate {r}",
+                        description=f"psmc-rs 0.2, M-steps capped at {default.mstep_iters}, on {model} replicate {r}",
                     )
                 )
     report_inputs: List[Path] = []
@@ -281,12 +283,12 @@ class Replicate:
     fits: Dict[str, results.Fit]
     curves: Dict[str, results.Curve]
     runs: Dict[str, Dict]
-    default_params: Optional[Dict] = None  # psmc-rs with its default M-step budget
+    default_params: Optional[Dict] = None  # psmc-rs with capped M-steps
     default_curve: Optional[results.Curve] = None
 
 
 def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default: bool = True) -> Replicate:
-    """The fits of one genome, read back and checked; ``with_default``: also psmc-rs's default M-step fit."""
+    """The fits of one genome, read back and checked; ``with_default``: also psmc-rs's capped M-step fit."""
     truth = json.loads(lay.truth(model, r).read_text())
     c = results.parse_psmc(lay.c_psmc(model, r))
     rs = results.parse_psmc(lay.rs_psmc(model, r))
@@ -414,8 +416,18 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
     return rows
 
 
+# The columns of E1_mstep.csv, written also when there is no capped fit
+# (the default), so that the table keeps its header.
+MSTEP_FIELDS = (
+    "model", "replicate", "mstep_iters_default", "mstep_iters", "rmse_log10_ne_default_vs_c",
+    "max_abs_log10_ne_default_vs_c", "rmse_log10_ne_rs_vs_c", "rmse_log10_ne_default_vs_rs",
+    "rmse_log10_ne_default_vs_truth", "rmse_log10_ne_rs_vs_truth", "theta_default_rel_c",
+    "loglike_final_default", "loglike_final_rs", "wall_seconds_default", "wall_seconds_rs",
+)
+
+
 def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
-    """psmc-rs with its default M-step budget against C psmc and against psmc-rs with the experiments' budget."""
+    """psmc-rs with capped M-steps against C psmc and against the main psmc-rs fit."""
     import numpy as np
 
     g = cfg.scaling.gen_years
@@ -532,7 +544,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         table1.append(table1_row(model, window, reps_rows, pair_rows, mstep_rows))
     written = {}
     for key, rows in (("table1", table1), ("truth", truth_rows), ("seeds", seed_rows), *all_rows.items()):
-        write_csv(lay.table(key), rows)
+        write_csv(lay.table(key), rows, MSTEP_FIELDS if key == "mstep" else None)
         written[key] = lay.table(key)
     return written
 

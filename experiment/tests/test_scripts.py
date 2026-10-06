@@ -151,20 +151,21 @@ class SharedHelpers(unittest.TestCase):
         self.assertEqual(f"-t{rust[rust.index('--t-max') + 1]}", "-t15.0")
         self.assertIn("-t15.0", c)
         self.assertEqual(f"-r{rust[rust.index('--tr-ratio') + 1]}", "-r4")
-        self.assertEqual(rust[rust.index("--mstep-iters") + 1], "100")
+        # psmc-rs 0.2's default, a cap its converged M-steps stay below.
+        self.assertEqual(rust[rust.index("--mstep-iters") + 1], "1000")
         # The pattern sets the interval count, as in C psmc; batching changes nothing in 0.2.
         self.assertNotIn("--n-steps", rust)
         self.assertNotIn("--batch-size", rust)
 
     def test_matched_settings_from_the_environment(self):
-        env = {"PATTERN": "4+5*3+4", "RHO_T_RATIO": "5", "MSTEP_ITERS": "1000", "BATCH_SIZE": "300000", "N_ITER": "3"}
+        env = {"PATTERN": "4+5*3+4", "RHO_T_RATIO": "5", "MSTEP_ITERS": "50", "BATCH_SIZE": "300000", "N_ITER": "3"}
         with mock.patch.dict(os.environ, env):
             s = self.ec.MatchedSettings.from_env()
         rust = s.rust_cmd(Path("psmc-rs"), Path("in.psmcfa"), Path("out.json"), mu=2.5e-8, extra=["-q"])
         c = s.c_cmd(Path("psmc"), Path("in.psmcfa"), Path("out.psmc"))
         self.assertEqual(rust[rust.index("--pattern") + 1], "4+5*3+4")
         self.assertEqual(rust[rust.index("--tr-ratio") + 1], "5")
-        self.assertEqual(rust[rust.index("--mstep-iters") + 1], "1000")
+        self.assertEqual(rust[rust.index("--mstep-iters") + 1], "50")
         self.assertEqual(rust[rust.index("--batch-size") + 1], "300000")
         self.assertEqual(rust[-1], "-q")
         self.assertEqual(c[1:4], ["-N3", "-t15.0", "-r5"])
@@ -213,11 +214,11 @@ class SharedHelpers(unittest.TestCase):
             self.assertEqual(self.ec.c_psmc_stale(Path(tmp) / "none.psmc", settings), "does not exist")
 
     def test_psmc_rs_fit_args_leave_out_what_does_not_change_the_fit(self):
-        s = self.ec.MatchedSettings(threads=8, batch_size=1000)
+        s = self.ec.MatchedSettings(threads=8, batch_size=300000)
         cmd = s.rust_cmd(Path("/a/psmc-rs"), Path("/b/in.psmcfa"), Path("/c/out.json"), mu=1e-8, extra=["--bin-size", "50"])
         args = self.ec.psmc_rs_fit_args(cmd)
         self.assertEqual(args[0], "20")
-        for gone in ("--threads", "8", "--batch-size", "1000", "--no-progress", "/b/in.psmcfa", "/c/out.json"):
+        for gone in ("--threads", "8", "--batch-size", "300000", "--no-progress", "/b/in.psmcfa", "/c/out.json"):
             self.assertNotIn(gone, args)
         for kept in ("--pattern", "--t-max", "--tr-ratio", "--smooth-lambda", "--mstep-iters", "--mu", "--bin-size"):
             self.assertIn(kept, args)
@@ -235,12 +236,12 @@ class SharedHelpers(unittest.TestCase):
             self.assertIn("has no record of its settings (fit.settings.json)", self.ec.psmc_rs_stale(out, cmd))
             self.ec.record_psmc_rs_run(out, cmd)
             self.assertIsNone(self.ec.psmc_rs_stale(out, cmd))
-            other = self.ec.MatchedSettings(n_iter=3, t_max=20.0, mstep_iters=1000).rust_cmd(
+            other = self.ec.MatchedSettings(n_iter=3, t_max=20.0, mstep_iters=50).rust_cmd(
                 Path("psmc-rs"), Path("in"), out, mu=1e-8
             )
             self.assertEqual(
                 self.ec.psmc_rs_stale(out, other),
-                "was made with --t-max 15.0, --mstep-iters 100 (now --t-max 20.0, --mstep-iters 1000)",
+                "was made with --t-max 15.0, --mstep-iters 1000 (now --t-max 20.0, --mstep-iters 50)",
             )
             more = self.ec.MatchedSettings(n_iter=4).rust_cmd(Path("psmc-rs"), Path("in"), out, mu=1e-8)
             self.assertIn("finished 4-iteration", self.ec.psmc_rs_stale(out, more))
@@ -450,8 +451,8 @@ class InterruptedRuns(FakeToolsCase):
             ({"RUST_THREADS": "4", "BATCH_SIZE": "1000"}, 0, 0),  # results do not depend on these
             ({"T_MAX": "20"}, 1, 1),  # psmc-rs's JSON does not record its starting t_max
             ({"T_MAX": "20", "PATTERN": "4+5*3+4"}, 1, 1),
-            ({"T_MAX": "20", "PATTERN": "4+5*3+4", "MSTEP_ITERS": "1000"}, 1, 0),  # psmc-rs's alone
-            ({"T_MAX": "20", "PATTERN": "4+5*3+4", "MSTEP_ITERS": "1000", "N_ITER": "3"}, 1, 1),
+            ({"T_MAX": "20", "PATTERN": "4+5*3+4", "MSTEP_ITERS": "50"}, 1, 0),  # psmc-rs's alone
+            ({"T_MAX": "20", "PATTERN": "4+5*3+4", "MSTEP_ITERS": "50", "N_ITER": "3"}, 1, 1),
         ):
             before = (len(self.calls("psmc-rs", self.r_out.name)), len(self.calls("c", self.c_out.name)))
             with mock.patch.dict(os.environ, env):

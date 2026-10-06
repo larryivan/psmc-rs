@@ -112,7 +112,8 @@ python experiment/run.py                        # Table 1, all figures
 Both tools are run with matched settings: 20 EM iterations, `t_max = 15`,
 pattern `4+25*2+4+6`, initial theta/rho ratio 4, no psmc-rs smoothing, one
 psmc-rs thread. The scripts pass these to psmc-rs explicitly (`--pattern`,
-`--t-max`, `--tr-ratio`, `--smooth-lambda 0`, `--mstep-iters 100`), so they
+`--t-max`, `--tr-ratio`, `--smooth-lambda 0`, `--mstep-iters 1000`, its
+default cap, which its converged M-steps never reach), so they
 need psmc-rs 0.2; before the first run compared with C psmc they check that
 the binary starts from the same ratio and stop if it does not (a 0.1 build
 has no `--tr-ratio` and always started from `theta0/5`). Each script logs every command with its wall time and peak

@@ -41,9 +41,11 @@ appear as E2-E6 are added.
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
 so that it can be turned into the caption. Captions should also say:
 
-- **Every psmc-rs fit** uses `--mstep-iters 1000`, so that its M-step runs to
-  convergence as C psmc's does (`config.Inference`); "default M-step" is
-  psmc-rs's own default, 100 (Fig 2i, Fig 4, Fig S4).
+- **Every psmc-rs fit** uses its default M-step, which runs to convergence
+  as C psmc's does (`--mstep-iters 1000` is passed explicitly and is only
+  a cap; `config.Inference`). Fig 2i, Fig 4 and Fig S4 show a psmc-rs fit
+  with capped M-steps only when `E1.default_mstep_iters` or
+  `E3.default_mstep_iters` sets a cap, which production does not.
 - **Fig 2, 5, 6, S2**: times in years with mu 2.5e-8 and g 25; Ne in diploid
   individuals; grey shading marks times outside the model's informative
   window (1% to 99% quantiles of the true pairwise coalescence time), where
@@ -116,7 +118,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E1/tables/E1_table1.csv` | model | `model`, `window_lo_years`, `window_hi_years` |
 | `E1/tables/E1_replicates.csv` | model, replicate and tool | `model`, `replicate`, `tool`, `rmse_log10_ne_vs_truth` |
 | `E1/tables/E1_rs_vs_c.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_rs_vs_c`, `max_abs_log10_ne_diff` |
-| `E1/tables/E1_mstep.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_default_vs_c` |
+| `E1/tables/E1_mstep.csv` (no rows without a capped fit) | model and replicate | `model`, `replicate`, `mstep_iters_default`, `rmse_log10_ne_default_vs_c` |
 | `E1/tables/E1_traces.csv` | model, replicate, tool and EM iteration | `model`, `replicate`, `tool`, `iteration`, `loglike`, `theta`, `rho` |
 | `E2/tables/E2_curves.csv` | genome, tool and interval | `sample_id`, `tool`, `interval`, `years`, `ne` |
 | `E2/tables/E2_bands.csv` | genome, bootstrap trunk size and time of a dense log grid | `sample_id`, `trunk_bins`, `years`, `ne_band_lo`, `ne_band_hi` |
