@@ -576,8 +576,8 @@ class E4:
     # C psmc's model, every called bin taken as bin_size bases, so that the
     # exact and fq2psmcfa routes fit identically and the rescaled routes
     # correct that model; psmc-rs's default, auto, fits each bin of the VCF
-    # and multihetsep routes by its callable bases instead
-    # (docs/design/bin-callable-model.md).
+    # and multihetsep routes by its callable bases instead, which
+    # experiment/validation/bin_callable.py measures.
     bin_callable: str = "ignore"
 
 

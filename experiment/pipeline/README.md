@@ -329,14 +329,15 @@ theta per bin, N0 = theta / (4 mu s) and every time and size shrink by about
 (1 - f), as without the mask. E4 fits every route with `--bin-callable
 ignore` (`config.E4.bin_callable`), C psmc's model, under which the exact
 and fq2psmcfa routes fit identically; psmc-rs's default, `auto`, fits each
-bin of the VCF and multihetsep routes by its callable bases
-(`docs/design/bin-callable-model.md`). The routes whose input records the callable
-sites (`exact` and `multihetsep`, `config.E4.rescaled_routes`) are also
-reported rescaled (`exact_rescaled`, `multihetsep_rescaled`): s is the
-callable bases per called bin (`called_bases / (bins - missing_bins)` of
-their `psmc-rs qc` JSON), and times and sizes are multiplied by 100 / s. The
-`fq2psmcfa` and `nomask` routes cannot be rescaled, since their inputs do not
-know which sites were callable.
+bin of the VCF and multihetsep routes by its callable bases and removes
+that bias for the exact route, which `experiment/validation/` measures.
+The routes whose input records the callable sites (`exact` and
+`multihetsep`, `config.E4.rescaled_routes`) are also reported rescaled
+(`exact_rescaled`, `multihetsep_rescaled`): s is the callable bases per
+called bin (`called_bases / (bins - missing_bins)` of their `psmc-rs qc`
+JSON), and times and sizes are multiplied by 100 / s. The `fq2psmcfa` and
+`nomask` routes cannot be rescaled, since their inputs do not know which
+sites were callable.
 
 Jobs per replicate and mask: `mask` (BED, masked VCF, record), `consensus`
 (the fq2psmcfa route's psmcfa), `convert` (the exact route's bins and the
