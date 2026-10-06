@@ -50,10 +50,11 @@ class Plan(unittest.TestCase):
         keys = [u.key() for u in e3.setups(cfg)]
         self.assertEqual(len(keys), len(set(keys)))
         self.assertEqual(sum(k.startswith("c/") for k in keys), 4)
-        self.assertEqual(sum(k.startswith("rs01/") for k in keys), 8)
-        # rs02: 4 sizes x (1, 8) threads, plus 3000 Mb on 2 and 4 threads
-        self.assertEqual(sorted(u.threads for u in e3.setups(cfg) if u.tool == "rs02" and u.size_mb == 3000), [1, 2, 4, 8])
-        self.assertEqual(sum(k.startswith("rs02/") for k in keys), 10)
+        self.assertEqual(sum(k.startswith("rs01/") for k in keys), 12)
+        # rs02: 4 sizes x (1, 8, 30) threads, plus 3000 Mb on 2, 4 and 16 threads
+        self.assertEqual(sorted(u.threads for u in e3.setups(cfg) if u.tool == "rs02" and u.size_mb == 3000),
+                         [1, 2, 4, 8, 16, 30])
+        self.assertEqual(sum(k.startswith("rs02/") for k in keys), 15)
         self.assertEqual(e3.sizes(cfg), [100, 300, 1000, 3000])
 
     def test_memory_estimates_follow_each_tool(self):
@@ -63,13 +64,15 @@ class Plan(unittest.TestCase):
         self.assertAlmostEqual(c[0], (6.0 + 1005.0) / 1024, places=6)
         self.assertAlmostEqual(setup_of(cfg, "rs01", 1000, 1).est_gb * 1024, 5.0 + 9.5 + 8 * 248 + 496, places=6)
         self.assertAlmostEqual(setup_of(cfg, "rs01", 3000, 8).est_gb * 1024, 5.0 + 28.5 + 8 * 496, places=6)
+        self.assertAlmostEqual(setup_of(cfg, "rs01", 3000, 30).est_gb * 1024, 5.0 + 28.5 + 30 * 496, places=6)
         self.assertAlmostEqual(setup_of(cfg, "rs01", 100, 8).est_gb, setup_of(cfg, "rs01", 100, 1).est_gb)
         self.assertLess(setup_of(cfg, "rs02", 3000, 8).est_gb, 0.1)
-        self.assertTrue(all(p.skip is None for p in e3.plan(cfg)))
+        self.assertLess(setup_of(cfg, "rs02", 3000, 30).est_gb, 0.2)
+        self.assertTrue(all(p.skip is None for p in e3.plan(cfg)))  # the largest, rs01 on 30 threads, 14.6 GB
 
     def test_runs_over_the_memory_limit_are_skipped_and_say_why(self):
         cfg = replace(config.PRODUCTION.e3, genome_sizes_mb=(1500, 3000), chromosome_length=1_500_000_000,
-                      thread_scaling_size_mb=3000)
+                      thread_scaling_size_mb=3000, memory_limit_gb=12.0)
         plan = {p.setup: p for p in e3.plan(cfg)}
         c = plan[e3.Setup("c", 1500, 1)]
         self.assertIsNotNone(c.skip)
@@ -109,7 +112,7 @@ class Jobs(unittest.TestCase):
         cfg = config.PRODUCTION.e3
         runs = [j for j in jobs.values() if j.name.startswith("run/")]
         # No run with capped M-steps: psmc-rs 0.2's default M-step converges.
-        self.assertEqual(len(runs), 22 * cfg.repeats)
+        self.assertEqual(len(runs), 31 * cfg.repeats)
         self.assertFalse(any("rs02-default" in j.id for j in runs))
         self.assertEqual(len(jobs), len(runs) + 4 + 1)
         self.assertTrue(all(j.exclusive for j in runs))
@@ -134,7 +137,7 @@ class Jobs(unittest.TestCase):
                          ("--smooth-lambda", "0"), ("--mstep-iters", "1000"), ("--threads", "8")):
             self.assertEqual(cmd[cmd.index(opt) + 1], val)
         self.assertEqual(rs01.env, {"RAYON_NUM_THREADS": "8"})
-        self.assertEqual(rs01.cores, config.Budget().cores)
+        self.assertEqual(rs01.cores, min(8, e3.machine_cores()))
         rs02 = jobs["E3/run/rs02/3000Mb/t2/rep1"]
         cmd = rs02.command[rs02.command.index("--") + 1 :]
         self.assertEqual(cmd[cmd.index("--tr-ratio") + 1], "5")
@@ -147,6 +150,22 @@ class Jobs(unittest.TestCase):
         cmd = default.command[default.command.index("--") + 1 :]
         self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "5")
         self.assertEqual(default.settings["inference"]["mstep_iters"], 5)
+
+    def test_timing_jobs_get_their_threads_as_cores_up_to_the_machine(self):
+        self.assertEqual([e3.run_cores(t, 128) for t in (1, 8, 30)], [1, 8, 30])
+        self.assertEqual([e3.run_cores(t, 7) for t in (1, 8, 30)], [1, 7, 7])
+        self.assertGreaterEqual(e3.machine_cores(), 1)
+        for machine in (192, 40, 8):
+            with self.subTest(machine=machine), mock.patch.object(e3, "machine_cores", return_value=machine):
+                jobs = self.jobs(config.PRODUCTION)
+                big = jobs["E3/run/rs02/3000Mb/t30/rep5"]
+                self.assertEqual(big.cores, min(30, machine))  # not capped at the laptop's budget of 7
+                cmd = big.command[big.command.index("--") + 1 :]
+                self.assertEqual((cmd[cmd.index("--threads") + 1], big.env), ("30", {"RAYON_NUM_THREADS": "30"}))
+                # A runner given the machine's cores (and the memory of the largest run) can start every run.
+                budget = config.Budget(cores=machine, mem_gb=64.0)
+                runs = [j for j in jobs.values() if j.exclusive]
+                self.assertEqual([j.id for j in runs if runner.fits_budget(j, budget)], [])
 
     def test_the_report_reads_c_psmcs_build_record_when_there_is_one(self):
         c_dir = self.runs / "tools" / "psmc_c"

@@ -360,7 +360,11 @@ class E2:
     # no second bootstrap.
     fine_trunk_bins: Optional[int] = 50_000
     band: Tuple[float, float] = (0.025, 0.975)
-    rs_threads: int = 7  # the bootstrap fits replicates in parallel
+    # The bootstrap fits replicates in parallel, one per thread; its output
+    # does not depend on the threads (replicate i draws from
+    # replicate_rng(seed, i)). 50: the turtles' bootstraps were E2's critical
+    # path on 7 threads.
+    rs_threads: int = 50
     # Seeds: seed("E2", sample_id, 0, "bootstrap") for the default trunks,
     # seed("E2", sample_id, 0, "bootstrap/trunk<bins>") for the fine ones.
 
@@ -515,19 +519,22 @@ class E3:
     chromosome_length: int = 100_000_000  # sizes are made of 100 Mb chromosomes: 1, 3, 10 and 30
     simulation: Simulation = SIMULATION
     scaling: Scaling = SIMULATION_SCALING  # psmc-rs --mu and --gen-years: the scaling of its report only
-    repeats: int = 3
+    repeats: int = 5
     inference: Inference = INFERENCE
-    rs01_threads: Tuple[int, ...] = (1, 8)
-    rs02_threads: Tuple[int, ...] = (1, 8)
+    # Thread counts. psmc-rs works on one sequence per thread, so the 30
+    # chromosomes of the largest genome make 30 threads the most that can
+    # help; every run is exclusive, and gets as many cores as threads.
+    rs01_threads: Tuple[int, ...] = (1, 8, 30)
+    rs02_threads: Tuple[int, ...] = (1, 8, 30)
     # psmc-rs 0.2 timed with its M-steps capped at default_mstep_iters too
-    # ("rs02-default"), at these thread counts; None: no such runs. Every
-    # other run uses inference.mstep_iters, psmc-rs's default, whose M-steps
-    # converge (see Inference).
-    rs02_default_threads: Tuple[int, ...] = (1, 8)
+    # ("rs02-default"), at these thread counts (those of rs02_threads); None:
+    # no such runs. Every other run uses inference.mstep_iters, psmc-rs's
+    # default, whose M-steps converge (see Inference).
+    rs02_default_threads: Tuple[int, ...] = (1, 8, 30)
     default_mstep_iters: Optional[int] = None
     thread_scaling_size_mb: int = 3000
-    thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8)
-    memory_limit_gb: float = 12.0  # skip any run whose estimated peak exceeds this (and say why)
+    thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8, 16, 30)
+    memory_limit_gb: float = 64.0  # skip any run whose estimated peak exceeds this (and say why)
     rs01_commit: str = "e50d69d"
     # psmc-rs 0.1 has no --tr-ratio; its default start rho0 = theta0/5 is the
     # -r5 of the recipe, so it gets the other settings (pattern, t_max,

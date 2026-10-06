@@ -97,7 +97,12 @@ class Design(unittest.TestCase):
             self.assertTrue((paths.REAL_DATA / g.file).exists())
         self.assertEqual(p.e2.bootstrap_replicates, 100)
         self.assertEqual(p.e3.genome_sizes_mb, (100, 300, 1000, 3000))
-        self.assertEqual(p.e3.thread_scaling_threads, (1, 2, 4, 8))
+        self.assertEqual(p.e2.rs_threads, 50)
+        self.assertEqual(p.e3.thread_scaling_threads, (1, 2, 4, 8, 16, 30))
+        # 30 chromosomes of 100 Mb: psmc-rs, one sequence per thread, can use no more threads
+        self.assertEqual(max(p.e3.thread_scaling_threads), p.e3.thread_scaling_size_mb * 1_000_000 // p.e3.chromosome_length)
+        self.assertEqual((p.e3.rs01_threads, p.e3.rs02_threads, p.e3.rs02_default_threads), ((1, 8, 30),) * 3)
+        self.assertEqual((p.e3.repeats, p.e3.memory_limit_gb), (5, 64.0))
         self.assertEqual(p.e3.rs01_commit, "e50d69d")
         self.assertEqual(sorted((m.missing_fraction, m.structure) for m in p.e4.masks),
                          [(0.1, "clustered"), (0.1, "dispersed"), (0.3, "clustered"), (0.3, "dispersed")])

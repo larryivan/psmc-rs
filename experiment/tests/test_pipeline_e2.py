@@ -105,8 +105,9 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--bootstrap-seed") + 1], str(seed))
         self.assertEqual(cmd[cmd.index("--bootstrap") + 1], "100")
         self.assertEqual(cmd[cmd.index("--bootstrap-block-size") + 1], "500000")
-        self.assertEqual(cmd[cmd.index("--threads") + 1], "7")
-        self.assertEqual(boot.cores, 7)
+        self.assertEqual(cmd[cmd.index("--threads") + 1], "50")
+        self.assertEqual(boot.cores, 50)
+        self.assertEqual(boot.mem_gb, 10.0)  # one replicate per thread at once
         lay = e2.Layout(self.runs / "E2")
         # Replicates are not declared: psmc-rs may skip one, and the report reads those the summary names.
         self.assertEqual(boot.outputs, [lay.boot_main("Papuan", 500_000), lay.boot_summary("Papuan", 500_000),
@@ -128,7 +129,11 @@ class Jobs(unittest.TestCase):
         c = self.by_id["E2/fit-c/HLhydTec1"]  # longest sequence 3,152,835 bins
         self.assertAlmostEqual(c.mem_gb, 0.1 + 0.0105 * 315.2835, places=1)
         self.assertGreater(c.est_seconds, 30 * 60)
-        budget = config.Budget()
+        # The bootstraps' 50 threads need a cluster node (an EPYC 7702 node: 128 cores, 503 GB), not the
+        # laptop's default budget.
+        self.assertEqual(runner.fits_budget(self.by_id["E2/boot-rs/trunk500000/Papuan"], config.Budget()),
+                         "needs 50 cores, budget 7")
+        budget = config.Budget(cores=128, mem_gb=480.0)
         for j in self.jobs:
             self.assertIsNone(runner.fits_budget(j, budget), j.id)
         plan = runner.plan(runner.Graph(self.jobs, self.runs), budget)

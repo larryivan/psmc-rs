@@ -15,14 +15,17 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
    at ``E3.default_mstep_iters`` iterations, ``rs02-default``, when that is
    set; by default it is not, since psmc-rs 0.2's default M-step converges
    like every other run's); psmc-rs 0.2 also fits the 3000 Mb genome
-   on 1, 2, 4 and 8 threads (thread scaling). Each run is an exclusive job
-   (nothing else runs, on this runner or any other: see the runner's
-   machine lock) timed by ``e3_run measure`` (wall time, CPU time, peak RSS
-   of the tool's process tree, machine load before and after, CPU used by
-   other processes during the run, power source; see :mod:`.e3_run`). A run
-   that is not clean (the machine not quiet before it, more than
-   ``timing.max_other_cpu_share`` of the cores used by others during it, a
-   sleep, battery power) is not kept: the runner starts it again later.
+   on 1, 2, 4, 8, 16 and 30 threads (thread scaling; with one sequence per
+   thread, its 30 chromosomes are the most threads can use). Each run is an
+   exclusive job (nothing else runs, on this runner or any other: see the
+   runner's machine lock) with as many cores as threads, at most the
+   machine's (:func:`machine_cores`), timed by ``e3_run measure`` (wall
+   time, CPU time, peak RSS of the tool's process tree, machine load before
+   and after, CPU used by other processes during the run, power source; see
+   :mod:`.e3_run`). A run that is not clean (the machine not quiet before
+   it, more than ``timing.max_other_cpu_share`` of the cores or
+   ``timing.max_other_cores`` cores used by others during it, a sleep,
+   battery power) is not kept: the runner starts it again later.
    Jobs are ranked by repeat, so every setup's first repeat runs before any
    second one and drift over the night does not fall on one tool;
 3. writes the tables, from clean runs only.
@@ -31,8 +34,8 @@ A run whose estimated peak memory (:class:`.config.ResourceModel`) exceeds
 ``memory_limit_gb`` is not run; Table 2 lists it as skipped, with the
 estimate and the reason. With 100 Mb chromosomes no run is skipped: C psmc
 holds the forward-backward matrices of one sequence at a time (about 1 GB
-for 100 Mb), psmc-rs 0.1 at most about 4 GB (8 threads), psmc-rs 0.2 well
-under 0.1 GB.
+for 100 Mb), psmc-rs 0.1 at most about 15 GB (30 threads on 3000 Mb),
+psmc-rs 0.2 well under 1 GB.
 
 psmc-rs 0.1 has no ``--tr-ratio`` or ``--bin-size``: it gets the pattern,
 ``--n-steps``, ``--t-max``, ``--smooth-lambda 0``, ``--mstep-iters`` and the
@@ -80,6 +83,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import statistics
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -346,10 +350,28 @@ def measure_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run, tool_cm
     ]
 
 
+def machine_cores() -> int:
+    """The cores this process may run on: its CPU affinity (a SLURM allocation's) where there is one, else all."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
+
+
+def run_cores(threads: int, machine: int) -> int:
+    """The cores of a timing job: its threads, at most the machine's.
+
+    A timing job is exclusive: it runs alone, so it needs only fit the
+    machine, not a share of it. (The runner still blocks a job with more
+    cores than its ``--cores`` budget: start E3 with the machine's cores.)
+    """
+    return max(1, min(threads, machine))
+
+
 def jobs(ctx: Context) -> List[Job]:
     cfg = ctx.profile.e3
     costs = ctx.profile.costs
-    budget = config.Budget()
+    cores = machine_cores()
     lay = Layout(ctx.exp_dir(NAME))
     out: List[Job] = []
     sim_identity = {
@@ -400,9 +422,7 @@ def jobs(ctx: Context) -> List[Job]:
                 command=measure_command(ctx, cfg, lay, run, cmd),
                 inputs=[lay.psmcfa(u.size_mb)],
                 outputs=[lay.fit(run), lay.timing(run)],
-                # Exclusive jobs run alone whatever their cores; capping them at
-                # the default budget keeps 8-thread runs startable.
-                cores=min(u.threads, budget.cores),
+                cores=run_cores(u.threads, cores),
                 mem_gb=round(max(est.est_gb, 0.05) + 0.005, 2),
                 exclusive=True,
                 est_seconds=est.est_seconds,
