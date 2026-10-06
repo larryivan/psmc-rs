@@ -8,7 +8,7 @@ pub mod psmcfa;
 pub mod vcf;
 pub mod write;
 
-pub use callable::{CallableBases, MAX_BIN_SIZE};
+pub use callable::{BinCounts, CallableBases, MAX_COUNTED_BIN_SIZE};
 
 /// Binned input as the HMM reads it: rows of bins, `0` (`T`), `1` (`K`) or
 /// `2` (`N`), chained into sequences by `row_starts` (`true` for the first
@@ -18,9 +18,10 @@ pub struct Observations {
     pub rows: Vec<Vec<u8>>,
     pub row_starts: Vec<bool>,
     /// The callable bases of each bin, row for row, when the input records
-    /// them (VCF and multihetsep); `None` when every called bin is taken to
-    /// hold the bin size in callable bases, as in C psmc (psmcfa input). See
-    /// [`callable`] and [`Observations::validate`].
+    /// them (VCF and multihetsep binned into bins of at most
+    /// [`MAX_COUNTED_BIN_SIZE`] bases); `None` when every called bin is taken
+    /// to hold the bin size in callable bases, as in C psmc (psmcfa input).
+    /// See [`callable`] and [`Observations::validate`].
     pub callable: Option<CallableBases>,
 }
 

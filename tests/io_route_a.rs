@@ -216,7 +216,7 @@ fn fq2psmcfa_base(base: u8, qual: u8, min_qual: u64) -> Option<bool> {
 /// `fq2psmcfa -s s`'s bins of one sequence of bases read by
 /// [`fq2psmcfa_base`], and each bin's callable bases: `s` minus its missing
 /// bases (a last bin shorter than `s` is judged against the full `s`).
-fn bin_bases(bases: &[Option<bool>], s: usize) -> (Vec<u8>, Vec<u32>) {
+fn bin_bases(bases: &[Option<bool>], s: usize) -> (Vec<u8>, Vec<u16>) {
     bases
         .chunks(s)
         .map(|block| {
@@ -226,7 +226,7 @@ fn bin_bases(bases: &[Option<bool>], s: usize) -> (Vec<u8>, Vec<u32>) {
             } else {
                 u8::from(block.contains(&Some(true)))
             };
-            (symbol, u32::try_from(s - missing).unwrap())
+            (symbol, u16::try_from(s - missing).unwrap())
         })
         .unzip()
 }
@@ -264,7 +264,7 @@ fn consensus_mode_counts_the_good_bases_of_vcf2fq_output() {
                 .collect();
             let (want_bins, want_counts) = bin_bases(&bases, s);
             assert_eq!(**bins, want_bins, "{ctx}: bins");
-            assert_eq!(**counts, want_counts, "{ctx}: callable bases");
+            assert_eq!(counts.to_vec(), want_counts, "{ctx}: callable bases");
             let good = bases.iter().filter(|b| b.is_some()).count() as u64;
             assert_eq!(info.called, Some(good), "{ctx}");
             // Where fq2psmcfa kept the sequence, the bins counted from the

@@ -84,6 +84,7 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::em::{EmHistory, EmOptions, em_train_with_options};
 use crate::hmm::Cancelled;
+use crate::io::callable::join_counts;
 use crate::io::common::chunk_sequences;
 use crate::io::{CallableBases, Observations, Sequences};
 use crate::model::{
@@ -243,18 +244,26 @@ pub fn split_sequences_for_bootstrap(seqs: &Sequences, trunk_size: usize) -> Seq
     debug_assert!(seqs.validate().is_ok(), "invalid bootstrap input");
     Sequences {
         bins: split_trunks(&seqs.bins, trunk_size),
-        callable: seqs
-            .callable
-            .as_ref()
-            .map(|c| c.with_counts(split_trunks(c.counts(), trunk_size))),
+        callable: seqs.callable.as_ref().map(|c| split_counts(c, trunk_size)),
     }
 }
 
-/// The trunks of [`split_for_bootstrap`], of bins or of their counts.
-fn split_trunks<T: Clone>(seqs: &[Vec<T>], trunk_size: usize) -> Vec<Vec<T>> {
+/// The trunks of [`split_for_bootstrap`].
+fn split_trunks(seqs: &[Vec<u8>], trunk_size: usize) -> Vec<Vec<u8>> {
     seqs.iter()
         .flat_map(|seq| trunk_ranges(seq.len(), trunk_size).map(|r| seq[r].to_vec()))
         .collect()
+}
+
+/// The callable bases of the trunks of [`split_for_bootstrap`], cut from
+/// those of the sequences.
+fn split_counts(callable: &CallableBases, trunk_size: usize) -> CallableBases {
+    let trunks = callable
+        .rows()
+        .iter()
+        .flat_map(|seq| trunk_ranges(seq.len(), trunk_size).map(|r| seq.slice(r)))
+        .collect();
+    callable.with_rows(trunks)
 }
 
 /// Bin ranges of the trunks [`split_for_bootstrap`] cuts a sequence of `len`
@@ -366,19 +375,18 @@ pub fn resample_chunks(chunks: &[Vec<u8>], rng: &mut impl Rng) -> Vec<Vec<u8>> {
 /// trunks are drawn from the same random numbers, each with its counts.
 pub fn resample_sequences(trunks: &Sequences, rng: &mut impl Rng) -> Sequences {
     let drawn = draw_trunks(&trunks.bins, rng);
-    let pick = |seqs: &[Vec<_>]| drawn.iter().map(|&i| seqs[i].clone()).collect();
     Sequences {
         bins: drawn.iter().map(|&i| trunks.bins[i].clone()).collect(),
-        callable: trunks
-            .callable
-            .as_ref()
-            .map(|c| c.with_counts(pick(c.counts()))),
+        callable: trunks.callable.as_ref().map(|c| {
+            let rows = c.rows();
+            c.with_rows(drawn.iter().map(|&i| rows[i].clone()).collect())
+        }),
     }
 }
 
 /// The indices of the trunks one `psmc_resamp` draws from `chunks`
 /// ([`resample_chunk_indices`]).
-fn draw_trunks<T>(chunks: &[Vec<T>], rng: &mut impl Rng) -> Vec<usize> {
+fn draw_trunks(chunks: &[Vec<u8>], rng: &mut impl Rng) -> Vec<usize> {
     let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
     resample_chunk_indices(&lengths, |n| uniform_index(rng, n))
 }
@@ -386,23 +394,31 @@ fn draw_trunks<T>(chunks: &[Vec<T>], rng: &mut impl Rng) -> Vec<usize> {
 /// Join HMM rows back into whole sequences (`row_starts` marks the rows
 /// that start one). Errors on empty or inconsistent input.
 pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Vec<u8>>> {
-    join_rows(rows, row_starts)
+    Ok(checked_sequence_rows(rows, row_starts)?
+        .into_iter()
+        .map(|r| rows[r].concat())
+        .collect())
 }
 
 /// The whole sequences of `obs`, joined as [`rows_to_sequences`] joins
 /// them, with the callable bases of their bins joined the same way.
 pub fn observations_to_sequences(obs: &Observations) -> Result<Sequences> {
     obs.validate()?;
-    let bins = join_rows(&obs.rows, &obs.row_starts)?;
-    let callable = match &obs.callable {
-        Some(c) => Some(c.with_counts(join_rows(c.counts(), &obs.row_starts)?)),
-        None => None,
-    };
+    let seqs = checked_sequence_rows(&obs.rows, &obs.row_starts)?;
+    let bins = seqs.iter().map(|r| obs.rows[r.clone()].concat()).collect();
+    let callable = obs.callable.as_ref().map(|c| {
+        let rows = seqs
+            .iter()
+            .map(|r| join_counts(c.rows(), r.clone()).into_owned())
+            .collect();
+        c.with_rows(rows)
+    });
     Ok(Sequences { bins, callable })
 }
 
-/// [`rows_to_sequences`] for rows of bins or of their counts.
-fn join_rows<T: Clone>(rows: &[Vec<T>], row_starts: &[bool]) -> Result<Vec<Vec<T>>> {
+/// The rows of each sequence that [`rows_to_sequences`] joins, as ranges
+/// of row indices. Errors on empty or inconsistent input.
+fn checked_sequence_rows(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Range<usize>>> {
     if rows.is_empty() {
         bail!("cannot build sequences from empty rows");
     }
@@ -417,24 +433,19 @@ fn join_rows<T: Clone>(rows: &[Vec<T>], row_starts: &[bool]) -> Result<Vec<Vec<T
         bail!("row_starts[0] must be true");
     }
 
-    let mut seqs = Vec::<Vec<T>>::new();
-    let mut current = Vec::<T>::new();
+    let mut seqs = Vec::<Range<usize>>::new();
     for (i, row) in rows.iter().enumerate() {
         if row.is_empty() {
             bail!("row {i} is empty");
         }
         if row_starts[i] {
-            if !current.is_empty() {
-                seqs.push(current);
-                current = Vec::new();
+            seqs.push(i..i + 1);
+        } else {
+            match seqs.last_mut() {
+                Some(seq) => seq.end = i + 1,
+                None => bail!("row {i} continues a sequence but no previous sequence exists"),
             }
-        } else if current.is_empty() {
-            bail!("row {i} continues a sequence but no previous sequence exists");
         }
-        current.extend_from_slice(row);
-    }
-    if !current.is_empty() {
-        seqs.push(current);
     }
     if seqs.is_empty() {
         bail!("no sequences reconstructed from rows");
@@ -878,7 +889,7 @@ fn run_replicates(
     }
     let chunks = Sequences {
         bins: split_for_bootstrap(seqs, cfg.trunk_size),
-        callable: callable.map(|c| c.with_counts(split_trunks(c.counts(), cfg.trunk_size))),
+        callable: callable.map(|c| split_counts(c, cfg.trunk_size)),
     };
     if let Some(dir) = &cfg.out_dir {
         fs::create_dir_all(dir)

@@ -59,12 +59,11 @@ use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
-use crate::io::callable::check_bin_size;
 use crate::io::common::{
     Binner, DepthCounter, DepthStats, HetCall, HetTracker, chunk_sequences, open_reader,
 };
 use crate::io::consensus::utf8_chrom;
-use crate::io::{CallableBases, Observations, Sequences};
+use crate::io::{BinCounts, CallableBases, Observations, Sequences};
 
 pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
 
@@ -536,8 +535,7 @@ fn resolve_sample_index(header_fields: &[&str], sample_name: Option<&str>) -> Re
 /// Options for [`read_vcf_with`].
 #[derive(Debug, Clone)]
 pub struct VcfOptions {
-    /// Number of bases per output bin (`fq2psmcfa -s`), between 1 and
-    /// [`MAX_BIN_SIZE`](crate::io::MAX_BIN_SIZE).
+    /// Number of bases per output bin (`fq2psmcfa -s`).
     pub bin_size: usize,
     /// Split each sequence into HMM rows of at most this many bins.
     pub batch_size: Option<usize>,
@@ -1258,8 +1256,9 @@ pub(crate) struct VcfSeq {
     pub name: String,
     pub bins: Vec<u8>,
     /// The callable bases of each bin: the bin size minus the bin's
-    /// positions classified missing ([`crate::io::callable`]).
-    pub callable: Vec<u32>,
+    /// positions classified missing ([`crate::io::callable`]); `None` for
+    /// bins too large to count.
+    pub callable: Option<BinCounts>,
     /// Positions `1..=extent` make up the sequence.
     pub extent: u64,
     /// Positions classified as called (heterozygous or homozygous).
@@ -1310,12 +1309,13 @@ fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
 /// one POS are combined), and each chromosome must form one contiguous block,
 /// as in any `bcftools sort`ed or indexed VCF. POS, and the `##contig` lengths
 /// that are used, must not exceed 2^36, and chromosome names must be valid
-/// UTF-8, as VCF requires. The bin size must be between 1 and
-/// [`MAX_BIN_SIZE`](crate::io::MAX_BIN_SIZE).
+/// UTF-8, as VCF requires.
 ///
 /// The observations carry the callable bases of each bin
 /// ([`Observations::callable`]): the bin size minus the bin's positions
-/// classified missing.
+/// classified missing. Bins of more than
+/// [`MAX_COUNTED_BIN_SIZE`](crate::io::MAX_COUNTED_BIN_SIZE) bases have
+/// none.
 pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     let (seqs, mut summary) = read_vcf_seqs(path, opts, false)?;
     if summary.het_snps == 0 {
@@ -1323,10 +1323,10 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     }
     summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
     summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
-    let (bins, counts) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
+    let (bins, counts): (_, Vec<_>) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
     let seqs = Sequences {
         bins,
-        callable: Some(CallableBases::new(opts.bin_size, counts)?),
+        callable: CallableBases::of_binned(opts.bin_size, counts),
     };
     let obs = chunk_sequences(
         seqs,
@@ -1368,7 +1368,9 @@ pub(crate) fn read_vcf_seqs(
     opts: &VcfOptions,
     collect_het: bool,
 ) -> Result<(Vec<VcfSeq>, VcfSummary)> {
-    check_bin_size(opts.bin_size, "vcf")?;
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
     read_vcf_seqs_from(open_reader(path)?, path, opts, collect_het)
 }
 
@@ -1379,7 +1381,9 @@ pub(crate) fn read_vcf_seqs_from(
     opts: &VcfOptions,
     collect_het: bool,
 ) -> Result<(Vec<VcfSeq>, VcfSummary)> {
-    check_bin_size(opts.bin_size, "vcf")?;
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
     let masks = MaskEngine::new(&opts.masks, &opts.negative_masks)?;
     let mut summary = VcfSummary {
         positive_mask: masks.has_positive(),

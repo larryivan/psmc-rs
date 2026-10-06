@@ -149,12 +149,12 @@ fn fq2psmcfa(states: &[State], block_len: usize) -> Vec<u8> {
 /// block length minus the block's missing positions. A last block shorter
 /// than `block_len` is judged against the full length, so the positions past
 /// the end of the sequence count as callable.
-fn callable_counts(states: &[State], block_len: usize) -> Vec<u32> {
+fn callable_counts(states: &[State], block_len: usize) -> Vec<u16> {
     states
         .chunks(block_len)
         .map(|block| {
             let missing = block.iter().filter(|&&s| s == State::Missing).count();
-            u32::try_from(block_len - missing).unwrap()
+            u16::try_from(block_len - missing).unwrap()
         })
         .collect()
 }
@@ -410,17 +410,18 @@ fn check_callable(
         .as_ref()
         .unwrap_or_else(|| panic!("{ctx}: no callable bases"));
     assert_eq!(callable.bin_size(), bin_size, "{ctx}");
-    let whole: Vec<Vec<u32>> = states
+    let whole: Vec<Vec<u16>> = states
         .iter()
         .map(|st| callable_counts(&st[1..], bin_size))
         .collect();
     let mut want = Vec::new();
     for counts in &whole {
         let b = batch_size.unwrap_or(counts.len());
-        want.extend(counts.chunks(b).map(<[u32]>::to_vec));
+        want.extend(counts.chunks(b).map(<[u16]>::to_vec));
     }
-    if callable.counts() != want.as_slice() {
-        let (got, want) = (callable.counts().concat(), want.concat());
+    let got = callable.to_counts();
+    if got != want {
+        let (got, want) = (got.concat(), want.concat());
         let first = got.iter().zip(&want).position(|(a, b)| a != b);
         panic!(
             "{ctx}: callable bases differ from the reference, first at bin {first:?} \

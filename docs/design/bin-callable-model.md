@@ -108,33 +108,103 @@ pub struct Observations {
 }
 
 pub struct CallableBases {            // in src/io/callable.rs
-    bin_size: u32,                    // s
-    counts: Vec<Vec<u32>>,            // counts[i][j]: c of bin j of row i
+    bin_size: u16,                    // s
+    rows: Vec<BinCounts>,             // the counts of the bins of each row
 }
 ```
 
 `callable: None` means that every called bin holds `s` callable bases: the
 input does not know better (psmcfa), and the model is C's. `Some` holds one
-count per bin, row for row. The counts live outside the rows so that the
-E-step's hot loop over symbols is untouched when there are none, and so
-that a run without counts costs no memory.
+`BinCounts` per row, which gives one count per bin (`BinCounts::iter`). The
+counts live outside the rows so that the E-step's hot loop over symbols is
+untouched when there are none, and so that a run without counts costs no
+memory.
 
-The counts are `u32`, so `s` is at most 4,294,967,295 (`io::MAX_BIN_SIZE`)
-for the input psmc-rs bins itself (VCF and multihetsep); the readers refuse
-a larger bin size. `u16` would have halved the memory of the counts but
-capped `s` at 65,535, below bin sizes the readers accept and the tests use
-(a bin of 2^30 bases bins a 2^36-base contig quickly). PSMC bins are
-normally 100 bases, where `u32` costs 4 bytes per bin next to the 1 byte of
-the symbol: about 120 MB for a 3 Gb genome, small next to the E-step's
-buffers. psmcfa input has no counts, and its `--bin-size` (used only for
-scaling) stays unbounded.
+Counts are `u16`, so they are recorded for bins of at most 65,535 bases
+(`io::MAX_COUNTED_BIN_SIZE`). The readers accept any bin size, as before
+stage 1, and bin larger bins without counts (`callable: None`, as for
+psmcfa input). PSMC bins are normally 100 bases; a bin of 65,536 bases
+holds dozens of heterozygous sites at human diversity, far outside the
+model, so no use of the counts is lost.
+
+**Storage.** Every copy of the data the CLI holds carries the counts of
+its bins: `Dataset::obs`, and with a bootstrap also the joined sequences
+(`boot_seqs` in `src/bin/psmc/run.rs`, built before the main fit), the
+trunks and the resampled data of each replicate being fitted. One count
+per bin would add 2 bytes (`u16`) or 4 (`u32`) per bin to each copy, next
+to its 1-byte symbol, whether the counts carry information or not. A first
+draft did so with `u32`, and the E-step's own buffers are no larger (one
+alpha row per 128 bins of the sequence being processed,
+`hmm::CHECKPOINT_STRIDE`: 1.4 to 4 bytes per bin for 23 to 64 states), so
+the counts dominated. A `BinCounts` keeps its counts in the smaller of two
+forms instead:
+
+- runs: the bins whose count is not `s`, as runs of consecutive bins with
+  the same count (start, length and count: 10 bytes per run). Full bins
+  cost nothing, so complete data take no memory, and a stretch of missing
+  data takes at most three runs whatever its length: a partly called bin
+  at each end and the empty bins (count 0) between them;
+- dense: one count per bin, 1 byte when every count fits in a byte (always
+  for `s <= 255`, so for the usual 100) and 2 bytes otherwise. It is the
+  smaller when there are more runs than a tenth of the bins (a fifth with
+  2-byte counts), as when missing data come in stretches a few bins long
+  or shorter.
+
+So the counts never take more than 2 bytes per bin, nor more than the
+symbols themselves for `s <= 255`. The form is chosen whenever counts are
+built, cut or joined, and the builder behind the binner switches from runs
+to one count per bin as soon as the runs would be larger, so that it never
+holds much more than its result.
+
+Peak resident memory (median of three runs) of `psmc-rs infer IN OUT 1
+--vcf-mode mask --bin-size 100 --threads 3 --pattern 4+5*3+4`, alone (fit)
+and with `--bootstrap 3 --bootstrap-iters 1` (fit + bootstrap): before
+stage 1 (bf12203), with the first draft's `u32` per bin (2101d69) and with
+the storage above. All three write the same JSON and bootstrap files byte
+for byte.
+
+Peak MB, fit / fit + bootstrap:
+
+| input (mask-mode VCF, bins of 100) | bins | counts kept as | before stage 1 | `u32` per bin | stage 1 |
+| --- | ---: | --- | ---: | ---: | ---: |
+| complete: 1 Gb, no mask | 10 M | nothing | 32 / 86 | 75 / 298 | 32 / 87 |
+| masked: 1 Gb, a mask with 407,594 gaps of 205 bp on average (8.4% missing, 12% of the bins not full) | 10 M | 1 byte per bin (10 MB) | 47 / 100 | 88 / 312 | 59 / 160 |
+| clustered: 200 Mb, gaps of 20 kb (30% missing) | 2 M | 9,113 runs (0.09 MB) | 10 / 24 | 21 / 74 | 11 / 26 |
+| dispersed: 200 Mb, gaps of 20 bp (30% missing) | 2 M | 1 byte per bin (2 MB) | 109 / 121 | 119 / 169 | 113 / 134 |
+
+(The dispersed input's 3 million mask intervals dominate its memory.)
+
+On complete data and on missing data in long stretches the counts cost
+nothing. The masked input is the realistic case: a mask with many short
+gaps leaves an eighth of the bins partly called or empty, in about as many
+runs as such bins, so runs (10.3 MB) and one byte per bin (10.0 MB) cost
+about the same, and the counts double each copy of the data. That is the
+cost of the information itself kept beside the symbols. Stage 2, which
+rewrites the E-step to read the counts, could remove it by coding each
+bin's symbol and count in its one byte: for `s = 100` there are 192 valid
+pairs (`T` or `K` with 10 to 100 callable bases, `N` with 0 to 9), up to
+`s = 134` they fit in a byte (`2s - ceil(s / 10) + 2` pairs), and an
+emission table indexed by that byte keeps the inner loop a lookup. As that changes `Observations::rows`
+itself, it is left to stage 2.
+
+The bootstrap's joined sequences are built before the main fit, to count
+the trunks and find the replicates whose fresh start is invalid, and kept
+until the bootstrap, as before stage 1. Building them only when the
+bootstrap starts would not lower the peak, which comes during the
+bootstrap, when the input, the joined sequences, the trunks and the
+replicates are all held: on the masked input the fit alone peaks at
+59 MB, the joined sequences add one copy of the bins and counts (20 MB) to
+the main fit, and the run with the bootstrap peaks at 160 MB. Freeing the joined sequences once the trunks are
+cut would save one copy there, for every input; it is independent of the
+counts and left out.
 
 `Observations::validate` checks every invariant in one place:
 
 - `row_starts` has one entry per row, and the first is `true`;
-- `counts` has one row per row of bins, of the same length;
-- `1 <= bin_size <= MAX_BIN_SIZE` (checked when the counts are made) and
-  every `c <= bin_size`;
+- the counts have one `BinCounts` per row, for bins of `s` bases, with one
+  count per bin;
+- `1 <= s <= MAX_COUNTED_BIN_SIZE` (checked when the counts are made) and
+  every `c <= s`;
 - every symbol is 0, 1 or 2, and agrees with its count: `N` exactly when
   `10 * c < s`.
 
@@ -148,8 +218,9 @@ with it.
 
 All readers bin through `io::common::Binner`, which counts each bin's
 missing positions as it emits the bin; `Binner::finish_with_callable`
-returns the counts with the symbols. The bins themselves, and so every
-psmcfa and multihetsep file psmc-rs writes, are unchanged byte for byte.
+returns the counts with the symbols, for bins of at most 65,535 bases. The
+bins themselves, and so every psmcfa and multihetsep file psmc-rs writes,
+are unchanged byte for byte.
 
 | input | counts |
 | --- | --- |
@@ -183,12 +254,13 @@ the same per-bin emissions with any `--batch-size`, as it sees the same
 symbols now.
 
 **Loaded data.** `io::input::load` fills `Dataset::obs.callable` for VCF
-(both modes) and multihetsep input, and leaves it `None` for psmcfa. It is
-`Some` also when every sequence was dropped (with no rows), so that it says
-whether the input format reports counts. `Dataset::sequence_callable`
-joins the counts of each kept sequence as `Dataset::sequences` joins its
-bins. Per sequence, the counts sum to the called positions (`SeqInfo::called`)
-plus the padding of the last bin (`s * n_bins - extent`).
+(both modes) and multihetsep input binned into bins of at most 65,535
+bases, and leaves it `None` for psmcfa and larger bins. It is `Some` also
+when every sequence was dropped (with no rows), so that it says whether the
+input reports counts. `Dataset::sequence_callable` joins the counts of
+each kept sequence as `Dataset::sequences` joins its bins. Per sequence,
+the counts sum to the called positions (`SeqInfo::called`) plus the
+padding of the last bin (`s * n_bins - extent`).
 
 **Bootstrap.** C psmc's bootstrap cuts the input into trunks
 (`utils/splitfa`) and draws trunks with replacement (`psmc_resamp`).
@@ -263,8 +335,9 @@ on callability. The run's JSON records which mode was used.
 --bin-callable auto|ignore    default auto
 ```
 
-- `auto`: use the counts when the input has them (VCF and multihetsep),
-  and C's model otherwise (psmcfa);
+- `auto`: use the counts when the input has them (VCF and multihetsep
+  binned into bins of at most 65,535 bases), and C's model otherwise
+  (psmcfa, and larger bins, for which the run should say so);
 - `ignore`: drop the counts (`callable = None`) and reproduce
   `fq2psmcfa` and C psmc exactly, bias included.
 
@@ -287,6 +360,12 @@ Stage 1 (in the test suite):
 - multihetsep counts against the placement rule;
 - batching, bootstrap trunks and resampling carry the counts with the same
   slices, and every invariant violation is caught;
+- the storage: counts read back exactly whether built at once or bin by
+  bin, cut and joined, always in the smaller form, never above 2 bytes per
+  bin (1 for `s <= 255`) and nothing for full bins (`src/io/callable.rs`),
+  and the loader's counts of complete, gapped and dispersed masks take the
+  memory the forms promise (`tests/io_callable_readers.rs`);
+- bins too large to count load as before, without counts;
 - every existing test, golden file and writer output unchanged.
 
 Stage 2:

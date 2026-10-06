@@ -9,7 +9,8 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
 
-use crate::io::{CallableBases, MAX_BIN_SIZE, Observations, Sequences};
+use crate::io::callable::{CountsBuilder, counted_bin_size};
+use crate::io::{BinCounts, CallableBases, Observations, Sequences};
 
 /// Open a text input for line-oriented reading.
 ///
@@ -174,14 +175,18 @@ impl<R: Read> Read for BgzfReader<R> {
 /// As in `fq2psmcfa`, a trailing partial bin is judged against the full bin size.
 ///
 /// It also counts the callable bases of each bin
-/// ([`Binner::finish_with_callable`]): the bin size minus the bin's missing
-/// sites, so that the sites past the end of a trailing partial bin count as
-/// callable, as the rule above treats them (see [`crate::io::callable`]).
+/// ([`Binner::finish_with_callable`]) when the bin size is at most
+/// [`MAX_COUNTED_BIN_SIZE`](crate::io::MAX_COUNTED_BIN_SIZE): the bin size
+/// minus the bin's missing sites, so that the sites past the end of a
+/// trailing partial bin count as callable, as the rule above treats them
+/// (see [`crate::io::callable`]).
 #[derive(Debug, Clone)]
 pub struct Binner {
     bin_size: usize,
     seq: Vec<u8>,
-    callable: Vec<u32>,
+    /// The callable bases of the bins emitted, when bins of this size are
+    /// counted.
+    callable: Option<CountsBuilder>,
     len: usize,
     n_missing: usize,
     has_het: bool,
@@ -192,18 +197,13 @@ impl Binner {
     ///
     /// # Panics
     ///
-    /// If `bin_size` is 0 or above [`MAX_BIN_SIZE`], whose callable bases
-    /// would not fit in 32 bits.
+    /// If `bin_size` is 0.
     pub fn new(bin_size: usize) -> Self {
         assert!(bin_size > 0, "bin_size must be > 0");
-        assert!(
-            bin_size <= MAX_BIN_SIZE,
-            "bin_size must be at most {MAX_BIN_SIZE}"
-        );
         Self {
             bin_size,
             seq: Vec::new(),
-            callable: Vec::new(),
+            callable: counted_bin_size(bin_size).map(CountsBuilder::new),
             len: 0,
             n_missing: 0,
             has_het: false,
@@ -234,9 +234,11 @@ impl Binner {
             0
         };
         self.seq.push(sym);
-        let callable =
-            u32::try_from(self.bin_size - self.n_missing).expect("the bin size fits in 32 bits");
-        self.callable.push(callable);
+        if let Some(callable) = &mut self.callable {
+            let c = u16::try_from(self.bin_size - self.n_missing)
+                .expect("counted bins have at most 65535 bases");
+            callable.push(c);
+        }
         self.len = 0;
         self.n_missing = 0;
         self.has_het = false;
@@ -282,15 +284,17 @@ impl Binner {
         self.finish_with_callable().0
     }
 
-    /// [`Binner::finish`], also returning the callable bases of each bin:
-    /// the bin size minus the bin's missing sites.
-    pub fn finish_with_callable(&mut self) -> (Vec<u8>, Vec<u32>) {
+    /// [`Binner::finish`], also returning the callable bases of each bin
+    /// (the bin size minus the bin's missing sites) when the bin size is at
+    /// most [`MAX_COUNTED_BIN_SIZE`](crate::io::MAX_COUNTED_BIN_SIZE), and
+    /// `None` for larger bins.
+    pub fn finish_with_callable(&mut self) -> (Vec<u8>, Option<BinCounts>) {
         if self.len > 0 {
             self.emit();
         }
         (
             std::mem::take(&mut self.seq),
-            std::mem::take(&mut self.callable),
+            self.callable.as_mut().map(CountsBuilder::finish),
         )
     }
 }
@@ -458,7 +462,7 @@ pub fn chunk_sequences(
     seqs.validate()?;
     let Sequences { bins, callable } = seqs;
     let bin_size = callable.as_ref().map(CallableBases::bin_size);
-    let mut counts = callable.map(|c| c.into_counts().into_iter());
+    let mut counts = callable.map(|c| c.into_rows().into_iter());
     let mut rows = Vec::new();
     let mut row_starts = Vec::new();
     let mut count_rows = Vec::new();
@@ -479,7 +483,12 @@ pub fn chunk_sequences(
                     row_starts.push(i == 0);
                 }
                 if let Some(c) = seq_counts {
-                    count_rows.extend(c.chunks(batch).map(<[u32]>::to_vec));
+                    let n = c.len();
+                    count_rows.extend(
+                        (0..n)
+                            .step_by(batch)
+                            .map(|start| c.slice(start..n.min(start + batch))),
+                    );
                 }
             }
         }

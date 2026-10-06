@@ -2,7 +2,8 @@
 //!
 //! [`load`] reads a psmcfa, multihetsep or VCF file into binned
 //! [`Observations`] (with the callable bases of each bin, except for psmcfa
-//! input; see [`crate::io::callable`]) plus what QC and the writers need:
+//! input and bins too large to count; see [`crate::io::callable`]) plus what
+//! QC and the writers need:
 //! per-sequence counts, the sequences the output filter dropped and why, a
 //! per-format summary and, on request, the heterozygous sites with their
 //! multihetsep `nr_called`.
@@ -22,9 +23,10 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::{BufRead, Cursor, Read};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
-use crate::io::callable::check_bin_size;
+use crate::io::callable::join_counts;
 use crate::io::common::{HetCall, chunk_sequences, open_reader, reopen_reader};
 use crate::io::consensus::{
     ConsensusFilters, ConsensusOptions, ConsensusSummary, DepthBounds, DepthThresholds,
@@ -35,7 +37,7 @@ use crate::io::psmcfa::parse_psmcfa_with_stats;
 use crate::io::vcf::{
     VcfOptions, VcfSummary, gvcf_block_end_of, no_het_snp_message, read_vcf_seqs_from,
 };
-use crate::io::{CallableBases, Observations, Sequences};
+use crate::io::{BinCounts, CallableBases, Observations, Sequences};
 
 /// Input file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -463,9 +465,8 @@ pub struct InputOptions {
     /// The file format; `None` recognises it from the content
     /// ([`InputFormat::sniff`]).
     pub format: Option<InputFormat>,
-    /// Bases per bin for multihetsep and VCF input (`fq2psmcfa -s`), at
-    /// most [`MAX_BIN_SIZE`](crate::io::MAX_BIN_SIZE); psmcfa input is
-    /// already binned.
+    /// Bases per bin for multihetsep and VCF input (`fq2psmcfa -s`); psmcfa
+    /// input is already binned.
     pub bin_size: usize,
     /// Split each sequence into HMM rows of at most this many bins, chained in
     /// one HMM sequence ([`chunk_sequences`]).
@@ -707,8 +708,9 @@ pub struct Dataset {
     /// The kept sequences as HMM rows. Empty when every sequence was dropped
     /// ([`Dataset::ensure_usable`] turns that into an error). Their
     /// callable bases ([`Observations::callable`]) are there for VCF and
-    /// multihetsep input, even when every sequence was dropped, and not for
-    /// psmcfa input.
+    /// multihetsep input binned into bins of at most
+    /// [`MAX_COUNTED_BIN_SIZE`](crate::io::MAX_COUNTED_BIN_SIZE) bases, even
+    /// when every sequence was dropped, and not for psmcfa input.
     pub obs: Observations,
     /// One entry per kept sequence, in the order of `obs`.
     pub seqs: Vec<SeqInfo>,
@@ -727,20 +729,30 @@ pub struct Dataset {
 impl Dataset {
     /// Each kept sequence with its bins (rows of one sequence joined).
     pub fn sequences(&self) -> Vec<(&SeqInfo, Cow<'_, [u8]>)> {
-        let bins = join_rows(&self.obs.rows, &self.obs.row_starts, self.seqs.len());
+        let rows = &self.obs.rows;
+        let bins = sequence_rows(&self.obs.row_starts, self.seqs.len())
+            .into_iter()
+            .map(|r| {
+                if r.len() == 1 {
+                    Cow::Borrowed(rows[r.start].as_slice())
+                } else {
+                    Cow::Owned(rows[r].concat())
+                }
+            });
         self.seqs.iter().zip(bins).collect()
     }
 
     /// The callable bases of each bin of each kept sequence, joined as
     /// [`Dataset::sequences`] joins the bins; `None` for input without them
     /// (psmcfa). See [`crate::io::callable`].
-    pub fn sequence_callable(&self) -> Option<Vec<Cow<'_, [u32]>>> {
-        let callable = self.obs.callable.as_ref()?;
-        Some(join_rows(
-            callable.counts(),
-            &self.obs.row_starts,
-            self.seqs.len(),
-        ))
+    pub fn sequence_callable(&self) -> Option<Vec<Cow<'_, BinCounts>>> {
+        let counts = self.obs.callable.as_ref()?.rows();
+        Some(
+            sequence_rows(&self.obs.row_starts, self.seqs.len())
+                .into_iter()
+                .map(|r| join_counts(counts, r))
+                .collect(),
+        )
     }
 
     /// Bins over all kept sequences.
@@ -839,21 +851,17 @@ impl Dataset {
     }
 }
 
-/// The first `n` sequences of `rows`, the rows of each joined (`row_starts`
-/// marks the first row of a sequence); a sequence of one row is borrowed.
-fn join_rows<'a, T: Clone>(rows: &'a [Vec<T>], row_starts: &[bool], n: usize) -> Vec<Cow<'a, [T]>> {
+/// The rows of the first `n` sequences of rows chained by `row_starts`
+/// (`true` for the first row of a sequence), as ranges of row indices.
+fn sequence_rows(row_starts: &[bool], n: usize) -> Vec<Range<usize>> {
     let mut out = Vec::with_capacity(n);
     let mut i = 0;
-    for _ in 0..n {
+    while i < row_starts.len() && out.len() < n {
         let mut j = i + 1;
-        while j < rows.len() && !row_starts[j] {
+        while j < row_starts.len() && !row_starts[j] {
             j += 1;
         }
-        out.push(if j == i + 1 {
-            Cow::Borrowed(rows[i].as_slice())
-        } else {
-            Cow::Owned(rows[i..j].concat())
-        });
+        out.push(i..j);
         i = j;
     }
     out
@@ -863,8 +871,9 @@ fn join_rows<'a, T: Clone>(rows: &'a [Vec<T>], row_starts: &[bool], n: usize) ->
 struct RawSeq {
     name: String,
     bins: Vec<u8>,
-    /// The callable bases of each bin, from every reader but psmcfa's.
-    callable: Option<Vec<u32>>,
+    /// The callable bases of each bin, from every reader but psmcfa's, for
+    /// bins small enough to count.
+    callable: Option<BinCounts>,
     extent: Option<u64>,
     called: Option<u64>,
     het: Option<u64>,
@@ -924,7 +933,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
                 .map(|s| RawSeq {
                     name: s.name,
                     bins: s.bins,
-                    callable: Some(s.callable),
+                    callable: s.callable,
                     extent: Some(s.extent),
                     called: Some(s.called),
                     het: Some(s.n_het),
@@ -939,8 +948,9 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
         }
     };
     let collect = opts.collect_het_sites && format != InputFormat::Psmcfa;
-    // Every reader but psmcfa's counts the callable bases of each bin.
-    let with_callable = format != InputFormat::Psmcfa;
+    // Every reader but psmcfa's bins the input, counting the callable bases
+    // of each bin when the bins are small enough.
+    let binned = format != InputFormat::Psmcfa;
 
     let mut kept_bins = Vec::new();
     let mut kept_callable = Vec::new();
@@ -983,13 +993,13 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
             het_sites: s.het,
         });
         kept_bins.push(s.bins);
-        kept_callable.extend(s.callable);
+        kept_callable.push(s.callable);
     }
     // Some even when every sequence was dropped: it tells whether the
-    // input format records callable bases.
-    let callable = with_callable
-        .then(|| CallableBases::new(opts.bin_size, kept_callable))
-        .transpose()?;
+    // input records callable bases.
+    let callable = binned
+        .then(|| CallableBases::of_binned(opts.bin_size, kept_callable))
+        .flatten();
     let obs = if kept_bins.is_empty() {
         Observations {
             rows: Vec::new(),
@@ -1079,7 +1089,9 @@ fn load_vcf(
     path: &Path,
     opts: &InputOptions,
 ) -> Result<(Vec<RawSeq>, VcfInputSummary)> {
-    check_bin_size(opts.bin_size, "vcf")?;
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
     let choice = match opts.vcf_mode {
         VcfMode::Auto => detect_mode(&mut input, path)?,
         // Mask mode reads a gVCF as one, so the first records are inspected
@@ -1148,7 +1160,7 @@ fn load_vcf(
             .map(|s| RawSeq {
                 name: s.name,
                 bins: s.bins,
-                callable: Some(s.callable),
+                callable: s.callable,
                 extent: Some(s.bases),
                 called: Some(s.good_bases),
                 het: Some(s.het_bases),
@@ -1182,7 +1194,7 @@ fn load_vcf(
         .map(|s| RawSeq {
             name: s.name,
             bins: s.bins,
-            callable: Some(s.callable),
+            callable: s.callable,
             extent: Some(s.extent),
             called: Some(s.called),
             het: Some(s.n_het),

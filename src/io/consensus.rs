@@ -91,7 +91,7 @@ use std::collections::{HashSet, VecDeque};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
-use crate::io::callable::check_bin_size;
+use crate::io::BinCounts;
 use crate::io::common::{
     Binner, DepthCounter, HetCall, HetTracker, is_regular_file, open_reader, reopen_reader,
 };
@@ -152,8 +152,7 @@ impl Default for ConsensusFilters {
 /// Options for [`read_vcf_consensus`].
 #[derive(Debug, Clone)]
 pub struct ConsensusOptions {
-    /// Bases per bin (`fq2psmcfa -s`, default 100), at most
-    /// [`MAX_BIN_SIZE`](crate::io::MAX_BIN_SIZE).
+    /// Bases per bin (`fq2psmcfa -s`, default 100).
     pub bin_size: usize,
     pub filters: ConsensusFilters,
     /// Callable masks, in the formats of [`crate::io::vcf::VcfOptions::masks`].
@@ -429,8 +428,9 @@ pub struct ConsensusSeq {
     /// The callable bases of each bin: the bin size minus the bases
     /// fq2psmcfa reads as missing, i.e. the good bases of a full bin (the
     /// bases past the end of a shorter last bin count as callable, see
-    /// [`crate::io::callable`]).
-    pub callable: Vec<u32>,
+    /// [`crate::io::callable`]); `None` for bins of more than
+    /// [`MAX_COUNTED_BIN_SIZE`](crate::io::MAX_COUNTED_BIN_SIZE) bases.
+    pub callable: Option<BinCounts>,
     /// Length of vcf2fq's sequence (fq2psmcfa's `len`).
     pub bases: u64,
     /// Bases read as called (fq2psmcfa's `n_good_bases`).
@@ -1049,7 +1049,9 @@ pub(crate) fn ensure_rereadable(path: &Path) -> Result<()> {
 /// [`DepthThresholds::Auto`] reads the file twice, so `path` must then be a
 /// regular file. Otherwise it is read once and may be a pipe or FIFO.
 pub fn read_vcf_consensus(path: &Path, opts: &ConsensusOptions) -> Result<ConsensusRead> {
-    check_bin_size(opts.bin_size, "vcf")?;
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
     match opts.filters.depth {
         DepthThresholds::Fixed { min, max } => {
             let bounds = DepthBounds {
@@ -1076,7 +1078,9 @@ pub(crate) fn read_consensus_from(
     opts: &ConsensusOptions,
     bounds: DepthBounds,
 ) -> Result<ConsensusRead> {
-    check_bin_size(opts.bin_size, "vcf")?;
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
     let filters = &opts.filters;
     let mut summary = ConsensusSummary {
         min_depth: bounds.min,

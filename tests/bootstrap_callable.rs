@@ -36,15 +36,20 @@ fn counted_seqs(len: usize) -> Sequences {
             seq.iter()
                 .enumerate()
                 .map(|(j, &b)| {
-                    let k = (7 * i + 13 * j) as u32;
-                    if b == 2 { k % 10 } else { 10 + k % 91 }
+                    // Full bins in stretches, and partly called ones.
+                    let k = (7 * i + 13 * j) as u16;
+                    match b {
+                        2 => k % 10,
+                        _ if (j / 50) % 3 == 0 => 100,
+                        _ => 10 + k % 91,
+                    }
                 })
                 .collect()
         })
         .collect();
     let seqs = Sequences {
         bins,
-        callable: Some(CallableBases::new(100, counts).unwrap()),
+        callable: Some(CallableBases::from_counts(100, counts).unwrap()),
     };
     seqs.validate().unwrap();
     seqs
@@ -67,7 +72,7 @@ fn observations_join_back_into_their_sequences_with_their_counts() {
     }
     // Rows whose counts do not fit are refused.
     let mut obs = chunk_sequences(seqs.clone(), Some(100), "empty").unwrap();
-    obs.callable = Some(CallableBases::new(100, vec![vec![100]]).unwrap());
+    obs.callable = Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap());
     assert!(observations_to_sequences(&obs).is_err());
 }
 
@@ -84,12 +89,12 @@ fn trunks_keep_the_counts_of_their_bins() {
         trunks.validate().unwrap();
         let counts = trunks.callable.as_ref().unwrap();
         assert_eq!(counts.bin_size(), 100);
-        let lengths = |rows: &[Vec<u32>]| rows.iter().map(Vec::len).collect::<Vec<_>>();
+        let lengths: Vec<usize> = counts.rows().iter().map(|r| r.len()).collect();
         let bin_lengths: Vec<usize> = trunks.bins.iter().map(Vec::len).collect();
-        assert_eq!(lengths(counts.counts()), bin_lengths, "trunk {trunk}");
+        assert_eq!(lengths, bin_lengths, "trunk {trunk}");
         // In order, the trunks are the sequences cut up.
-        let all = seqs.callable.as_ref().unwrap().counts().concat();
-        assert_eq!(counts.counts().concat(), all, "trunk {trunk}");
+        let all = seqs.callable.as_ref().unwrap().to_counts().concat();
+        assert_eq!(counts.to_counts().concat(), all, "trunk {trunk}");
     }
     let plain = split_sequences_for_bootstrap(&Sequences::from(seqs.bins.clone()), 400);
     assert_eq!(plain.bins, split_for_bootstrap(&seqs.bins, 400));
@@ -101,22 +106,22 @@ fn resampling_draws_the_same_trunks_with_their_counts() {
     // Trunk i holds only T bins with 10 + i callable bases, so each drawn
     // trunk says which one it is.
     let bins: Vec<Vec<u8>> = (0..40).map(|i| vec![0; 1 + (i * 37) % 23]).collect();
-    let counts: Vec<Vec<u32>> = bins
+    let counts: Vec<Vec<u16>> = bins
         .iter()
         .enumerate()
-        .map(|(i, b)| vec![10 + i as u32; b.len()])
+        .map(|(i, b)| vec![10 + i as u16; b.len()])
         .collect();
     let trunks = Sequences {
         bins: bins.clone(),
-        callable: Some(CallableBases::new(100, counts).unwrap()),
+        callable: Some(CallableBases::from_counts(100, counts).unwrap()),
     };
     for rep in 0..50 {
         let drawn = resample_sequences(&trunks, &mut replicate_rng(9, rep));
         let plain = resample_chunks(&bins, &mut replicate_rng(9, rep));
         assert_eq!(drawn.bins, plain, "replicate {rep}");
-        let c = drawn.callable.as_ref().unwrap();
-        assert_eq!(c.counts().len(), drawn.bins.len());
-        for (b, row) in drawn.bins.iter().zip(c.counts()) {
+        let c = drawn.callable.as_ref().unwrap().to_counts();
+        assert_eq!(c.len(), drawn.bins.len());
+        for (b, row) in drawn.bins.iter().zip(&c) {
             let i = (row[0] - 10) as usize;
             assert_eq!(*b, bins[i], "replicate {rep}");
             assert!(row.iter().all(|&x| x == row[0]) && row.len() == b.len());
@@ -178,7 +183,7 @@ fn replicates_with_counts_fit_as_without_them() {
 
     // Invalid counts stop the bootstrap before anything is fitted.
     let mut bad = seqs.clone();
-    bad.callable = Some(CallableBases::new(100, vec![vec![100]]).unwrap());
+    bad.callable = Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap());
     let err = run_bootstrap_sequences(
         &bad,
         &template(),

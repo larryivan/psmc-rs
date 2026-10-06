@@ -1,10 +1,11 @@
 //! Callable bases per bin: the invariants of `Observations::validate` and
 //! `Sequences::validate`, and the counts travelling with their bins when
-//! sequences are cut into rows.
+//! sequences are cut into rows. How the counts are stored is tested in
+//! `src/io/callable.rs`.
 
 use psmc_rs::bootstrap::sequences_to_observations;
 use psmc_rs::io::common::chunk_sequences;
-use psmc_rs::io::{CallableBases, MAX_BIN_SIZE, Observations, Sequences};
+use psmc_rs::io::{BinCounts, CallableBases, MAX_COUNTED_BIN_SIZE, Observations, Sequences};
 
 /// SplitMix64: deterministic and dependency-free.
 struct Rng(u64);
@@ -38,10 +39,11 @@ fn random_sequences(rng: &mut Rng, s: usize, n_seqs: usize) -> Sequences {
         };
         let mut b = Vec::with_capacity(len);
         let mut c = Vec::with_capacity(len);
+        // Mostly full bins, as in real data, or mostly partly called ones.
+        let partial_odds = rng.range(1, 3);
         for _ in 0..len {
-            // Mostly full bins, as in real data.
             let count = match rng.range(0, 3) {
-                0 => rng.range(0, s as u64),
+                x if x < partial_odds => rng.range(0, s as u64),
                 _ => s as u64,
             } as usize;
             let symbol = if 10 * count < s {
@@ -50,22 +52,22 @@ fn random_sequences(rng: &mut Rng, s: usize, n_seqs: usize) -> Sequences {
                 rng.range(0, 1) as u8
             };
             b.push(symbol);
-            c.push(count as u32);
+            c.push(count as u16);
         }
         bins.push(b);
         counts.push(c);
     }
     Sequences {
         bins,
-        callable: Some(CallableBases::new(s, counts).unwrap()),
+        callable: Some(CallableBases::from_counts(s, counts).unwrap()),
     }
 }
 
-fn obs(rows: Vec<Vec<u8>>, row_starts: Vec<bool>, s: usize, counts: Vec<Vec<u32>>) -> Observations {
+fn obs(rows: Vec<Vec<u8>>, row_starts: Vec<bool>, s: usize, counts: Vec<Vec<u16>>) -> Observations {
     Observations {
         rows,
         row_starts,
-        callable: Some(CallableBases::new(s, counts).unwrap()),
+        callable: Some(CallableBases::from_counts(s, counts).unwrap()),
     }
 }
 
@@ -74,24 +76,28 @@ fn error(o: &Observations) -> String {
 }
 
 #[test]
-fn the_bin_size_must_fit_in_32_bits() {
-    assert_eq!(MAX_BIN_SIZE, 4_294_967_295);
-    let too_big: &[usize] = if cfg!(target_pointer_width = "64") {
-        &[0, MAX_BIN_SIZE.wrapping_add(1), usize::MAX]
-    } else {
-        &[0]
-    };
-    for &s in too_big {
+fn the_bin_size_must_fit_in_16_bits() {
+    assert_eq!(MAX_COUNTED_BIN_SIZE, 65_535);
+    for s in [0, MAX_COUNTED_BIN_SIZE + 1, usize::MAX] {
+        let want = "between 1 and 65535";
         let err = CallableBases::new(s, Vec::new()).unwrap_err().to_string();
-        assert!(err.contains("between 1 and 4294967295"), "{s}: {err}");
+        assert!(err.contains(want), "{s}: {err}");
+        let err = CallableBases::from_counts(s, Vec::new()).unwrap_err();
+        assert!(err.to_string().contains(want), "{s}: {err}");
+        let err = BinCounts::new(s, Vec::new()).unwrap_err().to_string();
+        assert!(err.contains(want), "{s}: {err}");
     }
-    for s in [1, 100, MAX_BIN_SIZE] {
-        let c = CallableBases::new(s, vec![vec![0, 1]]).unwrap();
+    for s in [1, 100, MAX_COUNTED_BIN_SIZE] {
+        let c = CallableBases::from_counts(s, vec![vec![0, 1]]).unwrap();
         assert_eq!(c.bin_size(), s);
-        assert_eq!(c.counts(), [vec![0, 1]]);
-        let other = c.with_counts(vec![vec![5], vec![]]);
+        assert_eq!(c.to_counts(), [vec![0, 1]]);
+        let row = BinCounts::new(s, vec![0, 1]).unwrap();
+        assert_eq!((row.bin_size(), row.len()), (s, 2));
+        assert_eq!(c.rows(), std::slice::from_ref(&row));
+        assert_eq!(CallableBases::new(s, vec![row]).unwrap(), c);
+        let other = c.with_rows(vec![BinCounts::new(s, vec![5]).unwrap()]);
         assert_eq!(other.bin_size(), s);
-        assert_eq!(other.clone().into_counts(), [vec![5], vec![]]);
+        assert_eq!(other.clone().into_rows()[0].to_vec(), [5]);
     }
 }
 
@@ -142,13 +148,12 @@ fn symbols_and_counts_agree_on_the_ninety_percent_rule() {
         (10, 0, 1),
         (11, 1, 2),
         (65_535, 6553, 6554),
-        (4_294_967_295, 429_496_729, 429_496_730),
     ] {
         obs(
             vec![vec![2, 0, 1]],
             vec![true],
             s,
-            vec![vec![n_max, called_min, s as u32]],
+            vec![vec![n_max, called_min, s as u16]],
         )
         .validate()
         .unwrap_or_else(|e| panic!("s {s}: {e:#}"));
@@ -163,7 +168,7 @@ fn symbols_and_counts_agree_on_the_ninety_percent_rule() {
 fn every_shape_and_range_violation_is_reported() {
     let rows = || vec![vec![0u8, 1], vec![0]];
     let starts = || vec![true, false];
-    let counts = || vec![vec![100u32, 100], vec![100]];
+    let counts = || vec![vec![100u16, 100], vec![100]];
     obs(rows(), starts(), 100, counts()).validate().unwrap();
 
     let cases: Vec<(Observations, &str)> = vec![
@@ -199,6 +204,23 @@ fn every_shape_and_range_violation_is_reported() {
             obs(vec![vec![0, 3]], vec![true], 100, vec![vec![100, 100]]),
             "invalid bin symbol 3",
         ),
+        (
+            Observations {
+                rows: rows(),
+                row_starts: starts(),
+                callable: Some(
+                    CallableBases::new(
+                        100,
+                        vec![
+                            BinCounts::new(100, vec![100, 100]).unwrap(),
+                            BinCounts::new(99, vec![99]).unwrap(),
+                        ],
+                    )
+                    .unwrap(),
+                ),
+            },
+            "row 1 has callable bases of bins of 99 bases, in counts of bins of 100",
+        ),
     ];
     for (o, want) in cases {
         let err = error(&o);
@@ -222,7 +244,7 @@ fn every_shape_and_range_violation_is_reported() {
     // Sequences are checked the same way, each entry its own sequence.
     let seqs = Sequences {
         bins: vec![vec![0], vec![2, 2]],
-        callable: Some(CallableBases::new(100, vec![vec![100], vec![0, 50]]).unwrap()),
+        callable: Some(CallableBases::from_counts(100, vec![vec![100], vec![0, 50]]).unwrap()),
     };
     let err = format!("{:#}", seqs.validate().unwrap_err());
     assert!(
@@ -231,7 +253,7 @@ fn every_shape_and_range_violation_is_reported() {
     );
     let seqs = Sequences {
         bins: vec![vec![0], vec![]],
-        callable: Some(CallableBases::new(100, vec![vec![100]]).unwrap()),
+        callable: Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap()),
     };
     let err = format!("{:#}", seqs.validate().unwrap_err());
     assert!(
@@ -244,7 +266,7 @@ fn every_shape_and_range_violation_is_reported() {
 fn chunking_cuts_the_counts_at_the_same_bins() {
     let mut rng = Rng(7);
     for case in 0..200 {
-        let s = [1, 7, 100, MAX_BIN_SIZE][case % 4];
+        let s = [1, 7, 100, MAX_COUNTED_BIN_SIZE][case % 4];
         let seqs = random_sequences(&mut rng, s, 1 + case % 6);
         seqs.validate().unwrap();
         if seqs.bins.iter().all(Vec::is_empty) {
@@ -252,7 +274,7 @@ fn chunking_cuts_the_counts_at_the_same_bins() {
             assert_eq!(err.to_string(), "nothing left");
             continue;
         }
-        let whole_counts = seqs.callable.as_ref().unwrap().counts().to_vec();
+        let whole_counts = seqs.callable.as_ref().unwrap().to_counts();
         for batch in [None, Some(1), Some(3), Some(40), Some(1000)] {
             let ctx = format!("case {case}, batch {batch:?}");
             let o = chunk_sequences(seqs.clone(), batch, "empty").unwrap();
@@ -264,23 +286,27 @@ fn chunking_cuts_the_counts_at_the_same_bins() {
             assert!(plain.callable.is_none(), "{ctx}");
             let c = o.callable.as_ref().unwrap();
             assert_eq!(c.bin_size(), s, "{ctx}");
-            assert_eq!(c.counts().len(), o.rows.len(), "{ctx}");
+            assert_eq!(c.rows().len(), o.rows.len(), "{ctx}");
             // Rejoined, the rows of each sequence give back its counts.
-            let mut joined: Vec<Vec<u32>> = Vec::new();
-            for (row, &start) in c.counts().iter().zip(&o.row_starts) {
+            let mut joined: Vec<Vec<u16>> = Vec::new();
+            for (row, &start) in c.rows().iter().zip(&o.row_starts) {
                 if start {
                     joined.push(Vec::new());
                 }
                 joined.last_mut().unwrap().extend(row);
             }
-            let non_empty: Vec<Vec<u32>> = whole_counts
+            let non_empty: Vec<Vec<u16>> = whole_counts
                 .iter()
                 .filter(|c| !c.is_empty())
                 .cloned()
                 .collect();
             assert_eq!(joined, non_empty, "{ctx}");
             if let Some(b) = batch {
-                assert!(c.counts().iter().all(|r| r.len() <= b), "{ctx}");
+                assert!(c.rows().iter().all(|r| r.len() <= b), "{ctx}");
+            }
+            // Each row's counts take no more than 2 bytes per bin.
+            for row in c.rows() {
+                assert!(row.heap_bytes() <= 2 * row.len(), "{ctx}");
             }
         }
     }
@@ -290,7 +316,7 @@ fn chunking_cuts_the_counts_at_the_same_bins() {
 fn chunking_checks_the_counts_first() {
     let bad = Sequences {
         bins: vec![vec![0, 0]],
-        callable: Some(CallableBases::new(100, vec![vec![100]]).unwrap()),
+        callable: Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap()),
     };
     let err = format!("{:#}", chunk_sequences(bad, None, "empty").unwrap_err());
     assert!(
@@ -299,7 +325,7 @@ fn chunking_checks_the_counts_first() {
     );
     let inconsistent = Sequences {
         bins: vec![vec![2]],
-        callable: Some(CallableBases::new(100, vec![vec![100]]).unwrap()),
+        callable: Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap()),
     };
     let err = format!(
         "{:#}",
