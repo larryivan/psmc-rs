@@ -58,8 +58,14 @@ window of :class:`.config.TimeGrid` is taken from the fitted model: the 1%
 and 99% quantiles of the pairwise coalescence time under C psmc's final
 model, in the genome's years. Outside it less than 1% of the genome's
 coalescences fall, and both tools only extend their first and last lambda.
-The tools and the bootstrap band are compared at 200 log-spaced times in
-it; the fixed window (10 ky to 1 My) is reported next to it.
+The tools are compared interval by interval on it
+(:func:`.metrics.interval_diff`: log10(Ne_rs,k / Ne_c,k) over C psmc's
+intervals that overlap the window, the RMSE weighted by each interval's
+log-time width inside it), since their boundaries differ in years only by
+a hair (theta, t_max) and fixed times between two such boundaries would read
+whole steps; the fixed window (10 ky to 1 My) is reported next to it. The
+bootstrap band is compared with the curves at 200 log-spaced times in the
+window.
 
 **Band.** At each time, the 2.5% and 97.5% quantiles (linear interpolation,
 as psmc-rs computes them) of the replicates' Ne. Each replicate is read as
@@ -71,10 +77,12 @@ Tables (``tables/``):
 * ``E2_fit_summary.csv``: per genome and tool: scaling (mu, g and its
   source), sequences, called and heterozygous bins, theta, rho, t_max, N0,
   log-likelihoods, wall time and peak RSS.
-* ``E2_rs_vs_c.csv``: per genome: RMSE of log10 Ne between the tools (window
-  and fixed window), the largest difference, relative differences of theta,
-  rho and t_max and of the log-likelihoods, and whether the bootstrap run's
-  main fit equals ``fit-rs``'s output.
+* ``E2_rs_vs_c.csv``: per genome: the tools compared interval by interval
+  (``*_per_interval``: RMSE of log10 Ne on the window and on the fixed
+  window, the largest difference of an interval overlapping the window;
+  ``*_any_interval``: of any interval), relative differences of theta, rho
+  and t_max and of the log-likelihoods, and whether the bootstrap runs'
+  main fits equal ``fit-rs``'s fit.
 * ``E2_bootstrap.csv``: per genome and trunk size: replicates, trunks
   (``coarse_band`` when fewer than psmc-rs's 20), seed, the band's width,
   how much of C psmc's and psmc-rs's curves it holds, and the check against
@@ -689,25 +697,23 @@ def fit_summary_rows(gr: GenomeResult, cfg: config.E2) -> List[Dict]:
 
 
 def pair_row(gr: GenomeResult, cfg: config.E2) -> Dict:
-    import numpy as np
-
     n = cfg.inference.n_iter
-    grid = metrics.log_grid(gr.window[0], gr.window[1], cfg.grid.points)
-    fixed = metrics.fixed_grid(cfg.grid)
     ll = loglikes(gr)
     common = sorted(i for i in set(ll["c"]) & set(ll["rs"]) if ll["c"][i])
     rel = {i: abs(ll["rs"][i] - ll["c"][i]) / abs(ll["c"][i]) for i in common}
     fc, fr = gr.fits["c"], gr.fits["rs"]
     rs_c, c_c = gr.curves["rs"], gr.curves["c"]
+    diff = metrics.interval_diff(rs_c, c_c, gr.window)
     return {
         "sample_id": gr.genome.sample_id,
         "label": gr.genome.label,
         "window_lo_years": gr.window[0],
         "window_hi_years": gr.window[1],
-        "window_points": len(grid),
-        "rmse_log10_ne_rs_vs_c": metrics.rmse_between(rs_c, c_c, grid),
-        "rmse_log10_ne_rs_vs_c_fixed": metrics.rmse_between(rs_c, c_c, fixed),
-        "max_abs_log10_ne_diff": float(np.max(np.abs(np.log10(rs_c.at(grid)) - np.log10(c_c.at(grid))))),
+        "intervals_in_window": len(diff.interval),
+        "rmse_log10_ne_rs_vs_c_per_interval": diff.rmse,
+        "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(rs_c, c_c, cfg.grid.fixed_years),
+        "max_abs_log10_ne_rs_vs_c_per_interval": diff.max_abs,
+        "max_abs_log10_ne_rs_vs_c_any_interval": diff.max_abs_any,
         "theta_rel_diff": fr.theta / fc.theta - 1.0,
         "rho_rel_diff": fr.rho / fc.rho - 1.0,
         "t_max_rel_diff": fr.t_max / fc.t_max - 1.0,

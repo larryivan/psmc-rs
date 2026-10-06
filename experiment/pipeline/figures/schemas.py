@@ -86,14 +86,17 @@ _add("E1_replicates", "E1", "model, replicate and tool", {
 _add("E1_rs_vs_c", "E1", "model and replicate", {
     "model": "demographic model",
     "replicate": "replicate",
-    "rmse_log10_ne_rs_vs_c": "RMSE of log10 Ne between the tools on the informative window",
-    "max_abs_log10_ne_diff": "largest |log10 Ne_rs - log10 Ne_c| on the window",
+    "rmse_log10_ne_rs_vs_c_per_interval": "RMSE of log10(Ne_rs,k / Ne_c,k) over C psmc's intervals k overlapping "
+                                          "the informative window, each weighted by its log-time width inside it",
+    "max_abs_log10_ne_rs_vs_c_per_interval": "largest |log10(Ne_rs,k / Ne_c,k)| of those intervals",
+    "max_abs_log10_ne_rs_vs_c_any_interval": "largest |log10(Ne_rs,k / Ne_c,k)| of any interval, outside the window too",
 })
 _add("E1_mstep", "E1", "model and replicate", {
     "model": "demographic model",
     "replicate": "replicate",
     "mstep_iters_default": "the M-step cap of the capped psmc-rs fit (E1.default_mstep_iters)",
-    "rmse_log10_ne_default_vs_c": "RMSE of log10 Ne between psmc-rs with capped M-steps and C psmc",
+    "rmse_log10_ne_default_vs_c_per_interval": "RMSE of log10 Ne between psmc-rs with capped M-steps and C psmc, "
+                                               "interval by interval (as rmse_log10_ne_rs_vs_c_per_interval)",
 })
 _add("E1_traces", "E1", "model, replicate, tool and EM iteration", {
     "model": "demographic model",
@@ -134,13 +137,16 @@ _add("E2_rs_vs_c", "E2", "genome", {
     "sample_id": "genome",
     "window_lo_years": "start of the comparison window (1% of coalescences under C psmc's fit)",
     "window_hi_years": "end of the comparison window (99%)",
-    "rmse_log10_ne_rs_vs_c": "RMSE of log10 Ne between the tools on the window",
+    "rmse_log10_ne_rs_vs_c_per_interval": "RMSE of log10(Ne_rs,k / Ne_c,k) over C psmc's intervals k overlapping "
+                                          "the window, each weighted by its log-time width inside it",
+    "max_abs_log10_ne_rs_vs_c_per_interval": "largest |log10(Ne_rs,k / Ne_c,k)| of those intervals",
 })
 _add("E2_fit_summary", "E2", "genome and tool", {
     "sample_id": "genome",
     "tool": "c or rs",
     "mu": "mutation rate the curves are scaled with",
     "gen_years": "generation time the curves are scaled with",
+    "sequences": "sequences of the input (the bootstrap splits each at the block size)",
 })
 
 # ---------------------------------------------------------------------------

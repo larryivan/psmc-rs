@@ -13,7 +13,8 @@ time grid of S1-S3 are E1's (``profile.e1``).
   --multihetsep`` of that VCF). The VCF must give the psmcfa's bins exactly;
   the multihetsep ends at its last row, so it lacks the bins after the last
   heterozygous site, which are counted. Each format is fitted with E1's
-  settings and the fits are compared.
+  settings and the fits are compared interval by interval
+  (:func:`.e6_analysis.fit_rows`).
 * **S3, TMRCA decoding.** E1's psmc-rs fit of ``tmrca_model`` replicate
   ``tmrca_replicate`` is decoded on its psmcfa (``--init-params`` of the
   fit, 0 iterations, ``--tmrca-out``), so the posterior is that of the

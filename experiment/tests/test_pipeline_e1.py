@@ -140,23 +140,29 @@ class Tables(unittest.TestCase):
 
     def test_identical_fits_agree_and_scaled_ones_differ_by_the_scale(self):
         pairs = read_csv(self.lay.table("pairs"))
-        self.assertEqual(float(pairs[0]["rmse_log10_ne_rs_vs_c"]), 0.0)
-        self.assertAlmostEqual(float(pairs[1]["rmse_log10_ne_rs_vs_c"]), math.log10(2), places=12)
+        self.assertEqual(float(pairs[0]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.0)
+        self.assertAlmostEqual(float(pairs[1]["rmse_log10_ne_rs_vs_c_per_interval"]), math.log10(2), places=12)
+        self.assertAlmostEqual(float(pairs[1]["max_abs_log10_ne_rs_vs_c_per_interval"]), math.log10(2), places=12)
+        self.assertAlmostEqual(float(pairs[1]["max_abs_log10_ne_rs_vs_c_any_interval"]), math.log10(2), places=12)
+        self.assertGreater(int(pairs[0]["intervals_in_window"]), 10)
         self.assertEqual(float(pairs[0]["loglike_max_rel_diff"]), 0.0)
         t1 = read_csv(self.lay.table("table1"))
         self.assertEqual(len(t1), 1)
         self.assertEqual(t1[0]["replicates"], "2")
-        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_max"]), math.log10(2), places=12)
+        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_per_interval_max"]), math.log10(2), places=12)
+        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_per_interval_mean"]), math.log10(2) / 2, places=12)
+        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_per_interval_median"]), math.log10(2) / 2, places=12)
+        self.assertAlmostEqual(float(t1[0]["max_abs_rs_vs_c_per_interval"]), math.log10(2), places=12)
 
     def test_capped_m_steps_against_c_psmc(self):
         rows = read_csv(self.lay.table("mstep"))
         self.assertEqual([r["replicate"] for r in rows], ["1", "2"])
-        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_c"]), math.log10(1.5), places=9)
-        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_rs"]), math.log10(1.5), places=9)
+        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_c_per_interval"]), math.log10(1.5), places=9)
+        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_rs_per_interval"]), math.log10(1.5), places=9)
         self.assertEqual(float(rows[0]["theta_default_rel_c"]), 0.0)
         self.assertEqual(rows[0]["mstep_iters_default"], "5")
         t1 = read_csv(self.lay.table("table1"))[0]
-        self.assertGreater(float(t1["rmse_rs_default_vs_c_max"]), 0)
+        self.assertGreater(float(t1["rmse_rs_default_vs_c_per_interval_max"]), 0)
 
     def test_traces_count_iterations(self):
         rows = read_csv(self.lay.table("traces"))
@@ -187,7 +193,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(len(pairs), 1)
         # The first iteration's log-likelihood equals C psmc's to its printed precision.
         self.assertLess(float(pairs[0]["loglike_iteration0_rel_diff"]), 1e-8)
-        self.assertLess(float(pairs[0]["rmse_log10_ne_rs_vs_c"]), 0.5)
+        self.assertLess(float(pairs[0]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.5)
         self.assertEqual(len(read_csv(lay.table("mstep"))), 1)
         truth = json.loads(lay.truth("bottleneck", 1).read_text())
         self.assertEqual(truth["chromosomes"][0]["seeds"]["ancestry"], config.seed("E1", "bottleneck", 1, "ancestry/chr1"))

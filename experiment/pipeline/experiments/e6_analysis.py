@@ -282,7 +282,14 @@ def fit_rows(
     bin_size: int,
     reference: str = "psmcfa",
 ) -> List[Dict]:
-    """One row per format: the fit, and its differences from the fit of ``reference``."""
+    """One row per format: the fit, and its differences from the fit of ``reference``.
+
+    The fits have the same pattern, so their curves are compared interval
+    by interval over the reference's intervals that overlap the window
+    (:func:`..metrics.interval_diff`), not at the window's times: their
+    boundaries differ in years only through theta and t_max, and a time
+    between two nearly equal boundaries would read a whole step.
+    """
     ref = fits[reference]
     ref_curve = ref.fit.curve(mu, gen_years, bin_size)
     ref_ll = results.rs_loglikes(ref.params)
@@ -296,7 +303,7 @@ def fit_rows(
         lam_diff = _max_abs(
             rel_diff(a, b) for a, b in zip(fit.free_lambdas, ref.fit.free_lambdas)
         ) if len(fit.free_lambdas) == len(ref.fit.free_lambdas) else None
-        diff = np.log10(curve.at(window)) - np.log10(ref_curve.at(window))
+        diff = metrics.interval_diff(curve, ref_curve, (window[0], window[-1]))
         rows.append(
             {
                 "model": model,
@@ -319,8 +326,8 @@ def fit_rows(
                 "loglike_max_abs_diff": _max_abs(a - b for a, b in zip(ll, ref_ll)) if len(ll) == len(ref_ll) else None,
                 "parameters_identical": same_params,
                 "loglikes_identical": ll == ref_ll,
-                "rmse_log10_ne_vs_psmcfa": float(np.sqrt(np.mean(diff**2))),
-                "max_abs_log10_ne_diff": float(np.max(np.abs(diff))),
+                "rmse_log10_ne_vs_psmcfa_per_interval": diff.rmse,
+                "max_abs_log10_ne_vs_psmcfa_per_interval": diff.max_abs,
                 "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, epochs, window, gen_years),
                 "window_lo_years": float(window[0]),
                 "window_hi_years": float(window[-1]),

@@ -1,33 +1,44 @@
 """Fig 2 (E1): accuracy on simulated genomes, and the two tools compared.
 
 * a-d: one panel per model: the true Ne(t) (black, dashed), every replicate's
-  fit by C psmc and psmc-rs 0.2 (thin), and the pointwise median of each
-  tool's fits (C psmc drawn wider underneath, so that where the medians
-  coincide the blue line runs inside an orange one). Times outside the
-  model's informative window, where no metric is computed, are shaded. The
-  Ne axis covers the truth and the fits inside the windows; fits outside
-  them can leave the panel (they are clipped; e-h show them).
-* e-h: |log10(Ne_psmc-rs / Ne_C)| over time for every replicate (log scale;
-  smaller values are drawn on the axis floor).
+  fit by C psmc and psmc-rs 0.2 (thin, in the tool's colour), and the
+  pointwise median of each tool's fits (C psmc drawn wider underneath, so
+  that where the medians coincide the blue line runs inside an orange one).
+  Times outside the model's informative window, where no metric is
+  computed, are shaded. The Ne axis covers the truth and the fits inside the
+  windows; fits outside them can leave the panel (they are clipped).
+* e-h: |log10(Ne_psmc-rs / Ne_C)| interval by interval for every replicate,
+  drawn as a step curve on C psmc's intervals (log scale; smaller values are
+  drawn on the axis floor). The two fits have the same intervals, whose
+  boundaries differ in years only through theta and t_max, so interval k is
+  compared with interval k (:func:`..metrics.interval_diff`). The axis
+  covers the differences of the intervals inside the window; a larger one
+  outside it (a first lambda the data barely constrain, which ran away in
+  one tool) is off scale and named in the panel, and
+  ``E1_rs_vs_c.max_abs_log10_ne_rs_vs_c_any_interval`` gives it.
 * i: RMSE of log10 Ne on the informative window, per replicate: each tool
-  against the truth and psmc-rs against C psmc (psmc-rs's M-steps converge
-  as C psmc's do; see ``config.Inference``), with the means; and, when E1
-  fitted psmc-rs with capped M-steps too (``E1.default_mstep_iters``, not by
-  default), that fit against C psmc.
+  against the truth (on 200 log-spaced times) and psmc-rs against C psmc
+  (interval by interval, each interval weighted by its log-time width in
+  the window; psmc-rs's M-steps converge as C psmc's do, see
+  ``config.Inference``), with the mean (solid) and median (dotted) of each
+  group, and the values of both for the comparison of the tools; and, when
+  E1 fitted psmc-rs with capped M-steps too (``E1.default_mstep_iters``,
+  not by default), that fit against C psmc.
 """
 
 from __future__ import annotations
 
 from typing import Dict, List
 
-from .. import config
+from .. import config, metrics
 from . import style
-from .data import Source, check_truth_table, curves, decades, fmt_sig, log10_ratio, median, time_grid, truth_xy
+from .data import Source, check_truth_table, curves, decades, fmt_sig, median, time_grid, truth_xy
 
 DIFF_FLOOR = 1e-6  # lowest floor of the differences axis
 MODEL_LABEL = {"constant": "Constant", "bottleneck": "Bottleneck", "expansion": "Expansion", "zigzag": "Zigzag"}
 C_MEDIAN_LW = 2.0  # the wider line underneath
 RS_MEDIAN_LW = 0.8
+MEDIAN_STYLE = style.DOT  # the median of a group in panel i (the mean is solid)
 
 
 def model_order(models) -> List[str]:
@@ -74,6 +85,7 @@ def draw(src: Source):
     mid = [fig.add_subplot(gs[1, j], sharex=top[j]) for j in range(n)]
     bottom = fig.add_subplot(gs[2, : max(n - 1, 1)])
 
+    # Per replicate: C psmc's curve and |log10(Ne_rs,k / Ne_c,k)| of each of its intervals.
     diffs: Dict[str, List] = {}
     for j, m in enumerate(models):
         ax = top[j]
@@ -93,25 +105,37 @@ def draw(src: Source):
             ax.tick_params(labelleft=False)
         ax.tick_params(labelbottom=False)
         style.note(ax, 0.97, 0.97, MODEL_LABEL.get(m, m), ha="right", va="top", color=style.INK, size=style.TEXT_PT)
-        diffs[m] = [np.abs(log10_ratio(c, fits[(m, "c", r)], grid))
+        diffs[m] = [(r, fits[(m, "c", r)], metrics.interval_diff(c, fits[(m, "c", r)], windows[m]))
                     for (mm, t, r), c in fits.items() if mm == m and t == "rs" and (m, "c", r) in fits]
 
-    hi = max(float(np.max(d)) for ds in diffs.values() for d in ds)
-    inside = np.concatenate([d[(grid >= windows[m][0]) & (grid <= windows[m][1])] for m, ds in diffs.items() for d in ds])
+    # The axis covers the differences of the intervals inside the windows.
+    inside = np.abs(np.concatenate([d.log10_ratio for ds in diffs.values() for _, _, d in ds]))
+    hi = float(inside.max())
     positive = inside[inside > 0]
     lo = float(np.quantile(positive, 0.02)) if positive.size else hi / 1e3
     dlim = decades(max(min(lo, hi / 10.0), DIFF_FLOOR), max(hi, DIFF_FLOOR * 10))
+    off_scale = {m: [(r, d) for r, _, d in ds if d.max_abs_any > dlim[1]] for m, ds in diffs.items()}
+    if any(off_scale.values()):  # a decade of headroom for the note
+        dlim = (dlim[0], dlim[1] * 10.0)
     for j, m in enumerate(models):
         ax = mid[j]
         style.shade_outside(ax, windows[m], xlim)
-        for d in diffs[m]:
-            ax.plot(grid, np.maximum(d, dlim[0]), drawstyle="steps-post", color=style.BLUE, linewidth=style.LW_THIN,
-                    alpha=0.8, zorder=3)
+        for _, c, d in diffs[m]:
+            x, y = style.step_xy(c.years, np.abs(d.all_log10_ratio), xlim)
+            ax.plot(x, np.clip(y, dlim[0], dlim[1]), drawstyle="steps-post", color=style.BLUE,
+                    linewidth=style.LW_THIN, alpha=0.8, zorder=3)
+        if off_scale[m]:
+            r, d = max(off_scale[m], key=lambda rd: rd[1].max_abs_any)
+            # Top right, in the decade of headroom: the clipped line is at the left.
+            style.note(ax, 0.97, 0.97, f"↑ off scale outside the window:\n"
+                       f"{fmt_sig(d.max_abs_any)} in replicate {int(r)}", ha="right", size=style.TEXT_PT,
+                       linespacing=1.2, zorder=6,
+                       bbox={"facecolor": style.SURFACE, "edgecolor": "none", "pad": 0.5})
         style.years_axis(ax, xlim, label=True)
         style.log_axis(ax, "y", grid=True)
         ax.set_ylim(*dlim)
         if j == 0:
-            ax.set_ylabel("|log$_{10}$ ratio|,\npsmc-rs vs C")
+            ax.set_ylabel("|log$_{10}$ ratio| per interval,\npsmc-rs vs C")
         else:
             ax.tick_params(labelleft=False)
 
@@ -120,9 +144,12 @@ def draw(src: Source):
         style.handle(style.TRUTH, linewidth=style.LW),
         style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
         style.handle(style.RS02, linewidth=RS_MEDIAN_LW, label="psmc-rs 0.2, median"),
-        style.handle(style.Entity("One replicate (thin)", style.MUTED), linewidth=style.LW_THIN),
+        style.handle(style.C_PSMC, linewidth=style.LW_THIN, alpha=style.REPLICATE_ALPHA, label="C psmc, one replicate"),
+        style.handle(style.RS02, linewidth=style.LW_THIN, alpha=style.REPLICATE_ALPHA,
+                     label="psmc-rs 0.2, one replicate"),
     ]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
+    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
+                 columnspacing=1.0)
     style.panel_letters(fig, [*top, *mid, bottom])
     return fig
 
@@ -136,14 +163,14 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
          lambda m: reps[(reps.model == m) & (reps.tool == "c")]["rmse_log10_ne_vs_truth"]),
         ("psmc-rs 0.2 vs truth", style.RS02,
          lambda m: reps[(reps.model == m) & (reps.tool == "rs")]["rmse_log10_ne_vs_truth"]),
-        ("psmc-rs 0.2 vs C psmc", style.Entity("psmc-rs 0.2 vs C psmc", style.INK, "-", "D"),
-         lambda m: pairs[pairs.model == m]["rmse_log10_ne_rs_vs_c"]),
+        ("psmc-rs 0.2 vs C psmc,\nper interval", style.Entity("psmc-rs 0.2 vs C psmc", style.INK, "-", "D"),
+         lambda m: pairs[pairs.model == m]["rmse_log10_ne_rs_vs_c_per_interval"]),
     ]
     if mstep is not None and len(mstep):
         cap = int(mstep["mstep_iters_default"].iloc[0])
         groups.append((f"psmc-rs 0.2, M-steps capped at {cap}, vs C psmc",
                        style.Entity("", style.BLUE_650, "-", "^", filled=False),
-                       lambda m: mstep[mstep.model == m]["rmse_log10_ne_default_vs_c"]))
+                       lambda m: mstep[mstep.model == m]["rmse_log10_ne_default_vs_c_per_interval"]))
     width = 0.8 / len(groups)
     handles = []
     lows, highs = [], []
@@ -158,12 +185,15 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
             x0 = i + (gi - (len(groups) - 1) / 2) * width
             jitter = (np.arange(v.size) - (v.size - 1) / 2) * (0.6 * width / max(v.size, 2))
             ax.plot(x0 + jitter, v, **ent.points(markersize=2.6, alpha=0.85, label=label))
-            mean = float(np.mean(v))
-            ax.plot([x0 - 0.4 * width, x0 + 0.4 * width], [mean, mean], color=style.INK, linewidth=style.LW,
-                    zorder=5)
+            mean, med = float(np.mean(v)), float(np.median(v))
+            for y, ls in ((mean, "-"), (med, MEDIAN_STYLE)):
+                ax.plot([x0 - 0.4 * width, x0 + 0.4 * width], [y, y], color=style.INK, linewidth=style.LW,
+                        linestyle=ls, zorder=5)
             if gi >= 2:
-                style.note(ax, x0 + 0.45 * width, mean, fmt_sig(mean), ha="left", va="center",
-                           transform=ax.transData, size=5.5)
+                # Above the group, ending at its lines' right end: the groups to the
+                # left (against the truth) lie decades higher, the axis ends to the right.
+                style.note(ax, x0 + 0.4 * width, float(v.max()) * 1.8, f"mean {fmt_sig(mean)}\nmedian {fmt_sig(med)}",
+                           ha="right", va="bottom", transform=ax.transData, size=style.TEXT_PT, linespacing=1.15)
         handles.append(style.handle(ent, kind="points", label=label))
     style.log_axis(ax, "y", grid=True)
     lo = min(lows) if lows else 1e-6
@@ -175,4 +205,5 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
     ax.tick_params(axis="x", length=0)
     ax.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$")
     handles.append(style.handle(style.Entity("Mean", style.INK), linewidth=style.LW))
+    handles.append(style.handle(style.Entity("Median", style.INK, MEDIAN_STYLE), linewidth=style.LW))
     style.legend(ax, handles, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=1, handlelength=1.2)

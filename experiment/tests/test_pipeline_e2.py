@@ -312,8 +312,13 @@ class Tables(unittest.TestCase):
 
     def test_tool_comparison(self):
         pairs = {r["sample_id"]: r for r in read_csv(self.lay.table("pairs"))}
-        self.assertEqual(float(pairs["Papuan"]["rmse_log10_ne_rs_vs_c"]), 0.0)
-        self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c"]), math.log10(2), places=12)
+        self.assertEqual(float(pairs["Papuan"]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.0)
+        self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c_per_interval"]), math.log10(2),
+                               places=12)
+        self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c_per_interval_fixed"]), math.log10(2),
+                               places=12)
+        self.assertAlmostEqual(float(pairs["HLhydTec1"]["max_abs_log10_ne_rs_vs_c_per_interval"]), math.log10(2),
+                               places=12)
         self.assertEqual(float(pairs["Papuan"]["loglike_iteration0_rel_diff"]), 0.0)
         self.assertEqual(pairs["Papuan"]["bootstrap_main_identical"], "True")
         lo, hi = float(pairs["Papuan"]["window_lo_years"]), float(pairs["Papuan"]["window_hi_years"])

@@ -4,11 +4,16 @@ The genome is E1's replicate ``config.E6.format_replicate`` of each model,
 without missing data, in the three formats and fitted by psmc-rs 0.2 with
 E1's settings.
 
-* a-d: the three fits and the truth (the psmcfa fit wider, underneath);
-* e-h: |log10(Ne / Ne of the psmcfa fit)| for the VCF and multihetsep
-  inputs (log scale); an input whose fit equals the psmcfa's exactly is
-  named instead of drawn. Each panel gives the bins that differ from the
-  psmcfa's and the bins after the last heterozygous site that a
+* a-d: the three fits and the truth: the psmcfa fit wide, underneath; the
+  multihetsep fit thin and solid over it; the VCF fit dotted on top (it
+  equals the psmcfa fit, so its dots run along the wide line).
+* e-h: |log10(Ne / Ne of the psmcfa fit)| interval by interval for the VCF
+  and multihetsep inputs, drawn as a step curve on the psmcfa fit's
+  intervals (log scale; the fits have the same intervals, whose boundaries
+  differ in years only through theta and t_max, see
+  :func:`..metrics.interval_diff`); an input whose fit equals the psmcfa's
+  exactly is named instead of drawn. Each panel gives the bins that differ
+  from the psmcfa's and the bins after the last heterozygous site that a
   multihetsep, which ends at its last row, lacks.
 
 Everything comes from ``E6_S2_curves``, ``E6_S2_bins`` and ``E6_S2_fits``.
@@ -16,14 +21,24 @@ Everything comes from ``E6_S2_curves``, ``E6_S2_bins`` and ``E6_S2_fits``.
 
 from __future__ import annotations
 
+import math
+import textwrap
+from dataclasses import replace
 from typing import List
 
-from .. import config
+from .. import config, metrics
 from . import style
-from .data import Source, curves, decades, log10_ratio, time_grid, truth_xy
+from .data import Source, curves, decades, time_grid, truth_xy
 from .fig2 import MODEL_LABEL, model_order
 
 FLOOR = 1e-6
+# How the formats are drawn here: the multihetsep solid (style's dashes are
+# too close to the truth's), the VCF on top of it.
+FORMATS = {**style.FORMATS, "multihetsep": replace(style.FORMATS["multihetsep"], linestyle="-")}
+FORMAT_LW = {"psmcfa": 2.0}
+FORMAT_Z = {"psmcfa": 2, "multihetsep": 3, "vcf": 4}
+NOTE_WIDTH = 27  # characters per line of a panel's note
+NOTE_LINE_SHARE = 0.09  # share of a bottom panel's height one line of a note takes
 
 
 def draw(src: Source):
@@ -50,7 +65,7 @@ def draw(src: Source):
     bottom = [fig.add_subplot(gs[1, j], sharex=top[j]) for j in range(n)]
 
     vals: List[float] = []
-    diffs = {}
+    diffs = {}  # |log10 ratio| of each interval to the psmcfa fit's
     for m in models:
         window = windows[m]
         inside = (grid >= window[0]) & (grid <= window[1])
@@ -58,13 +73,16 @@ def draw(src: Source):
             if (m, i) in fits:
                 vals += list(fits[(m, i)].at(grid[inside]))
                 if i != "psmcfa" and (m, "psmcfa") in fits:
-                    diffs[(m, i)] = np.abs(log10_ratio(fits[(m, i)], fits[(m, "psmcfa")], grid))
+                    diffs[(m, i)] = np.abs(metrics.interval_log10_ratio(fits[(m, i)], fits[(m, "psmcfa")]))
         _, ty = truth_xy(m, g, xlim)
         vals += [float(ty.min()), float(ty.max())]
     ylim = decades(min(vals) / 1.5, max(vals) * 1.5)
+    notes = {m: _note(m, inputs, diffs, bins) for m in models}
     positive = [d[d > 0] for d in diffs.values()]
-    hi = max([float(p.max()) for p in positive if p.size] + [FLOOR * 10])
-    dlim = decades(FLOOR, hi * 1.5)
+    hi = max([float(p.max()) for p in positive if p.size] + [FLOOR * 10]) * 1.5
+    # Room above the data for the longest note.
+    room = NOTE_LINE_SHARE * max([len(t.splitlines()) for t in notes.values()] + [0]) + 0.04
+    dlim = (FLOOR, FLOOR * 10 ** (math.log10(hi / FLOOR) / (1.0 - room)))
 
     for j, m in enumerate(models):
         ax, axd = top[j], bottom[j]
@@ -74,51 +92,60 @@ def draw(src: Source):
             c = fits.get((m, i))
             if c is None:
                 continue
-            ent = style.FORMATS[i]
+            ent = FORMATS[i]
             x, y = style.step_xy(c.years, c.ne, xlim)
             ax.plot(x, y, drawstyle="steps-post", color=ent.color, linestyle=ent.linestyle,
-                    linewidth=2.0 if i == "psmcfa" else style.LW, zorder=2 if i == "psmcfa" else 3)
+                    linewidth=FORMAT_LW.get(i, style.LW), zorder=FORMAT_Z.get(i, 3))
         tx, ty = truth_xy(m, g, xlim)
-        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=4)
+        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=5)
         style.years_axis(ax, xlim, label=False)
         style.ne_axis(ax, ylim, label=style.NE_LABEL if j == 0 else None)
         ax.tick_params(labelbottom=False)
         style.note(ax, 0.97, 0.03, MODEL_LABEL.get(m, m), ha="right", va="bottom", color=style.INK, size=style.TEXT_PT)
 
-        lines = []
         for i in inputs:
-            if i == "psmcfa" or (m, i) not in diffs:
+            d = diffs.get((m, i))
+            if d is None or np.all(d == 0):
                 continue
-            d = diffs[(m, i)]
-            ent = style.FORMATS[i]
-            row = bins[(bins.model == m) & (bins.format == i)]
-            parts = []
-            if len(row):
-                r = row.iloc[0]
-                parts.append(f"{int(r.bins_differing):,} bins differ")
-                if int(r.bins_missing_at_end):
-                    parts.append(f"{int(r.bins_missing_at_end):,} tail bins missing")
-            if np.all(d == 0):
-                parts.append("same fit")
-            else:
-                axd.plot(grid, np.maximum(d, dlim[0]), drawstyle="steps-post", color=ent.color, linewidth=style.LW,
-                         zorder=3)
-            lines.append(f"{ent.label}: " + ", ".join(parts))
-        style.note(axd, 0.03, 0.97, "\n".join(lines), ha="left", va="top", linespacing=1.25)
+            x, y = style.step_xy(fits[(m, "psmcfa")].years, np.maximum(d, dlim[0]), xlim)
+            axd.plot(x, y, drawstyle="steps-post", color=FORMATS[i].color, linewidth=style.LW, zorder=3)
+        style.note(axd, 0.03, 0.97, notes[m], ha="left", va="top", linespacing=1.2)
         style.years_axis(axd, xlim)
         style.log_axis(axd, "y", grid=True)
         axd.set_ylim(*dlim)
         if j == 0:
-            axd.set_ylabel("|log$_{10}$ ratio| to\npsmcfa fit")
+            axd.set_ylabel("|log$_{10}$ ratio| per\ninterval to psmcfa fit")
         else:
             axd.tick_params(labelleft=False)
             ax.tick_params(labelleft=False)
 
-    handles = [style.handle(style.FORMATS[i], linewidth=2.0 if i == "psmcfa" else style.LW) for i in inputs]
+    handles = [style.handle(FORMATS[i], linewidth=FORMAT_LW.get(i, style.LW)) for i in inputs]
     handles.append(style.handle(style.TRUTH, linewidth=style.LW))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
     style.panel_letters(fig, [*top, *bottom])
     return fig
+
+
+def _note(model: str, inputs, diffs, bins) -> str:
+    """What a bottom panel says of each format against the psmcfa: its bins, and whether its fit is the same."""
+    import numpy as np
+
+    lines = []
+    for i in inputs:
+        if i == "psmcfa" or (model, i) not in diffs:
+            continue
+        row = bins[(bins.model == model) & (bins.format == i)]
+        parts = []
+        if len(row):
+            r = row.iloc[0]
+            differ, missing = int(r.bins_differing), int(r.bins_missing_at_end)
+            parts.append(f"{differ:,} bins differ" if differ else "same bins")
+            if missing:
+                parts.append(f"{missing:,}\u00a0tail bins missing")  # the count stays with its words
+        if np.all(diffs[(model, i)] == 0):
+            parts.append("same fit")
+        lines.append(textwrap.fill(f"{FORMATS[i].label}: " + ", ".join(parts), NOTE_WIDTH, subsequent_indent="  "))
+    return "\n".join(lines)
 
 
 __all__ = ["draw"]

@@ -17,30 +17,23 @@ identical settings), and finally writes the tables. Layout under
 Tables (``tables/``):
 
 * ``E1_table1.csv``: Table 1, one row per model: RMSE of log10 Ne against
-  the truth for each tool (mean and SD over replicates) on the model's
-  informative window and on the fixed window, RMSE against the
-  pattern-projected truth (below), RMSE between the tools, and the largest
-  differences in log-likelihood and theta.
+  the truth for each tool (mean and SD over replicates, and the median) on
+  the model's informative window and on the fixed window, RMSE against the
+  pattern-projected truth (below), the agreement of the tools interval by
+  interval (below: mean, median and largest RMSE over replicates, and the
+  largest difference of one interval inside the windows and anywhere), and
+  the largest differences in log-likelihood and theta.
 * ``E1_replicates.csv``: one row per model, replicate and tool: final theta,
   rho, t_max and N0, RMSE against the truth, log-likelihoods, and the run's
   wall time, peak RSS and load (recorded, not used for timing claims).
-* ``E1_rs_vs_c.csv``: one row per model and replicate: the two tools compared.
+* ``E1_rs_vs_c.csv``: one row per model and replicate: the two tools compared
+  interval by interval (below).
 * ``E1_mstep.csv`` (header only unless ``E1.default_mstep_iters`` sets a
   cap; by default it does not, since psmc-rs 0.2's default M-step converges
   like the main fit's, see :class:`.config.Inference`): one row per model
   and replicate: psmc-rs with its M-steps capped at that many iterations
   against C psmc and against the main fit (``--mstep-iters 1000``), its RMSE
   against the truth and its wall time.
-
-**Pattern-projected truth.** The first free lambda of ``4+25*2+4+6`` spans
-intervals 0-3 (about 0-28 ky for the zigzag model, whose window starts at
-7 ky), so part of the RMSE against the truth is the error of approximating
-the truth by the pattern's steps, which no estimator with this pattern can
-remove. Each fit is therefore also compared with the truth projected onto
-its own free-parameter spans: the true Ne averaged over each span in
-coalescence-rate terms (:func:`.metrics.projected_truth`), on the same
-window. ``rmse_log10_ne_vs_projected_truth`` is then the estimation error,
-and ``rmse_log10_projected_truth_vs_truth`` the pattern's own error.
 * ``E1_traces.csv``: EM traces (Fig S1): log-likelihood, theta, rho and
   t_max after each iteration, for both tools.
 * ``E1_curves.csv``: the final Ne(t) step curves of every fit (Fig 2).
@@ -48,6 +41,29 @@ and ``rmse_log10_projected_truth_vs_truth`` the pattern's own error.
 * ``E1_seeds.csv``: every simulation seed, with each chromosome's
   heterozygous sites, trees and longest stretch without a heterozygous
   site (a long recent-coalescence segment makes a replicate an outlier).
+
+**Pattern-projected truth.** The first free lambda of ``4+25*2+4+6`` spans
+intervals 0-3 (about 0-37 ky for the zigzag model, whose window starts at
+7 ky), so part of the RMSE against the truth is the error of approximating
+the truth by the pattern's steps, which no estimator with this pattern can
+remove. Each fit is therefore also compared with the truth projected onto
+its own free-parameter spans: the true Ne averaged over each span in
+coalescence-rate terms (:func:`.metrics.projected_truth`), on the same
+window. ``rmse_log10_ne_vs_projected_truth`` is then the estimation error,
+and ``rmse_log10_projected_truth_vs_truth`` the pattern's own error.
+
+**The tools compared.** Both fits have the same intervals (pattern
+``4+25*2+4+6``), whose boundaries in years differ only through each fit's
+theta and t_max. Interval k of psmc-rs is compared with interval k of C
+psmc (:func:`.metrics.interval_diff`): ``*_per_interval`` columns hold
+log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap the window,
+the RMSE weighted by each interval's log-time width inside the window and
+the largest absolute value; ``max_abs_log10_ne_rs_vs_c_any_interval`` is the
+largest over every interval, also outside the window, where a first lambda
+the data barely constrain can run away in one tool (C psmc's first lambda
+of expansion replicate 5 reaches 1e6; psmc-rs bounds every free lambda).
+Sampling both step curves at fixed times would instead read whole steps
+wherever a time falls between two nearly equal boundaries.
 """
 
 from __future__ import annotations
@@ -337,8 +353,6 @@ def loglikes(rp: Replicate) -> Dict[str, Dict[int, float]]:
 
 
 def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, List[Dict]]:
-    import numpy as np
-
     g = cfg.scaling.gen_years
     n = cfg.inference.n_iter
     ll = loglikes(rp)
@@ -391,18 +405,20 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
     common = sorted(i for i in set(ll["c"]) & set(ll["rs"]) if ll["c"][i])
     rel = {i: abs(ll["rs"][i] - ll["c"][i]) / abs(ll["c"][i]) for i in common}
     fc, fr = rp.fits["c"], rp.fits["rs"]
-    diff_w = metrics.rmse_between(rp.curves["rs"], rp.curves["c"], window)
+    diff_w = metrics.interval_diff(rp.curves["rs"], rp.curves["c"], (window[0], window[-1]))
     rows["pairs"].append(
         {
             "model": rp.model,
             "replicate": rp.replicate,
             "window_lo_years": float(window[0]),
             "window_hi_years": float(window[-1]),
-            "rmse_log10_ne_rs_vs_c": diff_w,
-            "rmse_log10_ne_rs_vs_c_fixed": metrics.rmse_between(rp.curves["rs"], rp.curves["c"], fixed),
-            "max_abs_log10_ne_diff": float(
-                np.max(np.abs(np.log10(rp.curves["rs"].at(window)) - np.log10(rp.curves["c"].at(window))))
+            "intervals_in_window": len(diff_w.interval),
+            "rmse_log10_ne_rs_vs_c_per_interval": diff_w.rmse,
+            "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(
+                rp.curves["rs"], rp.curves["c"], (fixed[0], fixed[-1])
             ),
+            "max_abs_log10_ne_rs_vs_c_per_interval": diff_w.max_abs,
+            "max_abs_log10_ne_rs_vs_c_any_interval": diff_w.max_abs_any,
             "theta_rel_diff": fr.theta / fc.theta - 1.0,
             "rho_rel_diff": fr.rho / fc.rho - 1.0,
             "t_max_rel_diff": fr.t_max / fc.t_max - 1.0,
@@ -419,19 +435,19 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
 # The columns of E1_mstep.csv, written also when there is no capped fit
 # (the default), so that the table keeps its header.
 MSTEP_FIELDS = (
-    "model", "replicate", "mstep_iters_default", "mstep_iters", "rmse_log10_ne_default_vs_c",
-    "max_abs_log10_ne_default_vs_c", "rmse_log10_ne_rs_vs_c", "rmse_log10_ne_default_vs_rs",
-    "rmse_log10_ne_default_vs_truth", "rmse_log10_ne_rs_vs_truth", "theta_default_rel_c",
-    "loglike_final_default", "loglike_final_rs", "wall_seconds_default", "wall_seconds_rs",
+    "model", "replicate", "mstep_iters_default", "mstep_iters", "rmse_log10_ne_default_vs_c_per_interval",
+    "max_abs_log10_ne_default_vs_c_per_interval", "rmse_log10_ne_rs_vs_c_per_interval",
+    "rmse_log10_ne_default_vs_rs_per_interval", "rmse_log10_ne_default_vs_truth", "rmse_log10_ne_rs_vs_truth",
+    "theta_default_rel_c", "loglike_final_default", "loglike_final_rs", "wall_seconds_default", "wall_seconds_rs",
 )
 
 
 def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
-    """psmc-rs with capped M-steps against C psmc and against the main psmc-rs fit."""
-    import numpy as np
-
+    """psmc-rs with capped M-steps against C psmc and against the main psmc-rs fit (interval by interval)."""
     g = cfg.scaling.gen_years
     d, c, rs = rp.default_curve, rp.curves["c"], rp.curves["rs"]
+    w = (window[0], window[-1])
+    d_c = metrics.interval_diff(d, c, w)
     fd = results.fit_from_rs(rp.default_params)
     ll_d, ll_rs = results.rs_loglikes(rp.default_params), results.rs_loglikes(rp.rs_params)
     run_d, run_rs = rp.runs.get("rs-default", {}), rp.runs.get("rs", {})
@@ -440,10 +456,10 @@ def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
         "replicate": rp.replicate,
         "mstep_iters_default": cfg.default_mstep_iters,
         "mstep_iters": cfg.inference.mstep_iters,
-        "rmse_log10_ne_default_vs_c": metrics.rmse_between(d, c, window),
-        "max_abs_log10_ne_default_vs_c": float(np.max(np.abs(np.log10(d.at(window)) - np.log10(c.at(window))))),
-        "rmse_log10_ne_rs_vs_c": metrics.rmse_between(rs, c, window),
-        "rmse_log10_ne_default_vs_rs": metrics.rmse_between(d, rs, window),
+        "rmse_log10_ne_default_vs_c_per_interval": d_c.rmse,
+        "max_abs_log10_ne_default_vs_c_per_interval": d_c.max_abs,
+        "rmse_log10_ne_rs_vs_c_per_interval": metrics.interval_rmse(rs, c, w),
+        "rmse_log10_ne_default_vs_rs_per_interval": metrics.interval_rmse(d, rs, w),
         "rmse_log10_ne_default_vs_truth": metrics.rmse_vs_truth(d, rp.epochs, window, g),
         "rmse_log10_ne_rs_vs_truth": metrics.rmse_vs_truth(rs, rp.epochs, window, g),
         "theta_default_rel_c": fd.theta / rp.fits["c"].theta - 1.0,
@@ -467,12 +483,14 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
 
     c_mean, c_sd = _mean_sd(col("c", "rmse_log10_ne_vs_truth"))
     r_mean, r_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_truth"))
+    median = lambda xs: statistics.median(xs) if xs else None  # noqa: E731
     cf_mean, cf_sd = _mean_sd(col("c", "rmse_log10_ne_vs_truth_fixed"))
     rf_mean, rf_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_truth_fixed"))
     cp_mean, cp_sd = _mean_sd(col("c", "rmse_log10_ne_vs_projected_truth"))
     rp_mean, rp_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_projected_truth"))
     pattern_mean, _ = _mean_sd(col("c", "rmse_log10_projected_truth_vs_truth"))
-    d = [p["rmse_log10_ne_rs_vs_c"] for p in pairs]
+    d = [p["rmse_log10_ne_rs_vs_c_per_interval"] for p in pairs]
+    capped = [m["rmse_log10_ne_default_vs_c_per_interval"] for m in msteps]
     return {
         "model": model,
         "replicates": len(pairs),
@@ -482,6 +500,8 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
         "rmse_truth_c_sd": c_sd,
         "rmse_truth_rs_mean": r_mean,
         "rmse_truth_rs_sd": r_sd,
+        "rmse_truth_c_median": median(col("c", "rmse_log10_ne_vs_truth")),
+        "rmse_truth_rs_median": median(col("rs", "rmse_log10_ne_vs_truth")),
         "rmse_truth_fixed_c_mean": cf_mean,
         "rmse_truth_fixed_c_sd": cf_sd,
         "rmse_truth_fixed_rs_mean": rf_mean,
@@ -491,12 +511,15 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
         "rmse_projected_rs_mean": rp_mean,
         "rmse_projected_rs_sd": rp_sd,
         "rmse_pattern_vs_truth_mean": pattern_mean,
-        "rmse_rs_vs_c_mean": statistics.fmean(d) if d else None,
-        "rmse_rs_vs_c_max": max(d) if d else None,
+        "rmse_rs_vs_c_per_interval_mean": statistics.fmean(d) if d else None,
+        "rmse_rs_vs_c_per_interval_median": median(d),
+        "rmse_rs_vs_c_per_interval_max": max(d) if d else None,
+        "max_abs_rs_vs_c_per_interval": max((p["max_abs_log10_ne_rs_vs_c_per_interval"] for p in pairs), default=None),
+        "max_abs_rs_vs_c_any_interval": max((p["max_abs_log10_ne_rs_vs_c_any_interval"] for p in pairs), default=None),
         "loglike_max_rel_diff": max((p["loglike_max_rel_diff"] for p in pairs if p["loglike_max_rel_diff"] is not None), default=None),
         "theta_max_abs_rel_diff": max((abs(p["theta_rel_diff"]) for p in pairs), default=None),
-        "rmse_rs_default_vs_c_mean": _mean_sd([m["rmse_log10_ne_default_vs_c"] for m in msteps])[0],
-        "rmse_rs_default_vs_c_max": max((m["rmse_log10_ne_default_vs_c"] for m in msteps), default=None),
+        "rmse_rs_default_vs_c_per_interval_mean": _mean_sd(capped)[0],
+        "rmse_rs_default_vs_c_per_interval_max": max(capped, default=None),
         "rmse_truth_rs_default_mean": _mean_sd([m["rmse_log10_ne_default_vs_truth"] for m in msteps])[0],
     }
 

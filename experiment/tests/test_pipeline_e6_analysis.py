@@ -100,8 +100,10 @@ class Formats(unittest.TestCase):
         window = np.logspace(4, 6, 50)
         rows = {r["format"]: r for r in A.fit_rows("bottleneck", fits, epochs, window, 2.5e-8, 25.0, 100)}
         self.assertTrue(rows["vcf"]["parameters_identical"] and rows["vcf"]["loglikes_identical"])
-        self.assertEqual(rows["vcf"]["rmse_log10_ne_vs_psmcfa"], 0.0)
-        self.assertAlmostEqual(rows["multihetsep"]["rmse_log10_ne_vs_psmcfa"], math.log10(2), places=12)
+        self.assertEqual(rows["vcf"]["rmse_log10_ne_vs_psmcfa_per_interval"], 0.0)
+        self.assertAlmostEqual(rows["multihetsep"]["rmse_log10_ne_vs_psmcfa_per_interval"], math.log10(2), places=12)
+        self.assertAlmostEqual(rows["multihetsep"]["max_abs_log10_ne_vs_psmcfa_per_interval"], math.log10(2),
+                               places=12)
         self.assertAlmostEqual(rows["multihetsep"]["lambda_max_abs_rel_diff"], 1.0)
         self.assertEqual(rows["multihetsep"]["loglike_final_diff"], 0.5)
         self.assertEqual(rows["vcf"]["qc_warnings"], "TOO_SHORT")

@@ -221,10 +221,10 @@ psmc-rs with capped M-steps, when `E1.default_mstep_iters` sets a cap); then
 
 | table | contents |
 | --- | --- |
-| `E1_table1.csv` | Table 1, per model: RMSE of log10 Ne against the truth per tool (mean, SD; informative and fixed windows) and against the pattern-projected truth, the pattern's own error, RMSE between the tools (mean, max), largest relative difference in log-likelihood and theta |
+| `E1_table1.csv` | Table 1, per model: RMSE of log10 Ne against the truth per tool (mean, SD, median; informative and fixed windows) and against the pattern-projected truth, the pattern's own error, the tools compared interval by interval (`rmse_rs_vs_c_per_interval_*`: mean, median and largest RMSE over replicates; `max_abs_rs_vs_c_per_interval`: the largest difference of one interval in a window; `max_abs_rs_vs_c_any_interval`: of any interval), largest relative difference in log-likelihood and theta |
 | `E1_replicates.csv` | per model, replicate and tool: theta, rho, t_max, N0, RMSE against the truth, log-likelihoods, wall time, peak RSS, load |
-| `E1_rs_vs_c.csv` | per model and replicate: RMSE and largest difference between the tools, relative differences of theta, rho, t_max and the log-likelihood |
-| `E1_mstep.csv` | per model and replicate (no rows without a capped fit): psmc-rs with capped M-steps against C psmc, against the main fit and against the truth, wall times |
+| `E1_rs_vs_c.csv` | per model and replicate: the tools compared interval by interval (below): RMSE of log10 Ne (informative and fixed windows) and largest difference of an interval in the window and of any interval, intervals in the window; relative differences of theta, rho, t_max and the log-likelihood |
+| `E1_mstep.csv` | per model and replicate (no rows without a capped fit): psmc-rs with capped M-steps against C psmc and against the main fit (interval by interval) and against the truth, wall times |
 | `E1_traces.csv` | per iteration (Fig S1): log-likelihood, theta, rho, t_max for both tools |
 | `E1_curves.csv` | every fitted Ne(t) step curve (Fig 2) |
 | `E1_truth.csv` | the true Ne(t) of each model on a dense grid (Fig 2) |
@@ -234,6 +234,19 @@ Iterations count completed EM iterations: C psmc's round k prints the
 parameters after k iterations and the log-likelihood after k - 1 (`LK`);
 psmc-rs's `loglike[i]` is after i. The report checks that both tools read
 the simulated genome (bins and heterozygous bins agree with the truth record).
+
+A fit is compared with the truth at 200 log-spaced times of the window. The
+two tools' fits are compared interval by interval instead
+(`metrics.interval_diff`): both have the pattern's intervals, whose
+boundaries in years differ only through each fit's theta and t_max (by 1e-4
+to 1e-3), so a fixed time between two such boundaries would read a whole
+step of one curve against the next of the other. The `*_per_interval`
+columns hold log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap
+the window, the RMSE weighting each by its log-time width inside the window
+(as the log-spaced grid weighs the RMSE against the truth). A first lambda
+the data barely constrain can run away in one tool outside the window (C
+psmc's in expansion replicate 5; psmc-rs bounds every free lambda):
+`max_abs_log10_ne_rs_vs_c_any_interval` gives it.
 
 Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 `fits/<model>/` (`repNN.c.psmc`, `repNN.rs.json`, `repNN.rs.psmc`,
@@ -268,7 +281,7 @@ calibrate.
 
 The tools are compared on the window between the 1% and 99% quantiles of
 the pairwise coalescence time under C psmc's fitted model (a real genome
-has no truth); the band is the 2.5% to 97.5% quantiles of the replicates'
+has no truth), interval by interval as in E1; the band is the 2.5% to 97.5% quantiles of the replicates'
 Ne at each time, as psmc-rs's summary computes it, and the report checks it
 against `summary.json`.
 
@@ -579,8 +592,9 @@ E6 reads what E1 and E2 make and adds the runs only it needs
   as psmcfa (E1's fit), as its VCF (no missing data) and as multihetsep
   (`psmc-rs convert --multihetsep` of the VCF): the VCF must give the
   psmcfa's bins and fit exactly, the multihetsep may lack only the bins
-  after its last heterozygous site, which are counted (`E6_S2_bins`,
-  `_fits`, `_curves`). The report writes its tables and then fails if not.
+  after its last heterozygous site, which are counted; the fits are
+  compared with the psmcfa fit interval by interval, as E1 compares the
+  tools (`E6_S2_bins`, `_fits`, `_curves`). The report writes its tables and then fails if not.
 * **S3, TMRCA decoding** (Fig S3): E1's psmc-rs fit of bottleneck replicate
   1 decoded per bin (`--init-params` of the fit, 0 iterations,
   `--tmrca-out`) against the true pairwise TMRCA re-simulated from the

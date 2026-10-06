@@ -51,16 +51,24 @@ so that it can be turned into the caption. Captions should also say:
   window (1% to 99% quantiles of the true pairwise coalescence time), where
   no metric is computed. In Fig 2a-d, Ne values of the fits outside the axis
   are clipped; a replicate's first or last free lambda, which the data barely
-  constrain, can lie far above it (e-h show by how much the tools differ).
-- **Fig 2e-h and S2e-h**: the differences between two step functions with
-  slightly different time boundaries (each tool has its own t_max) show
-  narrow spikes at the boundaries; they are real and short.
+  constrain, can lie far above it. In expansion replicate 5, C psmc's first
+  lambda ran away to about 1e6 (psmc-rs bounds every free lambda at 1e4):
+  2.0 in log10 Ne before the window, which leaves Fig 2c and is named, off
+  scale, in Fig 2g (`E1_rs_vs_c.max_abs_log10_ne_rs_vs_c_any_interval`).
+- **Fig 2e-i, 3 and S2e-h**: two fits of the same pattern are compared
+  interval by interval, not at fixed times: interval k of one with interval k
+  of the other, drawn on the reference's intervals (C psmc's, the psmcfa
+  fit's). Their boundaries differ in years only through theta and t_max, and
+  a fixed time between two nearly equal boundaries would read a whole step.
+  The RMSE weighs each interval by its log-time width inside the window.
 - **Fig 3**: each species with its own mu and g (in the panel; the turtle
   values are unverified, see `config._TURTLE_SCALING_SOURCE`); the human
-  sample is chromosome 1 only. A genome whose default trunks are fewer than
-  20 (Papuan chr1: 5 of 50 Mb) is bootstrapped again on 5 Mb trunks (dark
-  outline); E5 calibrates chromosome-scale trunks only, and the turtles'
-  default bootstraps resample whole scaffolds.
+  sample is chromosome 1 only. The bootstrap resamples blocks: the
+  sequences split at 50 Mb (splitfa's trunks), so most of the turtles'
+  blocks are whole scaffolds. A genome whose default blocks are fewer than
+  20 (Papuan chr1: 5 of 50 Mb) is bootstrapped again on 5 Mb blocks (dark
+  dotted outline); its coarse 50 Mb band is clipped. E5 calibrates
+  chromosome-scale blocks only.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
   E3 recorded.
@@ -129,14 +137,14 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E1/tables/E1_truth.csv` | model and time of a dense log grid | `model`, `years`, `ne` |
 | `E1/tables/E1_table1.csv` | model | `model`, `window_lo_years`, `window_hi_years` |
 | `E1/tables/E1_replicates.csv` | model, replicate and tool | `model`, `replicate`, `tool`, `rmse_log10_ne_vs_truth` |
-| `E1/tables/E1_rs_vs_c.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_rs_vs_c`, `max_abs_log10_ne_diff` |
-| `E1/tables/E1_mstep.csv` (no rows without a capped fit) | model and replicate | `model`, `replicate`, `mstep_iters_default`, `rmse_log10_ne_default_vs_c` |
+| `E1/tables/E1_rs_vs_c.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_any_interval` |
+| `E1/tables/E1_mstep.csv` (no rows without a capped fit) | model and replicate | `model`, `replicate`, `mstep_iters_default`, `rmse_log10_ne_default_vs_c_per_interval` |
 | `E1/tables/E1_traces.csv` | model, replicate, tool and EM iteration | `model`, `replicate`, `tool`, `iteration`, `loglike`, `theta`, `rho` |
 | `E2/tables/E2_curves.csv` | genome, tool and interval | `sample_id`, `tool`, `interval`, `years`, `ne` |
 | `E2/tables/E2_bands.csv` | genome, bootstrap trunk size and time of a dense log grid | `sample_id`, `trunk_bins`, `years`, `ne_band_lo`, `ne_band_hi` |
 | `E2/tables/E2_bootstrap.csv` | genome and bootstrap trunk size | `sample_id`, `default_trunks`, `trunk_bins`, `trunk_mb`, `trunks`, `coarse_band`, `replicates` |
-| `E2/tables/E2_rs_vs_c.csv` | genome | `sample_id`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c` |
-| `E2/tables/E2_fit_summary.csv` | genome and tool | `sample_id`, `tool`, `mu`, `gen_years` |
+| `E2/tables/E2_rs_vs_c.csv` | genome | `sample_id`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
+| `E2/tables/E2_fit_summary.csv` | genome and tool | `sample_id`, `tool`, `mu`, `gen_years`, `sequences` |
 | `E3/tables/E3_table2.csv` | tool, thread count and genome size (Table 2) | `tool`, `threads`, `size_mb`, `status`, `note`, `wall_median_s`, `peak_rss_median_mb`, `speedup_vs_c` |
 | `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
 | `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
