@@ -497,7 +497,7 @@ checks that every fit read the bins of its route and ran with its route's
 | `E4_rescaling.csv` | per mask and replicate: the rescaling cross-check, `mask_auto`, `mask_ignore` and `mask_ignore` rescaled (theta against the complete-data fit, RMSE against the truth and against the complete-data fit, mean log10 bias), and the RMSE between the rescaled curve and `mask_auto`'s |
 | `E4_bins.csv` | per mask, replicate and route: the exact T/K/N bins against the route's (`N_T`: missing in the exact bins, called in the route), bins only one has (the multihetsep tail after its last row) |
 | `E4_masks.csv` | per mask and replicate: target and realised missing fraction, uncallable runs and their mean length, heterozygous sites removed |
-| `E4_qc.csv` | every QC finding of every fit (mask, route, replicate, code, severity: `warning` or `note`) |
+| `E4_qc.csv` | every QC finding of every fit (mask, route, replicate, code, severity: `warning` or `note`, from the fit JSON's `qc.warnings` and `qc.notes`; the QC JSON that E2's and E6's tables read calls a note's severity `info`) |
 | `E4_crosscheck.csv` | per chromosome of replicate 1: rows of generate_multihetsep.py and psmc-rs, identical |
 | `E4_curves.csv`, `E4_truth.csv`, `E4_seeds.csv` | every fitted Ne(t) step curve, the true Ne(t), every seed |
 

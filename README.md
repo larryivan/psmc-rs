@@ -501,7 +501,10 @@ called bins, as C psmc counts them, and the fit's JSON keeps both
 `-` for stdout) writes it as JSON; `--bootstrap-block-size BINS` adds the
 trunk checks; `--strict` exits with status 2 when a finding is a warning.
 Every fit and conversion prints the same report (`-q` reduces it to its
-warnings), and the output JSON keeps its finding codes.
+warnings), and the output JSON keeps its finding codes. A finding is a
+warning or a note: the text report labels them `WARNING` and `INFO`, the
+QC JSON gives their `severity` as `warning` and `info`, and a fit's JSON
+lists their codes under `qc.warnings` and `qc.notes`.
 
 | code | severity | when |
 | --- | --- | --- |
