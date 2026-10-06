@@ -835,11 +835,17 @@ describes how reference outputs may be regenerated.
 
 ## Reproducing the manuscript
 
-`experiment/` holds the scripts, data and notebook behind the manuscript's
-figures and tables; [experiment/README.md](experiment/README.md) describes
-the pipeline (simulate, run psmc-rs and C psmc with matched settings, draw
-the figures). The packaged results were made with 0.1 and are being
-regenerated with 0.2.
+`experiment/pipeline/` makes the manuscript's experiments, tables and
+figures with psmc-rs 0.2 (simulate, run psmc-rs and C psmc with matched
+settings, record how every output was made, draw the figures from the
+tables); [experiment/pipeline/README.md](experiment/pipeline/README.md)
+describes it, and
+[Supplementary Note 1](experiment/Supplementary_Note_1_Reproducibility.md)
+how to reproduce the results on a laptop or a SLURM cluster. Its results
+go to `experiment/runs/E1` to `E6` and `FIG`; E3 (performance) is still
+being run. The scripts, notebook and results described in
+[experiment/README.md](experiment/README.md) are the earlier pipeline of
+0.1.
 
 ## Citing
 
