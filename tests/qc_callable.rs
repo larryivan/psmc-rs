@@ -255,4 +255,24 @@ fn heterozygosity_is_compared_per_callable_base() {
     assert!(with.finding(QcCode::HetOutlier).is_none());
     let outliers = without.finding(QcCode::HetOutlier).unwrap();
     assert_eq!(outliers.sequences, ["chr6"]);
+
+    // The table says when its het/kb is per callable base, unlike the
+    // totals and the JSON's het_per_kb, and the JSON gives both.
+    let (text_with, text_without) = (render_text(&with), render_text(&without));
+    assert!(with.het_per_callable_kb() && !without.het_per_callable_kb());
+    assert!(text_with.contains("het/kb*") && text_with.contains("* het/kb* is per kb of callable"));
+    assert!(!text_without.contains("het/kb*"), "{text_without}");
+    let (s_with, s_without) = (with.summary(), without.summary());
+    let t = &with.totals;
+    assert_eq!(s_with.het_per_kb, t.het_per_kb);
+    let per_callable = s_with.het_per_callable_kb.unwrap();
+    let expected = 1000.0 * t.theta0_callable.unwrap() / 100.0;
+    assert!(
+        (per_callable - expected).abs() < 1e-12 * expected,
+        "{per_callable}"
+    );
+    assert!(per_callable > s_with.het_per_kb.unwrap());
+    assert_eq!(s_without.het_per_callable_kb, None);
+    let json = serde_json::to_value(&s_without).unwrap();
+    assert!(json.get("het_per_callable_kb").is_none(), "{json}");
 }

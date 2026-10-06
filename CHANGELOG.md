@@ -114,10 +114,11 @@ Command line and outputs:
   writes partly callable bins of a VCF, which psmcfa cannot record, and
   advises fitting the VCF itself.
 - QC compares the heterozygosity of sequences per callable base when the
-  input records callable bases (the per-sequence table's het/kb and
-  `vs ref`, the autosomal reference, `SEX_OR_ORGANELLE` and `HET_OUTLIER`),
-  so that a sequence with more missing data does not look less
-  heterozygous; `HIGH_MISSING` says when the fit corrects the bias of
+  input records callable bases (the per-sequence table's het/kb, then
+  marked `het/kb*` with a note under the table, and `vs ref`, the autosomal
+  reference, `SEX_OR_ORGANELLE` and `HET_OUTLIER`), so that a sequence with
+  more missing data does not look less heterozygous; the fit's JSON keeps
+  `qc.het_per_kb` per kb of called bins and adds `qc.het_per_callable_kb`; `HIGH_MISSING` says when the fit corrects the bias of
   partly called bins. `APPROX_MISSING_PLACEMENT` gives the share of
   uncalled sites of multihetsep input and is a warning above 5%: its
   reader's placement of them biases θ, the times and Ne low whatever
@@ -268,6 +269,8 @@ Library API:
   fields.
 - QC: `qc::QcInput::callable` (struct literals need `callable: None`),
   `QcContext::counts_ignored`, `QcReport::callable`,
+  `QcReport::het_per_callable_kb` and `HET_PER_CALLABLE_KB_NOTE`,
+  `QcSummary::het_per_callable_kb` (struct literals need it),
   `BinStats::{theta0_callable, mean_callable_fraction,
   partly_callable_fraction, called_next_to_missing}` with
   `theta0_comparable` and `het_per_kb_comparable`,

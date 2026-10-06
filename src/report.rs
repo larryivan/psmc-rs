@@ -391,12 +391,14 @@ fn qc_section(r: &QcReport) -> String {
     out.push_str("</table>");
 
     if !r.sequences.is_empty() {
+        let per_callable = r.het_per_callable_kb();
         let _ = writeln!(
             out,
             r#"<details><summary>Per-sequence metrics ({} of {})</summary><table class="seq-table">
-<tr><th>Sequence</th><th>Bins</th><th>K</th><th>N</th><th>Het/kb</th><th>vs others</th></tr>"#,
+<tr><th>Sequence</th><th>Bins</th><th>K</th><th>N</th><th>{}</th><th>vs others</th></tr>"#,
             r.sequences.len(),
-            r.n_sequences
+            r.n_sequences,
+            if per_callable { "Het/kb*" } else { "Het/kb" }
         );
         for s in &r.sequences {
             let kind = s
@@ -414,7 +416,15 @@ fn qc_section(r: &QcReport) -> String {
                     .map_or("-".to_string(), |v| format!("{}x", sig(v, 2)))
             );
         }
-        out.push_str("</table></details>");
+        out.push_str("</table>");
+        if per_callable {
+            let _ = write!(
+                out,
+                "<div class=\"note\">* {}</div>",
+                escape_html(crate::qc::HET_PER_CALLABLE_KB_NOTE)
+            );
+        }
+        out.push_str("</details>");
     }
     out.push_str("</div></section>");
     out

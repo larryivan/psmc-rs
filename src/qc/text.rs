@@ -394,13 +394,14 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
         chosen.sort_unstable();
     }
 
+    let per_callable = r.het_per_callable_kb();
     let header = [
         "sequence",
         "bins",
         "T%",
         "K%",
         "N%",
-        "het/kb",
+        if per_callable { "het/kb*" } else { "het/kb" },
         "vs ref",
         "longest N",
         "kind",
@@ -456,5 +457,8 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
             if hidden == 1 { "sequence" } else { "sequences" },
             count(r.totals.bins - shown_bins)
         );
+    }
+    if per_callable {
+        let _ = writeln!(out, "  * {}", super::HET_PER_CALLABLE_KB_NOTE);
     }
 }

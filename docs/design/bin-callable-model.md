@@ -457,7 +457,11 @@ With counts, sequences are compared per callable base
 (`BinStats::theta0_callable`, `theta0_comparable`): the autosomal
 reference, the table's het/kb and `vs ref`, `SEX_OR_ORGANELLE` (whose
 expected `K` bins use the sequence's mean share) and `HET_OUTLIER`, so that
-a sequence with more missing data does not look less heterozygous.
+a sequence with more missing data does not look less heterozygous. The
+table's column is then `het/kb*`, with a note under it, since the totals'
+het per kb (and `QcSummary::het_per_kb` in the fit's JSON) stay per kb of
+called bins; `QcSummary::het_per_callable_kb` gives the total per callable
+base.
 
 **`.psmc` output and the JSON.** θ is still per `s` bases, so
 `psmc_plot.pl -s s -u μ` scales a `.psmc` file correctly. The `MM` line's

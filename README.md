@@ -480,8 +480,11 @@ mean share and distribution), sequence lengths (N50), the longest missing
 run, the share of bins likely to hold several heterozygous sites, read
 depth (VCF), a per-sequence table, and findings with recommendations. With
 callable bases, sequences are compared per callable base (the table's
-het/kb and the sex chromosome and outlier checks), so that one with more
-missing data does not look less heterozygous. `--json FILE` (or
+het/kb, marked `het/kb*` with a note under the table, and the sex
+chromosome and outlier checks), so that one with more missing data does
+not look less heterozygous; the totals' θ0 and het per kb stay per kb of
+called bins, as C psmc counts them, and the fit's JSON keeps both
+(`qc.het_per_kb`, `qc.het_per_callable_kb`). `--json FILE` (or
 `-` for stdout) writes it as JSON; `--bootstrap-block-size BINS` adds the
 trunk checks; `--strict` exits with status 2 when a finding is a warning.
 Every fit and conversion prints the same report (`-q` reduces it to its

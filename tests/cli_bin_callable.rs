@@ -310,6 +310,11 @@ fn auto_fits_partly_callable_bins_and_says_so() {
     assert!(tmrca.exists());
     let html = fs::read_to_string(dir.path("auto.html")).unwrap();
     assert!(html.contains("callable-length model"));
+    // Its per-sequence het/kb is per callable base, and says so; the JSON
+    // keeps both.
+    assert!(html.contains("Het/kb*") && html.contains("het/kb* is per kb of callable bases"));
+    let per_callable = auto["qc"]["het_per_callable_kb"].as_f64().unwrap();
+    assert!(per_callable > auto["qc"]["het_per_kb"].as_f64().unwrap());
 
     // The run says so, and convert says what a psmcfa loses.
     let out = common::run([

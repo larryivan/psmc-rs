@@ -742,11 +742,29 @@ impl QcReport {
             missing_fraction: t.missing_fraction,
             theta0_per_bin: t.theta0_per_bin,
             het_per_kb: t.het_per_kb,
+            het_per_callable_kb: t.theta0_callable.and(t.het_per_kb_comparable()),
             called_bases: t.called_bases.unwrap_or(t.called_bases_from_bins),
             n50_bases: self.lengths.n50_bases,
         }
     }
+
+    /// Whether the per-sequence tables give heterozygosity per kb of
+    /// callable bases ([`BinStats::het_per_kb_comparable`]) rather than per
+    /// kb of called bins, as they do when the input records callable bases;
+    /// the reports then mark the column and say so under it
+    /// ([`HET_PER_CALLABLE_KB_NOTE`]).
+    pub fn het_per_callable_kb(&self) -> bool {
+        self.totals.theta0_callable.is_some()
+    }
 }
+
+/// What the reports say under a per-sequence table whose heterozygosity is
+/// per kb of callable bases ([`QcReport::het_per_callable_kb`]).
+pub const HET_PER_CALLABLE_KB_NOTE: &str = "het/kb* is per kb of callable bases (from theta0 of \
+     the callable-length model), so that sequences with more missing data do not look less \
+     heterozygous; the totals' theta0 and het per kb, and qc.het_per_kb of the output JSON, are \
+     per kb of called bins (C psmc's -ln(1 - K/L)), and qc.het_per_callable_kb is the total per \
+     kb of callable bases.";
 
 /// The codes of a [`QcReport`]'s findings and its key metrics
 /// ([`QcReport::summary`]), as stored with a fit.
@@ -764,8 +782,14 @@ pub struct QcSummary {
     pub missing_fraction: f64,
     /// [`BinStats::theta0_per_bin`].
     pub theta0_per_bin: Option<f64>,
-    /// [`BinStats::het_per_kb`].
+    /// [`BinStats::het_per_kb`]: per kb of called bins.
     pub het_per_kb: Option<f64>,
+    /// With callable bases, heterozygous sites per kb of callable bases of
+    /// the whole input ([`BinStats::het_per_kb_comparable`]), the
+    /// heterozygosity the per-sequence tables give; absent without them
+    /// (and in files of psmc-rs before it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub het_per_callable_kb: Option<f64>,
     /// Called length: [`BinStats::called_bases`] when the loader counted
     /// sites, otherwise [`BinStats::called_bases_from_bins`].
     pub called_bases: u64,
