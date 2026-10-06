@@ -162,6 +162,9 @@ class Jobs(unittest.TestCase):
                 self.assertEqual(big.cores, min(30, machine))  # not capped at the laptop's budget of 7
                 cmd = big.command[big.command.index("--") + 1 :]
                 self.assertEqual((cmd[cmd.index("--threads") + 1], big.env), ("30", {"RAYON_NUM_THREADS": "30"}))
+                # measure is told the threads, and refuses to time 30 threads on fewer cores
+                wrapper = big.command[: big.command.index("--")]
+                self.assertEqual(wrapper[wrapper.index("--threads") + 1], "30")
                 # The runs are exclusive: the default budget's 7 cores start them all. Its 12 GB do not
                 # start psmc-rs 0.1 on 30 threads (14.6 GB); E3 is started with --mem-gb 15.
                 runs = [j for j in jobs.values() if j.exclusive]
@@ -369,6 +372,21 @@ class Report(unittest.TestCase):
         self.assertTrue(e3.is_clean(timing, protocol))
         timing["machine_before"]["busy_cores"] = 1.5
         self.assertFalse(e3.is_clean(timing, protocol))
+
+    def test_a_run_with_more_threads_than_usable_cpus_is_not_clean(self):
+        run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02" and r.setup.threads == 2)
+        timing = json.loads(self.lay.timing(run).read_text())
+        protocol = config.TimingProtocol()
+        self.assertTrue(e3.is_clean(timing, protocol))
+        self.assertTrue(e3.is_clean({**timing, "threads": 30, "cpus_usable": 30}, protocol))
+        self.assertFalse(e3.is_clean({**timing, "threads": 30, "cpus_usable": 16}, protocol))
+        # a record without cpus_usable: the cpus_allowed of a Linux machine
+        self.assertFalse(e3.is_clean({**timing, "threads": 30, "machine": {"cpus_allowed": 16}}, protocol))
+        self.lay.timing(run).write_text(json.dumps({**timing, "threads": 30, "cpus_usable": 16}))
+        e3.report(Context(self.profile, self.runs))
+        row = next(r for r in read_csv(self.lay.table("runs"))
+                   if (r["tool"], r["threads"], r["repeat"]) == ("rs02", "2", str(run.repeat)))
+        self.assertEqual((row["clean"], row["cpus_usable"]), ("False", "16"))
 
     def test_a_fit_of_another_genome_is_refused(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02")

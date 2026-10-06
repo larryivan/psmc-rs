@@ -87,7 +87,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import statistics
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -97,7 +96,7 @@ from .. import config, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
-from .e3_run import genome_for, measure_args, other_cores
+from .e3_run import genome_for, measure_args, other_cores, usable_cpus
 
 NAME = "E3"
 TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
@@ -349,17 +348,14 @@ def tool_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run) -> Tuple[t
 def measure_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run, tool_cmd: Sequence[str]) -> List[str]:
     return [
         paths.python(), "-m", "experiment.pipeline.experiments.e3_run", "measure",
-        "--out", str(lay.timing(run)), "--runs-dir", str(ctx.runs_dir), *measure_args(cfg.timing),
-        "--", *tool_cmd,
+        "--out", str(lay.timing(run)), "--runs-dir", str(ctx.runs_dir), "--threads", str(run.setup.threads),
+        *measure_args(cfg.timing), "--", *tool_cmd,
     ]
 
 
 def machine_cores() -> int:
     """The cores this process may run on: its CPU affinity (a SLURM allocation's) where there is one, else all."""
-    try:
-        return len(os.sched_getaffinity(0))
-    except (AttributeError, OSError):
-        return os.cpu_count() or 1
+    return usable_cpus()
 
 
 def run_cores(threads: int, machine: int) -> int:
@@ -369,7 +365,10 @@ def run_cores(threads: int, machine: int) -> int:
     machine, not a share of it, and the runner starts it whatever its
     ``--cores`` budget (:func:`.runner.fits_budget`). Its memory must fit
     ``--mem-gb``: psmc-rs 0.1 on 30 threads needs 14.6 GB, so E3 is started
-    with ``--mem-gb 15`` or more.
+    with ``--mem-gb 15`` or more. On fewer cores than threads, ``measure
+    --threads`` refuses to time the run (it would be oversubscribed), and
+    the job fails until a runner runs it on a machine or allocation of
+    enough cores.
     """
     return max(1, min(threads, machine))
 
@@ -562,7 +561,7 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
         "cpu": machine.get("cpu"),
         "cpu_governor": machine.get("cpu_governor"),
         "cpu_boost": machine.get("cpu_boost"),
-        "cpus_allowed": machine.get("cpus_allowed"),
+        "cpus_usable": timing.get("cpus_usable", machine.get("cpus_allowed")),
         "hostname": machine.get("hostname"),
         "slurm_job_id": machine.get("slurm_job_id"),
         "loadavg_before_1m": (timing.get("loadavg_before") or [None])[0],
@@ -581,7 +580,8 @@ def is_clean(timing: Dict, protocol: config.TimingProtocol) -> bool:
     """Whether a timing record is a clean measurement by ``protocol`` (``measure`` keeps only those).
 
     Checked again here, so that a record written under an older or laxer
-    protocol never enters the medians.
+    protocol never enters the medians; a run with more threads than usable
+    CPUs (:func:`oversubscribed`) is not clean either.
     """
     before, during = timing.get("machine_before", {}), timing.get("during", {})
     power = before.get("power") or {}
@@ -591,9 +591,17 @@ def is_clean(timing: Dict, protocol: config.TimingProtocol) -> bool:
         and (before.get("busy_cores") or 0.0) <= protocol.quiet_max_cores
         and (during.get("other_cpu_share") or 0.0) <= protocol.max_other_cpu_share
         and other_cores(timing) <= protocol.max_other_cores
+        and not oversubscribed(timing)
         and (span is None or span - timing["wall_seconds"] <= protocol.max_sleep_seconds)
         and not (protocol.require_ac_power and (power.get("source") not in (None, "AC Power") or power.get("low_power_mode")))
     )
+
+
+def oversubscribed(timing: Dict) -> bool:
+    """Whether a run had more threads than the CPUs it could use (``measure --threads`` refuses such runs)."""
+    threads = timing.get("threads")
+    cpus = timing.get("cpus_usable", timing.get("machine", {}).get("cpus_allowed"))
+    return threads is not None and cpus is not None and int(threads) > int(cpus)
 
 
 def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict]) -> List[Dict]:

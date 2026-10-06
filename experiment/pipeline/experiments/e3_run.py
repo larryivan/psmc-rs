@@ -7,8 +7,11 @@
     and truth record, as :func:`.simulate.simulate_genome` does (no VCF).
 
 ``python -m experiment.pipeline.experiments.e3_run measure --out TIMING.json [options] -- TOOL ARGS...``
-    runs ``TOOL ARGS...`` and writes how it ran to TIMING.json. Before the
-    run it waits ``--settle`` seconds, then until the machine is quiet: the
+    runs ``TOOL ARGS...`` and writes how it ran to TIMING.json. With
+    ``--threads N`` it first refuses (exit status 69) to time a tool of N
+    threads on fewer CPUs than N, which would time it oversubscribed: the
+    CPUs this process may run on (its affinity: a SLURM allocation's).
+    Before the run it waits ``--settle`` seconds, then until the machine is quiet: the
     CPU use of all processes together over ``--quiet-window`` seconds is at
     most ``--quiet-cpu`` percent of all cores and at most
     ``--quiet-max-cores`` cores. It then starts the tool, with
@@ -53,6 +56,7 @@ from .. import config, paths, provenance, simulate
 
 RECORD = "psmc-rs-manuscript/E3/timing/3"
 EX_TEMPFAIL = 75  # not a clean run: the runner defers the job
+EX_UNAVAILABLE = 69  # too few CPUs for the tool's threads: a failure, which the next start retries
 # Variables removed from the tool's environment: psmc-rs reads PSMC_*
 # (e.g. psmc-rs 0.1's PSMC_ALPHA_CACHE_MB, which changes its memory and
 # time), and the others change a build or what a tool prints.
@@ -91,6 +95,14 @@ def simulate_size(profile: config.Profile, size_mb: int, out_dir: Path, truth: P
 # ---------------------------------------------------------------------------
 # The machine
 # ---------------------------------------------------------------------------
+
+
+def usable_cpus() -> int:
+    """The CPUs this process may run on: its affinity (a SLURM allocation's, taskset's) where there is one, else all."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except (AttributeError, OSError):
+        return os.cpu_count() or 1
 
 
 def busy_seconds(times) -> float:
@@ -348,10 +360,20 @@ def measure(
     protocol: config.TimingProtocol,
     runs_dir: Optional[Path] = None,
     log=_log,
+    threads: Optional[int] = None,
 ) -> int:
-    """Time one run of ``cmd`` and write the record to ``out``; returns the exit status for the shell."""
+    """Time one run of ``cmd`` and write the record to ``out``; returns the exit status for the shell.
+
+    ``threads``: the tool's threads; with more than :func:`usable_cpus` the
+    run is not timed (:data:`EX_UNAVAILABLE`).
+    """
     if not cmd:
         raise ValueError("no command to measure")
+    cpus = usable_cpus()
+    if threads is not None and threads > cpus:
+        log(f"[measure] {threads} threads on {cpus} usable CPUs would be timed oversubscribed; not run "
+            "(give the runner a machine or allocation of more CPUs)")
+        return EX_UNAVAILABLE
     power = power_state()
     if protocol.require_ac_power and (power["source"] not in (None, "AC Power") or power["low_power_mode"]):
         log(f"[measure] not on AC power or in Low Power Mode ({power}); not run, try later")
@@ -376,6 +398,8 @@ def measure(
     record = {
         "record": RECORD,
         "command": words,
+        "threads": threads,
+        "cpus_usable": cpus,
         **res,
         "machine_before": {**before, "power": power},
         "environment": {"removed": removed, **{k: env[k] for k in sorted(env) if k.endswith("_NUM_THREADS")}},
@@ -448,6 +472,7 @@ def build_parser() -> argparse.ArgumentParser:
     m = sub.add_parser("measure", help="time one run of a tool: measure [options] -- TOOL ARGS...")
     m.add_argument("--out", type=Path, required=True, help="the timing record (JSON) to write")
     m.add_argument("--runs-dir", type=Path, help="runs directory, written as <runs> in the record")
+    m.add_argument("--threads", type=int, help="the tool's threads: not run on fewer usable CPUs")
     m.add_argument("--settle", type=float, default=d.settle_seconds, help="seconds to wait first")
     m.add_argument("--quiet-cpu", type=float, default=d.quiet_cpu_percent, help="quiet: CPU use at most this %% of all cores")
     m.add_argument("--quiet-max-cores", type=float, default=d.quiet_max_cores, help="quiet: and at most this many cores")
@@ -491,7 +516,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         max_sleep_seconds=args.max_sleep,
         require_ac_power=args.require_ac,
     )
-    return measure(cmd, args.out, protocol, runs_dir=args.runs_dir)
+    return measure(cmd, args.out, protocol, runs_dir=args.runs_dir, threads=args.threads)
 
 
 if __name__ == "__main__":
@@ -500,6 +525,6 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "EX_TEMPFAIL", "clean_environment", "genome_for", "linux_machine", "machine_activity", "measure", "measure_args",
-    "other_cores", "power_state", "run_measured", "simulate_size", "unclean", "wait_until_quiet",
+    "EX_TEMPFAIL", "EX_UNAVAILABLE", "clean_environment", "genome_for", "linux_machine", "machine_activity", "measure", "measure_args",
+    "other_cores", "power_state", "run_measured", "simulate_size", "unclean", "usable_cpus", "wait_until_quiet",
 ]

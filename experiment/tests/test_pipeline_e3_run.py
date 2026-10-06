@@ -13,6 +13,7 @@ import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -170,6 +171,17 @@ class Measure(unittest.TestCase):
         self.assertEqual(self.measure(1, status=3), 3)
         self.assertFalse(self.out.exists())
 
+    def test_more_threads_than_usable_cpus_are_not_timed(self):
+        cmd = [sys.executable, str(self.child), "1", "0", "flat"]
+        with mock.patch.object(e3_run, "usable_cpus", return_value=16):
+            rc = e3_run.measure(cmd, self.out, NO_WAIT, log=lambda m: None, threads=30)
+            self.assertEqual(rc, e3_run.EX_UNAVAILABLE)  # a failure, not "try later": it never fits here
+            self.assertFalse(self.out.exists())
+            self.assertEqual(e3_run.measure(cmd, self.out, NO_WAIT, log=lambda m: None, threads=16), 0)
+        rec = json.loads(self.out.read_text())
+        self.assertEqual((rec["threads"], rec["cpus_usable"]), (16, 16))
+        self.assertGreaterEqual(e3_run.usable_cpus(), 1)
+
     def test_paths_in_the_runs_directory_are_portable(self):
         target = self.tmp / "runs" / "child.py"
         target.parent.mkdir(parents=True)
@@ -220,10 +232,11 @@ class Measure(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             rc = e3_run.main(["measure", "--out", str(self.out), "--settle", "0", "--max-wait", "0",
                               "--quiet-cpu", "100", "--quiet-max-cores", "1e9", "--max-other-cpu", "1",
-                              "--max-other-cores", "1e9", "--no-require-ac",
+                              "--max-other-cores", "1e9", "--no-require-ac", "--threads", "1",
                               "--quiet-window", "0.05", "--", sys.executable, "-c", "pass"])
         self.assertEqual(rc, 0)
         rec = json.loads(self.out.read_text())
+        self.assertEqual(rec["threads"], 1)
         self.assertEqual((rec["protocol"]["quiet_max_cores"], rec["protocol"]["max_other_cores"]), (1e9, 1e9))
         self.assertGreaterEqual(rec["during"]["other_cores"], 0.0)
         with self.assertRaises(SystemExit):
