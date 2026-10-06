@@ -562,8 +562,10 @@ class E4:
     bases are uncallable, so missing data dispersed in short runs leave
     almost every bin called but holding only about (1 - f) of its bases.
     C psmc takes every called bin as ``bin_size`` bases, so theta per bin,
-    N0 = theta / (4 mu s) and every time and size come out low by about
-    (1 - f). psmc-rs's callable-length model (``--bin-callable auto``, its
+    N0 = theta / (4 mu s) and every time and size come out low, by
+    somewhat more than the share of bases missing from the called bins
+    (about 1.2 times it in the production run: theta -12% with 10% and
+    -35% with 30% dispersed missing). psmc-rs's callable-length model (``--bin-callable auto``, its
     default; docs/design/bin-callable-model.md) weighs each bin by the
     callable bases the VCF and its mask say it holds. E4 fits both models
     on the same bins, the classic fq2psmcfa route, multihetsep (whose
