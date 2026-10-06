@@ -38,8 +38,12 @@ again, then B replicates, each drawing splitfa trunks of T bins (default
 500,000, splitfa's 50 Mb) with replacement and fitted from a fresh start, as
 ``splitfa | psmc -b`` does. S is ``config.seed("E2", sample_id, 0,
 "bootstrap")``. psmc-rs's output does not depend on ``--threads``, so
-``main.json`` must equal ``fit-rs``'s JSON byte for byte; the report checks
-it. A genome whose default trunks are fewer than ``few_trunks`` (Papuan
+``main.json`` must hold ``fit-rs``'s fit exactly: every field of
+:data:`MAIN_FIT_FIELDS` (parameters, log-likelihoods, iterations, pattern)
+equal. Its ``qc`` record may differ, since it describes the input as the
+run cut it (a bootstrap adds SHORT_SEQUENCES where sequences are shorter
+than its trunks). The report writes its tables and then fails when a main
+fit differs. A genome whose default trunks are fewer than ``few_trunks`` (Papuan
 chr1: 5 trunks of 50 Mb) is bootstrapped a second time with trunks of
 ``fine_trunk_bins`` (5 Mb, a size E5 calibrates), seed stage
 ``bootstrap/trunk<B>``. E5 calibrates bootstraps of chromosome-scale
@@ -85,8 +89,9 @@ Tables (``tables/``):
   main fits equal ``fit-rs``'s fit.
 * ``E2_bootstrap.csv``: per genome and trunk size: replicates, trunks
   (``coarse_band`` when fewer than psmc-rs's 20), seed, the band's width,
-  how much of C psmc's and psmc-rs's curves it holds, and the check against
-  psmc-rs's own summary.
+  how much of C psmc's and psmc-rs's curves it holds, the check against
+  psmc-rs's own summary, and whether the run's main fit is ``fit-rs``'s
+  (the fields that differ, and by how much).
 * ``E2_bootstrap_replicates.csv``: the parameters of every replicate.
 * ``E2_bands.csv``: per genome and trunk size, both curves and the band on
   a dense grid (Fig 3).
@@ -115,7 +120,7 @@ from .. import config, demography, metrics, paths, provenance, results, simulate
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
-from .e5 import trunk_count
+from .e5 import main_fit_difference, trunk_count
 
 NAME = "E2"
 TOOLS = ("c", "rs")
@@ -132,6 +137,10 @@ TABLES = {
     "qc_findings": "E2_qc_findings.csv",
 }
 SUMMARY_PROBS = config.PSMC_RS_SUMMARY_QUANTILES  # the quantiles of psmc-rs's summary.json
+# The fields of a psmc-rs JSON that are the fit. Its ``qc`` record describes
+# the input as the run cut it: a bootstrap run adds SHORT_SEQUENCES where
+# sequences are shorter than its trunks, so it is not compared.
+MAIN_FIT_FIELDS = ("theta", "rho", "t_max", "lam", "loglike", "final_loglike", "n_iter", "n_steps", "pattern")
 
 
 # ---------------------------------------------------------------------------
@@ -512,13 +521,20 @@ def band(curves: Sequence[results.Curve], years, probs: Sequence[float]):
     return np.quantile(ne, list(probs), axis=0, method="linear")
 
 
+# psmc-rs's summary times are the main curve's interval starts, computed by
+# psmc-rs; the same starts computed here can differ in the last place (the
+# platforms' exp), which puts a start a hair after its time and reads the
+# previous step. The main curve is read this far (relative) after each time.
+SUMMARY_MAIN_NUDGE = 1e-9
+
+
 def summary_difference(main: results.Curve, replicates: Sequence[results.Curve], summary: Dict) -> float:
     """Largest relative difference between psmc-rs's ``summary.json`` and the same summary computed here."""
     import numpy as np
 
     pts = summary["points"]
     xs = np.array([p["x_years"] for p in pts], dtype=float)
-    mine = np.vstack([main.at(xs), band(replicates, xs, SUMMARY_PROBS)])
+    mine = np.vstack([main.at(xs * (1.0 + SUMMARY_MAIN_NUDGE)), band(replicates, xs, SUMMARY_PROBS)])
     theirs = np.array([[p[k] for p in pts] for k in ("ne_main", "ne_q025", "ne_q500", "ne_q975")], dtype=float)
     return float(np.max(np.abs(mine / theirs - 1.0)))
 
@@ -533,11 +549,22 @@ class Bootstrap:
     """One bootstrap run of a genome, read back and checked."""
 
     trunk: int
-    identical: bool  # its main.json equals fit-rs's JSON byte for byte
+    differing: Tuple[str, ...]  # the MAIN_FIT_FIELDS in which its main.json differs from fit-rs's JSON
+    max_abs_diff: float  # the largest difference of a number of those fields (0: the same fit)
     summary: Dict
     replicates: List[Tuple[int, Dict]]
     curves: List[results.Curve]
     run: Dict
+
+    @property
+    def identical(self) -> bool:
+        """Its main fit is fit-rs's fit, field for field."""
+        return not self.differing
+
+
+def main_fit_mismatch(main: Dict, fit: Dict) -> Tuple[str, ...]:
+    """The :data:`MAIN_FIT_FIELDS` in which two psmc-rs JSONs differ (empty: the same fit)."""
+    return tuple(k for k in MAIN_FIT_FIELDS if main.get(k) != fit.get(k))
 
 
 @dataclass
@@ -620,9 +647,11 @@ def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int
     if len(replicates) != summary.get("n_replicates"):
         raise ValueError(f"{sid} trunk{trunk}: {len(replicates)} replicate files, summary.json counts "
                          f"{summary.get('n_replicates')}")
+    main, fit = results.read_rs_json(lay.boot_main(sid, trunk)), results.read_rs_json(lay.rs_json(sid))
     return Bootstrap(
         trunk=trunk,
-        identical=lay.boot_main(sid, trunk).read_bytes() == lay.rs_json(sid).read_bytes(),
+        differing=main_fit_mismatch(main, fit),
+        max_abs_diff=main_fit_difference(main, fit),
         summary=summary,
         replicates=replicates,
         curves=[results.fit_from_rs(p).curve(sc.mu, sc.gen_years, cfg.inference.bin_size) for _, p in replicates],
@@ -759,6 +788,8 @@ def bootstrap_row(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> Dict:
         "replicate_theta_max": max(thetas),
         "summary_max_rel_diff": summary_difference(gr.curves["rs"], boot.curves, boot.summary),
         "main_identical_to_fit": boot.identical,
+        "main_fit_max_abs_diff": boot.max_abs_diff,
+        "main_fit_fields_differing": ";".join(boot.differing),
         "threads": cfg.rs_threads,
         **_run_fields(boot.run),
     }
@@ -914,6 +945,13 @@ def report(ctx: Context) -> Dict[str, Path]:
     for key, table in rows.items():
         write_csv(lay.table(key), table)
         written[key] = lay.table(key)
+    differ = [r for r in rows["bootstrap"] if not r["main_identical_to_fit"]]
+    if differ:
+        raise ValueError(
+            "the main fit of a bootstrap run differs from fit-rs's fit (psmc-rs's results must not depend on "
+            "--threads): " + "; ".join(f"{r['sample_id']} trunk{r['trunk_bins']}: {r['main_fit_fields_differing']} "
+                                       f"(largest difference {r['main_fit_max_abs_diff']:.3g})" for r in differ)
+        )
     return written
 
 

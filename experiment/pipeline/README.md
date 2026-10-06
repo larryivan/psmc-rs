@@ -269,8 +269,10 @@ figure says so), scaled with mu 1.25e-8 and g 25. Per genome: `fit-c` (C
 psmc), `fit-rs` (psmc-rs 0.2, the identical file and settings),
 `boot-rs/trunk500000` (psmc-rs 0.2 with `--bootstrap 100` on the default
 trunks of 500,000 bins, splitfa's 50 Mb; seed `seed("E2", sample, 0,
-"bootstrap")`; the bootstrap run's main fit must equal `fit-rs`'s JSON byte
-for byte) and `qc` (`psmc-rs qc --json`). A genome whose default trunks are
+"bootstrap")`; the bootstrap run's main fit must be `fit-rs`'s fit, every
+parameter, log-likelihood, iteration count and the pattern equal, and the
+report fails otherwise; its `qc` record may differ, since a bootstrap adds
+SHORT_SEQUENCES where sequences are shorter than its trunks) and `qc` (`psmc-rs qc --json`). A genome whose default trunks are
 fewer than 20 (Papuan chr1: 5) is bootstrapped a second time on 5 Mb trunks
 (`boot-rs/trunk50000`, seed stage `bootstrap/trunk50000`), the size E5
 also calibrates. E5's calibration applies to chromosome-scale sequences cut
@@ -288,8 +290,8 @@ against `summary.json`.
 | table | contents |
 | --- | --- |
 | `E2_fit_summary.csv` | per genome and tool: scaling and its source, sequences, called and heterozygous bins, theta, rho, t_max, N0, log-likelihoods, wall time and peak RSS |
-| `E2_rs_vs_c.csv` | per genome: RMSE of log10 Ne between the tools (window and fixed window), largest difference, relative differences of theta, rho, t_max and the log-likelihoods, whether the bootstrap runs' main fits equal `fit-rs`'s |
-| `E2_bootstrap.csv` | per genome and trunk size: replicates, trunks (`coarse_band` under 20), share of bins in sequences shorter than a trunk, seed, band width, how much of each tool's curve the band holds, the check against psmc-rs's summary |
+| `E2_rs_vs_c.csv` | per genome: the tools compared interval by interval (RMSE of log10 Ne on the window and the fixed window, largest difference of an interval in the window and of any interval), relative differences of theta, rho, t_max and the log-likelihoods, whether the bootstrap runs' main fits equal `fit-rs`'s fit |
+| `E2_bootstrap.csv` | per genome and trunk size: replicates, trunks (`coarse_band` under 20), share of bins in sequences shorter than a trunk, seed, band width, how much of each tool's curve the band holds, the check against psmc-rs's summary, whether the main fit is `fit-rs`'s (the fields that differ and the largest difference) |
 | `E2_bootstrap_replicates.csv` | every replicate's parameters |
 | `E2_bands.csv` | per genome and trunk size: both curves and the band on a dense grid (Fig 3) |
 | `E2_curves.csv`, `E2_traces.csv` | the fitted step curves (Fig 3); log-likelihood and parameters per EM iteration |

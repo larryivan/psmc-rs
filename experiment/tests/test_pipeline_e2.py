@@ -226,6 +226,25 @@ class WindowAndBand(unittest.TestCase):
         summary["points"][3]["ne_q975"] *= 1.001
         self.assertAlmostEqual(e2.summary_difference(base, curves, summary), 0.001 / 1.001, places=9)
 
+    def test_summary_times_a_last_place_before_the_main_curves_starts(self):
+        import numpy as np
+
+        # psmc-rs's summary times are the main curve's starts as psmc-rs computes
+        # them; one a unit in the last place lower must still read that interval.
+        main = results.Curve((0.0, 1000.0, 2000.0), (1.0, 2.0, 3.0))
+        reps = [results.Curve((0.0, 1500.0), (s, 2 * s)) for s in (1.0, 2.0, 3.0)]
+        xs = [float(np.nextafter(1000.0, 0.0)), float(np.nextafter(2000.0, 0.0))]
+        q = e2.band(reps, xs, e2.SUMMARY_PROBS)
+        summary = {"points": [{"x_years": x, "ne_main": m, "ne_q025": a, "ne_q500": b, "ne_q975": c}
+                              for x, m, a, b, c in zip(xs, (2.0, 3.0), *q)]}
+        self.assertEqual(e2.summary_difference(main, reps, summary), 0.0)
+
+    def test_main_fit_mismatch_ignores_qc(self):
+        fit = {"theta": 0.1, "rho": 0.02, "t_max": 15.0, "lam": [1.0, 2.0], "loglike": [-5.0, -4.0], "n_iter": 1,
+               "n_steps": 1, "pattern": None, "qc": {"warnings": []}}
+        self.assertEqual(e2.main_fit_mismatch(dict(fit, qc={"warnings": ["SHORT_SEQUENCES"]}), fit), ())
+        self.assertEqual(e2.main_fit_mismatch(dict(fit, lam=[1.0, 2.0000001]), fit), ("lam",))
+
 
 def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
     """Outputs of every E2 job for ``cfg``, made from C psmc's reference output (5 iterations).
@@ -369,6 +388,38 @@ class Tables(unittest.TestCase):
         self.assertTrue(all(float(r["ne_band_lo"]) <= float(r["ne_band_hi"]) for r in bands))
         curves = read_csv(self.lay.table("curves"))
         self.assertEqual(len(curves), 2 * 2 * 64)
+
+
+@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
+class BootstrapMainFit(unittest.TestCase):
+    """The bootstrap run's main fit must be fit-rs's fit; its qc record may differ."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.runs = Path(self._tmp.name)
+        inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
+        self.profile = replace(config.TINY, e2=replace(config.TINY.e2, inference=inference, bootstrap_replicates=3))
+        self.lay = write_stand_in_outputs(self.runs, self.profile.e2)
+        g = genome("Papuan")
+        self.main = self.lay.boot_main("Papuan", e2.trunk_sizes(self.profile.e2, e2.input_lengths(self.profile.e2, g))[0])
+        self.params = json.loads(self.main.read_text())
+
+    def test_a_qc_record_of_the_bootstrap_trunks_is_not_a_difference(self):
+        self.params["qc"]["warnings"].append("SHORT_SEQUENCES")
+        self.main.write_text(json.dumps(self.params))
+        e2.report(Context(self.profile, self.runs))
+        rows = [r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "Papuan"]
+        self.assertTrue(all(r["main_identical_to_fit"] == "True" for r in rows))
+        self.assertTrue(all(float(r["main_fit_max_abs_diff"]) == 0.0 for r in rows))
+
+    def test_a_different_fit_fails_the_report_after_writing_the_tables(self):
+        self.params["theta"] *= 1.0 + 1e-12
+        self.main.write_text(json.dumps(self.params))
+        with self.assertRaisesRegex(ValueError, "Papuan trunk5000: theta"):
+            e2.report(Context(self.profile, self.runs))
+        row = next(r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "Papuan")
+        self.assertEqual((row["main_identical_to_fit"], row["main_fit_fields_differing"]), ("False", "theta"))
 
 def in_git_work_tree() -> bool:
     if shutil.which("git") is None:
