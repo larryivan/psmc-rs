@@ -145,7 +145,7 @@ def cmd_start(args) -> int:
     pid = runner.daemon_alive(runs_dir)
     if pid is not None:
         host = runner.runner_host(runs_dir)
-        where = f" on {host}" if host and host != runner.this_host() else ""
+        where = f" on {host}" if runner.on_another_host(host) else ""
         print(f"a runner is already running for {runs_dir} (pid {pid}{where}); `stop` it first or wait", file=sys.stderr)
         return 1
     try:

@@ -109,6 +109,17 @@ def this_host() -> str:
     return socket.gethostname()
 
 
+# macOS derives the host name from the network when none is set (``scutil
+# --get HostName``), so the laptop's own runner could look like another
+# host's; and no other machine shares a runs directory there.
+GUARD_HOSTS = sys.platform != "darwin"
+
+
+def on_another_host(host: Optional[str]) -> bool:
+    """Whether ``host``, recorded by a runner, is another machine than this one (never on macOS)."""
+    return GUARD_HOSTS and host is not None and host != this_host()
+
+
 @dataclass
 class Job:
     """One command of an experiment. ``id`` is ``<experiment>/<path>`` (``E1/fit-c/constant/rep01``)."""
@@ -1072,7 +1083,7 @@ def kill_orphans(runs_dir: Path, log: Callable[[str], None]) -> None:
     except (OSError, ValueError):
         return
     host = state.get("host")
-    if host is not None and host != this_host():
+    if on_another_host(host):
         if state.get("running"):
             log(f"not stopping the {len(state['running'])} job(s) the last runner, on {host}, recorded as running: "
                 f"they are not processes of {this_host()}")
@@ -1137,7 +1148,7 @@ def stop_daemon(runs_dir: Path, drain: bool = False, wait: float = 60.0) -> Opti
     if pid is None or pid <= 0:
         return None
     host = runner_host(runs_dir)
-    if host is not None and host != this_host():
+    if on_another_host(host):
         raise ElsewhereError(f"the runner of {runs_dir} (pid {pid}) runs on {host}, not on {this_host()}: "
                              "stop it from there, or cancel its SLURM job")
     try:

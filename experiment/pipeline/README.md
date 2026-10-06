@@ -172,7 +172,8 @@ at its time limit); `stop --drain` (SIGUSR1) starts nothing new and exits
 when the running jobs finish. The runner writes its host to
 `runs/_runner/runner.host` and the state, so that `stop` refuses a runner
 on another host and a new runner leaves alone the jobs an earlier one on
-another host left recorded as running. A failed job is recorded and blocks
+another host left recorded as running (not on macOS, whose host name
+follows the network). A failed job is recorded and blocks
 its dependents; the next `start` retries it. A job that exits with status
 75 (E3's timing wrapper on a busy machine) is deferred and starts again a
 minute later. If the runner itself is killed, the next one stops the jobs

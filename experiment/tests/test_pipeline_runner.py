@@ -519,6 +519,7 @@ class RunnerSettings(unittest.TestCase):
         from unittest import mock
 
         base = Path.home() / ".cache" / "psmc-exp"
+        self.assertEqual(runner.GUARD_HOSTS, sys.platform != "darwin")  # likewise the guards on other hosts
         self.assertEqual(runner.default_machine_lock("darwin", host="mac"), base / "machine.lock")
         self.assertEqual(runner.default_machine_lock("linux", host="cn605-26-l"), base / "machine-cn605-26-l.lock")
         with mock.patch.dict(os.environ, {runner.MACHINE_LOCK_ENV: "/node/local/m.lock"}):
@@ -527,6 +528,12 @@ class RunnerSettings(unittest.TestCase):
 
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
 class AcrossHosts(Base):
+    def setUp(self):
+        from unittest import mock
+
+        super().setUp()
+        self.enterContext(mock.patch.object(runner, "GUARD_HOSTS", True))  # as on Linux, also on macOS
+
     def sleeper(self) -> subprocess.Popen:
         p = subprocess.Popen(["sleep", "30"], start_new_session=True)
         self.addCleanup(lambda: (p.kill(), p.wait()))
@@ -549,6 +556,24 @@ class AcrossHosts(Base):
         self.write_state(runner.this_host(), p.pid)
         runner.kill_orphans(self.runs, logged.append)
         self.assertEqual(p.wait(timeout=10), -15)
+
+    def test_macos_does_not_guard_hosts(self):
+        # Its host name follows the network: the laptop's own runner may have recorded another one.
+        from unittest import mock
+
+        p = self.sleeper()
+        self.write_state("before-the-network-changed", p.pid)
+        self.hold_lock(424242, "before-the-network-changed")
+        with mock.patch.object(runner, "GUARD_HOSTS", False):
+            self.assertFalse(runner.on_another_host("before-the-network-changed"))
+            with mock.patch.object(runner.os, "kill") as kill:
+                self.assertEqual(runner.stop_daemon(self.runs, drain=True), 424242)
+            kill.assert_called_once_with(424242, signal.SIGUSR1)
+            runner.kill_orphans(self.runs, lambda msg: None)
+        self.assertEqual(p.wait(timeout=10), -15)
+        self.assertTrue(runner.on_another_host("before-the-network-changed"))
+        self.assertFalse(runner.on_another_host(None))
+        self.assertFalse(runner.on_another_host(runner.this_host()))
 
     def test_kill_orphans_survives_a_process_it_may_not_signal(self):
         from unittest import mock
