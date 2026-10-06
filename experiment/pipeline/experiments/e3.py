@@ -70,7 +70,8 @@ Tables (``tables/``):
   or not, and the largest relative difference in theta, rho, t_max and the
   lambdas (and psmc-rs 0.2's final log-likelihood).
 * ``E3_environment.csv``: the machine (each distinct value over the runs,
-  ';'-joined: hosts, SLURM jobs), the tools' identities, the timing
+  ';'-joined: hosts, SLURM jobs), the tools' identities, how C psmc was
+  built (its ``BUILD.json``, see :func:`.tools.build_c`), the timing
   protocol and the memory limit.
 * ``E3_seeds.csv``: every simulation seed.
 """
@@ -104,6 +105,8 @@ TABLES = {
     "environment": "E3_environment.csv",
     "seeds": "E3_seeds.csv",
 }
+# How the laptop's C psmc was built by hand, for a tools directory whose
+# psmc_c has no BUILD.json (tools --build-c writes one; see c_build_rows).
 C_PSMC_BUILD = "lh3/psmc 0.6.5-r74 built with -O1 (an -O2 build segfaults on macOS arm64)"
 
 
@@ -411,6 +414,9 @@ def jobs(ctx: Context) -> List[Job]:
             )
         )
         report_inputs += [lay.fit(run), lay.timing(run), lay.record(run)]
+    c_build = tools.c_psmc_dir() / tools.C_BUILD_RECORD
+    if c_build.exists():  # E3_environment says how C psmc was built
+        report_inputs.append(c_build)
     out.append(
         Job(
             id=f"{NAME}/report",
@@ -421,7 +427,7 @@ def jobs(ctx: Context) -> List[Job]:
             est_seconds=costs.report_s,
             settings={"e3": asdict(cfg)},
             tools={"pipeline": provenance.python_identity(
-                ["experiments/e3.py", "experiments/e3_run.py", "experiments/e1.py", "results.py"], []
+                ["experiments/e3.py", "experiments/e3_run.py", "experiments/e1.py", "results.py", "tools.py"], []
             )},
             description="E3 tables",
         )
@@ -674,7 +680,8 @@ def determinism_rows(outputs: Dict[Run, Output]) -> List[Dict]:
     return out
 
 
-def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings: Dict[Run, Dict]) -> List[Dict]:
+def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings: Dict[Run, Dict],
+                     c_build: Optional[Dict] = None) -> List[Dict]:
     out: List[Dict] = []
 
     def add(key: str, value) -> None:
@@ -705,8 +712,8 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
         exes = rec.get("run", {}).get("executables", {})
         if tool_path in exes:
             add(f"tool.{run.setup.tool}.binary_sha256", exes[tool_path])
-    add("tool.c.build", C_PSMC_BUILD)
-    add("cc", c_compiler())
+    for key, value in c_build_rows(c_build):
+        add(key, value)
     add("tool.rs01.settings", "pattern, --n-steps, --t-max, --smooth-lambda 0, --mstep-iters and N_ITER of the recipe; "
         "its default start rho0 = theta0/5 (= -r5) and 100 bp bins (it has no --tr-ratio or --bin-size)")
     add("inference", asdict(cfg.inference))
@@ -718,6 +725,24 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
     add("power_sources", ";".join(sorted({str(r["power_source"]) for r in rows.values()})))
     add("low_power_mode_seen", str(any(r["low_power_mode"] for r in rows.values())))
     return out
+
+
+def c_build_rows(build: Optional[Dict]) -> List[Tuple[str, str]]:
+    """How C psmc was built: from its ``BUILD.json`` (:func:`.tools.read_c_build`), else as the laptop's was.
+
+    Without a ``BUILD.json`` (a C psmc built by hand) the build is the
+    laptop's, :data:`C_PSMC_BUILD`, and the compiler whatever ``cc`` is on
+    PATH when the report runs (:func:`c_compiler`).
+    """
+    if build is None:
+        return [("tool.c.build", C_PSMC_BUILD), ("cc", c_compiler())]
+    return [
+        ("tool.c.build", f"lh3/psmc built by tools --build-c with CFLAGS {build['cflags']!r}, "
+                         f"LDFLAGS {build.get('ldflags', '')!r}, LIBS {build.get('libs', '')!r}"),
+        ("cc", str(build["compiler_version"])),  # not its path: tables hold no machine-specific paths
+        ("tool.c.build_platform", str(build.get("platform", ""))),
+        ("tool.c.built", str(build.get("built", ""))),
+    ]
 
 
 def c_compiler() -> str:
@@ -772,7 +797,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         "runs": ordered,
         "scaling": scaling_rows(cfg, rows, outputs),
         "determinism": determinism_rows(outputs),
-        "environment": environment_rows(cfg, lay, rows, timings),
+        "environment": environment_rows(cfg, lay, rows, timings, tools.read_c_build()),
         "seeds": seed_rows(cfg, truths),
     }
     written = {}

@@ -8,18 +8,21 @@ information is recorded next to it and changes nothing:
 * psmc-rs 0.2: its version, the content of the Rust sources (the git tree
   and blob ids of ``src/``, ``Cargo.toml`` and ``Cargo.lock`` at HEAD, so
   that a rebase or squash that keeps the sources keeps the identity), a
-  digest of their uncommitted changes, and the toolchain (``rustc -vV`` and
-  ``RUSTFLAGS``). Information: the last commit that touched the sources and
-  the binary's SHA-256 (it embeds the checkout's path, so it differs between
-  clones of the same sources). Outside a git checkout the binary's SHA-256
-  is the identity. The binary is ``target/release/psmc-rs`` of this
-  checkout, built with ``cargo build --release --locked --offline`` (a no-op
-  when up to date).
+  digest of their uncommitted changes, and the build (:func:`toolchain`:
+  ``rustc -vV``, the rustflags and ``CARGO_PROFILE_RELEASE_*`` variables
+  cargo reads, and the target features the flags enable). Information: the
+  last commit that touched the sources and the binary's SHA-256 (it embeds
+  the checkout's path, so it differs between clones of the same sources).
+  Outside a git checkout the binary's SHA-256 is the identity. The binary
+  is ``target/release/psmc-rs`` of this checkout, built with ``cargo build
+  --release --locked --offline`` (a no-op when up to date).
 * psmc-rs 0.1: the commit it is built from (in a git worktree under the
   tools directory with ``CARGO_TARGET_DIR`` next to it, see
-  :func:`build_rs01`) and the toolchain; information: the binary's SHA-256.
+  :func:`build_rs01`) and the build, as 0.2's; information: the binary's
+  SHA-256.
 * C psmc and the utilities: their version where they print one, and the
-  SHA-256 of the file.
+  SHA-256 of the file. C psmc built by :func:`build_c` (``tools
+  --build-c``) also has the compiler and CFLAGS its ``BUILD.json`` records.
 
 The runner records the SHA-256 of every executable a job runs, and refuses
 to start jobs once one of them changes (see :mod:`.runner`).
@@ -30,9 +33,15 @@ The command builders give the exact command lines of the experiments.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import platform
 import re
+import shlex
+import shutil
 import subprocess
+import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
@@ -90,20 +99,82 @@ def source_tree(cwd: Path = paths.ROOT) -> str:
     return ";".join(f"{p}={_git('rev-parse', f'HEAD:{p}', cwd=cwd)}" for p in RS_SOURCES)
 
 
+# The target features that change psmc-rs's code: with ``fma`` an x86-64
+# build fuses its multiply-adds (fmadd in src/hmm/kernel.rs), which changes
+# its floating-point results; the others select or widen vector kernels.
+TARGET_FEATURES = ("avx2", "fma", "avx512f", "neon")
+PROFILE_ENV_PREFIX = "CARGO_PROFILE_RELEASE_"
+BUILD_FIELDS = ("rustc", "rustflags", "cargo_encoded_rustflags", "cargo_build_rustflags", "cargo_target_rustflags",
+                "cargo_profile_release", "target_features")
+
+
+def target_rustflags_var(host: str) -> str:
+    """The variable of ``target.<host>.rustflags``, e.g. ``CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS``."""
+    return "CARGO_TARGET_" + re.sub(r"[^A-Za-z0-9]", "_", host).upper() + "_RUSTFLAGS"
+
+
+def effective_rustflags(env: Dict[str, str], host: str) -> List[str]:
+    """The flags cargo gives rustc: those of the first of these variables that is set (cargo's precedence).
+
+    ``CARGO_ENCODED_RUSTFLAGS`` (separated by 0x1f), ``RUSTFLAGS``,
+    ``CARGO_TARGET_<HOST>_RUSTFLAGS``, ``CARGO_BUILD_RUSTFLAGS``. Cargo's
+    configuration files are not read (this checkout's ``.cargo/config.toml``
+    sets no flags).
+    """
+    if "CARGO_ENCODED_RUSTFLAGS" in env:
+        return [f for f in env["CARGO_ENCODED_RUSTFLAGS"].split("\x1f") if f]
+    for var in ("RUSTFLAGS", target_rustflags_var(host), "CARGO_BUILD_RUSTFLAGS"):
+        if var in env:
+            return env[var].split()
+    return []
+
+
+def target_features(flags: Sequence[str]) -> str:
+    """Which :data:`TARGET_FEATURES` ``rustc --print cfg FLAGS`` enables: "avx2,fma", "none" or "unavailable"."""
+    try:
+        res = _run(["rustc", "--print", "cfg", *flags])
+    except OSError:
+        return "unavailable"
+    if res.returncode != 0:
+        return "unavailable"
+    enabled = set(re.findall(r'^target_feature="([^"]+)"$', res.stdout, re.M))
+    return ",".join(f for f in TARGET_FEATURES if f in enabled) or "none"
+
+
 def toolchain() -> Dict[str, str]:
-    """The compiler a build uses: ``rustc -vV``'s release, commit and host, LLVM, and ``RUSTFLAGS``."""
-    out = {"rustflags": os.environ.get("RUSTFLAGS", ""), "cargo_encoded_rustflags": os.environ.get("CARGO_ENCODED_RUSTFLAGS", "")}
+    """The build cargo makes here: ``rustc -vV``'s release, commit and host, LLVM, and what changes the code.
+
+    That is the rustflags of every variable cargo reads them from, every
+    ``CARGO_PROFILE_RELEASE_*`` variable (``KEY=VALUE``, joined by ";"), and
+    which :data:`TARGET_FEATURES` the effective flags enable.
+    """
+    env = dict(os.environ)
+    out = {
+        "rustflags": env.get("RUSTFLAGS", ""),
+        "cargo_encoded_rustflags": env.get("CARGO_ENCODED_RUSTFLAGS", ""),
+        "cargo_build_rustflags": env.get("CARGO_BUILD_RUSTFLAGS", ""),
+        "cargo_target_rustflags": "",
+        "cargo_profile_release": ";".join(f"{k}={env[k]}" for k in sorted(env) if k.startswith(PROFILE_ENV_PREFIX)),
+    }
     try:
         res = _run(["rustc", "-vV"])
     except OSError:
         res = None
     if res is None or res.returncode != 0:
-        out["rustc"] = "unavailable"
+        out["rustc"] = out["target_features"] = "unavailable"
         return out
     fields = dict(line.split(": ", 1) for line in res.stdout.splitlines()[1:] if ": " in line)
-    out["rustc"] = f"{fields.get('release', '?')} ({fields.get('commit-hash', '?')[:12]}) {fields.get('host', '?')}"
+    host = fields.get("host", "?")
+    out["rustc"] = f"{fields.get('release', '?')} ({fields.get('commit-hash', '?')[:12]}) {host}"
     out["llvm"] = fields.get("LLVM version", "")
+    out["cargo_target_rustflags"] = env.get(target_rustflags_var(host), "")
+    out["target_features"] = target_features(effective_rustflags(env, host))
     return out
+
+
+def build_identity(tc: Dict[str, str]) -> Dict[str, str]:
+    """The :data:`BUILD_FIELDS` of a :func:`toolchain`: the part of a psmc-rs identity that its build sets."""
+    return {k: tc.get(k, "") for k in BUILD_FIELDS}
 
 
 def rs02_source_state() -> Dict[str, str]:
@@ -159,8 +230,7 @@ def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
         source = {"source_tree": "unknown: not a git checkout", "binary_sha256": digest}
         commit = "unknown: not a git checkout"
     tc = toolchain()
-    identity = {"version": version, **source, "rustc": tc["rustc"], "rustflags": tc["rustflags"],
-                "cargo_encoded_rustflags": tc["cargo_encoded_rustflags"]}
+    identity = {"version": version, **source, **build_identity(tc)}
     return Tool("psmc-rs-0.2", binary, identity, {"source_commit": commit, "binary_sha256": digest,
                                                   "llvm": tc.get("llvm", "")})
 
@@ -215,8 +285,7 @@ def psmc_rs_01(build: bool = False, commit: str = config.E3().rs01_commit, log: 
     m = re.search(r'^version\s*=\s*"([^"]+)"', (d["src"] / "Cargo.toml").read_text(), re.M) if head else None
     tc = toolchain()
     digest = sha256_file(binary)
-    identity = {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, "rustc": tc["rustc"],
-                "rustflags": tc["rustflags"]}
+    identity = {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, **build_identity(tc)}
     if not head:
         identity["binary_sha256"] = digest  # no sources to identify it by
     return Tool("psmc-rs-0.1", binary, identity, {"binary_sha256": digest})
@@ -244,12 +313,137 @@ def c_psmc_version(binary: Path) -> str:
     return m.group(1)
 
 
+C_PSMC_DIR = "psmc_c"
+C_BUILD_RECORD = "BUILD.json"
+C_BUILD_RECORD_ID = "psmc-rs-manuscript/tools/c-psmc-build/1"
+# What lh3/psmc's Makefile builds psmc from (OBJS and main.o), and its CFLAGS
+# and LIBS. The utilities are built in utils/ with -I.. (they include
+# ../kseq.h), as utils/Makefile does.
+C_PSMC_SOURCES = ("khmm.c", "kmin.c", "cli.c", "core.c", "em.c", "aux.c", "main.c")
+C_UTILITY_SOURCES = {"fq2psmcfa": "fq2psmcfa.c", "splitfa": "splitfa.c"}
+C_DEFAULT_CFLAGS = "-g -Wall -O2 -Wno-unused-function"
+C_LIBS = "-lm -lz"
+
+
+def c_psmc_dir(tools: Optional[Path] = None) -> Path:
+    """``<tools>/psmc_c``: lh3/psmc's sources, its binary and :data:`C_BUILD_RECORD`."""
+    return (tools or paths.tools_dir()) / C_PSMC_DIR
+
+
+def default_cc() -> str:
+    """The compiler :func:`build_c` uses by default: ``$CC``, else ``gcc`` (the Makefile's) if on PATH, else ``cc``."""
+    return os.environ.get("CC") or ("gcc" if shutil.which("gcc") else "cc")
+
+
+def default_cflags() -> str:
+    """The CFLAGS :func:`build_c` uses by default: ``$PSMC_C_CFLAGS``, else the Makefile's (:data:`C_DEFAULT_CFLAGS`)."""
+    return os.environ.get("PSMC_C_CFLAGS", C_DEFAULT_CFLAGS)
+
+
+def c_sources(src: Path) -> Dict[str, str]:
+    """``{path relative to src: SHA-256}`` of lh3/psmc's sources: ``*.c``, ``*.h`` and ``Makefile``, and utils' own."""
+    found = {p for pattern in ("*.c", "*.h", "Makefile", "utils/*.c", "utils/*.h", "utils/Makefile")
+             for p in Path(src).glob(pattern) if p.is_file()}
+    return {p.relative_to(src).as_posix(): sha256_file(p) for p in sorted(found)}
+
+
+def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Optional[str] = None,
+            ldflags: Optional[str] = None, log: Callable[[str], None] = print) -> Dict:
+    """Build C psmc and its utilities fq2psmcfa and splitfa in ``src`` and write ``src/BUILD.json``.
+
+    The compiler and flags are explicit (defaults: :func:`default_cc`,
+    :func:`default_cflags`, ``$LDFLAGS``), and each program is compiled and
+    linked by one command: ``CC CFLAGS [-I..] LDFLAGS -o PROG SOURCES -lm
+    -lz``. The programs are built in a temporary directory and replace the
+    old ones only when all of them built. ``BUILD.json`` records the
+    compiler (path and the first line of its ``--version``), the flags, the
+    commands, the SHA-256 of every source file and of every program built,
+    and the platform; :func:`c_psmc` reads it. Returns the record.
+    """
+    src = Path(src) if src is not None else c_psmc_dir()
+    cc = cc or default_cc()
+    compiler = shutil.which(cc)
+    if compiler is None:
+        raise ToolError(f"compiler {cc!r} not found (set CC)")
+    cflags = default_cflags() if cflags is None else cflags
+    ldflags = os.environ.get("LDFLAGS", "") if ldflags is None else ldflags
+    targets = {"psmc": (src, C_PSMC_SOURCES, [])}
+    targets.update({f"utils/{name}": (src / "utils", (source,), ["-I.."]) for name, source in C_UTILITY_SOURCES.items()})
+    missing = [str(cwd / s) for cwd, sources, _ in targets.values() for s in sources if not (cwd / s).exists()]
+    if missing:
+        raise ToolError(f"lh3/psmc sources missing: {', '.join(missing)}")
+    sources = c_sources(src)
+    res = _run([compiler, "--version"])
+    version = res.stdout.splitlines()[0].strip() if res.returncode == 0 and res.stdout.strip() else "unknown"
+    commands: Dict[str, str] = {}
+    with tempfile.TemporaryDirectory(dir=src, prefix=".build-") as tmp:
+        for name, (cwd, files, extra) in targets.items():
+            def command(out: str) -> List[str]:
+                return [compiler, *shlex.split(cflags), *extra, *shlex.split(ldflags), "-o", out, *files,
+                        *shlex.split(C_LIBS)]
+
+            commands[name] = shlex.join(command(Path(name).name))  # as run, but for where the program goes
+            res = _run(command(str(Path(tmp) / Path(name).name)), cwd=cwd, timeout=600)
+            if res.returncode != 0:
+                raise ToolError(f"building {name} failed: {commands[name]}\n{res.stderr[-4000:]}")
+        for name in targets:
+            os.replace(Path(tmp) / Path(name).name, src / name)
+    record = {
+        "record": C_BUILD_RECORD_ID,
+        "built": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "compiler": compiler,
+        "compiler_version": version,
+        "cflags": cflags,
+        "ldflags": ldflags,
+        "libs": C_LIBS,
+        "commands": commands,
+        "sources": sources,
+        "binaries": {name: sha256_file(src / name) for name in targets},
+        "platform": platform.platform(),
+    }
+    tmp_record = src / f".{C_BUILD_RECORD}.tmp"
+    tmp_record.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
+    os.replace(tmp_record, src / C_BUILD_RECORD)
+    log(f"[tools] C psmc, fq2psmcfa and splitfa are built in {src} ({version}; CFLAGS {cflags})")
+    return record
+
+
+def read_c_build(src: Optional[Path] = None) -> Optional[Dict]:
+    """The :data:`C_BUILD_RECORD` of ``src`` (default ``<tools>/psmc_c``), or None when there is none."""
+    path = (Path(src) if src is not None else c_psmc_dir()) / C_BUILD_RECORD
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except ValueError as exc:
+        raise ToolError(f"{path} is not valid JSON: {exc}") from None
+
+
 def c_psmc(tools: Optional[Path] = None) -> Tool:
-    """lh3/psmc, built with -O1 (an -O2 build segfaults on macOS arm64), at ``<tools>/psmc_c/psmc``."""
-    binary = (tools or paths.tools_dir()) / "psmc_c" / "psmc"
+    """lh3/psmc at ``<tools>/psmc_c/psmc``.
+
+    Its Makefile builds it with ``-O2``; on macOS arm64 an ``-O2`` build
+    segfaults, so the one there is built with ``-O1``. Built by
+    :func:`build_c`, its ``BUILD.json`` adds the compiler (``--version``)
+    and the CFLAGS to the identity, and the binary must be the one it
+    describes. Built otherwise (no ``BUILD.json``), its version and SHA-256
+    identify it, as before ``BUILD.json`` existed.
+    """
+    binary = c_psmc_dir(tools) / "psmc"
     if not binary.exists():
         raise ToolError(f"C psmc not found at {binary} (set PSMC_EXP_TOOLS)")
-    return Tool("c-psmc", binary, {"version": c_psmc_version(binary), "sha256": sha256_file(binary)})
+    digest = sha256_file(binary)
+    identity = {"version": c_psmc_version(binary), "sha256": digest}
+    build = read_c_build(binary.parent)
+    if build is None:
+        return Tool("c-psmc", binary, identity)
+    if build.get("binaries", {}).get("psmc") != digest:
+        raise ToolError(f"{binary} is not the binary {binary.parent / C_BUILD_RECORD} describes; rebuild it with: "
+                        "python -m experiment.pipeline tools --build-c")
+    identity.update(cc=build["compiler_version"], cflags=build["cflags"])
+    info = {"cc_path": build["compiler"], "ldflags": build.get("ldflags", ""), "libs": build.get("libs", ""),
+            "built_on": build.get("platform", "")}
+    return Tool("c-psmc", binary, identity, info)
 
 
 def utility(name: str, tools: Optional[Path] = None) -> Tool:

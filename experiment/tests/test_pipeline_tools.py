@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import re
 import shutil
 import subprocess
@@ -67,8 +70,7 @@ class Identities(unittest.TestCase):
         if not binary.exists():
             self.skipTest("target/release/psmc-rs not built")
         t = tools.psmc_rs_02(build=False)
-        self.assertEqual(set(t.identity), {"version", "source_tree", "source_dirty", "rustc", "rustflags",
-                                           "cargo_encoded_rustflags"})
+        self.assertEqual(set(t.identity), {"version", "source_tree", "source_dirty", *tools.BUILD_FIELDS})
         self.assertRegex(t.info["source_commit"], r"^[0-9a-f]{40}$")
         self.assertEqual(t.info["binary_sha256"], tools.sha256_file(binary))
         with mock.patch.dict("os.environ", {"RUSTFLAGS": "-C target-cpu=native"}):
@@ -88,6 +90,220 @@ class Identities(unittest.TestCase):
             tools.c_psmc(Path("/nonexistent/tools"))
         with self.assertRaises(tools.ToolError):
             tools.utility("fq2psmcfa", Path("/nonexistent/tools"))
+
+
+def fake_program(path: Path, output: str) -> Path:
+    """An executable that prints ``output`` to stdout and exits 0."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"#!/bin/sh\necho '{output}'\n")
+    path.chmod(0o755)
+    return path
+
+
+# Variables that would leak the test process's own build settings into toolchain().
+BUILD_VARS = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_RUSTFLAGS")
+
+
+def without_build_vars() -> dict:
+    import os
+
+    return {k: v for k, v in os.environ.items()
+            if k not in BUILD_VARS and not k.startswith(("CARGO_PROFILE_RELEASE_", "CARGO_TARGET_"))}
+
+
+class Toolchain(unittest.TestCase):
+    """What a psmc-rs build depends on beyond its sources: rustc, the flags cargo passes, the target features."""
+
+    def test_effective_rustflags_follow_cargos_precedence(self):
+        host = "x86_64-unknown-linux-gnu"
+        self.assertEqual(tools.target_rustflags_var(host), "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS")
+        env = {"CARGO_BUILD_RUSTFLAGS": "-C target-cpu=znver2"}
+        self.assertEqual(tools.effective_rustflags(env, host), ["-C", "target-cpu=znver2"])
+        env[tools.target_rustflags_var(host)] = "-C target-feature=+fma"
+        self.assertEqual(tools.effective_rustflags(env, host), ["-C", "target-feature=+fma"])
+        env["RUSTFLAGS"] = ""  # set, even empty: cargo ignores the others
+        self.assertEqual(tools.effective_rustflags(env, host), [])
+        env["CARGO_ENCODED_RUSTFLAGS"] = "-C\x1ftarget-cpu=native"
+        self.assertEqual(tools.effective_rustflags(env, host), ["-C", "target-cpu=native"])
+        self.assertEqual(tools.effective_rustflags({}, host), [])
+
+    def test_target_features_are_read_from_rustc(self):
+        cfg = 'debug_assertions\ntarget_arch="x86_64"\ntarget_feature="avx"\ntarget_feature="avx2"\ntarget_feature="fma"\n'
+        done = subprocess.CompletedProcess([], 0, stdout=cfg, stderr="")
+        with mock.patch.object(tools, "_run", return_value=done) as run:
+            self.assertEqual(tools.target_features(["-C", "target-cpu=native"]), "avx2,fma")
+        self.assertEqual(run.call_args[0][0], ["rustc", "--print", "cfg", "-C", "target-cpu=native"])
+        with mock.patch.object(tools, "_run", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")):
+            self.assertEqual(tools.target_features([]), "none")
+        with mock.patch.object(tools, "_run", side_effect=OSError("no rustc")):
+            self.assertEqual(tools.target_features([]), "unavailable")
+
+    @unittest.skipIf(shutil.which("rustc") is None, "rustc not installed")
+    def test_target_features_of_this_machine(self):
+        import platform
+
+        features = tools.target_features([])
+        if platform.machine() in ("arm64", "aarch64"):
+            self.assertEqual(features, "neon")
+        elif platform.machine() in ("x86_64", "AMD64"):
+            self.assertNotIn("fma", features)  # the portable x86-64 build
+            self.assertIn("fma", tools.target_features(["-C", "target-feature=+fma"]))
+
+    @unittest.skipIf(shutil.which("rustc") is None, "rustc not installed")
+    def test_toolchain_records_every_variable_cargo_builds_with(self):
+        env = without_build_vars()
+        with mock.patch.dict("os.environ", env, clear=True):
+            plain = tools.toolchain()
+        self.assertEqual({k: plain[k] for k in ("rustflags", "cargo_build_rustflags", "cargo_profile_release")},
+                         {"rustflags": "", "cargo_build_rustflags": "", "cargo_profile_release": ""})
+        self.assertNotIn(plain["target_features"], ("", "unavailable"))
+        extra = {"CARGO_BUILD_RUSTFLAGS": "-C debuginfo=1", "CARGO_PROFILE_RELEASE_LTO": "fat",
+                 "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "16"}
+        with mock.patch.dict("os.environ", {**env, **extra}, clear=True):
+            tc = tools.toolchain()
+        self.assertEqual(tc["cargo_build_rustflags"], "-C debuginfo=1")
+        self.assertEqual(tc["cargo_profile_release"], "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16;CARGO_PROFILE_RELEASE_LTO=fat")
+        self.assertNotEqual(tools.build_identity(tc), tools.build_identity(plain))
+        self.assertEqual(set(tools.build_identity(tc)), set(tools.BUILD_FIELDS))
+        self.assertNotIn("llvm", tools.build_identity(tc))
+
+    @unittest.skipUnless(in_git(), "not a git checkout")
+    def test_both_psmc_rs_identities_carry_the_build(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rs02 = fake_program(d / "rs02" / "psmc-rs", "psmc-rs 0.2.0")
+            rs01 = fake_program(d / "psmc-rs-0.1" / "target" / "release" / "psmc-rs", "")
+            dirs = {"base": d / "psmc-rs-0.1", "src": d / "psmc-rs-0.1" / "src", "target": d / "psmc-rs-0.1" / "target"}
+            with mock.patch.object(tools, "rs02_binary", return_value=rs02), \
+                    mock.patch.object(tools, "rs01_dirs", return_value=dirs), \
+                    mock.patch.dict("os.environ", without_build_vars(), clear=True):
+                t02, t01 = tools.psmc_rs_02(build=False), tools.psmc_rs_01(build=False)
+                with mock.patch.dict("os.environ", {"CARGO_PROFILE_RELEASE_OPT_LEVEL": "2"}):
+                    t02b, t01b = tools.psmc_rs_02(build=False), tools.psmc_rs_01(build=False)
+        for a, b in ((t02, t02b), (t01, t01b)):
+            self.assertTrue(set(tools.BUILD_FIELDS) <= set(a.identity), a.name)
+            self.assertNotEqual(a.identity, b.identity, a.name)
+            self.assertEqual(b.identity["cargo_profile_release"], "CARGO_PROFILE_RELEASE_OPT_LEVEL=2")
+
+
+C_SOURCES = {
+    "main.c": '#include <stdio.h>\n#include "psmc.h"\nint main(void) { fprintf(stderr, "Version: 0.6.5-test\\n"); '
+              "return PSMC_ONE + f_core(); }\n",
+    "core.c": "int f_core(void) { return 0; }\n",
+    "psmc.h": "#define PSMC_ONE 1\nint f_core(void);\n",
+    "kseq.h": "#define KSEQ_ZERO 0\n",
+    "Makefile": "CFLAGS= -g -Wall -O2 -Wno-unused-function\n",
+    "utils/fq2psmcfa.c": '#include "kseq.h"\nint main(void) { return KSEQ_ZERO; }\n',
+    "utils/splitfa.c": '#include "kseq.h"\n#include <math.h>\nint main(void) { return KSEQ_ZERO * (int)sqrt(4.0); }\n',
+}
+for _name in ("khmm.c", "kmin.c", "cli.c", "em.c", "aux.c"):
+    C_SOURCES[_name] = f"int f_{_name[:-2]}(void) {{ return 0; }}\n"
+
+
+@unittest.skipIf(shutil.which("cc") is None, "no C compiler")
+class BuildC(unittest.TestCase):
+    """``tools --build-c``: lh3/psmc's layout with stand-in sources (psmc prints a version, as lh3/psmc does)."""
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tools_dir = Path(self._tmp.name)
+        self.src = tools.c_psmc_dir(self.tools_dir)
+        for name, text in C_SOURCES.items():
+            (self.src / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.src / name).write_text(text)
+
+    def build(self, **kw):
+        return tools.build_c(self.src, cc="cc", log=lambda m: None, **kw)
+
+    def test_defaults(self):
+        import os
+
+        env = {k: v for k, v in os.environ.items() if k not in ("CC", "PSMC_C_CFLAGS")}
+        with mock.patch.dict("os.environ", env, clear=True):
+            self.assertEqual(tools.default_cflags(), "-g -Wall -O2 -Wno-unused-function")  # the Makefile's
+            self.assertEqual(tools.default_cc(), "gcc" if shutil.which("gcc") else "cc")
+        with mock.patch.dict("os.environ", {"CC": "clang", "PSMC_C_CFLAGS": "-g -Wall -O1 -Wno-unused-function"}):
+            self.assertEqual((tools.default_cc(), tools.default_cflags()), ("clang", "-g -Wall -O1 -Wno-unused-function"))
+
+    def test_the_build_is_recorded_and_enters_c_psmcs_identity(self):
+        record = self.build(cflags="-O1 -Wall", ldflags="")
+        saved = json.loads((self.src / "BUILD.json").read_text())
+        self.assertEqual(saved, record)
+        self.assertEqual(record["cflags"], "-O1 -Wall")
+        self.assertEqual(record["compiler"], shutil.which("cc"))
+        self.assertTrue(record["compiler_version"])
+        self.assertEqual(record["libs"], "-lm -lz")
+        self.assertEqual(set(record["sources"]), set(C_SOURCES))
+        self.assertEqual(record["sources"]["utils/splitfa.c"], tools.sha256_file(self.src / "utils" / "splitfa.c"))
+        self.assertEqual(set(record["binaries"]), {"psmc", "utils/fq2psmcfa", "utils/splitfa"})
+        for name, digest in record["binaries"].items():
+            self.assertEqual(digest, tools.sha256_file(self.src / name), name)
+        self.assertIn("-o psmc khmm.c kmin.c cli.c core.c em.c aux.c main.c -lm -lz", record["commands"]["psmc"])
+        self.assertIn("-O1 -Wall -I.. -o fq2psmcfa fq2psmcfa.c", record["commands"]["utils/fq2psmcfa"])
+        self.assertTrue(record["platform"])
+        self.assertEqual([p.name for p in self.src.iterdir() if p.name.startswith(".")], [])  # nothing left over
+
+        c = tools.c_psmc(self.tools_dir)
+        self.assertEqual(c.identity, {"version": "0.6.5-test", "sha256": record["binaries"]["psmc"],
+                                      "cc": record["compiler_version"], "cflags": "-O1 -Wall"})
+        self.assertEqual(c.info["cc_path"], record["compiler"])
+        self.assertEqual(tools.utility("splitfa", self.tools_dir).identity, {"sha256": record["binaries"]["utils/splitfa"]})
+        self.build(cflags="-O2 -Wall")
+        self.assertNotEqual(tools.c_psmc(self.tools_dir).identity["cflags"], c.identity["cflags"])
+
+    def test_without_a_record_the_identity_is_as_before(self):
+        self.build(cflags="-O1")
+        (self.src / "BUILD.json").unlink()
+        c = tools.c_psmc(self.tools_dir)
+        self.assertEqual(set(c.identity), {"version", "sha256"})
+        self.assertEqual(c.info, {})
+        self.assertIsNone(tools.read_c_build(self.src))
+
+    def test_a_binary_the_record_does_not_describe_is_refused(self):
+        self.build(cflags="-O1")
+        with open(self.src / "psmc", "ab") as f:
+            f.write(b"\0")
+        with self.assertRaisesRegex(tools.ToolError, "--build-c"):
+            tools.c_psmc(self.tools_dir)
+
+    def test_a_failed_build_keeps_the_old_programs_and_record(self):
+        record = self.build(cflags="-O1")
+        (self.src / "utils" / "splitfa.c").write_text("int main(void) { return }\n")
+        with self.assertRaises(tools.ToolError):
+            self.build(cflags="-O2")
+        self.assertEqual(json.loads((self.src / "BUILD.json").read_text()), record)
+        for name, digest in record["binaries"].items():
+            self.assertEqual(tools.sha256_file(self.src / name), digest, name)
+        with self.assertRaisesRegex(tools.ToolError, "sources missing"):
+            (self.src / "em.c").unlink()
+            self.build()
+        with self.assertRaisesRegex(tools.ToolError, "not found"):
+            tools.build_c(self.src, cc="no-such-compiler-here", log=lambda m: None)
+
+    def test_the_tools_command_builds_first(self):
+        from experiment.pipeline import __main__ as cli
+
+        args = cli.build_parser().parse_args(["tools", "--build-c"])
+        self.assertTrue(args.build_c)
+        self.assertFalse(cli.build_parser().parse_args(["tools"]).build_c)
+        missing = tools.ToolError("not here")
+        with mock.patch.object(tools, "build_c", side_effect=tools.ToolError("cc failed")), \
+                contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(cli.cmd_tools(args), 1)
+        self.assertIn("cc failed", err.getvalue())
+        with mock.patch.object(tools, "build_c") as build, \
+                mock.patch.object(tools, "psmc_rs_02", side_effect=missing), \
+                mock.patch.object(tools, "psmc_rs_01", side_effect=missing), \
+                mock.patch.object(tools, "c_psmc", side_effect=missing), \
+                mock.patch.object(tools, "utility", side_effect=missing), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.cmd_tools(args), 0)
+        build.assert_called_once_with()
 
 
 class RequirementsLock(unittest.TestCase):

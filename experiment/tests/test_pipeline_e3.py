@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -147,6 +148,14 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "5")
         self.assertEqual(default.settings["inference"]["mstep_iters"], 5)
 
+    def test_the_report_reads_c_psmcs_build_record_when_there_is_one(self):
+        c_dir = self.runs / "tools" / "psmc_c"
+        c_dir.mkdir(parents=True)
+        with mock.patch.object(e3.tools, "c_psmc_dir", return_value=c_dir):
+            self.assertNotIn(c_dir / "BUILD.json", self.jobs(config.TINY)["E3/report"].inputs)
+            (c_dir / "BUILD.json").write_text("{}")
+            self.assertIn(c_dir / "BUILD.json", self.jobs(config.TINY)["E3/report"].inputs)
+
     def test_simulation_jobs(self):
         jobs = self.jobs(config.PRODUCTION)
         sim = jobs["E3/sim/300Mb"]
@@ -268,6 +277,24 @@ class Report(unittest.TestCase):
         e3.report(Context(self.profile, self.runs))
         env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
         self.assertEqual((env["machine.hostname"], env["machine.cpu"]), ("cn1;cn2", "Test CPU"))
+
+    def test_environment_says_how_c_psmc_was_built(self):
+        build = {"compiler": "/usr/bin/gcc", "compiler_version": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
+                 "cflags": "-g -Wall -O2 -Wno-unused-function", "ldflags": "", "libs": "-lm -lz",
+                 "platform": "Linux-5.14.0-x86_64-with-glibc2.34", "built": "2026-10-06T12:00:00"}
+        with mock.patch.object(e3.tools, "read_c_build", return_value=build):
+            e3.report(Context(self.profile, self.runs))
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertIn("'-g -Wall -O2 -Wno-unused-function'", env["tool.c.build"])
+        self.assertNotIn("-O1", env["tool.c.build"])
+        self.assertEqual(env["cc"], build["compiler_version"])  # BUILD.json's, not today's cc
+        self.assertEqual(env["tool.c.build_platform"], build["platform"])
+        with mock.patch.object(e3.tools, "read_c_build", return_value=None), \
+                mock.patch.object(e3, "c_compiler", return_value="Apple clang version 17.0.0"):
+            e3.report(Context(self.profile, self.runs))
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertEqual((env["tool.c.build"], env["cc"]), (e3.C_PSMC_BUILD, "Apple clang version 17.0.0"))
+        self.assertNotIn("tool.c.build_platform", env)
 
     def test_a_fit_of_another_genome_is_refused(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02")
