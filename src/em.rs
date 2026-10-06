@@ -9,6 +9,7 @@ use crate::hmm::{
     Cancelled, EStepOptions, EStepPhase, EStepProgress, SufficientStats, e_step_with_options,
     log_likelihood_with_options,
 };
+use crate::io::CallableBases;
 use crate::model::PsmcModel;
 use crate::opt::{
     MStepConfig, MStepProgress, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome,
@@ -62,15 +63,52 @@ impl EmHistory {
 /// the missing symbol (whose emission probability is 1) and the initial
 /// state. It is `-inf` when any of these probabilities is not positive, where
 /// C returns `-1e300`.
+///
+/// With callable bases ([`SufficientStats::callable`]) the emission terms
+/// are those of the callable-length model, with the emissions the E-step
+/// used:
+///
+/// `sum_k (G_T[k] ln e_0[k] + sum_c G_K[c][k] ln(1 - e_0[k]^(c / s)))`,
+///
+/// which with every count `s` is C's expression, to the bit.
 pub fn hmm_q(transition: &Array2<f64>, emission: &Array2<f64>, stats: &SufficientStats) -> f64 {
     let mut sum = 0.0;
-    for (b, counts) in stats.gobs[..2].iter().enumerate() {
-        for (k, &count) in counts.iter().enumerate() {
-            let p = emission[(b, k)];
-            if p <= 0.0 {
-                return f64::NEG_INFINITY;
+    match &stats.callable {
+        None => {
+            for (b, counts) in stats.gobs[..2].iter().enumerate() {
+                for (k, &count) in counts.iter().enumerate() {
+                    let p = emission[(b, k)];
+                    if p <= 0.0 {
+                        return f64::NEG_INFINITY;
+                    }
+                    sum += count * p.ln();
+                }
             }
-            sum += count * p.ln();
+        }
+        Some(c) => {
+            for (k, &count) in c.t_weighted.iter().enumerate() {
+                let p = emission[(0, k)];
+                if p <= 0.0 {
+                    return f64::NEG_INFINITY;
+                }
+                sum += count * p.ln();
+            }
+            let s = c.bin_size as f64;
+            for (n, counts) in &c.k_by_count {
+                let f = f64::from(*n) / s;
+                for (k, &count) in counts.iter().enumerate() {
+                    // The E-step's emission of a K bin of this count.
+                    let p = if usize::from(*n) == c.bin_size {
+                        emission[(1, k)]
+                    } else {
+                        1.0 - (emission[(0, k)].ln() * f).exp()
+                    };
+                    if p <= 0.0 {
+                        return f64::NEG_INFINITY;
+                    }
+                    sum += count * p.ln();
+                }
+            }
         }
     }
     for (&count, &p) in stats.xi.iter().zip(transition.iter()) {
@@ -91,15 +129,52 @@ pub fn hmm_q(transition: &Array2<f64>, emission: &Array2<f64>, stats: &Sufficien
 /// to every count, which changes the value by less than 1e-20. A negative
 /// count, which only an E-step with negative transition probabilities
 /// gives (EM refuses to start from those), makes it NaN, as in C.
+///
+/// With callable bases the emission probabilities of a state are those of
+/// the callable-length model, one free parameter `e_0[k]` per state, so
+/// that `Q - Q0` stays at most 0: its emission part is the largest value of
+/// `G_T[k] ln e + sum_c G_K[c][k] ln(1 - e^(c / s))` over `e` in (0, 1),
+/// which is concave in `-ln e` and found by Newton's method. When every `K`
+/// bin is full the maximum has C's closed form, with `G_T` and `G_K` in
+/// place of `E_0` and `E_1`, so input whose bins are all full gives C's
+/// value to the bit.
 pub fn hmm_q0(stats: &SufficientStats) -> f64 {
     fn x_ln_x_over(x: f64, total: f64) -> f64 {
         if x == 0.0 { 0.0 } else { x * (x / total).ln() }
     }
-    let [e0, e1, _] = &stats.gobs;
     let mut sum = 0.0;
-    for (&c0, &c1) in e0.iter().zip(e1) {
-        let total = c0 + c1;
-        sum += x_ln_x_over(c0, total) + x_ln_x_over(c1, total);
+    match &stats.callable {
+        None => {
+            let [e0, e1, _] = &stats.gobs;
+            for (&c0, &c1) in e0.iter().zip(e1) {
+                let total = c0 + c1;
+                sum += x_ln_x_over(c0, total) + x_ln_x_over(c1, total);
+            }
+        }
+        Some(c) => {
+            let s = c.bin_size as f64;
+            for (k, &t) in c.t_weighted.iter().enumerate() {
+                // The K counts of this state by share of callable bases.
+                let partial: Vec<(f64, f64)> = c
+                    .k_by_count
+                    .iter()
+                    .filter(|(n, g)| usize::from(*n) != c.bin_size && g[k] != 0.0)
+                    .map(|(n, g)| (f64::from(*n) / s, g[k]))
+                    .collect();
+                let full: f64 = c
+                    .k_by_count
+                    .iter()
+                    .filter(|(n, _)| usize::from(*n) == c.bin_size)
+                    .map(|(_, g)| g[k])
+                    .sum();
+                sum += if partial.is_empty() {
+                    let total = t + full;
+                    x_ln_x_over(t, total) + x_ln_x_over(full, total)
+                } else {
+                    max_callable_emission_q(t, full, &partial)
+                };
+            }
+        }
     }
     for row in stats.xi.rows() {
         let total: f64 = row.sum();
@@ -108,6 +183,61 @@ pub fn hmm_q0(stats: &SufficientStats) -> f64 {
         }
     }
     sum
+}
+
+/// The largest value over `mu > 0` of `h(mu) = -t mu + full ln(1 - e^-mu)
+/// + sum_(f, g) g ln(1 - e^(-f mu))`: the emission part of one state's `Q`
+/// in the callable-length model, with `e_0 = e^-mu`, for `t` the
+/// count-weighted `T` sum, `full` the `K` sum of full bins and `partial` the
+/// `K` sums of partly callable bins by their share `f` of callable bases
+/// (`0 < f < 1`, at least one positive sum).
+///
+/// `h` is concave, with `h'` falling from `+inf` near 0 to `-t`, so for `t
+/// > 0` the maximum is at the root of `h'`, found by Newton's method from
+/// the left, where it climbs monotonically; without `T` counts `h` rises to
+/// its supremum 0 as `mu` grows.
+fn max_callable_emission_q(t: f64, full: f64, partial: &[(f64, f64)]) -> f64 {
+    let terms = || std::iter::once((1.0, full)).chain(partial.iter().copied());
+    let h = |mu: f64| -> f64 {
+        let mut v = -t * mu;
+        for (f, g) in terms() {
+            if g != 0.0 {
+                v += g * (-(-f * mu).exp_m1()).ln();
+            }
+        }
+        v
+    };
+    if t == 0.0 {
+        return 0.0;
+    }
+    // h'(mu) = -t + sum g f / (e^(f mu) - 1), h''(mu) = -sum g f² e^(f mu) / (e^(f mu) - 1)².
+    let slope = |mu: f64| -> (f64, f64) {
+        let (mut d1, mut d2) = (-t, 0.0);
+        for (f, g) in terms() {
+            if g != 0.0 {
+                let em1 = (f * mu).exp_m1();
+                d1 += g * f / em1;
+                d2 -= g * f * f * (em1 + 1.0) / (em1 * em1);
+            }
+        }
+        (d1, d2)
+    };
+    // A start left of the root: with every share raised to 1, C's closed
+    // form, whose h' is no larger than ours.
+    let k_total: f64 = terms().map(|(_, g)| g).sum();
+    let mut mu = (1.0 + k_total / t).ln();
+    for _ in 0..200 {
+        let (d1, d2) = slope(mu);
+        if d1.is_nan() || d1 <= 0.0 {
+            break;
+        }
+        let step = -d1 / d2;
+        mu += step;
+        if step.is_nan() || step <= 1e-15 * mu {
+            break;
+        }
+    }
+    h(mu)
 }
 
 /// C psmc's `post_sigma`: the posterior distribution of the hidden state over
@@ -174,6 +304,14 @@ pub struct EmOptions<'a> {
     /// Run the E-steps and the final log-likelihood in this pool instead of
     /// the current one.
     pub thread_pool: Option<&'a ThreadPool>,
+    /// The callable bases of each bin, row for row
+    /// ([`crate::io::Observations::callable`]): fit the callable-length
+    /// model of `docs/design/bin-callable-model.md`, in which a bin of `c`
+    /// of `s` callable bases has the `T` emission of a full bin to the power
+    /// `c / s` ([`EStepOptions::callable`]). `None` (the default) fits C
+    /// psmc's model; so do counts whose called bins are all full, to the
+    /// bit.
+    pub callable: Option<&'a CallableBases>,
 }
 
 pub fn em_train(
@@ -238,6 +376,7 @@ pub fn em_train_with_options(
         mut on_progress,
         cancel,
         thread_pool,
+        callable,
     } = opts;
     let check_cancel = |iter: usize| -> Result<()> {
         if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
@@ -305,7 +444,7 @@ pub fn em_train_with_options(
                 cancel,
                 thread_pool,
                 alpha_cache: None,
-                callable: None,
+                callable,
             };
             e_step_with_options(
                 model.prior_matrix(),
@@ -363,6 +502,7 @@ pub fn em_train_with_options(
         let ll_opts = EStepOptions {
             cancel,
             thread_pool,
+            callable,
             ..EStepOptions::default()
         };
         last.1 = log_likelihood_with_options(

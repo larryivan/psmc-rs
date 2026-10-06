@@ -2,6 +2,7 @@ use anyhow::{Result, bail};
 use ndarray::Array2;
 
 use crate::io::params::{PsmcParamsFile, RunMetadata, save_params};
+use crate::io::{BinCounts, CallableBases};
 
 /// C psmc's `PSMC_T_INF`: the end of the last interval, `t[n_steps + 1]`,
 /// in units of 2N0 generations. It only matters as the upper bound that
@@ -659,13 +660,190 @@ struct Coalescent {
 
 /// Initial per-bin θ0 from the data, as in C `psmc_new_data`:
 /// θ0 = −ln(1 − K/L), where K counts heterozygous (`K`) bins and L counts
-/// non-missing bins.
+/// non-missing bins. See [`initial_theta_with_callable`] for bins with
+/// callable bases.
 pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
     let (n_het, n_observed) = rows
         .iter()
         .map(|row| theta_counts(row))
         .fold((0, 0), |(k, l), (rk, rl)| (k + rk, l + rl));
     theta_from_counts(n_het, n_observed)
+}
+
+/// Initial per-bin θ0 of bins with the callable bases `callable` (row for
+/// row): [`ThetaCounts::theta0`], which is [`initial_theta`] without
+/// callable bases or when every called bin is full.
+pub fn initial_theta_with_callable(
+    rows: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+) -> Result<f64> {
+    let Some(callable) = callable else {
+        return initial_theta(rows);
+    };
+    if callable.rows().len() != rows.len() {
+        bail!(
+            "callable bases for {} rows, but there are {} rows of bins",
+            callable.rows().len(),
+            rows.len()
+        );
+    }
+    let mut counts = ThetaCounts::new(Some(callable.bin_size()));
+    for (row, c) in rows.iter().zip(callable.rows()) {
+        counts.add(&ThetaCounts::of_counted(row, c)?);
+    }
+    counts.theta0()
+}
+
+/// What the starting θ0 is estimated from ([`ThetaCounts::theta0`]): the
+/// heterozygous (`K`) and called (non-missing) bins, and with callable
+/// bases the called bins by their count. Counts of parts of the data (rows,
+/// sequences, bootstrap trunks) add up ([`ThetaCounts::add`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThetaCounts {
+    /// Heterozygous bins.
+    pub het: u64,
+    /// Called bins (`T` or `K`).
+    pub called: u64,
+    /// With callable bases, `called_by_count[c]` called bins hold `c`
+    /// callable bases, for `c` from 0 to the bin size; empty without.
+    pub called_by_count: Vec<u64>,
+}
+
+impl ThetaCounts {
+    /// No bins yet, of bins of `bin_size` bases with callable bases, or
+    /// without (`None`).
+    pub fn new(bin_size: Option<usize>) -> Self {
+        Self {
+            het: 0,
+            called: 0,
+            called_by_count: bin_size.map_or(Vec::new(), |s| vec![0; s + 1]),
+        }
+    }
+
+    /// The counts of `bins` without callable bases: C psmc counts every
+    /// symbol other than `N` (2) as called.
+    pub fn of(bins: &[u8]) -> Self {
+        let (het, called) = theta_counts(bins);
+        Self {
+            het: het as u64,
+            called: called as u64,
+            called_by_count: Vec::new(),
+        }
+    }
+
+    /// The counts of `bins` with their callable bases `counts`; errors
+    /// unless there is one count per bin, at most the bin size, and every
+    /// called bin holds a callable base (as [`crate::io::Observations::validate`]
+    /// requires).
+    pub fn of_counted(bins: &[u8], counts: &BinCounts) -> Result<Self> {
+        if counts.len() != bins.len() {
+            bail!(
+                "{} bins but callable bases for {}",
+                bins.len(),
+                counts.len()
+            );
+        }
+        let s = counts.bin_size();
+        let mut out = Self::new(Some(s));
+        for (&v, c) in bins.iter().zip(counts) {
+            let c = usize::from(c);
+            if c > s || (v < 2 && c == 0) {
+                bail!("a bin of symbol {v} with {c} callable bases of {s}");
+            }
+            if v < 2 {
+                out.het += u64::from(v);
+                out.called += 1;
+                out.called_by_count[c] += 1;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Add the counts of more data, of the same kind.
+    ///
+    /// # Panics
+    ///
+    /// If one has callable bases and the other not, or they are of
+    /// different bin sizes.
+    pub fn add(&mut self, other: &Self) {
+        assert_eq!(
+            self.called_by_count.len(),
+            other.called_by_count.len(),
+            "θ0 counts of different kinds"
+        );
+        self.het += other.het;
+        self.called += other.called;
+        for (a, b) in self.called_by_count.iter_mut().zip(&other.called_by_count) {
+            *a += b;
+        }
+    }
+
+    /// The starting θ0 per bin of `s` bases: the θ at which the expected
+    /// number of heterozygous bins under a single coalescence time equals
+    /// the observed one, `K`.
+    ///
+    /// Without callable bases this is C psmc's θ0 = −ln(1 − K/L) for `L`
+    /// called bins: `L (1 − e^{−θ}) = K`. A called bin of `c` callable bases
+    /// shows a heterozygous site with probability `1 − e^{−θ c / s}` under
+    /// the callable-length model (`docs/design/bin-callable-model.md`), so
+    /// with callable bases θ0 solves
+    ///
+    /// ```text
+    /// sum over called bins i of (1 − exp(−θ c_i / s)) = K
+    /// ```
+    ///
+    /// The left side increases from 0 to `L` and is concave in θ, so the
+    /// root is unique (for `0 < K < L`), and Newton's method from
+    /// −ln(1 − K/L) s / max c, where the left side is at most `K`, climbs to
+    /// it monotonically. When every called bin has the same count `c` the
+    /// root is −ln(1 − K/L) s / c, and for full bins (`c = s`) exactly C's
+    /// value, so complete data start where C psmc starts. Dividing C's
+    /// value by the mean share of callable bases instead would start low:
+    /// the probability of a heterozygous site is concave in the count, so a
+    /// mix of counts shows fewer heterozygous bins than bins of the mean
+    /// count would.
+    ///
+    /// Errors when no bin is called or every called bin is heterozygous, as
+    /// C psmc's θ0 does.
+    pub fn theta0(&self) -> Result<f64> {
+        let plain = theta_from_counts(self.het as usize, self.called as usize)?;
+        let s = self.called_by_count.len().saturating_sub(1);
+        // (share of callable bases, called bins) for each count present.
+        let present: Vec<(f64, f64)> = self
+            .called_by_count
+            .iter()
+            .enumerate()
+            .filter(|&(c, &n)| n > 0 && c > 0)
+            .map(|(c, &n)| (c as f64 / s as f64, n as f64))
+            .collect();
+        let (f_max, single) = match present.as_slice() {
+            [] => return Ok(plain),
+            [(f, _)] => (*f, true),
+            many => (many.iter().map(|&(f, _)| f).fold(0.0, f64::max), false),
+        };
+        if single || self.het == 0 {
+            // For full bins f = 1 and this is C's value to the bit.
+            return Ok(plain / f_max);
+        }
+        let k = self.het as f64;
+        let mut theta = plain / f_max;
+        for _ in 0..100 {
+            let (mut excess, mut slope) = (-k, 0.0);
+            for &(f, n) in &present {
+                excess += n * -(-theta * f).exp_m1();
+                slope += n * f * (-theta * f).exp();
+            }
+            if excess >= 0.0 {
+                break;
+            }
+            let step = -excess / slope;
+            theta += step;
+            if step <= 1e-15 * theta {
+                break;
+            }
+        }
+        Ok(theta)
+    }
 }
 
 /// The counts [`initial_theta`] takes from `bins`: heterozygous (`K`) bins

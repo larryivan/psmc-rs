@@ -10,4 +10,4 @@ pub mod qc;
 pub mod report;
 pub mod utils;
 
-pub use model::{PsmcModel, initial_theta};
+pub use model::{PsmcModel, initial_theta, initial_theta_with_callable};

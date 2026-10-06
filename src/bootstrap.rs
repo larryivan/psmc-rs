@@ -17,8 +17,11 @@
 //! Input with the callable bases of each bin ([`Sequences`]) keeps them
 //! through the bootstrap: [`observations_to_sequences`],
 //! [`split_sequences_for_bootstrap`] and [`resample_sequences`] cut and draw
-//! the counts with their bins, and [`run_bootstrap_sequences`] fits
-//! replicates whose rows carry them. The trunks drawn are the same with or
+//! the counts with their bins, and [`run_bootstrap_sequences`] fits each
+//! replicate with the callable-length model of
+//! `docs/design/bin-callable-model.md` from a fresh start whose θ0 comes
+//! from its own counts ([`replicate_initial_model_with_callable`]), as the
+//! main fit of such data does. The trunks drawn are the same with or
 //! without counts.
 //!
 //! A replicate's fresh start takes θ0 from its own resampled data, so a
@@ -87,9 +90,7 @@ use crate::hmm::Cancelled;
 use crate::io::callable::join_counts;
 use crate::io::common::chunk_sequences;
 use crate::io::{CallableBases, Observations, Sequences};
-use crate::model::{
-    NegativeTransitions, PsmcModel, initial_theta, theta_counts, theta_from_counts,
-};
+use crate::model::{NegativeTransitions, PsmcModel, ThetaCounts, initial_theta_with_callable};
 use crate::opt::MStepConfig;
 use crate::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 
@@ -510,8 +511,8 @@ pub fn sample_sequences_block_bootstrap(
 /// Fresh starting model for one bootstrap replicate, built the way C
 /// `psmc -b` initialises every run: the template's pattern, `n_steps` and
 /// `mu`; the configured initial `t_max` (not a fitted one); θ0 =
-/// [`initial_theta`] of the replicate's own rows; ρ0 = θ0 / `tr_ratio`; every
-/// λ = 1.
+/// [`initial_theta`](crate::initial_theta) of the replicate's own rows; ρ0 =
+/// θ0 / `tr_ratio`; every λ = 1.
 ///
 /// Starting from the full-data fit instead would not re-run the estimator
 /// whose sampling variability the bootstrap is meant to measure.
@@ -521,8 +522,22 @@ pub fn replicate_initial_model(
     t_max: f64,
     tr_ratio: f64,
 ) -> Result<PsmcModel> {
+    replicate_initial_model_with_callable(template, rows, None, t_max, tr_ratio)
+}
+
+/// [`replicate_initial_model`] for rows with the callable bases `callable`:
+/// θ0 is [`initial_theta_with_callable`] of the replicate's own rows and
+/// counts, the starting value the main fit of such data takes.
+pub fn replicate_initial_model_with_callable(
+    template: &PsmcModel,
+    rows: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+    t_max: f64,
+    tr_ratio: f64,
+) -> Result<PsmcModel> {
     check_fresh_start(t_max, tr_ratio)?;
-    fresh_start(template, initial_theta(rows)?, t_max, tr_ratio)
+    let theta0 = initial_theta_with_callable(rows, callable)?;
+    fresh_start(template, theta0, t_max, tr_ratio)
 }
 
 /// [`replicate_initial_model`] at θ0 = `theta0`.
@@ -571,24 +586,54 @@ pub fn invalid_replicate_starts(
     template: &PsmcModel,
     cfg: &BootstrapConfig,
 ) -> Result<Vec<InvalidReplicateStart>> {
+    invalid_starts(seqs, None, template, cfg)
+}
+
+/// [`invalid_replicate_starts`] for sequences with the callable bases of
+/// their bins, whose replicates start from θ0 of their counts too
+/// ([`replicate_initial_model_with_callable`]), as
+/// [`run_bootstrap_sequences`] fits them: it finds exactly the replicates
+/// that bootstrap skips.
+pub fn invalid_replicate_starts_sequences(
+    seqs: &Sequences,
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+) -> Result<Vec<InvalidReplicateStart>> {
+    seqs.validate()?;
+    invalid_starts(&seqs.bins, seqs.callable.as_ref(), template, cfg)
+}
+
+/// [`invalid_replicate_starts_sequences`] on the bins `seqs` and their
+/// callable bases.
+fn invalid_starts(
+    seqs: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+) -> Result<Vec<InvalidReplicateStart>> {
     bootstrap_trunk_count(seqs, cfg.trunk_size)?;
     check_fresh_start(cfg.t_max, cfg.tr_ratio)?;
     let mut lengths = Vec::new();
     let mut counts = Vec::new();
-    for seq in seqs {
+    for (i, seq) in seqs.iter().enumerate() {
         for range in trunk_ranges(seq.len(), cfg.trunk_size) {
             lengths.push(range.len());
-            counts.push(theta_counts(&seq[range]));
+            counts.push(match callable {
+                Some(c) => ThetaCounts::of_counted(&seq[range.clone()], &c.rows()[i].slice(range))?,
+                None => ThetaCounts::of(&seq[range]),
+            });
         }
     }
+    let empty = ThetaCounts::new(callable.map(CallableBases::bin_size));
     let mut invalid = Vec::new();
     for index in 0..cfg.replicates {
         let rng = &mut replicate_rng(cfg.seed, index);
-        let (n_het, n_observed) = resample_chunk_indices(&lengths, |n| uniform_index(rng, n))
-            .into_iter()
-            .map(|i| counts[i])
-            .fold((0, 0), |(k, l), (ck, cl)| (k + ck, l + cl));
-        let start = theta_from_counts(n_het, n_observed)
+        let mut drawn = empty.clone();
+        for i in resample_chunk_indices(&lengths, |n| uniform_index(rng, n)) {
+            drawn.add(&counts[i]);
+        }
+        let start = drawn
+            .theta0()
             .and_then(|theta0| fresh_start(template, theta0, cfg.t_max, cfg.tr_ratio))
             .with_context(|| format!("bootstrap replicate {}", index + 1))?;
         if let Some(start) = negative_transitions(&start)? {
@@ -829,8 +874,12 @@ pub fn run_bootstrap_with_options(
 /// [`run_bootstrap_with_options`] on sequences with the callable bases of
 /// their bins: the trunks are cut with [`split_sequences_for_bootstrap`] and
 /// drawn with [`resample_sequences`], so that each replicate's rows carry
-/// the counts of their bins ([`Observations::callable`]). A replicate draws
-/// the same trunks as from the bins alone.
+/// the counts of their bins ([`Observations::callable`]), and each
+/// replicate is fitted with them ([`EmOptions::callable`]), from a fresh
+/// start at θ0 of its own counts
+/// ([`replicate_initial_model_with_callable`]). A replicate draws the same
+/// trunks as from the bins alone; with every called bin full, it is the
+/// replicate of the bins alone, to the bit.
 pub fn run_bootstrap_sequences(
     seqs: &Sequences,
     template: &PsmcModel,
@@ -916,8 +965,13 @@ fn run_replicates(
             let mut model = match start {
                 Some(start) => start.clone(),
                 None => {
-                    let model =
-                        replicate_initial_model(template, &obs.rows, cfg.t_max, cfg.tr_ratio)?;
+                    let model = replicate_initial_model_with_callable(
+                        template,
+                        &obs.rows,
+                        obs.callable.as_ref(),
+                        cfg.t_max,
+                        cfg.tr_ratio,
+                    )?;
                     if skip_invalid_starts && negative_transitions(&model)?.is_some() {
                         return Ok(None);
                     }
@@ -928,6 +982,7 @@ fn run_replicates(
                 on_progress: None,
                 cancel,
                 thread_pool,
+                callable: obs.callable.as_ref(),
             };
             let history = em_train_with_options(
                 &mut model,

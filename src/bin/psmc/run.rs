@@ -222,7 +222,11 @@ fn infer(
         &report_html,
         bootstrap.as_ref(),
     )?;
-    let data = read_input(&input_file, cli, sink)?;
+    let mut data = read_input(&input_file, cli, sink)?;
+    // The command line does not fit the callable bases yet: C psmc's model
+    // throughout, the bootstrap included.
+    data.obs.callable = None;
+    let data = data;
     let obs = &data.obs;
 
     // Input QC, printed before the fit, also when no sequence is left (the
@@ -886,6 +890,7 @@ fn fit(
             on_progress: Some(&mut on_progress),
             cancel: Some(cancel),
             thread_pool: Some(pool),
+            callable: obs.callable.as_ref(),
         },
     )?;
     model.param_recalculate()?;
