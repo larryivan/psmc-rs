@@ -596,7 +596,9 @@ the 50 fits; b, the true sampling SD and the bootstrap SDs; c, the SD ratio
 by time (median and IQR over the 10 genomes; grey: where a bootstrap with
 the true SD would fall given the true SD's own sampling error); d, the
 pointwise coverage of the true Ne (thick, with its Clopper-Pearson
-interval) and of the fits' mean (thin) against the nominal 95%.
+interval for 50 Mb trunks), of each genome's pattern-projected truth
+(with markers) and of the fits' mean (thin) against the nominal 95%; the
+legend gives each trunk size's window coverage of the three.
 
 Layout of `experiment/runs/E5/`: `sims/` (genomes; not committed),
 `truth/`, `fits/bottleneck/repNN.rs.json`, `boot/trunk<B>/repNN.rs.json` (the
