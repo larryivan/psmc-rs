@@ -69,6 +69,22 @@ pub struct MStepConfig {
     pub rho_hi: f64,
     pub tmax_lo: f64,
     pub tmax_hi: f64,
+    /// The range of each free λ, by default 1e-6 to 1e4.
+    ///
+    /// The upper bound is where C psmc's formulas still resolve an early
+    /// interval in f64. Over an interval of length τ, the survival falls by
+    /// `1 - exp(-τ/λ)`, which f64 holds to about 1.1e-16 absolute, and the
+    /// interval's terms `λ (alpha_k - alpha_{k+1}) - alpha_{k+1} τ` of C's
+    /// `cpik` and `q_aux` cancel to about `τ² / (2 λ)`: their relative error
+    /// is about `2.2e-16 (λ / τ)²`. With 64 intervals and `t_max` 15 the
+    /// first lasts τ = 0.0083, where that error is 3e-4 at λ = 1e4 but 3 at
+    /// 1e6: the probabilities of moving into that state are then rounding
+    /// noise, negative at most points however close to a valid one, so
+    /// that the M-step's objective is infeasible all around such a start
+    /// and EM stopped moving (with 101 intervals, from round 27 of a
+    /// simulated 4 × 25 Mb genome). 1e4 keeps the error below 1 up to about
+    /// 1,600 intervals. A λ of 1e4 already means no coalescence in its
+    /// intervals (Ne 1e4 times N0); C psmc's λ have no bound.
     pub lam_lo: f64,
     pub lam_hi: f64,
 }
@@ -93,7 +109,7 @@ impl Default for MStepConfig {
             tmax_lo: 1.0,
             tmax_hi: 200.0,
             lam_lo: 1e-6,
-            lam_hi: 1e6,
+            lam_hi: 1e4,
         }
     }
 }
@@ -970,6 +986,61 @@ mod tests {
         x[3 + 2] = to_unconstrained(&[3e-3], &bounds[5..6]).unwrap()[0];
         let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
         assert!(f.is_finite() && g.iter().all(|v| v.is_finite()), "{f}");
+    }
+
+    /// At the default upper bound of λ, the objective of a model whose
+    /// early λ sit at that bound is feasible however `t_max` moves, for
+    /// layouts of 23 to 301 intervals; at 1e6 rounding makes it infeasible
+    /// at most points near such a start (see `MStepConfig::lam_hi`).
+    #[test]
+    fn lambda_at_its_upper_bound_keeps_the_objective_feasible() {
+        /// The share of t_max perturbations (relative 1e-9 to 1e-7) at which
+        /// the objective of `model`, with its first `saturated` free λ at
+        /// `lam`, is not finite.
+        fn infeasible_share(rng: &mut Rng, model: &PsmcModel, saturated: usize, lam: f64) -> f64 {
+            let config = MStepConfig::default();
+            let mut at = model.clone();
+            at.lam[..saturated].fill(lam);
+            at.param_recalculate().unwrap();
+            let stats = random_stats(rng, model, 5_000);
+            let bounds = bounds_from_config(
+                &at,
+                &MStepConfig {
+                    lam_hi: lam.max(config.lam_hi),
+                    ..config.clone()
+                },
+            );
+            let x = to_unconstrained(&pack_params(&at), &bounds).unwrap();
+            let mut bad = 0;
+            for i in 1..=100 {
+                let mut moved = at.clone();
+                moved.t_max *= 1.0 + 1e-9 * i as f64;
+                let mut x = x.clone();
+                x[2] = to_unconstrained(&[moved.t_max], &bounds[2..3]).unwrap()[0];
+                if !eval_adjoint(&at, &stats, &x, &bounds, 0.0).0.is_finite() {
+                    bad += 1;
+                }
+            }
+            bad as f64 / 100.0
+        }
+        let mut rng = Rng(0xBB67_AE85_84CA_A73B);
+        let lam_hi = MStepConfig::default().lam_hi;
+        for (n, pattern) in [
+            (22, Some("4+5*3+4")),
+            (63, None),
+            (63, Some("4+25*2+4+6")),
+            (100, None),
+            (300, Some("1+30*10")),
+        ] {
+            let model = random_model(&mut rng, n, pattern);
+            let share = infeasible_share(&mut rng, &model, 3, lam_hi);
+            assert_eq!(share, 0.0, "{n} {pattern:?}: {share} infeasible at λ = 1e4");
+        }
+        for n in [63, 100] {
+            let model = random_model(&mut rng, n, None);
+            let share = infeasible_share(&mut rng, &model, 3, 1e6);
+            assert!(share > 0.25, "{n}: only {share} infeasible at λ = 1e6");
+        }
     }
 
     /// By default the M-step minimises minus C psmc's Q, as the CLI does: no

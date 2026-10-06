@@ -12,7 +12,7 @@
 use psmc_rs::em::{hmm_q, hmm_q0};
 use psmc_rs::hmm::e_step_streaming;
 use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::opt::{MStepConfig, em_train};
+use psmc_rs::opt::{EmHistory, MStepConfig, em_train};
 use psmc_rs::{PsmcModel, initial_theta};
 use std::path::Path;
 
@@ -35,8 +35,8 @@ fn validity(model: &PsmcModel) -> (f64, bool) {
 
 /// EM on the 5 Mb input as `psmc-rs IN OUT N --n-steps 63 --t-max 15
 /// --tr-ratio 5` runs it, with the M-step settings of `config`; checks
-/// every iteration and returns the final log-likelihood.
-fn fit_and_check(n_iter: usize, config: &MStepConfig) -> f64 {
+/// every iteration and returns the history.
+fn fit_and_check(n_iter: usize, config: &MStepConfig) -> EmHistory {
     let obs = read_psmcfa(Path::new(INPUT), None).unwrap();
     let theta0 = initial_theta(&obs.rows).unwrap();
     let mut model = PsmcModel::new(15.0, 63, theta0, theta0 / 5.0, 2.5e-8, None).unwrap();
@@ -89,7 +89,7 @@ fn fit_and_check(n_iter: usize, config: &MStepConfig) -> f64 {
     .unwrap();
     let q = hmm_q(model.transition_matrix(), model.emission_matrix(), &e.stats) - hmm_q0(&e.stats);
     assert!(q <= 0.0, "Q - Q0 = {q} at the fitted model");
-    history.final_loglike().unwrap()
+    history
 }
 
 #[test]
@@ -102,4 +102,23 @@ fn em_keeps_a_valid_hmm_with_lambda_up_to_1e6() {
         ..MStepConfig::default()
     };
     fit_and_check(10, &config);
+}
+
+#[test]
+fn em_keeps_improving_with_one_lambda_per_interval() {
+    // With λ up to 1e6 the first two λ reached that bound and the fit
+    // stopped moving at round 16 (log-likelihood -8445.92), every M-step
+    // failing among the infeasible points around its start. With the
+    // default bound the fit improves every round, as C psmc's does
+    // (`psmc -N40 -t15 -r5 -p 64*1`: -8445.3196 in round 40).
+    let config = MStepConfig {
+        progress: false,
+        ..MStepConfig::default()
+    };
+    let history = fit_and_check(40, &config);
+    for (i, &(before, after)) in history.loglike.iter().enumerate().skip(1) {
+        assert!(after > before, "iteration {}: {before} -> {after}", i + 1);
+    }
+    let round_40 = history.loglike[39].0;
+    assert!(round_40 > -8445.33, "round 40: {round_40}");
 }

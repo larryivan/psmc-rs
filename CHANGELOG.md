@@ -141,6 +141,16 @@ Library API:
   1e-154), where rows summed to up to 1.014 and Q exceeded its maximum Q0;
   on a simulated genome fitted with one λ per interval an M-step moved
   there, and the next E-step lowered the log-likelihood by 367.
+- `MStepConfig::lam_hi` defaults to 1e4 instead of 1e6. Over an early
+  interval of length τ, C's formulas cancel to about τ² / (2λ), so f64
+  holds them to a relative 2.2e-16 (λ/τ)²: at λ = 1e6 the first of 64
+  intervals (τ = 0.0083) gets probabilities that are rounding noise,
+  negative at most points near any valid one. EM drove recent λ to 1e6
+  and then stopped moving (a simulated 4 × 25 Mb genome with 101
+  intervals, from round 27; a 5 Mb one with 64, from round 16); at 1e4 the
+  error is 3e-4, and below 1 up to about 1,600 intervals. λ = 1e4 already
+  means no coalescence in the interval: holding such λ at 1e4 instead of
+  1e6 lowered the maximum of Q by 1e-5 to 7e-4 on the simulations' counts.
 - `PsmcModel::new` rejects `n_steps` 0, single-state and overflowing
   patterns, more than `model::MAX_STATES` (10,000) states, and `t_max`
   outside (0, 1000).
