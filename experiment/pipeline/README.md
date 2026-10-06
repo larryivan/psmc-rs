@@ -199,8 +199,8 @@ busy. Every attempt also records the host it ran on and `$SLURM_JOB_ID`;
 the runner's state records `provenance.machine()` (CPU model, memory, host,
 libc, usable CPUs and the SLURM job on Linux). None of this enters a job's
 key. `status` without experiments reports those of the running runner, or
-of the last one (with its `--only`); a job whose input no job makes is
-reported blocked.
+of the last one (with its `--only`, which it says; `--only ''` shows all
+jobs); a job whose input no job makes is reported blocked.
 
 `start`, `status`, `plan` and `list` take `--only REGEX`: only the jobs
 whose id matches (`re.search`) are run or shown, and the status, the ETA

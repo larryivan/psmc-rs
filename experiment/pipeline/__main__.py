@@ -206,17 +206,22 @@ def cmd_status(args) -> int:
     # Without experiments named: those of the running runner, or else of the last one,
     # and its --only unless one is given.
     meta = _last_meta(runs_dir, args.profile)
+    inherited = False
     if not args.experiments and not args.jobs_file and meta:
         args.experiments = meta.get("experiments") or []
         if meta.get("jobs_file"):
             args.jobs_file = Path(meta["jobs_file"])
         if args.only is None:
             args.only = meta.get("only")
+            inherited = args.only is not None
     budget = config.Budget(**meta["budget"]) if meta.get("budget") else config.Budget(args.cores, args.mem_gb)
     graph = make_graph(args, runs_dir, build_tools=False)
     pid = runner.daemon_alive(runs_dir)
     statuses = runner.job_statuses(graph, runs_dir, daemon_pid=pid)
     print(runner.format_status(graph, statuses, budget, runs_dir, pid, verbose=args.jobs))
+    if args.only:  # a merged runs directory's state holds one shard's filter
+        print(f"(only the {len(graph.jobs)} jobs that --only {args.only!r}"
+              + (" of the last runner" if inherited else "") + " keeps; --only '' shows all)")
     return 0
 
 

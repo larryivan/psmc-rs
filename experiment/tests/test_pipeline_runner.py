@@ -397,6 +397,11 @@ class DetachedRunner(Base):
         self.assertRegex(st.stdout, r"\nT\s+2\s+0\s+0\s+1\s+0")
         self.assertIn("input missing, and no job makes it", st.stdout)
         self.assertNotIn("T/b ", st.stdout)
+        self.assertIn(f"(only the 3 jobs that --only {only!r} of the last runner keeps; --only '' shows all)",
+                      st.stdout)
+        st = self.cli("status", "--only", "")  # all 5 jobs: a and x/rep2 done, the others pending
+        self.assertRegex(st.stdout, r"\nT\s+2\s+0\s+0\s+0\s+3\s")
+        self.assertNotIn("--only", st.stdout)
         # Once the file exists (merged in from another shard), the kept job runs.
         (self.tmp / "b.txt").write_text("from another runs directory")
         res = self.cli("start", "--foreground", "--jobs-file", str(spec), "--only", only)
