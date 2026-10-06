@@ -538,7 +538,20 @@ class MaskSpec:
 
 @dataclass(frozen=True)
 class E4:
-    """Input preparation (Fig 5): routes from a VCF and a callable mask to PSMC."""
+    """Input preparation (Fig 5): routes from a VCF and a callable mask to PSMC.
+
+    fq2psmcfa's binning calls a bin missing only when more than 90% of its
+    bases are uncallable, so missing data dispersed in short runs leave
+    almost every bin called but holding only about (1 - f) of its bases.
+    C psmc takes every called bin as ``bin_size`` bases, so theta per bin,
+    N0 = theta / (4 mu s) and every time and size come out low by about
+    (1 - f). psmc-rs's callable-length model (``--bin-callable auto``, its
+    default; docs/design/bin-callable-model.md) weighs each bin by the
+    callable bases the VCF and its mask say it holds. E4 fits both models
+    on the same bins, the classic fq2psmcfa route, multihetsep (whose
+    callable bases are approximate) and the VCF without its mask, each
+    against the truth and against the complete-data fit of the same genome.
+    """
 
     model: str = "bottleneck"
     replicates: int = 5
@@ -553,52 +566,48 @@ class E4:
         MaskSpec("dispersed30", 0.3, "dispersed", 20.0),
     )
     no_missing_control: bool = True
-    # exact: VCF + --vcf-mask; fq2psmcfa: consensus FASTA -> fq2psmcfa (asserted equal to exact);
-    # multihetsep: psmc-rs convert --multihetsep (cross-checked once with generate_multihetsep.py);
-    # nomask: the same VCF without the mask.
-    routes: Tuple[str, ...] = ("exact", "fq2psmcfa", "multihetsep", "nomask")
-    # Routes whose input records which sites were callable (the VCF with its
-    # mask, and multihetsep's called-site counts), so that the callable bases
-    # per called bin are known. With fq2psmcfa's binning rule a bin is missing
-    # only when nearly all its bases are uncallable, so a dispersed mask
-    # leaves almost every bin called but holding only about (1 - f) of its
-    # bases: theta per bin, N0 = theta / (4 mu s) and with them every time
-    # and size shrink by about (1 - f). The tables report these routes twice:
-    # as fitted, and rescaled with s = callable bases per called bin (from
-    # psmc-rs qc) instead of the bin size ("<route>_rescaled"). The
-    # fq2psmcfa route (a psmcfa) and the nomask route (every site counted as
-    # called) cannot be rescaled: their inputs do not know the callable sites.
-    rescaled_routes: Tuple[str, ...] = ("exact", "multihetsep")
+    # The routes fitted (described below, with the --bin-callable each one
+    # passes in E4_BIN_CALLABLE). mask_auto and mask_ignore are required:
+    # they are the corrected route and the fq2psmcfa binning it is compared
+    # with, and the control's mask_auto fit is the complete-data fit.
+    routes: Tuple[str, ...] = ("mask_auto", "mask_ignore", "fq2psmcfa", "multihetsep", "nomask")
     multihetsep_crosscheck_replicates: int = 1
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1
-    # psmc-rs's --bin-callable for every route. E4 compares the routes under
-    # C psmc's model, every called bin taken as bin_size bases, so that the
-    # exact and fq2psmcfa routes fit identically and the rescaled routes
-    # correct that model; psmc-rs's default, auto, fits each bin of the VCF
-    # and multihetsep routes by its callable bases instead, which
-    # experiment/validation/bin_callable.py measures.
-    bin_callable: str = "ignore"
 
 
 # --- E4: how its steps run, beyond the design in E4 above --------------------
 #
-# The routes from one masked VCF to PSMC (experiments/e4.py, inputprep.py):
+# The routes from one masked VCF to PSMC (experiments/e4.py, inputprep.py).
+# "The exact bins" are psmc-rs's bins of the VCF with its mask (`psmc-rs
+# convert`), which both mask routes fit:
 #
-#   exact        psmc-rs on the VCF, mask mode, --vcf-mask callable.bed.gz
+#   mask_auto    psmc-rs on the VCF, mask mode, --vcf-mask callable.bed.gz,
+#                --bin-callable auto (its default): each called bin weighed by
+#                its callable bases, counted exactly from the mask
+#   mask_ignore  the same, --bin-callable ignore: every called bin taken as
+#                bin_size bases, as fq2psmcfa and C psmc take it
 #   fq2psmcfa    consensus FASTA (hom: base, het: IUPAC, uncallable: N) streamed
 #                into fq2psmcfa -s <bin_size> (its defaults otherwise: -g 10000,
 #                and -q, which needs qualities, does nothing), then psmc-rs on
-#                the psmcfa; its bins must equal those of `psmc-rs convert` on
-#                the exact route, and the job that compares them fails if not
-#   multihetsep  `psmc-rs convert --multihetsep` of the exact route's input
+#                the psmcfa, which records no callable bases (C psmc's model
+#                whatever --bin-callable says); its bins must equal the exact
+#                bins (the bins job fails if not), and its fit mask_ignore's,
+#                every fitted value of the JSON (the report fails if not)
+#   multihetsep  `psmc-rs convert --multihetsep` of the mask routes' input
 #                (nr_called = callable sites since the previous row, inclusive),
-#                read back by psmc-rs (uncalled sites at the start of each
-#                interval); replicate 1 of every mask is also checked row for
-#                row against msmc-tools' generate_multihetsep.py, run on each
-#                chromosome with its mask
-#   nomask       psmc-rs on the same VCF without --vcf-mask: uncallable sites
-#                count as called homozygous, as with a variants-only VCF
+#                read back by psmc-rs with --bin-callable auto: multihetsep does
+#                not say which sites of an interval are uncalled, so the reader
+#                places them at its start, and the bins and their callable bases
+#                follow that placement (approximate counts); replicate 1 of
+#                every mask is also checked row for row against msmc-tools'
+#                generate_multihetsep.py, run on each chromosome with its mask
+#   nomask       psmc-rs on the same VCF without --vcf-mask (variants only):
+#                uncallable sites count as called homozygous, every bin is full
+#
+# On the no-missing control every bin is full, so the callable-length model is
+# C psmc's: the report fails unless mask_auto and mask_ignore fit identically,
+# and that fit is the complete-data fit of the replicate.
 #
 # Masks: an alternating renewal process per chromosome (inputprep.py): callable
 # stretches and uncallable runs of geometric length (the discrete exponential),
@@ -613,6 +622,17 @@ class E4:
 # do not change any bin).
 
 E4_CONTROL_MASK = "nomissing"  # the no-missing control: every site callable
+
+# psmc-rs --bin-callable of each E4 route, passed explicitly. auto is
+# psmc-rs's default; a psmcfa records no callable bases, so the fq2psmcfa
+# route fits C psmc's model with it (and ignore would only add a warning).
+E4_BIN_CALLABLE: Dict[str, str] = {
+    "mask_auto": "auto",
+    "mask_ignore": "ignore",
+    "fq2psmcfa": "auto",
+    "multihetsep": "auto",
+    "nomask": "auto",
+}
 
 
 @dataclass(frozen=True)
@@ -634,10 +654,10 @@ class E4Costs:
     # 2.5 s per 50 Mb; 28 s and 1.1 GB (Python and fq2psmcfa) for 500 Mb
     consensus_s_per_mb: float = 0.06
     consensus_gb: float = 1.5
-    # psmc-rs convert and qc: one pass over the input, 0.15 s and 30 MB per 50 Mb
+    # psmc-rs convert: one pass over the input, 0.15 s and 30 MB per 50 Mb
     convert_s_per_mb: float = 0.005
     convert_gb: float = 0.3
-    # the bins of four routes compared: 0.14 s per 50 Mb
+    # the bins of three routes compared with the exact bins: 0.14 s per 50 Mb
     bins_s_per_mb: float = 0.005
     bins_gb: float = 0.5
     # generate_multihetsep.py, a Python loop over every site: 36 s per 50 Mb
@@ -961,8 +981,9 @@ def get_profile(name: str) -> Profile:
 
 
 __all__ = [
-    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_COSTS", "E4_CONTROL_MASK", "E5",
-    "E6", "E6Costs", "FIGURES", "Figures", "Genome", "INFERENCE", "Inference", "MODELS", "MODEL_ORDER", "MaskSpec",
+    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_BIN_CALLABLE", "E4_COSTS",
+    "E4_CONTROL_MASK", "E5", "E6", "E6Costs", "FIGURES", "Figures", "Genome", "INFERENCE", "Inference", "MODELS",
+    "MODEL_ORDER", "MaskSpec",
     "PROFILES", "PSMC_RS_SUMMARY_QUANTILES", "Profile", "QUICK_TIMING", "REAL_GENOMES", "RealGenome", "ResourceModel",
     "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation", "SizeChange", "TRUTH_TABLE_YEARS", "TimeGrid",
     "TimingProtocol", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",

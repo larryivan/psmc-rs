@@ -45,8 +45,22 @@ class Style(unittest.TestCase):
         self.assertIs(style.TOOLS["c"], style.C_PSMC)
         # Routes and formats reuse the same colour for the same thing.
         self.assertEqual(style.ROUTES["multihetsep"].color, style.FORMATS["multihetsep"].color)
-        self.assertEqual(style.ROUTES["exact"].color, style.RS02.color)
-        self.assertEqual(style.ROUTES["exact_rescaled"].color, style.BLUE_650)
+        # psmc-rs's default (the callable-length model) is psmc-rs's blue; every called
+        # bin taken as full, and the fq2psmcfa route it equals, are its darker variant.
+        self.assertEqual(style.ROUTES["mask_auto"].color, style.RS02.color)
+        self.assertEqual(style.ROUTES["mask_ignore"].color, style.BLUE_650)
+        self.assertEqual(style.ROUTES["fq2psmcfa"].color, style.BLUE_650)
+
+    def test_every_e4_route_has_a_style(self):
+        from experiment.pipeline import config
+        from experiment.pipeline.experiments import e4
+        from experiment.pipeline.figures import fig5, style
+
+        self.assertEqual(set(style.ROUTES), set(e4.ROUTES))
+        self.assertEqual(set(style.ROUTE_ORDER), set(e4.ROUTES))
+        self.assertEqual(set(config.E4_BIN_CALLABLE), set(e4.ROUTES))
+        self.assertTrue(set(fig5.DRAWN) <= set(e4.ROUTES))
+        self.assertNotIn("fq2psmcfa", fig5.DRAWN)  # it fits as mask_ignore does (asserted by the report)
 
     def test_figure_sizes(self):
         from experiment.pipeline.figures import style

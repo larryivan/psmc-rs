@@ -64,10 +64,20 @@ so that it can be turned into the caption. Captions should also say:
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
   E3 recorded.
-- **Fig 5**: the VCF + mask route equals the consensus FASTA -> fq2psmcfa
-  route bin for bin (asserted); with a dispersed mask both shrink theta, and
-  every time and size, by about the missing fraction, and the rescaled route
-  (callable bases per called bin from `psmc-rs qc`) corrects it.
+- **Fig 5**: binning with partly callable bins biases PSMC, and psmc-rs's
+  per-bin model removes the bias. With a dispersed mask almost every bin
+  stays called with about (1 - f) of its bases; taking them as full
+  (`--bin-callable ignore`, dark blue dashed) makes theta, and every time
+  and size, low by about the missing fraction f, as the classic consensus
+  FASTA -> fq2psmcfa route does: its bins equal the VCF + mask bins and
+  its fit equals the dark blue one, both asserted, so it is not drawn.
+  Weighing each bin by its callable bases (`auto`, psmc-rs's default,
+  blue) recovers the complete-data fit (grey in d-f). Clustered missing
+  data empty whole bins and change little; multihetsep (approximate
+  callable bases: the uncalled sites of an interval are placed at its
+  start) and a VCF without its mask are shown as they are. The complete-data
+  fit is the control's VCF + mask fit, identical under both models
+  (asserted).
 - **Fig 6**: coverage over 10 genomes moves in steps of 10% (shaded:
   pointwise Clopper-Pearson 95% interval); the window-averaged coverage in
   the legend has a 95% interval from resampling the genomes.
@@ -91,7 +101,7 @@ mode, checked with `dataviz/scripts/validate_palette.js`):
 | truth | `#0b0b0b`, dashed | |
 | multihetsep route / input (Fig 5, S2) | `#eda100` (slot 4) | `"#2a78d6,#eda100,#e87ba4" --pairs all`: pass (CVD 13.0, normal 19.6); both below 3:1, so they also carry their markers along the lines |
 | VCF without a mask (Fig 5) | `#e87ba4` (slot 5) | |
-| the psmc-rs variant that should coincide (fq2psmcfa route, VCF input, 5 Mb trunks) | `#104281` (blue ramp 650), dotted or dashed | `"#2a78d6,#104281" --ordinal`: pass |
+| a psmc-rs variant of the default (every called bin full and the fq2psmcfa route in Fig 5, VCF input, 5 Mb trunks) | `#104281` (blue ramp 650), dotted or dashed | `"#2a78d6,#104281" --ordinal`: pass |
 | counts (Fig S3) | sequential blue ramp, steps 100-700 | |
 
 Uncertainty bands are the entity's colour at alpha 0.18; the independent
@@ -129,7 +139,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
 | `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
 | `E3/tables/E3_determinism.csv` | run, against its tool's reference at the same size | `tool`, `size_mb`, `threads`, `sha256` |
-| `E4/tables/E4_routes.csv` | mask, route (rescaled routes included) and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `rmse_log10_ne_vs_truth`, `differing_bin_fraction` |
+| `E4/tables/E4_routes.csv` | mask, route and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `rmse_log10_ne_vs_truth`, `rmse_log10_ne_vs_complete` |
 | `E4/tables/E4_curves.csv` | mask, route, replicate and interval | `mask`, `route`, `replicate`, `interval`, `years`, `ne` |
 | `E4/tables/E4_bias.csv` | mask, route and time of the informative window | `mask`, `route`, `years`, `replicates`, `log10_bias_mean` |
 | `E5/tables/E5_summary.csv` | trunk size and window | `trunk_bins`, `trunk_mb`, `trunks`, `window`, `coverage_mean`, `coverage_mean_ci_lo`, `coverage_mean_ci_hi` |

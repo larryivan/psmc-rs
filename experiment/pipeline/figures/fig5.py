@@ -1,26 +1,32 @@
-"""Fig 5 (E4): how the route from a VCF and a callable mask to PSMC changes the inference.
+"""Fig 5 (E4): partly callable bins bias PSMC, and psmc-rs's per-bin model removes the bias.
 
-Routes (colour, marker): psmc-rs reading the VCF with its mask (blue; its
-bins equal those of the classic consensus FASTA -> fq2psmcfa route, which
-is asserted bin for bin and not drawn separately), the same fits rescaled
-to their callable bases per called bin (dark blue, dashed), multihetsep
-(missing sites placed at interval starts; yellow) and the VCF read without
+Routes (colour, marker): psmc-rs on the VCF with its callable mask, each
+called bin weighed by the callable bases it holds (``--bin-callable auto``,
+psmc-rs's default; blue); the same bins with every called bin taken as full
+(``--bin-callable ignore``, dark blue, dashed), which is what fq2psmcfa and
+C psmc do: the classic consensus FASTA -> fq2psmcfa route has the same bins
+(asserted bin for bin) and the same fit (asserted, every fitted value) and
+is not drawn separately; multihetsep (``psmc-rs convert --multihetsep``,
+read back with approximate callable bases; yellow) and the VCF read without
 its mask (pink). Masks: no missing data, and 10% or 30% of positions
 uncallable in clustered (mean 20 kb) or dispersed (mean 20 bp) runs.
 
-With fq2psmcfa's rule a bin is missing only when nearly all its bases are
-uncallable, so a dispersed mask leaves almost every bin called with only
-about (1 - f) of its bases, and theta per bin, and every time and size
-with it, shrinks by about (1 - f): the bin-exact route is then as biased
-as ignoring the mask. Rescaling with the callable bases (known to the
-routes whose input records them) corrects it.
+fq2psmcfa's rule calls a bin missing only when more than 90% of its bases
+are uncallable, so a dispersed mask leaves almost every bin called with
+only about (1 - f) of its bases. Taken as full, they make theta per bin,
+and every time and size with it, low by about (1 - f); weighed by their
+callable bases they do not. Clustered missing data empty whole bins, which
+both models drop. multihetsep does not say which sites of an interval are
+uncalled; psmc-rs places them at the start of each interval, which suits
+clustered missing data and not dispersed ones. Without its mask a VCF
+counts every uncallable site as homozygous.
 
 * a: theta per bin against the complete-data fit of the same genome, in
   percent (every replicate, and the mean);
 * b: RMSE of log10 Ne against the truth on the informative window;
-* c: share of bins whose state (called, heterozygous, missing) differs from
-  the VCF + mask route's;
-* d: the curves of one replicate with the dispersed 30% mask, and the truth;
+* c: RMSE of log10 Ne against the complete-data fit of the same genome;
+* d: the curves of one replicate with the dispersed 30% mask, its
+  complete-data fit (grey) and the truth;
 * e, f: bias over time, mean over replicates of log10(Ne / true Ne), with
   the largest clustered and dispersed masks; grey: the complete data.
 
@@ -35,9 +41,12 @@ from .. import config
 from . import style
 from .data import Source, curves, decades, informative_window, truth_xy
 
-DRAWN = ("exact", "exact_rescaled", "multihetsep", "nomask")
+DRAWN = ("mask_auto", "mask_ignore", "multihetsep", "nomask")  # fq2psmcfa fits as mask_ignore (asserted)
 COMPLETE = config.E4_CONTROL_MASK  # the no-missing control
+COMPLETE_ROUTE = "mask_auto"  # the complete-data fit
+BOLD = "mask_auto"  # the route the figure is about
 MARKED = ("multihetsep", "nomask")  # light colours carry their marker along the line too
+REFERENCE_LW = 2.0  # the complete data, grey, under the routes
 
 
 def masks_of(routes, cfg: config.E4) -> List[Tuple[str, str, float]]:
@@ -143,13 +152,12 @@ def draw(src: Source):
     ax_t.set_ylabel("θ against the complete data (%)")
     dot_panel(ax_r, routes, "rmse_log10_ne_vs_truth", 1.0, masks, route_names)
     ax_r.set_ylim(bottom=0.0)
-    ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$")
-    differ = [r for r in route_names if r in ("multihetsep", "nomask")]
-    dot_panel(ax_b, routes, "differing_bin_fraction", 100.0, masks, differ or route_names)
+    ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ against the truth")
+    dot_panel(ax_b, routes, "rmse_log10_ne_vs_complete", 1.0, masks, route_names)
     ax_b.set_ylim(bottom=0.0)
-    ax_b.set_ylabel("Bins unlike VCF + mask (%)")
+    ax_b.set_ylabel("RMSE against the complete-data fit")
 
-    # d: one replicate, one mask.
+    # d: one replicate, one mask, with its complete-data fit.
     rep, mask = figs.e4_example_replicate, figs.e4_example_mask
     if not any(k[1] == mask for k in fits):
         mask = masks[-1][0]
@@ -157,13 +165,19 @@ def draw(src: Source):
     style.shade_outside(ax_c, window, xlim)
     vals: List[float] = []
     grid = np.logspace(np.log10(window[0]), np.log10(window[1]), 200)
+    complete = fits.get((rep, COMPLETE, COMPLETE_ROUTE))
+    if complete is not None:
+        x, y = style.step_xy(complete.years, complete.ne, xlim)
+        ax_c.plot(x, y, color=style.MUTED, linewidth=REFERENCE_LW, drawstyle="steps-post", zorder=2,
+                  solid_capstyle="butt")
+        vals += list(complete.at(grid))
     for route in route_names:
         c = fits.get((rep, mask, route))
         if c is None:
             continue
         x, y = style.step_xy(c.years, c.ne, xlim)
         route_line(ax_c, x, y, route, xlim, drawstyle="steps-post",
-                   linewidth=style.LW_BOLD if route == "exact" else style.LW)
+                   linewidth=style.LW_BOLD if route == BOLD else style.LW)
         vals += list(c.at(grid))
     tx, ty = truth_xy(cfg.model, g, xlim)
     ax_c.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=6)
@@ -175,7 +189,7 @@ def draw(src: Source):
 
     # e, f: mean bias against the truth over time, with the complete data for reference.
     bias_masks = [m for m in figs.e4_bias_masks if m in specs][:2]
-    reference = bias[(bias["mask"] == COMPLETE) & (bias.route == "exact")].sort_values("years")
+    reference = bias[(bias["mask"] == COMPLETE) & (bias.route == COMPLETE_ROUTE)].sort_values("years")
     lim = 0.05
     for m in bias_masks:
         sub = bias[(bias["mask"] == m) & bias.route.isin(route_names)]
@@ -186,15 +200,15 @@ def draw(src: Source):
     lim *= 1.15
     for ax, m in zip((ax_e, ax_f), bias_masks):
         if not reference.empty:
-            ax.plot(reference["years"], reference["log10_bias_mean"], color=style.MUTED, linewidth=2.0, zorder=2,
-                    solid_capstyle="butt", drawstyle="steps-post")
+            ax.plot(reference["years"], reference["log10_bias_mean"], color=style.MUTED, linewidth=REFERENCE_LW,
+                    zorder=2, solid_capstyle="butt", drawstyle="steps-post")
         for route in route_names:
             sub = bias[(bias["mask"] == m) & (bias.route == route)].sort_values("years")
             if sub.empty:
                 continue
             route_line(ax, sub["years"].to_numpy(), sub["log10_bias_mean"].to_numpy(), route,
                        (float(sub["years"].min()), float(sub["years"].max())), drawstyle="steps-post",
-                       linewidth=style.LW_BOLD if route == "exact" else style.LW)
+                       linewidth=style.LW_BOLD if route == BOLD else style.LW)
         style.ref_line(ax, y=0.0)
         style.years_axis(ax, (window[0] / 1.15, window[1] * 1.15))
         ax.set_ylim(-lim, lim)
@@ -209,7 +223,7 @@ def draw(src: Source):
 
     handles = [style.handle(style.ROUTES[r], kind="both", linewidth=style.LW) for r in route_names]
     handles.append(style.handle(style.TRUTH, linewidth=style.LW))
-    handles.append(Line2D([], [], color=style.MUTED, linewidth=2.0, label="Complete data (e, f)"))
+    handles.append(Line2D([], [], color=style.MUTED, linewidth=REFERENCE_LW, label="Complete-data fit (d-f)"))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3)
     style.panel_letters(fig, [ax_t, ax_r, ax_b, ax_c, ax_e, ax_f])
     return fig

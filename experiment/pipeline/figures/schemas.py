@@ -184,13 +184,13 @@ _add("E3_determinism", "E3", "run, against its tool's reference at the same size
 # E4: input preparation (Fig 5)
 # ---------------------------------------------------------------------------
 
-_add("E4_routes", "E4", "mask, route (rescaled routes included) and replicate", {
+_add("E4_routes", "E4", "mask, route and replicate", {
     "mask": "nomissing (the control) or a config.MaskSpec name",
-    "route": "exact, fq2psmcfa, multihetsep, nomask, exact_rescaled or multihetsep_rescaled",
+    "route": "mask_auto, mask_ignore, fq2psmcfa, multihetsep or nomask",
     "replicate": "replicate",
-    "theta_rel_complete": "theta / theta of the exact route on the same genome without missing data - 1",
+    "theta_rel_complete": "theta / theta of the complete-data fit of the same genome (the control's mask_auto) - 1",
     "rmse_log10_ne_vs_truth": "RMSE of log10 Ne against the truth on the informative window",
-    "differing_bin_fraction": "share of bins whose state (T, K, N) differs from the exact route's",
+    "rmse_log10_ne_vs_complete": "RMSE of log10 Ne against the complete-data fit of the same genome, same window",
 })
 _add("E4_curves", "E4", "mask, route, replicate and interval", {
     "mask": "mask",
