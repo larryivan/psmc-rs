@@ -10,7 +10,8 @@ the PSMC emissions. The change comes in two stages:
 2. **Model**, after the M-step rewrite in `src/opt.rs` lands: the E-step,
    M-step, starting values and posterior decoding use the counts, the
    command line gets `--bin-callable`, and the README, CHANGELOG and
-   `docs/preprocessing.md` describe the result.
+   `docs/preprocessing.md` describe the result, including the library
+   changes of stage 1 ([Changes made in stage 1](#changes-made-in-stage-1)).
 
 ## The problem
 
@@ -277,10 +278,17 @@ counts.
 heterozygous and L the called bins. With counts, stage 2 should start from
 θ0 = -ln(1 - K/L) * s / c̄, where c̄ is the mean count of the called bins:
 the same moment estimate per callable base, scaled to `s` bases. It equals
-C's value on complete data. The bootstrap's fresh starts
-(`replicate_initial_model`), `invalid_replicate_starts` (which must find
-exactly the replicates the bootstrap skips) and QC's `theta0_per_bin` must
-use the same rule.
+C's value on complete data. Every θ0 must use the same rule:
+
+- the main fit's start (`start_rates` in `src/bin/psmc/run.rs`, through
+  `model::initial_theta`), which `fit_start` also hands to QC;
+- the start that `qc` and `convert` check when they have no fit of their
+  own (`default_start` in `src/bin/psmc/dataset.rs`, also through
+  `initial_theta`);
+- the bootstrap's fresh starts (`replicate_initial_model`), and
+  `invalid_replicate_starts` (through `model::theta_counts`), which must
+  find exactly the replicates the bootstrap skips;
+- QC's `theta0_per_bin`.
 
 **E-step (stage 2).** The forward and backward passes multiply by
 `e(o_i, c_i, k)` instead of `e(o_i, k)`. For a `T` bin this is
@@ -289,6 +297,25 @@ count value present in the input (at most `s + 1` of them, few for `s =
 100`) keeps the inner loop a lookup. Rows with no counts, and bins with
 `c = s`, must use the current emissions, so that results without counts or
 with complete data stay bit-identical.
+
+Every pass over the bins must take the counts, or it computes the
+likelihood of another model than the one fitted. Today each takes the
+emission matrix with `rows` and `row_starts`:
+
+- `hmm::e_step_with_options`, EM's E-step (`em.rs`), for the main fit and
+  every bootstrap replicate;
+- `hmm::log_likelihood_with_options`: EM's log-likelihood of the final
+  model (`em.rs`), and the CLI's `model_loglike` (`src/bin/psmc/run.rs`),
+  the log-likelihood `infer` reports and records for a run of 0
+  iterations, which would otherwise keep C's emissions without a sign;
+- `hmm::log_likelihood`, `hmm::e_step_streaming` and
+  `e_step_streaming_with_progress`, the library's other entry points
+  (`opt.rs`'s tests use the streaming E-step);
+- `hmm::write_tmrca_posterior_tsv`, the posterior decoding.
+
+Giving them all the same argument for the counts (an
+`Option<&CallableBases>`, or `&Observations` in place of `rows` and
+`row_starts`) keeps them from drifting apart.
 
 **M-step (stage 2).** The emission part of the expected complete-data
 log-likelihood becomes
@@ -328,6 +355,38 @@ with different missingness compare fairly.
 `sum_L` and `sum_n` stay C's bin counts, and C's expected recombination count
 (`n_recomb`, from `sum_L`) is unchanged, as recombination does not depend
 on callability. The run's JSON records which mode was used.
+
+## Changes made in stage 1
+
+Stage 1 changes no result and no option: every output, and every psmcfa
+and multihetsep file psmc-rs writes, is byte for byte as before, and the
+readers accept the same bin sizes as before. Its library changes, for the
+*Library API* part of the CHANGELOG entry stage 2 writes:
+
+- New `io::callable` module: `CallableBases`, `BinCounts` and
+  `MAX_COUNTED_BIN_SIZE` (65,535), all three re-exported from `io`, and
+  the counts' iterator `callable::Iter`; `Observations::validate`.
+- New `io::Sequences`, whole sequences with optional counts
+  (`From<Vec<Vec<u8>>>` for bins without counts), and
+  `Sequences::validate`.
+- `Observations` gains the public field `callable`, and
+  `io::consensus::ConsensusSeq` the public field `callable`, which breaks
+  code that builds them with a struct literal (add `callable: None`).
+- `io::common::chunk_sequences` takes `impl Into<Sequences>` instead of
+  `Vec<Vec<u8>>`, so a call that passes an un-annotated `.collect()` no
+  longer compiles: the target type must be named
+  (`.collect::<Vec<_>>()`, as `io::psmcfa::read_psmcfa` now does).
+- New `io::common::Binner::finish_with_callable` and
+  `io::input::Dataset::sequence_callable`. `Binner::new` still panics only
+  for a bin size of 0.
+- `io::input::load`, `io::vcf::read_vcf_with` (and `read_vcf`) and
+  `io::mhs::read_mhs_with` (and `read_mhs`) return the counts in
+  `Observations::callable` for bins of at most 65,535 bases.
+- New `bootstrap::observations_to_sequences`,
+  `split_sequences_for_bootstrap`, `resample_sequences` and
+  `run_bootstrap_sequences`, through which the CLI's bootstrap now goes;
+  `rows_to_sequences`, `split_for_bootstrap`, `resample_chunks` and
+  `run_bootstrap_with_options` are unchanged.
 
 ## Command line (stage 2)
 
