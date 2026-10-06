@@ -169,6 +169,24 @@ class Draw(unittest.TestCase):
         for ax in fig.axes[2 * n:3 * n]:
             self.assertEqual(len(ax.collections), 1)  # the rounding band
 
+    def test_figs3_draws_coverage_by_posterior_mean_decile_when_given(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        calib = pd.read_csv(SCHEMAS["E6_S3_calibration"].path(self.runs))
+        labels = self._labels(self._draw("figs3"))
+        self.assertEqual("By decile of the posterior mean" in labels, (calib["by"] == "posterior_mean").any())
+        self.assertIn("By decile of the true TMRCA", labels)
+        with tempfile.TemporaryDirectory() as d:
+            runs = Path(d)
+            shutil.copytree(self.runs / "E6" / "tables", runs / "E6" / "tables")
+            path = SCHEMAS["E6_S3_calibration"].path(runs)
+            calib[calib["by"] == "true"].to_csv(path, index=False)
+            labels = self._labels(self._draw("figs3", runs))
+        self.assertNotIn("By decile of the posterior mean", labels)
+        self.assertIn("By decile of the true TMRCA", labels)
+
     def test_a_truth_table_that_disagrees_with_the_models_is_refused(self):
         import pandas as pd
 

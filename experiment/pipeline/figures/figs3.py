@@ -10,11 +10,18 @@ replicate's seeds.
   heterozygous bins;
 * b: the posterior mean against the true TMRCA over every bin, as a 2-D
   histogram (sequential blue, log counts), with the identity line and the
-  correlation of the logs;
+  correlation of the logs. The grid spans the central 99.9% of both
+  variables; the bins beyond it are counted in the edge cells, which is
+  why the left and bottom edges hold strips of cells;
 * c: share of bins whose 95% interval holds the true TMRCA, by decile of
-  the true TMRCA: the interval of PSMC states from the 2.5% to the 97.5%
-  posterior quantile (solid), and the quantiles' state average times
-  (dashed), against the nominal 95%.
+  the true TMRCA (blue) and by decile of the posterior mean (grey, when
+  ``E6_S3_calibration`` has those rows): the interval of PSMC states from
+  the 2.5% to the 97.5% posterior quantile (solid, filled circles), and the
+  quantiles' state average times (dashed, open squares), against the
+  nominal 95%. Grouped by the true TMRCA the coverage dips where the
+  posterior shrinks extreme times towards the middle (the youngest and
+  oldest deciles); grouped by what the decoding sees, the posterior mean,
+  it stays near 95%.
 
 Everything comes from ``E6_S3_track``, ``E6_S3_density``,
 ``E6_S3_calibration`` and ``E6_S3_summary``.
@@ -25,6 +32,9 @@ from __future__ import annotations
 from . import style
 from .data import Source, decades
 
+GROUPS = (("true", style.BLUE, "decile of the true TMRCA"),
+          ("posterior_mean", style.MUTED, "decile of the posterior mean"))
+
 
 def draw(src: Source):
     import numpy as np
@@ -34,8 +44,9 @@ def draw(src: Source):
 
     track = src.table("E6_S3_track").sort_values(["sequence", "start_bp"])
     dens = src.table("E6_S3_density")
-    calib = src.table("E6_S3_calibration")
-    calib = calib[calib["by"] == "true"].sort_values("class")
+    calib_all = src.table("E6_S3_calibration")
+    calib_all["by"] = calib_all["by"].astype(str).str.lower()  # a column of "true" alone reads as booleans
+    groups = [g for g in GROUPS if (calib_all["by"] == g[0]).any()]
     summary = {r.bins: r for r in src.table("E6_S3_summary").itertuples()}
     overall = summary.get("all")
     bin_bp = float(np.median(np.diff(track["start_bp"]))) if len(track) > 1 else 100.0
@@ -92,51 +103,62 @@ def draw(src: Source):
     style.log_axis(ax_b, "y")
     ax_b.set_xlim(*lims)
     ax_b.set_ylim(*lims)
-    ax_b.set_aspect("equal")
+    ax_b.set_aspect("equal", anchor="W")  # square, flush left under a
     ax_b.set_xlabel("True TMRCA (years)")
     ax_b.set_ylabel("Posterior mean TMRCA (years)")
     if overall is not None:
         style.note(ax_b, 0.03, 0.97, f"r(log$_{{10}}$) = {float(overall.pearson_log10_mean):.2f}\n"
                                      f"{int(overall.n_bins):,} bins", ha="left", va="top")
+    style.note(ax_b, 0.97, 0.03, "edge cells also hold\nthe bins beyond the axes", ha="right", va="bottom")
     cax = ax_b.inset_axes([1.04, 0.0, 0.05, 1.0])
     cb = fig.colorbar(mesh, cax=cax)
     cb.outline.set_linewidth(style.LW_GRID)
     cb.ax.tick_params(labelsize=style.TICK_PT, width=style.LW_GRID, length=2.0)
-    cb.set_label("Bins per cell", fontsize=style.TICK_PT, labelpad=2.0)
+    cb.set_label("Bins per cell", fontsize=style.TEXT_PT, labelpad=2.0)
 
-    # c: calibration of the 95% interval by decile of the true TMRCA.
-    k = calib["class"].to_numpy()
+    # c: calibration of the 95% interval by decile of the true TMRCA and, if given, of the posterior mean.
+    # Interval: solid line, filled circles (states) or dashed line, open squares (point); grouping: colour.
     style.ref_line(ax_c, y=0.95, linestyle=style.DOT)
-    ax_c.plot(k, calib["coverage95_states"], color=style.BLUE, linewidth=style.LW, zorder=3)
-    ax_c.plot(k, calib["coverage95_states"], **style.RS02.points(markersize=3.0, zorder=4))
-    ax_c.plot(k, calib["coverage95_point"], color=style.BLUE_650, linewidth=style.LW, linestyle=(0, (3.0, 1.5)),
-              zorder=3)
-    ax_c.plot(k, calib["coverage95_point"], **style.Entity("", style.BLUE_650, "-", "s", filled=False).points(
-        markersize=3.0, zorder=4, label=None))
+    low = 1.0
+    k = np.arange(1, 11)
+    for i, (by, color, _) in enumerate(groups):
+        calib = calib_all[calib_all["by"] == by].sort_values("class")
+        k = calib["class"].to_numpy()
+        z = 4 - i  # the true deciles on top
+        ax_c.plot(k, calib["coverage95_states"], color=color, linewidth=style.LW, zorder=z, marker="o",
+                  markersize=3.0, markeredgewidth=0.6)
+        ax_c.plot(k, calib["coverage95_point"], color=color, linewidth=style.LW, linestyle=POINT_DASH, zorder=z,
+                  marker="s", markersize=3.0, markeredgewidth=0.6, markerfacecolor=style.SURFACE)
+        low = min(low, float(calib["coverage95_point"].min()), float(calib["coverage95_states"].min()))
     ax_c.set_xticks(k)
-    ax_c.set_xticklabels([f"{y / 1e3:,.0f}" for y in calib["median_true_years"]], fontsize=style.TICK_PT)
     ax_c.set_xlim(k[0] - 0.5, k[-1] + 0.5)
-    low = float(min(calib["coverage95_point"].min(), calib["coverage95_states"].min()))
-    ax_c.set_ylim(min(0.8, np.floor((low - 0.02) * 20) / 20), 1.0)
+    ax_c.set_ylim(min(0.75, np.floor((low - 0.02) * 20) / 20 - 0.05), 1.0)  # room below for the legend
     from matplotlib.ticker import MultipleLocator
 
     ax_c.yaxis.set_major_locator(MultipleLocator(0.05))
     ax_c.yaxis.set_major_formatter(_percent())
     ax_c.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
-    ax_c.set_xlabel("Decile of the true TMRCA (median, thousand years)")
+    ax_c.set_xlabel("Decile of the TMRCA (1 = youngest)")
     ax_c.set_ylabel("Coverage of the 95% interval")
     states, point = "States from the 2.5% to the 97.5% quantile", "Quantiles' state average times"
     if overall is not None:
         states += f" (all bins: {100 * float(overall.coverage95_states):.1f}%)"
         point += f" (all bins: {100 * float(overall.coverage95_point):.1f}%)"
-    ax_c.legend([Line2D([], [], color=style.BLUE, linewidth=style.LW, marker="o", markersize=3.0),
-                 Line2D([], [], color=style.BLUE_650, linewidth=style.LW, linestyle=(0, (3.0, 1.5)), marker="s",
-                        markersize=3.0, markerfacecolor=style.SURFACE),
-                 Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT)],
-                [states, point, "Nominal 95%"], loc="lower left", frameon=False, fontsize=style.TICK_PT,
-                handlelength=2.4)
-    style.panel_letters(fig, [ax_a, ax_b, ax_c])
+    handles = [Line2D([], [], color=style.INK2, linewidth=style.LW, marker="o", markersize=3.0),
+               Line2D([], [], color=style.INK2, linewidth=style.LW, linestyle=POINT_DASH, marker="s",
+                      markersize=3.0, markerfacecolor=style.SURFACE)]
+    labels = [states, point]
+    for _, color, what in groups:
+        handles.append(Line2D([], [], color=color, linewidth=style.LW_BOLD + 0.5))
+        labels.append(f"By {what}")
+    handles.append(Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT))
+    labels.append("Nominal 95%")
+    style.legend(ax_c, handles, labels, loc="lower left")
+    style.panel_letters(fig, [ax_a, ax_b, ax_c], align_cols=True)
     return fig
+
+
+POINT_DASH = (0, (3.0, 1.5))
 
 
 def _percent():
