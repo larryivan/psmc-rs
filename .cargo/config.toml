@@ -1,4 +1,6 @@
 # Keep default rustc CPU target for portability across CI and user machines.
-# For local peak performance benchmarks, use:
+# On x86-64 the HMM kernels already run with AVX2 and FMA when the CPU has
+# them (src/hmm/simd.rs), with the results of an x86-64-v3 build;
+# target-cpu=native adds little to that (with AVX-512 on AMD Zen 5 it was
+# slower). To try it:
 #   RUSTFLAGS="-C target-cpu=native" cargo build --release
-#   RUSTFLAGS="-C target-cpu=native" psmc-rs ...

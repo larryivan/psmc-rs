@@ -379,7 +379,8 @@ Reproduction package (`experiment/`):
   `-i`), and its replicates start there too, as `psmc -i -b`.
 - `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet`, `--version`
   and `--bin-callable auto|ignore|approximate` (see *Changed*).
-- Output JSON metadata: `version`, `n_iter`, `final_loglike`, `loglike`
+- Output JSON metadata: `version`, `simd` (the HMM kernels that ran:
+  `avx2+fma`, `portable` or `neon`), `n_iter`, `final_loglike`, `loglike`
   (the log-likelihood after each iteration, from the start), `bin_size`,
   `gen_years`, `tr_ratio`, `smooth_lambda`, `input`, `qc` and
   `bin_callable` (the `--bin-callable` mode, the emission model fitted,
@@ -619,6 +620,33 @@ Reproduction package (`experiment/`):
   200 Mb genome in 500 sequences peaks at 81 MB, against 163 MB when every
   item's sums were held, and at 103 MB with the callable bases of each bin,
   whose sums take one row per count (307 MB when held).
+- The x86-64 release binaries run the E-step, the log-likelihood and TMRCA
+  decoding with AVX2 and FMA on CPUs that have them (Intel Core since
+  Haswell, 2013, though some later Pentium, Celeron and Atom models lack
+  AVX2; AMD since Excavator, 2015, and every Zen), picked at run time, and
+  the portable code elsewhere. The AVX2 and FMA code fitted a 1.9 Gb
+  genome (5 EM iterations, 1 thread) about twice as fast as the portable
+  build before it, whose code the portable path runs unchanged, and as
+  fast as a `-C target-cpu=x86-64-v3` build: 71.7 s against 161 s on an
+  AMD EPYC 7702 (Zen 2), 47.1 s against 97.0 s on an EPYC 9655 (Zen 5). It
+  fuses the multiply-adds of the O(states) forward and backward products
+  (the linear-time recursion of Harris et al. 2014), as the NEON code of
+  aarch64 does, so its results are bitwise identical to those of an
+  `x86-64-v3` build, and from one CPU with AVX2 and FMA to another as long
+  as the system math library gives the same `log` and `exp` on both (glibc
+  picks a variant of them by CPU). CPUs, virtual machines and emulators
+  without AVX2 and FMA, and `PSMC_RS_SIMD=portable` (for benchmarks), run
+  that portable code. It does not fuse those multiply-adds, which would
+  each call libm's `fma` (3.75 times as slow on Zen 5, and emulated in
+  software on CPUs without FMA), so its results differ from the AVX2 and
+  FMA code's in the last digits: by a relative 1.4e-14 at most in an
+  E-step on the test inputs, and by 1e-7 to 1e-6 in the fitted parameters
+  after 5 EM iterations, which the M-step fixes only as closely as its
+  flat optimum allows (6.4e-8 measured between a portable and an
+  `x86-64-v3` build, 1.2e-6 on the 180,000-bin test input with the pattern
+  `4+25*2+4+6`). AVX-512 is not used (on Zen 5 it was slower than AVX2).
+  The output JSON records which code ran (`"simd"`: `avx2+fma`, `portable`
+  or `neon`), as does the HTML report.
 
 ### Deprecated
 
