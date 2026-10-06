@@ -4,7 +4,8 @@
 //! README there). With C's initialisation (θ0 = −ln(1 − K/L), ρ0 = θ0/4,
 //! λ = 1, t_max = 15) the first E-step sees identical parameters, so its
 //! log-likelihood must agree to C's printed precision. Later rounds depend on
-//! the M-step optimiser (C: Hooke-Jeeves; here: L-BFGS) and must stay close.
+//! the M-step optimiser (C: Hooke-Jeeves; here: L-BFGS), which both run to
+//! convergence, and must stay within a relative 2e-7 (see `check`).
 
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::opt::{MStepConfig, em_train};
@@ -72,10 +73,19 @@ fn check(pattern: &str, c_file: &str) {
         rust_lk[0],
         c_lk[0]
     );
+    // Later rounds: measured within a relative 7.3e-8 (rounds 2 to 5; 6.8e-8
+    // and 7.3e-8 at most for the two patterns), so 2e-7 leaves a margin of
+    // 2.7. The rest is C's: from the same E-step, C's Hooke-Jeeves M-step
+    // stops 1.6e-6 below the maximum of Q (4+25*2+4+6, rounds 2 and 5),
+    // with theta, t_max and lambda 5e-5 to 6e-5 (relative) from where this
+    // M-step converges, and C's E-step leaves out the last bin of each
+    // sequence (3 of 150,947 here, see psmc_rs::em::posterior_sigma); EM
+    // carries both into the next rounds. With the M-step capped at 100
+    // iterations, as psmc-rs's default was, 4+25*2+4+6 differed by 3.8e-7.
     for (i, (r, c)) in rust_lk.iter().zip(&c_lk).enumerate().skip(1) {
         let rel = ((r - c) / c).abs();
         assert!(
-            rel < 1e-5,
+            rel < 2e-7,
             "{pattern}: round {} log-likelihood {r} vs C {c} (rel {rel:.2e})",
             i + 1
         );

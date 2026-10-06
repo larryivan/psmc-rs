@@ -1,9 +1,9 @@
-//! L-BFGS M-step behaviour that must not depend on the size of the input.
+//! M-step behaviour that must not depend on the size of the input.
 
 use psmc_rs::hmm::{SufficientStats, e_step_streaming};
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::model::n_steps_for_pattern;
-use psmc_rs::opt::{MStepConfig, bounds_from_config, m_step_lbfgs};
+use psmc_rs::opt::{MStepConfig, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome};
 use psmc_rs::{PsmcModel, initial_theta};
 use std::path::Path;
 
@@ -54,14 +54,13 @@ fn scaled(stats: &SufficientStats, factor: f64) -> SufficientStats {
 #[test]
 fn m_step_iterates_do_not_depend_on_the_amount_of_data() {
     // Without smoothing, multiplying every expected count by 2^k multiplies
-    // the objective and its gradient by exactly 2^k: neither the optimum nor
-    // the L-BFGS iterates may move. 2^8 times this input is 46M bins, the
-    // size of a whole human genome in 100-bp bins.
+    // the objective and its gradient by exactly 2^k: neither the optimum,
+    // nor the L-BFGS iterates, nor where the convergence test stops them may
+    // move. 2^8 times this input is 46M bins, the size of a whole human
+    // genome in 100-bp bins.
     let (model, stats) = first_e_step();
     let config = MStepConfig {
-        max_iters: 25,
         lambda: 0.0,
-        tol_grad: 0.0, // the absolute gradient tolerance is not scale-free
         progress: false,
         ..MStepConfig::default()
     };
@@ -69,17 +68,24 @@ fn m_step_iterates_do_not_depend_on_the_amount_of_data() {
     let mut init = vec![model.theta, model.rho, model.t_max];
     init.extend_from_slice(&model.lam);
 
-    let base = m_step_lbfgs(&model, &stats, &init, &bounds, &config).unwrap();
+    let base = m_step_lbfgs_with_outcome(&model, &stats, &init, &bounds, &config, None).unwrap();
+    assert_eq!(base.stop, MStepStop::Converged);
     for k in [2, 4, 6, 8] {
-        let out = m_step_lbfgs(
+        let out = m_step_lbfgs_with_outcome(
             &model,
             &scaled(&stats, f64::powi(2.0, k)),
             &init,
             &bounds,
             &config,
+            None,
         )
         .unwrap();
-        for (i, (a, b)) in base.iter().zip(&out).enumerate() {
+        assert_eq!(
+            (out.iterations, out.evaluations, out.stop),
+            (base.iterations, base.evaluations, base.stop),
+            "counts x 2^{k}"
+        );
+        for (i, (a, b)) in base.params.iter().zip(&out.params).enumerate() {
             assert!(
                 ((a - b) / a).abs() < 1e-12,
                 "counts x 2^{k}: parameter {i} is {b}, unscaled {a}"

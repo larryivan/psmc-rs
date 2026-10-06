@@ -1,5 +1,17 @@
-//! The M-step: L-BFGS on the EM objective, over logit-transformed
-//! parameters, with the gradient of [`objective`].
+//! The M-step: minimise minus C psmc's EM Q (plus an optional smoothing
+//! penalty) over θ, ρ, t_max and the free λ.
+//!
+//! Each parameter is searched in an unconstrained coordinate, the logit of
+//! its position between its bounds ([`bounds_from_config`]). The objective
+//! and its gradient are computed together, the gradient by reverse-mode
+//! (adjoint) differentiation of C's `psmc_update_hmm` and Q, written out by
+//! hand: one evaluation costs O(states²) time and O(states) memory besides
+//! the expected counts, whatever the number of free λ. L-BFGS minimises the
+//! objective, with an initial matrix from its curvature in each coordinate
+//! (estimated from the gradient at the start of each M-step), until a
+//! scale-free convergence test holds ([`MStepStop`]). The search runs to
+//! convergence, as C psmc's Hooke-Jeeves search does;
+//! [`MStepConfig::max_iters`] only caps it.
 
 use anyhow::{Result, bail};
 
@@ -12,6 +24,7 @@ use crate::utils::{logit, sigmoid};
 
 #[cfg(test)]
 mod dual;
+mod lbfgs;
 mod objective;
 
 use objective::Objective;
@@ -24,7 +37,11 @@ pub struct Bounds {
 
 #[derive(Debug, Clone)]
 pub struct MStepConfig {
+    /// The most L-BFGS iterations an M-step runs (default
+    /// [`DEFAULT_MSTEP_ITERS`]): a safety cap, far above the 10 to 50 that
+    /// converge an M-step.
     pub max_iters: usize,
+    /// Curvature pairs the L-BFGS memory keeps (default 20).
     pub lbfgs_m: usize,
     /// Weight of the smoothing penalty
     /// `lambda * sum_k (ln lambda_{k+1} - ln lambda_k)^2` (over all states)
@@ -33,15 +50,18 @@ pub struct MStepConfig {
     /// (0.1 used 1e-3). The penalty does not grow with the number of bins,
     /// so a given weight matters less on larger inputs.
     pub lambda: f64,
+    /// The Armijo constant of the line search.
     pub line_search_c1: f64,
+    /// Trial points of a line search before it fails.
     pub max_ls_steps: usize,
-    /// Stop when the norm of the gradient of the objective (in the
-    /// unconstrained coordinates) falls below this. It is absolute and the
-    /// gradient grows with the number of bins. In practice the M-step ends at
-    /// `max_iters` (100 by default) well before either this or the precision
-    /// of the objective is reached: in the last iterations it still lowers
-    /// the objective by about 1e-11 to 1e-7 relative per iteration.
-    pub tol_grad: f64,
+    /// The convergence threshold, relative to the objective: the search has
+    /// converged ([`MStepStop::Converged`]) when, in each of two consecutive
+    /// iterations, the objective decreased by at most `rel_tol` times its
+    /// size and the next quasi-Newton step predicts no larger a decrease.
+    /// The default, 1e-13, is about ten times the objective's rounding.
+    /// Both quantities grow with the number of bins as the objective does,
+    /// so the test does not depend on the input's size.
+    pub rel_tol: f64,
     pub progress: bool,
     pub theta_lo: f64,
     pub theta_hi: f64,
@@ -53,15 +73,18 @@ pub struct MStepConfig {
     pub lam_hi: f64,
 }
 
+/// The default [`MStepConfig::max_iters`] (and `--mstep-iters`).
+pub const DEFAULT_MSTEP_ITERS: usize = 1000;
+
 impl Default for MStepConfig {
     fn default() -> Self {
         Self {
-            max_iters: 100,
-            lbfgs_m: 7,
+            max_iters: DEFAULT_MSTEP_ITERS,
+            lbfgs_m: 20,
             lambda: 0.0,
             line_search_c1: 1e-4,
             max_ls_steps: 20,
-            tol_grad: 1e-4,
+            rel_tol: 1e-13,
             progress: true,
             theta_lo: 1e-12,
             theta_hi: 10.0,
@@ -149,14 +172,6 @@ fn from_unconstrained(p: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
     Ok(out)
 }
 
-fn dot(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
-}
-
-fn norm(a: &[f64]) -> f64 {
-    dot(a, a).sqrt()
-}
-
 pub fn m_step_lbfgs(
     model: &PsmcModel,
     stats: &SufficientStats,
@@ -182,14 +197,17 @@ pub fn m_step_lbfgs_with_progress(
 /// Why [`m_step_lbfgs_with_outcome`] stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MStepStop {
-    /// The norm of the gradient fell below [`MStepConfig::tol_grad`].
-    GradientTolerance,
-    /// No trial point lowered the objective: not the line search along the
-    /// L-BFGS direction, nor the one along its reverse, nor the coordinate
-    /// search. Near the optimum this means the objective cannot be lowered
-    /// at its precision.
+    /// The search converged: in each of two consecutive iterations the
+    /// objective decreased by at most [`MStepConfig::rel_tol`] times its
+    /// size, and the next quasi-Newton step predicted no more.
+    Converged,
+    /// No trial point of the line search lowered the objective, along the
+    /// L-BFGS direction nor then along the preconditioned gradient. Near
+    /// the optimum this means the objective cannot be lowered at its
+    /// precision: it also ends converged searches whose last decreases were
+    /// not yet within `rel_tol`.
     LineSearchFailed,
-    /// [`MStepConfig::max_iters`] iterations ran.
+    /// [`MStepConfig::max_iters`] iterations ran before either.
     MaxIters,
 }
 
@@ -199,12 +217,11 @@ pub struct MStepOutcome {
     /// The new parameters, in the order of `init_params`: θ, ρ, t_max, then
     /// the free λ.
     pub params: Vec<f64>,
-    /// Evaluations of the objective (with its gradient), the first one at
-    /// `init_params` included. C psmc prints its M-step's count of
-    /// objective evaluations on the `IT` line of its `.psmc` output. A
-    /// failed search costs many evaluations, so this is no measure of how
-    /// close the M-step came to [`MStepConfig::max_iters`]; `iterations`
-    /// and `stop` are.
+    /// Evaluations of the objective (with its gradient): the one at
+    /// `init_params`, one per parameter for the curvatures that scale the
+    /// search, and those of the line searches. C psmc prints its M-step's
+    /// count of objective evaluations on the `IT` line of its `.psmc`
+    /// output.
     pub evaluations: usize,
     /// L-BFGS iterations, each of which moved the parameters to a lower
     /// objective (at most [`MStepConfig::max_iters`]; 0 when the result is
@@ -215,7 +232,8 @@ pub struct MStepOutcome {
 }
 
 /// [`m_step_lbfgs_with_progress`], also returning how many times the
-/// objective was evaluated.
+/// objective was evaluated, how many iterations ran and why the search
+/// stopped. See the [module documentation](self) for the search.
 pub fn m_step_lbfgs_with_outcome(
     model: &PsmcModel,
     stats: &SufficientStats,
@@ -225,13 +243,11 @@ pub fn m_step_lbfgs_with_outcome(
     mut on_progress: Option<&mut dyn FnMut(MStepProgress)>,
 ) -> Result<MStepOutcome> {
     let mut objective = Objective::new(model, stats, bounds, config.lambda)?;
-    let mut xk = to_unconstrained(init_params, bounds)?;
-    let (mut f0, mut gk) = objective.value_and_gradient(&xk);
-    let debug_mstep = std::env::var("PSMC_DEBUG_MSTEP")
-        .map(|v| v == "1")
-        .unwrap_or(false);
-    if debug_mstep {
-        eprintln!("M-step init: f0={:.15e}, gnorm={:.6e}", f0, norm(&gk));
+    let x0 = to_unconstrained(init_params, bounds)?;
+    let (f0, g0) = objective.value_and_gradient(&x0);
+    let debug = std::env::var("PSMC_DEBUG_MSTEP").is_ok_and(|v| v == "1");
+    if debug {
+        eprintln!("M-step start: f={f0:.17e}");
     }
     if !f0.is_finite() {
         // No trial point can compare as lower, so the search would spend
@@ -243,236 +259,45 @@ pub fn m_step_lbfgs_with_outcome(
         );
     }
 
-    let mut s_hist: Vec<Vec<f64>> = Vec::new();
-    let mut y_hist: Vec<Vec<f64>> = Vec::new();
-    let mut rho_hist: Vec<f64> = Vec::new();
-    let mut iterations = 0;
-    let mut stop = MStepStop::MaxIters;
-
-    let pb = if config.progress {
-        Some(progress::bar(config.max_iters as u64, "M", "L-BFGS"))
-    } else {
-        None
-    };
+    let pb = config
+        .progress
+        .then(|| progress::bar(config.max_iters as u64, "M", "L-BFGS"));
+    let total = config.max_iters;
     if let Some(cb) = on_progress.as_mut() {
-        (*cb)(MStepProgress {
-            done: 0,
-            total: config.max_iters,
-        });
+        (*cb)(MStepProgress { done: 0, total });
     }
-
-    for iter in 0..config.max_iters {
+    let mut on_iteration = |done: usize| {
         if let Some(pb) = &pb {
-            pb.set_message(format!("L-BFGS {}/{}", iter + 1, config.max_iters));
-        }
-        if norm(&gk) < config.tol_grad {
-            if debug_mstep {
-                eprintln!(
-                    "M-step converged by grad tol at iter {} (gnorm={:.6e})",
-                    iter,
-                    norm(&gk)
-                );
-            }
-            stop = MStepStop::GradientTolerance;
-            break;
-        }
-        let mut q = gk.clone();
-        let mut alpha = vec![0.0; s_hist.len()];
-        for i in (0..s_hist.len()).rev() {
-            let rho = rho_hist[i];
-            let a = rho * dot(&s_hist[i], &q);
-            alpha[i] = a;
-            for j in 0..q.len() {
-                q[j] -= a * y_hist[i][j];
-            }
-        }
-        let mut r = if let Some(last) = y_hist.last() {
-            let s_last = s_hist.last().unwrap();
-            let ys = dot(last, s_last);
-            let yy = dot(last, last);
-            let h0 = if yy > 0.0 { ys / yy } else { 1.0 };
-            q.iter().map(|v| v * h0).collect::<Vec<f64>>()
-        } else {
-            q.clone()
-        };
-        for i in 0..s_hist.len() {
-            let rho = rho_hist[i];
-            let beta = rho * dot(&y_hist[i], &r);
-            for j in 0..r.len() {
-                r[j] += s_hist[i][j] * (alpha[i] - beta);
-            }
-        }
-        for v in r.iter_mut() {
-            *v = -*v;
-        }
-
-        let gdotp = dot(&gk, &r);
-        // Without curvature pairs the direction is -g, whose length grows
-        // with the number of bins; start at unit length instead, so that the
-        // backtracking budget does not run out on large inputs.
-        let step0 = if s_hist.is_empty() {
-            (1.0 / norm(&gk)).min(1.0)
-        } else {
-            1.0
-        };
-        let mut step = step0;
-        let mut x_new = xk.clone();
-        let mut accepted: Option<(f64, Vec<f64>)> = None;
-        for ls_iter in 0..config.max_ls_steps {
-            for i in 0..xk.len() {
-                x_new[i] = xk[i] + step * r[i];
-            }
-            let (f_new, g_new) = objective.value_and_gradient(&x_new);
-            if debug_mstep {
-                eprintln!(
-                    "  line-search iter {}: step={:.3e}, f_new={:.15e}, rhs={:.15e}",
-                    ls_iter + 1,
-                    step,
-                    f_new,
-                    f0 + config.line_search_c1 * step * gdotp
-                );
-            }
-            if f_new <= f0 + config.line_search_c1 * step * gdotp {
-                accepted = Some((f_new, g_new));
-                break;
-            }
-            step *= 0.5;
-        }
-        if accepted.is_none() {
-            // Fallback: AD gradients can be locally inconsistent in some regions due
-            // piecewise safeguards in the coalescent parameterization. Try reverse
-            // direction and accept any strict decrease.
-            let mut step_rev = step0;
-            for ls_iter in 0..config.max_ls_steps {
-                for i in 0..xk.len() {
-                    x_new[i] = xk[i] - step_rev * r[i];
-                }
-                let (f_new, g_new) = objective.value_and_gradient(&x_new);
-                if debug_mstep {
-                    eprintln!(
-                        "  reverse-search iter {}: step={:.3e}, f_new={:.15e}, f0={:.15e}",
-                        ls_iter + 1,
-                        step_rev,
-                        f_new,
-                        f0
-                    );
-                }
-                if f_new.is_finite() && f_new < f0 {
-                    accepted = Some((f_new, g_new));
-                    if debug_mstep {
-                        eprintln!("  reverse-search accepted");
-                    }
-                    break;
-                }
-                step_rev *= 0.5;
-            }
-        }
-        if accepted.is_none() {
-            // Second fallback: coordinate pattern search around current point.
-            // This is cheap (small parameter count) and provides a robust escape
-            // when line-search along quasi-Newton directions fails.
-            let radii = [1e-3, 5e-4, 1e-4, 5e-5, 1e-5];
-            for radius in radii {
-                let mut best: Option<(f64, Vec<f64>, Vec<f64>)> = None;
-                for i in 0..xk.len() {
-                    for sign in [-1.0f64, 1.0f64] {
-                        let mut x_try = xk.clone();
-                        x_try[i] += sign * radius;
-                        let (f_try, g_try) = objective.value_and_gradient(&x_try);
-                        if !f_try.is_finite() {
-                            continue;
-                        }
-                        if f_try < f0 {
-                            match &best {
-                                Some((best_f, _, _)) if f_try >= *best_f => {}
-                                _ => best = Some((f_try, x_try, g_try)),
-                            }
-                        }
-                    }
-                }
-                if let Some((f_best, x_best, g_best)) = best {
-                    if debug_mstep {
-                        eprintln!(
-                            "  coordinate-search accepted: radius={:.3e}, f_new={:.15e}, f0={:.15e}",
-                            radius, f_best, f0
-                        );
-                    }
-                    accepted = Some((f_best, g_best));
-                    x_new = x_best;
-                    break;
-                } else if debug_mstep {
-                    eprintln!(
-                        "  coordinate-search radius={:.3e}: no improving move",
-                        radius
-                    );
-                }
-            }
-        }
-        let Some((f_new, g_new)) = accepted else {
-            if debug_mstep {
-                eprintln!(
-                    "M-step line search failed at iter {} (f0={:.15e}, gnorm={:.6e})",
-                    iter,
-                    f0,
-                    norm(&gk)
-                );
-            }
-            stop = MStepStop::LineSearchFailed;
-            break;
-        };
-        let mut s = vec![0.0; xk.len()];
-        let mut y = vec![0.0; xk.len()];
-        for i in 0..xk.len() {
-            s[i] = x_new[i] - xk[i];
-            y[i] = g_new[i] - gk[i];
-        }
-        let ys = dot(&y, &s);
-        let dx = norm(&s);
-        if ys > 1e-12 {
-            if s_hist.len() == config.lbfgs_m {
-                s_hist.remove(0);
-                y_hist.remove(0);
-                rho_hist.remove(0);
-            }
-            s_hist.push(s);
-            y_hist.push(y);
-            rho_hist.push(1.0 / ys);
-        }
-        xk = x_new;
-        gk = g_new;
-        f0 = f_new;
-        iterations = iter + 1;
-        if debug_mstep {
-            eprintln!(
-                "M-step iter {} accepted: f={:.15e}, gnorm={:.6e}, |dx|={:.3e}",
-                iter + 1,
-                f0,
-                norm(&gk),
-                dx
-            );
-        }
-        if let Some(pb) = &pb {
-            pb.inc(1);
+            pb.set_position(done as u64);
         }
         if let Some(cb) = on_progress.as_mut() {
-            (*cb)(MStepProgress {
-                done: iter + 1,
-                total: config.max_iters,
-            });
+            (*cb)(MStepProgress { done, total });
         }
-    }
+    };
+    let settings = lbfgs::Settings {
+        max_iters: config.max_iters,
+        memory: config.lbfgs_m,
+        c1: config.line_search_c1,
+        max_ls_steps: config.max_ls_steps,
+        rel_tol: config.rel_tol,
+        debug,
+    };
+    let minimum = lbfgs::minimize(&mut objective, x0, f0, g0, &settings, &mut on_iteration);
     if let Some(pb) = pb {
         pb.finish_with_message("M-step done");
     }
 
     Ok(MStepOutcome {
-        params: from_unconstrained(&xk, bounds)?,
+        params: from_unconstrained(&minimum.x, bounds)?,
         evaluations: objective.evaluations,
-        iterations,
-        stop,
+        iterations: minimum.iterations,
+        stop: match minimum.stop {
+            lbfgs::Stop::Converged => MStepStop::Converged,
+            lbfgs::Stop::LineSearchFailed => MStepStop::LineSearchFailed,
+            lbfgs::Stop::MaxIters => MStepStop::MaxIters,
+        },
     })
 }
-
 #[cfg(test)]
 mod tests {
     use super::dual::{Dd, Dual, Real, compute_params_dual, eval_dual_in, expand_lam_dual};
@@ -1032,7 +857,7 @@ mod tests {
                     let fd: Vec<f64> = (0..x.len())
                         .map(|i| (4.0 * central(i, 5e-4) - central(i, 1e-3)) / 3.0)
                         .collect();
-                    let scale = norm(&grad);
+                    let scale = grad.iter().map(|g| g * g).sum::<f64>().sqrt();
                     for i in 0..x.len() {
                         let rel = (grad[i] - fd[i]).abs() / grad[i].abs().max(1e-3 * scale);
                         assert!(
@@ -1101,6 +926,7 @@ mod tests {
         let mut rng = Rng(0x2545_F491_4F6C_DD1D);
         let model = random_model(&mut rng, 22, Some("4+5*3+4"));
         let stats = random_stats(&mut rng, &model, 20_000);
+        let n_params = 3 + model.lam.len();
         let base = MStepConfig {
             progress: false,
             ..MStepConfig::default()
@@ -1115,26 +941,29 @@ mod tests {
         assert_eq!((outcome.evaluations, done, calls), (1, 0, 1));
         assert_eq!((outcome.iterations, outcome.stop), (0, MStepStop::MaxIters));
 
-        // A one-trial line search fails often enough to reach the reverse
-        // and coordinate searches, whose evaluations count too.
+        // A one-trial line search whose unit step does not decrease enough
+        // fails at once: the start, the curvatures and the trial count.
         let config = MStepConfig {
-            max_iters: 12,
             max_ls_steps: 1,
             ..base.clone()
         };
         let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
-        assert_eq!(outcome.evaluations, calls);
-        assert_eq!(outcome.iterations, done);
-        assert!(
-            calls > 1 + 2 * done,
-            "{calls} evaluations, {done} iterations"
+        assert_eq!(outcome.stop, MStepStop::LineSearchFailed);
+        assert_eq!(
+            (outcome.evaluations, done, calls),
+            (2 + n_params, 0, 2 + n_params)
         );
 
-        // The default search; the parameters are those of m_step_lbfgs.
+        // The default search: the start, one evaluation per parameter for
+        // the curvatures, then at least one per iteration. The parameters
+        // are those of m_step_lbfgs.
         let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
         assert_eq!(outcome.evaluations, calls);
         assert_eq!(outcome.iterations, done);
-        assert!(calls > done, "{calls} evaluations, {done} iterations");
+        assert!(
+            calls >= 1 + n_params + done,
+            "{calls} evaluations, {done} iterations"
+        );
         let bounds = bounds_from_config(&model, &base);
         let params = m_step_lbfgs(&model, &stats, &pack_params(&model), &bounds, &base).unwrap();
         assert_eq!(outcome.params, params);
@@ -1150,41 +979,60 @@ mod tests {
             ..MStepConfig::default()
         };
 
-        // Any gradient is below an infinite tolerance: no step is taken.
+        // Every decrease is within an infinite tolerance: the search stops
+        // after the two iterations of the test.
         let config = MStepConfig {
-            tol_grad: f64::INFINITY,
+            rel_tol: f64::INFINITY,
             ..base.clone()
         };
-        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
-        assert_eq!(outcome.stop, MStepStop::GradientTolerance);
-        assert_eq!((outcome.iterations, done, calls), (0, 0, 1));
-        // The start, up to the round trip through the unconstrained space.
-        for (a, b) in outcome.params.iter().zip(pack_params(&model)) {
-            assert!((a - b).abs() <= 1e-12 * b, "{a} vs {b}");
-        }
+        let (outcome, done, _) = counted_m_step(&model, &stats, &config);
+        assert_eq!(outcome.stop, MStepStop::Converged);
+        assert_eq!((outcome.iterations, done), (2, 2));
 
         // A few iterations from a random start: the cap ends the search.
         let config = MStepConfig {
             max_iters: 3,
-            tol_grad: 0.0,
+            rel_tol: 0.0,
             ..base.clone()
         };
         let (outcome, done, _) = counted_m_step(&model, &stats, &config);
         assert_eq!(outcome.stop, MStepStop::MaxIters);
         assert_eq!((outcome.iterations, done), (3, 3));
 
-        // Without a tolerance and a cap out of reach, the search runs until
-        // the objective cannot be lowered at its precision, after more
-        // evaluations than iterations.
+        // Without a tolerance the search runs until the objective cannot be
+        // lowered at its precision, and its last line searches fail.
         let config = MStepConfig {
             max_iters: 100_000,
-            tol_grad: 0.0,
+            rel_tol: 0.0,
             ..base.clone()
         };
-        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
-        assert_eq!(outcome.stop, MStepStop::LineSearchFailed);
-        assert_eq!(outcome.iterations, done);
-        assert!(done > 3 && done < 100_000, "{done} iterations");
-        assert!(calls > done + 20, "{calls} evaluations, {done} iterations");
+        let (precise, done, calls) = counted_m_step(&model, &stats, &config);
+        assert_eq!(precise.stop, MStepStop::LineSearchFailed);
+        assert_eq!(precise.iterations, done);
+        assert!(done > 3 && done < 1000, "{done} iterations");
+        assert!(
+            calls > done + model.lam.len() + 20,
+            "{calls} evaluations, {done} iterations"
+        );
+
+        // By default the convergence test ends it, a few iterations earlier,
+        // where the objective is that of the precision limit to 1e-13 and
+        // the parameters within 1e-7.
+        let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
+        assert_eq!(outcome.stop, MStepStop::Converged);
+        assert!(done <= precise.iterations && calls < precise.evaluations);
+        let bounds = bounds_from_config(&model, &base);
+        let objective = |params: &[f64]| {
+            let x = to_unconstrained(params, &bounds).unwrap();
+            eval_adjoint(&model, &stats, &x, &bounds, 0.0).0
+        };
+        let (f, f_precise) = (objective(&outcome.params), objective(&precise.params));
+        assert!(
+            (f - f_precise).abs() <= 1e-13 * f_precise.abs(),
+            "{f} vs {f_precise}"
+        );
+        for (a, b) in outcome.params.iter().zip(&precise.params) {
+            assert!((a / b).ln().abs() < 1e-7, "{a} vs {b}");
+        }
     }
 }

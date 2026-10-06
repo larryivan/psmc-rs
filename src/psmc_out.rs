@@ -34,15 +34,13 @@
 //! for fragmented assemblies, see
 //! [`posterior_sigma`](crate::em::posterior_sigma)), and the `Version` line.
 //!
-//! C's M-step runs until its search converges, ours for at most
+//! Both M-steps run until their searches converge (ours caps them at
 //! [`MStepConfig::max_iters`](crate::opt::MStepConfig::max_iters) L-BFGS
-//! iterations (100 by default). Models with many free λ can need more: on
-//! the reference data of `tests/psmc_out_c_reference.rs`, with one λ per
-//! state (23 states, the layout of a model without a pattern), the first
-//! capped M-step already stops short of the Q that C's reaches from the
-//! same E-step, and the fit drifts away from C's in every state (λ_0 4.33
-//! vs 6.52 after 5 rounds), while converged M-steps agree with C as closely
-//! as with the pattern `4+5*3+4`.
+//! iterations, far above the 10 to 30 they take). On the reference data of
+//! `tests/psmc_out_c_reference.rs` the rounds then agree with C's to a
+//! relative 7.3e-8 in LK and 4.1e-4 in λ, with a pattern or with one λ per
+//! state. Ours evaluates its objective 20 to 250 times per round, C's 1,000
+//! to 7,000.
 
 use anyhow::{Result, bail};
 use std::io::Write;

@@ -9,7 +9,7 @@ use psmc_rs::bootstrap::DEFAULT_BOOTSTRAP_TRUNK;
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
 use psmc_rs::model::{MAX_STATES, n_steps_for_pattern};
-use psmc_rs::opt::MStepConfig;
+use psmc_rs::opt::{DEFAULT_MSTEP_ITERS, MStepConfig};
 
 /// The exit status of a usage error, as clap gives for the errors it finds.
 pub const USAGE_EXIT: u8 = 2;
@@ -694,10 +694,9 @@ pub struct InferArgs {
     #[arg(long, default_value = "2.5e-8", value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
-    /// Maximum L-BFGS iterations per M-step (C psmc's search runs to
-    /// convergence; about 1000 matches it more closely, at ten times the
-    /// M-step's small share of the run time)
-    #[arg(long, value_name = "N", default_value_t = 100, value_parser = positive_usize, help_heading = "Model")]
+    /// Cap on the L-BFGS iterations of an M-step, which otherwise runs to
+    /// convergence, as C psmc's does (in 10 to 50 iterations)
+    #[arg(long, value_name = "N", default_value_t = DEFAULT_MSTEP_ITERS, value_parser = positive_usize, help_heading = "Model")]
     pub mstep_iters: usize,
 
     /// Weight of the M-step penalty on differences of log lambda between
@@ -817,7 +816,7 @@ impl InferArgs {
         if self.mu != DEFAULT_MU {
             push("--mu", self.mu.to_string());
         }
-        if self.mstep_iters != 100 {
+        if self.mstep_iters != DEFAULT_MSTEP_ITERS {
             push("--mstep-iters", self.mstep_iters.to_string());
         }
         if self.smooth_lambda != 0.0 {

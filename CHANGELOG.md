@@ -25,6 +25,20 @@ Defaults, each of which changes the results of a run that relied on it:
 - EM starts from ρ0 = θ0/4 (C psmc's `-r 4`, new `--tr-ratio`) instead of
   θ0/5.
 - `--smooth-lambda` defaults to 0, C psmc's objective, instead of 1e-3.
+- Each M-step runs until it converges, as C psmc's Hooke-Jeeves search
+  does, instead of stopping after 100 L-BFGS iterations; `--mstep-iters`
+  (default 1000 instead of 100) is only a cap, which normal fits do not
+  reach (10 to 30 iterations with C psmc's patterns, at most 46 with 301
+  free λ). The 100-iteration M-steps stopped short of the maximum of Q, and
+  EM carried the shortfall through the rounds: on a simulated 4 × 25 Mb
+  bottleneck genome (`-N25 -t15 -r5 -p 4+25*2+4+6`) the curve was 0.034
+  (RMSE of log10 Ne over the informative window) from C psmc's, and is now
+  7.4e-5 from it. That rest is C's: psmc-rs fits converged to any
+  threshold from 1e-11 to the precision limit are within 6e-6 of one
+  another, while from the same expected counts C's search stops 5e-7 to
+  2e-6 below the maximum of Q, with θ, t_max and λ 1e-5 to 7e-5 (relative)
+  from it. Without a pattern (one λ per interval) the capped M-steps had
+  let the fit drift away from C's in every interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of
   `--bootstrap-block-size` bins (default 500,000 instead of 50,000) are
   drawn with replacement across the whole input, and each replicate is
@@ -105,6 +119,20 @@ Library API:
 - `MStepConfig::default()` sets `lambda` to 0, C psmc's objective and the
   CLI's default, instead of 1e-3, so `em_train` and `run_bootstrap` with
   default settings no longer fit a penalised objective.
+- The M-step stops by a scale-free convergence test: `MStepConfig::rel_tol`
+  (1e-13; the objective's decrease and the next quasi-Newton step's
+  predicted decrease, relative to the objective, over two iterations)
+  replaces `tol_grad`, an absolute gradient norm that grew with the input,
+  and `MStepStop::Converged` replaces `GradientTolerance`.
+  `MStepConfig::max_iters` defaults to `opt::DEFAULT_MSTEP_ITERS` (1000)
+  and `lbfgs_m` to 20 (7). The L-BFGS initial matrix is the inverse of the
+  objective's curvature in each coordinate (one objective evaluation per
+  parameter at the start of each M-step) instead of a multiple of the
+  identity; curvature pairs are kept when `s'y` is positive relative to
+  `|s| |y|` (it was compared with 1e-12, a scale that changes with the
+  input); and the line search backtracks by interpolation and, when it
+  fails, restarts along the preconditioned gradient, instead of trying the
+  reverse direction and a coordinate search.
 - `PsmcModel::new` rejects `n_steps` 0, single-state and overflowing
   patterns, more than `model::MAX_STATES` (10,000) states, and `t_max`
   outside (0, 1000).

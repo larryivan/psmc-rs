@@ -8,9 +8,9 @@ It fits the same model as Heng Li's C `psmc`, with the same time grid,
 starting point (θ0 = −ln(1 − K/L), ρ0 = θ0/4, flat λ, t_max = 15) and `-p`
 patterns. With C's initialisation the first round's log-likelihood equals
 C psmc's to its printed precision, and later rounds,
-which depend on the M-step optimiser (L-BFGS here, Hooke-Jeeves in C), stay
-within a relative 1e-5 on the reference data; `tests/c_equivalence.rs`
-enforces both. On top of the model, psmc-rs
+which depend on the M-step optimiser (L-BFGS here, Hooke-Jeeves in C; both
+run to convergence), stay within a relative 2e-7 on the reference data;
+`tests/c_equivalence.rs` enforces both. On top of the model, psmc-rs
 
 - reads psmcfa, VCF (including the classic `vcfutils.pl vcf2fq | fq2psmcfa`
   route in one step) and MSMC's multihetsep, plain or gzip/bgzip;
@@ -287,10 +287,10 @@ The model options follow C psmc:
   of an earlier run (0.1 or 0.2); the file's pattern is used.
 - `--smooth-lambda` (default 0, C's objective) adds a penalty on
   differences of log λ between neighbouring intervals.
-- `--mstep-iters` (100) caps the L-BFGS iterations of each M-step. C psmc
-  runs its optimiser to convergence; about 1000 matches it more closely, at
-  ten times the M-step's share of the run time, which is small with the
-  patterns above.
+- `--mstep-iters` (1000) caps the L-BFGS iterations of each M-step, which
+  runs to convergence, as C psmc's does: 10 to 30 iterations with the
+  patterns above, 30 to 50 with 301 free λ. The cap is a safeguard that
+  normal fits do not reach.
 - `--mu` (2.5e-8) and `--gen-years` (25) only scale the curve to years and
   individuals: N0 = θ / (4 μ × bin size).
 
@@ -483,8 +483,8 @@ the run warns and prints that command.
 
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
-pattern (per round, 65 to 124 on the 180,000-bin test input and 155 to 372
-on Papuan chr1 with the default pattern, where C's Hooke-Jeeves needs 1,132
+pattern (per round, 22 to 58 on the 180,000-bin test input and 22 to 49 on
+Papuan chr1 with the default pattern, where C's Hooke-Jeeves needs 1,132
 to 7,002 and 939 to 1,334); `QD` leaves out the smoothing penalty; and
 `post_sigma`, `QD` and `RI` include the emission of each sequence's last bin,
 which C skips (differences of the order of the number of sequences divided
@@ -527,6 +527,7 @@ gives a different fit:
 | pattern | none: 65 intervals (`--n-steps 64`), 65 free λ | `4+5*3+4` (23 intervals, 7 free λ) | C psmc's default; each free λ needs enough recombinations in its intervals to be determined |
 | initial ρ0 | θ0/5 | θ0/4 (`--tr-ratio`) | C psmc's `-r` default |
 | `--smooth-lambda` | 1e-3 | 0 | C psmc's objective |
+| M-step | at most 100 L-BFGS iterations (`--mstep-iters`) | runs to convergence; `--mstep-iters` (1000) only caps it | C psmc's M-step runs to convergence; 100 iterations left the curve 0.03 to 0.16 (RMSE of log10 Ne) from C's |
 | bootstrap | 50,000-bin blocks within each sequence, replicates started from the fit | splitfa trunks of 500,000 bins across the input, fresh start | C psmc's scheme; the old one gave zero spread for sequences shorter than a block |
 | `--input-format` | psmcfa | auto | |
 | VCF and multihetsep sequences | all kept | fq2psmcfa's filter | as fq2psmcfa does |
@@ -607,7 +608,7 @@ The suite compares psmc-rs with the original tools' outputs, stored under
 
 - `tests/c_equivalence.rs`: EM on a 180,000-bin psmcfa against C psmc
   0.6.5-r74 (patterns `4+5*3+4` and `4+25*2+4+6`): round 1 equal to C's
-  printed precision, rounds 2 to 5 within a relative 1e-5.
+  printed precision, rounds 2 to 5 within a relative 2e-7.
 - `tests/psmc_out_c_reference.rs`, `tests/em_c_reference.rs` and
   `tests/psmc_out_plot.rs`: the `.psmc` output line by line against C's,
   C's expectations (`post_sigma`, Q) and psmc_plot.pl's reading of the file.
@@ -691,7 +692,7 @@ From `psmc-rs --help` (0.2.0), which gives the full text. Inference,
 | `--rho0 X` | θ0 / `--tr-ratio` | initial ρ0 per bin |
 | `--init-params FILE` | | start from a saved fit (C `-i`) |
 | `--mu MU` | 2.5e-8 | mutation rate per bp per generation, for scaling |
-| `--mstep-iters N` | 100 | maximum L-BFGS iterations per M-step |
+| `--mstep-iters N` | 1000 | cap on the L-BFGS iterations of an M-step, which runs to convergence |
 | `--smooth-lambda W` | 0 | penalty on log-λ differences of neighbouring intervals |
 | `--bootstrap N` | 0 | bootstrap replicates |
 | `--bootstrap-block-size BINS` | 500000 | trunk size (splitfa); alias `--bootstrap-trunk-size` |

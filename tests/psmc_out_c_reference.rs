@@ -3,10 +3,9 @@
 //!
 //! The header and round 0 depend only on the data and the starting
 //! parameters, so they must equal C's as text (apart from the `Version`
-//! line). Later rounds depend on the M-step (L-BFGS here, Hooke-Jeeves in C)
-//! and agree within tolerances in line with `tests/c_equivalence.rs`; without
-//! a pattern only once the M-steps run to convergence, which the default
-//! cap of 100 iterations does not allow.
+//! line). Later rounds depend on the M-step (L-BFGS here, Hooke-Jeeves in C),
+//! which both run to convergence, and agree within tolerances in line with
+//! `tests/c_equivalence.rs`, with and without a pattern.
 //!
 //! A run of one round on many short sequences checks the header counts and
 //! round 0 on fragmented input.
@@ -38,28 +37,16 @@ struct Fit {
 }
 
 /// C's run: θ0 = -ln(1 - K/L), ρ0 = θ0/4, t_max = 15, λ = 1, `N_ITER` rounds,
-/// with the default M-step (at most 100 L-BFGS iterations, as in the CLI).
-/// Without a pattern the model has 23 states, each with its own λ (C's
-/// `-p "23*1"`).
+/// with the default M-step, as in the CLI. Without a pattern the model has
+/// 23 states, each with its own λ (C's `-p "23*1"`).
 fn fit(pattern: Option<&str>) -> Fit {
-    fit_with(pattern, MStepConfig::default().max_iters)
-}
-
-/// An M-step iteration cap these runs stay below: their M-steps run until
-/// L-BFGS converges, as C's Hooke-Jeeves search runs until it converges.
-/// They take at most about 900 iterations, a number that moves by a few
-/// hundred with the last bits of the arithmetic (FMA or not), so the cap
-/// leaves a wide margin.
-const CONVERGED_ITERS: usize = 2000;
-
-/// [`fit`] with at most `max_iters` L-BFGS iterations per M-step.
-fn fit_with(pattern: Option<&str>, max_iters: usize) -> Fit {
     let psmcfa = Path::new(C_REF).join("papuan_chr1_3seg.psmcfa");
-    fit_file(&psmcfa, pattern, N_ITER, max_iters)
+    fit_file(&psmcfa, pattern, N_ITER)
 }
 
-/// [`fit_with`] for `n_iter` rounds on `psmcfa`.
-fn fit_file(psmcfa: &Path, pattern: Option<&str>, n_iter: usize, max_iters: usize) -> Fit {
+/// [`fit`] for `n_iter` rounds on `psmcfa`. Every M-step must end by its
+/// convergence criteria, as C's Hooke-Jeeves search does, not at the cap.
+fn fit_file(psmcfa: &Path, pattern: Option<&str>, n_iter: usize) -> Fit {
     let obs = read_psmcfa(psmcfa, None).unwrap();
     let theta0 = initial_theta(&obs.rows).unwrap();
     let n_steps = pattern.map_or(22, |p| n_steps_for_pattern(p).unwrap());
@@ -76,10 +63,14 @@ fn fit_file(psmcfa: &Path, pattern: Option<&str>, n_iter: usize, max_iters: usiz
     let config = MStepConfig {
         progress: false,
         lambda: 0.0,
-        max_iters,
         ..MStepConfig::default()
     };
     let history = em_train(&mut model, &obs.rows, &obs.row_starts, n_iter, &config).unwrap();
+    let (stops, iterations) = (&history.mstep_stops, &history.mstep_iterations);
+    assert!(
+        stops.iter().all(|&s| s != MStepStop::MaxIters),
+        "{pattern:?}: {stops:?} after {iterations:?} iterations"
+    );
     Fit {
         template,
         history,
@@ -269,68 +260,22 @@ fn matches_c_psmc_output_pattern_4_25x2_4_6() {
     let ours = psmc_text(&fit(Some("4+25*2+4+6")));
     let c = read(C_REF, "c_4+25x2+4+6_N5.psmc");
     check_format(&ours, &c);
-    // Measured (relative): LK 6.1e-7, lambda 7.7e-3, theta, rho and t_max
-    // 8.8e-4, RI 7.3e-3, QD 7.3e-4. These M-steps stop at the 100-iteration
-    // cap; run to convergence they are closer to C's (see
-    // matches_c_psmc_output_with_converged_m_steps).
-    check_rounds(&ours, &c, 2e-2);
+    // Measured (relative): LK 7.3e-8, lambda 3.3e-4, theta, rho and t_max
+    // 2.3e-4, RI 2.6e-5, QD 1.2e-4.
+    check_rounds(&ours, &c, 2e-3);
 }
 
 #[test]
 fn matches_c_psmc_output_without_pattern() {
-    // C's "23*1": every state has its own lambda.
-    let fit = fit(None);
-    let ours = psmc_text(&fit);
+    // C's "23*1": every state has its own lambda. (With M-steps capped at
+    // 100 L-BFGS iterations, as psmc-rs's default was, the fits drifted
+    // apart in every state: by round 5 lambda_0 was 4.33 vs C's 6.52.)
+    let ours = psmc_text(&fit(None));
     let c = read(FIXTURES, "c_23x1_N5.psmc");
     check_format(&ours, &c);
-    // With 23 free lambdas, 100 L-BFGS iterations do not reach the maximum
-    // of Q that C's Hooke-Jeeves search finds: from the same round-1
-    // E-step, Q after the M-step is -33.580 here, -33.559 with a converged
-    // M-step and -33.558 in C. The fits then drift apart in every state,
-    // not only in the last ones: by round 5 lambda_0 is 4.33 vs C's 6.52
-    // and lambda_22 1.26 vs 6.30, RI differs from C's by up to 46% (round
-    // 4), and from round 3 on C's LK is higher (-25385.386 vs -25385.653 in
-    // round 5). So only the log-likelihoods are compared here; with
-    // converged M-steps the output agrees with C's as closely as with a
-    // pattern (matches_c_psmc_output_with_converged_m_steps).
-    for i in 1..=N_ITER {
-        let (a, b) = (
-            parse_round(&round_lines(&ours, i)),
-            parse_round(&round_lines(&c, i)),
-        );
-        assert!(rel(a.lk, b.lk) < 1e-4, "round {i} LK {} vs {}", a.lk, b.lk);
-    }
-}
-
-/// The differences from C's later rounds beyond those of the pattern
-/// 4+5*3+4 come from M-steps stopped at the default cap of 100 L-BFGS
-/// iterations. With M-steps that run until L-BFGS converges, the runs
-/// without a pattern and with 4+25*2+4+6 agree with C's within the
-/// tolerances of 4+5*3+4.
-#[test]
-fn matches_c_psmc_output_with_converged_m_steps() {
-    // Measured (relative), "23*1" / 4+25*2+4+6: LK 7.0e-8 / 7.3e-8, lambda
-    // 5.7e-4 / 3.3e-4, theta, rho and t_max 2.3e-4 / 2.3e-4, RI 1.8e-4 /
-    // 2.6e-5, QD 1.5e-4 / 1.2e-4.
-    for (pattern, dir, c_file) in [
-        (None, FIXTURES, "c_23x1_N5.psmc"),
-        (Some("4+25*2+4+6"), C_REF, "c_4+25x2+4+6_N5.psmc"),
-    ] {
-        let fit = fit_with(pattern, CONVERGED_ITERS);
-        // Every M-step ended by its own criteria, not at the cap. (Their
-        // objective evaluations are no guide: a failed search alone costs
-        // about 300 here, and their count swings between about 200 and
-        // 1,800 with the last bits of the E-step's arithmetic.)
-        let (stops, iterations) = (&fit.history.mstep_stops, &fit.history.mstep_iterations);
-        assert!(
-            stops.iter().all(|&s| s != MStepStop::MaxIters),
-            "{pattern:?}: {stops:?} after {iterations:?} iterations"
-        );
-        let ours = psmc_text(&fit);
-        let c = read(dir, c_file);
-        check_format(&ours, &c);
-        check_rounds(&ours, &c, 2e-3);
-    }
+    // Measured (relative): LK 7.1e-8, lambda 4.1e-4, theta, rho and t_max
+    // 2.3e-4, RI 2.5e-4, QD 1.5e-4.
+    check_rounds(&ours, &c, 2e-3);
 }
 
 /// Many short sequences (`tests/data/psmc_out/fragmented.psmcfa`, 1,010 of
@@ -341,8 +286,7 @@ fn matches_c_psmc_output_with_converged_m_steps() {
 #[test]
 fn matches_c_psmc_output_on_fragments() {
     let psmcfa = Path::new(FIXTURES).join("fragmented.psmcfa");
-    let max_iters = MStepConfig::default().max_iters;
-    let ours = psmc_text(&fit_file(&psmcfa, Some("4+5*3+4"), 1, max_iters));
+    let ours = psmc_text(&fit_file(&psmcfa, Some("4+5*3+4"), 1));
     let c = read(FIXTURES, "c_4+5x3+4_fragmented_N1.psmc");
     check_format(&ours, &c);
     assert!(ours.contains("\nMM\tn_seqs:1010, sum_L:35465, sum_n:1869\n"));
