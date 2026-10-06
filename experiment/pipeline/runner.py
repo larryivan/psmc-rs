@@ -19,13 +19,15 @@ the same machine coordinate through a machine-wide lock (:class:`MachineLock`):
 a runner holds it shared while it runs ordinary jobs and exclusively while
 it runs an exclusive one, so an exclusive job never overlaps another
 runner's jobs. ``stop`` ends it cleanly (``--drain``: after the running
-jobs finish), and refuses a runner that ``runner.host`` places on another
-host. A failed job is recorded (``logs/attempts.jsonl`` and its log file)
-and blocks the jobs that need its outputs; the next ``start`` retries it. A
-job that exits with status 75 (``EX_TEMPFAIL``: E3's timing wrapper when
-the machine is not quiet) is deferred instead: it runs again after
-:data:`DEFER_SECONDS`. ``status`` prints done/running/failed/pending per
-experiment with an ETA.
+jobs finish): SIGTERM (or SIGINT) terminates the running jobs, which stay
+pending, also when they die of the signal first, as under SLURM, which
+signals every process of a job; SIGUSR1 drains. ``stop`` refuses a runner
+that ``runner.host`` places on another host. A failed job is recorded
+(``logs/attempts.jsonl`` and its log file) and blocks the jobs that need its
+outputs; the next ``start`` retries it. A job that exits with status 75
+(``EX_TEMPFAIL``: E3's timing wrapper when the machine is not quiet) is
+deferred instead: it runs again after :data:`DEFER_SECONDS`. ``status``
+prints done/running/failed/pending per experiment with an ETA.
 
 Every attempt records its wall time, the peak RSS of its process tree
 (psutil, sampled every 50 ms or ``$PSMC_EXP_SAMPLE_SECONDS``, plus the main
@@ -864,6 +866,11 @@ class Daemon:
             job = ex.job
             res = ex.result or {"status": FAILED, "error": "no result"}
             status = res.get("status")
+            if status == FAILED and self.stop_now.is_set() and res.get("run", {}).get("exit_status", 0) != 0:
+                # SLURM signals every process of a job (at its time limit, on scancel), so the
+                # jobs often die of the runner's SIGTERM before it terminates them itself.
+                res = {**res, "status": "interrupted"}
+                status = "interrupted"
             if status == DONE:
                 try:
                     provenance.write_record(job, self.runs_dir, self.cache, self.keys[jid], res["run"])
@@ -990,16 +997,16 @@ def daemon_main(graph_factory: Callable[[], Graph], runs_dir: Path, budget: conf
     host_file.write_text(f"{this_host()}\n")  # before the PID: `stop` must not signal it on another host
     pid_file.write_text(f"{os.getpid()}\n")
     log = Logger(runs_dir)
-    daemon: Optional[Daemon] = None
+    # Set by the signals even before the Daemon exists (while the graph is made),
+    # so that a stop then is not lost; the Daemon takes them over.
+    stop_now, drain = threading.Event(), threading.Event()
 
     def on_term(signum, frame):
-        if daemon is not None:
-            daemon.stop_now.set()
+        stop_now.set()
 
     def on_drain(signum, frame):
-        if daemon is not None:
-            daemon.drain.set()
-            log("drain requested: no new jobs start")
+        drain.set()
+        log("drain requested: no new jobs start")
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
@@ -1011,6 +1018,7 @@ def daemon_main(graph_factory: Callable[[], Graph], runs_dir: Path, budget: conf
         graph = graph_factory()
         meta = {**meta, "experiments": graph.experiments(), "host": this_host(), "machine": provenance.machine()}
         daemon = Daemon(graph, runs_dir, budget, log, meta, machine_lock=MachineLock())
+        daemon.stop_now, daemon.drain = stop_now, drain
         return daemon.run()
     except Exception:
         log("runner crashed:\n" + traceback.format_exc())

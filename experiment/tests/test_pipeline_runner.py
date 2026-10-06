@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -523,6 +524,49 @@ class AcrossHosts(Base):
                 mock.patch.object(socket, "gethostname", return_value="cn1"):
             self.run_daemon([a])  # another SLURM job on another host: still done
         self.assertEqual(self.runs_of("T/a"), 1)
+
+
+@unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
+class Signals(Base):
+    def test_jobs_killed_by_the_signal_that_stops_the_runner_are_interrupted_not_failed(self):
+        # SLURM sends SIGTERM to the runner and its jobs at once: the jobs die before the runner terminates them.
+        import threading
+        from unittest import mock
+
+        j = self.job("T/long", ["l.txt"], sleep=30)
+        d = runner.Daemon(Graph([j], self.runs), self.runs, config.Budget(), runner.Logger(self.runs), {})
+
+        def slurm():
+            while not (d.running.get("T/long") and d.running["T/long"].proc):
+                time.sleep(0.01)
+            os.killpg(d.running["T/long"].proc.pid, signal.SIGTERM)
+            d.stop_now.set()
+
+        threading.Thread(target=slurm, daemon=True).start()
+        with mock.patch.object(runner, "POLL_SECONDS", 1.0):  # the job's thread sees the death first
+            rc = d.run()
+        self.assertEqual((rc, d.state["T/long"]), (0, runner.PENDING))
+        (attempt,) = runner.last_attempts(self.runs, ["T"]).values()
+        self.assertEqual((attempt["status"], attempt["run"]["exit_status"]), ("interrupted", -signal.SIGTERM))
+
+    def test_a_stop_or_drain_while_the_graph_is_made_is_not_lost(self):
+        from unittest import mock
+
+        j = self.job("T/a", ["a.txt"])
+        saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGUSR1, signal.SIGHUP)}
+        self.addCleanup(lambda: [signal.signal(s, h) for s, h in saved.items()])
+        for sig in (signal.SIGTERM, signal.SIGUSR1):
+            def factory():
+                os.kill(os.getpid(), sig)  # e.g. scancel while the tools are built
+                return Graph([j], self.runs)
+
+            with mock.patch.dict(os.environ, {runner.MACHINE_LOCK_ENV: str(self.tmp / "machine.lock")}):
+                rc = runner.daemon_main(factory, self.runs, config.Budget(), {})
+            self.assertEqual((rc, self.runs_of("T/a")), (0, 0), sig)
+            self.assertFalse((self.runs / "_runner" / "runner.host").exists())
+        state = json.loads((self.runs / "_runner" / "state.json").read_text())
+        self.assertEqual(state["host"], runner.this_host())
+        self.assertIn("hostname", state["machine"])
 
 
 if __name__ == "__main__":

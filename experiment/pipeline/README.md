@@ -166,16 +166,18 @@ directories or worktrees coordinate through a machine-wide lock
 macOS and `~/.cache/psmc-exp/machine-<host>.lock` elsewhere, since a
 cluster's nodes share the home directory): held shared while a runner runs
 ordinary jobs and exclusively while it runs an exclusive one. `stop` sends
-SIGTERM: running jobs are terminated and stay pending; `stop --drain`
-(SIGUSR1) starts nothing new and exits when the running jobs finish. The
-runner writes its host to `runs/_runner/runner.host` and the state, so that
-`stop` refuses a runner on another host and a new runner leaves alone the
-jobs an earlier one on another host left recorded as running. A failed job
-is recorded and blocks its dependents; the next `start` retries it. A job
-that exits with status 75 (E3's timing wrapper on a busy machine) is
-deferred and starts again a minute later. If the runner itself is killed,
-the next one stops the jobs it left running. `start` keeps the machine
-awake (`caffeinate -i` on macOS; `--no-keep-awake` to opt out).
+SIGTERM: running jobs are terminated and stay pending (also when they die
+of the signal first, as under SLURM, which signals every process of a job
+at its time limit); `stop --drain` (SIGUSR1) starts nothing new and exits
+when the running jobs finish. The runner writes its host to
+`runs/_runner/runner.host` and the state, so that `stop` refuses a runner
+on another host and a new runner leaves alone the jobs an earlier one on
+another host left recorded as running. A failed job is recorded and blocks
+its dependents; the next `start` retries it. A job that exits with status
+75 (E3's timing wrapper on a busy machine) is deferred and starts again a
+minute later. If the runner itself is killed, the next one stops the jobs
+it left running. `start` keeps the machine awake (`caffeinate -i` on macOS;
+`--no-keep-awake` to opt out).
 
 The runner takes the SHA-256 of the pipeline's Python files and of every
 executable its jobs name when it starts, and starts no further job once one
