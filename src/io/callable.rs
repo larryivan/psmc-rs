@@ -200,6 +200,50 @@ impl BinCounts {
         self.iter().collect()
     }
 
+    /// The counts of bins `start..start + out.len()`, into `out`: a copy
+    /// for one count per bin, a binary search and fills for runs, so that
+    /// any stretch of bins is read in time proportional to its length (the
+    /// E-step reads its input a segment at a time, forward and backward).
+    ///
+    /// # Panics
+    ///
+    /// If the bins are not within `0..self.len()`.
+    pub(crate) fn read_into(&self, start: usize, out: &mut [u16]) {
+        let end = start + out.len();
+        assert!(
+            end <= self.len(),
+            "bins {start}..{end} out of {}",
+            self.len()
+        );
+        match &self.repr {
+            Repr::Dense(Dense::Narrow(counts)) => {
+                for (o, &c) in out.iter_mut().zip(&counts[start..end]) {
+                    *o = u16::from(c);
+                }
+            }
+            Repr::Dense(Dense::Wide(counts)) => out.copy_from_slice(&counts[start..end]),
+            Repr::Runs { runs, .. } => {
+                out.fill(self.full);
+                let Runs {
+                    start: s,
+                    run,
+                    count,
+                } = runs;
+                let run_end = |k: usize| s[k] as usize + run[k] as usize;
+                let mut k = s.partition_point(|&x| (x as usize) < start);
+                if k > 0 && run_end(k - 1) > start {
+                    k -= 1;
+                }
+                while k < s.len() && (s[k] as usize) < end {
+                    let from = start.max(s[k] as usize);
+                    let to = end.min(run_end(k));
+                    out[from - start..to - start].fill(count[k]);
+                    k += 1;
+                }
+            }
+        }
+    }
+
     /// Bytes of memory the counts hold, besides the struct itself.
     pub fn heap_bytes(&self) -> usize {
         match &self.repr {
@@ -908,6 +952,15 @@ mod tests {
             let joined = BinCounts::concat(&parts);
             assert_eq!(joined.to_vec(), counts, "{ctx}");
             check_form(&joined, &counts, &ctx);
+
+            // Any stretch reads back as the same counts, in either form.
+            for _ in 0..4 {
+                let from = rng.range(0, len);
+                let to = rng.range(from, len);
+                let mut out = vec![u16::MAX; to - from];
+                c.read_into(from, &mut out);
+                assert_eq!(out, counts[from..to], "{ctx}, read {from}..{to}");
+            }
         }
     }
 

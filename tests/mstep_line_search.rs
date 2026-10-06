@@ -48,6 +48,7 @@ fn scaled(stats: &SufficientStats, factor: f64) -> SufficientStats {
             stats.gobs[2].iter().map(|v| v * factor).collect(),
         ],
         xi: stats.xi.mapv(|v| v * factor),
+        callable: None,
     }
 }
 

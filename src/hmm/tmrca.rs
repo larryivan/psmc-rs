@@ -26,8 +26,10 @@ use std::sync::Mutex;
 
 use super::fb::{self, Ctx, DecodeCheckpoints, Progress, SeqObs, Workspace};
 use super::kernel::Kernel;
+use super::obs::ObsTable;
 use super::sched::Plan;
-use super::{AlphaCacheBudget, CHECKPOINT_STRIDE, TmrcaReportData, validate};
+use super::{AlphaCacheBudget, CHECKPOINT_STRIDE, TmrcaReportData, obs_table, seq_obs, validate};
+use crate::io::CallableBases;
 use crate::progress;
 
 /// Segments of a long sequence decoded per work unit.
@@ -322,6 +324,8 @@ impl<'a> StateYears<'a> {
 /// Formats decoded sites as TSV lines and accumulates the summaries of one unit.
 struct UnitWriter<'a> {
     years: &'a StateYears<'a>,
+    /// The symbol class of each observation index.
+    classes: &'a [u8],
     stride: usize,
     text: String,
     state_mass: Vec<f64>,
@@ -329,9 +333,10 @@ struct UnitWriter<'a> {
 }
 
 impl<'a> UnitWriter<'a> {
-    fn new(years: &'a StateYears<'a>, stride: usize, sites: usize) -> Self {
+    fn new(years: &'a StateYears<'a>, classes: &'a [u8], stride: usize, sites: usize) -> Self {
         Self {
             years,
+            classes,
             stride,
             text: String::with_capacity(sites * 140),
             state_mass: vec![0.0; years.values.len()],
@@ -341,13 +346,14 @@ impl<'a> UnitWriter<'a> {
 
     /// Lines for consecutive sites of sequence `seq_id`, the first of which
     /// is bin `seq_bin` of the sequence and `global_bin` of the input, with
-    /// observation classes `obs` and posteriors `post` (`np` values per site).
+    /// observation indices `obs` and posteriors `post` (`np` values per
+    /// site).
     fn sites(
         &mut self,
         seq_id: usize,
         seq_bin: usize,
         global_bin: usize,
-        obs: &[u8],
+        obs: &[u16],
         post: &[f64],
         np: usize,
     ) {
@@ -379,7 +385,7 @@ impl<'a> UnitWriter<'a> {
                 push_usize(line, v);
                 line.push('\t');
             }
-            line.push(obs_char(o));
+            line.push(obs_char(self.classes[usize::from(o)]));
             line.push('\t');
             push_usize(line, max_k);
             line.push('\t');
@@ -420,6 +426,8 @@ impl<'a> UnitWriter<'a> {
 struct Decoder<'a> {
     kernel: Kernel,
     rows: &'a [Vec<u8>],
+    callable: Option<&'a CallableBases>,
+    table: ObsTable,
     plan: Plan,
     /// First site of each sequence in the input; the last entry is the total.
     seq_start: Vec<usize>,
@@ -433,7 +441,12 @@ struct Decoder<'a> {
 
 impl Decoder<'_> {
     fn seq(&self, i: usize) -> SeqObs<'_> {
-        SeqObs::new(&self.rows[self.plan.seqs[i].clone()])
+        seq_obs(
+            self.rows,
+            self.callable,
+            &self.table,
+            self.plan.seqs[i].clone(),
+        )
     }
 
     fn with_workspace<R>(&self, f: impl FnOnce(&mut Workspace) -> R) -> R {
@@ -450,7 +463,7 @@ impl Decoder<'_> {
             Unit::Short { seqs } => self.seq_start[seqs.end] - self.seq_start[seqs.start],
             Unit::Long { segs, .. } => segs.len() * CHECKPOINT_STRIDE,
         };
-        let mut out = UnitWriter::new(&self.years, self.stride, sites);
+        let mut out = UnitWriter::new(&self.years, self.table.classes(), self.stride, sites);
         self.with_workspace(|ws| -> Result<()> {
             match unit {
                 Unit::Short { seqs } => {
@@ -582,15 +595,23 @@ impl Output {
     }
 }
 
+/// Options for [`write_tmrca_posterior_tsv_with_options`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TmrcaOptions<'a> {
+    /// Draw a progress bar on stderr.
+    pub progress_bars: bool,
+    /// Sample at most about this many bins for the report's summaries (0
+    /// samples every bin).
+    pub max_points: usize,
+    /// The callable bases of each bin, row for row: decode with the
+    /// callable-length emissions the fit used ([`super::EStepOptions::callable`]).
+    /// `None` is C psmc's model.
+    pub callable: Option<&'a CallableBases>,
+}
+
 /// Posterior decoding of the time to the most recent common ancestor, one
-/// TSV line per bin (gzip-compressed when `out_path` ends in `.gz`).
-///
-/// `tmrca_years[k]` is the time assigned to state `k`. Memory is bounded:
-/// sequences longer than a work unit keep forward and backward checkpoints
-/// every [`CHECKPOINT_STRIDE`] sites, and units are decoded in parallel,
-/// across sequences as well as within them, and written in order. Returns
-/// summaries for the HTML report (at most about `max_points` sampled bins;
-/// 0 samples every bin).
+/// TSV line per bin (gzip-compressed when `out_path` ends in `.gz`), without
+/// callable bases; see [`write_tmrca_posterior_tsv_with_options`].
 #[allow(clippy::too_many_arguments)]
 pub fn write_tmrca_posterior_tsv(
     pi: &[f64],
@@ -603,7 +624,44 @@ pub fn write_tmrca_posterior_tsv(
     progress_enabled: bool,
     max_points: usize,
 ) -> Result<TmrcaReportData> {
+    let opts = TmrcaOptions {
+        progress_bars: progress_enabled,
+        max_points,
+        callable: None,
+    };
+    write_tmrca_posterior_tsv_with_options(pi, a, em, rows, row_starts, tmrca_years, out_path, opts)
+}
+
+/// Posterior decoding of the time to the most recent common ancestor, one
+/// TSV line per bin (gzip-compressed when `out_path` ends in `.gz`). The
+/// `obs` column is the bin's symbol; with callable bases
+/// ([`TmrcaOptions::callable`]) each bin is decoded with the emissions of
+/// its count, as the E-step fits them.
+///
+/// `tmrca_years[k]` is the time assigned to state `k`. Memory is bounded:
+/// sequences longer than a work unit keep forward and backward checkpoints
+/// every [`CHECKPOINT_STRIDE`] sites, and units are decoded in parallel,
+/// across sequences as well as within them, and written in order. Returns
+/// summaries for the HTML report (at most about [`TmrcaOptions::max_points`]
+/// sampled bins).
+#[allow(clippy::too_many_arguments)]
+pub fn write_tmrca_posterior_tsv_with_options(
+    pi: &[f64],
+    a: &Array2<f64>,
+    em: &Array2<f64>,
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
+    tmrca_years: &[f64],
+    out_path: &Path,
+    opts: TmrcaOptions<'_>,
+) -> Result<TmrcaReportData> {
+    let TmrcaOptions {
+        progress_bars: progress_enabled,
+        max_points,
+        callable,
+    } = opts;
     validate(pi, a, em, rows, row_starts)?;
+    let table = obs_table(rows, callable, None)?;
     let n_states = pi.len();
     if tmrca_years.len() != n_states {
         bail!(
@@ -631,8 +689,10 @@ pub fn write_tmrca_posterior_tsv(
     let gzip = sink.is_gzip();
     sink.write(&Sink::encode(gzip, HEADER.to_string())?)?;
     let dec = Decoder {
-        kernel: Kernel::new(pi, a, em),
+        kernel: Kernel::new(pi, a, em, &table),
         rows,
+        callable,
+        table,
         plan,
         seq_start,
         years: StateYears::new(tmrca_years),

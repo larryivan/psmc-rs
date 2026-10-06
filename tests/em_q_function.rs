@@ -15,6 +15,7 @@ fn stats() -> SufficientStats {
     SufficientStats {
         gobs: [vec![3.0, 0.5], vec![1.0, 0.0], vec![7.0, 2.0]],
         xi: array![[2.0, 1.0], [0.25, 4.0]],
+        callable: None,
     }
 }
 
@@ -77,6 +78,7 @@ fn q_minus_q0_is_minus_the_expected_kl_divergence() {
             vec![1.0, 1.0, 1.0],
         ],
         xi: array![[5.0, 0.5, 0.1], [0.2, 3.0, 0.9], [0.0, 1.5, 6.0]],
+        callable: None,
     };
     let e = array![[0.95, 0.2, 0.5], [0.05, 0.8, 0.5], [1.0, 1.0, 1.0]];
     let a = array![[0.8, 0.15, 0.05], [0.1, 0.7, 0.2], [0.05, 0.25, 0.7]];

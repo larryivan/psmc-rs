@@ -13,26 +13,32 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::budget::AlphaCacheBudget;
 use super::kernel::Kernel;
+use super::obs::{ObsTable, obs_class};
 use super::{CHECKPOINT_STRIDE, Cancelled};
+use crate::io::BinCounts;
 
 const K: usize = CHECKPOINT_STRIDE;
 
-/// Observation class of a raw psmcfa symbol: 0 (`T`), 1 (`K`), 2 (`N` or other).
-#[inline]
-pub(crate) fn obs_class(v: u8) -> u8 {
-    if v <= 1 { v } else { 2 }
-}
-
-/// The observations of one sequence: one or more rows chained into one HMM chain.
+/// The observations of one sequence: one or more rows chained into one HMM
+/// chain, with the callable bases of their bins when the input has them.
 pub(crate) struct SeqObs<'a> {
     rows: &'a [Vec<u8>],
+    /// The counts of `rows`, and the table that maps a bin's symbol and
+    /// count to its observation index.
+    counted: Option<(&'a [BinCounts], &'a ObsTable)>,
     /// `offsets[r]` is the index of the first site of row `r`; the last entry is the length.
     offsets: Vec<usize>,
 }
 
 impl<'a> SeqObs<'a> {
-    /// `rows` must be non-empty and contain no empty row.
-    pub(crate) fn new(rows: &'a [Vec<u8>]) -> Self {
+    /// `rows` must be non-empty and contain no empty row. `counts`, when
+    /// given, holds the counts of the bins of each row, and `table` indexes
+    /// every pair of symbol and count they hold ([`ObsTable::counted`]).
+    pub(crate) fn new(
+        rows: &'a [Vec<u8>],
+        counts: Option<&'a [BinCounts]>,
+        table: &'a ObsTable,
+    ) -> Self {
         let mut offsets = Vec::with_capacity(rows.len() + 1);
         let mut pos = 0usize;
         offsets.push(0);
@@ -40,7 +46,11 @@ impl<'a> SeqObs<'a> {
             pos += r.len();
             offsets.push(pos);
         }
-        Self { rows, offsets }
+        Self {
+            rows,
+            counted: counts.map(|c| (c, table)),
+            offsets,
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -57,8 +67,10 @@ impl<'a> SeqObs<'a> {
         (start, K.min(self.len() - start))
     }
 
-    /// Observation classes of sites `start..start + out.len()`.
-    pub(crate) fn read(&self, start: usize, out: &mut [u8]) {
+    /// Observation indices of sites `start..start + out.len()`: the symbol
+    /// classes without counts, the indices of the observation table with
+    /// them.
+    pub(crate) fn read(&self, start: usize, out: &mut [u16]) {
         let mut r = self.offsets.partition_point(|&o| o <= start) - 1;
         let mut pos = start;
         let mut k = 0;
@@ -66,8 +78,20 @@ impl<'a> SeqObs<'a> {
             let row = &self.rows[r];
             let off = pos - self.offsets[r];
             let take = (row.len() - off).min(out.len() - k);
-            for (d, &v) in out[k..k + take].iter_mut().zip(&row[off..off + take]) {
-                *d = obs_class(v);
+            let symbols = &row[off..off + take];
+            let dst = &mut out[k..k + take];
+            match self.counted {
+                None => {
+                    for (d, &v) in dst.iter_mut().zip(symbols) {
+                        *d = u16::from(obs_class(v));
+                    }
+                }
+                Some((counts, table)) => {
+                    counts[r].read_into(off, dst);
+                    for (d, &v) in dst.iter_mut().zip(symbols) {
+                        *d = table.index(v, *d);
+                    }
+                }
             }
             k += take;
             pos += take;
@@ -103,7 +127,7 @@ impl Ctx<'_> {
 /// Per-thread scratch buffers, reused across the sequences of one work item.
 pub(crate) struct Workspace {
     np: usize,
-    obs: Vec<u8>,
+    obs: Vec<u16>,
     /// Forward vectors of one segment: row 0 is the vector before the segment.
     rows: Vec<f64>,
     c: Vec<f64>,
@@ -129,29 +153,30 @@ impl Workspace {
 }
 
 /// Per-work-item sums: log-likelihood, expected emissions per observation
-/// class, and the matrix whose product with A gives expected transitions.
+/// index, and the matrix whose product with A gives expected transitions.
 #[derive(Debug, Clone)]
 pub(crate) struct Partial {
     pub(crate) loglike: f64,
-    pub(crate) gobs: [Vec<f64>; 3],
+    /// `g[i * np + k]`: the posterior of state `k` summed over the bins of
+    /// observation index `i`.
+    pub(crate) g: Vec<f64>,
     pub(crate) m: Vec<f64>,
 }
 
 impl Partial {
-    pub(crate) fn new(np: usize) -> Self {
+    /// Sums for `n_obs` observation indices and `np` (padded) states.
+    pub(crate) fn new(n_obs: usize, np: usize) -> Self {
         Self {
             loglike: 0.0,
-            gobs: [vec![0.0; np], vec![0.0; np], vec![0.0; np]],
+            g: vec![0.0; n_obs * np],
             m: vec![0.0; np * np],
         }
     }
 
     pub(crate) fn merge(&mut self, other: &Partial) {
         self.loglike += other.loglike;
-        for (dst, src) in self.gobs.iter_mut().zip(&other.gobs) {
-            for (d, s) in dst.iter_mut().zip(src) {
-                *d += *s;
-            }
+        for (d, s) in self.g.iter_mut().zip(&other.g) {
+            *d += *s;
         }
         for (d, s) in self.m.iter_mut().zip(&other.m) {
             *d += *s;
@@ -252,7 +277,7 @@ fn forward_pass(
 fn recompute_segment(
     k: &Kernel,
     s: usize,
-    obs: &[u8],
+    obs: &[u16],
     ckpt: &[f64],
     rows: &mut [f64],
     c: &mut [f64],
@@ -342,7 +367,8 @@ pub(crate) fn e_step(
         for t in (0..len).rev() {
             let o = obs[t];
             let alpha_t = &rows[(t + 1) * np..(t + 2) * np];
-            let g = &mut acc.gobs[o as usize];
+            let at = usize::from(o) * np;
+            let g = &mut acc.g[at..at + np];
             for ((gk, &a), &b) in g.iter_mut().zip(alpha_t).zip(beta.iter()) {
                 *gk += a * b;
             }
@@ -393,7 +419,7 @@ pub(crate) fn decode_checkpoints(
         || -> Result<Vec<f64>> {
             let n_seg = seq.n_segments();
             let mut out = vec![0.0; n_seg * np];
-            let mut obs = [0u8; K];
+            let mut obs = [0u16; K];
             let mut w = vec![0.0; np];
             let mut beta = vec![0.0; np];
             let mut beta_next = vec![0.0; np];
@@ -427,7 +453,7 @@ pub(crate) fn decode_checkpoints(
 /// scratch.
 fn posteriors_in_place<'b>(
     k: &Kernel,
-    obs: &[u8],
+    obs: &[u16],
     rows: &mut [f64],
     mut beta: &'b mut [f64],
     mut beta_next: &'b mut [f64],
@@ -457,7 +483,7 @@ fn posteriors_in_place<'b>(
 }
 
 /// Posterior state probabilities of the sites of segment `s`, from the
-/// checkpoints. Returns the segment's observation classes and its
+/// checkpoints. Returns the segment's observation indices and its
 /// posteriors (`np` values per site, padded entries zero), both held in `ws`.
 pub(crate) fn segment_posteriors<'w>(
     k: &Kernel,
@@ -465,7 +491,7 @@ pub(crate) fn segment_posteriors<'w>(
     ckpt: &DecodeCheckpoints,
     s: usize,
     ws: &'w mut Workspace,
-) -> Result<(&'w [u8], &'w [f64])> {
+) -> Result<(&'w [u16], &'w [f64])> {
     let np = ws.np;
     let (start, len) = seq.segment(s);
     let Workspace {
@@ -479,7 +505,7 @@ pub(crate) fn segment_posteriors<'w>(
     } = ws;
     let obs = &mut obs[..len];
     seq.read(start, obs);
-    let obs: &'w [u8] = obs;
+    let obs: &'w [u16] = obs;
     recompute_segment(k, s, obs, &ckpt.alpha, rows, c);
     beta.copy_from_slice(&ckpt.beta[s * np..(s + 1) * np]);
     posteriors_in_place(k, obs, rows, beta, beta_next, &mut w[..np])?;
@@ -494,7 +520,7 @@ pub(crate) fn sequence_posteriors<'w>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &'w mut Workspace,
-) -> Result<(&'w [u8], &'w [f64])> {
+) -> Result<(&'w [u16], &'w [f64])> {
     let np = ws.np;
     let len = seq.len();
     let Workspace {
@@ -513,7 +539,7 @@ pub(crate) fn sequence_posteriors<'w>(
     }
     let obs = &mut obs[..len];
     seq.read(0, obs);
-    let obs: &'w [u8] = obs;
+    let obs: &'w [u16] = obs;
     recompute_segment(k, 0, obs, &[], rows, c);
     for &ct in &c[..len] {
         check_norm(ct)?;

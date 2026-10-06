@@ -581,7 +581,11 @@ mod tests {
             (0..states).map(|_| count(0.05 * per_state)).collect(),
             (0..states).map(|_| count(0.02 * per_state)).collect(),
         ];
-        SufficientStats { gobs, xi }
+        SufficientStats {
+            gobs,
+            xi,
+            callable: None,
+        }
     }
 
     /// A model of moderate λ (0.1 to 10) whose transition probabilities are

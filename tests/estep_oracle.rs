@@ -5,16 +5,20 @@
 //! Inputs cover chained rows, single-site sequences, sequences and rows whose
 //! lengths straddle the checkpoint stride, all-N stretches, PSMC models of
 //! several sizes (including ones that need padding) and unstructured random
-//! transition matrices.
+//! transition matrices. With callable bases, the reference builds each bin's
+//! emissions from its own count and sums the statistics of the
+//! callable-length model bin by bin.
 
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
-    AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, e_step_with_options,
-    log_likelihood,
+    AlphaCacheBudget, CHECKPOINT_STRIDE, CallableStats, EStepOptions, EStepResult,
+    e_step_with_options, log_likelihood, log_likelihood_with_options,
 };
+use psmc_rs::io::CallableBases;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use std::collections::BTreeMap;
 
 const K: usize = CHECKPOINT_STRIDE;
 const REL_TOL: f64 = 1e-12;
@@ -43,11 +47,48 @@ fn matvec_row_major(src: &[f64], a_row: &[f64], dst: &mut [f64]) {
     }
 }
 
+/// The emission row of a bin of observation class `obs` with `count`
+/// callable bases out of `s` (`None`: no counts), built from the bin's own
+/// count as the callable-length model says: `e_T^(c / s)` for `T`, one minus
+/// that for `K`.
+fn bin_emission(em_rows: &[Vec<f64>; 3], obs: usize, count: Option<(u16, u16)>) -> Vec<f64> {
+    match (obs, count) {
+        (0 | 1, Some((c, s))) if c != s => {
+            let f = f64::from(c) / f64::from(s);
+            em_rows[0]
+                .iter()
+                .map(|&e| {
+                    let t = (e.ln() * f).exp();
+                    if obs == 0 { t } else { 1.0 - t }
+                })
+                .collect()
+        }
+        _ => em_rows[obs].clone(),
+    }
+}
+
+/// The callable bases of every bin, row for row, and the bin size.
+type Counts<'a> = Option<(&'a [Vec<u16>], u16)>;
+
+/// The emission rows of the bins of row `r`.
+fn row_emissions(
+    em_rows: &[Vec<f64>; 3],
+    rows: &[Vec<u8>],
+    counts: Counts,
+    r: usize,
+) -> Vec<Vec<f64>> {
+    rows[r]
+        .iter()
+        .enumerate()
+        .map(|(t, &v)| bin_emission(em_rows, obs_to_idx(v), counts.map(|(c, s)| (c[r][t], s))))
+        .collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn forward_fill_row(
     pi: &[f64],
     a_row: &[f64],
-    em_rows: &[Vec<f64>; 3],
+    bin_em: &[Vec<f64>],
     obs_row: &[u8],
     start_prev: Option<&[f64]>,
     alpha_row: &mut [f64],
@@ -56,7 +97,7 @@ fn forward_fill_row(
 ) {
     let n_states = pi.len();
     for t in 0..obs_row.len() {
-        let em_obs = &em_rows[obs_to_idx(obs_row[t])];
+        let em_obs = &bin_em[t];
         let mut norm = 0.0f64;
         if t == 0 && start_prev.is_none() {
             for k in 0..n_states {
@@ -92,6 +133,20 @@ fn reference_e_step(
     rows: &[Vec<u8>],
     row_starts: &[bool],
 ) -> EStepResult {
+    reference_e_step_counted(pi, a, em, rows, row_starts, None)
+}
+
+/// The reference E-step on bins with callable bases: each bin's emission is
+/// built from its own count, and the statistics of the callable-length
+/// model are summed bin by bin.
+fn reference_e_step_counted(
+    pi: &[f64],
+    a: &Array2<f64>,
+    em: &Array2<f64>,
+    rows: &[Vec<u8>],
+    row_starts: &[bool],
+    counts: Counts,
+) -> EStepResult {
     let n_rows = rows.len();
     let n_states = pi.len();
     let a_row: Vec<f64> = a.iter().copied().collect();
@@ -100,6 +155,8 @@ fn reference_e_step(
     let mut gobs0 = vec![0.0; n_states];
     let mut gobs1 = vec![0.0; n_states];
     let mut gobs2 = vec![0.0; n_states];
+    let mut t_weighted = vec![0.0; n_states];
+    let mut k_by_count: BTreeMap<u16, Vec<f64>> = BTreeMap::new();
     let mut xi_flat = vec![0.0f64; n_states * n_states];
     let mut loglike = 0.0;
 
@@ -118,8 +175,9 @@ fn reference_e_step(
             row_prev_alpha[r] = Some(prev_end.clone());
         }
         let start_prev = row_prev_alpha[r].as_deref();
+        let bin_em = row_emissions(&em_rows, rows, counts, r);
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi, &a_row, &bin_em, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
         );
         for v in c_norm.iter() {
             loglike += v.ln();
@@ -137,13 +195,15 @@ fn reference_e_step(
         let alpha_row = &mut alpha_row_buf[..s_max * n_states];
         let c_norm = &mut c_norm_buf[..s_max];
         let start_prev = row_prev_alpha[r].as_deref();
+        let bin_em = row_emissions(&em_rows, rows, counts, r);
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
+            pi, &a_row, &bin_em, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
         );
         for t_rev in 0..s_max {
             let t = s_max - 1 - t_rev;
             let obs = obs_to_idx(obs_row[t]);
             let alpha_t = &alpha_row[t * n_states..(t + 1) * n_states];
+            let count = counts.map(|(c, s)| (c[r][t], s));
             for k in 0..n_states {
                 let g = alpha_t[k] * beta[k];
                 match obs {
@@ -151,12 +211,19 @@ fn reference_e_step(
                     1 => gobs1[k] += g,
                     _ => gobs2[k] += g,
                 }
+                match (obs, count) {
+                    (0, Some((c, s))) => t_weighted[k] += g * f64::from(c) / f64::from(s),
+                    (1, Some((c, _))) => {
+                        k_by_count.entry(c).or_insert_with(|| vec![0.0; n_states])[k] += g
+                    }
+                    _ => {}
+                }
             }
             if t == 0 && row_starts[r] {
                 continue;
             }
             let inv_norm_t = 1.0 / c_norm[t];
-            let em_obs = &em_rows[obs];
+            let em_obs = &bin_em[t];
             for j in 0..n_states {
                 emit_beta[j] = em_obs[j] * beta[j];
             }
@@ -188,6 +255,11 @@ fn reference_e_step(
         stats: psmc_rs::hmm::SufficientStats {
             gobs: [gobs0, gobs1, gobs2],
             xi: Array2::from_shape_vec((n_states, n_states), xi_flat).unwrap(),
+            callable: counts.map(|(_, s)| CallableStats {
+                bin_size: usize::from(s),
+                t_weighted,
+                k_by_count: k_by_count.into_iter().collect(),
+            }),
         },
         loglike,
     }
@@ -459,5 +531,194 @@ fn log_likelihood_matches_reference_and_e_step() {
             let e = e_step(&case, cache_rows);
             assert_eq!(ll.to_bits(), e.loglike.to_bits(), "{}", case.name);
         }
+    }
+}
+
+// ---- callable bases ---------------------------------------------------------
+
+/// The case's rows with every symbol other than 0 and 1 written as 2 (as the
+/// readers that count callable bases write them), and random callable bases
+/// for bins of `s` bases that agree with the symbols (N exactly when fewer
+/// than 10% are callable): full bins, the fewest a called bin can have, and
+/// counts in between.
+fn with_counts(rng: &mut SmallRng, case: &Case, s: u16) -> (Vec<Vec<u8>>, Vec<Vec<u16>>) {
+    let min_called = s.div_ceil(10);
+    let rows: Vec<Vec<u8>> = case
+        .rows
+        .iter()
+        .map(|r| r.iter().map(|&v| v.min(2)).collect())
+        .collect();
+    let counts = rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|&v| {
+                    if v == 2 {
+                        rng.gen_range(0..min_called)
+                    } else if rng.gen_bool(0.4) {
+                        s
+                    } else if rng.gen_bool(0.1) {
+                        min_called
+                    } else {
+                        rng.gen_range(min_called..=s)
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    (rows, counts)
+}
+
+fn counted_e_step(
+    case: &Case,
+    rows: &[Vec<u8>],
+    callable: &CallableBases,
+    cache_rows: bool,
+) -> EStepResult {
+    let budget = AlphaCacheBudget::new(if cache_rows { usize::MAX } else { 0 });
+    let opts = EStepOptions {
+        alpha_cache: Some(&budget),
+        callable: Some(callable),
+        ..EStepOptions::default()
+    };
+    e_step_with_options(&case.pi, &case.a, &case.em, rows, &case.row_starts, opts)
+        .expect("E-step failed")
+}
+
+/// With callable bases, the E-step matches the reference that builds every
+/// bin's emissions from its own count, in its log-likelihood, its expected
+/// counts and the statistics of the callable-length model; the
+/// log-likelihood alone is the E-step's to the bit.
+#[test]
+fn counted_e_step_matches_reference() {
+    let mut rng = SmallRng::seed_from_u64(0xca11_ab1e);
+    let mut worst = (0.0f64, String::new());
+    let mut partial_k = 0;
+    for (i, case) in cases().into_iter().enumerate() {
+        let s = [1, 7, 10, 100, 255, 1000][i % 6];
+        let (rows, counts) = with_counts(&mut rng, &case, s);
+        let callable = CallableBases::from_counts(usize::from(s), counts.clone()).unwrap();
+        let want = reference_e_step_counted(
+            &case.pi,
+            &case.a,
+            &case.em,
+            &rows,
+            &case.row_starts,
+            Some((&counts, s)),
+        );
+        let want_c = want.stats.callable.as_ref().unwrap();
+        for cache_rows in [false, true] {
+            let got = counted_e_step(&case, &rows, &callable, cache_rows);
+            let got_c = got.stats.callable.as_ref().expect("counted statistics");
+            assert_eq!(got_c.bin_size, usize::from(s), "{}", case.name);
+            let got_counts: Vec<u16> = got_c.k_by_count.iter().map(|(c, _)| *c).collect();
+            let want_counts: Vec<u16> = want_c.k_by_count.iter().map(|(c, _)| *c).collect();
+            assert_eq!(got_counts, want_counts, "{}: counts of K bins", case.name);
+            partial_k += got_counts.iter().filter(|&&c| c != s).count();
+            let errs = [
+                (
+                    "loglike",
+                    loglike_err(got.loglike, want.loglike, rows.iter().map(Vec::len).sum()),
+                ),
+                (
+                    "gobs",
+                    (0..3)
+                        .map(|o| max_rel(got.stats.gobs[o].clone(), want.stats.gobs[o].clone()))
+                        .fold(0.0, f64::max),
+                ),
+                (
+                    "xi",
+                    max_rel(got.stats.xi.iter().copied(), want.stats.xi.iter().copied()),
+                ),
+                (
+                    "G_T",
+                    max_rel(got_c.t_weighted.clone(), want_c.t_weighted.clone()),
+                ),
+                (
+                    "G_K",
+                    got_c
+                        .k_by_count
+                        .iter()
+                        .zip(&want_c.k_by_count)
+                        .map(|((_, g), (_, w))| max_rel(g.clone(), w.clone()))
+                        .fold(0.0, f64::max),
+                ),
+            ];
+            for (what, e) in errs {
+                assert!(
+                    e <= REL_TOL,
+                    "{} (s = {s}): {what} relative error {e:.3e}",
+                    case.name
+                );
+                if e > worst.0 {
+                    worst = (e, format!("{} {what}", case.name));
+                }
+            }
+            let ll = log_likelihood_with_options(
+                &case.pi,
+                &case.a,
+                &case.em,
+                &rows,
+                &case.row_starts,
+                EStepOptions {
+                    callable: Some(&callable),
+                    ..EStepOptions::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(ll.to_bits(), got.loglike.to_bits(), "{}", case.name);
+        }
+    }
+    assert!(partial_k > 50, "only {partial_k} partly callable K counts");
+    eprintln!("worst relative error {:.3e} ({})", worst.0, worst.1);
+}
+
+/// Counts that do not fit the bins are an error, not a silent misfit.
+#[test]
+fn counts_that_do_not_fit_the_bins_are_rejected() {
+    let case = &cases()[30];
+    let rows: Vec<Vec<u8>> = case
+        .rows
+        .iter()
+        .map(|r| r.iter().map(|&v| v.min(2)).collect())
+        .collect();
+    let full: Vec<Vec<u16>> = rows
+        .iter()
+        .map(|r| r.iter().map(|&v| if v == 2 { 0 } else { 100 }).collect())
+        .collect();
+    let run = |counts: Vec<Vec<u16>>| {
+        let callable = CallableBases::from_counts(100, counts).unwrap();
+        e_step_with_options(
+            &case.pi,
+            &case.a,
+            &case.em,
+            &rows,
+            &case.row_starts,
+            EStepOptions {
+                callable: Some(&callable),
+                ..EStepOptions::default()
+            },
+        )
+        .map(|_| ())
+        .map_err(|e| format!("{e:#}"))
+    };
+    run(full.clone()).unwrap();
+    let mut short = full.clone();
+    short[0].pop();
+    assert!(run(short).unwrap_err().contains("callable bases for"));
+    let mut over = full.clone();
+    over[0][0] = 101;
+    assert!(run(over).unwrap_err().contains("callable bases of 100"));
+    // A called bin with fewer than 10% of its bases callable.
+    let mut sparse = full.clone();
+    let (r, t) = (0..rows.len())
+        .find_map(|r| rows[r].iter().position(|&v| v < 2).map(|t| (r, t)))
+        .unwrap();
+    sparse[r][t] = 9;
+    assert!(run(sparse).unwrap_err().contains("9 callable bases"));
+    let mut fewer_rows = full;
+    fewer_rows.pop();
+    if rows.len() > 1 {
+        assert!(run(fewer_rows).unwrap_err().contains("rows of bins"));
     }
 }

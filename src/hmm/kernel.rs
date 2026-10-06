@@ -11,6 +11,8 @@
 
 use ndarray::Array2;
 
+use super::obs::ObsTable;
+
 /// Width (in f64) of the column tiles the matrix-vector products are blocked into.
 pub(crate) const TILE: usize = 8;
 
@@ -393,17 +395,25 @@ pub(crate) struct Kernel {
     a: Vec<f64>,
     /// `at[j * np + i] = a[i * np + j]`.
     at: Vec<f64>,
-    em: [Vec<f64>; 3],
+    /// `em[o * np + k]`: the emission probability of observation index `o`
+    /// in state `k` ([`ObsTable::emissions`]).
+    em: Vec<f64>,
     pi: Vec<f64>,
     semi: Option<Semiseparable>,
 }
 
+/// The padded state dimension of `n` states: a multiple of [`TILE`].
+pub(crate) fn padded(n: usize) -> usize {
+    n.div_ceil(TILE).max(1) * TILE
+}
+
 impl Kernel {
-    /// Copy `pi`, `a` and the first three rows of `em` into padded buffers.
-    /// Shapes must have been validated by the caller.
-    pub(crate) fn new(pi: &[f64], a: &Array2<f64>, em: &Array2<f64>) -> Self {
+    /// Copy `pi` and `a` into padded buffers, with the emission row of every
+    /// observation index of `table` built from the rows of `em` (`T`, `K`,
+    /// `N`). Shapes must have been validated by the caller.
+    pub(crate) fn new(pi: &[f64], a: &Array2<f64>, em: &Array2<f64>, table: &ObsTable) -> Self {
         let n = pi.len();
-        let np = n.div_ceil(TILE).max(1) * TILE;
+        let np = padded(n);
         let mut a_pad = vec![0.0; np * np];
         let mut at_pad = vec![0.0; np * np];
         for i in 0..n {
@@ -412,13 +422,6 @@ impl Kernel {
                 at_pad[j * np + i] = a[(i, j)];
             }
         }
-        let em_row = |r: usize| {
-            let mut v = vec![0.0; np];
-            for k in 0..n {
-                v[k] = em[(r, k)];
-            }
-            v
-        };
         let mut pi_pad = vec![0.0; np];
         pi_pad[..n].copy_from_slice(pi);
         Self {
@@ -426,10 +429,17 @@ impl Kernel {
             np,
             a: a_pad,
             at: at_pad,
-            em: [em_row(0), em_row(1), em_row(2)],
+            em: table.emissions(em, n, np),
             pi: pi_pad,
             semi: Semiseparable::detect(a, np),
         }
+    }
+
+    /// The emission row of observation index `o`.
+    #[inline(always)]
+    fn em(&self, o: u16) -> &[f64] {
+        let at = usize::from(o) * self.np;
+        &self.em[at..at + self.np]
     }
 
     /// Whether the O(n) semiseparable kernel is in use.
@@ -474,8 +484,8 @@ impl Kernel {
 
     /// `out = pi ∘ e(o)`, normalised; returns the normaliser.
     #[inline]
-    pub(crate) fn first(&self, o: u8, out: &mut [f64]) -> f64 {
-        let em = &self.em[o as usize];
+    pub(crate) fn first(&self, o: u16, out: &mut [f64]) -> f64 {
+        let em = self.em(o);
         for ((d, &p), &e) in out.iter_mut().zip(&self.pi).zip(em) {
             *d = p * e;
         }
@@ -484,9 +494,9 @@ impl Kernel {
 
     /// `out = e(o) ∘ (Aᵀ prev)`, normalised; returns the normaliser.
     #[inline]
-    pub(crate) fn forward(&self, prev: &[f64], o: u8, out: &mut [f64]) -> f64 {
+    pub(crate) fn forward(&self, prev: &[f64], o: u16, out: &mut [f64]) -> f64 {
         self.transpose_mul(prev, out);
-        let em = &self.em[o as usize];
+        let em = self.em(o);
         for (d, &e) in out.iter_mut().zip(em) {
             *d *= e;
         }
@@ -499,12 +509,12 @@ impl Kernel {
     pub(crate) fn backward(
         &self,
         beta: &[f64],
-        o: u8,
+        o: u16,
         scale: f64,
         w: &mut [f64],
         beta_prev: &mut [f64],
     ) {
-        let em = &self.em[o as usize];
+        let em = self.em(o);
         for ((d, &b), &e) in w.iter_mut().zip(beta).zip(em) {
             *d = e * b * scale;
         }
@@ -517,11 +527,11 @@ impl Kernel {
     pub(crate) fn backward_normalised(
         &self,
         beta: &[f64],
-        o: u8,
+        o: u16,
         w: &mut [f64],
         beta_prev: &mut [f64],
     ) {
-        let em = &self.em[o as usize];
+        let em = self.em(o);
         for ((d, &b), &e) in w.iter_mut().zip(beta).zip(em) {
             *d = e * b;
         }
@@ -581,7 +591,12 @@ mod tests {
             *l = 10f64.powf(rng.gen_range(-1.0..1.0));
         }
         m.param_recalculate().unwrap();
-        Kernel::new(m.prior_matrix(), m.transition_matrix(), m.emission_matrix())
+        Kernel::new(
+            m.prior_matrix(),
+            m.transition_matrix(),
+            m.emission_matrix(),
+            &ObsTable::plain(),
+        )
     }
 
     fn max_rel(a: &[f64], b: &[f64]) -> f64 {
@@ -665,17 +680,17 @@ mod tests {
             let s: f64 = row.sum();
             row.mapv_inplace(|v| v / s);
         }
-        assert!(!Kernel::new(&pi, &a, &em).is_semiseparable());
+        assert!(!Kernel::new(&pi, &a, &em, &ObsTable::plain()).is_semiseparable());
 
         // A PSMC matrix with one entry perturbed beyond rounding.
         let mut k = psmc_kernel(&mut rng, 11, None);
         let mut a = Array2::from_shape_fn((12, 12), |(i, j)| k.a[i * k.np() + j]);
         a[(5, 2)] *= 1.0 + 1e-10;
-        k = Kernel::new(&pi, &a, &em);
+        k = Kernel::new(&pi, &a, &em, &ObsTable::plain());
         assert!(!k.is_semiseparable());
 
         // An underflowed reference entry falls back too.
         a[(11, 0)] = 0.0;
-        assert!(!Kernel::new(&pi, &a, &em).is_semiseparable());
+        assert!(!Kernel::new(&pi, &a, &em, &ObsTable::plain()).is_semiseparable());
     }
 }

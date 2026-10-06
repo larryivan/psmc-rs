@@ -305,6 +305,7 @@ pub fn em_train_with_options(
                 cancel,
                 thread_pool,
                 alpha_cache: None,
+                callable: None,
             };
             e_step_with_options(
                 model.prior_matrix(),
