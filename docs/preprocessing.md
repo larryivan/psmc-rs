@@ -422,8 +422,9 @@ mapping and base quality, indel windows) and masks of short gaps leave
 missing bases scattered over called bins rather than whole `N` bins; a
 called bin with a third of its bases missing shows a heterozygous site
 about a third less often, so θ, N0, the times and Ne all come out low by
-about the missing share of the called bins (θ by 35% in simulations with
-30% of the bases missing in runs of about 20 bp). Long runs of missing data
+the missing share of the called bins or more (θ by 34 to 37% in
+simulations with 30% of the bases missing in runs of about 20 bp, and by
+11 to 13% with 10%). Long runs of missing data
 mostly make whole bins `N`, which do no harm.
 
 psmc-rs counts the callable bases of every bin of a VCF (exactly, in both

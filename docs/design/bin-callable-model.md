@@ -31,7 +31,8 @@ With missing data spread along the genome in short runs, almost every bin
 is still called but holds fewer than `s` callable bases. A bin of 70
 callable bases has about 70% of the chance of a full bin to show a
 heterozygous site, so θ per bin, and with it N0, the times and Ne, come out
-low by about the missing fraction. Experiment E4
+low by about the missing fraction, or more (1.1 to 1.3 times it in the
+fits of [Validation](#validation)). Experiment E4
 (`experiment/pipeline/README.md`) measured it: with 30% of the bases
 missing in runs of about 20 bp, the RMSE of log10 Ne against the truth was
 0.447, against 0.332 for the same genomes without missing data;
