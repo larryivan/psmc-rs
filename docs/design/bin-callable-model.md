@@ -253,8 +253,12 @@ sites fill (7.1% of them), and leaves the bin of each heterozygous site
 callable only up to it: `K` bins hold 58% of their bases callable on
 average under the placement, against 77% in fact, while the `T` bins are
 nearly all full. The
-callable-length model takes such `K` bins as evidence of old coalescences.
-A VCF with a callable mask gives exact bins and counts.
+callable-length model takes such `K` bins as evidence of old coalescences,
+and with the counts the fit came out worse than C's model on the same bins
+([Validation](#validation)). So `--bin-callable auto` fits exact counts
+only, and multihetsep input with C's model; `--bin-callable approximate`
+fits its counts ([Command line](#command-line)). A VCF with a callable mask
+gives exact bins and counts.
 
 ## Interactions
 
@@ -319,7 +323,8 @@ rule:
   `fit_start` also hands to QC;
 - the start that `qc` and `convert` check when they have no fit of their
   own (`default_start` in `src/bin/psmc/dataset.rs`), as a fit with
-  `--bin-callable auto` would start;
+  `--bin-callable auto` would start: with the counts of a VCF, not with
+  multihetsep's;
 - the bootstrap's fresh starts (`replicate_initial_model_with_callable`),
   and `invalid_replicate_starts_sequences`, which adds the `ThetaCounts`
   of the drawn trunks and finds exactly the replicates the bootstrap
@@ -327,8 +332,9 @@ rule:
 - QC's per-sequence θ0 per callable base (`BinStats::theta0_callable`),
   next to C's `theta0_per_bin`.
 
-With `--bin-callable ignore` the counts are dropped before any of these,
-and every θ0 is C's.
+When the fit does not use the counts (`--bin-callable ignore`, or `auto`
+on multihetsep input) they are dropped before any of these, and every θ0
+is C's.
 
 **E-step.** The forward and backward passes multiply by `e(o_i, c_i, k)`
 instead of `e(o_i, k)` (`src/hmm/obs.rs`). Each pass first scans the bins
@@ -416,9 +422,10 @@ emissions as the fit, through the same table; its columns stay as they are
 **`convert` and the writers.** psmcfa has no place for counts: a psmcfa
 written from counted input holds exactly the bins `fq2psmcfa` would write,
 and a fit of it is the `ignore` fit. `convert --psmcfa` warns when some
-called bins are partly callable, with their share and the bias, and advises
-fitting the input itself. The multihetsep writer keeps `nr_called`, from
-which the reader rebuilds approximate counts.
+called bins of a VCF are partly callable, with their share and the bias,
+and advises fitting the VCF itself; a psmcfa of multihetsep input holds the
+bins that `auto` fits, as full bins. The multihetsep writer keeps
+`nr_called`, from which the reader rebuilds approximate counts.
 
 **QC.** `QcInput::callable` gives QC the counts, whether or not the fit
 uses them (`QcContext::counts_ignored` says it does not). The report gives
@@ -430,9 +437,12 @@ callable bins as full: a note when the fit corrects it, a warning when
 average (a note above), nothing when fewer than 1% of them are partly
 callable. psmcfa input cannot tell; when at least 1% of its called bins
 border a missing run, the note counts them and says how to measure the rest
-from the VCF the psmcfa was made from. `HIGH_MISSING` says that the fit
-corrects the bias of partly called bins when it uses the counts, and
-`APPROX_MISSING_PLACEMENT` that multihetsep's counts follow its placement.
+from the VCF the psmcfa was made from. Multihetsep's counts do not measure
+the bias, which the placement makes nearly every called bin hide, so the
+finding is not given for multihetsep input. `HIGH_MISSING` says that the fit
+corrects the bias of partly called bins when it uses exact counts, and
+`APPROX_MISSING_PLACEMENT` that multihetsep's counts follow its placement
+and whether the fit uses them.
 With counts, sequences are compared per callable base
 (`BinStats::theta0_callable`, `theta0_comparable`): the autosomal
 reference, the table's het/kb and `vs ref`, `SEX_OR_ORGANELLE` (whose
@@ -487,14 +497,21 @@ readers accept the same bin sizes as before. Its library changes, for the
 ## Command line
 
 ```text
---bin-callable auto|ignore    default auto
+--bin-callable auto|ignore|approximate    default auto
 ```
 
-- `auto`: use the counts when the input has them (VCF and multihetsep
-  binned into bins of at most 65,535 bases), and C's model otherwise
-  (psmcfa, and larger bins, for which the run says so);
+- `auto`: use exact counts (VCF binned into bins of at most 65,535
+  bases), and C's model otherwise (multihetsep, psmcfa, and larger bins,
+  for which the run says so);
 - `ignore`: drop the counts (`callable = None`) and reproduce
-  `fq2psmcfa` and C psmc exactly, bias included.
+  `fq2psmcfa` and C psmc exactly, bias included;
+- `approximate`: as `auto`, and also multihetsep's approximate counts.
+
+The plan had `auto` use every count the input has. Multihetsep's follow
+the reader's placement of the uncalled sites, and with them the fit came
+out worse than with C's model on the same bins ([Validation](#validation)),
+so `auto` leaves them out and `approximate` keeps the comparison
+reproducible.
 
 The flag applies to inference and the bootstrap, and is an inference
 option (`InferArgs`), not an input option: `convert` and `qc` read the
@@ -503,15 +520,16 @@ use them. The run says what the counts hold and which model it fits
 (`Callable bases (exact counts): called bins hold 70.5% of their 100 bases
 on average, and 91.7% of them fewer than 100; the fit weighs each called
 bin by its callable bases`). For input without counts, `--bin-callable
-ignore` gets a warning that it changes nothing, in the run itself rather
-than in `InputArgs::ignored_flags`, which lists options of `InputArgs`. The
+ignore` and `approximate` get a warning that they change nothing, in the
+run itself rather than in `InputArgs::ignored_flags`, which lists options
+of `InputArgs`. The
 flag is recorded in the output JSON (`bin_callable`) and in the command
 line that reproduces a run (`InferArgs::to_args`, which the TUI shows).
 
 ## What stage 2 built
 
 The model, the counts and their storage are as planned above. Stage 2
-departs from the plan of stage 1 in five places, each said in its section:
+departs from the plan of stage 1 in six places, each said in its section:
 
 - θ0 is the moment estimate of the callable-length model, not C's
   estimate divided by the mean share of callable bases, which starts low
@@ -522,6 +540,8 @@ departs from the plan of stage 1 in five places, each said in its section:
   so that the C-compatible entry points keep their signatures (*E-step*);
 - `--bin-callable` is an inference option, and the warning for psmcfa
   input is the run's (*Command line*);
+- `auto` fits exact counts only: multihetsep's approximate counts made the
+  fit worse, so they need `--bin-callable approximate` (*Command line*);
 - the multihetsep approximation is not mild with dispersed missing data
   (*Counts from each input*, *Validation*).
 
@@ -602,9 +622,10 @@ Stage 2 (in the test suite):
   calls fits (model, log-likelihoods and every `.psmc` round), `auto` on
   complete data fits exactly what `ignore` and the psmcfa fit, and `auto`
   on partly callable bins records the model in the JSON, the `.psmc`
-  output and the report, and is warned about by `convert`
-  (`tests/cli_bin_callable.rs`); QC's summary and findings
-  (`tests/qc_callable.rs`);
+  output and the report, and is warned about by `convert`; `auto` on
+  multihetsep fits exactly what `ignore` and its psmcfa fit, and
+  `approximate` fits the counts (`tests/cli_bin_callable.rs`); QC's summary
+  and findings (`tests/qc_callable.rs`);
 - `tests/c_equivalence.rs` is unchanged and passes.
 
 Simulations (not in CI; `experiment/validation/bin_callable.py`, numbers
@@ -621,8 +642,8 @@ fitted from the masked VCF with its mask (`-N25 -t15 -r5 -p
 | dispersed 10% | VCF + mask | ignore | 0.902 | 0.881 | 0.348 (0.020) | 0.194 |
 | dispersed 30% | VCF + mask | auto | 0.705 | 0.982 | 0.309 (0.019) | 0.074 |
 | dispersed 30% | VCF + mask | ignore | 0.705 | 0.652 | 0.453 (0.010) | 0.355 |
-| dispersed 30% | multihetsep | auto | 0.964 | 0.534 | 0.421 (0.009) | 0.335 |
-| dispersed 30% | multihetsep | ignore | 0.964 | 0.683 | 0.406 (0.009) | 0.308 |
+| dispersed 30% | multihetsep | approximate | 0.964 | 0.534 | 0.421 (0.009) | 0.335 |
+| dispersed 30% | multihetsep | auto, ignore | 0.964 | 0.683 | 0.406 (0.009) | 0.308 |
 | clustered 30% | VCF + mask | auto | 0.998 | 0.976 | 0.330 (0.062) | 0.088 |
 | clustered 30% | VCF + mask | ignore | 0.998 | 0.975 | 0.330 (0.061) | 0.090 |
 
@@ -643,7 +664,9 @@ fitted from the masked VCF with its mask (`-N25 -t15 -r5 -p
   against 0.309 for the VCF with its mask. The bias comes from the
   placement of the uncalled sites, which `ignore` shows as well (*Counts
   from each input*), not from the counts; with the counts the `K` bins
-  that the placement leaves partly callable make it slightly worse.
+  that the placement leaves partly callable make it worse, which is why
+  `auto` does not use them (the run reported with this table predates that
+  change: its `auto` row of multihetsep is today's `approximate`).
   Placing the uncalled sites evenly over each interval, which would match
   dispersed missing data, would change the bins of the reader as well and
   is left out; the VCF with its callable mask is the input to use when

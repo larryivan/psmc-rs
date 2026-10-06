@@ -14,7 +14,9 @@ use psmc_rs::qc::{
 };
 use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
-use crate::cli::{DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout};
+use crate::cli::{
+    BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout,
+};
 
 /// The input format as QC and the report name it, with the VCF mode.
 pub fn format_label(data: &Dataset) -> String {
@@ -56,13 +58,26 @@ pub fn callable_summary(data: &Dataset) -> Option<CallableSummary> {
     Some(CallableSummary::of(&data.obs.rows, callable))
 }
 
+/// Whether a fit of `data` with `--bin-callable mode` weighs each called
+/// bin by its callable bases ([`BinCallableArg::uses_counts`]): the data
+/// must have counts, and `auto` takes only exact ones (VCF), not
+/// multihetsep's approximate ones.
+pub fn fit_uses_counts(data: &Dataset, mode: BinCallableArg) -> bool {
+    counts_source(data).is_some_and(|source| mode.uses_counts(source))
+}
+
 /// The start of a fit of `data` with the default settings (C psmc's: θ0
 /// from the data, ρ0 = θ0 / 4, t_max 15, pattern `4+5*3+4`, and the
-/// callable bases of the bins when the data have them, as `--bin-callable
-/// auto` fits them), which `qc` and `convert` check having no fit of their
-/// own; `None` when the data give no θ0.
+/// callable bases of the bins when `--bin-callable auto` fits them, that is
+/// when they are exact), which `qc` and `convert` check having no fit of
+/// their own; `None` when the data give no θ0.
 pub fn default_start(data: &Dataset) -> Option<FitStart> {
-    let theta0 = initial_theta_with_callable(&data.obs.rows, data.obs.callable.as_ref()).ok()?;
+    let counts = data
+        .obs
+        .callable
+        .as_ref()
+        .filter(|_| fit_uses_counts(data, BinCallableArg::Auto));
+    let theta0 = initial_theta_with_callable(&data.obs.rows, counts).ok()?;
     let (n_steps, pattern) = model_layout(None, None).ok()?;
     let layout = layout_model(DEFAULT_T_MAX, n_steps, pattern, DEFAULT_MU).ok()?;
     Some(FitStart::new(
@@ -76,16 +91,18 @@ pub fn default_start(data: &Dataset) -> Option<FitStart> {
 /// Input QC of a loaded dataset, with the callable bases of its bins when
 /// it has them. `bootstrap_trunk` is the bootstrap trunk size in bins (0
 /// without a bootstrap), `free_lambdas` the number of free lambdas of the
-/// model to fit and `start` its starting model, when known; `counts_ignored`
-/// says that the fit treats every called bin as full although the data
-/// count their callable bases (`--bin-callable ignore`).
+/// model to fit and `start` its starting model, when known; `mode` is the
+/// fit's `--bin-callable` (`auto` for `qc` and `convert`, which report on
+/// the data as a fit with the defaults would use them), from which QC
+/// learns whether the fit treats every called bin as full although the
+/// data count their callable bases ([`QcContext::counts_ignored`]).
 pub fn qc_report(
     data: &Dataset,
     bin_size: usize,
     bootstrap_trunk: usize,
     free_lambdas: Option<usize>,
     start: Option<FitStart>,
-    counts_ignored: bool,
+    mode: BinCallableArg,
 ) -> Result<QcReport> {
     let seqs: Vec<QcSeq> = data
         .seqs
@@ -102,7 +119,7 @@ pub fn qc_report(
         free_lambdas,
         start,
         dropped: dropped_groups(data),
-        counts_ignored: counts_ignored && data.obs.callable.is_some(),
+        counts_ignored: data.obs.callable.is_some() && !fit_uses_counts(data, mode),
         ..QcContext::default()
     };
     let u32_of = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);

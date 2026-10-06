@@ -146,14 +146,17 @@ class EndToEnd(unittest.TestCase):
 
     def test_e6_formats_of_complete_data_hold_full_bins(self):
         # S2 reads E1's genome as VCF and multihetsep: no missing data, so every called bin is full and the
-        # callable-length model is C psmc's (the S2 tables also find the VCF fit identical to the psmcfa's).
+        # callable-length model of the VCF is C psmc's (the S2 tables also find the VCF fit identical to the
+        # psmcfa's). --bin-callable auto fits exact counts only, so the multihetsep, whose counts are
+        # approximate, is fitted with C psmc's model itself.
         runs = tiny_runs.runs_dir()
         lay = e6.Layout(runs / "E6")
+        expected = {"vcf": ("callable-length", "exact"), "multihetsep": ("full-bins", "approximate")}
         for model in config.TINY.e1.models:
-            for fmt in ("vcf", "multihetsep"):
+            for fmt, (bin_model, counts) in expected.items():
                 with self.subTest(model=model, format=fmt):
                     bc = self.bin_callable(lay.s2_fit(model, config.TINY.e6.format_replicate, fmt))
-                    self.assertEqual((bc["mode"], bc["model"]), ("auto", "callable-length"))
+                    self.assertEqual((bc["mode"], bc["model"], bc["counts"]), ("auto", bin_model, counts))
                     self.assertEqual(bc["callable"]["partial_bins"], 0)
                     self.assertEqual(bc["callable"]["mean_fraction"], 1.0)
 

@@ -34,8 +34,8 @@ use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
 use crate::cli::{BinCallableArg, InferArgs, model_layout, usage_bail};
 use crate::dataset::{
-    callable_summary, counts_source, describe, ensure_usable, ignored_options, layout_model,
-    load_input, loader_warnings, qc_report, resolve_input_path,
+    callable_summary, counts_source, describe, ensure_usable, fit_uses_counts, ignored_options,
+    layout_model, load_input, loader_warnings, qc_report, resolve_input_path,
 };
 use crate::output::{
     BOOTSTRAP_SUMMARY_FILES, FitRecord, check_destinations, is_stdout, save_fit,
@@ -244,7 +244,7 @@ fn infer(
         trunk,
         Some(free_lambdas),
         start,
-        !counted,
+        cli.bin_callable,
     ) {
         Ok(report) => Some(report),
         Err(e) => {
@@ -630,12 +630,13 @@ fn start_rates(
 }
 
 /// How the fit of `data` uses the callable bases of its bins under
-/// `--bin-callable mode`: the callable-length model when the mode is `auto`
-/// and the data have counts (VCF and multihetsep), C psmc's model
+/// `--bin-callable mode`: the callable-length model when the mode uses the
+/// data's counts ([`fit_uses_counts`]: exact counts with `auto`, also
+/// multihetsep's approximate ones with `approximate`), C psmc's model
 /// otherwise. The counts are summarised whether or not the fit uses them.
 fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecord {
     let callable = callable_summary(data);
-    let counted = callable.is_some() && mode == BinCallableArg::Auto;
+    let counted = callable.is_some() && fit_uses_counts(data, mode);
     BinCallableRecord {
         mode: mode.name().to_string(),
         model: if counted {
@@ -650,20 +651,46 @@ fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecor
 }
 
 /// What the run says about the callable bases of `data`'s bins: what they
-/// hold and how the fit uses them, or that `--bin-callable ignore` changes
-/// nothing for input without counts.
+/// hold and how the fit uses them, or that a `--bin-callable` other than
+/// `auto` changes nothing for input without counts.
 fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -> Vec<Event> {
     let percent = |x: f64| format!("{:.1}%", 100.0 * x);
     let s = cli.input.bin_size;
+    let mode = cli.bin_callable.name();
+    let counted = b.model == CALLABLE_LENGTH_MODEL;
     match (&b.callable, b.counts.as_deref()) {
+        // Multihetsep's counts follow the reader's placement of the
+        // uncalled sites, so their share says little about the data; QC's
+        // APPROX_MISSING_PLACEMENT says what the placement does.
+        (Some(_), Some(source)) if source != "exact" => {
+            let how = if counted {
+                format!(
+                    "the fit weighs each called bin by them (--bin-callable {mode}), which made \
+                     theta and Ne lower than fitting every called bin as {s} bases (--bin-callable \
+                     auto) in the validation"
+                )
+            } else {
+                format!(
+                    "the fit treats every called bin as {s} bases (--bin-callable {mode}; auto \
+                     uses exact counts only, approximate would use these)"
+                )
+            };
+            vec![Event::Info(format!(
+                "Callable bases ({source} counts): multihetsep says how many sites between two \
+                 rows are called but not which, so the counts of each bin follow the reader's \
+                 placement of the uncalled sites at the start of each interval; {how}. For \
+                 exact bins and counts, fit the VCF with its callable mask"
+            ))]
+        }
         (Some(c), Some(source)) => {
-            let how = if b.model == CALLABLE_LENGTH_MODEL {
-                "the fit weighs each called bin by its callable bases (--bin-callable auto)"
-                    .to_string()
+            let how = if counted {
+                format!(
+                    "the fit weighs each called bin by its callable bases (--bin-callable {mode})"
+                )
             } else {
                 format!(
                     "the fit treats every called bin as {s} bases, as fq2psmcfa and C psmc do \
-                     (--bin-callable ignore)"
+                     (--bin-callable {mode})"
                 )
             };
             vec![Event::Info(format!(
@@ -673,7 +700,7 @@ fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -
                 percent(c.partial_fraction())
             ))]
         }
-        _ if cli.bin_callable == BinCallableArg::Ignore => {
+        _ if cli.bin_callable != BinCallableArg::Auto => {
             let what = match &data.source {
                 SourceSummary::Psmcfa(_) => {
                     "psmcfa input, which records no callable bases per bin".to_string()
@@ -685,7 +712,7 @@ fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -
                 ),
             };
             vec![Event::Warning(format!(
-                "--bin-callable ignore changes nothing for {what}: every called bin is taken to \
+                "--bin-callable {mode} changes nothing for {what}: every called bin is taken to \
                  hold {s} bases, as C psmc takes them"
             ))]
         }

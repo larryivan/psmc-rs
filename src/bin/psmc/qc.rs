@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use psmc_rs::qc::render_text;
 
-use crate::cli::QcArgs;
+use crate::cli::{BinCallableArg, QcArgs};
 use crate::console::{Console, print_err, print_out};
 use crate::dataset::{
     default_start, describe, ignored_options, load_input, loader_warnings, qc_report,
@@ -39,7 +39,7 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
         args.bootstrap_block_size.unwrap_or(0),
         None,
         default_start(&data),
-        false,
+        BinCallableArg::Auto,
     )?;
     for line in loader_warnings(&data, Some(&report)) {
         sink(Event::Warning(line));

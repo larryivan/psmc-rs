@@ -208,9 +208,11 @@ pub struct QcContext {
     /// The starting model of the fit, when known ([`QcCode::InvalidStart`]).
     pub start: Option<FitStart>,
     /// The fit treats every called bin as `bin_size` bases although the
-    /// input records their callable bases (`--bin-callable ignore`): QC
-    /// then warns about the bias that causes ([`QcCode::PartlyCallableBins`]).
-    /// False by default, as for a fit with `--bin-callable auto`.
+    /// input records their callable bases: `--bin-callable ignore`, or
+    /// `auto` on multihetsep input, whose approximate counts `auto` does not
+    /// fit. QC then warns about the bias that causes when the counts are
+    /// exact ([`QcCode::PartlyCallableBins`]). False by default, as for a
+    /// fit that uses the counts.
     pub counts_ignored: bool,
 }
 
@@ -325,8 +327,8 @@ pub struct QcInput<'a> {
     /// Facts about how the input was read.
     pub context: QcContext,
     /// The callable bases of each bin, row for row, when the input records
-    /// them (VCF and multihetsep): QC then reports how much of the called
-    /// bins is callable ([`QcReport::callable`],
+    /// them (VCF exactly, multihetsep approximately): QC then reports how
+    /// much of the called bins is callable ([`QcReport::callable`],
     /// [`QcCode::PartlyCallableBins`]) and compares the heterozygosity of
     /// sequences per callable base ([`BinStats::theta0_callable`]).
     pub callable: Option<&'a CallableBases>,

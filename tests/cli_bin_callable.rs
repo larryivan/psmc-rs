@@ -5,7 +5,9 @@
 //! - `auto` on complete data fits exactly what `ignore` and the psmcfa fit;
 //! - `auto` on data with partly callable bins fits the callable-length
 //!   model, records it in the JSON and the `.psmc` output, shows it in the
-//!   report, and `convert` says what a psmcfa of such data loses.
+//!   report, and `convert` says what a psmcfa of such data loses;
+//! - `auto` on multihetsep, whose counts are approximate, fits as `ignore`
+//!   does, to the bit, and `approximate` fits the counts.
 
 mod common;
 
@@ -340,4 +342,91 @@ fn auto_fits_partly_callable_bins_and_says_so() {
         stderr.contains("--bin-callable ignore changes nothing for psmcfa input"),
         "{stderr}"
     );
+}
+
+/// Multihetsep's counts follow the reader's placement of the uncalled
+/// sites: `auto` does not fit them (it fits exactly what `ignore` and the
+/// multihetsep's psmcfa fit), `approximate` does, and the run says which.
+#[test]
+fn auto_does_not_fit_multihetseps_approximate_counts() {
+    let dir = TempDir::new("bin_callable_mhs");
+    let (vcf, bed) = synthetic(&dir, 0.3);
+    let mhs = dir.path("calls.multihetsep");
+    let psmcfa = dir.path("calls_mhs.psmcfa");
+    run_ok([
+        "convert",
+        vcf.to_str().unwrap(),
+        "--vcf-mask",
+        bed.unwrap().to_str().unwrap(),
+        "--multihetsep",
+        mhs.to_str().unwrap(),
+        "--quiet",
+    ]);
+    run_ok([
+        "convert",
+        mhs.to_str().unwrap(),
+        "--psmcfa",
+        psmcfa.to_str().unwrap(),
+        "--quiet",
+    ]);
+    let (auto, auto_out) = fit(&dir, "mhs_auto", &mhs, &[]);
+    let (ignore, ignore_out) = fit(&dir, "mhs_ignore", &mhs, &["--bin-callable", "ignore"]);
+    let (approx, approx_out) = fit(&dir, "mhs_approx", &mhs, &["--bin-callable", "approximate"]);
+    let (plain, plain_out) = fit(&dir, "mhs_psmcfa", &psmcfa, &[]);
+
+    let b = &auto["bin_callable"];
+    assert_eq!(
+        (&b["mode"], &b["model"], &b["counts"]),
+        (&"auto".into(), &"full-bins".into(), &"approximate".into())
+    );
+    assert!(b["callable"]["partial_bins"].as_u64().unwrap() > 0);
+    assert_eq!(fit_bits(&auto), fit_bits(&ignore));
+    assert_eq!(fit_bits(&auto), fit_bits(&plain));
+    assert_eq!(rounds(&auto_out), rounds(&ignore_out));
+    assert_eq!(rounds(&auto_out), rounds(&plain_out));
+    assert!(
+        bin_line(&auto_out)
+            .unwrap()
+            .starts_with("MM\tbin_model:full-bins, counts:approximate")
+    );
+    assert_eq!(approx["bin_callable"]["model"], "callable-length");
+    assert_ne!(fit_bits(&approx), fit_bits(&auto));
+    assert!(
+        bin_line(&approx_out)
+            .unwrap()
+            .starts_with("MM\tbin_model:callable-length, counts:approximate")
+    );
+
+    let stderr = |mode: &str| {
+        let out = common::run([
+            mhs.to_str().unwrap(),
+            dir.path(&format!("talk_{mode}.json")).to_str().unwrap(),
+            "0",
+            "--bin-callable",
+            mode,
+            "--no-progress",
+        ]);
+        String::from_utf8_lossy(&out.stderr).to_string()
+    };
+    let auto_says = stderr("auto");
+    assert!(
+        auto_says.contains("Callable bases (approximate counts)")
+            && auto_says.contains("the fit treats every called bin as 100 bases"),
+        "{auto_says}"
+    );
+    let approx_says = stderr("approximate");
+    assert!(
+        approx_says.contains("the fit weighs each called bin by them (--bin-callable approximate)"),
+        "{approx_says}"
+    );
+    // A psmcfa of the multihetsep fits as the multihetsep does, so convert
+    // has no partial bins to warn about.
+    let out = common::run([
+        "convert",
+        mhs.to_str().unwrap(),
+        "--psmcfa",
+        dir.path("again.psmcfa").to_str().unwrap(),
+    ]);
+    let says = String::from_utf8_lossy(&out.stderr);
+    assert!(!says.contains("psmcfa cannot record that"), "{says}");
 }

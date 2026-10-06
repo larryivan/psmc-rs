@@ -379,8 +379,9 @@ psmc-rs picks mask mode for a VCF that is not an all-sites `bcftools call
 
 `psmc-rs qc INPUT` reads any input as inference would and reports on it:
 missing data, heterozygosity per sequence, depth, sequence lengths, bin
-saturation, the callable bases of the called bins (VCF and multihetsep)
-and what the bootstrap would have to work with, with findings
+saturation, the callable bases of the called bins (exact for a VCF,
+approximate for multihetsep) and what the bootstrap would have to work
+with, with findings
 that name a code (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`,
 `PARTLY_CALLABLE_BINS`, `HIGH_MISSING`, `BIN_SATURATION`, `FEW_HETS`,
 `TOO_SHORT`, `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`, `HET_OUTLIER`,
@@ -426,25 +427,29 @@ about the missing share of the called bins (θ by 35% in simulations with
 mostly make whole bins `N`, which do no harm.
 
 psmc-rs counts the callable bases of every bin of a VCF (exactly, in both
-modes) and of a multihetsep file (approximately, see below), and by default
-(`--bin-callable auto`) fits each called bin by them, which removes the
-bias; complete data are fitted exactly as C psmc fits them. QC's
-`PARTLY_CALLABLE_BINS` reports how much of the called bins is callable and
-what treating them as full would cost. Two consequences for the routes
-above:
+modes) and by default (`--bin-callable auto`) fits each called bin by them,
+which removes most of the bias; complete data are fitted exactly as C psmc
+fits them. QC's `PARTLY_CALLABLE_BINS` reports how much of the called bins
+is callable and what treating them as full would cost. Two consequences for
+the routes above:
 
 - **Fit the VCF, not a psmcfa made from it.** psmcfa records only each
   bin's symbol: a psmcfa written by `fq2psmcfa` or `psmc-rs convert
   --psmcfa` is fitted as C psmc fits it, bias included (`convert` warns
   when it writes partly callable bins). For a psmcfa you already have, run
   `psmc-rs qc` on the VCF it was made from to see the share.
-- **Multihetsep counts are approximate.** Multihetsep says how many sites
-  between two rows are callable, not which; psmc-rs places the uncalled
-  ones at the start of each interval, so the sum of the counts over the
-  interval is exact but their split among bins is not, and the bin of a
-  heterozygous site followed by uncalled sites looks less callable than it
-  is. psmc-rs uses the counts anyway (QC notes `APPROX_MISSING_PLACEMENT`);
-  the VCF with its callable mask gives exact ones.
+- **Fit the VCF, not a multihetsep made from it.** Multihetsep says how
+  many sites between two rows are callable, not which; psmc-rs places the
+  uncalled ones at the start of each interval, which turns scattered
+  missing bases into runs of `N` bins after each heterozygous site and
+  makes the bin of a heterozygous site followed by uncalled sites look less
+  callable than it is. Counts that follow this placement made the fit
+  worse in the validation, so `--bin-callable auto` does not use them and
+  fits every called bin of multihetsep input as a full bin
+  (`--bin-callable approximate` uses them). The placement itself still
+  biases θ and Ne low when missing data are scattered, whatever the mode
+  (QC: `APPROX_MISSING_PLACEMENT`); the VCF with its callable mask gives
+  exact bins and counts.
 
 `--bin-callable ignore` reproduces C psmc's model on any input.
 

@@ -146,20 +146,25 @@ pub enum QcCode {
     /// Missing data in long runs mostly make whole bins `N`, which C's model
     /// handles, and leave partly callable bins only at their ends.
     ///
-    /// VCF and multihetsep input record the callable bases of each bin
-    /// ([`super::QcInput::callable`]), and psmc-rs fits each called bin by
-    /// them by default (`--bin-callable auto`, the callable-length model of
-    /// `docs/design/bin-callable-model.md`), which removes that bias: the
-    /// finding then reports how much was corrected (info). With
-    /// `--bin-callable ignore` ([`super::QcContext::counts_ignored`]) the
-    /// bias stays, and the finding is a warning below
-    /// [`PARTLY_CALLABLE_WARN_MEAN`]. Nothing is said when fewer than
-    /// [`PARTLY_CALLABLE_NOTE_FRACTION`] of the called bins are partly
-    /// callable. A psmcfa file records only which bins are called, not how
-    /// many of their bases are; when it has missing bins, the finding
-    /// (info) counts the called bins next to them, which are partly callable
-    /// unless a missing run starts or ends exactly at a bin boundary, and
-    /// says how to measure the rest from the data the psmcfa was made from.
+    /// A VCF read with its callable mask records the callable bases of each
+    /// bin exactly ([`super::QcInput::callable`]), and psmc-rs fits each
+    /// called bin by them by default (`--bin-callable auto`, the
+    /// callable-length model of `docs/design/bin-callable-model.md`), which
+    /// corrects for that bias: the finding then reports how much was
+    /// corrected (info). With `--bin-callable ignore`
+    /// ([`super::QcContext::counts_ignored`]) the bias stays, and the
+    /// finding is a warning below [`PARTLY_CALLABLE_WARN_MEAN`]. Nothing is
+    /// said when fewer than [`PARTLY_CALLABLE_NOTE_FRACTION`] of the called
+    /// bins are partly callable. A psmcfa file records only which bins are
+    /// called, not how many of their bases are; when it has missing bins,
+    /// the finding (info) counts the called bins next to them, which are
+    /// partly callable unless a missing run starts or ends exactly at a bin
+    /// boundary, and says how to measure the rest from the data the psmcfa
+    /// was made from. Multihetsep's counts follow the reader's placement of
+    /// the uncalled sites, which leaves nearly every called bin full whatever
+    /// the data, so they do not measure the bias and the finding is not
+    /// given for multihetsep input: [`QcCode::ApproxMissingPlacement`] says
+    /// what the placement does instead.
     PartlyCallableBins,
     /// Much of the input is missing: more than [`HIGH_MISSING_WARN_FRACTION`]
     /// (warning) or [`HIGH_MISSING_INFO_FRACTION`] (info) of the bins are
@@ -280,8 +285,10 @@ pub enum QcCode {
     /// keep their numbers and the heterozygous sites their positions, but a
     /// bin is `N` only when more than 90% of its sites are uncalled, so
     /// moving the uncalled sites changes which bins are `N`, `T` or `K`
-    /// compared with `fq2psmcfa` on the same calls. VCF input with a callable
-    /// mask bins exactly.
+    /// compared with `fq2psmcfa` on the same calls. The callable bases of
+    /// its bins follow the same placement, so `--bin-callable auto` does not
+    /// fit them (`--bin-callable approximate` does). VCF input with a
+    /// callable mask bins exactly.
     ApproxMissingPlacement,
     /// Consensus-mode read depth (warning): mean depth below
     /// [`MIN_MEAN_DEPTH`], or one filter removing more than
@@ -756,6 +763,13 @@ pub(crate) fn callable_distribution(c: &CallableSummary) -> String {
 }
 
 fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
+    // Multihetsep's counts follow the reader's placement of the uncalled
+    // sites, which leaves its called bins nearly full whatever the data, so
+    // their share does not measure the bias; APPROX_MISSING_PLACEMENT says
+    // what the placement does.
+    if input.context.approximate_missing_placement {
+        return None;
+    }
     let s = report.bin_size;
     let Some(c) = &report.callable else {
         // psmcfa: which bins are called, but not how many of their bases.
@@ -796,15 +810,9 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
     if c.partial_fraction() < PARTLY_CALLABLE_NOTE_FRACTION {
         return None;
     }
-    let approximate = if input.context.approximate_missing_placement {
-        " Multihetsep places the uncalled sites of each interval at its start, so these \
-         counts are approximate (see APPROX_MISSING_PLACEMENT)."
-    } else {
-        ""
-    };
     let measured = format!(
         "{} of called bins hold fewer than {s} callable bases, {} of their bases on average \
-         ({}).{approximate}",
+         ({}).",
         pct(c.partial_fraction()),
         pct(c.mean_fraction),
         callable_distribution(c)
@@ -860,8 +868,8 @@ fn high_missing(input: &QcInput, report: &QcReport) -> Option<Finding> {
         return None;
     };
     // The fit corrects the bias of partly called bins when it weighs each
-    // bin by its callable bases.
-    let corrected = if counts_used(input) {
+    // bin by its exact callable bases.
+    let corrected = if counts_used(input) && !input.context.approximate_missing_placement {
         " The fit weighs each called bin by its callable bases (--bin-callable auto), which \
          corrects that bias (see PARTLY_CALLABLE_BINS); the other effects of missing data \
          remain."
@@ -1073,10 +1081,13 @@ fn approx_missing_placement(input: &QcInput) -> Option<Finding> {
         return None;
     }
     let counts = if counts_used(input) {
-        " The callable bases of each bin, which the fit uses (--bin-callable auto), follow the \
-         same placement: their sum over each interval between rows is exact, but how it is \
-         split among the bins, and the count of the bin holding the next heterozygous site, \
-         are approximate."
+        " The callable bases of each bin, which the fit uses (--bin-callable approximate), \
+         follow the same placement: their sum over each interval between rows is exact, but \
+         how it is split among the bins, and the count of the bin holding the next \
+         heterozygous site, are approximate."
+    } else if input.callable.is_some() {
+        " The callable bases of each bin follow the same placement, so the fit treats every \
+         called bin as full (--bin-callable auto uses exact counts only)."
     } else {
         ""
     };

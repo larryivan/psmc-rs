@@ -9,11 +9,11 @@ use std::process::ExitCode;
 use psmc_rs::io::input::{Dataset, InputFormat};
 use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 
-use crate::cli::{ConvertArgs, FormatArg, usage_bail};
+use crate::cli::{BinCallableArg, ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
 use crate::dataset::{
-    callable_summary, default_start, describe, ignored_options, load_input, loader_warnings,
-    qc_report,
+    callable_summary, counts_source, default_start, describe, ignored_options, load_input,
+    loader_warnings, qc_report,
 };
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir, write_qc_json};
 use crate::run::{Event, qc_event, qc_failed};
@@ -74,7 +74,7 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         0,
         None,
         default_start(&data),
-        false,
+        BinCallableArg::Auto,
     ) {
         Ok(report) => Some(report),
         Err(e) => {
@@ -145,18 +145,19 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
 }
 
 /// The warning for writing `data` as psmcfa to `path` when some of its
-/// called bins are partly callable: psmcfa records each bin's symbol only,
-/// so a fit of the file takes every called bin as `bin_size` bases, as
-/// fq2psmcfa's output and C psmc do, while a fit of the input itself
-/// weighs each bin by its callable bases.
+/// called bins are partly callable by exact counts (VCF): psmcfa records
+/// each bin's symbol only, so a fit of the file takes every called bin as
+/// `bin_size` bases, as fq2psmcfa's output and C psmc do, while a fit of
+/// the VCF itself weighs each bin by its callable bases. Multihetsep's
+/// approximate counts are not fitted by default either, so its psmcfa
+/// fits as it does.
 fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<String> {
+    if counts_source(data) != Some("exact") {
+        return None;
+    }
     let c = callable_summary(data).filter(|c| c.partial_bins > 0)?;
     let percent = |x: f64| format!("{:.1}%", 100.0 * x);
-    let input = if data.source.format() == InputFormat::Mhs {
-        "the multihetsep file"
-    } else {
-        "the VCF"
-    };
+    let input = "the VCF";
     Some(format!(
         "{} of called bins are partly callable (they hold {} of their {bin_size} bases on \
          average), and psmcfa cannot record that: a fit of {} takes every called bin as \

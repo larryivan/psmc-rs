@@ -55,7 +55,7 @@ Defaults, each of which changes the results of a run that relied on it:
   `psmcfa`.
 - VCF and multihetsep sequences go through fq2psmcfa's output filter
   (`--min-good-bases 10000`, `--min-good-fraction 0.2`; 0 disables).
-- VCF and multihetsep input are fitted with the callable bases of each bin
+- VCF input is fitted with the callable bases of each bin
   (`--bin-callable auto`, new): a called bin of `c` callable bases out of
   `s` emits as `c` bases of sequence, `P(T | k) = exp(-θ (c/s) avg_t[k])`,
   instead of as a full bin, as fq2psmcfa's psmcfa and C psmc treat every
@@ -69,7 +69,11 @@ Defaults, each of which changes the results of a run that relied on it:
   −ln(1 − K/L) for full bins), the bootstrap and the TMRCA decoding all
   use the counts. Complete data, and psmcfa input, which
   records no counts, are fitted exactly as before, to the bit;
-  `--bin-callable ignore` fits C psmc's model on any input. See
+  `--bin-callable ignore` fits C psmc's model on any input. Multihetsep
+  does not say which sites are uncalled, so the counts of its bins follow
+  the reader's placement of them; they made the fit worse in the
+  validation, so `auto` does not use them and fits multihetsep input as C
+  psmc would fit its bins, and `--bin-callable approximate` fits them. See
   `docs/design/bin-callable-model.md`.
 - A VCF read in mask mode runs to each chromosome's `##contig` length
   (`--vcf-no-contig-end`: to its last record) instead of stopping at the
@@ -107,8 +111,8 @@ Command line and outputs:
   partial_bins:...`, which says how the fit used the callable bases of each
   bin (psmc_plot.pl skips it; psmcfa input gets none), and so do bootstrap
   replicates fitted with the counts. `convert --psmcfa` warns when it
-  writes partly callable bins, which psmcfa cannot record, and advises
-  fitting the input itself.
+  writes partly callable bins of a VCF, which psmcfa cannot record, and
+  advises fitting the VCF itself.
 - QC compares the heterozygosity of sequences per callable base when the
   input records callable bases (the per-sequence table's het/kb and
   `vs ref`, the autosomal reference, `SEX_OR_ORGANELLE` and `HET_OUTLIER`),
@@ -117,7 +121,7 @@ Command line and outputs:
   partly called bins, and `APPROX_MISSING_PLACEMENT` that multihetsep's
   counts follow its placement of the uncalled sites. The start that `qc`
   and `convert` check (`INVALID_START`) takes θ0 from the callable bases
-  of each bin, as a fit with `--bin-callable auto` does.
+  of each bin when a fit with `--bin-callable auto` does (VCF).
 - A bootstrap starts by removing every `replicate_NNN.json`,
   `replicate_NNN.psmc`, `summary.tsv` and `summary.json` in its directory,
   with a warning that names the earlier replicates beyond its own count,
@@ -304,11 +308,11 @@ Reproduction package (`experiment/`):
   `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`, `HET_OUTLIER`,
   `APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`) and
   recommendations. `PARTLY_CALLABLE_BINS` reports how much of the called
-  bins is callable and the bias of treating them as full: a note when the
-  fit corrects it, a warning when `--bin-callable ignore` leaves called
-  bins less than 90% callable on average, and for psmcfa input, which
-  cannot tell, a note with the called bins next to missing runs and how to
-  measure the rest. `--json`, `--strict` (exit 2
+  bins of a VCF is callable and the bias of treating them as full: a note
+  when the fit corrects it, a warning when `--bin-callable ignore` leaves
+  called bins less than 90% callable on average, and for psmcfa input,
+  which cannot tell, a note with the called bins next to missing runs and
+  how to measure the rest. `--json`, `--strict` (exit 2
   on a warning) and `--bootstrap-block-size` (trunk checks). Every fit and
   conversion prints the same report and `--qc-json` writes it.
 - `psmc-rs convert INPUT`: psmcfa as fq2psmcfa lays it out, and multihetsep
@@ -356,7 +360,7 @@ Reproduction package (`experiment/`):
 - `--init-params FILE` starts from the parameters of an earlier run (C
   `-i`), and its replicates start there too, as `psmc -i -b`.
 - `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet`, `--version`
-  and `--bin-callable auto|ignore` (see *Changed*).
+  and `--bin-callable auto|ignore|approximate` (see *Changed*).
 - Output JSON metadata: `version`, `n_iter`, `final_loglike`, `loglike`
   (the log-likelihood after each iteration, from the start), `bin_size`,
   `gen_years`, `tr_ratio`, `smooth_lambda`, `input`, `qc` and

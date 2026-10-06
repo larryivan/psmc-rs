@@ -148,20 +148,29 @@ fn psmcfa_input_says_how_to_check() {
     }
 }
 
+/// Multihetsep's counts follow the reader's placement of the uncalled
+/// sites, so PARTLY_CALLABLE_BINS does not size a bias from them, and
+/// APPROX_MISSING_PLACEMENT says whether the fit uses them
+/// (`--bin-callable approximate`) or not (`auto`, `ignore`).
 #[test]
-fn multihetsep_counts_are_used_and_called_approximate() {
+fn multihetsep_counts_are_approximate() {
     let specs = [("chr1", 50_000, 0.8, 0.01)];
     let (rows, counts) = sequences(&specs, 3);
     let callable = CallableBases::from_counts(100, counts).unwrap();
-    let ctx = QcContext {
-        approximate_missing_placement: true,
-        ..QcContext::default()
-    };
-    let r = qc(&specs, &rows, Some(&callable), ctx);
-    let f = r.finding(QcCode::PartlyCallableBins).unwrap();
-    assert!(f.message.contains("approximate"), "{}", f.message);
-    let f = r.finding(QcCode::ApproxMissingPlacement).unwrap();
-    assert!(f.message.contains("which the fit uses"), "{}", f.message);
+    for (ignored, says) in [
+        (false, "which the fit uses (--bin-callable approximate)"),
+        (true, "--bin-callable auto uses exact counts only"),
+    ] {
+        let ctx = QcContext {
+            approximate_missing_placement: true,
+            counts_ignored: ignored,
+            ..QcContext::default()
+        };
+        let r = qc(&specs, &rows, Some(&callable), ctx);
+        assert!(r.finding(QcCode::PartlyCallableBins).is_none());
+        let f = r.finding(QcCode::ApproxMissingPlacement).unwrap();
+        assert!(f.message.contains(says), "{}", f.message);
+    }
 }
 
 /// A sequence with more missing data has fewer heterozygous called bins,

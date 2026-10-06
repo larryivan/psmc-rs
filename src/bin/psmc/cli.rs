@@ -118,12 +118,16 @@ impl VcfModeArg {
 /// `--bin-callable`.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum BinCallableArg {
-    /// Fit each called bin by its callable bases when the input records
-    /// them (VCF and multihetsep)
+    /// Fit each called bin by its callable bases when the input counts them
+    /// exactly (VCF); every called bin as BIN_SIZE bases otherwise
     #[default]
     Auto,
     /// Treat every called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do
     Ignore,
+    /// As auto, and also fit multihetsep's approximate counts, which follow
+    /// the reader's placement of uncalled sites (worse than auto in the
+    /// validation)
+    Approximate,
 }
 
 impl BinCallableArg {
@@ -132,6 +136,19 @@ impl BinCallableArg {
         match self {
             BinCallableArg::Auto => "auto",
             BinCallableArg::Ignore => "ignore",
+            BinCallableArg::Approximate => "approximate",
+        }
+    }
+
+    /// Whether a fit in this mode weighs each called bin by counts of
+    /// callable bases obtained as `source` says (`"exact"` from a VCF,
+    /// `"approximate"` from multihetsep): `auto` takes exact counts only,
+    /// `approximate` both, `ignore` none.
+    pub fn uses_counts(self, source: &str) -> bool {
+        match self {
+            BinCallableArg::Auto => source == "exact",
+            BinCallableArg::Approximate => true,
+            BinCallableArg::Ignore => false,
         }
     }
 }
@@ -697,9 +714,9 @@ pub struct InferArgs {
     pub tr_ratio: f64,
 
     /// Initial theta0 per bin (default: -ln(1 - K/L) from the data, as C
-    /// psmc; with --bin-callable auto and counts, the theta0 at which the
-    /// called bins' expected heterozygous bins, the sum of
-    /// 1 - exp(-theta0 c / BIN_SIZE), equal K)
+    /// psmc; when the fit uses the callable bases of each bin, see
+    /// --bin-callable, the theta0 at which the called bins' expected
+    /// heterozygous bins, the sum of 1 - exp(-theta0 c / BIN_SIZE), equal K)
     #[arg(long, value_parser = positive_f64, help_heading = "Model")]
     pub theta0: Option<f64>,
 
@@ -717,13 +734,18 @@ pub struct InferArgs {
     #[arg(long, default_value = "2.5e-8", value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
-    /// How to model bins that are partly callable. VCF and multihetsep
-    /// input record how many bases of each bin are callable: auto fits each
-    /// called bin by them (a bin of c callable bases emits as c of BIN_SIZE
-    /// bases), so that missing data scattered in short runs do not bias
-    /// theta, times and Ne low; ignore treats every called bin as BIN_SIZE
-    /// bases, as fq2psmcfa and C psmc do. psmcfa input records no counts
-    /// and is fitted as C psmc fits it either way
+    /// How to model bins that are partly callable. A VCF read with its
+    /// callable mask counts exactly how many bases of each bin are
+    /// callable: auto fits each called bin by them (a bin of c callable
+    /// bases emits as c of BIN_SIZE bases), so that missing data scattered
+    /// in short runs do not bias theta, times and Ne low; ignore treats
+    /// every called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do.
+    /// Multihetsep does not say which sites are uncalled, so its counts
+    /// follow the reader's placement of them and auto does not use them;
+    /// approximate does, which made the fit worse in the validation. Either
+    /// way multihetsep with scattered missing data biases theta and Ne low
+    /// (QC warns): fit the VCF with its mask instead. psmcfa input records
+    /// no counts and is fitted as C psmc fits it in every mode
     #[arg(long, value_enum, value_name = "MODE", default_value_t = BinCallableArg::Auto, help_heading = "Model")]
     pub bin_callable: BinCallableArg,
 
@@ -1057,7 +1079,16 @@ mod tests {
         assert_eq!(args.bin_callable, BinCallableArg::Auto);
         let ignore = parse(["psmc-rs", "in", "out", "1", "--bin-callable", "ignore"]).unwrap();
         assert_eq!(ignore.bin_callable, BinCallableArg::Ignore);
+        let approx = parse(["psmc-rs", "in", "out", "1", "--bin-callable", "approximate"]).unwrap();
+        assert_eq!(approx.bin_callable, BinCallableArg::Approximate);
         assert!(parse(["psmc-rs", "in", "out", "1", "--bin-callable", "x"]).is_err());
+        // auto fits exact counts only; approximate also multihetsep's.
+        use BinCallableArg::*;
+        let uses =
+            |mode: BinCallableArg| [mode.uses_counts("exact"), mode.uses_counts("approximate")];
+        assert_eq!(uses(Auto), [true, false]);
+        assert_eq!(uses(Approximate), [true, true]);
+        assert_eq!(uses(Ignore), [false, false]);
     }
 
     #[test]
