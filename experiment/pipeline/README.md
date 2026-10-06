@@ -378,10 +378,10 @@ calls a bin missing (`N`) only when more than 90% of its bases are
 uncallable, and C psmc takes every called bin as s bases. With missing data
 dispersed in short runs almost every bin is still called but holds only
 about (1 - f) of its bases, so theta per bin, N0 = theta / (4 mu s) and
-every time and size come out low by about the missing fraction f. psmc-rs
-counts the callable bases c of each bin from the VCF and its callable mask
-and, by default (`--bin-callable auto`), fits each bin by them: P(T | k) =
-exp(-theta (c / s) avg_t_k), the callable-length model of
+every time and size come out low by about the missing fraction f, or
+more (about 1.2 f in the results below). psmc-rs counts the callable bases
+c of each bin from the VCF and its callable mask and, by default
+(`--bin-callable auto`), fits each bin by them: P(T | k) = exp(-theta (c / s) avg_t_k), the callable-length model of
 `docs/design/bin-callable-model.md`, which is C psmc's model to the bit
 when every bin is full. E4 measures the bias that partly callable bins
 cause, whether the model removes it, and how the two other ways of losing
@@ -429,39 +429,49 @@ tell, a note counting the called bins next to missing runs; `APPROX_MISSING_PLAC
 marks multihetsep, as a warning when more than 5% of its sites are
 uncalled, and `VARIANTS_ONLY_NO_MASK` the VCF without a mask.
 
-What to expect, from the simulations of `experiment/validation/` (three
-runs of three 200 Mb genomes, two of this bottleneck model and one of the
-expansion model, masks of the same kinds, the same recipe; ranges over the
-nine genomes): dispersed missing data bias the full-bins routes by more
-than the missing share (theta at 0.87 to 0.89 of the complete-data fit with
-10% missing and 0.63 to 0.66 with 30%), and the callable-length model
-removes most of the bias (0.985 to 0.999 and 0.944 to 0.991: at 30% it
-stays 2 to 4% low on average, whatever the number of iterations). Its RMSE
-of log10 Ne against the complete-data fit is about a third to a seventh of
-the full-bins routes'. Against the truth the contrast is clear at 30% (0.224
-to 0.315 against 0.353 to 0.455) but not general at 10%, where PSMC's own
-error on complete data can dominate (expansion model: 0.231 full bins,
-0.230 complete data), so theta and the RMSE against the complete-data fit
-are the measures of the bias. Clustered missing data empty whole bins,
-which both models leave out, and change little either way. multihetsep
-does not recover the exact route, dispersed or clustered (theta 0.67 to
-0.70 at 30% dispersed, 0.89 to 0.93 at 30% clustered): placing every
-uncalled site of an interval at its start turns scattered missing bases
-into runs of `N` bins and leaves the bin of each heterozygous site less
-callable than it is, so the VCF with its mask is the input to use. E4
-measures all of it on 500 Mb genomes, with the control, the VCF without a
-mask and the fq2psmcfa route; its multihetsep numbers are those of
-`--bin-callable auto`, every called bin full.
+**Results** (production run, 5 replicates; `E4_summary.csv`,
+`E4_routes.csv`, `E4_bins.csv`, `E4_crosscheck.csv`). Dispersed missing
+data bias the full-bins routes by about 1.2 times the missing share of the
+called bins (theta at 0.877 to 0.883 of the complete-data fit with 10%
+missing and 0.644 to 0.658 with 30%, whose called bins are 90.1% and 70.5%
+callable on average), and the callable-length model removes most of the
+bias (0.988 to 0.995 and 0.971 to 0.988: at 30% it stays 1.9% low on
+average). Its RMSE of log10 Ne against the complete-data fit is 6.6 and
+4.6 times smaller than `mask_ignore`'s (mean 0.029 against 0.191 at 10%,
+0.076 against 0.349 at 30%). Against the truth the contrast is clear at 30%
+(mean 0.280 against 0.449; complete data 0.273) and smaller at 10% (0.275
+against 0.323), where PSMC's own error weighs more, so theta and the RMSE
+against the complete-data fit are the measures of the bias. Clustered
+missing data empty whole bins, which both models leave out, and change
+little either way: at 30% both fits are about 2.4% low in theta, as low as
+the callable-length fit of dispersed data, so what that fit leaves is not
+the bins' doing. multihetsep does not recover the exact route, dispersed or
+clustered (theta 0.669 to 0.695 at 30% dispersed, 0.888 to 0.914 at 30%
+clustered): placing every uncalled site of an interval at its start turns
+scattered missing bases into runs of `N` bins and leaves the bin of each
+heterozygous site less callable than it is, so the VCF with its mask is
+the input to use. The VCF without its mask is the worst route (theta 0.638
+to 0.652 at 30% dispersed and 0.417 to 0.440 at 30% clustered, whose RMSE
+against the truth is 0.606). Every identity held: the fq2psmcfa route's
+bins equal the exact bins (25 of 25) and its fit `mask_ignore`'s (5 of 5
+per mask), `mask_auto` equals `mask_ignore` on the control (5 of 5), and
+psmc-rs's multihetsep equals `generate_multihetsep.py`'s (50 of 50
+chromosomes). The smaller simulations of `experiment/validation/` (three
+runs of three 200 Mb genomes, two of this model and one of the expansion
+model) gave similar theta (0.63 to 0.66 full bins, 0.944 to 0.991 with the
+counts at 30% dispersed); its multihetsep numbers also include
+`--bin-callable approximate`, which E4 does not fit.
 
 **Rescaling cross-check** (`E4_rescaling.csv`; not a route, not in Fig 5).
 Before the callable-length model, E4 corrected the bias after the fit: the
 full-bins fit read with s = the mean callable bases of its called bins
-instead of 100, that is times and sizes multiplied by 100 / s (an earlier
-run, at 30% dispersed missing data: RMSE against the truth 0.447 as
-fitted, 0.334 rescaled, 0.332 with complete data). The table keeps that
-global correction of `mask_ignore` (s from its JSON's
-`bin_callable.callable.mean_fraction`) beside `mask_auto`, per mask and
-replicate, as a check of the model: the two should agree on the scale, and
+instead of 100, that is times and sizes multiplied by 100 / s (at 30%
+dispersed missing data, mean RMSE against the truth 0.449 as fitted, 0.286
+rescaled, 0.280 with the callable-length model and 0.273 with complete
+data; an earlier run, before the model, gave 0.447, 0.334 and, with
+complete data, 0.332). The table keeps that global correction of
+`mask_ignore` (s from its JSON's `bin_callable.callable.mean_fraction`)
+beside `mask_auto`, per mask and replicate, as a check of the model: the two should agree on the scale, and
 the per-bin model, which also weighs each bin by how much of it was seen,
 should be at least as close to the complete-data fit.
 

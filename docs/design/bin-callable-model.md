@@ -32,12 +32,15 @@ is still called but holds fewer than `s` callable bases. A bin of 70
 callable bases has about 70% of the chance of a full bin to show a
 heterozygous site, so θ per bin, and with it N0, the times and Ne, come out
 low by about the missing fraction, or more (1.1 to 1.3 times it in the
-fits of [Validation](#validation)). Experiment E4
-(`experiment/pipeline/README.md`) measured it: with 30% of the bases
-missing in runs of about 20 bp, the RMSE of log10 Ne against the truth was
-0.447, against 0.332 for the same genomes without missing data;
-rescaling the fitted times and sizes by the callable bases per called bin
-brought it back to 0.334. Missing data in long runs (E4's 20 kb runs)
+fits of [Validation](#validation), 1.2 times it in experiment E4).
+Experiment E4 (`experiment/pipeline/README.md`; five 500 Mb genomes of the
+bottleneck model) measured it: with 30% of the bases missing in runs of
+about 20 bp, the RMSE of log10 Ne against the truth was 0.449 on average,
+against 0.273 for the same genomes without missing data; rescaling the
+fitted times and sizes by the callable bases per called bin brought it
+back to 0.286, and the model below to 0.280 (`E4_rescaling.csv`; an
+earlier run of E4, before the model, gave 0.447, 0.332 and 0.334 for the
+first three). Missing data in long runs (E4's 20 kb runs)
 mostly empty whole bins, which the `N` rule already handles; only the bins
 at the edges of each run are partly called.
 
@@ -720,19 +723,26 @@ three runs' means:
   0.963 to 0.982, against 0.990 to 0.994 at 10%), and fitting 80 EM
   iterations instead of 25 does not change that (0.961 against 0.965 on
   one genome). Its curves are about as close to the truth as the
-  complete-data fit's: the RMSE against the truth is below it in five of
-  the six runs and masks, 0.002 above it in the sixth. `ignore` is biased
-  by more than the missing share of the called bins, 1.1 to 1.3 times it
+  complete-data fit's: the runs' mean RMSE against the truth is below it
+  in five of the six runs and masks, 0.002 above it in the sixth. On E4's
+  five 500 Mb genomes with 30% missing, replicate by replicate, it was
+  above it in four of the five, by 0.007 on average and at most 0.020
+  (`E4_routes.csv`), where `ignore` was 0.16 to 0.20 above it. `ignore`
+  is biased by more than the missing share of the called bins, 1.1 to 1.3
+  times it
   (θ 0.87 to 0.89 at a mean share of 0.90, 0.63 to 0.66 at 0.705), with an
   RMSE against the complete-data fit 3 to 7 times `auto`'s. Its RMSE
-  against the truth is clearly higher at 30%, as E4 measured (0.447 on
-  500 Mb genomes), but at 10% it can match complete data (0.231 against
-  0.230 for the expansion model), where PSMC's own error dominates: θ and
-  the RMSE against the complete-data fit measure the bias, the RMSE
-  against the truth adds PSMC's error.
+  against the truth is clearly higher at 30%, as E4 measured (0.449 on
+  500 Mb genomes, against 0.273 with complete data), but at 10% it can
+  match complete data (0.231 against 0.230 for the expansion model),
+  where PSMC's own error dominates: θ and the RMSE against the
+  complete-data fit measure the bias, the RMSE against the truth adds
+  PSMC's error.
 - **Clustered missing data** change little either way: the called bins
-  hold 99.8% of their bases, and `auto` and `ignore` differ by at most
-  0.002 in RMSE against the complete-data fit.
+  hold 99.8% of their bases, and the runs' mean RMSEs against the
+  complete-data fit of `auto` and `ignore` differ by at most 0.002. Single
+  genomes can differ more: in E4, with 30% clustered, by up to 0.024 (0.040
+  against 0.064, one of the five replicates; the others by at most 0.005).
 - **Multihetsep.** No mode recovers the exact route, and missing data in
   long runs bias it too (θ 0.89 to 0.93 where the exact route is
   unbiased). The bias comes from the placement of the uncalled sites,

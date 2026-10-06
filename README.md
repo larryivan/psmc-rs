@@ -246,7 +246,7 @@ uncalled sites scattered among called ones become runs of `N` bins after
 heterozygous sites, and the bin of a heterozygous site is partly callable
 or lost. With missing data this biases θ, the times and Ne low (on
 simulated genomes θ came out 0.67 to 0.70 of the fit without missing data
-with 30% of the sites uncalled in runs of about 20 bp, and 0.89 to 0.93 in
+with 30% of the sites uncalled in runs of about 20 bp, and 0.89 to 0.91 in
 runs of about 20 kb), and QC warns (`APPROX_MISSING_PLACEMENT`) when more
 than 5% of the sites are uncalled. The callable bases of each bin follow
 the same placement: their sum over each interval is exact, how it is split
@@ -265,9 +265,9 @@ bin as a full bin. A bin of `c` callable bases out of `s` is less likely to
 show a heterozygous site, so when missing data are scattered in runs
 shorter than a bin (per-site depth or quality filters, a mask of short
 gaps), almost every bin is still called but holds fewer bases, and θ per
-bin, N0 and with them every time and every Ne come out low by about the
-missing share of the called bins. Missing data in long runs mostly make
-whole bins `N`, which C's model handles.
+bin, N0 and with them every time and every Ne come out low by about 1.2
+times the missing share of the called bins. Missing data in long runs
+mostly make whole bins `N`, which C's model handles.
 
 VCF input (both modes) records which positions of each bin are callable.
 By default (`--bin-callable auto`) psmc-rs fits each called bin of a VCF by
@@ -289,22 +289,24 @@ input, which records no counts, is fitted as C psmc fits it.
 the fit of fq2psmcfa's psmcfa of the same calls. Counts are kept for bins
 of at most 65,535 bases.
 
-On simulated genomes (three runs of three 10 × 20 Mb genomes, two of the
-bottleneck model and one of the expansion model, `-N25 -t15 -r5 -p
-4+25*2+4+6`) with 30% of the bases missing in runs of about 20 bp, the fit
-with the counts removed most of the bias: θ was 0.94 to 0.99 of the fit of
-the same genome without missing data (2 to 4% low on average), where
-ignoring the counts gave 0.63 to 0.66, and the RMSE of log10 Ne against the
-truth was at most 0.002 above that of the complete-data fit, where ignoring
-the counts raised it by 0.11 to 0.15. Missing data in 20 kb runs changed
-the fits little either way. Multihetsep input does not recover the exact
-fit, because of where its reader places the uncalled sites (θ 0.67 to 0.70
-of the complete-data fit with 30% in short runs, 0.89 to 0.93 in long
-runs), and its approximate counts made it worse (0.52 to 0.60):
-`--bin-callable auto` does not use them, and `--bin-callable approximate`
-does. Use the VCF with its callable mask. The numbers and the script that
-reproduces them are in
-[experiment/validation/](experiment/validation/README.md).
+On five simulated 500 Mb genomes of a bottleneck model (the manuscript's
+experiment E4, `-N25 -t15 -r5 -p 4+25*2+4+6`) with 30% of the bases
+missing in runs of about 20 bp, the fit with the counts removed most of
+the bias: θ was 0.97 to 0.99 of the fit of the same genome without missing
+data (1.9% low on average), where ignoring the counts gave 0.64 to 0.66,
+and the RMSE of log10 Ne against the truth was 0.007 above that of the
+complete-data fit on average (at most 0.020), where ignoring the counts
+raised it by 0.16 to 0.20. Missing data in 20 kb runs changed the fits
+little either way. Multihetsep input does not recover the exact fit,
+because of where its reader places the uncalled sites (θ 0.67 to 0.70 of
+the complete-data fit with 30% in short runs, 0.89 to 0.91 in long runs),
+and in the smaller validation runs of
+[experiment/validation/](experiment/validation/README.md) (three runs of
+three 10 × 20 Mb genomes) its approximate counts made it worse (0.52 to
+0.60): `--bin-callable auto` does not use them, and `--bin-callable
+approximate` does. Use the VCF with its callable mask. E4's numbers are in
+`experiment/runs/E4/tables/` and its design in
+[experiment/pipeline/README.md](experiment/pipeline/README.md#e4-input-preparation).
 
 A psmcfa file cannot hold the counts: `psmc-rs convert --psmcfa` warns when
 it writes partly callable bins, and such a file is fitted as with

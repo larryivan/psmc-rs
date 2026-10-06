@@ -60,14 +60,16 @@ Defaults, each of which changes the results of a run that relied on it:
   `s` emits as `c` bases of sequence, `P(T | k) = exp(-θ (c/s) avg_t[k])`,
   instead of as a full bin, as fq2psmcfa's psmcfa and C psmc treat every
   called bin. With missing data scattered in runs shorter than a bin,
-  treating such bins as full biased θ, N0, the times and Ne low by the
-  missing share of the called bins or more; on simulated genomes with 30%
-  of the bases missing in runs of about 20 bp, θ goes from 0.63-0.66 of
-  the fit of the same genome without missing data (ignored) to 0.94-0.99
-  (fitted), and the RMSE of log10 Ne against the truth comes back to within
-  0.002 of that of the complete-data fit, from 0.11-0.15 above it (see
-  `experiment/validation/README.md`). The E-step, the M-step, the starting
-  θ0 (which solves `sum (1 - exp(-θ0 c/s)) = K` over called bins, C's
+  treating such bins as full biased θ, N0, the times and Ne low by about
+  1.2 times the missing share of the called bins; on five simulated 500 Mb
+  bottleneck genomes with 30% of the bases missing in runs of about 20 bp
+  (the manuscript's experiment E4), θ goes from 0.64-0.66 of the fit of
+  the same genome without missing data (ignored) to 0.97-0.99 (fitted),
+  and the RMSE of log10 Ne against the truth comes back to 0.007 above
+  that of the complete-data fit on average (at most 0.020), from 0.16-0.20
+  above it (see `experiment/pipeline/README.md`, E4; the smaller runs of
+  `experiment/validation/README.md` give similar θ). The E-step, the
+  M-step, the starting θ0 (which solves `sum (1 - exp(-θ0 c/s)) = K` over called bins, C's
   −ln(1 − K/L) for full bins), the bootstrap and the TMRCA decoding all
   use the counts. Complete data, and psmcfa input, which
   records no counts, are fitted exactly as before, to the bit;
