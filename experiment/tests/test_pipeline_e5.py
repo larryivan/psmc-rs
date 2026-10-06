@@ -164,6 +164,14 @@ class Statistics(unittest.TestCase):
         np.testing.assert_array_equal(cal["covered"], [1, 1, 1])
         np.testing.assert_allclose(cal["coverage"], 0.5)
         np.testing.assert_allclose(cal["coverage_mean"], 0.5)  # the fits' geometric mean, 10**2.05, is in b1's band only
+        self.assertNotIn("coverage_projected", cal)
+        # Each dataset's own projected truth: the truth for b1 (in its band), 1000 for b2 (in its band too).
+        cal = e5.calibration([b1, b2], sampling, truth, np.array([truth, [1000.0] * 3]))
+        np.testing.assert_array_equal(cal["covered_projected"], [2, 2, 2])
+        np.testing.assert_allclose(cal["coverage_projected"], 1.0)
+        np.testing.assert_allclose(cal["coverage"], 0.5)
+        res = e5.dataset_resampling(cal, 200, seed=1)
+        self.assertEqual((res["coverage_projected_mean_ci_lo"], res["coverage_projected_mean_ci_hi"]), (1.0, 1.0))
 
     def test_dataset_resampling_intervals(self):
         import numpy as np
@@ -312,6 +320,21 @@ class Tables(unittest.TestCase):
         self.assertTrue(0 < sum(covered) < 2 * len(grid))  # the check is not vacuous
         bands = [r for r in read_csv(self.lay.table("bands")) if r["trunk_bins"] == "1000" and r["dataset"] == "1"]
         np.testing.assert_allclose([float(r["boot_lo_ne"]) for r in bands], base * 10.0 ** FIT_OFFSETS[0] * q_lo)
+        # Coverage of each dataset's pattern-projected truth (its own fit's spans).
+        sc = cfg.scaling
+        projected = [metrics.projected_truth(results.fit_from_rs(params(FIT_OFFSETS[d], 5)), epochs, sc.mu,
+                                             sc.gen_years, 100).at(grid) for d in range(cfg.bootstrap_datasets)]
+        covered_proj = sum(
+            (base * 10.0 ** FIT_OFFSETS[d] * q_lo <= projected[d]) & (projected[d] <= base * 10.0 ** FIT_OFFSETS[d] * q_hi)
+            for d in range(cfg.bootstrap_datasets)
+        )
+        self.assertEqual([int(r["covered_projected"]) for r in rows], covered_proj.tolist())
+        np.testing.assert_allclose([float(r["projected_ne"]) for r in bands], projected[0])
+        summary = next(r for r in read_csv(self.lay.table("summary")) if r["trunk_bins"] == "1000"
+                       and r["window"] == "informative")
+        self.assertAlmostEqual(float(summary["coverage_projected_mean"]), covered_proj.mean() / cfg.bootstrap_datasets)
+        fits = read_csv(self.lay.table("fits"))
+        self.assertTrue(all(float(r["rmse_log10_ne_vs_projected_truth"]) > 0 for r in fits))
 
     def test_dataset_checks(self):
         rows = {(r["dataset"], r["trunk_bins"]): r for r in read_csv(self.lay.table("datasets"))}

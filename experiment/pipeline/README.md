@@ -539,7 +539,11 @@ fixed window (10 ky to 1 My). At each time:
   band holds the geometric mean of the 50 fits, the estimator's expectation.
   A bootstrap sees the spread of the estimate, not its bias: the gap between
   the two coverages is PSMC's bias, the shortfall of the second from 95% is
-  the bootstrap's.
+  the bootstrap's. Part of the bias is the pattern's: its steps cannot
+  follow the truth within a free lambda's span. So the tables also give the
+  share of genomes whose band holds that genome's pattern-projected truth
+  (`metrics.projected_truth` of its fit, the true Ne averaged over each
+  span in coalescence-rate terms, as E1's Table 1 uses it).
 
 The report checks that every fit read its simulated genome, that every
 bootstrap ran with its seed, trunk size and replicate count (a replicate whose
@@ -552,13 +556,13 @@ on the run).
 
 | table | contents |
 | --- | --- |
-| `E5_summary.csv` | per trunk size and window: median, range and share below 1 of the median SD ratio, with a 95% interval from resampling the datasets; median IQR ratio; mean and least pointwise coverage of the truth and of the fits' mean, the mean's 95% interval from resampling the datasets (the independent units: the points of one dataset are strongly correlated) and the spread of the datasets' shares of covered points; median band width and true 95% range (log10); median true SD, bias and RMSE |
+| `E5_summary.csv` | per trunk size and window: median, range and share below 1 of the median SD ratio, with a 95% interval from resampling the datasets; median IQR ratio; mean and least pointwise coverage of the truth, of the fits' mean and of the pattern-projected truth, the mean's 95% interval from resampling the datasets (the independent units: the points of one dataset are strongly correlated) and the spread of the datasets' shares of covered points; median band width and true 95% range (log10); median true SD, bias and RMSE |
 | `E5_sd_ratio.csv` | per trunk size and time: the true SD and its interval, the bootstrap SD, the SD ratio (median, quartiles, range over genomes), the IQR ratio |
-| `E5_coverage.csv` | per trunk size and time: genomes covered, coverage and its interval, coverage of the fits' mean, band width |
+| `E5_coverage.csv` | per trunk size and time: genomes covered, coverage and its interval, coverage of the fits' mean, coverage of each genome's pattern-projected truth and its interval, band width |
 | `E5_sampling.csv` | per time: true Ne, and the 50 fits' mean log10 Ne, median and 95% range of Ne, SD and its interval, IQR, bias and RMSE |
-| `E5_bands.csv` | per bootstrapped genome, trunk size and time: its fit, its band and median, its bootstrap SD, whether the band covers the truth |
-| `E5_datasets.csv` | per bootstrap run: trunks, seed, replicates fitted and skipped, median SD ratio, coverage, the checks, wall time, CPU time and peak RSS |
-| `E5_fits.csv` | per genome: heterozygous sites and bins, theta, rho, t_max, N0, final log-likelihood, RMSE against the truth, wall time and peak RSS |
+| `E5_bands.csv` | per bootstrapped genome, trunk size and time: its fit, its band and median, its bootstrap SD, whether the band covers the truth; its pattern-projected truth and whether the band covers it |
+| `E5_datasets.csv` | per bootstrap run: trunks, seed, replicates fitted and skipped, median SD ratio, coverage of the truth and of the projected truth, the checks, wall time, CPU time and peak RSS |
+| `E5_fits.csv` | per genome: heterozygous sites and bins, theta, rho, t_max, N0, final log-likelihood, RMSE against the truth and against its pattern-projected truth, wall time and peak RSS |
 | `E5_seeds.csv` | every seed |
 
 **Figure 6** (`figures/fig6_bootstrap_calibration.{pdf,svg,png}`, drawn by

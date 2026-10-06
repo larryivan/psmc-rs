@@ -224,6 +224,9 @@ _add("E5_summary", "E5", "trunk size and window", {
     "coverage_mean": "pointwise coverage averaged over the window",
     "coverage_mean_ci_lo": "its 2.5% bound from resampling the bootstrapped genomes",
     "coverage_mean_ci_hi": "its 97.5% bound",
+    "coverage_projected_mean": "pointwise coverage of each genome's pattern-projected truth, averaged over the window",
+    "coverage_projected_mean_ci_lo": "its 2.5% bound from resampling the bootstrapped genomes",
+    "coverage_projected_mean_ci_hi": "its 97.5% bound",
 })
 _add("E5_sampling", "E5", "time of the informative window", {
     "point": "index of the time",
@@ -241,6 +244,7 @@ _add("E5_bands", "E5", "bootstrapped genome, trunk size and time", {
     "fit_ne": "the genome's fitted Ne",
     "boot_lo_ne": "2.5% quantile of its bootstrap replicates",
     "boot_hi_ne": "97.5% quantile",
+    "projected_ne": "the true Ne projected onto the free-lambda spans of the genome's fit (metrics.projected_truth)",
 })
 _add("E5_sd_ratio", "E5", "trunk size and time", {
     "trunk_bins": "trunk size (bins)",
@@ -263,6 +267,9 @@ _add("E5_coverage", "E5", "trunk size and time", {
     "coverage_ci_lo": "Clopper-Pearson 95% interval, lower bound",
     "coverage_ci_hi": "upper bound",
     "coverage_fit_mean": "share whose band holds the fits' geometric mean",
+    "coverage_projected": "share whose band holds its own pattern-projected truth (metrics.projected_truth of its fit)",
+    "coverage_projected_ci_lo": "Clopper-Pearson 95% interval, lower bound",
+    "coverage_projected_ci_hi": "upper bound",
 })
 
 # ---------------------------------------------------------------------------

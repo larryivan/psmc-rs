@@ -152,11 +152,11 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E4/tables/E4_routes.csv` | mask, route and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `rmse_log10_ne_vs_truth`, `rmse_log10_ne_vs_complete` |
 | `E4/tables/E4_curves.csv` | mask, route, replicate and interval | `mask`, `route`, `replicate`, `interval`, `years`, `ne` |
 | `E4/tables/E4_bias.csv` | mask, route and time of the informative window | `mask`, `route`, `years`, `replicates`, `log10_bias_mean` |
-| `E5/tables/E5_summary.csv` | trunk size and window | `trunk_bins`, `trunk_mb`, `trunks`, `window`, `coverage_mean`, `coverage_mean_ci_lo`, `coverage_mean_ci_hi` |
+| `E5/tables/E5_summary.csv` | trunk size and window | `trunk_bins`, `trunk_mb`, `trunks`, `window`, `coverage_mean`, `coverage_mean_ci_lo`, `coverage_mean_ci_hi`, `coverage_projected_mean`, `coverage_projected_mean_ci_lo`, `coverage_projected_mean_ci_hi` |
 | `E5/tables/E5_sampling.csv` | time of the informative window | `point`, `years`, `true_ne`, `fits`, `lo_ne`, `hi_ne` |
-| `E5/tables/E5_bands.csv` | bootstrapped genome, trunk size and time | `dataset`, `trunk_bins`, `point`, `years`, `fit_ne`, `boot_lo_ne`, `boot_hi_ne` |
+| `E5/tables/E5_bands.csv` | bootstrapped genome, trunk size and time | `dataset`, `trunk_bins`, `point`, `years`, `fit_ne`, `boot_lo_ne`, `boot_hi_ne`, `projected_ne` |
 | `E5/tables/E5_sd_ratio.csv` | trunk size and time | `trunk_bins`, `point`, `years`, `sd_true_log10`, `sd_true_ci_lo`, `sd_true_ci_hi`, `sd_boot_log10_median`, `ratio_median`, `ratio_q25`, `ratio_q75` |
-| `E5/tables/E5_coverage.csv` | trunk size and time | `trunk_bins`, `point`, `years`, `datasets`, `coverage`, `coverage_ci_lo`, `coverage_ci_hi`, `coverage_fit_mean` |
+| `E5/tables/E5_coverage.csv` | trunk size and time | `trunk_bins`, `point`, `years`, `datasets`, `coverage`, `coverage_ci_lo`, `coverage_ci_hi`, `coverage_fit_mean`, `coverage_projected`, `coverage_projected_ci_lo`, `coverage_projected_ci_hi` |
 | `E6/tables/E6_S2_curves.csv` | model, format and interval (format truth: a dense grid of the true Ne) | `model`, `format`, `interval`, `years`, `ne` |
 | `E6/tables/E6_S2_bins.csv` | model, format and sequence (all: the genome) | `model`, `format`, `sequence`, `bins_differing`, `bins_missing_at_end` |
 | `E6/tables/E6_S2_fits.csv` | model and format | `model`, `format`, `window_lo_years`, `window_hi_years` |

@@ -39,7 +39,10 @@ At each time ``t``:
   with a Clopper-Pearson 95% interval; next to it, the share whose band holds
   the geometric mean of the fits (the estimator's expectation, which differs
   from the truth by PSMC's bias: the bootstrap can see the spread of the
-  estimate but not its bias).
+  estimate but not its bias), and the share whose band holds the dataset's
+  pattern-projected truth (:func:`.metrics.projected_truth` of its fit: the
+  true Ne averaged over each free lambda's span, the best the pattern's
+  steps can show), which takes the pattern's own error out of the bias.
 
 The report also checks its inputs: each fit read the simulated genome (bins
 and heterozygous bins of the truth record), each bootstrap ran with its seed,
@@ -498,11 +501,14 @@ def band_stats(replicates_ne, band: Tuple[float, float]) -> Dict:
     }
 
 
-def calibration(boots: Sequence[Dict], sampling: Dict, truth_ne) -> Dict:
+def calibration(boots: Sequence[Dict], sampling: Dict, truth_ne, projected_ne=None) -> Dict:
     """SD ratios and coverage of the bootstraps of one trunk size, at each time.
 
     ``boots`` are :func:`band_stats` of the datasets; ``sampling`` is
-    :func:`sampling_stats` of the fits.
+    :func:`sampling_stats` of the fits; ``projected_ne`` (datasets x times),
+    when given, is each dataset's pattern-projected truth
+    (:func:`.metrics.projected_truth` of its fit), whose coverage is
+    reported next to the coverage of the true Ne.
     """
     import numpy as np
 
@@ -520,6 +526,19 @@ def calibration(boots: Sequence[Dict], sampling: Dict, truth_ne) -> Dict:
     n = len(boots)
     k = covers.sum(axis=0)
     ci_lo, ci_hi = clopper_pearson(k, n)
+    projected = {}
+    if projected_ne is not None:
+        proj = np.asarray(projected_ne, dtype=float)
+        covers_proj = (lo <= proj) & (proj <= hi)
+        k_proj = covers_proj.sum(axis=0)
+        p_lo, p_hi = clopper_pearson(k_proj, n)
+        projected = {
+            "covers_projected": covers_proj,  # datasets x times
+            "covered_projected": k_proj,
+            "coverage_projected": k_proj / n,
+            "coverage_projected_lo": p_lo,
+            "coverage_projected_hi": p_hi,
+        }
     return {
         "datasets": n,
         "ratio": ratio,  # datasets x times
@@ -539,6 +558,7 @@ def calibration(boots: Sequence[Dict], sampling: Dict, truth_ne) -> Dict:
         "coverage_mean": covers_mean.mean(axis=0),
         "band_width_log10": np.log10(hi / lo),  # datasets x times
         "band_width_log10_median": np.median(np.log10(hi / lo), axis=0),
+        **projected,
     }
 
 
@@ -593,8 +613,13 @@ def analyse(genomes: List[GenomeFit], boots: Dict[Tuple[int, int], Bootstrap], c
     """Sampling distribution, bootstrap bands and calibration on one grid of times."""
     import numpy as np
 
-    truth_ne = metrics.truth_on_grid(epochs, grid, cfg.scaling.gen_years)
+    sc = cfg.scaling
+    truth_ne = metrics.truth_on_grid(epochs, grid, sc.gen_years)
     fits_ne = np.array([gn.curve.at(grid) for gn in genomes])
+    projected_ne = np.array([
+        metrics.projected_truth(genomes[d - 1].fit, epochs, sc.mu, sc.gen_years, cfg.inference.bin_size).at(grid)
+        for d in range(1, cfg.bootstrap_datasets + 1)
+    ])
     sampling = sampling_stats(fits_ne, truth_ne, cfg.band)
     by_trunk: Dict[int, Dict] = {}
     bands: Dict[Tuple[int, int], Dict] = {}
@@ -604,9 +629,9 @@ def analyse(genomes: List[GenomeFit], boots: Dict[Tuple[int, int], Bootstrap], c
             b = boots[(d, trunk)]
             bands[(d, trunk)] = band_stats(np.array([c.at(grid) for c in b.curves]), cfg.band)
             stats.append(bands[(d, trunk)])
-        by_trunk[trunk] = calibration(stats, sampling, truth_ne)
-    return {"grid": grid, "truth_ne": truth_ne, "fits_ne": fits_ne, "sampling": sampling,
-            "bands": bands, "calibration": by_trunk}
+        by_trunk[trunk] = calibration(stats, sampling, truth_ne, projected_ne)
+    return {"grid": grid, "truth_ne": truth_ne, "fits_ne": fits_ne, "projected_ne": projected_ne,
+            "sampling": sampling, "bands": bands, "calibration": by_trunk}
 
 
 def dataset_resampling(c: Dict, resamples: int, seed: int, level: float = 0.95) -> Dict[str, float]:
@@ -616,8 +641,8 @@ def dataset_resampling(c: Dict, resamples: int, seed: int, level: float = 0.95) 
     ratios of one dataset are strongly correlated along the window, so the
     window's summaries are resampled by dataset. Statistics: the
     window-averaged coverage (the mean over datasets of each dataset's share
-    of covered points) and the median over the window of the per-point
-    median SD ratio.
+    of covered points; of the projected truth too, with the same resamples)
+    and the median over the window of the per-point median SD ratio.
     """
     import numpy as np
 
@@ -630,6 +655,13 @@ def dataset_resampling(c: Dict, resamples: int, seed: int, level: float = 0.95) 
     coverage = share[idx].mean(axis=1)
     ratio_median = np.array([np.median(np.median(ratio[i], axis=0)) for i in idx])
     a = (1.0 - level) / 2.0
+    projected = {}
+    if "covers_projected" in c:
+        cov_proj = np.asarray(c["covers_projected"], dtype=float).mean(axis=1)[idx].mean(axis=1)
+        projected = {
+            "coverage_projected_mean_ci_lo": float(np.quantile(cov_proj, a)),
+            "coverage_projected_mean_ci_hi": float(np.quantile(cov_proj, 1.0 - a)),
+        }
     return {
         "coverage_dataset_sd": float(share.std(ddof=1)) if n > 1 else 0.0,
         "coverage_dataset_min": float(share.min()),
@@ -638,6 +670,7 @@ def dataset_resampling(c: Dict, resamples: int, seed: int, level: float = 0.95) 
         "coverage_mean_ci_hi": float(np.quantile(coverage, 1.0 - a)),
         "sd_ratio_median_ci_lo": float(np.quantile(ratio_median, a)),
         "sd_ratio_median_ci_hi": float(np.quantile(ratio_median, 1.0 - a)),
+        **projected,
     }
 
 
@@ -679,6 +712,10 @@ def summary_rows(cfg: config.E5, window: str, res: Dict, trunks: Dict[int, int])
                 "coverage_dataset_max": resampled["coverage_dataset_max"],
                 "coverage_min": float(np.min(c["coverage"])),
                 "coverage_of_fit_mean_mean": float(np.mean(c["coverage_mean"])),
+                "coverage_projected_mean": float(np.mean(c["coverage_projected"])),
+                "coverage_projected_mean_ci_lo": resampled["coverage_projected_mean_ci_lo"],
+                "coverage_projected_mean_ci_hi": resampled["coverage_projected_mean_ci_hi"],
+                "coverage_projected_min": float(np.min(c["coverage_projected"])),
                 "band_width_log10_median": float(np.median(c["band_width_log10"])),
                 "sampling_width_log10_median": float(np.median(np.log10(s["hi_ne"] / s["lo_ne"]))),
                 "sd_true_log10_median": float(np.median(s["sd_log10"])),
@@ -733,13 +770,17 @@ def per_time_rows(cfg: config.E5, res: Dict) -> Dict[str, List[Dict]]:
                     "coverage_ci_hi": float(c["coverage_hi"][k]),
                     "covered_fit_mean": int(c["covered_mean"][k]),
                     "coverage_fit_mean": float(c["coverage_mean"][k]),
+                    "covered_projected": int(c["covered_projected"][k]),
+                    "coverage_projected": float(c["coverage_projected"][k]),
+                    "coverage_projected_ci_lo": float(c["coverage_projected_lo"][k]),
+                    "coverage_projected_ci_hi": float(c["coverage_projected_hi"][k]),
                     "band_width_log10_median": float(c["band_width_log10_median"][k]),
                     "sampling_width_log10": float(math.log10(s["hi_ne"][k] / s["lo_ne"][k])),
                 }
             )
         for d in range(1, cfg.bootstrap_datasets + 1):
             b = res["bands"][(d, trunk)]
-            fit_ne = res["fits_ne"][d - 1]
+            fit_ne, proj_ne = res["fits_ne"][d - 1], res["projected_ne"][d - 1]
             for k, t in enumerate(grid):
                 out["bands"].append(
                     {
@@ -748,6 +789,8 @@ def per_time_rows(cfg: config.E5, res: Dict) -> Dict[str, List[Dict]]:
                         "boot_lo_ne": float(b["lo_ne"][k]), "boot_median_ne": float(b["median_ne"][k]),
                         "boot_hi_ne": float(b["hi_ne"][k]), "boot_sd_log10": float(b["sd_log10"][k]),
                         "covers_truth": int(c["covers"][d - 1][k]),
+                        "projected_ne": float(proj_ne[k]),
+                        "covers_projected": int(c["covers_projected"][d - 1][k]),
                     }
                 )
     return out
@@ -773,6 +816,7 @@ def dataset_rows(cfg: config.E5, res: Dict, genomes: List[GenomeFit], boots: Dic
                     "skipped_replicates": ";".join(str(i) for i in b.summary.get("skipped_replicates", [])),
                     "sd_ratio_median": float(np.median(c["ratio"][d - 1])),
                     "coverage": float(np.mean(c["covers"][d - 1])),
+                    "coverage_projected": float(np.mean(c["covers_projected"][d - 1])),
                     "band_width_log10_median": float(np.median(c["band_width_log10"][d - 1])),
                     "main_fit_equals_fit": diff == 0.0,
                     "main_fit_max_abs_diff": diff,
@@ -789,10 +833,12 @@ def dataset_rows(cfg: config.E5, res: Dict, genomes: List[GenomeFit], boots: Dic
 
 
 def fit_rows(cfg: config.E5, genomes: List[GenomeFit], epochs, grids: Dict) -> List[Dict]:
-    g = cfg.scaling.gen_years
+    sc = cfg.scaling
+    g = sc.gen_years
     rows = []
     for gn in genomes:
         fit, run = gn.fit, gn.run
+        projected = metrics.projected_truth(fit, epochs, sc.mu, g, cfg.inference.bin_size)
         gaps = [(ch.get("longest_het_gap_bp") or 0, ch["name"]) for ch in gn.truth["chromosomes"]]
         gap, gap_chrom = max(gaps) if gaps else (None, None)
         rows.append(
@@ -810,6 +856,9 @@ def fit_rows(cfg: config.E5, genomes: List[GenomeFit], epochs, grids: Dict) -> L
                 "loglike_final": _f((results.rs_loglikes(gn.params) or [None])[-1]),
                 "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(gn.curve, epochs, grids["informative"], g),
                 "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(gn.curve, epochs, grids["fixed"], g),
+                "rmse_log10_ne_vs_projected_truth": metrics.rmse_vs_projected_truth(
+                    gn.curve, projected, grids["informative"]
+                ),
                 "bootstrapped": gn.replicate <= cfg.bootstrap_datasets,
                 "wall_seconds": run.get("wall_seconds"),
                 "peak_rss_mb": run.get("peak_rss_mb"),
