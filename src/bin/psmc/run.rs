@@ -1076,13 +1076,20 @@ fn remove_earlier_bootstrap(dir: &Path, replicates: usize) -> Result<Option<Stri
     )))
 }
 
+/// Whether `v` is on the lower or the upper M-step bound of its range: where
+/// the M-step's logit coordinate saturates, not merely close in a wide range.
+///
+/// Above, within 1e-6 of the range of `hi`: the logit's slope there is below
+/// 1e-6 of its largest, and a λ the data push to the bound stops there
+/// (9,999.99991 for a bound of 1e4 on a simulated bottleneck genome). Below,
+/// within twice the M-step's clamp (1e-12 of the range) of `lo`, or 1e-6 of
+/// `lo` itself: towards `lo` the logit is a logarithm, so λ = 0.01 against a
+/// bound of 1e-6 is an ordinary value.
 fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {
-    // Use a very tight tolerance so "near bound" reflects a true optimizer
-    // saturation, not ordinary values in wide ranges (e.g. lam in [1e-6, 1e6]).
     let span = (hi - lo).abs();
-    let scale = v.abs().max(lo.abs()).max(hi.abs()).max(1.0);
-    let tol = (span * 1e-12).max(scale * 1e-12).max(f64::EPSILON * 16.0);
-    ((v - lo).abs() <= tol, (v - hi).abs() <= tol)
+    let below = (2e-12 * span).max(1e-6 * lo.abs()).max(f64::EPSILON * 16.0);
+    let above = (1e-6 * span).max(f64::EPSILON * 16.0);
+    (v - lo <= below, hi - v <= above)
 }
 
 /// A warning when fitted parameters sit on the M-step's bounds, saying
@@ -1211,8 +1218,19 @@ mod tests {
         );
         assert!(msg.contains("rho = 1e-12 at the M-step's bound"), "{msg}");
         assert!(!msg.contains("wider bounds"), "{msg}");
-        model.lam[2] = cfg.lam_lo;
+        // Where an M-step leaves a λ the data push to the bound, saturated
+        // in its logit coordinate but not equal to the bound.
+        model.lam[2] = 9_999.999_906;
         model.rho = 0.0025;
+        let msg = near_bounds_warning(&model, &cfg).unwrap();
+        assert!(msg.contains("lam[2] at the M-step's upper bound"), "{msg}");
+        // Ordinary values of a wide range are not on a bound.
+        for lam in [0.5 * cfg.lam_hi, 9_990.0, 0.01, 5e-6] {
+            model.lam[2] = lam;
+            assert_eq!(near_bounds_warning(&model, &cfg), None, "{lam}");
+        }
+        // The M-step's clamp keeps a λ 1e-12 of its range above lo.
+        model.lam[2] = cfg.lam_lo + 1e-12 * (cfg.lam_hi - cfg.lam_lo);
         let msg = near_bounds_warning(&model, &cfg).unwrap();
         assert!(
             msg.contains("lam[2] at the M-step's lower bound of λ"),
