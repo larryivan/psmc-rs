@@ -417,14 +417,16 @@ def mask_jobs(ctx: Context, lay: Layout, sh: Shared, mask: str, r: int) -> List[
             Job(
                 id=job_id("fit", mask, route, rep(r)),
                 command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, inp, lay.fit(mask, route, r),
-                                       threads=cfg.rs_threads, extra=args),
+                                       threads=cfg.rs_threads,
+                                       extra=[*args, "--bin-callable", cfg.bin_callable]),
                 inputs=route_inputs(lay, mask, route, r),
                 outputs=[lay.fit(mask, route, r)],
                 cores=cfg.rs_threads,
                 mem_gb=ec.fit_gb,
                 est_seconds=costs.rs02_seconds(mb, cfg.inference, cfg.rs_threads),
                 settings={"inference": asdict(cfg.inference), "scaling": asdict(cfg.scaling),
-                          "threads": cfg.rs_threads, "route": route, "mask": spec_settings},
+                          "threads": cfg.rs_threads, "route": route, "mask": spec_settings,
+                          "bin_callable": cfg.bin_callable},
                 tools=rs,
                 description=f"psmc-rs 0.2, route {route}, {mask} replicate {r}",
             )

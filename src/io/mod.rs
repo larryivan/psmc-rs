@@ -8,7 +8,7 @@ pub mod psmcfa;
 pub mod vcf;
 pub mod write;
 
-pub use callable::{BinCounts, CallableBases, MAX_COUNTED_BIN_SIZE};
+pub use callable::{BinCounts, CallableBases, CallableSummary, MAX_COUNTED_BIN_SIZE};
 
 /// Binned input as the HMM reads it: rows of bins, `0` (`T`), `1` (`K`) or
 /// `2` (`N`), chained into sequences by `row_starts` (`true` for the first

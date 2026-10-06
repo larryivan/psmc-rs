@@ -12,7 +12,8 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
 use crate::dataset::{
-    default_start, describe, ignored_options, load_input, loader_warnings, qc_report,
+    callable_summary, default_start, describe, ignored_options, load_input, loader_warnings,
+    qc_report,
 };
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir, write_qc_json};
 use crate::run::{Event, qc_event, qc_failed};
@@ -103,6 +104,9 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
                     .to_string(),
             ));
         }
+        if let Some(line) = partial_bins_warning(&data, args.input.bin_size, path) {
+            sink(Event::Warning(line));
+        }
         write_psmcfa(path, &data)?;
         sink(Event::Output(format!(
             "psmcfa: {} ({} sequences, {} bins)",
@@ -131,6 +135,32 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         )));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The warning for writing `data` as psmcfa to `path` when some of its
+/// called bins are partly callable: psmcfa records each bin's symbol only,
+/// so a fit of the file takes every called bin as `bin_size` bases, as
+/// fq2psmcfa's output and C psmc do, while a fit of the input itself
+/// weighs each bin by its callable bases.
+fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<String> {
+    let c = callable_summary(data).filter(|c| c.partial_bins > 0)?;
+    let percent = |x: f64| format!("{:.1}%", 100.0 * x);
+    let input = if data.source.format() == InputFormat::Mhs {
+        "the multihetsep file"
+    } else {
+        "the VCF"
+    };
+    Some(format!(
+        "{} of called bins are partly callable (they hold {} of their {bin_size} bases on \
+         average), and psmcfa cannot record that: a fit of {} takes every called bin as \
+         {bin_size} bases, as C psmc does, which biases theta, the times and Ne low by about \
+         the missing share ({} here). To fit with the callable bases of each bin, fit {input} \
+         itself (psmc-rs does with --bin-callable auto, its default)",
+        percent(c.partial_fraction()),
+        percent(c.mean_fraction),
+        path.display(),
+        percent(1.0 - c.mean_fraction)
+    ))
 }
 
 /// Whether the format of the input is recognised as psmcfa before the

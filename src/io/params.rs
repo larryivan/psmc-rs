@@ -12,6 +12,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
+use crate::io::CallableSummary;
 use crate::io::input::{Dataset, SourceSummary};
 use crate::qc::QcSummary;
 
@@ -76,6 +77,54 @@ pub struct RunMetadata {
     /// Input QC: finding codes and key metrics.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qc: Option<QcSummary>,
+    /// How the fit used the callable bases of each bin (absent in files of
+    /// psmc-rs before 0.2's callable-length model).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bin_callable: Option<BinCallableRecord>,
+}
+
+/// The emission model of a fit that weighs each called bin by its callable
+/// bases (`docs/design/bin-callable-model.md`).
+pub const CALLABLE_LENGTH_MODEL: &str = "callable-length";
+
+/// The emission model of C psmc, in which every called bin holds the bin
+/// size in callable bases.
+pub const FULL_BINS_MODEL: &str = "full-bins";
+
+/// How a fit used the callable bases of each bin (`--bin-callable`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BinCallableRecord {
+    /// `--bin-callable`: `auto` or `ignore`.
+    pub mode: String,
+    /// The emission model fitted: [`CALLABLE_LENGTH_MODEL`] (each called
+    /// bin by its callable bases) or [`FULL_BINS_MODEL`] (C psmc's).
+    pub model: String,
+    /// How the input's counts were obtained: `exact` (VCF) or `approximate`
+    /// (multihetsep, whose uncalled sites are placed at the start of each
+    /// interval); absent when the input has none (psmcfa, or bins of more
+    /// than [`crate::io::MAX_COUNTED_BIN_SIZE`] bases).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub counts: Option<String>,
+    /// What the counts hold, when the input has them, whether or not the fit
+    /// used them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callable: Option<CallableSummary>,
+}
+
+impl BinCallableRecord {
+    /// The text of the `MM` line C psmc's `.psmc` output gets for a fit of
+    /// input with counts ([`crate::psmc_out::PsmcRunInfo::bin_callable`]),
+    /// such as `bin_model:callable-length, counts:exact, mean_callable:0.701234,
+    /// partial_bins:0.850000`; `None` without counts, whose output is C's.
+    pub fn psmc_line(&self) -> Option<String> {
+        let (counts, c) = (self.counts.as_ref()?, self.callable.as_ref()?);
+        Some(format!(
+            "bin_model:{}, counts:{counts}, mean_callable:{:.6}, partial_bins:{:.6}",
+            self.model,
+            c.mean_fraction,
+            c.partial_fraction()
+        ))
+    }
 }
 
 /// The size of the analysed input.

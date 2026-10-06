@@ -12,7 +12,7 @@ use std::path::Path;
 
 use crate::bootstrap::BootstrapSummary;
 use crate::hmm::TmrcaReportData;
-use crate::io::params::InputSummary;
+use crate::io::params::{BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary};
 use crate::model::PsmcModel;
 use crate::qc::fmt::{count, pct, sig};
 use crate::qc::{QcReport, Severity};
@@ -40,6 +40,8 @@ pub struct ReportData<'a> {
     pub settings: Vec<(String, String)>,
     /// Input QC of the analysed data.
     pub qc: Option<&'a QcReport>,
+    /// How the fit used the callable bases of each bin, when known.
+    pub bin_callable: Option<&'a BinCallableRecord>,
     /// The bootstrap, if one was run.
     pub bootstrap: Option<BootstrapReport<'a>>,
     /// Posterior TMRCA decoding, if it was run.
@@ -133,6 +135,28 @@ fn row(out: &mut String, name: &str, value: &str) {
     );
 }
 
+/// The rows of the run summary that say how the fit used the callable bases
+/// of each bin: the emission model, and what the counts hold.
+pub fn bin_callable_rows(b: &BinCallableRecord) -> Vec<(&'static str, String)> {
+    let model = if b.model == CALLABLE_LENGTH_MODEL {
+        "each called bin by its callable bases (callable-length model)"
+    } else {
+        "every called bin as the bin size in bases (C psmc's model)"
+    };
+    let mut rows = vec![("Bin model", format!("{model}; --bin-callable {}", b.mode))];
+    if let (Some(c), Some(source)) = (&b.callable, &b.counts) {
+        rows.push((
+            "Callable bases of called bins",
+            format!(
+                "{} on average; {} of called bins partly callable (counts {source})",
+                pct(c.mean_fraction),
+                pct(c.partial_fraction())
+            ),
+        ));
+    }
+    rows
+}
+
 /// The run summary table.
 fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) -> String {
     let m = d.model;
@@ -186,6 +210,11 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
                 share(i.missing_bins)
             ),
         );
+    }
+    if let Some(b) = d.bin_callable {
+        for (name, value) in bin_callable_rows(b) {
+            row(&mut out, name, &escape_html(&value));
+        }
     }
     row(&mut out, "EM iterations", &d.n_iter.to_string());
     row(

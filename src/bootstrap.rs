@@ -89,10 +89,11 @@ use crate::em::{EmHistory, EmOptions, em_train_with_options};
 use crate::hmm::Cancelled;
 use crate::io::callable::join_counts;
 use crate::io::common::chunk_sequences;
-use crate::io::{CallableBases, Observations, Sequences};
+use crate::io::params::CALLABLE_LENGTH_MODEL;
+use crate::io::{CallableBases, CallableSummary, Observations, Sequences};
 use crate::model::{NegativeTransitions, PsmcModel, ThetaCounts, initial_theta_with_callable};
 use crate::opt::MStepConfig;
-use crate::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
+use crate::psmc_out::{PsmcRunInfo, bin_callable_line, psmc_rounds, write_psmc};
 
 /// The bootstrap distribution of Ne at one time point of the main curve.
 #[derive(Debug, Clone, Serialize)]
@@ -841,15 +842,24 @@ pub struct BootstrapReplicate {
     pub history: EmHistory,
     /// Its resampled data.
     pub data: ReplicateData,
+    /// The callable bases of its resampled bins, when it was fitted with
+    /// them ([`run_bootstrap_sequences`]).
+    pub callable: Option<CallableSummary>,
 }
 
 impl BootstrapReplicate {
     /// Write the replicate's EM run as C psmc's `.psmc` output
-    /// ([`crate::psmc_out`]), as `psmc -b` would have written it.
+    /// ([`crate::psmc_out`]), as `psmc -b` would have written it, with the
+    /// `MM` line of [`bin_callable_line`] when it was fitted with the
+    /// callable bases of its bins.
     pub fn write_psmc<W: Write>(&self, w: W) -> Result<()> {
         let d = &self.data;
-        let info =
+        let mut info =
             PsmcRunInfo::from_counts(&self.model, &self.history, d.n_seqs, d.sum_l, d.sum_n)?;
+        info.bin_callable = self
+            .callable
+            .as_ref()
+            .map(|c| bin_callable_line(CALLABLE_LENGTH_MODEL, None, c));
         let rounds = psmc_rounds(&self.model, &self.history, d.sum_l)?;
         write_psmc(w, &info, &rounds)?;
         Ok(())
@@ -961,6 +971,10 @@ fn run_replicates(
         let fit = || -> Result<Option<BootstrapReplicate>> {
             let sampled = resample_sequences(&chunks, &mut replicate_rng(cfg.seed, rep));
             let data = ReplicateData::of(&sampled.bins);
+            let callable = sampled
+                .callable
+                .as_ref()
+                .map(|c| CallableSummary::of(&sampled.bins, c));
             let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
             let mut model = match start {
                 Some(start) => start.clone(),
@@ -1001,6 +1015,7 @@ fn run_replicates(
                 model,
                 history,
                 data,
+                callable,
             }))
         };
         let replicate = fit().with_context(|| format!("bootstrap replicate {}", rep + 1))?;

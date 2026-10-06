@@ -50,6 +50,7 @@ use anyhow::{Result, bail};
 use std::io::Write;
 
 use crate::em::EmHistory;
+use crate::io::CallableSummary;
 use crate::model::PsmcModel;
 use crate::opt::unpack_params;
 
@@ -90,6 +91,26 @@ pub struct PsmcRunInfo {
     pub sum_l: u64,
     /// Number of heterozygous bins (C's `sum_n`).
     pub sum_n: u64,
+    /// An `MM` line of psmc-rs's own, after C's, saying how the fit used
+    /// the callable bases of each bin ([`bin_callable_line`]); `None` for
+    /// input without them, whose output is C's.
+    pub bin_callable: Option<String>,
+}
+
+/// The text of the `MM` line ([`PsmcRunInfo::bin_callable`]) of a fit of
+/// input with callable bases: the emission model fitted (`callable-length`
+/// or `full-bins`), how the counts were obtained (`exact` or `approximate`,
+/// when known) and what they hold, such as `bin_model:callable-length,
+/// counts:exact, mean_callable:0.701234, partial_bins:0.850000`.
+/// psmc_plot.pl reads only the `MM` lines it knows, so it plots the file
+/// as C's.
+pub fn bin_callable_line(model: &str, counts: Option<&str>, summary: &CallableSummary) -> String {
+    let counts = counts.map_or(String::new(), |c| format!(", counts:{c}"));
+    format!(
+        "bin_model:{model}{counts}, mean_callable:{:.6}, partial_bins:{:.6}",
+        summary.mean_fraction,
+        summary.partial_fraction()
+    )
 }
 
 impl PsmcRunInfo {
@@ -153,6 +174,7 @@ impl PsmcRunInfo {
             n_seqs,
             sum_l,
             sum_n,
+            bin_callable: None,
         })
     }
 }
@@ -318,6 +340,9 @@ pub fn write_psmc<W: Write>(
         "MM\tn_seqs:{}, sum_L:{}, sum_n:{}",
         info.n_seqs, info.sum_l, info.sum_n
     )?;
+    if let Some(line) = &info.bin_callable {
+        writeln!(w, "MM\t{line}")?;
+    }
     for round in rounds {
         write_round(&mut w, &info.pattern, round)?;
     }

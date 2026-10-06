@@ -572,6 +572,13 @@ class E4:
     multihetsep_crosscheck_replicates: int = 1
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1
+    # psmc-rs's --bin-callable for every route. E4 compares the routes under
+    # C psmc's model, every called bin taken as bin_size bases, so that the
+    # exact and fq2psmcfa routes fit identically and the rescaled routes
+    # correct that model; psmc-rs's default, auto, fits each bin of the VCF
+    # and multihetsep routes by its callable bases instead
+    # (docs/design/bin-callable-model.md).
+    bin_callable: str = "ignore"
 
 
 # --- E4: how its steps run, beyond the design in E4 above --------------------

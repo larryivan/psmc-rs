@@ -1,6 +1,10 @@
 use psmc_rs::PsmcModel;
+use psmc_rs::io::CallableSummary;
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, load};
-use psmc_rs::io::params::{InputSummary, PsmcParamsFile, RunMetadata, load_params, save_params};
+use psmc_rs::io::params::{
+    BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary, PsmcParamsFile, RunMetadata,
+    load_params, save_params,
+};
 use serde_json::Value;
 use std::fs;
 use std::path::PathBuf;
@@ -73,6 +77,18 @@ fn run_metadata_round_trips_at_the_top_level() {
                 dropped_sequences: 2,
             }),
             qc: None,
+            bin_callable: Some(BinCallableRecord {
+                mode: "auto".to_string(),
+                model: CALLABLE_LENGTH_MODEL.to_string(),
+                counts: Some("exact".to_string()),
+                callable: Some(CallableSummary {
+                    bin_size: 50,
+                    called_bins: 218,
+                    partial_bins: 31,
+                    mean_fraction: 0.9612,
+                    histogram: [1, 0, 2, 3, 0, 5, 7, 6, 7, 187],
+                }),
+            }),
         },
         ..PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into()))
             .unwrap()
@@ -86,6 +102,18 @@ fn run_metadata_round_trips_at_the_top_level() {
     assert_eq!(v["final_loglike"], -1234.5678901234567);
     assert_eq!(v["n_iter"], 2);
     assert_eq!(v["input"]["vcf_mode"], "consensus");
+    assert_eq!(v["bin_callable"]["model"], "callable-length");
+    assert_eq!(v["bin_callable"]["callable"]["partial_bins"], 31);
+    assert_eq!(
+        params
+            .run
+            .bin_callable
+            .as_ref()
+            .unwrap()
+            .psmc_line()
+            .unwrap(),
+        "bin_model:callable-length, counts:exact, mean_callable:0.961200, partial_bins:0.142202"
+    );
     assert!(v.get("qc").is_none(), "unknown fields are left out");
     let _ = fs::remove_file(path);
 }

@@ -10,16 +10,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::bootstrap::{
     BootstrapConfig, BootstrapOptions, BootstrapSummary, InvalidReplicateStart,
-    bootstrap_trunk_count, default_bootstrap_dir, invalid_replicate_starts,
+    bootstrap_trunk_count, default_bootstrap_dir, invalid_replicate_starts_sequences,
     observations_to_sequences, run_bootstrap_sequences, summarize_bootstrap_models,
 };
 use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{
-    Cancelled, EStepOptions, EStepPhase, EStepProgress, log_likelihood_with_options,
-    write_tmrca_posterior_tsv,
+    Cancelled, EStepOptions, EStepPhase, EStepProgress, TmrcaOptions, log_likelihood_with_options,
+    write_tmrca_posterior_tsv_with_options,
 };
-use psmc_rs::io::input::Dataset;
-use psmc_rs::io::params::{InputSummary, load_params};
+use psmc_rs::io::input::{Dataset, SourceSummary};
+use psmc_rs::io::params::{
+    BinCallableRecord, CALLABLE_LENGTH_MODEL, FULL_BINS_MODEL, InputSummary, load_params,
+};
 use psmc_rs::io::{Observations, Sequences};
 use psmc_rs::model::NegativeTransitions;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
@@ -28,12 +30,12 @@ use psmc_rs::qc::{FitStart, QcReport, Severity, render_text};
 use psmc_rs::report::{
     BootstrapReport, ReportData, check_echarts_bundle, default_html_path, write_html_report,
 };
-use psmc_rs::{PsmcModel, initial_theta};
+use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
-use crate::cli::{InferArgs, model_layout, usage_bail};
+use crate::cli::{BinCallableArg, InferArgs, model_layout, usage_bail};
 use crate::dataset::{
-    describe, ensure_usable, ignored_options, layout_model, load_input, loader_warnings, qc_report,
-    resolve_input_path,
+    callable_summary, counts_source, describe, ensure_usable, ignored_options, layout_model,
+    load_input, loader_warnings, qc_report, resolve_input_path,
 };
 use crate::output::{
     BOOTSTRAP_SUMMARY_FILES, FitRecord, check_destinations, is_stdout, save_fit,
@@ -223,9 +225,16 @@ fn infer(
         bootstrap.as_ref(),
     )?;
     let mut data = read_input(&input_file, cli, sink)?;
-    // The command line does not fit the callable bases yet: C psmc's model
-    // throughout, the bootstrap included.
-    data.obs.callable = None;
+    // Whether the fit weighs each bin by its callable bases. Without, the
+    // counts go, so that every pass (theta0, EM, the bootstrap, the
+    // decoding) fits C psmc's model.
+    let bin_callable = bin_callable_record(&data, cli.bin_callable);
+    for event in bin_callable_events(&bin_callable, &data, cli) {
+        sink(event);
+    }
+    if bin_callable.model != CALLABLE_LENGTH_MODEL {
+        data.obs.callable = None;
+    }
     let data = data;
     let obs = &data.obs;
 
@@ -344,7 +353,7 @@ fn infer(
     // skips them.
     let invalid_replicates = match &boot {
         Some((_, seqs, _, cfg)) if saved_start.is_none() => {
-            invalid_replicate_starts(&seqs.bins, &model, cfg)?
+            invalid_replicate_starts_sequences(seqs, &model, cfg)?
         }
         _ => Vec::new(),
     };
@@ -396,6 +405,7 @@ fn infer(
         smooth_lambda: cli.smooth_lambda,
         input: &input_summary,
         qc: qc.as_ref(),
+        bin_callable: Some(&bin_callable),
     };
     save_fit(&output_file, &record)?;
     sink(Event::Output(format!(
@@ -413,7 +423,7 @@ fn infer(
         }
     }
     if let Some(path) = &cli.psmc_out {
-        write_main_psmc(path, &model, &history, &data)?;
+        write_main_psmc(path, &model, &history, &data, &bin_callable)?;
         sink(Event::Output(format!("PSMC output: {}", path.display())));
         if n_iter > 0 {
             sink(Event::Info(format!(
@@ -449,7 +459,8 @@ fn infer(
         // Each state's average coalescent time, the time of its emission
         // (C psmc's TC column).
         let tmrca_years = model.state_tmrca_years(bin_size, cli.gen_years);
-        let tmrca = write_tmrca_posterior_tsv(
+        // Decoded with the emissions the fit used, of each bin's count.
+        let tmrca = write_tmrca_posterior_tsv_with_options(
             model.prior_matrix(),
             model.transition_matrix(),
             model.emission_matrix(),
@@ -457,8 +468,11 @@ fn infer(
             &obs.row_starts,
             &tmrca_years,
             tmrca_out,
-            progress_bars,
-            20_000,
+            TmrcaOptions {
+                progress_bars,
+                max_points: 20_000,
+                callable: obs.callable.as_ref(),
+            },
         )?;
         sink(Event::Output(format!(
             "TMRCA posterior: {}",
@@ -492,6 +506,7 @@ fn infer(
         final_loglike,
         settings,
         qc: qc.as_ref(),
+        bin_callable: Some(&bin_callable),
         bootstrap: boot_summary.as_ref().zip(bootstrap.as_ref()).map(
             |((summary, trunks), plan)| BootstrapReport {
                 summary,
@@ -589,14 +604,85 @@ fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) 
     )
 }
 
-/// θ0 and ρ0 of a fresh start: `--theta0` or C psmc's -ln(1 - K/L) of the
-/// data, and `--rho0` or θ0 / `--tr-ratio`.
+/// θ0 and ρ0 of a fresh start: `--theta0` or θ0 of the data (C psmc's
+/// -ln(1 - K/L), per callable base when the fit uses the callable bases of
+/// each bin: [`initial_theta_with_callable`]), and `--rho0` or θ0 /
+/// `--tr-ratio`.
 fn start_rates(cli: &InferArgs, obs: &Observations) -> Result<(f64, f64)> {
     let theta0 = match cli.theta0 {
         Some(v) => v,
-        None => initial_theta(&obs.rows)?,
+        None => initial_theta_with_callable(&obs.rows, obs.callable.as_ref())?,
     };
     Ok((theta0, cli.rho0.unwrap_or(theta0 / cli.tr_ratio)))
+}
+
+/// How the fit of `data` uses the callable bases of its bins under
+/// `--bin-callable mode`: the callable-length model when the mode is `auto`
+/// and the data have counts (VCF and multihetsep), C psmc's model
+/// otherwise. The counts are summarised whether or not the fit uses them.
+fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecord {
+    let callable = callable_summary(data);
+    let counted = callable.is_some() && mode == BinCallableArg::Auto;
+    BinCallableRecord {
+        mode: mode.name().to_string(),
+        model: if counted {
+            CALLABLE_LENGTH_MODEL
+        } else {
+            FULL_BINS_MODEL
+        }
+        .to_string(),
+        counts: counts_source(data).map(str::to_string),
+        callable,
+    }
+}
+
+/// What the run says about the callable bases of `data`'s bins: what they
+/// hold and how the fit uses them, or that `--bin-callable ignore` changes
+/// nothing for input without counts.
+fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -> Vec<Event> {
+    let percent = |x: f64| format!("{:.1}%", 100.0 * x);
+    let s = cli.input.bin_size;
+    match (&b.callable, b.counts.as_deref()) {
+        (Some(c), Some(source)) => {
+            let how = if b.model == CALLABLE_LENGTH_MODEL {
+                "the fit weighs each called bin by its callable bases (--bin-callable auto)"
+                    .to_string()
+            } else {
+                format!(
+                    "the fit treats every called bin as {s} bases, as fq2psmcfa and C psmc do \
+                     (--bin-callable ignore)"
+                )
+            };
+            vec![Event::Info(format!(
+                "Callable bases ({source} counts): called bins hold {} of their {s} bases on \
+                 average, and {} of them fewer than {s}; {how}",
+                percent(c.mean_fraction),
+                percent(c.partial_fraction())
+            ))]
+        }
+        _ if cli.bin_callable == BinCallableArg::Ignore => {
+            let what = match &data.source {
+                SourceSummary::Psmcfa(_) => {
+                    "psmcfa input, which records no callable bases per bin".to_string()
+                }
+                _ => format!(
+                    "bins of {s} bases, whose callable bases are not counted (only bins of at \
+                     most {} bases are)",
+                    psmc_rs::io::MAX_COUNTED_BIN_SIZE
+                ),
+            };
+            vec![Event::Warning(format!(
+                "--bin-callable ignore changes nothing for {what}: every called bin is taken to \
+                 hold {s} bases, as C psmc takes them"
+            ))]
+        }
+        _ if !matches!(data.source, SourceSummary::Psmcfa(_)) => vec![Event::Info(format!(
+            "Callable bases are counted for bins of at most {} bases; bins of {s} are fitted as \
+             C psmc fits them, every called bin as {s} bases",
+            psmc_rs::io::MAX_COUNTED_BIN_SIZE
+        ))],
+        _ => Vec::new(),
+    }
 }
 
 /// The start of the fit, as QC checks it ([`FitStart`]): the saved
@@ -897,8 +983,9 @@ fn fit(
     Ok(history)
 }
 
-/// Log-likelihood of `model` on `obs`, by the forward pass with which EM
-/// evaluates the parameters it ends with.
+/// Log-likelihood of `model` on `obs` (with its callable bases when the fit
+/// uses them), by the forward pass with which EM evaluates the parameters
+/// it ends with.
 fn model_loglike(
     model: &PsmcModel,
     obs: &Observations,
@@ -918,6 +1005,7 @@ fn model_loglike(
         on_progress: Some(&mut on_progress),
         cancel: Some(cancel),
         thread_pool: Some(pool),
+        callable: obs.callable.as_ref(),
         ..EStepOptions::default()
     };
     log_likelihood_with_options(

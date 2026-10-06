@@ -14,7 +14,7 @@ use psmc_rs::bootstrap::{
 };
 use psmc_rs::em::EmHistory;
 use psmc_rs::io::input::{Dataset, SourceSummary};
-use psmc_rs::io::params::{InputSummary, RunMetadata, save_params};
+use psmc_rs::io::params::{BinCallableRecord, InputSummary, RunMetadata, save_params};
 use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 use psmc_rs::qc::QcReport;
 
@@ -41,6 +41,8 @@ pub struct FitRecord<'a> {
     pub input: &'a InputSummary,
     /// The input QC report, when it could be made.
     pub qc: Option<&'a QcReport>,
+    /// How the fit used the callable bases of each bin.
+    pub bin_callable: Option<&'a BinCallableRecord>,
 }
 
 /// The log-likelihood after each number of EM iterations, from the start
@@ -65,22 +67,26 @@ pub fn save_fit(path: &Path, fit: &FitRecord) -> Result<()> {
         smooth_lambda: Some(fit.smooth_lambda),
         input: Some(fit.input.clone()),
         qc: fit.qc.map(QcReport::summary),
+        bin_callable: fit.bin_callable.cloned(),
     };
     save_params(path, &params)
 }
 
-/// Write the main fit as C psmc's `.psmc` output.
+/// Write the main fit as C psmc's `.psmc` output, with an `MM` line saying
+/// how it used the callable bases of each bin when the input has them.
 pub fn write_main_psmc(
     path: &Path,
     model: &PsmcModel,
     history: &EmHistory,
     data: &Dataset,
+    bin_callable: &BinCallableRecord,
 ) -> Result<()> {
     let mut info = PsmcRunInfo::from_history(model, history, &data.obs.rows, &data.obs.row_starts)?;
     // C psmc counts the empty records of a psmcfa file in n_seqs.
     if let SourceSummary::Psmcfa(p) = &data.source {
         info.n_seqs = p.records;
     }
+    info.bin_callable = bin_callable.psmc_line();
     let rounds = psmc_rounds(model, history, info.sum_l)?;
     let file =
         File::create(path).with_context(|| format!("failed to create {}", path.display()))?;

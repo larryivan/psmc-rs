@@ -5,13 +5,14 @@ use anyhow::{Context, Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use psmc_rs::io::CallableSummary;
 use psmc_rs::io::consensus::{DepthThresholds, LossReason};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
     QcReport, QcSeq, try_analyze,
 };
-use psmc_rs::{PsmcModel, initial_theta};
+use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
 use crate::cli::{DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout};
 
@@ -36,12 +37,32 @@ pub fn layout_model(
     PsmcModel::new(t_max, n_steps, RATE, RATE, mu, pattern)
 }
 
+/// How the callable bases of `data`'s bins were counted: exactly from a VCF,
+/// or approximately from multihetsep (whose uncalled sites are placed at the
+/// start of each interval); `None` when the data have no counts (psmcfa,
+/// or bins too large to count).
+pub fn counts_source(data: &Dataset) -> Option<&'static str> {
+    data.obs.callable.as_ref()?;
+    match &data.source {
+        SourceSummary::Vcf(_) => Some("exact"),
+        SourceSummary::Mhs(_) => Some("approximate"),
+        SourceSummary::Psmcfa(_) => None,
+    }
+}
+
+/// What the callable bases of `data`'s called bins hold, when it has them.
+pub fn callable_summary(data: &Dataset) -> Option<CallableSummary> {
+    let callable = data.obs.callable.as_ref()?;
+    Some(CallableSummary::of(&data.obs.rows, callable))
+}
+
 /// The start of a fit of `data` with the default settings (C psmc's: θ0
-/// from the data, ρ0 = θ0 / 4, t_max 15, pattern `4+5*3+4`), which `qc` and
-/// `convert` check having no fit of their own; `None` when the data give no
-/// θ0.
+/// from the data, ρ0 = θ0 / 4, t_max 15, pattern `4+5*3+4`, and the
+/// callable bases of the bins when the data have them, as `--bin-callable
+/// auto` fits them), which `qc` and `convert` check having no fit of their
+/// own; `None` when the data give no θ0.
 pub fn default_start(data: &Dataset) -> Option<FitStart> {
-    let theta0 = initial_theta(&data.obs.rows).ok()?;
+    let theta0 = initial_theta_with_callable(&data.obs.rows, data.obs.callable.as_ref()).ok()?;
     let (n_steps, pattern) = model_layout(None, None).ok()?;
     let layout = layout_model(DEFAULT_T_MAX, n_steps, pattern, DEFAULT_MU).ok()?;
     Some(FitStart::new(

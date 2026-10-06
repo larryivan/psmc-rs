@@ -4,7 +4,10 @@
 use psmc_rs::PsmcModel;
 use psmc_rs::bootstrap::{BootstrapCurvePoint, BootstrapSummary};
 use psmc_rs::hmm::TmrcaReportData;
-use psmc_rs::io::params::InputSummary;
+use psmc_rs::io::CallableSummary;
+use psmc_rs::io::params::{
+    BinCallableRecord, CALLABLE_LENGTH_MODEL, FULL_BINS_MODEL, InputSummary,
+};
 use psmc_rs::qc::{QcContext, QcInput, QcSeq, analyze};
 use psmc_rs::report::{BootstrapReport, ReportData, write_html_report};
 use serde_json::Value;
@@ -36,9 +39,51 @@ fn base<'a>(m: &'a PsmcModel) -> ReportData<'a> {
         final_loglike: Some(-12345.678901),
         settings: vec![("theta/rho at start".to_string(), "4".to_string())],
         qc: None,
+        bin_callable: None,
         bootstrap: None,
         tmrca: None,
     }
+}
+
+/// The report says which emission model the fit used and what the counts
+/// of callable bases held.
+#[test]
+fn the_report_shows_how_the_fit_used_the_callable_bases() {
+    let m = model();
+    let mut record = BinCallableRecord {
+        mode: "auto".to_string(),
+        model: CALLABLE_LENGTH_MODEL.to_string(),
+        counts: Some("exact".to_string()),
+        callable: Some(CallableSummary {
+            bin_size: 100,
+            called_bins: 1000,
+            partial_bins: 850,
+            mean_fraction: 0.7012,
+            histogram: [0, 5, 10, 40, 100, 200, 250, 200, 45, 150],
+        }),
+    };
+    let html = render(&ReportData {
+        bin_callable: Some(&record),
+        ..base(&m)
+    });
+    assert!(html.contains(
+        "<tr><th>Bin model</th><td>each called bin by its callable bases (callable-length \
+         model); --bin-callable auto</td></tr>"
+    ));
+    assert!(html.contains(
+        "<tr><th>Callable bases of called bins</th><td>70.1% on average; 85.0% of called bins \
+         partly callable (counts exact)</td></tr>"
+    ));
+    record.mode = "ignore".to_string();
+    record.model = FULL_BINS_MODEL.to_string();
+    let html = render(&ReportData {
+        bin_callable: Some(&record),
+        ..base(&m)
+    });
+    assert!(html.contains(
+        "every called bin as the bin size in bases (C psmc&#39;s model); --bin-callable ignore"
+    ));
+    assert!(html.contains("70.1% on average"));
 }
 
 fn render(data: &ReportData) -> String {

@@ -41,6 +41,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 
 use anyhow::{Result, bail};
+use serde::{Deserialize, Serialize};
 
 use crate::io::{Observations, Sequences};
 
@@ -719,6 +720,77 @@ impl CallableBases {
     pub fn heap_bytes(&self) -> usize {
         self.rows.capacity() * size_of::<BinCounts>()
             + self.rows.iter().map(BinCounts::heap_bytes).sum::<usize>()
+    }
+}
+
+/// How much of its called bins an input's counts say is callable: the bias
+/// that treating every called bin as full would cause (theta, times and Ne
+/// low by about `1 - mean_fraction`), and what the callable-length model
+/// corrects for. See [`CallableSummary::of`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallableSummary {
+    /// Bases per bin, `s`.
+    pub bin_size: usize,
+    /// Called (`T` or `K`) bins.
+    pub called_bins: u64,
+    /// Called bins with fewer than `s` callable bases.
+    pub partial_bins: u64,
+    /// The mean share of callable bases over the called bins, `sum c / (s
+    /// * called_bins)`: the effective bin length over `s` (1 for complete
+    ///   data; 0 without called bins).
+    pub mean_fraction: f64,
+    /// Called bins by their share of callable bases, in tenths: entry `i`
+    /// for `i` from 0 to 8 counts the partly callable bins with `c / s` in
+    /// `[(i + 1) / 10, (i + 2) / 10)`, and entry 9 the full bins. A called
+    /// bin holds at least a tenth of its bases callable.
+    pub histogram: [u64; 10],
+}
+
+impl CallableSummary {
+    /// The summary of `rows` (symbols 0 `T`, 1 `K`, 2 `N`) with their
+    /// callable bases, row for row. Bins whose count is above the bin size,
+    /// or called with less than a tenth of it, count in the nearest class.
+    pub fn of(rows: &[Vec<u8>], callable: &CallableBases) -> Self {
+        let s = callable.bin_size();
+        let mut histogram = [0u64; 10];
+        let (mut called, mut partial, mut sum) = (0u64, 0u64, 0u64);
+        for (row, counts) in rows.iter().zip(callable.rows()) {
+            for (&v, c) in row.iter().zip(counts) {
+                if v >= 2 {
+                    continue;
+                }
+                let c = usize::from(c).min(s);
+                called += 1;
+                sum += c as u64;
+                if c == s {
+                    histogram[9] += 1;
+                } else {
+                    partial += 1;
+                    histogram[((10 * c) / s).clamp(1, 9) - 1] += 1;
+                }
+            }
+        }
+        Self {
+            bin_size: s,
+            called_bins: called,
+            partial_bins: partial,
+            mean_fraction: if called == 0 {
+                0.0
+            } else {
+                sum as f64 / (s as f64 * called as f64)
+            },
+            histogram,
+        }
+    }
+
+    /// The share of called bins that are partly callable (0 without called
+    /// bins).
+    pub fn partial_fraction(&self) -> f64 {
+        if self.called_bins == 0 {
+            0.0
+        } else {
+            self.partial_bins as f64 / self.called_bins as f64
+        }
     }
 }
 

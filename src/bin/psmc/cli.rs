@@ -115,6 +115,27 @@ impl VcfModeArg {
     }
 }
 
+/// `--bin-callable`.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
+pub enum BinCallableArg {
+    /// Fit each called bin by its callable bases when the input records
+    /// them (VCF and multihetsep)
+    #[default]
+    Auto,
+    /// Treat every called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do
+    Ignore,
+}
+
+impl BinCallableArg {
+    /// The name on the command line.
+    pub fn name(self) -> &'static str {
+        match self {
+            BinCallableArg::Auto => "auto",
+            BinCallableArg::Ignore => "ignore",
+        }
+    }
+}
+
 /// A positive integer.
 fn positive_usize(s: &str) -> Result<usize, String> {
     match s.parse::<usize>() {
@@ -694,6 +715,16 @@ pub struct InferArgs {
     #[arg(long, default_value = "2.5e-8", value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
+    /// How to model bins that are partly callable. VCF and multihetsep
+    /// input record how many bases of each bin are callable: auto fits each
+    /// called bin by them (a bin of c callable bases emits as c of BIN_SIZE
+    /// bases), so that missing data scattered in short runs do not bias
+    /// theta, times and Ne low; ignore treats every called bin as BIN_SIZE
+    /// bases, as fq2psmcfa and C psmc do. psmcfa input records no counts
+    /// and is fitted as C psmc fits it either way
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = BinCallableArg::Auto, help_heading = "Model")]
+    pub bin_callable: BinCallableArg,
+
     /// Cap on the L-BFGS iterations of an M-step, which otherwise runs to
     /// convergence, as C psmc's does (in 10 to 20 iterations with C psmc's
     /// patterns, up to about 70 with one lambda per interval)
@@ -816,6 +847,9 @@ impl InferArgs {
         }
         if self.mu != DEFAULT_MU {
             push("--mu", self.mu.to_string());
+        }
+        if self.bin_callable != BinCallableArg::Auto {
+            push("--bin-callable", self.bin_callable.name().to_string());
         }
         if self.mstep_iters != DEFAULT_MSTEP_ITERS {
             push("--mstep-iters", self.mstep_iters.to_string());
@@ -1017,6 +1051,11 @@ mod tests {
         );
         // QC's messages about a default start name the same ratio.
         assert_eq!(DEFAULT_TR_RATIO, psmc_rs::qc::DEFAULT_TR_RATIO);
+        // The callable bases of each bin are fitted when the input has them.
+        assert_eq!(args.bin_callable, BinCallableArg::Auto);
+        let ignore = parse(["psmc-rs", "in", "out", "1", "--bin-callable", "ignore"]).unwrap();
+        assert_eq!(ignore.bin_callable, BinCallableArg::Ignore);
+        assert!(parse(["psmc-rs", "in", "out", "1", "--bin-callable", "x"]).is_err());
     }
 
     #[test]
@@ -1213,6 +1252,8 @@ mod tests {
             "0.002",
             "--mu",
             "1.25e-8",
+            "--bin-callable",
+            "ignore",
             "--mstep-iters",
             "300",
             "--smooth-lambda",
