@@ -105,5 +105,41 @@ class ProjectedTruth(unittest.TestCase):
         self.assertEqual(metrics.rmse_vs_projected_truth(proj, proj, grid), 0.0)
 
 
+@unittest.skipUnless(importlib.util.find_spec("numpy") is not None, "numpy not installed")
+class IntervalDiff(unittest.TestCase):
+    """Two fits of the same pattern compared interval by interval."""
+
+    def test_a_hair_between_the_boundaries_is_not_a_difference(self):
+        # The same sizes on boundaries 1e-4 apart (another N0): a time between
+        # them reads a whole step of 1 in log10 Ne at fixed times, nothing here.
+        c = Curve((0.0, 100.0, 1000.0), (1e3, 1e4, 1e3))
+        rs = Curve((0.0, 100.01, 1000.1), (1e3, 1e4, 1e3))
+        grid = [50.0, 100.005, 500.0, 1000.05, 5000.0]
+        self.assertGreater(metrics.rmse_between(rs, c, grid), 0.4)
+        d = metrics.interval_diff(rs, c, (50.0, 5000.0))
+        self.assertEqual((d.rmse, d.max_abs, d.max_abs_any), (0.0, 0.0, 0.0))
+
+    def test_intervals_weigh_by_their_log_time_inside_the_window(self):
+        c = Curve((0.0, 10.0, 100.0, 1000.0), (1.0, 1.0, 1.0, 1.0))
+        rs = Curve((0.0, 10.0, 100.0, 1000.0), (1e6, 10.0, 1.0, 100.0))
+        d = metrics.interval_diff(rs, c, (10.0, 1e4))
+        # Interval 0 ends at the window's start; interval 3 is cut at 1e4.
+        self.assertEqual(d.interval, (1, 2, 3))
+        for w, want in zip(d.weight, (math.log(10), math.log(10), math.log(10))):
+            self.assertAlmostEqual(w, want)
+        self.assertAlmostEqual(d.rmse, math.sqrt((1.0 + 0.0 + 4.0) / 3))
+        self.assertEqual(d.max_abs, 2.0)
+        self.assertEqual(d.max_abs_any, 6.0)  # the first interval, outside the window
+        half = metrics.interval_diff(rs, c, (10.0, 1000.0 * math.sqrt(10)))
+        self.assertAlmostEqual(half.rmse, math.sqrt((1.0 + 0.0 + 0.5 * 4.0) / 2.5))
+        self.assertAlmostEqual(metrics.interval_rmse(rs, c, (10.0, 1e4)), d.rmse)
+
+    def test_the_curves_need_the_same_intervals(self):
+        with self.assertRaises(ValueError):
+            metrics.interval_diff(Curve((0.0, 1.0), (1.0, 2.0)), Curve((0.0,), (1.0,)), (0.5, 2.0))
+        with self.assertRaises(ValueError):
+            metrics.interval_diff(Curve((0.0, 1.0), (1.0, 2.0)), Curve((0.0, 1.0), (1.0, 2.0)), (0.0, 2.0))
+
+
 if __name__ == "__main__":
     unittest.main()
