@@ -431,21 +431,27 @@ replicate would equal the input; with fewer than 20 trunks the run warns
 that the bands are coarse. Pick a trunk size that leaves a few dozen trunks
 (`psmc-rs qc INPUT --bootstrap-block-size BINS` counts them).
 
-**Read the bands as a lower bound on the uncertainty.**
-`examples/bootstrap_calibration.rs` simulates 40 sequences of 10,000 bins
-from a known `4+5*3+4` model and fits them with psmc-rs's default start and
-objective (θ0/4, no smoothing) for 20 EM iterations; `cargo run --release
---example bootstrap_calibration` takes about 5 minutes on 4 threads. There
-the bootstrap standard deviation of log10 Ne was a median 0.85 of the true
-sampling standard deviation with 500,000-bin trunks (here, whole sequences)
-and 0.91 with 1,000-bin trunks, below it at 62% to 63% of time points, 0.74
-to 0.78 at the oldest times, and 0.68 to 1.03 between datasets. The fits'
-median bias (0.094 in log10 Ne, a third of the true standard deviation) does
-not show in the band at all. Measured by the interquartile range instead,
-which a few runaway fits do not drive, the bootstrap spread was a median
-1.01 (whole sequences) and 1.08 (1,000-bin trunks) of the true one, and at
-the most recent times whole-sequence trunks gave a band 1.24 times as wide
-as the true spread.
+**Read the bands as a lower bound on the uncertainty, and not as an
+interval for the true history.** The manuscript's experiment E5
+([experiment/pipeline/README.md](experiment/pipeline/README.md#e5-bootstrap-calibration))
+bootstrapped 10 simulated 300 Mb genomes of a bottleneck model (6
+chromosomes of 50 Mb, 50 replicates each, `-N25 -t15 -r5 -p 4+25*2+4+6`)
+and compared each band with the spread of 50 independent fits of the
+model, at 200 times of its informative window (`E5_summary.csv`). The
+bootstrap standard deviation of log10 Ne was a median 0.84 of the true
+sampling standard deviation with the default 50 Mb trunks (one per
+chromosome) and 0.93 with 5 Mb trunks, below it at 84% and 67% of the
+times. The 95% bands held the true Ne at only 37.2% (50 Mb trunks) and
+43.0% (5 Mb) of the times, averaged over the genomes, while they held the
+mean of the 50 fits at 82.7% and 91.8%: most of the shortfall is PSMC's
+bias, which a bootstrap cannot see (its median, 0.061 in log10 Ne, is 2.2
+times the true standard deviation, 0.028), at the bottleneck and the size
+changes above all. Part of that bias is the pattern's, whose steps cannot
+follow the truth within a free λ's span: the bands held the truth averaged
+over each span at 44.4% and 50.5% of the times. A smaller version of the
+check, `cargo run --release --example bootstrap_calibration`
+(`examples/bootstrap_calibration.rs`: 40 sequences of 10,000 bins of a
+`4+5*3+4` model), runs in about 5 minutes on 4 threads.
 
 ### convert
 
