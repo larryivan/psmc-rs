@@ -115,6 +115,7 @@ fn qc(spec: &[(&str, usize, usize)]) -> QcReport {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     })
 }
 

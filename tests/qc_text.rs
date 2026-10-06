@@ -60,6 +60,7 @@ fn report() -> QcReport {
             }],
             ..QcContext::default()
         },
+        callable: None,
     })
 }
 
@@ -134,6 +135,7 @@ fn called_length_shows_the_uncalled_site_share() {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     });
     let text = render_text(&r);
     let line = text.lines().find(|l| l.contains("Called length")).unwrap();
@@ -214,6 +216,7 @@ fn table_rows_prefer_named_sequences() {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     });
     let text = render_text_with(
         &r,
@@ -269,6 +272,7 @@ fn reports_without_findings_or_data_render() {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     });
     let text = render_text(&empty);
     assert!(text.starts_with("Input QC: 0 sequences, 0 bins of 100 bp\n"));

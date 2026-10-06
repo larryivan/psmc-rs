@@ -30,6 +30,7 @@
 //!         input_format: Some("psmcfa".to_string()),
 //!         ..QcContext::default()
 //!     },
+//!     callable: None,
 //! });
 //! assert_eq!(report.totals.k_bins, 2);
 //! assert_eq!(report.sequences[0].stats.longest_missing_run_bins, 2);
@@ -44,7 +45,8 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::ops::Range;
 
-use crate::model::PsmcModel;
+use crate::io::{BinCounts, CallableBases, CallableSummary};
+use crate::model::{PsmcModel, ThetaCounts};
 
 mod checks;
 pub(crate) mod fmt;
@@ -52,11 +54,13 @@ mod names;
 mod stats;
 mod text;
 
+pub(crate) use checks::callable_distribution;
 pub use checks::{
     Finding, HEMIZYGOUS_MAX_RATIO, HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS,
     HET_OUTLIER_MIN_FOLD, HET_OUTLIER_MIN_SEQUENCES, HIGH_MISSING_INFO_FRACTION,
     HIGH_MISSING_WARN_FRACTION, MAX_FILTER_FRACTION, MIN_CALLED_BASES, MIN_HET_BINS,
-    MIN_MEAN_DEPTH, QcCode, REFERENCE_MIN_CALLED_BASES, SHORT_SEQUENCES_MAX_FRACTION, Severity,
+    MIN_MEAN_DEPTH, PARTLY_CALLABLE_NOTE_FRACTION, PARTLY_CALLABLE_WARN_MEAN, QcCode,
+    REFERENCE_MIN_CALLED_BASES, SHORT_SEQUENCES_MAX_FRACTION, Severity,
 };
 pub use names::{SeqKind, classify_name};
 pub use text::{TextOptions, render_text, render_text_with};
@@ -203,6 +207,11 @@ pub struct QcContext {
     pub free_lambdas: Option<usize>,
     /// The starting model of the fit, when known ([`QcCode::InvalidStart`]).
     pub start: Option<FitStart>,
+    /// The fit treats every called bin as `bin_size` bases although the
+    /// input records their callable bases (`--bin-callable ignore`): QC
+    /// then warns about the bias that causes ([`QcCode::PartlyCallableBins`]).
+    /// False by default, as for a fit with `--bin-callable auto`.
+    pub counts_ignored: bool,
 }
 
 /// The starting model of a fit, as [`QcCode::InvalidStart`] checks it: its
@@ -315,6 +324,12 @@ pub struct QcInput<'a> {
     pub bootstrap_trunk_bins: usize,
     /// Facts about how the input was read.
     pub context: QcContext,
+    /// The callable bases of each bin, row for row, when the input records
+    /// them (VCF and multihetsep): QC then reports how much of the called
+    /// bins is callable ([`QcReport::callable`],
+    /// [`QcCode::PartlyCallableBins`]) and compares the heterozygosity of
+    /// sequences per callable base ([`BinStats::theta0_callable`]).
+    pub callable: Option<&'a CallableBases>,
 }
 
 /// Bin counts and derived metrics of one sequence or of several.
@@ -339,6 +354,22 @@ pub struct BinStats {
     /// θ0 per bin, `-ln(1 - K/(T+K))`, as C psmc starts from
     /// ([`theta0_per_bin`]).
     pub theta0_per_bin: Option<f64>,
+    /// With callable bases, θ0 per bin of `bin_size` callable bases, as a
+    /// fit with them starts from ([`crate::model::ThetaCounts::theta0`]):
+    /// unlike `theta0_per_bin` it does not fall with the share of missing
+    /// bases in called bins, so QC compares sequences by it.
+    pub theta0_callable: Option<f64>,
+    /// With callable bases, the mean share of callable bases of the called
+    /// bins.
+    pub mean_callable_fraction: Option<f64>,
+    /// With callable bases, the share of called bins that hold fewer than
+    /// `bin_size` callable bases.
+    pub partly_callable_fraction: Option<f64>,
+    /// Called bins next to a missing (`N`) bin, at the edges of runs of
+    /// missing data, where called bins usually hold fewer than `bin_size`
+    /// callable bases: a lower bound on the partly callable bins of input
+    /// that does not record callable bases (psmcfa).
+    pub called_next_to_missing: u64,
     /// θ0 per base pair: `theta0_per_bin / bin_size`.
     pub theta_per_bp: Option<f64>,
     /// `theta_per_bp` per kilobase, i.e. heterozygous sites per kb.
@@ -364,6 +395,26 @@ pub struct BinStats {
     pub length_bases: u64,
     /// Longest run of consecutive `N` bins within one sequence.
     pub longest_missing_run_bins: u64,
+}
+
+impl BinStats {
+    /// The θ0 by which QC compares the heterozygosity of sequences: per
+    /// callable base when the input records callable bases
+    /// ([`BinStats::theta0_callable`]), so that sequences with more missing
+    /// data do not look less heterozygous, and C psmc's otherwise.
+    pub fn theta0_comparable(&self) -> Option<f64> {
+        self.theta0_callable.or(self.theta0_per_bin)
+    }
+
+    /// Heterozygous sites per kb of [`BinStats::theta0_comparable`]: per
+    /// callable base when the input records callable bases, else
+    /// [`BinStats::het_per_kb`].
+    pub fn het_per_kb_comparable(&self) -> Option<f64> {
+        match (self.theta0_callable, self.theta0_per_bin, self.het_per_kb) {
+            (Some(c), Some(t), Some(h)) if t > 0.0 => Some(h * (c / t)),
+            _ => self.het_per_kb,
+        }
+    }
 }
 
 /// How many sequences, and how many bins, lie below a length limit.
@@ -552,10 +603,13 @@ pub enum ReferenceMethod {
 }
 
 /// The heterozygosity sequences are compared with: that of the sequences not
-/// named like sex chromosomes or organelles ([`classify_name`]).
+/// named like sex chromosomes or organelles ([`classify_name`]). With
+/// callable bases ([`QcInput::callable`]) it is per callable base
+/// ([`BinStats::theta0_comparable`]), so that sequences with more missing
+/// data compare fairly.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HetReference {
-    /// θ0 per bin.
+    /// θ0 per bin (of `bin_size` callable bases, with callable bases).
     pub theta0_per_bin: f64,
     /// The same per kb.
     pub het_per_kb: f64,
@@ -610,6 +664,10 @@ pub struct QcReport {
     pub lengths: LengthStats,
     /// Longest run of `N` bins; `None` when no bin is missing.
     pub longest_missing_run: Option<MissingRun>,
+    /// How much of the called bins is callable, when the input records the
+    /// callable bases of each bin ([`QcInput::callable`]): their mean share
+    /// and distribution.
+    pub callable: Option<CallableSummary>,
     /// Bin saturation of the whole input; `None` when no bin is called.
     pub saturation: Option<Saturation>,
     /// Heterozygosity of the sequences not named like sex chromosomes or
@@ -705,11 +763,17 @@ struct Counts {
     t: u64,
     k: u64,
     n: u64,
+    /// Called bins next to an `N` bin.
+    next_to_missing: u64,
     longest_run: u64,
     longest_run_start: u64,
     length_bases: u64,
     called_bases: Option<u64>,
     het_sites: Option<u64>,
+    /// With callable bases: what θ0 per callable base is estimated from,
+    /// and the callable bases of the called bins, summed.
+    theta: Option<ThetaCounts>,
+    callable_sum: u64,
 }
 
 impl Counts {
@@ -717,15 +781,23 @@ impl Counts {
         self.t + self.k + self.n
     }
 
-    /// Count the bins of one sequence, held in `rows`.
-    fn scan(rows: &[Vec<u8>]) -> Self {
+    /// Count the bins of one sequence, held in `rows`, with their callable
+    /// bases `counts` (row for row) when the input records them.
+    fn scan(rows: &[Vec<u8>], counts: Option<&[BinCounts]>) -> Result<Self> {
         let mut c = [0u64; 3];
         let (mut run, mut best, mut best_end) = (0u64, 0u64, 0u64);
         let mut pos = 0u64;
+        let (mut next_to_missing, mut prev, mut prev_counted) = (0u64, None, false);
         for row in rows {
             for &b in row {
-                let class = usize::from(b.min(2));
-                c[class] += 1;
+                let class = b.min(2);
+                c[usize::from(class)] += 1;
+                // A called bin after an N, and one before an N not counted yet.
+                let counted = class != 2 && prev == Some(2);
+                if counted || (class == 2 && prev.is_some_and(|p| p != 2) && !prev_counted) {
+                    next_to_missing += 1;
+                }
+                (prev, prev_counted) = (Some(class), counted);
                 if class == 2 {
                     run += 1;
                     if run > best {
@@ -738,14 +810,36 @@ impl Counts {
                 pos += 1;
             }
         }
-        Self {
+        let mut out = Self {
             t: c[0],
             k: c[1],
             n: c[2],
+            next_to_missing,
             longest_run: best,
             longest_run_start: if best > 0 { best_end + 1 - best } else { 0 },
             ..Self::default()
+        };
+        if let Some(counts) = counts {
+            if counts.len() != rows.len() {
+                bail!(
+                    "QC: callable bases for {} rows, but the sequence has {}",
+                    counts.len(),
+                    rows.len()
+                );
+            }
+            let mut theta = ThetaCounts::new(counts.first().map(BinCounts::bin_size));
+            for (row, cs) in rows.iter().zip(counts) {
+                theta.add(&ThetaCounts::of_counted(row, cs)?);
+            }
+            out.callable_sum = theta
+                .called_by_count
+                .iter()
+                .enumerate()
+                .map(|(c, &n)| c as u64 * n)
+                .sum();
+            out.theta = Some(theta);
         }
+        Ok(out)
     }
 
     /// Add `other` (a further sequence) to these totals.
@@ -753,6 +847,7 @@ impl Counts {
         self.t += other.t;
         self.k += other.k;
         self.n += other.n;
+        self.next_to_missing += other.next_to_missing;
         self.longest_run = self.longest_run.max(other.longest_run);
         self.length_bases += other.length_bases;
         self.called_bases = self
@@ -760,6 +855,12 @@ impl Counts {
             .zip(other.called_bases)
             .map(|(a, b)| a + b);
         self.het_sites = self.het_sites.zip(other.het_sites).map(|(a, b)| a + b);
+        match (&mut self.theta, &other.theta) {
+            (Some(a), Some(b)) => a.add(b),
+            (a @ None, Some(b)) => *a = Some(b.clone()),
+            _ => {}
+        }
+        self.callable_sum += other.callable_sum;
     }
 
     /// Neutral start for [`Counts::add`].
@@ -791,6 +892,18 @@ impl Counts {
             .called_bases
             .filter(|_| self.length_bases > 0)
             .map(|c| (1.0 - c as f64 / self.length_bases as f64).max(0.0));
+        let counted = self.theta.as_ref().filter(|_| called > 0);
+        let (mean_callable, partly) = match counted {
+            Some(theta) => {
+                let s = theta.called_by_count.len() - 1;
+                let full = theta.called_by_count[s];
+                (
+                    Some(self.callable_sum as f64 / (s as f64 * called as f64)),
+                    Some((called - full) as f64 / called as f64),
+                )
+            }
+            None => (None, None),
+        };
         BinStats {
             bins,
             t_bins: self.t,
@@ -801,6 +914,10 @@ impl Counts {
             missing_fraction: frac(self.n),
             het_bin_fraction: (called > 0).then(|| self.k as f64 / called as f64),
             theta0_per_bin: theta0,
+            theta0_callable: counted.and_then(|t| t.theta0().ok()),
+            mean_callable_fraction: mean_callable,
+            partly_callable_fraction: partly,
+            called_next_to_missing: self.next_to_missing,
             theta_per_bp: theta_bp,
             het_per_kb: theta_bp.map(|t| 1000.0 * t),
             called_bases_from_bins: called * bin_size as u64,
@@ -914,19 +1031,35 @@ pub fn analyze(input: &QcInput) -> QcReport {
 pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
     let spans = spans(input)?;
     let bin_size = input.bin_size;
+    if let Some(c) = input.callable {
+        if c.rows().len() != input.rows.len() {
+            bail!(
+                "QC: callable bases for {} rows, but there are {} rows of bins",
+                c.rows().len(),
+                input.rows.len()
+            );
+        }
+        if c.bin_size() != bin_size {
+            bail!(
+                "QC: callable bases of bins of {} bases, for bins of {bin_size}",
+                c.bin_size()
+            );
+        }
+    }
     let counts: Vec<Counts> = spans
         .iter()
-        .map(|span| {
-            let mut c = Counts::scan(&input.rows[span.rows.clone()]);
+        .map(|span| -> Result<Counts> {
+            let callable = input.callable.map(|c| &c.rows()[span.rows.clone()]);
+            let mut c = Counts::scan(&input.rows[span.rows.clone()], callable)?;
             let seq = span.seq;
             c.length_bases = seq
                 .and_then(|s| s.extent_bases)
                 .unwrap_or(c.bins() * bin_size as u64);
             c.called_bases = seq.and_then(|s| s.called_bases);
             c.het_sites = seq.and_then(|s| s.het_sites);
-            c
+            Ok(c)
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     let mut total = Counts::empty_total();
     counts.iter().for_each(|c| total.add(c));
@@ -974,7 +1107,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
             stats: c.stats(bin_size),
         })
         .collect();
-    let het_reference = het_reference(&infos, bin_size);
+    let het_reference = het_reference(&infos, &counts, bin_size);
 
     let mut report = QcReport {
         input_format: input.context.input_format.clone(),
@@ -985,6 +1118,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         totals,
         lengths,
         longest_missing_run,
+        callable: input.callable.map(|c| CallableSummary::of(input.rows, c)),
         saturation,
         het_reference,
         depth: input.context.consensus.as_ref().map(DepthReport::new),
@@ -1009,7 +1143,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
                 kind: info.kind,
                 het_vs_reference: info
                     .stats
-                    .theta0_per_bin
+                    .theta0_comparable()
                     .zip(reference)
                     .filter(|&(_, r)| r > 0.0)
                     .map(|(t, r)| t / r),
@@ -1035,20 +1169,31 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
     Ok(report)
 }
 
-/// See [`HetReference`].
-fn het_reference(infos: &[SeqInfo], bin_size: usize) -> Option<HetReference> {
-    let autosomes = || infos.iter().filter(|s| s.kind.is_none());
+/// See [`HetReference`]. θ0 is per callable base when the input records
+/// callable bases ([`BinStats::theta0_comparable`]).
+fn het_reference(infos: &[SeqInfo], counts: &[Counts], bin_size: usize) -> Option<HetReference> {
+    let autosomes = || infos.iter().zip(counts).filter(|(s, _)| s.kind.is_none());
     let mut long: Vec<f64> = autosomes()
-        .filter(|s| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
-        .filter_map(|s| s.stats.theta0_per_bin)
+        .filter(|(s, _)| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
+        .filter_map(|(s, _)| s.stats.theta0_comparable())
         .collect();
     let (theta, sequences, method) = if long.is_empty() {
-        let (t, k, n) = autosomes()
-            .filter(|s| s.stats.t_bins + s.stats.k_bins > 0)
-            .fold((0, 0, 0), |(t, k, n), s| {
-                (t + s.stats.t_bins, k + s.stats.k_bins, n + 1)
-            });
-        (theta0_per_bin(t, k)?, n, ReferenceMethod::Pooled)
+        let (mut t, mut k, mut n) = (0, 0, 0);
+        let mut pooled: Option<ThetaCounts> = None;
+        for (s, c) in autosomes().filter(|(s, _)| s.stats.t_bins + s.stats.k_bins > 0) {
+            (t, k, n) = (t + s.stats.t_bins, k + s.stats.k_bins, n + 1);
+            if let Some(theta) = &c.theta {
+                match &mut pooled {
+                    Some(p) => p.add(theta),
+                    None => pooled = Some(theta.clone()),
+                }
+            }
+        }
+        let theta = match pooled {
+            Some(p) => p.theta0().ok()?,
+            None => theta0_per_bin(t, k)?,
+        };
+        (theta, n, ReferenceMethod::Pooled)
     } else {
         let n = long.len();
         (stats::median(&mut long), n, ReferenceMethod::Median)

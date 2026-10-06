@@ -40,6 +40,7 @@ fn qc(d: &Data, bin_size: usize, trunk: usize, context: QcContext) -> QcReport {
         bin_size,
         bootstrap_trunk_bins: trunk,
         context,
+        callable: None,
     })
 }
 
@@ -67,6 +68,7 @@ fn codes_serialise_to_their_stable_names() {
         [
             "INVALID_START",
             "VARIANTS_ONLY_NO_MASK",
+            "PARTLY_CALLABLE_BINS",
             "HIGH_MISSING",
             "BIN_SATURATION",
             "FEW_HETS",
@@ -235,8 +237,9 @@ fn high_missing_sees_uncalled_sites_scattered_over_called_bins() {
         "60.0% of sites are uncalled (80.0 Mb called) and 0.0% of bins are missing (N: more \
          than 90% of their sites uncalled). A bin is called when just 10% of its sites are, \
          so missing sites scattered along the genome leave partly called bins, which show \
-         fewer heterozygous sites and bias theta and Ne low; here the called bins imply 0.870 \
-         heterozygous sites per kb, against 2.08 per kb of called sites."
+         fewer heterozygous sites and bias theta and Ne low if they are treated as full bins; \
+         here the called bins imply 0.870 heterozygous sites per kb, against 2.08 per kb of \
+         called sites."
     );
     assert!(f.recommendation.contains("per-site filters"));
 }

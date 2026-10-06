@@ -270,6 +270,16 @@ fn auto_fits_partly_callable_bins_and_says_so() {
     assert!(b["callable"]["partial_bins"].as_u64().unwrap() > 20_000);
     assert_eq!(ignore["bin_callable"]["mode"], "ignore");
     assert_eq!(ignore["bin_callable"]["callable"], b["callable"]);
+    // QC notes the correction, and warns when the fit ignores the counts.
+    let has = |v: &Value, list: &str| {
+        v["qc"][list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "PARTLY_CALLABLE_BINS")
+    };
+    assert!(has(&auto, "notes") && !has(&auto, "warnings"));
+    assert!(has(&ignore, "warnings"));
     // Ignoring the missing bases takes them for absent heterozygosity.
     let (theta_auto, theta_ignore) = (
         auto["theta"].as_f64().unwrap(),

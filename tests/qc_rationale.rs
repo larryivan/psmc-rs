@@ -140,6 +140,7 @@ fn missing_sites_inside_called_bins_lower_theta() {
             bin_size: 100,
             bootstrap_trunk_bins: 0,
             context: QcContext::default(),
+            callable: None,
         })
         .totals
         .theta0_per_bin
@@ -175,6 +176,7 @@ fn missing_shares(runs: impl IntoIterator<Item = (u64, bool)>) -> (f64, f64) {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     })
     .totals;
     (t.uncalled_site_fraction.unwrap(), t.missing_fraction)
@@ -249,6 +251,7 @@ fn scattered_missing_sites_are_caught_by_the_site_count() {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     });
     let t = &r.totals;
     assert_eq!(t.missing_bins, 0);
@@ -298,6 +301,7 @@ fn variants_only_vcf_without_mask_lowers_theta() {
             bin_size: 100,
             bootstrap_trunk_bins: 0,
             context: QcContext::default(),
+            callable: None,
         });
         (r.totals.theta0_per_bin.unwrap(), r.totals.missing_fraction)
     };

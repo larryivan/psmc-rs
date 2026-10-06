@@ -202,6 +202,7 @@ fn qc_findings_and_metrics_are_listed() {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     });
     assert!(qc.has_warnings());
     let m = model();

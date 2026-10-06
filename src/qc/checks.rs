@@ -12,6 +12,7 @@ use super::{
     DEFAULT_TR_RATIO, QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, SeqInfo,
     largest_trunk_within,
 };
+use crate::io::CallableSummary;
 
 /// [`QcCode::Depth`] warns below this mean read depth (Nadachowska-Brzyska
 /// et al. 2016 recommend at least 18x for PSMC).
@@ -72,6 +73,16 @@ pub const HET_OUTLIER_MIN_FOLD: f64 = 1.5;
 /// [`REFERENCE_MIN_CALLED_BASES`], or the median and MAD mean little.
 pub const HET_OUTLIER_MIN_SEQUENCES: usize = 5;
 
+/// [`QcCode::PartlyCallableBins`] says nothing about counts of callable
+/// bases when fewer than this share of the called bins are partly callable.
+pub const PARTLY_CALLABLE_NOTE_FRACTION: f64 = 0.01;
+
+/// [`QcCode::PartlyCallableBins`] warns when the fit treats every called
+/// bin as full (`--bin-callable ignore`) and the called bins hold less than
+/// this share of their bases callable on average: θ, the times and Ne then
+/// come out more than 10% low.
+pub const PARTLY_CALLABLE_WARN_MEAN: f64 = 0.9;
+
 /// At most this many sequence names are listed in a message (all are in
 /// [`Finding::sequences`]).
 const MAX_LISTED: usize = 10;
@@ -119,6 +130,37 @@ pub enum QcCode {
     /// its own wording: positions no block covers are missing there, but
     /// reference blocks count as called whatever their depth and quality.
     VariantsOnlyNoMask,
+    /// Called bins hold fewer callable bases than the bin size (info, or a
+    /// warning when the fit ignores it and the called bins hold less than
+    /// [`PARTLY_CALLABLE_WARN_MEAN`] of their bases callable on average).
+    ///
+    /// `fq2psmcfa` calls a bin as soon as a tenth of its bases are callable,
+    /// and C psmc treats every called bin as the bin size `s` in bases. A
+    /// bin of `c` callable bases is less likely to show a heterozygous site
+    /// (`1 - exp(-θ (c / s) t)` instead of `1 - exp(-θ t)`), so with missing
+    /// data scattered in runs shorter than a bin, θ per bin, N0 = θ / (4 μ
+    /// s) and with them every time and every size come out low by about the
+    /// missing share of the called bins: on simulated genomes with 30% of
+    /// the bases missing in runs of about 20 bp, the RMSE of log10 Ne
+    /// against the truth was 0.447 against 0.332 without missing data.
+    /// Missing data in long runs mostly make whole bins `N`, which C's model
+    /// handles, and leave partly callable bins only at their ends.
+    ///
+    /// VCF and multihetsep input record the callable bases of each bin
+    /// ([`super::QcInput::callable`]), and psmc-rs fits each called bin by
+    /// them by default (`--bin-callable auto`, the callable-length model of
+    /// `docs/design/bin-callable-model.md`), which removes that bias: the
+    /// finding then reports how much was corrected (info). With
+    /// `--bin-callable ignore` ([`super::QcContext::counts_ignored`]) the
+    /// bias stays, and the finding is a warning below
+    /// [`PARTLY_CALLABLE_WARN_MEAN`]. Nothing is said when fewer than
+    /// [`PARTLY_CALLABLE_NOTE_FRACTION`] of the called bins are partly
+    /// callable. A psmcfa file records only which bins are called, not how
+    /// many of their bases are; when it has missing bins, the finding
+    /// (info) counts the called bins next to them, which are partly callable
+    /// unless a missing run starts or ends exactly at a bin boundary, and
+    /// says how to measure the rest from the data the psmcfa was made from.
+    PartlyCallableBins,
     /// Much of the input is missing: more than [`HIGH_MISSING_WARN_FRACTION`]
     /// (warning) or [`HIGH_MISSING_INFO_FRACTION`] (info) of the bins are
     /// `N`, or of the sites are uncalled
@@ -270,6 +312,7 @@ impl QcCode {
     pub const ALL: &'static [QcCode] = &[
         Self::InvalidStart,
         Self::VariantsOnlyNoMask,
+        Self::PartlyCallableBins,
         Self::HighMissing,
         Self::BinSaturation,
         Self::FewHets,
@@ -287,6 +330,7 @@ impl QcCode {
         match self {
             Self::InvalidStart => "INVALID_START",
             Self::VariantsOnlyNoMask => "VARIANTS_ONLY_NO_MASK",
+            Self::PartlyCallableBins => "PARTLY_CALLABLE_BINS",
             Self::HighMissing => "HIGH_MISSING",
             Self::BinSaturation => "BIN_SATURATION",
             Self::FewHets => "FEW_HETS",
@@ -361,7 +405,8 @@ pub(super) fn run(
     let mut out: Vec<Finding> = [
         invalid_start(input, report),
         variants_only_no_mask(input, report),
-        high_missing(report),
+        partly_callable_bins(input, report),
+        high_missing(input, report),
         bin_saturation(report),
         few_hets(input, report),
         too_short(report),
@@ -411,10 +456,13 @@ fn sex_or_organelle(
         named.push(s.index);
         let kind = s.kind.map_or("", SeqKind::label);
         let called_bins = s.stats.t_bins + s.stats.k_bins;
-        let judged = match (reference, s.stats.theta0_per_bin) {
+        // Per callable base when the input records callable bases, so that a
+        // sequence with more missing data does not look less heterozygous.
+        let judged = match (reference, s.stats.theta0_comparable()) {
             (Some(r), Some(theta)) if r.theta0_per_bin > 0.0 => {
                 let ratio = theta / r.theta0_per_bin;
-                let expected_k = called_bins as f64 * -(-r.theta0_per_bin).exp_m1();
+                let share = s.stats.mean_callable_fraction.unwrap_or(1.0);
+                let expected_k = called_bins as f64 * -(-r.theta0_per_bin * share).exp_m1();
                 Some((ratio, expected_k))
             }
             _ => None,
@@ -488,7 +536,7 @@ fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> 
         .iter()
         .filter(|s| s.kind.is_none())
         .filter(|s| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
-        .filter_map(|s| s.stats.theta0_per_bin.map(|t| (s, t.ln())))
+        .filter_map(|s| s.stats.theta0_comparable().map(|t| (s, t.ln())))
         .collect();
     if eligible.len() < HET_OUTLIER_MIN_SEQUENCES {
         return None;
@@ -680,7 +728,126 @@ fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> 
     ))
 }
 
-fn high_missing(report: &QcReport) -> Option<Finding> {
+/// Whether the fit weighs each called bin by its callable bases: the input
+/// records them and the fit does not ignore them.
+fn counts_used(input: &QcInput) -> bool {
+    input.callable.is_some() && !input.context.counts_ignored
+}
+
+/// The distribution of the called bins' shares of callable bases, as the
+/// share of called bins in each of the classes `[0.1, 0.5)`, `[0.5, 0.9)`,
+/// `[0.9, 1)` and full.
+pub(crate) fn callable_distribution(c: &CallableSummary) -> String {
+    let h = &c.histogram;
+    let share = |n: u64| {
+        if c.called_bins == 0 {
+            0.0
+        } else {
+            n as f64 / c.called_bins as f64
+        }
+    };
+    format!(
+        "{} hold 10-50% of their bases callable, {} 50-90%, {} 90-99% and {} all",
+        pct(share(h[..4].iter().sum())),
+        pct(share(h[4..8].iter().sum())),
+        pct(share(h[8])),
+        pct(share(h[9]))
+    )
+}
+
+fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
+    let s = report.bin_size;
+    let Some(c) = &report.callable else {
+        // psmcfa: which bins are called, but not how many of their bases.
+        let t = &report.totals;
+        let next = t.called_next_to_missing;
+        let called = t.t_bins + t.k_bins;
+        if t.missing_bins == 0
+            || (next as f64) < PARTLY_CALLABLE_NOTE_FRACTION * called as f64
+            || next == 0
+        {
+            return None;
+        }
+        return Some(Finding::new(
+            QcCode::PartlyCallableBins,
+            Severity::Info,
+            format!(
+                "This input records which bins are called (at least 10% of their {s} bases \
+                 callable, fq2psmcfa's rule) but not how many of their bases are, as psmcfa \
+                 does, so the fit treats every called bin as {s} bases, as C psmc does. {} of \
+                 bins are missing (N), and {} called bins ({} of them) border those runs: they \
+                 hold fewer than {s} callable bases unless a run starts or ends at a bin \
+                 boundary. If missing data are also scattered in runs shorter than a bin, most \
+                 called bins do, which this input cannot show. Partly callable bins show fewer \
+                 heterozygous sites, which biases theta, the times and Ne low by about their \
+                 missing share.",
+                pct(t.missing_fraction),
+                count(next),
+                pct(next as f64 / called as f64)
+            ),
+            "To measure it, run `psmc-rs qc` on the data the psmcfa was made from: a VCF with \
+             its callable mask (--vcf-mask) or an all-sites VCF from `bcftools call -c`. It \
+             reports the share of callable bases of the called bins, and a fit of that VCF \
+             weighs each bin by its callable bases (--bin-callable auto), which removes the \
+             bias."
+                .to_string(),
+        ));
+    };
+    if c.partial_fraction() < PARTLY_CALLABLE_NOTE_FRACTION {
+        return None;
+    }
+    let approximate = if input.context.approximate_missing_placement {
+        " Multihetsep places the uncalled sites of each interval at its start, so these \
+         counts are approximate (see APPROX_MISSING_PLACEMENT)."
+    } else {
+        ""
+    };
+    let measured = format!(
+        "{} of called bins hold fewer than {s} callable bases, {} of their bases on average \
+         ({}).{approximate}",
+        pct(c.partial_fraction()),
+        pct(c.mean_fraction),
+        callable_distribution(c)
+    );
+    let bias = format!(
+        "Treated as {s} bases, as fq2psmcfa's psmcfa and C psmc treat every called bin, they \
+         would make theta, the times and Ne about {} low",
+        pct(1.0 - c.mean_fraction)
+    );
+    if counts_used(input) {
+        return Some(Finding::new(
+            QcCode::PartlyCallableBins,
+            Severity::Info,
+            format!(
+                "{measured} {bias}; the fit weighs each called bin by its callable bases \
+                 (--bin-callable auto), which removes that bias."
+            ),
+            "Nothing to do: keep --bin-callable auto (the default). A psmcfa written from this \
+             input (psmc-rs convert --psmcfa, fq2psmcfa) cannot record the counts, so fit the \
+             input itself rather than such a psmcfa."
+                .to_string(),
+        ));
+    }
+    let severity = if c.mean_fraction < PARTLY_CALLABLE_WARN_MEAN {
+        Severity::Warning
+    } else {
+        Severity::Info
+    };
+    Some(Finding::new(
+        QcCode::PartlyCallableBins,
+        severity,
+        format!(
+            "{measured} The fit treats every called bin as {s} bases (--bin-callable ignore): \
+             theta, the times and Ne come out about {} low.",
+            pct(1.0 - c.mean_fraction)
+        ),
+        "Fit with --bin-callable auto (the default), which weighs each called bin by its \
+         callable bases."
+            .to_string(),
+    ))
+}
+
+fn high_missing(input: &QcInput, report: &QcReport) -> Option<Finding> {
     let t = &report.totals;
     let bins = t.missing_fraction;
     let sites = t.uncalled_site_fraction.zip(t.called_bases);
@@ -691,6 +858,15 @@ fn high_missing(report: &QcReport) -> Option<Finding> {
         Severity::Info
     } else {
         return None;
+    };
+    // The fit corrects the bias of partly called bins when it weighs each
+    // bin by its callable bases.
+    let corrected = if counts_used(input) {
+        " The fit weighs each called bin by its callable bases (--bin-callable auto), which \
+         corrects that bias (see PARTLY_CALLABLE_BINS); the other effects of missing data \
+         remain."
+    } else {
+        ""
     };
     let message = match sites {
         Some((uncalled, called)) => {
@@ -707,7 +883,8 @@ fn high_missing(report: &QcReport) -> Option<Finding> {
                 "{} of sites are uncalled ({} called) and {} of bins are missing (N: more \
                  than 90% of their sites uncalled). A bin is called when just 10% of its \
                  sites are, so missing sites scattered along the genome leave partly called \
-                 bins, which show fewer heterozygous sites and bias theta and Ne low{het}.",
+                 bins, which show fewer heterozygous sites and bias theta and Ne low if they \
+                 are treated as full bins{het}.{corrected}",
                 pct(uncalled),
                 bases(called),
                 pct(bins),
@@ -895,16 +1072,26 @@ fn approx_missing_placement(input: &QcInput) -> Option<Finding> {
     if !input.context.approximate_missing_placement {
         return None;
     }
+    let counts = if counts_used(input) {
+        " The callable bases of each bin, which the fit uses (--bin-callable auto), follow the \
+         same placement: their sum over each interval between rows is exact, but how it is \
+         split among the bins, and the count of the bin holding the next heterozygous site, \
+         are approximate."
+    } else {
+        ""
+    };
     Some(Finding::new(
         QcCode::ApproxMissingPlacement,
         Severity::Info,
-        "Multihetsep gives the number of called sites between variant rows but not their \
-         positions, so the uncalled sites of each interval were placed together at its \
-         start. Called and heterozygous sites keep their counts, but which bins are missing \
-         (more than 90% of sites uncalled) depends on that placement, so the T/K/N bins can \
-         differ from fq2psmcfa binning of the same calls."
+        format!(
+            "Multihetsep gives the number of called sites between variant rows but not their \
+             positions, so the uncalled sites of each interval were placed together at its \
+             start. Called and heterozygous sites keep their counts, but which bins are \
+             missing (more than 90% of sites uncalled) depends on that placement, so the T/K/N \
+             bins can differ from fq2psmcfa binning of the same calls.{counts}"
+        ),
+        "For exact bins and callable bases, read the VCF with its callable-sites mask instead."
             .to_string(),
-        "For exact binning, read the VCF with its callable-sites mask instead.".to_string(),
     ))
 }
 

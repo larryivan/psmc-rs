@@ -214,6 +214,7 @@ fn report_carries_the_saturation_of_the_whole_input() {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context: QcContext::default(),
+        callable: None,
     };
     let s = analyze(&input).saturation.unwrap();
     let h = 1.0 - 0.9f64.powf(0.01);

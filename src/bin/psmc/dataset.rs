@@ -73,15 +73,19 @@ pub fn default_start(data: &Dataset) -> Option<FitStart> {
     ))
 }
 
-/// Input QC of a loaded dataset. `bootstrap_trunk` is the bootstrap trunk
-/// size in bins (0 without a bootstrap), `free_lambdas` the number of free
-/// lambdas of the model to fit and `start` its starting model, when known.
+/// Input QC of a loaded dataset, with the callable bases of its bins when
+/// it has them. `bootstrap_trunk` is the bootstrap trunk size in bins (0
+/// without a bootstrap), `free_lambdas` the number of free lambdas of the
+/// model to fit and `start` its starting model, when known; `counts_ignored`
+/// says that the fit treats every called bin as full although the data
+/// count their callable bases (`--bin-callable ignore`).
 pub fn qc_report(
     data: &Dataset,
     bin_size: usize,
     bootstrap_trunk: usize,
     free_lambdas: Option<usize>,
     start: Option<FitStart>,
+    counts_ignored: bool,
 ) -> Result<QcReport> {
     let seqs: Vec<QcSeq> = data
         .seqs
@@ -98,6 +102,7 @@ pub fn qc_report(
         free_lambdas,
         start,
         dropped: dropped_groups(data),
+        counts_ignored: counts_ignored && data.obs.callable.is_some(),
         ..QcContext::default()
     };
     let u32_of = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
@@ -153,6 +158,7 @@ pub fn qc_report(
         bin_size,
         bootstrap_trunk_bins: bootstrap_trunk,
         context,
+        callable: data.obs.callable.as_ref(),
     })
 }
 

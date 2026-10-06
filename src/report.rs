@@ -321,6 +321,17 @@ fn qc_section(r: &QcReport) -> String {
         None => format!("{} bp (in called bins)", count(t.called_bases_from_bins)),
     };
     row(&mut out, "Called length", &called);
+    if let Some(c) = &r.callable {
+        row(
+            &mut out,
+            "Callable bases of called bins",
+            &escape_html(&format!(
+                "{} on average; {}",
+                pct(c.mean_fraction),
+                crate::qc::callable_distribution(c)
+            )),
+        );
+    }
     row(
         &mut out,
         "N50 / L50",
@@ -397,7 +408,7 @@ fn qc_section(r: &QcReport) -> String {
                 count(s.stats.bins),
                 pct(s.stats.k_fraction),
                 pct(s.stats.missing_fraction),
-                opt(s.stats.het_per_kb, 3),
+                opt(s.stats.het_per_kb_comparable(), 3),
                 s.het_vs_reference
                     .map_or("-".to_string(), |v| format!("{}x", sig(v, 2)))
             );

@@ -68,7 +68,14 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     }
 
     // Also when no sequence is left: the report then says why.
-    let qc = match qc_report(&data, args.input.bin_size, 0, None, default_start(&data)) {
+    let qc = match qc_report(
+        &data,
+        args.input.bin_size,
+        0,
+        None,
+        default_start(&data),
+        false,
+    ) {
         Ok(report) => Some(report),
         Err(e) => {
             sink(qc_failed(e, args.qc_json.as_deref()));

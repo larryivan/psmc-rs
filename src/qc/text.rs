@@ -171,6 +171,17 @@ fn metrics(out: &mut String, r: &QcReport) {
         let _ = write!(called, ", {} het sites per kb", sig(h, 3));
     }
     rows.push(("Called length", called));
+    if let Some(c) = &r.callable {
+        rows.push((
+            "Callable bases",
+            format!(
+                "called bins hold {} of their {} bases on average; {}",
+                pct(c.mean_fraction),
+                c.bin_size,
+                super::checks::callable_distribution(c)
+            ),
+        ));
+    }
 
     let l = &r.lengths;
     rows.push((
@@ -229,10 +240,15 @@ fn metrics(out: &mut String, r: &QcReport) {
             ReferenceMethod::Median => "median of",
             ReferenceMethod::Pooled => "pooled over",
         };
+        let per = if r.callable.is_some() {
+            ", per callable base"
+        } else {
+            ""
+        };
         rows.push((
             "Autosomal het",
             format!(
-                "{} per kb ({how} {} {})",
+                "{} per kb ({how} {} {}{per})",
                 sig(h.het_per_kb, 3),
                 count(h.sequences as u64),
                 if h.sequences == 1 {
@@ -347,7 +363,7 @@ fn table_cells(row: &SequenceRow) -> Vec<String> {
         format!("{:.1}", 100.0 * s.t_fraction),
         format!("{:.1}", 100.0 * s.k_fraction),
         format!("{:.1}", 100.0 * s.missing_fraction),
-        opt_sig(s.het_per_kb, 3),
+        opt_sig(s.het_per_kb_comparable(), 3),
         row.het_vs_reference
             .map_or("n/a".to_string(), |x| format!("{x:.2}")),
         count(s.longest_missing_run_bins),

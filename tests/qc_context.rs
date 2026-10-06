@@ -22,6 +22,7 @@ fn qc(context: QcContext) -> QcReport {
         bin_size: 100,
         bootstrap_trunk_bins: 0,
         context,
+        callable: None,
     })
 }
 

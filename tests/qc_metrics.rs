@@ -21,6 +21,7 @@ fn input<'a>(
         bin_size: 100,
         bootstrap_trunk_bins: trunk,
         context: QcContext::default(),
+        callable: None,
     }
 }
 

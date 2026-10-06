@@ -22,7 +22,7 @@ use psmc_rs::io::input::{Dataset, SourceSummary};
 use psmc_rs::io::params::{
     BinCallableRecord, CALLABLE_LENGTH_MODEL, FULL_BINS_MODEL, InputSummary, load_params,
 };
-use psmc_rs::io::{Observations, Sequences};
+use psmc_rs::io::{CallableBases, Observations, Sequences};
 use psmc_rs::model::NegativeTransitions;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::psmc_out::c_pattern;
@@ -225,31 +225,40 @@ fn infer(
         bootstrap.as_ref(),
     )?;
     let mut data = read_input(&input_file, cli, sink)?;
-    // Whether the fit weighs each bin by its callable bases. Without, the
-    // counts go, so that every pass (theta0, EM, the bootstrap, the
-    // decoding) fits C psmc's model.
+    // Whether the fit weighs each bin by its callable bases.
     let bin_callable = bin_callable_record(&data, cli.bin_callable);
     for event in bin_callable_events(&bin_callable, &data, cli) {
         sink(event);
     }
-    if bin_callable.model != CALLABLE_LENGTH_MODEL {
-        data.obs.callable = None;
-    }
-    let data = data;
-    let obs = &data.obs;
+    let counted = bin_callable.model == CALLABLE_LENGTH_MODEL;
 
     // Input QC, printed before the fit, also when no sequence is left (the
     // report then says why). A QC error is only reported, so that it never
-    // stops a fit.
+    // stops a fit. It sees the counts whether or not the fit uses them.
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
-    let start = fit_start(cli, &layout, obs);
-    let qc = match qc_report(&data, cli.input.bin_size, trunk, Some(free_lambdas), start) {
+    let fit_counts = data.obs.callable.as_ref().filter(|_| counted);
+    let start = fit_start(cli, &layout, &data.obs.rows, fit_counts);
+    let qc = match qc_report(
+        &data,
+        cli.input.bin_size,
+        trunk,
+        Some(free_lambdas),
+        start,
+        !counted,
+    ) {
         Ok(report) => Some(report),
         Err(e) => {
             sink(qc_failed(e, cli.qc_json.as_deref()));
             None
         }
     };
+    // Without the callable-length model the counts go, so that every pass
+    // (theta0, EM, the bootstrap, the decoding) fits C psmc's model.
+    if !counted {
+        data.obs.callable = None;
+    }
+    let data = data;
+    let obs = &data.obs;
     for line in loader_warnings(&data, qc.as_ref()) {
         sink(Event::Warning(line));
     }
@@ -311,7 +320,7 @@ fn infer(
             model
         }
         None => {
-            let (theta0, rho0) = start_rates(cli, obs)?;
+            let (theta0, rho0) = start_rates(cli, &obs.rows, obs.callable.as_ref())?;
             PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)?
         }
     };
@@ -608,10 +617,14 @@ fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) 
 /// -ln(1 - K/L), per callable base when the fit uses the callable bases of
 /// each bin: [`initial_theta_with_callable`]), and `--rho0` or θ0 /
 /// `--tr-ratio`.
-fn start_rates(cli: &InferArgs, obs: &Observations) -> Result<(f64, f64)> {
+fn start_rates(
+    cli: &InferArgs,
+    rows: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+) -> Result<(f64, f64)> {
     let theta0 = match cli.theta0 {
         Some(v) => v,
-        None => initial_theta_with_callable(&obs.rows, obs.callable.as_ref())?,
+        None => initial_theta_with_callable(rows, callable)?,
     };
     Ok((theta0, cli.rho0.unwrap_or(theta0 / cli.tr_ratio)))
 }
@@ -689,10 +702,15 @@ fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -
 /// parameters of `--init-params` (then `layout`), or the rates of
 /// [`start_rates`] on `layout`'s time grid; `None` when the data give no
 /// θ0, which the run then reports.
-fn fit_start(cli: &InferArgs, layout: &PsmcModel, obs: &Observations) -> Option<FitStart> {
+fn fit_start(
+    cli: &InferArgs,
+    layout: &PsmcModel,
+    rows: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+) -> Option<FitStart> {
     let (theta0, rho0) = match cli.init_params {
         Some(_) => (layout.theta, layout.rho),
-        None => start_rates(cli, obs).ok()?,
+        None => start_rates(cli, rows, callable).ok()?,
     };
     let mut start = FitStart::new(layout, theta0, rho0, false);
     start.saved = cli.init_params.is_some();

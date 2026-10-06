@@ -41,6 +41,7 @@ fn thirty_million_bins_in_well_under_a_second() {
         bin_size: 100,
         bootstrap_trunk_bins: 500_000,
         context: QcContext::default(),
+        callable: None,
     };
     assert_eq!(rows.iter().map(Vec::len).sum::<usize>(), 30_000_000);
 

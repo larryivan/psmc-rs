@@ -39,6 +39,7 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
         args.bootstrap_block_size.unwrap_or(0),
         None,
         default_start(&data),
+        false,
     )?;
     for line in loader_warnings(&data, Some(&report)) {
         sink(Event::Warning(line));
