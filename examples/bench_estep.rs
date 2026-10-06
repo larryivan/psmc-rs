@@ -16,7 +16,8 @@
 //! `--install` the E-step runs inside `ThreadPool::install`, the way bootstrap
 //! replicates and a per-run `--threads` pool call it. Each repetition prints the
 //! wall time, the time per bin, the log-likelihood and a checksum of the
-//! sufficient statistics (bit patterns, so runs can be compared for exact
+//! sufficient statistics, the callable-length sums included with
+//! `--callable` (bit patterns, so runs can be compared for exact
 //! equality). Measure peak memory with `/usr/bin/time -l` (macOS) or
 //! `/usr/bin/time -v` (Linux). The alpha-cache budget follows
 //! `PSMC_ALPHA_CACHE_MB`.
@@ -85,17 +86,29 @@ fn n_states(pattern: &str) -> usize {
         .sum()
 }
 
+/// FNV-1a over the bit patterns of the log-likelihood and every sufficient
+/// statistic the M-step reads: the expected symbol counts, the transition
+/// counts and, with callable bases, the count-weighted `T` sums and the `K`
+/// sums of each count (with the counts themselves).
 fn checksum(e: &EStepResult) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
-    let mut mix = |v: f64| {
-        h ^= v.to_bits();
+    let mut mix = |bits: u64| {
+        h ^= bits;
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     };
-    mix(e.loglike);
+    mix(e.loglike.to_bits());
     for g in &e.stats.gobs {
-        g.iter().for_each(|v| mix(*v));
+        g.iter().for_each(|v| mix(v.to_bits()));
     }
-    e.stats.xi.iter().for_each(|v| mix(*v));
+    e.stats.xi.iter().for_each(|v| mix(v.to_bits()));
+    if let Some(c) = &e.stats.callable {
+        mix(c.bin_size as u64);
+        c.t_weighted.iter().for_each(|v| mix(v.to_bits()));
+        for (count, row) in &c.k_by_count {
+            mix(u64::from(*count));
+            row.iter().for_each(|v| mix(v.to_bits()));
+        }
+    }
     h
 }
 
