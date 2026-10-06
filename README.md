@@ -10,7 +10,12 @@ patterns. With C's initialisation the first round's log-likelihood equals
 C psmc's to its printed precision, and later rounds,
 which depend on the M-step optimiser (L-BFGS here, Hooke-Jeeves in C; both
 run to convergence), stay within a relative 2e-7 on the reference data;
-`tests/c_equivalence.rs` enforces both. On top of the model, psmc-rs
+`tests/c_equivalence.rs` enforces both. One extension, on by default for
+VCF and multihetsep input, weighs each bin by how many of its bases are
+callable, which removes the bias that missing data scattered in short runs
+cause; complete data and psmcfa input are fitted exactly as C psmc fits
+them (see [Partly callable bins](#partly-callable-bins)). On top of the
+model, psmc-rs
 
 - reads psmcfa, VCF (including the classic `vcfutils.pl vcf2fq | fq2psmcfa`
   route in one step) and MSMC's multihetsep, plain or gzip/bgzip;
@@ -236,8 +241,61 @@ error.
 Multihetsep does not say where the uncalled sites are, only how many lie
 between two rows. psmc-rs places them at the start of each interval, which
 changes which bins are missing compared with fq2psmcfa on the same calls
-(QC notes `APPROX_MISSING_PLACEMENT`); for exact binning, use the VCF with a
+(QC notes `APPROX_MISSING_PLACEMENT`), and the callable bases of each bin
+follow the same placement: their sum over each interval is exact, how it is
+split among the bins is not. For exact bins and counts, use the VCF with a
 callable mask. A sequence ends at its last row.
+
+### Partly callable bins
+
+PSMC sees a genome as bins of `--bin-size` bases. fq2psmcfa calls a bin as
+soon as a tenth of its bases are callable, and C psmc treats every called
+bin as a full bin. A bin of `c` callable bases out of `s` is less likely to
+show a heterozygous site, so when missing data are scattered in runs
+shorter than a bin (per-site depth or quality filters, a mask of short
+gaps), almost every bin is still called but holds fewer bases, and θ per
+bin, N0 and with them every time and every Ne come out low by about the
+missing share of the called bins. Missing data in long runs mostly make
+whole bins `N`, which C's model handles.
+
+VCF input (both modes) records which positions of each bin are callable,
+and multihetsep input how many (placed as above). By default
+(`--bin-callable auto`) psmc-rs fits each called bin by its count: a bin of
+`c` callable bases emits as `c` bases of sequence,
+
+```text
+P(T | k, c) = exp(-θ (c / s) avg_t[k]),   P(K | k, c) = 1 - P(T | k, c),   P(N | k, c) = 1
+```
+
+with θ still per `s` bases, so N0 = θ / (4 μ s) and `psmc_plot.pl -s` keep
+their meaning. The E-step, the M-step, the starting θ0, the bootstrap and
+the TMRCA decoding all use the counts. The starting θ0 solves `sum over
+called bins of (1 - exp(-θ0 c / s)) = K`, the moment estimate that C's
+−ln(1 − K/L) is for full bins. With every called bin full (complete data)
+the model, the fit and every output are C psmc's, to the bit, and psmcfa
+input, which records no counts, is fitted as C psmc fits it.
+`--bin-callable ignore` drops the counts and treats every called bin as
+`s` bases, as fq2psmcfa and C psmc do: a VCF fitted with it gives exactly
+the fit of fq2psmcfa's psmcfa of the same calls. Counts are kept for bins
+of at most 65,535 bases.
+
+On simulated genomes (bottleneck model, 10 × 20 Mb, three replicates,
+`-N25 -t15 -r5 -p 4+25*2+4+6`) with 30% of the bases missing in runs of
+about 20 bp, the fit with the counts recovered θ of the fit of the same
+genome without missing data to within 1.8%, where ignoring them gave 0.65
+of it, and the RMSE of log10 Ne against the truth was 0.309 against 0.307
+for complete data, where ignoring the counts gave 0.453. Missing data in
+20 kb runs changed the fits little either way. Multihetsep input does not
+recover the exact fit, with or without its approximate counts (RMSE 0.42
+and 0.41), because of where its reader places the uncalled sites; use the
+VCF with its callable mask when missing data are dispersed. The numbers
+and the script that reproduces them are in
+[experiment/validation/](experiment/validation/README.md).
+
+A psmcfa file cannot hold the counts: `psmc-rs convert --psmcfa` warns when
+it writes partly callable bins, and such a file is fitted as with
+`--bin-callable ignore`. To check how much of an existing psmcfa's called
+bins is callable, run `psmc-rs qc` on the VCF it was made from.
 
 ### The sequence filter
 
@@ -300,6 +358,12 @@ The model options follow C psmc:
   parameter sits on a bound.
 - `--mu` (2.5e-8) and `--gen-years` (25) only scale the curve to years and
   individuals: N0 = θ / (4 μ × bin size).
+- `--bin-callable auto|ignore` (default `auto`): weigh each called bin of
+  VCF and multihetsep input by its callable bases, or treat every called
+  bin as `--bin-size` bases, as C psmc does (see
+  [Partly callable bins](#partly-callable-bins)). The run says what the
+  counts hold and which model it fits; for psmcfa input `ignore` changes
+  nothing, and the run says so.
 
 PSMC's transition probabilities assume at most about one recombination per
 bin. When ρ0 per bin is too large for the time grid, some of them are
@@ -382,17 +446,27 @@ selected sample (heterozygous sites only; differences are listed in the
 rustdoc of `psmc_rs::io::write::write_multihetsep_to`); psmcfa input has no
 sites to write, and asking for multihetsep from it is a usage error.
 Written from multihetsep, psmcfa places the uncalled sites as described
-above. `--qc-json FILE` writes the QC report. The per-sequence files are
-named after the sequences, so they are checked against the input and the
-other outputs once the input is read, before anything is written.
+above. psmcfa records only each bin's symbol, not its callable bases, so a
+fit of the psmcfa treats every called bin as full, as C psmc does; when
+some called bins are partly callable, `convert` warns with their share and
+the bias that causes, and advises fitting the VCF or multihetsep file
+itself. The multihetsep writer keeps `nr_called`, from which the reader
+rebuilds approximate counts. `--qc-json FILE` writes the QC report. The
+per-sequence files are named after the sequences, so they are checked
+against the input and the other outputs once the input is read, before
+anything is written.
 
 ### qc
 
 `psmc-rs qc INPUT` loads the input as inference would and prints a report:
 bin counts, θ0 (C psmc's starting value), heterozygosity per kb, called
-length, sequence lengths (N50), the longest missing run, the share of bins
-likely to hold several heterozygous sites, read depth (VCF), a per-sequence
-table, and findings with recommendations. `--json FILE` (or
+length, the callable bases of the called bins (VCF and multihetsep: their
+mean share and distribution), sequence lengths (N50), the longest missing
+run, the share of bins likely to hold several heterozygous sites, read
+depth (VCF), a per-sequence table, and findings with recommendations. With
+callable bases, sequences are compared per callable base (the table's
+het/kb and the sex chromosome and outlier checks), so that one with more
+missing data does not look less heterozygous. `--json FILE` (or
 `-` for stdout) writes it as JSON; `--bootstrap-block-size BINS` adds the
 trunk checks; `--strict` exits with status 2 when a finding is a warning.
 Every fit and conversion prints the same report (`-q` reduces it to its
@@ -402,6 +476,7 @@ warnings), and the output JSON keeps its finding codes.
 | --- | --- | --- |
 | `INVALID_START` | warning | the fit's start (for `qc`, the default start) has negative transition probabilities, from which EM cannot move: ρ0 per bin is too large for the time grid; names the bin size, `--tr-ratio` or `--rho0` that fixes it, or for `--init-params` the rho to set in the saved file (a fit then stops, see [Fitting](#fitting)) |
 | `VARIANTS_ONLY_NO_MASK` | warning | a VCF read in mask mode without a callable mask |
+| `PARTLY_CALLABLE_BINS` | note; warning with `--bin-callable ignore` below a 90% mean | at least 1% of called bins hold fewer than `--bin-size` callable bases: gives their share, mean and distribution and the bias of treating them as full, which the fit corrects by default; for psmcfa input, which cannot tell, the called bins next to missing runs and how to measure the rest |
 | `HIGH_MISSING` | warning above 50%, note above 25% | missing bins, or uncalled sites when they are counted |
 | `BIN_SATURATION` | warning | more than 10% of heterozygous bins likely hold two or more sites; names the largest bin size that brings it below 5% |
 | `FEW_HETS` | warning | fewer than 1,000 heterozygous bins |
@@ -453,13 +528,20 @@ of the pattern, or per interval without one), `t_max`, `n_steps`, `mu` and
 `version`, `n_iter`, `final_loglike`, `loglike` (N_ITER + 1 values, see
 above), `bin_size`, `gen_years`, `tr_ratio`, `smooth_lambda`, `input`
 (format, VCF mode, sequences, bins, heterozygous and missing bins, dropped
-sequences) and `qc` (warning and note codes, and key metrics). Replicate
-JSON files hold the 0.1 fields.
+sequences), `qc` (warning and note codes, and key metrics) and
+`bin_callable`: the `--bin-callable` mode, the emission model fitted
+(`callable-length`, each called bin by its callable bases, or `full-bins`,
+C psmc's), how the input's counts were obtained (`exact` from a VCF,
+`approximate` from multihetsep; absent for psmcfa) and what they hold
+(`callable`: called and partly callable bins, the mean share of callable
+bases and its distribution in tenths). Replicate JSON files hold the 0.1
+fields.
 
 **HTML report.** The Ne curve (with the bootstrap band and median when there
-are replicates), a run summary (input, log-likelihood, pattern, parameters,
-N0, bin size, generation time, starting values, smoothing, M-step cap), the
-QC findings, metrics and per-sequence table, the bootstrap settings (and
+are replicates), a run summary (input, bin model and callable bases,
+log-likelihood, pattern, parameters, N0, bin size, generation time,
+starting values, smoothing, M-step cap), the QC findings, metrics and
+per-sequence table, the bootstrap settings (and
 skipped replicates) with a coverage caveat, and, with `--tmrca-out`, TMRCA
 panels. Charts can be restyled and saved as PNG. The page loads ECharts
 from cdn.jsdelivr.net; for offline use set `PSMC_ECHARTS_JS` to a local
@@ -489,6 +571,12 @@ Plot such replicates on their own, with `-n` set to their iteration count;
 the run warns and prints that command.
 
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;
+for VCF and multihetsep input, one more `MM` line after `n_seqs` says how
+the fit used the callable bases of each bin, such as
+`bin_model:callable-length, counts:exact, mean_callable:0.701234,
+partial_bins:0.850000` (bootstrap replicates fitted with the counts get it
+without `counts`; psmc_plot.pl skips `MM` lines it does not know, and
+psmcfa input gets none);
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
 pattern (per round with the default pattern, 32 to 36 on the 180,000-bin
 test input and 32 to 56 on Papuan chr1, where C's Hooke-Jeeves needs 1,132
@@ -501,8 +589,9 @@ by the called length: 2e-5 on the reference data).
 `global_bin`, `obs` (T, K or N), `map_state`, `tmrca_map_years`,
 `tmrca_mean_years`, `tmrca_q025_years`, `tmrca_q975_years`, `pmax` and
 `entropy` of the posterior. Each state is placed at its average coalescent
-time, scaled by `--gen-years`; decoding runs in parallel within and across
-sequences.
+time, scaled by `--gen-years`; each bin is decoded with the emissions the
+fit used (of its callable bases, with the callable-length model); decoding
+runs in parallel within and across sequences.
 
 **Bootstrap files.** `replicate_NNN.json` and `replicate_NNN.psmc` are
 numbered by replicate, from 001. `summary.tsv` has `x_years`, `ne_main`,
@@ -539,6 +628,7 @@ gives a different fit:
 | bootstrap | 50,000-bin blocks within each sequence, replicates started from the fit | splitfa trunks of 500,000 bins across the input, fresh start | C psmc's scheme; the old one gave zero spread for sequences shorter than a block |
 | `--input-format` | psmcfa | auto | |
 | VCF and multihetsep sequences | all kept | fq2psmcfa's filter | as fq2psmcfa does |
+| partly callable bins (VCF, multihetsep) | treated as full bins | weighed by their callable bases (`--bin-callable auto`; `ignore` gives C psmc's model) | missing data in short runs otherwise bias θ, times and Ne low by about the missing share |
 | VCF sequence end (mask mode) | last heterozygous SNP | `##contig` length (`--vcf-no-contig-end`: last record) | the sites after the last heterozygous SNP are data (called where callable) |
 | TMRCA years | left edge of each interval | average coalescent time of each state | the time the emission uses |
 | `Last EM loglike` | log-likelihood before the last iteration | of the written model | |
@@ -728,10 +818,11 @@ From `psmc-rs --help` (0.2.0), which gives the full text. Inference,
 | `--n-steps N` | from the pattern | intervals minus one (C's `n`, 1 to 9999); alone, one λ per interval |
 | `--t-max T` | 15 | initial t_max in units of 2N0 generations (C `-t`; 1 to 200) |
 | `--tr-ratio RATIO` | 4 | initial θ0/ρ0 (C `-r`) |
-| `--theta0 X` | −ln(1 − K/L) | initial θ0 per bin |
+| `--theta0 X` | −ln(1 − K/L); with the counts, its callable-length analogue | initial θ0 per bin |
 | `--rho0 X` | θ0 / `--tr-ratio` | initial ρ0 per bin |
 | `--init-params FILE` | | start from a saved fit (C `-i`) |
 | `--mu MU` | 2.5e-8 | mutation rate per bp per generation, for scaling |
+| `--bin-callable auto\|ignore` | `auto` | VCF and multihetsep: fit each called bin by its callable bases, or treat every called bin as BIN_SIZE bases (C psmc) |
 | `--mstep-iters N` | 1000 | cap on the L-BFGS iterations of an M-step, which runs to convergence |
 | `--smooth-lambda W` | 0 | penalty on log-λ differences of neighbouring intervals |
 | `--bootstrap N` | 0 | bootstrap replicates |

@@ -614,9 +614,9 @@ fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) 
 }
 
 /// θ0 and ρ0 of a fresh start: `--theta0` or θ0 of the data (C psmc's
-/// -ln(1 - K/L), per callable base when the fit uses the callable bases of
-/// each bin: [`initial_theta_with_callable`]), and `--rho0` or θ0 /
-/// `--tr-ratio`.
+/// -ln(1 - K/L), or its analogue for the callable bases of each bin when
+/// the fit uses them: [`initial_theta_with_callable`]), and `--rho0` or θ0
+/// / `--tr-ratio`.
 fn start_rates(
     cli: &InferArgs,
     rows: &[Vec<u8>],

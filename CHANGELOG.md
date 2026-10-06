@@ -55,6 +55,22 @@ Defaults, each of which changes the results of a run that relied on it:
   `psmcfa`.
 - VCF and multihetsep sequences go through fq2psmcfa's output filter
   (`--min-good-bases 10000`, `--min-good-fraction 0.2`; 0 disables).
+- VCF and multihetsep input are fitted with the callable bases of each bin
+  (`--bin-callable auto`, new): a called bin of `c` callable bases out of
+  `s` emits as `c` bases of sequence, `P(T | k) = exp(-θ (c/s) avg_t[k])`,
+  instead of as a full bin, as fq2psmcfa's psmcfa and C psmc treat every
+  called bin. With missing data scattered in runs shorter than a bin,
+  treating such bins as full biased θ, N0, the times and Ne low by about
+  the missing share of the called bins; on simulated genomes with 30% of
+  the bases missing in runs of about 20 bp the RMSE of log10 Ne against
+  the truth goes from 0.453 (ignored) to 0.309 (complete data: 0.307; see
+  `experiment/validation/README.md`). The E-step, the M-step, the starting
+  θ0 (which solves `sum (1 - exp(-θ0 c/s)) = K` over called bins, C's
+  −ln(1 − K/L) for full bins), the bootstrap and the TMRCA decoding all
+  use the counts. Complete data, and psmcfa input, which
+  records no counts, are fitted exactly as before, to the bit;
+  `--bin-callable ignore` fits C psmc's model on any input. See
+  `docs/design/bin-callable-model.md`.
 - A VCF read in mask mode runs to each chromosome's `##contig` length
   (`--vcf-no-contig-end`: to its last record) instead of stopping at the
   last heterozygous SNP.
@@ -86,6 +102,22 @@ Command line and outputs:
   clap's own do; errors reading or writing files exit with 1.
 - The output JSON is written right after the main fit, before the
   bootstrap, and carries run metadata (see *Added*).
+- For VCF and multihetsep input, the `.psmc` output has one more `MM` line
+  after `n_seqs`, `MM bin_model:..., counts:..., mean_callable:...,
+  partial_bins:...`, which says how the fit used the callable bases of each
+  bin (psmc_plot.pl skips it; psmcfa input gets none), and so do bootstrap
+  replicates fitted with the counts. `convert --psmcfa` warns when it
+  writes partly callable bins, which psmcfa cannot record, and advises
+  fitting the input itself.
+- QC compares the heterozygosity of sequences per callable base when the
+  input records callable bases (the per-sequence table's het/kb and
+  `vs ref`, the autosomal reference, `SEX_OR_ORGANELLE` and `HET_OUTLIER`),
+  so that a sequence with more missing data does not look less
+  heterozygous; `HIGH_MISSING` says when the fit corrects the bias of
+  partly called bins, and `APPROX_MISSING_PLACEMENT` that multihetsep's
+  counts follow its placement of the uncalled sites. The start that `qc`
+  and `convert` check (`INVALID_START`) takes θ0 from the callable bases
+  of each bin, as a fit with `--bin-callable auto` does.
 - A bootstrap starts by removing every `replicate_NNN.json`,
   `replicate_NNN.psmc`, `summary.tsv` and `summary.json` in its directory,
   with a warning that names the earlier replicates beyond its own count,
@@ -180,6 +212,59 @@ Library API:
 - `bootstrap::BootstrapSummary` gains `skipped_replicates` (the replicates
   left out for an invalid start), which breaks code that builds it with a
   struct literal.
+- The callable bases of each bin (`docs/design/bin-callable-model.md`).
+  Input: the new `io::callable` module holds `CallableBases` (the counts
+  of a list of rows or sequences), `BinCounts` (of one, kept as runs of
+  partly callable bins or one byte per bin, whichever is smaller),
+  `CallableSummary` (their mean share and distribution over the called
+  bins) and `MAX_COUNTED_BIN_SIZE` (65,535), all re-exported from `io`,
+  with the counts' iterator `callable::Iter`; `Observations::validate`
+  checks rows, starts and counts together. `Observations` gains the public
+  field `callable` and `io::consensus::ConsensusSeq` the field `callable`,
+  which breaks code that builds them with a struct literal (add
+  `callable: None`). The new `io::Sequences` holds whole sequences with
+  optional counts (`From<Vec<Vec<u8>>>` for bins without them,
+  `Sequences::validate`), and `io::common::chunk_sequences` takes `impl
+  Into<Sequences>` instead of `Vec<Vec<u8>>`, so an un-annotated
+  `.collect()` passed to it no longer compiles. `io::input::load`,
+  `io::vcf::read_vcf_with` (and `read_vcf`) and `io::mhs::read_mhs_with`
+  (and `read_mhs`) return the counts for bins of at most 65,535 bases;
+  `io::common::Binner::finish_with_callable` and
+  `io::input::Dataset::sequence_callable` are new.
+- Model: `hmm::EStepOptions::callable` runs the E-step and
+  `log_likelihood_with_options` on the counts, and the E-step returns
+  `SufficientStats::callable` (`hmm::CallableStats`: the count-weighted `T`
+  sums and the `K` sums by count), which breaks code that builds
+  `SufficientStats` with a struct literal. `hmm::TmrcaOptions` and
+  `write_tmrca_posterior_tsv_with_options` decode with them.
+  `em::EmOptions::callable` fits them, the M-step weighs each count's `K`
+  bins, and `em::hmm_q` and `hmm_q0` evaluate Q and its maximum of the
+  callable-length model. `initial_theta_with_callable` and
+  `model::ThetaCounts` give the starting θ0. Without counts, or with every
+  called bin full, every one of these gives C psmc's results to the bit;
+  `e_step_streaming`, `log_likelihood`, `write_tmrca_posterior_tsv`,
+  `em_train` and `initial_theta` keep their signatures and C's model.
+- Bootstrap: `observations_to_sequences`, `split_sequences_for_bootstrap`,
+  `resample_sequences` and `run_bootstrap_sequences` carry the counts with
+  their bins and draw the same trunks as without them; the replicates of
+  `run_bootstrap_sequences` are fitted with them, from
+  `replicate_initial_model_with_callable`, and
+  `invalid_replicate_starts_sequences` finds the replicates it skips.
+  `BootstrapReplicate` gains `callable`.
+- Outputs: `io::params::RunMetadata::bin_callable`
+  (`io::params::BinCallableRecord`, with `CALLABLE_LENGTH_MODEL` and
+  `FULL_BINS_MODEL`), `psmc_out::PsmcRunInfo::bin_callable` and
+  `psmc_out::bin_callable_line`, `report::ReportData::bin_callable` and
+  `report::bin_callable_rows`; struct literals of these types need the new
+  fields.
+- QC: `qc::QcInput::callable` (struct literals need `callable: None`),
+  `QcContext::counts_ignored`, `QcReport::callable`,
+  `BinStats::{theta0_callable, mean_callable_fraction,
+  partly_callable_fraction, called_next_to_missing}` with
+  `theta0_comparable` and `het_per_kb_comparable`,
+  `QcCode::PartlyCallableBins` (between `VariantsOnlyNoMask` and
+  `HighMissing` in report order) and `PARTLY_CALLABLE_NOTE_FRACTION`,
+  `PARTLY_CALLABLE_WARN_MEAN`.
 
 Reproduction package (`experiment/`):
 
@@ -212,11 +297,18 @@ Reproduction package (`experiment/`):
 
 - `psmc-rs qc INPUT`: a report of an input's suitability, without fitting:
   bin counts, θ0, heterozygosity, called length, N50, missing runs, bin
-  saturation, read depth, per-sequence statistics, and findings with stable
-  codes (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`,
-  `BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`,
-  `SEX_OR_ORGANELLE`, `HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`,
-  `DROPPED_SEQUENCES`) and recommendations. `--json`, `--strict` (exit 2
+  saturation, read depth, the callable bases of the called bins (VCF and
+  multihetsep), per-sequence statistics, and findings with stable
+  codes (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`, `PARTLY_CALLABLE_BINS`,
+  `HIGH_MISSING`, `BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`,
+  `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`, `HET_OUTLIER`,
+  `APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`) and
+  recommendations. `PARTLY_CALLABLE_BINS` reports how much of the called
+  bins is callable and the bias of treating them as full: a note when the
+  fit corrects it, a warning when `--bin-callable ignore` leaves called
+  bins less than 90% callable on average, and for psmcfa input, which
+  cannot tell, a note with the called bins next to missing runs and how to
+  measure the rest. `--json`, `--strict` (exit 2
   on a warning) and `--bootstrap-block-size` (trunk checks). Every fit and
   conversion prints the same report and `--qc-json` writes it.
 - `psmc-rs convert INPUT`: psmcfa as fq2psmcfa lays it out, and multihetsep
@@ -263,16 +355,22 @@ Reproduction package (`experiment/`):
   replicate fails with EM's error.
 - `--init-params FILE` starts from the parameters of an earlier run (C
   `-i`), and its replicates start there too, as `psmc -i -b`.
-- `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet` and
-  `--version`.
+- `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet`, `--version`
+  and `--bin-callable auto|ignore` (see *Changed*).
 - Output JSON metadata: `version`, `n_iter`, `final_loglike`, `loglike`
   (the log-likelihood after each iteration, from the start), `bin_size`,
-  `gen_years`, `tr_ratio`, `smooth_lambda`, `input` and `qc`; with N_ITER
+  `gen_years`, `tr_ratio`, `smooth_lambda`, `input`, `qc` and
+  `bin_callable` (the `--bin-callable` mode, the emission model fitted,
+  how the counts were obtained and what they hold); with N_ITER
   0 the run evaluates the starting model for them and for `Last EM
   loglike`. Files without them (0.1) still load.
-- HTML report: run summary, QC findings and per-sequence table, bootstrap
+- HTML report: run summary (with the bin model and the callable bases of
+  the called bins), QC findings and per-sequence table, bootstrap
   settings with a coverage caveat, and an offline notice when ECharts
   cannot load (`PSMC_ECHARTS_JS` embeds a local copy).
+- `experiment/validation/bin_callable.py`, the simulation study of
+  `--bin-callable` (see *Changed*), with its results in
+  `experiment/validation/README.md`.
 - Warnings for input options that do not apply to the input as read, for
   a psmcfa input that looks like a per-base consensus (a FASTQ quality
   block, or at least 1% of bins written as letters fq2psmcfa never

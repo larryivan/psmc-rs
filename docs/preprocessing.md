@@ -379,11 +379,12 @@ psmc-rs picks mask mode for a VCF that is not an all-sites `bcftools call
 
 `psmc-rs qc INPUT` reads any input as inference would and reports on it:
 missing data, heterozygosity per sequence, depth, sequence lengths, bin
-saturation and what the bootstrap would have to work with, with findings
-that name a code (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`, `HIGH_MISSING`,
-`BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`, `SHORT_SEQUENCES`,
-`SEX_OR_ORGANELLE`, `HET_OUTLIER`, `APPROX_MISSING_PLACEMENT`, `DEPTH`,
-`DROPPED_SEQUENCES`),
+saturation, the callable bases of the called bins (VCF and multihetsep)
+and what the bootstrap would have to work with, with findings
+that name a code (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`,
+`PARTLY_CALLABLE_BINS`, `HIGH_MISSING`, `BIN_SATURATION`, `FEW_HETS`,
+`TOO_SHORT`, `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`, `HET_OUTLIER`,
+`APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`),
 a severity and a recommendation. `--json FILE` writes it for scripts,
 `--strict` exits with status 2 when a finding is a warning, and every
 inference run prints the same findings and stores their codes in its JSON
@@ -411,6 +412,41 @@ blocks count as called whatever their depth and quality (see
 [the variant calls](#the-variant-calls)).
 (`tests/pipeline/run_e2e.sh` reads the same simulated variants with and
 without the gVCF-derived mask and checks both outcomes.)
+
+### Missing data scattered within bins
+
+fq2psmcfa calls a bin as soon as a tenth of its bases are callable, and C
+psmc treats every called bin as a full bin. Per-site filters (depth,
+mapping and base quality, indel windows) and masks of short gaps leave
+missing bases scattered over called bins rather than whole `N` bins; a
+called bin with a third of its bases missing shows a heterozygous site
+about a third less often, so θ, N0, the times and Ne all come out low by
+about the missing share of the called bins (θ by 35% in simulations with
+30% of the bases missing in runs of about 20 bp). Long runs of missing data
+mostly make whole bins `N`, which do no harm.
+
+psmc-rs counts the callable bases of every bin of a VCF (exactly, in both
+modes) and of a multihetsep file (approximately, see below), and by default
+(`--bin-callable auto`) fits each called bin by them, which removes the
+bias; complete data are fitted exactly as C psmc fits them. QC's
+`PARTLY_CALLABLE_BINS` reports how much of the called bins is callable and
+what treating them as full would cost. Two consequences for the routes
+above:
+
+- **Fit the VCF, not a psmcfa made from it.** psmcfa records only each
+  bin's symbol: a psmcfa written by `fq2psmcfa` or `psmc-rs convert
+  --psmcfa` is fitted as C psmc fits it, bias included (`convert` warns
+  when it writes partly callable bins). For a psmcfa you already have, run
+  `psmc-rs qc` on the VCF it was made from to see the share.
+- **Multihetsep counts are approximate.** Multihetsep says how many sites
+  between two rows are callable, not which; psmc-rs places the uncalled
+  ones at the start of each interval, so the sum of the counts over the
+  interval is exact but their split among bins is not, and the bin of a
+  heterozygous site followed by uncalled sites looks less callable than it
+  is. psmc-rs uses the counts anyway (QC notes `APPROX_MISSING_PLACEMENT`);
+  the VCF with its callable mask gives exact ones.
+
+`--bin-callable ignore` reproduces C psmc's model on any input.
 
 ### Sex chromosomes and organelles
 

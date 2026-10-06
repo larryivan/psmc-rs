@@ -7,11 +7,16 @@ the PSMC emissions. The change comes in two stages:
    bases of each bin are callable, and the counts travel with their bins
    through batching, the loaded dataset and the bootstrap. Nothing reads
    them yet, so no result changes.
-2. **Model**, after the M-step rewrite in `src/opt.rs` lands: the E-step,
-   M-step, starting values and posterior decoding use the counts, the
-   command line gets `--bin-callable`, and the README, CHANGELOG and
+2. **Model**: the E-step, M-step, starting values, bootstrap and posterior
+   decoding use the counts, the command line gets `--bin-callable`, QC
+   reports the counts, and the README, CHANGELOG and
    `docs/preprocessing.md` describe the result, including the library
    changes of stage 1 ([Changes made in stage 1](#changes-made-in-stage-1)).
+
+Both stages are built. This note describes what was built; where stage 2
+departs from the plan of stage 1 it says so and why
+([What stage 2 built](#what-stage-2-built)), and
+[Validation](#validation) gives the measured results.
 
 ## The problem
 
@@ -26,13 +31,14 @@ With missing data spread along the genome in short runs, almost every bin
 is still called but holds fewer than `s` callable bases. A bin of 70
 callable bases has about 70% of the chance of a full bin to show a
 heterozygous site, so θ per bin, and with it N0, the times and Ne, come out
-low by about the missing fraction. Experiment E4 (`experiment/pipeline/README.md`)
-measured it: with 30% of the bases missing in runs of about 20 bp, the RMSE
-of log10 Ne against the truth was 0.447, against 0.332 for the same genomes
-without missing data; rescaling the fitted times and sizes by the callable
-bases per called bin brought it back to 0.334. Missing data in long runs
-(E4's 20 kb runs) mostly empty whole bins, which the `N` rule already
-handles; only the bins at the edges of each run are partly called.
+low by about the missing fraction. Experiment E4
+(`experiment/pipeline/README.md`) measured it: with 30% of the bases
+missing in runs of about 20 bp, the RMSE of log10 Ne against the truth was
+0.447, against 0.332 for the same genomes without missing data;
+rescaling the fitted times and sizes by the callable bases per called bin
+brought it back to 0.334. Missing data in long runs (E4's 20 kb runs)
+mostly empty whole bins, which the `N` rule already handles; only the bins
+at the edges of each run are partly called.
 
 The rescaling in E4 corrects the average. The model below corrects each
 bin, so that bins with many missing bases weigh less than full ones in the
@@ -185,8 +191,10 @@ rewrites the E-step to read the counts, could remove it by coding each
 bin's symbol and count in its one byte: for `s = 100` there are 192 valid
 pairs (`T` or `K` with 10 to 100 callable bases, `N` with 0 to 9), up to
 `s = 134` they fit in a byte (`2s - ceil(s / 10) + 2` pairs), and an
-emission table indexed by that byte keeps the inner loop a lookup. As that changes `Observations::rows`
-itself, it is left to stage 2.
+emission table indexed by that byte keeps the inner loop a lookup. As that
+changes `Observations::rows` itself, it was left to stage 2, which kept the
+counts beside the symbols ([What stage 2 built](#what-stage-2-built) says
+why and what it costs).
 
 The bootstrap's joined sequences are built before the main fit, to count
 the trunks and find the replicates whose fresh start is invalid, and kept
@@ -195,9 +203,9 @@ bootstrap starts would not lower the peak, which comes during the
 bootstrap, when the input, the joined sequences, the trunks and the
 replicates are all held: on the masked input the fit alone peaks at
 59 MB, the joined sequences add one copy of the bins and counts (20 MB) to
-the main fit, and the run with the bootstrap peaks at 160 MB. Freeing the joined sequences once the trunks are
-cut would save one copy there, for every input; it is independent of the
-counts and left out.
+the main fit, and the run with the bootstrap peaks at 160 MB. Freeing the
+joined sequences once the trunks are cut would save one copy there, for
+every input; it is independent of the counts and left out.
 
 `Observations::validate` checks every invariant in one place:
 
@@ -230,15 +238,23 @@ are unchanged byte for byte.
 | multihetsep | Approximate: multihetsep records only how many sites between two rows are callable (`nr_called`), not which. The reader places the uncalled ones at the start of each interval, right after the previous row, as it already does for the symbols, and the counts follow that placement. |
 | psmcfa | None. |
 
-The multihetsep approximation is milder than it looks. Within the
+Stage 1 expected the multihetsep approximation to be mild: within the
 interval between two heterozygous rows every bin is `T` except the one that
 holds the second row, and the likelihood of a run of `T` bins in one state
 depends only on the sum of their counts, which the placement gets right.
-What the placement can get wrong is (a) which bins are `N`, as it already
-can for the symbols, (b) the count of the `K` bin at the end of the
-interval, which the placement fills with called sites, and (c) the split
-of the sum between bins on either side of a change of state. A VCF with a
-callable mask gives exact counts.
+The validation shows that the placement itself is not mild when missing
+data are dispersed, with or without the counts ([Validation](#validation)).
+Placing all of an interval's uncalled sites right after its first row
+turns scattered missing bases into a run of `N` bins after every
+heterozygous site (27.5% of the bins `N` on one simulated genome of the
+validation, with 30% of the bases missing in 20 bp runs, against 0.8% in
+the exact binning), loses the heterozygous sites whose bin those uncalled
+sites fill (7.1% of them), and leaves the bin of each heterozygous site
+callable only up to it: `K` bins hold 58% of their bases callable on
+average under the placement, against 77% in fact, while the `T` bins are
+nearly all full. The
+callable-length model takes such `K` bins as evidence of old coalescences.
+A VCF with a callable mask gives exact bins and counts.
 
 ## Interactions
 
@@ -275,86 +291,166 @@ counts. `run_bootstrap_sequences` runs a bootstrap on counted sequences
 counts.
 
 **Starting values.** C psmc starts from θ0 = -ln(1 - K/L), with K the
-heterozygous and L the called bins. With counts, stage 2 should start from
-θ0 = -ln(1 - K/L) * s / c̄, where c̄ is the mean count of the called bins:
-the same moment estimate per callable base, scaled to `s` bases. It equals
-C's value on complete data. Every θ0 must use the same rule:
+heterozygous and L the called bins: the θ at which the expected share of
+heterozygous bins under a single coalescence time, `1 - exp(-θ)`, equals the
+observed one. Stage 1 proposed `-ln(1 - K/L) * s / c̄`, with c̄ the mean
+count of the called bins. Stage 2 takes the same moment estimate under the
+callable-length model instead (`model::ThetaCounts::theta0`,
+`initial_theta_with_callable`): θ0 solves
 
-- the main fit's start (`start_rates` in `src/bin/psmc/run.rs`, through
-  `model::initial_theta`), which `fit_start` also hands to QC;
+```text
+sum over called bins i of (1 - exp(-θ0 c_i / s)) = K
+```
+
+The left side rises from 0 to L and is concave in θ0, so the root is
+unique for `0 < K < L`, and Newton's method from `-ln(1 - K/L) s / max c`,
+where the left side is at most K, climbs to it monotonically; it sums over
+the distinct counts only. With every called bin of one count `c` the root
+is `-ln(1 - K/L) s / c`, and with full bins C's value, to the bit (the code
+takes those closed forms). Dividing C's value by `c̄ / s` instead starts
+low whenever the counts vary: the probability of a heterozygous site is
+concave in the count, so a mix of counts shows fewer heterozygous bins than
+bins of the mean count would (`tests/em_callable.rs` checks both, and that
+the estimate recovers θ on bins simulated under one coalescence time, to
+2%, where C's is 40% low with 40% of the bases missing). Every θ0 uses this
+rule:
+
+- the main fit's start (`start_rates` in `src/bin/psmc/run.rs`), which
+  `fit_start` also hands to QC;
 - the start that `qc` and `convert` check when they have no fit of their
-  own (`default_start` in `src/bin/psmc/dataset.rs`, also through
-  `initial_theta`);
-- the bootstrap's fresh starts (`replicate_initial_model`), and
-  `invalid_replicate_starts` (through `model::theta_counts`), which must
-  find exactly the replicates the bootstrap skips;
-- QC's `theta0_per_bin`.
+  own (`default_start` in `src/bin/psmc/dataset.rs`), as a fit with
+  `--bin-callable auto` would start;
+- the bootstrap's fresh starts (`replicate_initial_model_with_callable`),
+  and `invalid_replicate_starts_sequences`, which adds the `ThetaCounts`
+  of the drawn trunks and finds exactly the replicates the bootstrap
+  skips;
+- QC's per-sequence θ0 per callable base (`BinStats::theta0_callable`),
+  next to C's `theta0_per_bin`.
 
-**E-step (stage 2).** The forward and backward passes multiply by
-`e(o_i, c_i, k)` instead of `e(o_i, k)`. For a `T` bin this is
-`exp(-θ avg_t[k])^(c / s)`, so a table of `T` and `K` emissions for each
-count value present in the input (at most `s + 1` of them, few for `s =
-100`) keeps the inner loop a lookup. Rows with no counts, and bins with
-`c = s`, must use the current emissions, so that results without counts or
-with complete data stay bit-identical.
+With `--bin-callable ignore` the counts are dropped before any of these,
+and every θ0 is C's.
 
-Every pass over the bins must take the counts, or it computes the
-likelihood of another model than the one fitted. Today each takes the
-emission matrix with `rows` and `row_starts`:
+**E-step.** The forward and backward passes multiply by `e(o_i, c_i, k)`
+instead of `e(o_i, k)` (`src/hmm/obs.rs`). Each pass first scans the bins
+and their counts (in parallel over rows) for the pairs of symbol and count
+that occur, checks them as `Observations::validate` would (one count per
+bin, none above `s`, `N` exactly when `10 c < s`), and gives each pair an
+observation index: `T` bins by ascending count, then `K` bins, then one
+index for every `N` bin. A table holds one emission row per index (at most
+`2 (s - ceil(s / 10) + 1) + 1`, 183 for `s = 100`), built from the model's
+rows as `e_T(c) = exp(ln e_T * c / s)` and `e_K(c) = 1 - e_T(c)`, which is
+the callable-length model wherever `e_K = 1 - e_T`, as PSMC's emissions
+are; full bins (`c = s`) get the model's own rows. The per-segment reader
+(`fb::SeqObs`) turns each bin's symbol and count into its index (the
+counts of a segment are copied out of their `BinCounts`, by a binary
+search and fills for runs), and the kernel indexes the table as it indexed
+the three symbol rows before. Without counts the indices are the symbols
+and the table is the model's three rows: the same loops, at the same speed
+(psmcfa fits measured before and after, below).
 
-- `hmm::e_step_with_options`, EM's E-step (`em.rs`), for the main fit and
-  every bootstrap replicate;
+The E-step's sums are kept per observation index (`Partial::g`), merged in
+work-item order as before, and reduced in index order at the end into the
+expected symbol counts `gobs` (which stay what they were: C's `post_sigma`
+uses them) and, with counts, `SufficientStats::callable`: `G_T` and the
+`G_K` of each count (below). With every count `s` there is one index per
+symbol and every one of these is C's value to the bit; results do not
+depend on the thread count, the alpha-cache budget, nesting or batching,
+with or without counts (`tests/estep_callable.rs`; the brute-force
+comparison is in `tests/estep_oracle.rs`).
+
+Every pass over the bins takes the counts the same way, as an
+`Option<&CallableBases>` in its options, so that none computes the
+likelihood of another model than the one fitted:
+
+- `hmm::e_step_with_options` (`EStepOptions::callable`), EM's E-step for
+  the main fit and every bootstrap replicate (`EmOptions::callable`);
 - `hmm::log_likelihood_with_options`: EM's log-likelihood of the final
-  model (`em.rs`), and the CLI's `model_loglike` (`src/bin/psmc/run.rs`),
-  the log-likelihood `infer` reports and records for a run of 0
-  iterations, which would otherwise keep C's emissions without a sign;
-- `hmm::log_likelihood`, `hmm::e_step_streaming` and
-  `e_step_streaming_with_progress`, the library's other entry points
-  (`opt.rs`'s tests use the streaming E-step);
-- `hmm::write_tmrca_posterior_tsv`, the posterior decoding.
+  model, and the CLI's `model_loglike`, the log-likelihood of a run of 0
+  iterations;
+- `hmm::write_tmrca_posterior_tsv_with_options` (`TmrcaOptions::callable`),
+  the posterior decoding, whose `obs` column stays the symbol.
 
-Giving them all the same argument for the counts (an
-`Option<&CallableBases>`, or `&Observations` in place of `rows` and
-`row_starts`) keeps them from drifting apart.
+`hmm::e_step_streaming`, `e_step_streaming_with_progress`,
+`log_likelihood`, `write_tmrca_posterior_tsv` and `em::em_train` keep
+their signatures and C's model, so `tests/c_equivalence.rs` and every
+caller without counts is untouched. Passing `&Observations` in place of
+`rows` and `row_starts`, the other option the plan named, would have
+changed every one of those signatures.
 
-**M-step (stage 2).** The emission part of the expected complete-data
+**M-step.** The emission part of the expected complete-data
 log-likelihood becomes
 
 ```text
-sum_k [ -θ avg_t[k] G_T(k) + sum_c G_K(c, k) ln(1 - exp(-θ (c / s) avg_t[k])) ]
+sum_k [ G_T(k) ln e_T(k) + sum_c G_K(c, k) ln(1 - e_T(k)^(c / s)) ]
 G_T(k)    = sum over T bins i of γ_i(k) c_i / s
 G_K(c, k) = sum over K bins i with c_i = c of γ_i(k)
 ```
 
-so the E-step must hand over, instead of the expected symbol counts
-`gobs[0]` and `gobs[1]`, the count-weighted `T` sum and the per-count `K`
-sums (a sparse histogram over the counts that occur; `K` bins are a few
-percent of the bins). With every `c = s` these are `gobs[0]` and `gobs[1]`
-and the objective is C's. The transition part is unchanged.
+since the log-probability of a `T` bin, `(c / s) ln e_T(k)`, is linear in
+its count. The objective (`opt::objective::EmissionCounts`) evaluates it
+as C's terms are evaluated, `ln(p + 1e-300)` with zero counts left out,
+with one `K` entry per count: C's case is the one entry `(f = 1,
+gobs[1])`, with `e = exp(-(θ avg) f)` and `1 - e`, which for `f = 1` are
+C's values to the bit, so the objective, its adjoint gradient and the
+whole M-step are C's when every bin is full. The `K` terms of each state
+are summed before they join Q, in the forward-mode oracle too, whose value
+equals the adjoint's to the bit. Each count adds an exponential, a
+logarithm and a division per state to an evaluation. The transition part
+is unchanged.
 
-**Posterior decoding.** The TMRCA output must decode with the same per-bin
-emissions as the fit; its columns stay as they are (`obs` is the symbol).
+`em::hmm_q` evaluates the same Q with the E-step's emissions (for the `QD`
+lines of the `.psmc` output), and `em::hmm_q0` its maximum: over the
+transition probabilities as before, and over one emission parameter per
+state, `e_T(k)`, which is the model's own freedom. The emission part of
+each state, `-t μ + sum_f g ln(1 - exp(-f μ))` in `μ = -ln e_T`, is concave
+with a derivative falling from `+inf` to `-t`, so Newton's method from the
+left (from C's closed form with every count raised to `s`) finds its
+maximum; with every `K` bin full it is C's closed form, with `G_T` in place
+of `gobs[0]`. So `Q - Q0` stays at most 0 (checked on EM runs) and is C's
+with full bins.
+
+**Posterior decoding.** The TMRCA output decodes with the same per-bin
+emissions as the fit, through the same table; its columns stay as they are
+(`obs` is the symbol).
 
 **`convert` and the writers.** psmcfa has no place for counts: a psmcfa
 written from counted input holds exactly the bins `fq2psmcfa` would write,
-and a fit of it is the `ignore` fit. Stage 2 should say so when `convert`
-writes psmcfa from input whose counts differ from `s`. The multihetsep
-writer keeps `nr_called`, from which the reader rebuilds approximate
-counts.
+and a fit of it is the `ignore` fit. `convert --psmcfa` warns when some
+called bins are partly callable, with their share and the bias, and advises
+fitting the input itself. The multihetsep writer keeps `nr_called`, from
+which the reader rebuilds approximate counts.
 
-**QC.** Unchanged in stage 1. In stage 2, QC can report the mean count of
-the called bins (the effective bin length E4 rescaled by) and the share of
-called bins with `c < s`; the `high_missing` finding, which warns that
-partly called bins bias theta and Ne low, should say that the fit corrects
-for it when it uses the counts. The per-sequence θ0 behind the sex
-chromosome check should then be per callable base too, so that sequences
-with different missingness compare fairly.
+**QC.** `QcInput::callable` gives QC the counts, whether or not the fit
+uses them (`QcContext::counts_ignored` says it does not). The report gives
+their mean share over the called bins and their distribution in tenths
+(`QcReport::callable`, a `CallableSummary`; per sequence in `BinStats`),
+and a new finding, `PARTLY_CALLABLE_BINS`, the bias of treating partly
+callable bins as full: a note when the fit corrects it, a warning when
+`--bin-callable ignore` leaves the called bins less than 90% callable on
+average (a note above), nothing when fewer than 1% of them are partly
+callable. psmcfa input cannot tell; when at least 1% of its called bins
+border a missing run, the note counts them and says how to measure the rest
+from the VCF the psmcfa was made from. `HIGH_MISSING` says that the fit
+corrects the bias of partly called bins when it uses the counts, and
+`APPROX_MISSING_PLACEMENT` that multihetsep's counts follow its placement.
+With counts, sequences are compared per callable base
+(`BinStats::theta0_callable`, `theta0_comparable`): the autosomal
+reference, the table's het/kb and `vs ref`, `SEX_OR_ORGANELLE` (whose
+expected `K` bins use the sequence's mean share) and `HET_OUTLIER`, so that
+a sequence with more missing data does not look less heterozygous.
 
 **`.psmc` output and the JSON.** θ is still per `s` bases, so
 `psmc_plot.pl -s s -u μ` scales a `.psmc` file correctly. The `MM` line's
 `sum_L` and `sum_n` stay C's bin counts, and C's expected recombination count
 (`n_recomb`, from `sum_L`) is unchanged, as recombination does not depend
-on callability. The run's JSON records which mode was used.
+on callability. For input with counts, one more `MM` line follows
+`n_seqs`: `bin_model:callable-length` (or `full-bins` with `ignore`),
+`counts:exact` (VCF) or `approximate` (multihetsep), `mean_callable` and
+`partial_bins`; psmc_plot.pl skips `MM` lines it does not know, and
+psmcfa input gets none, so its output is C's. Bootstrap replicates fitted
+with counts get the line without `counts`. The JSON records the same in
+`bin_callable`: the mode, the model, the source of the counts and their
+`CallableSummary`.
 
 ## Changes made in stage 1
 
@@ -388,7 +484,7 @@ readers accept the same bin sizes as before. Its library changes, for the
   `rows_to_sequences`, `split_for_bootstrap`, `resample_chunks` and
   `run_bootstrap_with_options` are unchanged.
 
-## Command line (stage 2)
+## Command line
 
 ```text
 --bin-callable auto|ignore    default auto
@@ -396,17 +492,59 @@ readers accept the same bin sizes as before. Its library changes, for the
 
 - `auto`: use the counts when the input has them (VCF and multihetsep
   binned into bins of at most 65,535 bases), and C's model otherwise
-  (psmcfa, and larger bins, for which the run should say so);
+  (psmcfa, and larger bins, for which the run says so);
 - `ignore`: drop the counts (`callable = None`) and reproduce
   `fq2psmcfa` and C psmc exactly, bias included.
 
-The flag applies to inference and the bootstrap; `convert` and `qc` read
-the input the same way in both modes. It is recorded in the output JSON
-and in the command line that reproduces a run, and
-`InputArgs::ignored_flags` lists `--bin-callable ignore` for psmcfa input,
-where it changes nothing.
+The flag applies to inference and the bootstrap, and is an inference
+option (`InferArgs`), not an input option: `convert` and `qc` read the
+input the same way in both modes and report on the counts as `auto` would
+use them. The run says what the counts hold and which model it fits
+(`Callable bases (exact counts): called bins hold 70.5% of their 100 bases
+on average, and 91.7% of them fewer than 100; the fit weighs each called
+bin by its callable bases`). For input without counts, `--bin-callable
+ignore` gets a warning that it changes nothing, in the run itself rather
+than in `InputArgs::ignored_flags`, which lists options of `InputArgs`. The
+flag is recorded in the output JSON (`bin_callable`) and in the command
+line that reproduces a run (`InferArgs::to_args`, which the TUI shows).
 
-## Validation plan
+## What stage 2 built
+
+The model, the counts and their storage are as planned above. Stage 2
+departs from the plan of stage 1 in five places, each said in its section:
+
+- θ0 is the moment estimate of the callable-length model, not C's
+  estimate divided by the mean share of callable bases, which starts low
+  when the counts vary (*Starting values*);
+- Q0, which the plan did not cover, is maximised over one emission
+  parameter per state, so that `Q - Q0` stays at most 0 (*M-step*);
+- the passes take the counts as an option rather than `&Observations`,
+  so that the C-compatible entry points keep their signatures (*E-step*);
+- `--bin-callable` is an inference option, and the warning for psmcfa
+  input is the run's (*Command line*);
+- the multihetsep approximation is not mild with dispersed missing data
+  (*Counts from each input*, *Validation*).
+
+The storage note proposed coding each bin's symbol and count in one byte.
+Stage 2 keeps the counts in `BinCounts` beside the symbols: the E-step
+copies one segment's counts at a time (128 bins) and maps them with the
+symbols to observation indices, which costs 3.7% of a single-threaded
+E-step on dispersed counts (0.961 s against 0.926 s per E-step on a 2 Mbin
+genome with 30% of the bases missing in 20 bp runs, 64 states; medians of
+three runs of three E-steps, `examples/bench_estep.rs --callable`) and 0.9%
+when every bin is full (0.935 s against 0.927 s), and 3% with 8 threads
+(0.231 s against 0.224 s). The coding would save one copy of the counts
+(1 byte per bin) in each copy of the data, at the price of changing
+`Observations::rows`, which every reader, writer and caller uses; it is
+left out. psmcfa input runs the same loops as before: a fit of
+HLemySub1 (18.9 Mbin, `4+25*2+4+6`, 3 iterations, 8 threads) took a median
+of 7.24 s against 7.36 s before stage 2 (three runs each, interleaved), and
+wrote the same JSON but for the new `bin_callable` record. Whole fits of
+the dispersed genome above, 25 iterations with 8 threads, took 6.22 s with
+the counts and 5.97 s without (`--bin-callable ignore`; 6.00 s before
+stage 2), and of its complete version 5.84 s and 5.76 s.
+
+## Validation
 
 Stage 1 (in the test suite):
 
@@ -427,24 +565,86 @@ Stage 1 (in the test suite):
 - bins too large to count load as before, without counts;
 - every existing test, golden file and writer output unchanged.
 
-Stage 2:
+Stage 2 (in the test suite):
 
-- unit level: the emissions with `c = s` equal the current ones bit for
-  bit; the E-step with counts matches a brute-force forward-backward oracle
-  that builds every bin's emission from its count; the new M-step
-  objective and its gradient match finite differences, and reduce to the
-  current objective with every `c = s`;
-- identical to C when complete: a complete-data VCF fitted with `auto`, the
-  same VCF with `ignore`, and C psmc on its `fq2psmcfa` psmcfa give
-  identical `.psmc` output and identical JSON (apart from the recorded mode);
-- unbiased under missing data: E4's masks (10% and 30% missing, clustered
-  in 20 kb runs and dispersed in 20 bp runs) fitted with `auto` by the
-  exact (VCF and mask) route must show no systematic shrink of θ, N0, times
-  or Ne: RMSE of log10 Ne against the truth within replicate noise of the
-  complete-data fit (0.332 at 30% dispersed, where E4's rescaling reached
-  0.334), mean log ratio of fitted to true Ne near 0 at every time, while
-  `ignore` reproduces E4's biased numbers exactly; the multihetsep route
-  should come close to the exact one;
-- the bootstrap and posterior decoding with counts: replicates
-  reproducible from the seed with any thread count and batch size, and the
-  decoding of complete data unchanged.
+- the emission table: rows with `c = s` are the model's own, to the bit,
+  and partly callable rows are `exp(-θ (c/s) avg_t)` and one minus it
+  (`src/hmm/obs.rs`); the E-step and the log-likelihood with counts match
+  a brute-force forward-backward that builds every bin's emission from its
+  count, to 2e-13 relative (`tests/estep_oracle.rs`);
+- with every called bin full, the E-step, the log-likelihood and the TMRCA
+  output equal those without counts to the bit, with any batching; with
+  one count `c` everywhere they equal those of the model whose `T`
+  emission is the full bin's to the power `c / s`; with mixed counts they
+  do not depend on threads, nesting, the cache budget or batching
+  (`tests/estep_callable.rs`);
+- the M-step: with counts, the adjoint objective equals the forward-mode
+  oracle to the bit and its gradient to 1e-10 relative (or the
+  double-double evaluation decides), the gradient matches Richardson
+  central differences to 1e-6, and the value is minus Q evaluated
+  directly from the model; with full counts the objective, the gradient
+  and the whole M-step are C's to the bit (`src/opt.rs`);
+- EM: θ0 (above); EM with full counts is C psmc's to the bit, in its
+  history, Q and Q0; with partly callable bins it does not lower the
+  likelihood and keeps `Q - Q0 <= 0`; Q0 equals a golden-section
+  maximisation; and on bins simulated from the callable-length model with
+  30% of the bases missing at random, the fit with counts recovers the
+  diversity per bin (θ C_pi) of the fit of the same genealogy without
+  missing data (ratio 0.999), where the fit without counts gives 0.70
+  (`tests/em_callable.rs`);
+- the bootstrap: each replicate is the fit of its resampled bins and
+  counts, by hand; full counts give the replicates without counts to the
+  bit; replicates do not depend on threads or batching; and
+  `invalid_replicate_starts_sequences` finds exactly the replicates the
+  bootstrap skips (`tests/bootstrap_callable.rs`);
+- the command line: `--bin-callable ignore` on each route A VCF fits
+  exactly, to the bit, what the real `fq2psmcfa`'s psmcfa of the same
+  calls fits (model, log-likelihoods and every `.psmc` round), `auto` on
+  complete data fits exactly what `ignore` and the psmcfa fit, and `auto`
+  on partly callable bins records the model in the JSON, the `.psmc`
+  output and the report, and is warned about by `convert`
+  (`tests/cli_bin_callable.rs`); QC's summary and findings
+  (`tests/qc_callable.rs`);
+- `tests/c_equivalence.rs` is unchanged and passes.
+
+Simulations (not in CI; `experiment/validation/bin_callable.py`, numbers
+and command in `experiment/validation/README.md`): three replicates of the
+bottleneck model, 10 × 20 Mb each, with callable masks of none, 10% and
+30% dispersed (20 bp runs) and 30% clustered (20 kb runs) missing data,
+fitted from the masked VCF with its mask (`-N25 -t15 -r5 -p
+4+25*2+4+6`). Means over the replicates:
+
+| mask | input | `--bin-callable` | mean share of callable bases | θ / complete-data fit | RMSE vs truth (sd) | RMSE vs complete-data fit |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| none | VCF + mask | auto, ignore | 1.000 | 1.000 | 0.307 (0.030) | 0 |
+| dispersed 10% | VCF + mask | auto | 0.902 | 0.993 | 0.306 (0.030) | 0.027 |
+| dispersed 10% | VCF + mask | ignore | 0.902 | 0.881 | 0.348 (0.020) | 0.194 |
+| dispersed 30% | VCF + mask | auto | 0.705 | 0.982 | 0.309 (0.019) | 0.074 |
+| dispersed 30% | VCF + mask | ignore | 0.705 | 0.652 | 0.453 (0.010) | 0.355 |
+| dispersed 30% | multihetsep | auto | 0.964 | 0.534 | 0.421 (0.009) | 0.335 |
+| dispersed 30% | multihetsep | ignore | 0.964 | 0.683 | 0.406 (0.009) | 0.308 |
+| clustered 30% | VCF + mask | auto | 0.998 | 0.976 | 0.330 (0.062) | 0.088 |
+| clustered 30% | VCF + mask | ignore | 0.998 | 0.975 | 0.330 (0.061) | 0.090 |
+
+- **Complete data**: `auto` and `ignore` give the same fit, to the bit.
+- **Dispersed missing data.** `auto` recovers the complete-data fit: θ
+  within 0.7% (10%) and 1.8% (30%) of the complete-data fit of the same
+  genome, and the RMSE of log10 Ne against the truth 0.306 and 0.309
+  against 0.307 for complete data. `ignore` is biased by about the missing
+  share: θ at 0.88 and 0.65 of the complete-data fit (mean share of
+  callable bases 0.902 and 0.705), the curve 0.06 and 0.19 log10 units
+  below it on average, and RMSE 0.348 and 0.453, as E4 measured (0.447 at
+  30% on 500 Mb genomes).
+- **Clustered missing data** change little either way: the called bins
+  hold 99.8% of their bases, and `auto` and `ignore` differ by 0.002 in
+  RMSE against the complete-data fit.
+- **Multihetsep.** The approximate counts do not recover the exact route:
+  the RMSE against the truth is 0.421 with `auto` and 0.406 with `ignore`,
+  against 0.309 for the VCF with its mask. The bias comes from the
+  placement of the uncalled sites, which `ignore` shows as well (*Counts
+  from each input*), not from the counts; with the counts the `K` bins
+  that the placement leaves partly callable make it slightly worse.
+  Placing the uncalled sites evenly over each interval, which would match
+  dispersed missing data, would change the bins of the reader as well and
+  is left out; the VCF with its callable mask is the input to use when
+  missing data are dispersed.

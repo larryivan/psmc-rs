@@ -697,7 +697,9 @@ pub struct InferArgs {
     pub tr_ratio: f64,
 
     /// Initial theta0 per bin (default: -ln(1 - K/L) from the data, as C
-    /// psmc)
+    /// psmc; with --bin-callable auto and counts, the theta0 at which the
+    /// called bins' expected heterozygous bins, the sum of
+    /// 1 - exp(-theta0 c / BIN_SIZE), equal K)
     #[arg(long, value_parser = positive_f64, help_heading = "Model")]
     pub theta0: Option<f64>,
 
