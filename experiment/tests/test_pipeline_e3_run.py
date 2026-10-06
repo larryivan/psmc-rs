@@ -111,6 +111,37 @@ class Genomes(unittest.TestCase):
             self.assertEqual(set(info), {"hostname"})
 
 
+@unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
+class Quiet(unittest.TestCase):
+    """The quiet check of a machine of many cores and of a laptop, with psutil's counters made up."""
+
+    def quiet(self, cpus: int, busy_cores: float) -> dict:
+        import collections
+
+        import psutil
+
+        times = collections.namedtuple("scputimes", "user system idle")
+        window = 2.0
+        before, after = times(0.0, 0.0, 0.0), times(busy_cores * window, 0.0, (cpus - busy_cores) * window)
+        protocol = replace(config.TimingProtocol(), settle_seconds=0.0, max_wait_seconds=0.0)  # the default limits
+        with mock.patch.object(psutil, "cpu_times", side_effect=[before, after]), \
+                mock.patch.object(psutil, "cpu_count", return_value=cpus), \
+                mock.patch.object(psutil, "process_iter", return_value=[]), \
+                mock.patch.object(e3_run.time, "sleep"):
+            return e3_run.wait_until_quiet(protocol, log=lambda m: None)
+
+    def test_a_node_of_many_cores_is_quiet_by_the_cores_and_a_laptop_by_the_share(self):
+        seen = self.quiet(192, 1.5)  # 0.8% of the cores: within the share, not the 1 core
+        self.assertAlmostEqual(seen["busy_cores"], 1.5)
+        self.assertLess(seen["busy_percent"], 1.0)
+        self.assertFalse(seen["quiet"])
+        self.assertTrue(self.quiet(192, 0.9)["quiet"])
+        self.assertTrue(self.quiet(8, 0.5)["quiet"])  # 6.25% of a laptop
+        seen = self.quiet(8, 0.9)  # 11%: within the core, not the share
+        self.assertAlmostEqual(seen["busy_cores"], 0.9)
+        self.assertFalse(seen["quiet"])
+
+
 @unittest.skipUnless(HAS_MSPRIME, "msprime not installed")
 class SimulateSize(unittest.TestCase):
     def test_tiny_genome_uses_the_e3_seeds(self):
@@ -217,7 +248,7 @@ class Measure(unittest.TestCase):
         crowded = replace(NO_WAIT, max_other_cores=-1.0)
         self.assertEqual(self.measure(1, protocol=crowded), e3_run.EX_TEMPFAIL)  # by the cores, too
         self.assertFalse(self.out.exists())
-        res ={"during": {"other_cpu_share": 0.01}, "wall_seconds": 10.0, "clock_span_seconds": 70.0}
+        res = {"during": {"other_cpu_share": 0.01}, "wall_seconds": 10.0, "clock_span_seconds": 70.0}
         protocol = config.TimingProtocol()
         self.assertIn("slept", e3_run.unclean(res, protocol))
         self.assertIsNone(e3_run.unclean({**res, "clock_span_seconds": 10.5}, protocol))
