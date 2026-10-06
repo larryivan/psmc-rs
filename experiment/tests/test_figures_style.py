@@ -288,6 +288,14 @@ class FigureContent(unittest.TestCase):
         self.assertLessEqual(min(bus.get_ydata()), min(centres))
         self.assertGreaterEqual(max(bus.get_ydata()), max(centres))
 
+    def test_fig5_draws_every_called_bin_taken_as_full_on_top(self):
+        from experiment.pipeline.figures import fig5, style
+
+        self.assertEqual(set(fig5.LINE_Z), set(style.ROUTES))
+        self.assertEqual(max(fig5.LINE_Z, key=fig5.LINE_Z.get), "mask_ignore")
+        self.assertGreater(fig5.LINE_Z["mask_ignore"], fig5.LINE_Z["nomask"])
+        self.assertGreater(fig5.LINE_Z["mask_ignore"], fig5.LINE_Z["mask_auto"])
+
 
 class Readme(unittest.TestCase):
     def test_lists_every_table_and_column(self):

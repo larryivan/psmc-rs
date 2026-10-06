@@ -15,22 +15,30 @@ uncallable in clustered (mean 20 kb) or dispersed (mean 20 bp) runs.
 fq2psmcfa's rule calls a bin missing only when more than 90% of its bases
 are uncallable, so a dispersed mask leaves almost every bin called with
 only about (1 - f) of its bases. Taken as full, they make theta per bin,
-and every time and size with it, low by about (1 - f); weighed by their
-callable bases they do not. Clustered missing data empty whole bins, which
+and every time and size with it, low by somewhat more than the share of
+bases missing from the called bins (about 1.2 times it in E4: theta -12%
+with 10% and -35% with 30% dispersed missing); weighed by their callable
+bases they are not. Clustered missing data empty whole bins, which
 both models drop. multihetsep does not say which sites of an interval are
 uncalled; psmc-rs places them at the start of each interval, which turns
 dispersed missing data into runs of N bins after heterozygous sites and
 biases theta low, less so with clustered missing data. Without its mask a VCF
 counts every uncallable site as homozygous.
 
-* a: theta per bin against the complete-data fit of the same genome, in
-  percent (every replicate, and the mean);
+* a: theta per bin against the complete-data fit of the same genome, as a
+  change in percent (every replicate, and the mean);
 * b: RMSE of log10 Ne against the truth on the informative window;
 * c: RMSE of log10 Ne against the complete-data fit of the same genome;
 * d: the curves of one replicate with the dispersed 30% mask, its
   complete-data fit (grey) and the truth;
 * e, f: bias over time, mean over replicates of log10(Ne / true Ne), with
   the largest clustered and dispersed masks; grey: the complete data.
+
+In d-f every called bin taken as full (dark blue, dashed) is drawn above
+the other routes: with dispersed missing data its curve lies on the VCF
+read without its mask (pink), and with clustered missing data on psmc-rs's
+default (blue), which would otherwise hide it. The limits of e and f are
+those of the data, shared by both panels.
 
 Everything comes from ``E4_routes``, ``E4_curves`` and ``E4_bias``.
 """
@@ -49,6 +57,10 @@ COMPLETE_ROUTE = "mask_auto"  # the complete-data fit
 BOLD = "mask_auto"  # the route the figure is about
 MARKED = ("multihetsep", "nomask")  # light colours carry their marker along the line too
 REFERENCE_LW = 2.0  # the complete data, grey, under the routes
+# Stacking of the routes' lines in d-f: every called bin taken as full (dashed) on top, as it coincides
+# with the VCF without its mask (dispersed masks) or with the default (clustered masks).
+LINE_Z = {"nomask": 3.0, "multihetsep": 3.1, "fq2psmcfa": 3.2, "mask_auto": 3.3, "mask_ignore": 3.4}
+MASK_TITLE = "Uncallable positions in the mask"
 
 
 def masks_of(routes, cfg: config.E4) -> List[Tuple[str, str, float]]:
@@ -77,6 +89,8 @@ def mask_axis(ax, masks) -> None:
     ax.set_xticks(range(len(masks)))
     ax.set_xticklabels(["none" if s == "none" else f"{100 * f:.0f}%" for _, s, f in masks], fontsize=style.TICK_PT)
     ax.tick_params(axis="x", length=0)
+    ax.text(0.5, -0.235, MASK_TITLE, ha="center", va="top", fontsize=style.TEXT_PT, color=style.INK,
+            transform=ax.transAxes)
     for i in range(1, len(masks)):
         ax.axvline(i - 0.5, color=style.GRID, linewidth=style.LW_GRID, zorder=0)
     trans = blended_transform_factory(ax.transData, ax.transAxes)
@@ -117,7 +131,7 @@ def route_line(ax, x, y, route: str, xlim: Tuple[float, float], n_marks: int = 6
     import numpy as np
 
     ent = style.ROUTES[route]
-    style_kw = {"color": ent.color, "linestyle": ent.linestyle, "linewidth": style.LW, "zorder": 3}
+    style_kw = {"color": ent.color, "linestyle": ent.linestyle, "linewidth": style.LW, "zorder": LINE_Z[route]}
     style_kw.update(kw)
     ax.plot(x, y, **style_kw)
     if route not in MARKED:
@@ -143,21 +157,21 @@ def draw(src: Source):
     xlim = figs.sim_years
     window = informative_window(cfg.model, cfg.grid, g)
 
-    fig = style.figure("double", 122)
+    fig = style.figure("double", 126)
     gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=2.5, top_mm=12.0, bottom_mm=9.0, wspace_mm=13.0,
-                    hspace_mm=15.0, height_ratios=[1.0, 1.1])
+                    hspace_mm=18.0, height_ratios=[1.0, 1.1])
     ax_t, ax_r, ax_b = (fig.add_subplot(gs[0, i]) for i in range(3))
     ax_c, ax_e, ax_f = (fig.add_subplot(gs[1, i]) for i in range(3))
 
     dot_panel(ax_t, routes, "theta_rel_complete", 100.0, masks, route_names)
     style.ref_line(ax_t, y=0.0)
-    ax_t.set_ylabel("θ against the complete data (%)")
+    ax_t.set_ylabel("θ, change from the complete data (%)")
     dot_panel(ax_r, routes, "rmse_log10_ne_vs_truth", 1.0, masks, route_names)
     ax_r.set_ylim(bottom=0.0)
-    ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ against the truth")
+    ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs the truth")
     dot_panel(ax_b, routes, "rmse_log10_ne_vs_complete", 1.0, masks, route_names)
     ax_b.set_ylim(bottom=0.0)
-    ax_b.set_ylabel("RMSE against the complete-data fit")
+    ax_b.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs the complete data")
 
     # d: one replicate, one mask, with its complete-data fit.
     rep, mask = figs.e4_example_replicate, figs.e4_example_mask
@@ -192,14 +206,12 @@ def draw(src: Source):
     # e, f: mean bias against the truth over time, with the complete data for reference.
     bias_masks = [m for m in figs.e4_bias_masks if m in specs][:2]
     reference = bias[(bias["mask"] == COMPLETE) & (bias.route == COMPLETE_ROUTE)].sort_values("years")
-    lim = 0.05
-    for m in bias_masks:
-        sub = bias[(bias["mask"] == m) & bias.route.isin(route_names)]
-        if not sub.empty:
-            lim = max(lim, float(np.nanmax(np.abs(sub["log10_bias_mean"]))))
-    if not reference.empty:
-        lim = max(lim, float(np.nanmax(np.abs(reference["log10_bias_mean"]))))
-    lim *= 1.15
+    drawn = [bias[(bias["mask"] == m) & bias.route.isin(route_names)]["log10_bias_mean"] for m in bias_masks]
+    values = np.concatenate([v.to_numpy(dtype=float) for v in drawn + [reference["log10_bias_mean"]]] + [[0.0]])
+    values = values[np.isfinite(values)]
+    lo, hi = float(values.min()), float(values.max())
+    pad = 0.08 * max(hi - lo, 0.1)
+    ylim = (lo - pad, hi + pad)
     for ax, m in zip((ax_e, ax_f), bias_masks):
         if not reference.empty:
             ax.plot(reference["years"], reference["log10_bias_mean"], color=style.MUTED, linewidth=REFERENCE_LW,
@@ -213,11 +225,11 @@ def draw(src: Source):
                        linewidth=style.LW_BOLD if route == BOLD else style.LW)
         style.ref_line(ax, y=0.0)
         style.years_axis(ax, (window[0] / 1.15, window[1] * 1.15))
-        ax.set_ylim(-lim, lim)
-        ax.set_ylabel("log$_{10}$($N_\\mathrm{e}$ / true $N_\\mathrm{e}$), mean")
+        ax.set_ylim(*ylim)
+        ax.set_ylabel("Bias, mean log$_{10}$($N_\\mathrm{e}$ / true $N_\\mathrm{e}$)")
         n = int(bias[bias["mask"] == m]["replicates"].max())
-        style.note(ax, 0.03, 0.97, f"{mask_label(*specs[m])},\nmean of {n} replicate{'s' if n > 1 else ''}",
-                   ha="left", va="top")
+        style.note(ax, 0.97, 0.03, f"{mask_label(*specs[m])},\nmean of {n} replicate{'s' if n > 1 else ''}",
+                   ha="right", va="bottom")
     for ax in (ax_e, ax_f)[len(bias_masks):]:
         ax.set_axis_off()
 

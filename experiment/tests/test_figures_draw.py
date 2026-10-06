@@ -94,6 +94,35 @@ class Draw(unittest.TestCase):
                 self.assertEqual(main(["fig3", "--profile", "tiny", "--runs-dir", empty, "--dpi", str(DPI)]), 1)
             self.assertIn("skip fig3_real_genomes", err.getvalue())
 
+    def _draw(self, module: str, runs: Path = None):
+        import importlib
+
+        import matplotlib.pyplot as plt
+
+        from experiment.pipeline.figures import data
+
+        fig = importlib.import_module(f"experiment.pipeline.figures.{module}").draw(
+            data.Source(runs or self.runs, config.TINY))
+        self.addCleanup(plt.close, fig)
+        return fig
+
+    @staticmethod
+    def _labels(fig) -> list:
+        return [t.get_text() for leg in fig.legends + [ax.get_legend() for ax in fig.axes if ax.get_legend()]
+                for t in leg.get_texts()]
+
+    def test_fig5_draws_every_called_bin_taken_as_full_above_the_vcf_without_its_mask(self):
+        from experiment.pipeline.figures import style
+
+        fig = self._draw("fig5")
+        for ax in fig.axes[3:6]:  # d, e, f
+            z = {}
+            for ln in ax.lines:
+                if ln.get_linestyle() != "None" and ln.get_color() in (style.BLUE_650, style.MAGENTA):
+                    z.setdefault(ln.get_color(), set()).add(ln.get_zorder())
+            if len(z) == 2:
+                self.assertGreater(min(z[style.BLUE_650]), max(z[style.MAGENTA]))
+
     def test_a_truth_table_that_disagrees_with_the_models_is_refused(self):
         import pandas as pd
 
