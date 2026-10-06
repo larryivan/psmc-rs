@@ -114,6 +114,12 @@ impl Default for MStepConfig {
     }
 }
 
+/// Progress of an M-step: the L-BFGS iterations `done`, out of `total`.
+///
+/// While the search runs, `total` is the cap [`MStepConfig::max_iters`],
+/// which converged M-steps end far below; the last event of each M-step
+/// has `total` equal to `done`, the iterations it took, so that a bar
+/// drawn from the events ends full.
 #[derive(Debug, Clone, Copy)]
 pub struct MStepProgress {
     pub done: usize,
@@ -315,8 +321,16 @@ pub fn m_step_lbfgs_with_outcome(
         debug,
     };
     let minimum = lbfgs::minimize(&mut objective, x0, f0, g0, &settings, &mut on_iteration);
+    // The cap is no estimate of the search's length: the bar and the last
+    // event end at the iterations it took.
+    let done = minimum.iterations;
     if let Some(pb) = pb {
+        pb.set_length(done as u64);
+        pb.set_position(done as u64);
         pb.finish_with_message("M-step done");
+    }
+    if let Some(cb) = on_progress.as_mut() {
+        (*cb)(MStepProgress { done, total: done });
     }
 
     // Without an iteration the result is the start itself, not its round
@@ -1079,14 +1093,16 @@ mod tests {
 
     /// Runs the M-step; returns its outcome, the number of iterations it
     /// reported as done and the number of objective evaluations it made.
+    /// Its last progress event must report the iterations as done out of as
+    /// many.
     fn counted_m_step(
         model: &PsmcModel,
         stats: &SufficientStats,
         config: &MStepConfig,
     ) -> (MStepOutcome, usize, usize) {
         let bounds = bounds_from_config(model, config);
-        let mut done = 0;
-        let mut on_progress = |p: MStepProgress| done = p.done;
+        let mut last = None;
+        let mut on_progress = |p: MStepProgress| last = Some((p.done, p.total));
         let calls_before = EVAL_CALLS.with(|c| c.get());
         let outcome = m_step_lbfgs_with_outcome(
             model,
@@ -1098,6 +1114,8 @@ mod tests {
         )
         .unwrap();
         let calls = EVAL_CALLS.with(|c| c.get()) - calls_before;
+        let (done, total) = last.unwrap();
+        assert_eq!(done, total, "the last progress event");
         (outcome, done, calls)
     }
 

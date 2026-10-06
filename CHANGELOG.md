@@ -150,6 +150,11 @@ Library API:
   1e-154), where rows summed to up to 1.014 and Q exceeded its maximum Q0;
   on a simulated genome fitted with one λ per interval an M-step moved
   there, and the next E-step lowered the log-likelihood by 367.
+- The last `opt::MStepProgress` event of each M-step reports the
+  iterations it took as its `total` (earlier events report the cap,
+  `max_iters`), and the M-step's progress bar ends there: converged
+  M-steps take 10 to 70 iterations, so bars drawn against the cap of 1000
+  ended at about 1%.
 - `MStepConfig::lam_hi` defaults to 1e4 instead of 1e6. Over an early
   interval of length τ, C's formulas cancel to about τ² / (2λ), so f64
   holds them to a relative 2.2e-16 (λ/τ)²: at λ = 1e6 the first of 64
