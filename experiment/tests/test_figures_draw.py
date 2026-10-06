@@ -153,6 +153,22 @@ class Draw(unittest.TestCase):
         trunks = cov["trunk_bins"].nunique()
         self.assertEqual(sum(1 for ln in fig.axes[3].lines if ln.get_marker() not in ("None", "", None)), trunks)
 
+    def test_figs1_ends_both_tools_where_c_psmc_stops_and_shows_its_rounding(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        traces = pd.read_csv(SCHEMAS["E1_traces"].path(self.runs))
+        last_c = int(traces[(traces.tool == "c") & traces.loglike.notna()]["iteration"].max())
+        fig = self._draw("figs1")
+        n = traces["model"].nunique()
+        for ax in fig.axes[:n]:
+            for ln in ax.lines:
+                self.assertLessEqual(max(ln.get_xdata()), last_c)
+        self.assertTrue(any("Rounding of C psmc's printed" in label for label in self._labels(fig)))
+        for ax in fig.axes[2 * n:3 * n]:
+            self.assertEqual(len(ax.collections), 1)  # the rounding band
+
     def test_a_truth_table_that_disagrees_with_the_models_is_refused(self):
         import pandas as pd
 
