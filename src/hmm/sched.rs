@@ -5,9 +5,10 @@ use anyhow::Result;
 use indicatif::ProgressBar;
 use rayon::ThreadPool;
 use rayon::prelude::*;
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::sync::Mutex;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -17,10 +18,10 @@ use crate::progress;
 
 /// Upper bound on the number of work items. Sequences are grouped into at
 /// most this many contiguous chunks, each processed serially into one partial
-/// result; the partials are then summed in chunk order. The grouping depends
-/// only on the number of sequences, so results are the same for any thread
-/// count, and memory for partial sums stays bounded however many sequences
-/// (e.g. scaffolds) the input has.
+/// result; the partials are then summed in chunk order ([`fold_in_order`]).
+/// The grouping depends only on the number of sequences, so results are the
+/// same for any thread count, and the number of partial results stays
+/// bounded however many sequences (e.g. scaffolds) the input has.
 const MAX_WORK_ITEMS: usize = 256;
 
 /// Rows of each sequence and the grouping of sequences into work items.
@@ -163,7 +164,7 @@ impl Drop for Reporter<'_> {
 }
 
 /// Sends a completion message when dropped, so the progress pump also learns
-/// about work items that unwind.
+/// about workers that unwind.
 struct DoneGuard(mpsc::Sender<()>);
 
 impl Drop for DoneGuard {
@@ -174,71 +175,153 @@ impl Drop for DoneGuard {
 
 const POLL: Duration = Duration::from_millis(50);
 
-/// Run `work(i)` for every `i < n_items`, in parallel, and return the results
-/// in item order.
+/// The fold of [`fold_in_order`]: the results merged so far, and those that
+/// finished before an item ahead of them.
+struct Ordered<T, A> {
+    acc: A,
+    /// Results that finished before every item ahead of them did, by item.
+    held: BTreeMap<usize, T>,
+    /// The next item to merge.
+    next: usize,
+    /// The error of the earliest failed item so far.
+    error: Option<(usize, anyhow::Error)>,
+}
+
+impl<T, A> Ordered<T, A> {
+    /// Take the result of item `i`, and merge every result that is now next
+    /// in item order. Once an item has failed, the results are no longer
+    /// merged, and only an earlier item's error replaces its own.
+    fn deposit(&mut self, i: usize, result: Result<T>, merge: &impl Fn(&mut A, T)) {
+        match result {
+            Err(e) => {
+                if self.error.as_ref().is_none_or(|&(j, _)| i < j) {
+                    self.error = Some((i, e));
+                }
+                self.held.clear();
+            }
+            Ok(t) if self.error.is_none() => {
+                self.held.insert(i, t);
+                while let Some(t) = self.held.remove(&self.next) {
+                    merge(&mut self.acc, t);
+                    self.next += 1;
+                }
+            }
+            Ok(_) => {}
+        }
+    }
+}
+
+/// Run `work(i)` for every `i < n_items`, in parallel, and fold the results
+/// into `acc` with `merge` in item order, as `for i in 0..n_items { merge(&mut
+/// acc, work(i)?) }` would, so that the result does not depend on the thread
+/// count. Returns the error of the earliest failed item.
+///
+/// Items start in item order, from a shared counter, and each result is
+/// merged as soon as every item before it has been. So at any time the fold
+/// holds only the results that finished before an earlier item, about one
+/// per thread when the items take similar times, rather than one per item:
+/// with a large result per item (the E-step's sums per observation index
+/// and state) and many items (a bootstrap of many trunks, an assembly of
+/// many sequences), keeping every result until the end would take far more
+/// memory than the passes themselves. After an item fails, no new item
+/// starts; the items before it have all started and finish.
 ///
 /// Parallelism comes from the pool the caller runs in (or `pool`), at any
-/// nesting level: inside a rayon worker the items are simply more tasks for
-/// that pool. With an active reporter the calling thread pumps progress
-/// events (helping with pending rayon work in between when it is a worker).
-pub(crate) fn run<T, F>(
+/// nesting level: inside a rayon worker the workers that pull items are
+/// simply more tasks for that pool. With an active reporter the calling
+/// thread pumps progress events (helping with pending rayon work in between
+/// when it is a worker).
+pub(crate) fn fold_in_order<T, A, F, M>(
     n_items: usize,
     pool: Option<&ThreadPool>,
     reporter: &mut Reporter<'_>,
     progress: &Progress,
     work: F,
-) -> Vec<Result<T>>
+    acc: A,
+    merge: M,
+) -> Result<A>
 where
     T: Send,
+    A: Send,
     F: Fn(usize) -> Result<T> + Sync,
+    M: Fn(&mut A, T) + Sync,
 {
-    if !reporter.active() {
-        let all = || (0..n_items).into_par_iter().map(&work).collect::<Vec<_>>();
-        return match pool {
+    let state = Mutex::new(Ordered {
+        acc,
+        held: BTreeMap::new(),
+        next: 0,
+        error: None,
+    });
+    let next_item = AtomicUsize::new(0);
+    let failed = AtomicBool::new(false);
+    let worker = || {
+        while !failed.load(Ordering::Relaxed) {
+            let i = next_item.fetch_add(1, Ordering::Relaxed);
+            if i >= n_items {
+                break;
+            }
+            let result = work(i);
+            if result.is_err() {
+                failed.store(true, Ordering::Relaxed);
+            }
+            state
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .deposit(i, result, &merge);
+        }
+    };
+    let workers = |threads: usize| threads.clamp(1, n_items.max(1));
+
+    if reporter.active() {
+        match pool {
+            Some(p) => {
+                let n = workers(p.current_num_threads());
+                p.in_place_scope(|scope| spawn_and_pump(scope, n, &worker, reporter, progress))
+            }
+            None => {
+                let n = workers(rayon::current_num_threads());
+                rayon::in_place_scope(|scope| spawn_and_pump(scope, n, &worker, reporter, progress))
+            }
+        }
+    } else {
+        let all = || {
+            let n = workers(rayon::current_num_threads());
+            (0..n).into_par_iter().for_each(|_| worker());
+        };
+        match pool {
             Some(p) => p.install(all),
             None => all(),
-        };
+        }
     }
 
-    let slots: Vec<Mutex<Option<Result<T>>>> = (0..n_items).map(|_| Mutex::new(None)).collect();
-    match pool {
-        Some(p) => {
-            p.in_place_scope(|scope| spawn_and_pump(scope, &work, &slots, reporter, progress))
-        }
-        None => {
-            rayon::in_place_scope(|scope| spawn_and_pump(scope, &work, &slots, reporter, progress))
-        }
+    let state = state.into_inner().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, e)) = state.error {
+        return Err(e);
     }
-    slots
-        .into_iter()
-        .map(|m| {
-            m.into_inner()
-                .unwrap_or_else(|e| e.into_inner())
-                .expect("every work item stores its result")
-        })
-        .collect()
+    debug_assert_eq!(state.next, n_items, "every item is merged");
+    Ok(state.acc)
 }
 
-fn spawn_and_pump<'scope, T, F>(
+/// Run `n_workers` copies of `worker` in `scope` while the calling thread
+/// pumps `reporter`'s progress events until they are done.
+fn spawn_and_pump<'scope, W>(
     scope: &rayon::Scope<'scope>,
-    work: &'scope F,
-    slots: &'scope [Mutex<Option<Result<T>>>],
+    n_workers: usize,
+    worker: &'scope W,
     reporter: &mut Reporter<'_>,
     progress: &Progress,
 ) where
-    T: Send,
-    F: Fn(usize) -> Result<T> + Sync,
+    W: Fn() + Sync,
 {
     let (tx, rx) = mpsc::channel::<()>();
-    for (i, slot) in slots.iter().enumerate() {
+    for _ in 0..n_workers {
         let done = DoneGuard(tx.clone());
         scope.spawn(move |_| {
             let _done = done;
-            let r = work(i);
-            *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(r);
+            worker();
         });
     }
-    let mut remaining = slots.len();
+    let mut remaining = n_workers;
     reporter.update(progress);
     while remaining > 0 {
         while rx.try_recv().is_ok() {
@@ -262,4 +345,124 @@ fn spawn_and_pump<'scope, T, F>(
 /// Final progress events after successful work.
 pub(crate) fn finish(reporter: &mut Reporter<'_>, progress: &Progress) {
     reporter.finish(progress);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pool(threads: usize) -> ThreadPool {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap()
+    }
+
+    /// Items finish out of order (the early ones take longest), yet every
+    /// result is merged in item order, with or without a progress pump; on
+    /// one thread each result is merged before the next item starts, so
+    /// only one is ever held.
+    #[test]
+    fn folds_in_item_order_whatever_finishes_first() {
+        let n = 40;
+        for threads in [1, 3, 8] {
+            for pump in [false, true] {
+                let p = pool(threads);
+                let progress = Progress::default();
+                let mut on_progress = |_: EStepProgress| {};
+                let callback = pump.then_some(&mut on_progress as &mut dyn FnMut(EStepProgress));
+                let mut reporter = Reporter::new(n as u64, false, false, "test", callback);
+                let held = AtomicUsize::new(0);
+                let peak = AtomicUsize::new(0);
+                let order = fold_in_order(
+                    n,
+                    Some(&p),
+                    &mut reporter,
+                    &progress,
+                    |i| {
+                        std::thread::sleep(Duration::from_micros(50 * (n - i) as u64));
+                        progress.forward.fetch_add(1, Ordering::Relaxed);
+                        let now = held.fetch_add(1, Ordering::Relaxed) + 1;
+                        peak.fetch_max(now, Ordering::Relaxed);
+                        Ok(i)
+                    },
+                    Vec::new(),
+                    |acc: &mut Vec<usize>, i| {
+                        held.fetch_sub(1, Ordering::Relaxed);
+                        acc.push(i);
+                    },
+                )
+                .unwrap();
+                assert_eq!(order, (0..n).collect::<Vec<_>>(), "{threads} {pump}");
+                if threads == 1 {
+                    assert_eq!(peak.load(Ordering::Relaxed), 1, "{pump}");
+                }
+            }
+        }
+    }
+
+    /// The error is the earliest failed item's, as a loop over the items
+    /// would return, even when a later item fails first; on one thread no
+    /// item starts after the failure.
+    #[test]
+    fn returns_the_earliest_error() {
+        for threads in [1, 4] {
+            let p = pool(threads);
+            let progress = Progress::default();
+            let mut reporter = Reporter::new(0, false, false, "test", None);
+            let ran = AtomicUsize::new(0);
+            let err = fold_in_order(
+                100,
+                Some(&p),
+                &mut reporter,
+                &progress,
+                |i| {
+                    ran.fetch_add(1, Ordering::Relaxed);
+                    if i == 7 {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    match i {
+                        7 | 9 => anyhow::bail!("item {i}"),
+                        _ => Ok(i),
+                    }
+                },
+                0usize,
+                |acc, i| *acc += i,
+            )
+            .unwrap_err();
+            assert_eq!(err.to_string(), "item 7", "{threads}");
+            if threads == 1 {
+                assert_eq!(ran.load(Ordering::Relaxed), 8);
+            }
+        }
+    }
+
+    /// Nested in other rayon work, as the bootstrap's replicates run, each
+    /// fold still merges its own items in order.
+    #[test]
+    fn nested_folds_are_in_order() {
+        let p = pool(4);
+        let folds: Vec<Vec<usize>> = p.install(|| {
+            (0..6)
+                .into_par_iter()
+                .map(|k| {
+                    let progress = Progress::default();
+                    let mut reporter = Reporter::new(0, false, false, "test", None);
+                    fold_in_order(
+                        20,
+                        None,
+                        &mut reporter,
+                        &progress,
+                        |i| Ok(k * 100 + i),
+                        Vec::new(),
+                        |acc: &mut Vec<usize>, x| acc.push(x),
+                    )
+                    .unwrap()
+                })
+                .collect()
+        });
+        for (k, f) in folds.iter().enumerate() {
+            assert_eq!(*f, (0..20).map(|i| k * 100 + i).collect::<Vec<_>>());
+        }
+    }
 }

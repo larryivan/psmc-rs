@@ -593,6 +593,13 @@ Reproduction package (`experiment/`):
 - Callable masks are merged as they are read, so their memory follows the
   merged intervals instead of the rows (40 million adjacent per-site rows:
   646 MB to 3.9 MB).
+- The E-step and the log-likelihood start their work items in order and
+  merge each item's sums as soon as the items before it are merged,
+  instead of holding every item's sums until all are done; results are
+  unchanged, to the bit. A bootstrap of 8 replicates with 8 threads on a
+  200 Mb genome in 500 sequences peaks at 81 MB, against 163 MB when every
+  item's sums were held, and at 103 MB with the callable bases of each bin,
+  whose sums take one row per count (307 MB when held).
 
 ### Deprecated
 

@@ -355,7 +355,9 @@ and the table is the model's three rows: the same loops, at the same speed
 (psmcfa fits measured before and after, below).
 
 The E-step's sums are kept per observation index (`Partial::g`), merged in
-work-item order as before, and reduced in index order at the end into the
+work-item order as before (each item's as soon as the items before it are,
+which bounds their memory: *Memory of the E-step's sums* below), and
+reduced in index order at the end into the
 expected symbol counts `gobs` (which stay what they were: C's `post_sigma`
 uses them) and, with counts, `SufficientStats::callable`: `G_T` and the
 `G_K` of each count (below). With every count `s` there is one index per
@@ -563,6 +565,33 @@ wrote the same JSON but for the new `bin_callable` record. Whole fits of
 the dispersed genome above, 25 iterations with 8 threads, took 6.22 s with
 the counts and 5.97 s without (`--bin-callable ignore`; 6.00 s before
 stage 2), and of its complete version 5.84 s and 5.76 s.
+
+**Memory of the E-step's sums.** The sums of a work item (`fb::Partial`)
+hold one row of `np` doubles per observation index: up to 183 rows for
+`s = 100` and about 1,800 for `s = 1000`, against three without counts.
+The E-step first kept every work item's sums until all were done, up to
+256 of them (`sched::MAX_WORK_ITEMS`), and a bootstrap runs about one
+E-step per thread at once, so a bootstrap of an input with many sequences
+or trunks took twice the memory with counts, and nine times with bins of
+1,000 bases; time hardly changed. Work items now start in item order, from
+a shared counter, and each item's sums are merged into the total as soon as
+every item before it has been (`hmm::sched::fold_in_order`, which the
+log-likelihood uses too): the same sums in the same order, so every result
+is unchanged to the bit, and only the sums of items that finished before
+an earlier one are held, about one per thread. Peak resident memory of
+`psmc-rs infer IN OUT 1 --vcf-mask ... -p 4+25*2+4+6 --threads 8
+--bootstrap 8 --bootstrap-iters 1` on replicate 1's dispersed 30% genome
+of the validation cut into 500 contigs of 400 kb (three runs each):
+
+| bins | before stage 2 (5ddbd43) | stage 2, sums kept to the end: auto / ignore | sums merged in order: auto / ignore |
+| --- | ---: | ---: | ---: |
+| 100 bases, 500 trunks | 162-163 MB | 307-308 / 142-144 MB | 103-106 / 80-83 MB |
+| 1,000 bases, `--bootstrap-block-size 50000` (500 trunks) | 104-119 MB | 900-1051 / 107-128 MB | 98-115 / 65 MB |
+
+The fit alone at 1,000 bases peaked at 165 MB with the counts and 66 MB
+without before, and at 88 MB and 62 MB after. Every input gains from the
+change, with or without counts: the transition sums of each item
+(`np * np` doubles) were held to the end as well.
 
 ## Validation
 

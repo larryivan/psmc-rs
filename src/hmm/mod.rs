@@ -245,11 +245,6 @@ fn budget_or_global(budget: Option<&AlphaCacheBudget>) -> &AlphaCacheBudget {
     }
 }
 
-/// Return the first error in item order, else the values.
-fn collect_in_order<T>(results: Vec<Result<T>>) -> Result<Vec<T>> {
-    results.into_iter().collect()
-}
-
 /// The E-step with default options; draws progress bars labelled `label`
 /// when `progress_enabled`. See [`e_step_with_options`], which also takes
 /// callable bases.
@@ -329,7 +324,10 @@ pub fn e_step_with_options(
         opts.on_progress,
     );
     let callable = opts.callable;
-    let partials = sched::run(
+    // Each work item's sums are merged into the total in item order as soon
+    // as the items before it are, so that they are not all held at once:
+    // with callable bases there is one row of sums per observation index.
+    let total = sched::fold_in_order(
         plan.items.len(),
         opts.thread_pool,
         &mut reporter,
@@ -344,14 +342,11 @@ pub fn e_step_with_options(
             }
             Ok(acc)
         },
-    );
-    let partials = collect_in_order(partials)?;
+        Partial::new(table.len(), np),
+        |total, p| total.merge(&p),
+    )?;
     sched::finish(&mut reporter, &progress);
 
-    let mut total = Partial::new(table.len(), np);
-    for p in &partials {
-        total.merge(p);
-    }
     let (gobs, callable) = table.reduce(&total.g, kernel.n_states(), np);
     Ok(EStepResult {
         stats: SufficientStats {
@@ -409,7 +404,7 @@ pub fn log_likelihood_with_options(
         opts.on_progress,
     );
     let callable = opts.callable;
-    let partials = sched::run(
+    let total = sched::fold_in_order(
         plan.items.len(),
         opts.thread_pool,
         &mut reporter,
@@ -424,12 +419,9 @@ pub fn log_likelihood_with_options(
             }
             Ok(loglike)
         },
-    );
-    let partials = collect_in_order(partials)?;
+        0.0,
+        |total: &mut f64, p| *total += p,
+    )?;
     sched::finish(&mut reporter, &progress);
-    let mut total = 0.0;
-    for p in partials {
-        total += p;
-    }
     Ok(total)
 }
