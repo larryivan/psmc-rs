@@ -616,7 +616,7 @@ checkout's environment:
 
 ```bash
 PY=<main checkout>/experiment/.venv/bin/python
-$PY -m experiment.pipeline tools                 # identities; no warning about the lock
+$PY -m experiment.pipeline tools                 # identities; exits 1 if a tool is missing
 $PY -m experiment.pipeline tools --build-rs01    # psmc-rs 0.1 from e50d69d, once
 $PY -m experiment.pipeline tools --build-c       # C psmc with a recorded build (not needed on the laptop)
 $PY -m experiment.pipeline plan                  # the estimates below

@@ -325,7 +325,9 @@ def cmd_tools(args) -> int:
         print(f"missing  {p}")
     for d in tools.lock_differences():
         print(f"warning  {d}: simulations may not reproduce the committed ones")
-    return 0
+    # A missing or unbuildable tool fails the command, so that a build script
+    # can tell (each one is printed above).
+    return 1 if problems else 0
 
 
 def cmd_check_models(args) -> int:

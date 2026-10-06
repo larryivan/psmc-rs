@@ -383,9 +383,18 @@ class BuildC(unittest.TestCase):
                 mock.patch.object(tools, "psmc_rs_01", side_effect=missing), \
                 mock.patch.object(tools, "c_psmc", side_effect=missing), \
                 mock.patch.object(tools, "utility", side_effect=missing), \
-                contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(cli.cmd_tools(args), 0)
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(cli.cmd_tools(args), 1)  # tools are missing
         build.assert_called_once_with(force=False)
+        self.assertIn("missing  psmc-rs 0.2: not here", out.getvalue())
+        found = tools.Tool("x", Path("/x"), {}, {})
+        with mock.patch.object(tools, "psmc_rs_02", return_value=found), \
+                mock.patch.object(tools, "psmc_rs_01", return_value=found), \
+                mock.patch.object(tools, "c_psmc", return_value=found), \
+                mock.patch.object(tools, "utility", return_value=found), \
+                mock.patch.object(tools, "describe", return_value=""), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.cmd_tools(cli.build_parser().parse_args(["tools"])), 0)
 
 
 class RequirementsLock(unittest.TestCase):
