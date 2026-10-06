@@ -35,6 +35,8 @@ export RUSTUP_TOOLCHAIN=$RUST_TOOLCHAIN CARGO_NET_OFFLINE=true
 export PATH=$MAIN/experiment/.venv/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$PATH
 export PY=$MAIN/experiment/.venv/bin/python
 export PSMC_EXP_TOOLS=$MAIN/experiment/.tools
+# C psmc's build flags (tools --build-c), if the site sets them.
+[ -n "${PSMC_C_CFLAGS:-}" ] && export PSMC_C_CFLAGS
 
 # The runner's machine lock in this job's /tmp: runners of different jobs never
 # wait for each other through the shared home (SLURM keeps jobs apart).
