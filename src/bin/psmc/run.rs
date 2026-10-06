@@ -1126,11 +1126,16 @@ fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
     };
     let mut parts = Vec::new();
     if !lam_hi.is_empty() {
+        // With one λ per interval, grouping the intervals is the remedy.
+        let grouping = if model.pattern_spec().is_none() {
+            "; a pattern that groups them, as C psmc's `4+...` patterns do, fits one λ for several"
+        } else {
+            ""
+        };
         parts.push(format!(
             "{} at the M-step's upper bound of λ ({}): the data hold almost no coalescences in \
              their intervals, so the Ne there is that bound, not an estimate (usual for the \
-             most recent intervals; a pattern that groups them, as C psmc's `4+...` patterns \
-             do, fits one λ for several)",
+             most recent intervals{grouping})",
             list(&lam_hi),
             cfg.lam_hi
         ));
@@ -1217,6 +1222,15 @@ mod tests {
             "{msg}"
         );
         assert!(msg.contains("rho = 1e-12 at the M-step's bound"), "{msg}");
+        // The pattern already groups intervals: no advice to group them.
+        assert!(!msg.contains("groups them"), "{msg}");
+        let mut one_each = PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, None).unwrap();
+        one_each.lam[0] = cfg.lam_hi;
+        let msg = near_bounds_warning(&one_each, &cfg).unwrap();
+        assert!(
+            msg.contains("lam[0] at the M-step's upper bound") && msg.contains("groups them"),
+            "{msg}"
+        );
         assert!(!msg.contains("wider bounds"), "{msg}");
         // Where an M-step leaves a λ the data push to the bound, saturated
         // in its logit coordinate but not equal to the bound.
