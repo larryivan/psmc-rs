@@ -163,6 +163,11 @@ pub(crate) fn unpack_params(model: &mut PsmcModel, params: &[f64]) -> Result<()>
     Ok(())
 }
 
+/// The margin, as a share of each parameter's range, within which the
+/// M-step keeps parameters from their bounds: the logit coordinates stay
+/// within ±`logit(1 - BOUND_MARGIN)` (27.6).
+const BOUND_MARGIN: f64 = 1e-12;
+
 fn to_unconstrained(params: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
     if params.len() != bounds.len() {
         bail!("bounds length mismatch");
@@ -170,7 +175,7 @@ fn to_unconstrained(params: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
     let mut out = Vec::with_capacity(params.len());
     for (x, b) in params.iter().zip(bounds.iter()) {
         let z = (x - b.lo) / (b.hi - b.lo);
-        let z = z.clamp(1e-12, 1.0 - 1e-12);
+        let z = z.clamp(BOUND_MARGIN, 1.0 - BOUND_MARGIN);
         out.push(logit(z));
     }
     Ok(out)
@@ -215,13 +220,16 @@ pub fn m_step_lbfgs_with_progress(
 pub enum MStepStop {
     /// The search converged: in each of two consecutive iterations the
     /// objective decreased by at most [`MStepConfig::rel_tol`] times its
-    /// size, and the next quasi-Newton step predicted no more.
+    /// size, and the next quasi-Newton step predicted no more; nor did,
+    /// from fresh curvatures, moving alone a parameter along which the
+    /// objective does not curve upwards, or a diagonal Newton step.
     Converged,
     /// No trial point of the line search lowered the objective, along the
-    /// L-BFGS direction nor then along the preconditioned gradient. Near
-    /// the optimum this means the objective cannot be lowered at its
-    /// precision: it also ends converged searches whose last decreases were
-    /// not yet within `rel_tol`.
+    /// L-BFGS direction nor then along the preconditioned gradient, and the
+    /// check with fresh curvatures promised no more than `rel_tol` (or
+    /// three such restarts ran). Near the optimum this means the objective
+    /// cannot be lowered at its precision: it also ends converged searches
+    /// whose last decreases were not yet within `rel_tol`.
     LineSearchFailed,
     /// [`MStepConfig::max_iters`] iterations ran before either.
     MaxIters,
@@ -303,6 +311,7 @@ pub fn m_step_lbfgs_with_outcome(
         c1: config.line_search_c1,
         max_ls_steps: config.max_ls_steps,
         rel_tol: config.rel_tol,
+        x_limit: logit(1.0 - BOUND_MARGIN),
         debug,
     };
     let minimum = lbfgs::minimize(&mut objective, x0, f0, g0, &settings, &mut on_iteration);
@@ -332,7 +341,7 @@ pub fn m_step_lbfgs_with_outcome(
 #[cfg(test)]
 mod tests {
     use super::dual::{Dd, Dual, Real, compute_params_dual, eval_dual_in, expand_lam_dual};
-    use super::objective::EVAL_CALLS;
+    use super::objective::{EVAL_CALLS, LARGEST_COORDINATE};
     use super::*;
     use crate::hmm::e_step_streaming;
     use crate::model::T_INF;
@@ -1113,17 +1122,19 @@ mod tests {
         assert_eq!((outcome.iterations, outcome.stop), (0, MStepStop::MaxIters));
 
         // A one-trial line search whose unit step does not decrease enough
-        // fails at once: the start, the curvatures and the trial count.
+        // fails at once: the start, the curvatures and the trial count, and
+        // so do the searches after each check before stopping, whose fresh
+        // curvatures still predict a decrease (no coordinate is flat here,
+        // so they move nothing): one more set of curvatures and one trial
+        // for each of the three restarts.
         let config = MStepConfig {
             max_ls_steps: 1,
             ..base.clone()
         };
         let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
         assert_eq!(outcome.stop, MStepStop::LineSearchFailed);
-        assert_eq!(
-            (outcome.evaluations, done, calls),
-            (2 + n_params, 0, 2 + n_params)
-        );
+        let expected = 1 + n_params + 1 + 3 * (n_params + 1);
+        assert_eq!((outcome.evaluations, done, calls), (expected, 0, expected));
 
         // The default search: the start, one evaluation per parameter for
         // the curvatures, then at least one per iteration. The parameters
@@ -1138,6 +1149,36 @@ mod tests {
         let bounds = bounds_from_config(&model, &base);
         let params = m_step_lbfgs(&model, &stats, &pack_params(&model), &bounds, &base).unwrap();
         assert_eq!(outcome.params, params);
+    }
+
+    /// When Q keeps rising as a parameter approaches its bound, the search
+    /// takes it there but keeps its coordinate within the margin of the
+    /// start's clamp: further out the logit saturates, steps move the
+    /// coordinate without changing the objective, and nothing brings it
+    /// back (the oldest λ of a simulated genome ran to -57).
+    #[test]
+    fn search_keeps_coordinates_within_the_bound_margin() {
+        let mut rng = Rng(0x3C6E_F372_FE94_F82B);
+        let limit = logit(1.0 - BOUND_MARGIN);
+        for (n, pattern) in LAYOUTS {
+            let model = random_model(&mut rng, n, pattern);
+            let stats = random_stats(&mut rng, &model, 20_000);
+            // An upper bound of θ below what the data say.
+            let config = MStepConfig {
+                progress: false,
+                theta_hi: 0.5 * model.theta,
+                ..MStepConfig::default()
+            };
+            LARGEST_COORDINATE.with(|c| c.set(0.0));
+            let (outcome, _, _) = counted_m_step(&model, &stats, &config);
+            let largest = LARGEST_COORDINATE.with(|c| c.get());
+            assert!(
+                largest <= limit,
+                "{pattern:?}: coordinate {largest} beyond {limit}"
+            );
+            let theta = outcome.params[0];
+            assert!(theta > 0.999 * config.theta_hi, "{pattern:?}: θ {theta}");
+        }
     }
 
     #[test]

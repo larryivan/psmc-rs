@@ -1,23 +1,30 @@
-# Simulated bottleneck genome
+# Simulated bottleneck genomes
 
-`bottleneck_5mb.psmcfa.gz`: one diploid chromosome of 5,000,000 bp in 100-bp
-bins (50,000 bins, 2,271 of them `K`), simulated with the experiment
+One diploid chromosome each, in 100-bp bins, simulated with the experiment
 pipeline's own simulator:
 
 ```python
 from experiment.pipeline import config, simulate
 chrom = simulate.simulate_chromosome(
-    config.MODELS["bottleneck"], config.SIMULATION, "chr1", 5_000_000,
-    {"ancestry": 17001, "mutations": 17002},
+    config.MODELS["bottleneck"], config.SIMULATION, "chr1", LENGTH,
+    {"ancestry": SEED + 1, "mutations": SEED + 2},
 )
 record = simulate.psmcfa_record("chr1", simulate.psmcfa_bins(chrom, 100))
 ```
 
 That is msprime's Hudson coalescent with the `bottleneck` model of
 `experiment/pipeline/config.py`, μ = 2.5e-8 and r = 1e-8 per bp per
-generation, then `gzip -9 -n`. The uncompressed file's MD5 is
-`820a743f8b9fbeda28ebc44208e1897b`.
+generation, then `gzip -9 -n`.
 
-`tests/em_valid_hmm.rs` fits it with one λ per interval (`--n-steps 63`, no
-pattern), where an earlier build of the converged M-step stepped into
-parameters whose transition matrix in f64 is not stochastic.
+| file | LENGTH | SEED | bins (`K`) | MD5 of the uncompressed file |
+| --- | --- | --- | --- | --- |
+| `bottleneck_5mb.psmcfa.gz` | 5,000,000 | 17000 | 50,000 (2,271) | `820a743f8b9fbeda28ebc44208e1897b` |
+| `bottleneck_2mb.psmcfa.gz` | 2,000,000 | 23000 | 20,000 (1,065) | `c757f93eebf6993ebc637c811858fcb1` |
+
+Both are fitted with one λ per interval (`--n-steps 63`, no pattern), where
+earlier builds of the converged M-step went wrong:
+`tests/em_valid_hmm.rs` fits the 5 Mb one, on which an M-step stepped into
+parameters whose transition matrix in f64 is not stochastic, and EM later
+stopped moving with λ up to 1e6; `tests/mstep_coordinates.rs` runs the
+first M-step on the 2 Mb one, which stopped with its first λ at 9,859
+while Q peaks at 49.

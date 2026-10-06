@@ -132,7 +132,16 @@ Library API:
   `|s| |y|` (it was compared with 1e-12, a scale that changes with the
   input); and the line search backtracks by interpolation and, when it
   fails, restarts along the preconditioned gradient, instead of trying the
-  reverse direction and a coordinate search. The objective is infinite,
+  reverse direction and a coordinate search. Before it stops, the search
+  takes fresh curvatures: it moves each parameter along which the
+  objective does not curve upwards alone to the best of a ladder of moves,
+  and restarts with an empty memory when that or the diagonal Newton step
+  of the others promises more than the threshold (at most three times);
+  trial points keep each parameter within 1e-12 of its range from its
+  bounds, the margin of the start. Without that, weakly determined λ
+  carried past their optimum stopped M-steps short (the first λ of a
+  simulated genome at 7,387 with Q peaking at 23 along it, 3.1e-2 higher),
+  and saturated logit coordinates ran off to -57. The objective is infinite,
   so the search never moves there, wherever the HMM computed in f64 is not
   one: a probability negative or not a number, or a row of transition
   probabilities whose sum differs from 1 by more than 1e-9 (or by more

@@ -65,10 +65,12 @@ const LN_GUARD: f64 = 1e-300;
 pub(crate) const ROW_SUM_TOLERANCE: f64 = 1e-9;
 
 // Calls of `Objective::eval` on this thread, for checking
-// `MStepOutcome::evaluations` (the M-step runs on the calling thread).
+// `MStepOutcome::evaluations` (the M-step runs on the calling thread), and
+// the largest magnitude of a coordinate they were given.
 #[cfg(test)]
 thread_local! {
     pub(super) static EVAL_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(super) static LARGEST_COORDINATE: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
 }
 
 /// The M-step objective of one E-step's expected counts, with its
@@ -253,7 +255,11 @@ impl<'a> Objective<'a> {
     /// If `x` or `grad` does not have one value per bound.
     pub(crate) fn eval(&mut self, x: &[f64], grad: &mut [f64]) -> f64 {
         #[cfg(test)]
-        EVAL_CALLS.with(|c| c.set(c.get() + 1));
+        {
+            EVAL_CALLS.with(|c| c.set(c.get() + 1));
+            let largest = x.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+            LARGEST_COORDINATE.with(|c| c.set(c.get().max(largest)));
+        }
         self.evaluations += 1;
         assert!(
             x.len() == self.bounds.len() && grad.len() == x.len(),
