@@ -1,17 +1,30 @@
-//! The E-step must give bit-identical results however it is run: any thread
-//! count, top level or nested inside rayon work (`ThreadPool::install`, a
-//! parallel iterator), any alpha-cache budget, with or without a progress
-//! callback.
+//! The E-step must give bit-identical results however it is run on one
+//! build of the HMM kernels: any thread count, top level or nested inside
+//! rayon work (`ThreadPool::install`, a parallel iterator), any alpha-cache
+//! budget, with or without a progress callback. On x86-64 the portable and
+//! the AVX2 and FMA kernels must agree to a relative 1e-12, and to the bit
+//! with the dense kernels.
 
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
-    AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, e_step_streaming,
-    e_step_with_options, log_likelihood,
+    AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, SimdPath, TmrcaReportData,
+    e_step_streaming, e_step_with_options, log_likelihood, set_force_portable, simd_path,
+    write_tmrca_posterior_tsv,
 };
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
+use std::sync::{RwLock, RwLockReadGuard};
+
+/// Held for reading by every test of this file but [`simd_paths_agree`],
+/// which switches the kernels of the whole process and holds it for
+/// writing: each test runs all its passes on one build of the kernels.
+static ONE_PATH: RwLock<()> = RwLock::new(());
+
+fn one_path() -> RwLockReadGuard<'static, ()> {
+    ONE_PATH.read().unwrap_or_else(|e| e.into_inner())
+}
 
 struct Input {
     pi: Vec<f64>,
@@ -60,13 +73,18 @@ fn input(seed: u64, pattern: &str, n_steps: usize, lens: &[usize]) -> Input {
     }
 }
 
-fn bits(e: &EStepResult) -> Vec<u64> {
-    let mut v = vec![e.loglike.to_bits()];
+/// The log-likelihood, the expected emissions and the expected transitions.
+fn values(e: &EStepResult) -> Vec<f64> {
+    let mut v = vec![e.loglike];
     for g in &e.stats.gobs {
-        v.extend(g.iter().map(|x| x.to_bits()));
+        v.extend(g.iter());
     }
-    v.extend(e.stats.xi.iter().map(|x| x.to_bits()));
+    v.extend(e.stats.xi.iter());
     v
+}
+
+fn bits(e: &EStepResult) -> Vec<u64> {
+    values(e).iter().map(|x| x.to_bits()).collect()
 }
 
 /// Assert two results are bit-identical, reporting the first difference.
@@ -138,6 +156,7 @@ fn dense_input() -> Input {
 
 #[test]
 fn thread_count_and_nesting_do_not_change_results() {
+    let _path = one_path();
     for inp in [standard_input(), dense_input()] {
         check_threads_and_nesting(&inp);
     }
@@ -168,6 +187,7 @@ fn check_threads_and_nesting(inp: &Input) {
 
 #[test]
 fn many_sequences_are_reduced_deterministically() {
+    let _path = one_path();
     // More sequences than work items, so sequences are grouped.
     let lens: Vec<usize> = (0..700).map(|i| 1 + (i * 37) % 300).collect();
     let inp = input(5, "4+5*3+4", 22, &lens);
@@ -180,6 +200,7 @@ fn many_sequences_are_reduced_deterministically() {
 
 #[test]
 fn alpha_cache_budget_does_not_change_results() {
+    let _path = one_path();
     // Rows are cached only with the dense kernels, so use a dense model.
     let inp = dense_input();
     let one_row = 8 * 64 * 800; // enough for the short sequences only
@@ -221,6 +242,7 @@ fn alpha_cache_budget_does_not_change_results() {
 
 #[test]
 fn progress_callback_and_explicit_pool_do_not_change_results() {
+    let _path = one_path();
     let inp = standard_input();
     let reference = bits(&run(&inp));
     for threads in [1, 2, 8] {
@@ -268,6 +290,7 @@ fn progress_callback_and_explicit_pool_do_not_change_results() {
 
 #[test]
 fn log_likelihood_is_deterministic_and_matches_e_step() {
+    let _path = one_path();
     let inp = standard_input();
     let e = run(&inp);
     for threads in [1, 2, 8] {
@@ -280,6 +303,7 @@ fn log_likelihood_is_deterministic_and_matches_e_step() {
 
 #[test]
 fn psmc_models_recompute_instead_of_caching_rows() {
+    let _path = one_path();
     let inp = standard_input();
     let budget = AlphaCacheBudget::new(usize::MAX);
     let opts = EStepOptions {
@@ -288,4 +312,167 @@ fn psmc_models_recompute_instead_of_caching_rows() {
     };
     e_step_with_options(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts, opts).unwrap();
     assert_eq!(budget.peak_bytes(), 0);
+}
+
+/// The posterior mean TMRCA of the sampled bins and the posterior mass of
+/// every state, of a TMRCA decoding's report data. (Its MAP and quantiles
+/// are discrete: they move to the next state where two states nearly tie.)
+fn tmrca_values(d: &TmrcaReportData) -> Vec<f64> {
+    let mut v: Vec<f64> = d.sampled_mean.iter().flatten().copied().collect();
+    v.extend(&d.state_mass);
+    v
+}
+
+/// Every value of a TMRCA decoding's report data, as bits.
+fn tmrca_bits(d: &TmrcaReportData) -> Vec<u64> {
+    let sampled = [
+        &d.sampled_mean,
+        &d.sampled_map,
+        &d.sampled_lo,
+        &d.sampled_hi,
+    ];
+    let mut v: Vec<u64> = sampled
+        .iter()
+        .flat_map(|p| p.iter().flatten().map(|x| x.to_bits()))
+        .collect();
+    v.extend(
+        d.state_mass
+            .iter()
+            .chain(&d.state_years)
+            .map(|x| x.to_bits()),
+    );
+    v
+}
+
+/// How far apart the portable and the AVX2 and FMA kernels may be: a
+/// relative 1e-12, as the E-step oracle allows (`tests/estep_oracle.rs`).
+/// They differ only in whether the O(states) forward and backward products
+/// fuse their multiply-adds, which moved no value by more than a relative
+/// 1.4e-14 over a sequence of 15,000 sites (`src/hmm/fb.rs` checks the same
+/// bound on every target).
+const PATHS_REL: f64 = 1e-12;
+
+/// Assert two vectors agree to [`PATHS_REL`], reporting the worst difference.
+#[track_caller]
+fn assert_close(got: &[f64], want: &[f64], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: shape differs");
+    let (mut worst, mut at) = (0.0f64, 0);
+    for (i, (a, b)) in got.iter().zip(want).enumerate() {
+        let rel = if a == b { 0.0 } else { ((a - b) / b).abs() };
+        if rel > worst || rel.is_nan() {
+            (worst, at) = (rel, i);
+        }
+    }
+    eprintln!("{what}: largest relative difference {worst:.2e}");
+    assert!(
+        worst <= PATHS_REL,
+        "{what}: value {at} differs by a relative {worst:.2e}: {} vs {}",
+        got[at],
+        want[at]
+    );
+}
+
+/// What [`simd_paths_agree`] compares of one run on one path.
+struct PathRun {
+    e_step: EStepResult,
+    loglike: f64,
+    tmrca: TmrcaReportData,
+    tsv: Vec<u8>,
+}
+
+/// On x86-64 CPUs with AVX2 and FMA, the portable kernels and the AVX2 and
+/// FMA ones give E-steps, log-likelihoods and TMRCA posteriors within
+/// [`PATHS_REL`] with the O(n) semiseparable kernels, whose multiply-adds
+/// only the AVX2 and FMA build fuses, and to the bit with the dense ones,
+/// which never fuse: there the whole TMRCA decoding, its MAP, quantiles
+/// and posterior TSV included, must be the same. Elsewhere there is one
+/// path only, and the test is skipped. It switches the kernels of the
+/// whole process, so it holds [`ONE_PATH`] for writing, and puts back the
+/// choice it found (`PSMC_RS_SIMD`'s) when it ends, so that tests run
+/// after it (`--test-threads=1`) keep that.
+#[test]
+fn simd_paths_agree() {
+    /// Puts back whether the portable kernels were forced, even on a panic.
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            set_force_portable(self.0);
+        }
+    }
+    let _path = ONE_PATH.write().unwrap_or_else(|e| e.into_inner());
+    let _restore = Restore(set_force_portable(false));
+    if simd_path() != SimdPath::Avx2Fma {
+        eprintln!(
+            "skipped: this CPU runs the {} kernels only; the test needs x86-64 with AVX2 and FMA",
+            simd_path()
+        );
+        return;
+    }
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
+    let run_all = |inp: &Input, path: SimdPath| -> PathRun {
+        set_force_portable(path == SimdPath::Portable);
+        assert_eq!(simd_path(), path);
+        let e_step = run(inp);
+        let loglike = log_likelihood(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts).unwrap();
+        let years: Vec<f64> = (0..inp.pi.len()).map(|k| 1000.0 * k as f64).collect();
+        let tsv = dir.join(format!("simd_{}_{}.tsv", std::process::id(), path));
+        let tmrca = write_tmrca_posterior_tsv(
+            &inp.pi,
+            &inp.a,
+            &inp.em,
+            &inp.rows,
+            &inp.row_starts,
+            &years,
+            &tsv,
+            false,
+            500,
+        )
+        .unwrap();
+        let text = std::fs::read(&tsv).unwrap();
+        let _ = std::fs::remove_file(&tsv);
+        PathRun {
+            e_step,
+            loglike,
+            tmrca,
+            tsv: text,
+        }
+    };
+    for (name, inp, dense) in [
+        ("semiseparable", standard_input(), false),
+        ("dense", dense_input(), true),
+    ] {
+        let portable = run_all(&inp, SimdPath::Portable);
+        let avx2 = run_all(&inp, SimdPath::Avx2Fma);
+        if dense {
+            assert_same(
+                &avx2.e_step,
+                &bits(&portable.e_step),
+                &format!("{name}: E-step"),
+            );
+            assert_eq!(
+                avx2.loglike.to_bits(),
+                portable.loglike.to_bits(),
+                "{name}: log-likelihood"
+            );
+            assert_eq!(
+                tmrca_bits(&avx2.tmrca),
+                tmrca_bits(&portable.tmrca),
+                "{name}: TMRCA report data"
+            );
+            assert!(avx2.tsv == portable.tsv, "{name}: TMRCA posterior TSV");
+        } else {
+            let parts = [
+                ("E-step", values(&avx2.e_step), values(&portable.e_step)),
+                ("log-likelihood", vec![avx2.loglike], vec![portable.loglike]),
+                (
+                    "TMRCA posterior",
+                    tmrca_values(&avx2.tmrca),
+                    tmrca_values(&portable.tmrca),
+                ),
+            ];
+            for (what, a, p) in parts {
+                assert_close(&a, &p, &format!("{name}: {what}"));
+            }
+        }
+    }
 }

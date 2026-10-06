@@ -626,3 +626,175 @@ fn sequence_posteriors_impl<'w, const FUSED: bool>(
     posteriors_in_place::<FUSED>(k, obs, rows, beta, beta_next, &mut w[..np])?;
     Ok((obs, &rows[np..(len + 1) * np]))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PsmcModel;
+    use crate::hmm::simd::{self, DEFAULT_FUSED, SimdPath};
+    use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng};
+
+    /// The PSMC model of `tests/estep_determinism.rs`: semiseparable, or
+    /// with its rows perturbed and renormalised so that the dense kernels run.
+    fn kernel(dense: bool) -> Kernel {
+        let model =
+            PsmcModel::new(15.0, 63, 2e-3, 4e-4, 2.5e-8, Some("4+25*2+4+6".to_string())).unwrap();
+        let mut a = model.transition_matrix().clone();
+        if dense {
+            let mut rng = SmallRng::seed_from_u64(3);
+            for mut row in a.rows_mut() {
+                row.mapv_inplace(|v| v * (1.0 + 1e-3 * rng.gen_range(0.0..1.0)));
+                let s: f64 = row.sum();
+                row.mapv_inplace(|v| v / s);
+            }
+        }
+        let k = Kernel::new(
+            model.prior_matrix(),
+            &a,
+            model.emission_matrix(),
+            &ObsTable::plain(),
+        );
+        assert_eq!(k.cheap_forward(), !dense);
+        k
+    }
+
+    /// Rows of one sequence: mostly `T`, some `K` and `N`, over several segments.
+    fn rows() -> Vec<Vec<u8>> {
+        let mut rng = SmallRng::seed_from_u64(11);
+        [5 * K + 17, 2 * K, 3]
+            .iter()
+            .map(|&len| {
+                (0..len)
+                    .map(|_| match rng.gen_range(0..100) {
+                        0 => 1,
+                        1..=4 => 2,
+                        _ => 0,
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Calls `$imp::<true>` or `$imp::<false>` as `$fused` says.
+    macro_rules! instance {
+        ($fused:expr, $imp:ident($($arg:expr),* $(,)?)) => {
+            if $fused { $imp::<true>($($arg),*) } else { $imp::<false>($($arg),*) }
+        };
+    }
+
+    /// Every output of every pass of `k` over `rows` (one sequence): run
+    /// with the instance `Some(fused)` of the code compiled without target
+    /// features, or with `None`, dispatched as the crate runs the passes.
+    fn all_passes(k: &Kernel, rows: &[Vec<u8>], budget: usize, run: Option<bool>) -> Vec<Vec<f64>> {
+        let table = ObsTable::plain();
+        let seq = SeqObs::new(rows, None, &table);
+        let progress = Progress::default();
+        let budget = AlphaCacheBudget::new(budget);
+        let ctx = Ctx {
+            cancel: None,
+            progress: &progress,
+            budget: &budget,
+        };
+        let np = k.np();
+        let mut ws = Workspace::new(np);
+        let mut acc = Partial::new(table.len(), np);
+        let ll = match run {
+            Some(f) => instance!(f, log_likelihood_impl(k, &seq, &mut ws, &ctx)),
+            None => log_likelihood(k, &seq, &mut ws, &ctx),
+        };
+        let mut out = vec![vec![ll.unwrap()]];
+        match run {
+            Some(f) => instance!(f, e_step_impl(k, &seq, &mut ws, &mut acc, &ctx)),
+            None => e_step(k, &seq, &mut ws, &mut acc, &ctx),
+        }
+        .unwrap();
+        out.extend([vec![acc.loglike], acc.g, acc.m]);
+        let ckpt = DecodeCheckpoints {
+            alpha: match run {
+                Some(f) => instance!(f, forward_checkpoints_impl(k, &seq, &ctx)),
+                None => forward_checkpoints(k, &seq, &ctx),
+            }
+            .unwrap(),
+            beta: match run {
+                Some(f) => instance!(f, backward_checkpoints_impl(k, &seq, &ctx)),
+                None => backward_checkpoints(k, &seq, &ctx),
+            }
+            .unwrap(),
+        };
+        for s in 0..seq.n_segments() {
+            let (_, post) = match run {
+                Some(f) => instance!(f, segment_posteriors_impl(k, &seq, &ckpt, s, &mut ws)),
+                None => segment_posteriors(k, &seq, &ckpt, s, &mut ws),
+            }
+            .unwrap();
+            out.push(post.to_vec());
+        }
+        let (_, post) = match run {
+            Some(f) => instance!(f, sequence_posteriors_impl(k, &seq, &mut ws)),
+            None => sequence_posteriors(k, &seq, &mut ws),
+        }
+        .unwrap();
+        out.push(post.to_vec());
+        out.extend([ckpt.alpha, ckpt.beta]);
+        out
+    }
+
+    /// Every dispatched pass gives the bits of its own code compiled without
+    /// target features: on x86-64 CPUs with AVX2 and FMA, the AVX2 and FMA
+    /// build against the portable code instantiated fused (whose
+    /// multiply-adds call libm's `fma`), so that vectorising changes nothing
+    /// but speed; elsewhere the dispatched pass is that code itself. With
+    /// the semiseparable and the dense kernels, with and without full
+    /// forward rows.
+    #[test]
+    fn dispatched_passes_give_the_bits_of_their_instance() {
+        let path = simd::simd_path();
+        if path != SimdPath::Avx2Fma {
+            eprintln!("this CPU runs the {path} kernels: no AVX2 and FMA build to check");
+        }
+        let fused = path == SimdPath::Avx2Fma || DEFAULT_FUSED;
+        let rows = rows();
+        for dense in [false, true] {
+            let k = kernel(dense);
+            for budget in [0, usize::MAX] {
+                let want = all_passes(&k, &rows, budget, Some(fused));
+                let got = all_passes(&k, &rows, budget, None);
+                assert_eq!(got.len(), want.len());
+                for (i, (g, w)) in got.iter().zip(&want).enumerate() {
+                    let same = g.len() == w.len()
+                        && g.iter().zip(w).all(|(a, b)| a.to_bits() == b.to_bits());
+                    assert!(
+                        same,
+                        "{path}, dense {dense}, budget {budget}: output {i} differs"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The fused and unfused instances of every pass agree to a relative
+    /// 1e-12: the AVX2 and FMA and the portable x86-64 kernels differ by
+    /// just that. Measured: 7.8e-15 here, 1.4e-14 over 15,000 sites (the
+    /// differences do not grow along the chain); the dense kernels do not
+    /// use `fmadd` and agree to the bit.
+    #[test]
+    fn fused_and_unfused_instances_agree() {
+        let rows = rows();
+        for dense in [false, true] {
+            let k = kernel(dense);
+            let fused = all_passes(&k, &rows, 0, Some(true));
+            let unfused = all_passes(&k, &rows, 0, Some(false));
+            for (i, (a, b)) in fused.iter().zip(&unfused).enumerate() {
+                for (x, y) in a.iter().zip(b) {
+                    let close = if dense {
+                        x == y
+                    } else {
+                        (x - y).abs() <= 1e-12 * y.abs()
+                    };
+                    assert!(close, "dense {dense}: output {i}: {x} fused, {y} unfused");
+                }
+            }
+        }
+    }
+}

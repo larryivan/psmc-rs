@@ -110,6 +110,200 @@ fn outputs_do_not_depend_on_the_thread_count() {
     }
 }
 
+/// The kernels the binary picks by itself on this CPU (`PSMC_RS_SIMD` unset).
+fn auto_simd() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    if std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma") {
+        return "avx2+fma";
+    }
+    if cfg!(target_arch = "aarch64") {
+        "neon"
+    } else {
+        "portable"
+    }
+}
+
+/// How far apart fits with the portable and with the AVX2 and FMA kernels
+/// may be, relative to the values: log-likelihoods, and everything else.
+/// The kernels differ in the last digits of each E-step (`simd_paths_agree`
+/// in `tests/estep_determinism.rs`), and the M-step stops where its
+/// objective is flat, which fixes the parameters to far fewer digits (see
+/// `tests/c_equivalence.rs`). Measured with the two roundings of the
+/// kernels on this input: log-likelihoods 1.4e-11, parameters 1.9e-7, TMRCA
+/// posteriors 2.4e-7; on the whole input of `tests/c_equivalence.rs`, 5
+/// iterations with its pattern 4+25*2+4+6: log-likelihoods 2.1e-10,
+/// parameters 1.2e-6, and 2.0e-6 in the derived values of the .psmc output.
+const PATHS_LOGLIKE: f64 = 1e-9;
+const PATHS_REL: f64 = 1e-5;
+
+/// Whether `a` and `b` agree to `rel`, give or take one unit in the last
+/// decimal of `printed` (the text `a` was read from, if any); equal
+/// infinities agree.
+fn close(a: f64, b: f64, rel: f64, printed: Option<&str>) -> bool {
+    let unit = printed
+        .and_then(|t| t.split_once('.'))
+        .map_or(0.0, |(_, frac)| 10f64.powi(-(frac.len() as i32)));
+    a == b || (a - b).abs() <= rel * a.abs().max(b.abs()) + unit
+}
+
+/// Assert that two output JSONs agree: numbers to [`PATHS_REL`] (the
+/// log-likelihoods to [`PATHS_LOGLIKE`]), everything else exactly.
+#[track_caller]
+fn assert_close_json(a: &serde_json::Value, b: &serde_json::Value, at: &str) {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Object(x), Value::Object(y)) => {
+            let keys = |o: &serde_json::Map<String, Value>| o.keys().cloned().collect::<Vec<_>>();
+            assert_eq!(keys(x), keys(y), "{at}: keys differ");
+            for (k, v) in x {
+                assert_close_json(v, &y[k], &format!("{at}.{k}"));
+            }
+        }
+        (Value::Array(x), Value::Array(y)) => {
+            assert_eq!(x.len(), y.len(), "{at}: lengths differ");
+            for (i, (v, w)) in x.iter().zip(y).enumerate() {
+                assert_close_json(v, w, &format!("{at}[{i}]"));
+            }
+        }
+        (Value::Number(x), Value::Number(y)) => {
+            let (x, y) = (x.as_f64().unwrap(), y.as_f64().unwrap());
+            let rel = if at.contains("loglike") {
+                PATHS_LOGLIKE
+            } else {
+                PATHS_REL
+            };
+            assert!(close(x, y, rel, None), "{at}: {x} vs {y}");
+        }
+        _ => assert_eq!(a, b, "{at}"),
+    }
+}
+
+/// Assert that two .psmc outputs agree: the same lines with the same tags
+/// and words, and numbers as in [`assert_close_json`], to the decimals
+/// printed. `IT` lines are left out: the M-step's L-BFGS can take a
+/// different number of iterations to stop at nearly the same parameters.
+#[track_caller]
+fn assert_close_psmc(a: &str, b: &str) {
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    assert_eq!(a.len(), b.len(), ".psmc: line counts differ");
+    fn words(l: &str) -> Vec<&str> {
+        l.split(|c: char| c.is_whitespace() || c == ':' || c == ',')
+            .filter(|w| !w.is_empty())
+            .collect()
+    }
+    for (x, y) in a.iter().zip(&b) {
+        let (wx, wy) = (words(x), words(y));
+        assert_eq!(wx.len(), wy.len(), ".psmc: {x:?} vs {y:?}");
+        if wx.first() == Some(&"IT") {
+            continue;
+        }
+        let rel = if wx.first() == Some(&"LK") {
+            PATHS_LOGLIKE
+        } else {
+            PATHS_REL
+        };
+        for (u, v) in wx.iter().zip(&wy) {
+            match (u.parse::<f64>(), v.parse::<f64>()) {
+                (Ok(p), Ok(q)) => assert!(close(p, q, rel, Some(u)), ".psmc: {x:?} vs {y:?}"),
+                _ => assert_eq!(u, v, ".psmc: {x:?} vs {y:?}"),
+            }
+        }
+    }
+}
+
+/// Assert that two TMRCA posteriors agree: the same bins, posterior means,
+/// maximum posteriors and entropies to [`PATHS_REL`] in every bin, and the
+/// MAP state and the 95% interval in all but one bin in 1,000 (they move to
+/// the next state where two states nearly tie).
+#[track_caller]
+fn assert_close_tmrca(a: &str, b: &str) {
+    let (a, b): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    assert_eq!(a.len(), b.len(), "TMRCA: line counts differ");
+    assert_eq!(a[0], b[0], "TMRCA: headers differ");
+    let mut moved = 0;
+    for (x, y) in a[1..].iter().zip(&b[1..]) {
+        let (cx, cy): (Vec<&str>, Vec<&str>) = (x.split('\t').collect(), y.split('\t').collect());
+        assert_eq!(cx.len(), 11, "TMRCA: {x:?}");
+        assert_eq!(cx[..4], cy[..4], "TMRCA: {x:?} vs {y:?}");
+        let num = |c: &[&str], i: usize| -> f64 { c[i].parse().unwrap() };
+        for i in [6, 9, 10] {
+            let (p, q) = (num(&cx, i), num(&cy, i));
+            assert!(close(p, q, PATHS_REL, None), "TMRCA: {x:?} vs {y:?}");
+        }
+        if [4, 5, 7, 8]
+            .iter()
+            .any(|&i| !close(num(&cx, i), num(&cy, i), PATHS_REL, None))
+        {
+            moved += 1;
+        }
+    }
+    let bins = a.len() - 1;
+    eprintln!("TMRCA: MAP or interval moved in {moved} of {bins} bins");
+    assert!(
+        moved * 1000 <= bins,
+        "TMRCA: MAP or interval moved in {moved} of {bins} bins"
+    );
+}
+
+/// PSMC_RS_SIMD=portable forces the portable kernels on x86-64, whose fits
+/// agree closely with those of the AVX2 and FMA kernels: the JSON, the
+/// .psmc output and the TMRCA posterior. The JSON's "simd" names the
+/// kernels that ran. On other CPUs both runs use the same kernels and give
+/// the same bytes.
+#[test]
+fn simd_paths_give_close_fits() {
+    let dir = TempDir::new("simd");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 20_000);
+    let run = |name: &str, portable: bool| -> (serde_json::Value, String, String) {
+        let [out, tmrca, psmc] = ["json", "tsv", "psmc"].map(|e| dir.path(&format!("{name}.{e}")));
+        let mut cmd = std::process::Command::new(common::bin());
+        cmd.args([&input, &out])
+            .args(["3", "--no-progress", "--threads", "2", "--tmrca-out"])
+            .arg(&tmrca)
+            .arg("--psmc-out")
+            .arg(&psmc);
+        if portable {
+            cmd.env("PSMC_RS_SIMD", "portable");
+        } else {
+            cmd.env_remove("PSMC_RS_SIMD");
+        }
+        let res = cmd.output().unwrap();
+        assert!(
+            res.status.success(),
+            "{}",
+            String::from_utf8_lossy(&res.stderr)
+        );
+        (
+            json(&out),
+            fs::read_to_string(tmrca).unwrap(),
+            fs::read_to_string(psmc).unwrap(),
+        )
+    };
+    let (mut auto, auto_tmrca, auto_psmc) = run("auto", false);
+    let (mut portable, portable_tmrca, portable_psmc) = run("portable", true);
+    let forced = if cfg!(target_arch = "aarch64") {
+        "neon"
+    } else {
+        "portable"
+    };
+    eprintln!("simd: {} against {forced}", auto["simd"]);
+    assert_eq!(auto["simd"], auto_simd());
+    assert_eq!(portable["simd"], forced);
+    auto.as_object_mut().unwrap().remove("simd");
+    portable.as_object_mut().unwrap().remove("simd");
+    if auto_simd() == forced {
+        // Compared as text: serde_json's numbers compare 0.0 and -0.0 equal.
+        assert_eq!(auto.to_string(), portable.to_string(), "the JSON differs");
+        assert!(auto_tmrca == portable_tmrca, "the TMRCA posterior differs");
+        assert!(auto_psmc == portable_psmc, "the .psmc output differs");
+    } else {
+        assert_close_json(&auto, &portable, "JSON");
+        assert_close_psmc(&auto_psmc, &portable_psmc);
+        assert_close_tmrca(&auto_tmrca, &portable_tmrca);
+    }
+}
+
 /// --psmc-out writes C psmc's format with rounds 0 to N_ITER; the header
 /// counts the input as C does, including empty records.
 #[test]
@@ -673,6 +867,8 @@ fn the_output_json_records_the_run() {
     );
     let v = json(&out);
     assert_eq!(v["version"], env!("CARGO_PKG_VERSION"));
+    // The binary inherits this process's PSMC_RS_SIMD and CPU.
+    assert_eq!(v["simd"], psmc_rs::hmm::simd_path().name());
     assert_eq!(v["n_iter"], 3);
     assert_eq!(v["bin_size"], 50);
     assert_eq!(v["gen_years"], 25.0);
