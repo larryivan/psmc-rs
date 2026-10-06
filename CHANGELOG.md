@@ -132,7 +132,15 @@ Library API:
   `|s| |y|` (it was compared with 1e-12, a scale that changes with the
   input); and the line search backtracks by interpolation and, when it
   fails, restarts along the preconditioned gradient, instead of trying the
-  reverse direction and a coordinate search.
+  reverse direction and a coordinate search. The objective is infinite,
+  so the search never moves there, wherever the HMM computed in f64 is not
+  one: a probability negative or not a number, or a row of transition
+  probabilities whose sum differs from 1 by more than 1e-9 (or by more
+  than the start's own deviation, when that is larger). A small λ of an early interval
+  makes the survival underflow in the squares of C's formulas (below about
+  1e-154), where rows summed to up to 1.014 and Q exceeded its maximum Q0;
+  on a simulated genome fitted with one λ per interval an M-step moved
+  there, and the next E-step lowered the log-likelihood by 367.
 - `PsmcModel::new` rejects `n_steps` 0, single-state and overflowing
   patterns, more than `model::MAX_STATES` (10,000) states, and `t_max`
   outside (0, 1000).

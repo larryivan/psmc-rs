@@ -115,18 +115,24 @@ impl Memory {
 }
 
 /// The inverse of the Hessian's diagonal at `x` (gradient `g`), from
-/// forward differences of the gradient: positive, and at most 1e12 times
-/// that of the steepest direction where a curvature is zero, negative or
-/// not finite (the line search then shortens the step).
+/// forward differences of the gradient (backward ones where the forward
+/// point is infeasible): positive, and at most 1e12 times that of the
+/// steepest direction where a curvature is zero, negative or not finite
+/// (the line search then shortens the step).
 fn inverse_curvatures(obj: &mut Objective, x: &[f64], g: &[f64]) -> Vec<f64> {
     let mut curvature = vec![0.0; x.len()];
     let mut moved = x.to_vec();
     let mut g_moved = vec![0.0; x.len()];
     for i in 0..x.len() {
         moved[i] = x[i] + CURVATURE_STEP;
-        obj.eval(&moved, &mut g_moved);
+        curvature[i] = if obj.eval(&moved, &mut g_moved).is_finite() {
+            (g_moved[i] - g[i]) / CURVATURE_STEP
+        } else {
+            moved[i] = x[i] - CURVATURE_STEP;
+            obj.eval(&moved, &mut g_moved);
+            (g[i] - g_moved[i]) / CURVATURE_STEP
+        };
         moved[i] = x[i];
-        curvature[i] = (g_moved[i] - g[i]) / CURVATURE_STEP;
     }
     let steepest = curvature
         .iter()
@@ -244,6 +250,8 @@ pub(crate) fn minimize(
             d = memory.direction(&g);
             continue;
         };
+        // The accepted trial point was the last one evaluated.
+        let row_deviation = obj.row_deviation();
         let s: Vec<f64> = x_new.iter().zip(&x).map(|(a, b)| a - b).collect();
         let y: Vec<f64> = g_new.iter().zip(&g).map(|(a, b)| a - b).collect();
         memory.push(s, y);
@@ -260,7 +268,7 @@ pub(crate) fn minimize(
         if settings.debug {
             eprintln!(
                 "M-step iteration {iterations}: f={f:.17e}, decrease={:.3e}, predicted={:.3e}, \
-                 step={step:.3e}, evaluations={}",
+                 step={step:.3e}, evaluations={}, rows sum to 1 within {row_deviation:.2e}",
                 decrease / f.abs(),
                 predicted / f.abs(),
                 obj.evaluations

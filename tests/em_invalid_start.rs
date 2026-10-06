@@ -112,7 +112,7 @@ fn the_limit_is_where_transitions_turn_negative() {
 }
 
 #[test]
-fn m_step_refuses_a_start_where_its_objective_is_not_a_number() {
+fn m_step_refuses_a_start_where_its_objective_is_infeasible() {
     let (rows, starts) = rows(0.3, 1, 20_000);
     let valid = model("4+5*3+4", 0.36, 0.09);
     let stats = psmc_rs::hmm::e_step_streaming(
@@ -133,5 +133,6 @@ fn m_step_refuses_a_start_where_its_objective_is_not_a_number() {
     let bounds = bounds_from_config(&invalid, &config);
     let err =
         m_step_lbfgs_with_outcome(&invalid, &stats, &params, &bounds, &config, None).unwrap_err();
-    assert!(err.to_string().contains("objective is NaN"), "{err}");
+    // Negative transition probabilities: no HMM, so the objective is +inf.
+    assert!(err.to_string().contains("objective is inf"), "{err}");
 }

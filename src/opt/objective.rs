@@ -30,6 +30,18 @@
 //! derivatives with respect to every parameter through each of the
 //! states² transition probabilities, at O(states² × parameters) time and
 //! memory and a heap allocation per arithmetic operation.
+//!
+//! The objective is `+inf` where the HMM computed in f64 is not one: where a
+//! transition or emission probability is negative or not a number, or where
+//! a row of the transition matrix does not sum to 1 within
+//! [`ROW_SUM_TOLERANCE`]. In exact arithmetic every row sums to 1, but the
+//! formulas square the survival `alpha` (C's `ak1 * ak1`): once it falls
+//! below about 1e-154, which a small λ of an early interval causes (a
+//! cumulative coalescence rate above about 354), those squares lose their
+//! digits or vanish, rows sum to anything (1.014 was seen), and `Q` can
+//! exceed its maximum `Q0`. Such a point evaluates to a finite `Q` that is
+//! no HMM's, so the M-step must not move there: on a simulated genome, an
+//! E-step with one lowered the log-likelihood by 367 and EM never left it.
 
 use std::borrow::Cow;
 
@@ -45,6 +57,12 @@ const GRID_ALPHA: f64 = 0.1;
 
 /// The guard added to each probability before its logarithm is taken.
 const LN_GUARD: f64 = 1e-300;
+
+/// The most a row of transition probabilities may deviate from summing to
+/// 1 before the objective calls the point infeasible. Rows of valid HMMs
+/// deviate by about 1e-12 (rounding over the states), those of points
+/// whose survival has underflowed by 1e-5 to 1e-2.
+pub(crate) const ROW_SUM_TOLERANCE: f64 = 1e-9;
 
 // Calls of `Objective::eval` on this thread, for checking
 // `MStepOutcome::evaluations` (the M-step runs on the calling thread).
@@ -66,6 +84,11 @@ pub(crate) struct Objective<'a> {
     /// The free λ of each state: an index into the λ of the parameters.
     group: Vec<usize>,
     ws: Workspace,
+    /// The most a row sum may deviate from 1 at a feasible point.
+    row_tolerance: f64,
+    /// The largest deviation of a row sum from 1 at the last evaluation
+    /// (NaN when a probability was negative or not a number there).
+    row_deviation: f64,
     /// Evaluations so far.
     pub(crate) evaluations: usize,
 }
@@ -194,8 +217,23 @@ impl<'a> Objective<'a> {
             n,
             group,
             ws: Workspace::new(bounds.len(), n),
+            row_tolerance: ROW_SUM_TOLERANCE,
+            row_deviation: f64::NAN,
             evaluations: 0,
         })
+    }
+
+    /// Lets the rows of a feasible point deviate from summing to 1 by up to
+    /// `tolerance` (by default [`ROW_SUM_TOLERANCE`]).
+    pub(crate) fn set_row_tolerance(&mut self, tolerance: f64) {
+        self.row_tolerance = tolerance;
+    }
+
+    /// The largest deviation of a row of transition probabilities from
+    /// summing to 1 at the last evaluated point, feasible or not; NaN when a
+    /// probability there was negative or not a number.
+    pub(crate) fn row_deviation(&self) -> f64 {
+        self.row_deviation
     }
 
     /// The objective at `x` and its gradient.
@@ -206,6 +244,9 @@ impl<'a> Objective<'a> {
     }
 
     /// The objective at `x`; its gradient goes to `grad`.
+    ///
+    /// At an infeasible point (see the [module documentation](self)) the
+    /// objective is `+inf` and the gradient NaN.
     ///
     /// # Panics
     ///
@@ -317,6 +358,10 @@ impl<'a> Objective<'a> {
         let [gobs0, gobs1, gobs2] = &self.stats.gobs;
         let mut q_sum = 0.0;
         let mut sum_t = 0.0;
+        // Whether every probability is a number in [0, 1] (for transitions,
+        // not negative), and the largest deviation of a row sum from 1.
+        let mut valid = true;
+        let mut row_deviation = 0.0f64;
         for k in 0..=n {
             // Forward, as param_recalculate.
             let (a_k, a_next) = (alpha[k], alpha[k + 1]);
@@ -350,15 +395,21 @@ impl<'a> Objective<'a> {
             let e0 = (-(theta * avg)).exp();
             em0[k] = e0;
             em1[k] = 1.0 - e0;
+            valid &= (0.0..=1.0).contains(&e0);
 
-            // The transitions out of state k, summed in C's order.
+            // The transitions out of state k, summed in C's order; the row's
+            // sum covers the probabilities of zero counts too.
             let row = &self.xi[k * (n + 1)..(k + 1) * (n + 1)];
             let (mut bar_tmp3, mut bar_tmp, mut bar_tmp2, mut bar_qk) = (0.0, 0.0, 0.0, 0.0);
+            let mut row_sum = 0.0;
             for m in 0..k {
+                let q = tmp * q_aux[m];
+                let p = tmp3 * q;
+                row_sum += p;
+                valid &= p >= 0.0;
                 let c = row[m];
                 if c != 0.0 {
-                    let q = tmp * q_aux[m];
-                    let guarded = tmp3 * q + LN_GUARD;
+                    let guarded = p + LN_GUARD;
                     q_sum += guarded.ln() * c;
                     let bar_p = c / guarded;
                     bar_tmp3 += bar_p * q;
@@ -367,19 +418,25 @@ impl<'a> Objective<'a> {
                     bar_q_aux[m] += bar_q * tmp;
                 }
             }
+            let p = tmp3 * qk + (1.0 - tmp3);
+            row_sum += p;
+            valid &= p >= 0.0;
             let c = row[k];
             if c != 0.0 {
-                let guarded = (tmp3 * qk + (1.0 - tmp3)) + LN_GUARD;
+                let guarded = p + LN_GUARD;
                 q_sum += guarded.ln() * c;
                 let bar_p = c / guarded;
                 bar_tmp3 += bar_p * (qk - 1.0);
                 bar_qk = bar_p * tmp3;
             }
             for m in (k + 1)..=n {
+                let q = dalpha[m] * tmp2;
+                let p = tmp3 * q;
+                row_sum += p;
+                valid &= p >= 0.0;
                 let c = row[m];
                 if c != 0.0 {
-                    let q = dalpha[m] * tmp2;
-                    let guarded = tmp3 * q + LN_GUARD;
+                    let guarded = p + LN_GUARD;
                     q_sum += guarded.ln() * c;
                     let bar_p = c / guarded;
                     bar_tmp3 += bar_p * q;
@@ -388,6 +445,7 @@ impl<'a> Objective<'a> {
                     bar_dalpha[m] += bar_q * tmp2;
                 }
             }
+            row_deviation = row_deviation.max((row_sum - 1.0).abs());
 
             // The emissions of T and K (that of a missing bin is 1); their
             // terms are added to Q after all transitions, as C adds them.
@@ -475,6 +533,15 @@ impl<'a> Objective<'a> {
             if gobs2[k] != 0.0 {
                 q_sum += ln_one * gobs2[k];
             }
+        }
+
+        self.row_deviation = if valid { row_deviation } else { f64::NAN };
+        // Not a valid HMM (a NaN probability made `valid` false, so
+        // `row_deviation`, whose `max` skips NaN, is a number), or a value
+        // that is not finite.
+        if !valid || row_deviation > self.row_tolerance || !q_sum.is_finite() {
+            grad.fill(f64::NAN);
+            return f64::INFINITY;
         }
 
         // ---- Backward through the shared quantities ----

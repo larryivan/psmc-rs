@@ -27,7 +27,7 @@ mod dual;
 mod lbfgs;
 mod objective;
 
-use objective::Objective;
+use objective::{Objective, ROW_SUM_TOLERANCE};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Bounds {
@@ -244,18 +244,25 @@ pub fn m_step_lbfgs_with_outcome(
 ) -> Result<MStepOutcome> {
     let mut objective = Objective::new(model, stats, bounds, config.lambda)?;
     let x0 = to_unconstrained(init_params, bounds)?;
+    // The search moves only to points whose rows sum to 1 within
+    // ROW_SUM_TOLERANCE, or within the start's own deviation when that is
+    // larger (as from parameters that EM did not fit), so that it never
+    // makes the HMM less valid than it was.
+    objective.set_row_tolerance(f64::INFINITY);
     let (f0, g0) = objective.value_and_gradient(&x0);
+    let start_deviation = objective.row_deviation();
+    objective.set_row_tolerance(ROW_SUM_TOLERANCE.max(start_deviation));
     let debug = std::env::var("PSMC_DEBUG_MSTEP").is_ok_and(|v| v == "1");
     if debug {
-        eprintln!("M-step start: f={f0:.17e}");
+        eprintln!("M-step start: f={f0:.17e}, rows sum to 1 within {start_deviation:.2e}");
     }
     if !f0.is_finite() {
         // No trial point can compare as lower, so the search would spend
         // its whole budget and return the start as if it were a result.
         bail!(
             "the M-step objective is {f0} at its starting parameters, so it cannot be \
-             minimised (negative transition probabilities make it NaN; see \
-             PsmcModel::check_transitions)"
+             minimised (its transition or emission probabilities are negative or not \
+             numbers; see PsmcModel::check_transitions)"
         );
     }
 
@@ -287,8 +294,16 @@ pub fn m_step_lbfgs_with_outcome(
         pb.finish_with_message("M-step done");
     }
 
+    // Without an iteration the result is the start itself, not its round
+    // trip through the unconstrained coordinates (which can move a
+    // parameter clamped near its bound).
+    let params = if minimum.iterations == 0 {
+        init_params.to_vec()
+    } else {
+        from_unconstrained(&minimum.x, bounds)?
+    };
     Ok(MStepOutcome {
-        params: from_unconstrained(&minimum.x, bounds)?,
+        params,
         evaluations: objective.evaluations,
         iterations: minimum.iterations,
         stop: match minimum.stop {
@@ -589,10 +604,13 @@ mod tests {
     /// What [`compare_with_forward_mode`] saw.
     #[derive(Default, Debug)]
     struct Compared {
-        /// Points compared, and those where the objective is not finite
-        /// (negative transition probabilities).
+        /// Points compared, and those where the objective is infeasible
+        /// (`+inf`: negative transition probabilities, or rows that do not
+        /// sum to 1), and those of these where forward mode's objective
+        /// is finite (rows that do not sum to 1).
         points: usize,
-        not_finite: usize,
+        infeasible: usize,
+        infeasible_dual_finite: usize,
         /// Points where every gradient component agreed with forward mode
         /// to 1e-10, and the largest relative difference among them.
         agreed: usize,
@@ -646,11 +664,31 @@ mod tests {
             .fold(0.0, f64::max)
     }
 
+    /// Whether the HMM of the parameters at the unconstrained point `x`, as
+    /// `param_recalculate` computes it, has its probabilities in [0, 1],
+    /// and the largest deviation of a row of transition probabilities from
+    /// summing to 1 (summed in order).
+    fn hmm_validity(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> (bool, f64) {
+        let mut at_x = model.clone();
+        unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
+        at_x.param_recalculate().unwrap();
+        let in_unit = |p: f64| (0.0..=1.0).contains(&p);
+        let mut valid = at_x.emission_matrix().iter().all(|&e| in_unit(e));
+        let mut deviation = 0.0f64;
+        for row in at_x.transition_matrix().rows() {
+            valid &= row.iter().all(|&p| p >= 0.0);
+            let sum = row.iter().fold(0.0, |acc, &p| acc + p);
+            deviation = deviation.max((sum - 1.0).abs());
+        }
+        (valid, deviation)
+    }
+
     /// Checks the adjoint objective against the forward-mode one at `x`.
     ///
-    /// The values must be equal to the bit (both NaN where transition
-    /// probabilities are negative), and the adjoint gradient finite where
-    /// the value is. Every gradient component must agree with forward mode
+    /// Where the HMM is valid (probabilities in [0, 1], rows summing to 1
+    /// within `ROW_SUM_TOLERANCE`), the values must be equal to the bit,
+    /// and the adjoint gradient finite; elsewhere the adjoint objective must
+    /// be `+inf`. Every gradient component must agree with forward mode
     /// to 1e-10 relative, with a floor of 1e-3 of the largest component
     /// ([`worst_relative_error`]), unless the two gradients' own rounding
     /// errors are larger: then the forward-mode code evaluated in
@@ -677,15 +715,26 @@ mod tests {
             )
         };
         seen.points += 1;
+        let (valid, deviation) = hmm_validity(model, x, bounds);
+        if !valid || deviation > ROW_SUM_TOLERANCE {
+            assert_eq!(
+                f,
+                f64::INFINITY,
+                "{}: invalid HMM (rows within {deviation:e})",
+                what()
+            );
+            assert!(g.iter().all(|v| v.is_nan()), "{}: {g:?}", what());
+            seen.infeasible += 1;
+            if f_dual.is_finite() {
+                seen.infeasible_dual_finite += 1;
+            }
+            return;
+        }
         assert!(
-            f.to_bits() == f_dual.to_bits() || (f.is_nan() && f_dual.is_nan()),
+            f.to_bits() == f_dual.to_bits(),
             "{}: value {f} vs forward mode {f_dual}",
             what()
         );
-        if !f.is_finite() {
-            seen.not_finite += 1;
-            return;
-        }
         assert!(g.iter().all(|v| v.is_finite()), "{}: {g:?}", what());
         for &k in &fallbacks {
             if k < model.n_steps {
@@ -777,10 +826,10 @@ mod tests {
         }
         assert_eq!(seen.points, 4 * (3 * 10 + 2 * 3));
         // ρ near its upper bound makes transition probabilities negative.
-        assert!(seen.not_finite * 4 < seen.points, "{seen:?}");
+        assert!(seen.infeasible * 4 < seen.points, "{seen:?}");
         // Most points agree to 1e-10 with forward mode; at the others the
         // adjoint gradient is the more accurate, or as accurate.
-        let compared = seen.points - seen.not_finite - seen.underflow;
+        let compared = seen.points - seen.infeasible - seen.underflow;
         assert!(seen.agreed * 4 >= compared * 3, "{seen:?}");
         assert!(seen.error_ratios.iter().all(|&r| r <= 1.1), "{seen:?}");
         assert!(
@@ -790,12 +839,13 @@ mod tests {
     }
 
     /// Over the whole region the M-step can reach, λ over six decades and
-    /// any parameter near its bounds, the values still agree to the bit.
-    /// The float objective is ill-conditioned there (λ near 1e6 leaves the
-    /// survival barely decaying over an interval, and C's β sums cancel):
-    /// it can be wrong in its 7th digit and forward mode's gradient in its
-    /// 3rd, so the double-double evaluation decides most points, and the
-    /// adjoint gradient is mostly the more accurate one.
+    /// any parameter near its bounds, the values still agree to the bit
+    /// wherever the HMM is valid. The float objective is ill-conditioned
+    /// there (λ near 1e6 leaves the survival barely decaying over an
+    /// interval, and C's β sums cancel): it can be wrong in its 7th digit
+    /// and forward mode's gradient in its 3rd, so the double-double
+    /// evaluation decides most points, and the adjoint gradient is mostly
+    /// the more accurate one.
     #[test]
     fn adjoint_matches_forward_mode_everywhere() {
         let mut rng = Rng(0x1319_8A2E_0370_7344);
@@ -820,7 +870,12 @@ mod tests {
                 compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
             }
         }
-        assert!(seen.not_finite * 2 < seen.points, "{seen:?}");
+        // About half the points of this region are no HMM in f64: ρ near
+        // its upper bound makes transition probabilities negative, and small
+        // early λ make the survival underflow (where forward mode's value is
+        // finite but its rows do not sum to 1).
+        assert!(seen.points - seen.infeasible >= 30, "{seen:?}");
+        assert!(seen.infeasible_dual_finite >= 1, "{seen:?}");
         assert!(seen.other_branches * 10 < seen.points, "{seen:?}");
         assert!(seen.decided >= 20, "{seen:?}");
         // Where they differ, the adjoint gradient is mostly the more
@@ -870,6 +925,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Where an early λ is so small that the survival falls below about
+    /// 1e-154, the squares of `param_recalculate`'s formulas underflow: its
+    /// transition probabilities are finite and not negative (so
+    /// `check_transitions` accepts them) but its rows do not sum to 1, and
+    /// Q can exceed Q0. The objective calls such a point infeasible
+    /// (`tests/em_valid_hmm.rs` has the EM fit that reached it).
+    #[test]
+    fn underflowed_survival_is_infeasible() {
+        let mut rng = Rng(0x6A09_E667_F3BC_C908);
+        let config = MStepConfig::default();
+        // The point an M-step reached on a simulated bottleneck genome:
+        // the first two λ at 1e6 and the third at 2.9e-5, so that the
+        // cumulative coalescence rate jumps to 370 at t_3.
+        let mut model = PsmcModel::new(21.6, 63, 0.037, 0.0085, 2.5e-8, None).unwrap();
+        for (k, lam) in model.lam.iter_mut().enumerate() {
+            *lam = match k {
+                0 | 1 => 1e6,
+                2 => 2.86e-5,
+                63 => 1.2e-6,
+                _ => 0.5 + 3.0 * rng.next(),
+            };
+        }
+        model.param_recalculate().unwrap();
+        model.check_transitions().unwrap();
+        let bounds = bounds_from_config(&model, &config);
+        let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+        let (valid, deviation) = hmm_validity(&model, &x, &bounds);
+        assert!(valid && deviation > 1e-3, "rows within {deviation:e}");
+        // Counts of an E-step under the model with that λ at 1.
+        let mut healthy = model.clone();
+        healthy.lam[2] = 1.0;
+        healthy.param_recalculate().unwrap();
+        let stats = random_stats(&mut rng, &healthy, 20_000);
+        let q = crate::em::hmm_q(model.transition_matrix(), model.emission_matrix(), &stats);
+        assert!(q.is_finite());
+        let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
+        assert_eq!(f, f64::INFINITY);
+        assert!(g.iter().all(|v| v.is_nan()));
+        // A third λ of 3e-3 keeps the survival normal: feasible.
+        let mut x = x;
+        x[3 + 2] = to_unconstrained(&[3e-3], &bounds[5..6]).unwrap()[0];
+        let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
+        assert!(f.is_finite() && g.iter().all(|v| v.is_finite()), "{f}");
     }
 
     /// By default the M-step minimises minus C psmc's Q, as the CLI does: no
