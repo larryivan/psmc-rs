@@ -216,6 +216,36 @@ class Readme(unittest.TestCase):
                 self.assertIn(f"`{col}`", rows[0], f"{s.file}: {col}")
 
 
+@unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
+class Performance(unittest.TestCase):
+    """Figs 4 and S4 (E3): thread counts and the ceiling of the thread scaling."""
+
+    def test_fig4_draws_each_thread_count_of_a_tool_in_its_own_style(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures import fig4
+
+        cfg = config.PRODUCTION.e3
+        # Table 2's rows: every size at 1, 8 and 30 threads, the thread-scaling size at 2, 4 and 16 too.
+        rows = [("c", 1)] + [(tool, t) for tool in ("rs01", "rs02") for t in (1, 8, 30)] + [("rs02", t) for t in (2, 4, 16)]
+        table2 = pd.DataFrame(rows, columns=["tool", "threads"])
+        series = fig4.series(table2, fig4.tool_threads(cfg))
+        self.assertEqual([(tool, t) for tool, t, _ in series], rows[:7])  # not the thread-scaling counts
+        for tool in ("rs01", "rs02"):
+            ents = [e for name, _, e in series if name == tool]
+            self.assertEqual(len({str(e.linestyle) for e in ents}), 3, tool)
+            self.assertEqual([e.filled for e in ents], [True, False, False])
+            self.assertEqual(ents[0].linestyle, "-")
+        self.assertEqual(len(fig4.series(table2)), 10)  # without the profile's counts: every one in the table
+
+    def test_figs4_ceiling_of_whole_sequences_per_thread(self):
+        from experiment.pipeline.figures import figs4
+
+        speedup = figs4.ceiling_speedup([1, 2, 4, 8, 16, 30, 60], 30)
+        self.assertEqual([round(float(x), 6) for x in speedup], [1.0, 2.0, 3.75, 7.5, 15.0, 30.0, 30.0])
+        self.assertEqual(float(figs4.ceiling_speedup(1, 30)), 1.0)
+
+
 class FiguresConfig(unittest.TestCase):
     def test_settings(self):
         f = config.FIGURES

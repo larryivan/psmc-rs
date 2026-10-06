@@ -1,13 +1,20 @@
 """Fig S4 (E3): thread scaling and determinism of psmc-rs 0.2.
 
-On the thread-scaling genome (3,000 Mb, 25 EM iterations, E3's clean runs):
+On the thread-scaling genome (3,000 Mb as 30 chromosomes of 100 Mb, 25 EM
+iterations, E3's clean runs), on 1 to 30 threads:
 
 * a: wall time against threads: every repeat (dots) and the median (line),
-  with ideal scaling from one thread (dotted); psmc-rs 0.2 with capped
-  M-steps (dark blue) at its thread counts when E3 timed it (not by
+  with ideal scaling from the fewest threads (dotted); psmc-rs 0.2 with
+  capped M-steps (dark blue) at its thread counts when E3 timed it (not by
   default). The M-step runs on one thread but converges in a few ms per EM
-  iteration, so the E-step's sequences set the speed-up.
-* b: parallel efficiency, speed-up / threads, of the medians.
+  iteration, so the E-step's sequences set the speed-up. psmc-rs works on
+  one sequence per thread, so the ideal is that of whole sequences per
+  thread (:func:`ceiling_speedup`: 30 sequences on 8 threads take 4 rounds,
+  a speed-up of 7.5), and its floor, marked, is the time of one chromosome:
+  threads beyond the 30 sequences add nothing.
+* b: parallel efficiency, speed-up / threads, of the medians, and the
+  ideal's (dotted): 1 where the threads divide the sequences, below where
+  they do not (94% on 4, 8 and 16 threads).
 * c: peak memory of the process tree against threads.
 * d: determinism: for every tool and genome size, how many runs (thread
   counts and repeats) were made and how many distinct outputs they wrote.
@@ -34,14 +41,32 @@ def thread_axis(ax, t) -> None:
     ax.set_xlabel("Threads")
 
 
+def ceiling_speedup(threads, sequences: int):
+    """The most speed-up over one thread that ``threads`` give on ``sequences`` equal sequences, one per thread.
+
+    Each thread works on whole sequences, so the run takes
+    ceil(sequences / threads) rounds: sequences / ceil(sequences / threads).
+    It stops growing at ``sequences`` threads.
+    """
+    import numpy as np
+
+    return sequences / np.ceil(sequences / np.asarray(threads, dtype=float))
+
+
 def draw(src: Source):
     scaling = src.table("E3_thread_scaling").sort_values("threads")
     table2 = src.table("E3_table2")
     runs = src.table("E3_runs")
     det = src.table("E3_determinism")
     size = int(scaling["size_mb"].iloc[0])
+    chrom_mb = src.profile.e3.chromosome_length / 1e6
+    n_seq = max(1, round(size / chrom_mb))
     t = scaling["threads"].to_numpy(dtype=float)
     wall = scaling["wall_median_s"].to_numpy(dtype=float)
+    # Ideal times and efficiencies relative to the fewest threads, and the floor: one chromosome.
+    ceiling = ceiling_speedup(t, n_seq) / ceiling_speedup(t[0], n_seq)
+    ideal = wall[0] / ceiling
+    floor = wall[0] * ceiling_speedup(t[0], n_seq) / n_seq
     reps = runs[(runs.tool == "rs02") & (runs.size_mb == size) & (runs["clean"].astype(str) == "True")]
     default = table2[(table2.tool == "rs02-default") & (table2.size_mb == size)].sort_values("threads")
     default = default[default["wall_median_s"].notna()]
@@ -52,14 +77,19 @@ def draw(src: Source):
                     width_ratios=[1.0, 1.0, 1.0, 1.3])
     ax_t, ax_e, ax_m, ax_d = (fig.add_subplot(gs[0, i]) for i in range(4))
 
-    ax_t.plot(t, wall[0] * t[0] / t, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
-    ax_t.annotate("ideal", (t[-1], wall[0] * t[0] / t[-1]), xytext=(0, -4), textcoords="offset points",
+    ax_t.plot(t, ideal, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
+    at = len(t) - 2 if len(t) > 2 else len(t) - 1  # clear of the floor's label
+    ax_t.annotate("ideal", (t[at], ideal[at]), xytext=(0, -4), textcoords="offset points",
                   ha="center", va="top", fontsize=style.TICK_PT, color=style.MUTED)
+    style.ref_line(ax_t, y=floor, linestyle=style.DASH)
+    ax_t.annotate(f"one {chrom_mb:g} Mb chromosome:\nno gain beyond {n_seq} threads", (t[0], floor), xytext=(0, -3),
+                  textcoords="offset points", ha="left", va="top", fontsize=style.TICK_PT, color=style.MUTED,
+                  linespacing=1.1)
     ax_t.plot(t, wall, color=style.BLUE, linewidth=style.LW, zorder=3)
     ax_t.plot(reps["threads"], reps["wall_seconds"], linestyle="none", marker=".", markersize=2.0, color=style.BLUE,
               zorder=4)
     ax_t.plot(t, wall, **style.RS02.points(markersize=3.2, zorder=3))
-    walls = list(reps["wall_seconds"]) + list(wall) + list(wall[0] * t[0] / t)
+    walls = list(reps["wall_seconds"]) + list(wall) + list(ideal) + [floor / 2.5]  # room for the floor's label
     if not default.empty:
         ax_t.plot(default["threads"], default["wall_median_s"], color=dent.color, linewidth=style.LW, zorder=3)
         ax_t.plot(default["threads"], default["wall_median_s"], **dent.points(markersize=3.2, zorder=4))
@@ -70,7 +100,9 @@ def draw(src: Source):
     ax_t.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
 
     eff = scaling["efficiency"].to_numpy(dtype=float)
-    style.ref_line(ax_e, y=1.0, linestyle=style.DOT)
+    ax_e.plot(t, ceiling * t[0] / t, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
+    ax_e.annotate("ideal", (t[-1], ceiling[-1] * t[0] / t[-1]), xytext=(0, 1), textcoords="offset points",
+                  ha="center", va="bottom", fontsize=style.TICK_PT, color=style.MUTED)
     ax_e.plot(t, eff, color=style.BLUE, linewidth=style.LW, zorder=3)
     ax_e.plot(t, eff, **style.RS02.points(markersize=3.2, zorder=4))
     for x, e in zip(t, eff):
@@ -130,4 +162,4 @@ def determinism_panel(ax, det) -> None:
     style.note(ax, 0.0, y - 0.13, "1: every run at a size wrote\nthe same bytes", color=style.INK2, linespacing=1.1)
 
 
-__all__ = ["determinism_panel", "draw"]
+__all__ = ["ceiling_speedup", "determinism_panel", "draw"]

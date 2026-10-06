@@ -4,7 +4,9 @@ Every run fits 25 EM iterations of the recipe to a constant-model genome of
 100 Mb chromosomes, alone on the machine (E3's clean runs only).
 
 * a: wall time against genome size: C psmc (one thread), psmc-rs 0.1 and
-  psmc-rs 0.2 on 1 and 8 threads (solid and dashed), and, when E3 timed it
+  psmc-rs 0.2 at each of the thread counts E3 times every size at (1, 8
+  and 30 in production: solid, dashed and dash-dotted; the other counts of
+  the thread scaling are Fig S4's), and, when E3 timed it
   (``E3.default_mstep_iters``, not by default), psmc-rs 0.2 with capped
   M-steps (dark blue). The y label gives the profile's EM iterations (25 in
   production). Lines and markers are the medians of the repeats, small dots
@@ -22,22 +24,35 @@ Table 2 gives. Everything comes from ``E3_table2`` and ``E3_runs``.
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import style
 from .data import Source
 
 DASHED = (0, (3.0, 1.5))
+DASH_DOT = (0, (3.0, 1.2, 1.0, 1.2))
+DOTTED = (0, (1.0, 1.2))
+# A tool's thread counts, fewest first: one line style each (more counts than
+# styles reuse the last).
+THREAD_LINESTYLES = ("-", DASHED, DASH_DOT, DOTTED)
 TOOL_ENTITY = {"c": style.C_PSMC, "rs01": style.RS01, "rs02": style.RS02,
                "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}
 TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
 
 
-def series(table2) -> List[Tuple[str, int, style.Entity]]:
+def tool_threads(cfg) -> Dict[str, Tuple[int, ...]]:
+    """The thread counts E3 times every genome size at, per tool (not the thread-scaling ones: Fig S4)."""
+    return {"c": (1,), "rs01": tuple(cfg.rs01_threads), "rs02": tuple(cfg.rs02_threads),
+            "rs02-default": tuple(cfg.rs02_default_threads)}
+
+
+def series(table2, threads: Optional[Dict[str, Sequence[int]]] = None) -> List[Tuple[str, int, style.Entity]]:
     """``(tool, threads, entity)`` of every series of Table 2, in the legend's order.
 
-    The fewest threads of a tool are drawn solid with filled markers, more
-    threads dashed with open markers.
+    With ``threads`` (:func:`tool_threads`), only a tool's thread counts
+    there. The fewest threads of a tool are drawn solid with filled markers,
+    more threads with open markers and the next styles of
+    :data:`THREAD_LINESTYLES` (dashed, then dash-dotted, then dotted).
     """
     out = []
     for tool in TOOL_ORDER:
@@ -45,11 +60,12 @@ def series(table2) -> List[Tuple[str, int, style.Entity]]:
         if sub.empty:
             continue
         base = TOOL_ENTITY[tool]
-        threads = sorted(int(t) for t in sub["threads"].unique())
-        for i, t in enumerate(threads):
+        counts = sorted(int(t) for t in sub["threads"].unique()
+                        if threads is None or int(t) in threads.get(tool, ()))
+        for i, t in enumerate(counts):
             label = base.label if tool == "c" else f"{base.label}, {t} thread{'s' if t > 1 else ''}"
-            out.append((tool, t, style.Entity(label, base.color, "-" if i == 0 else DASHED, base.marker,
-                                              filled=i == 0)))
+            linestyle = THREAD_LINESTYLES[min(i, len(THREAD_LINESTYLES) - 1)]
+            out.append((tool, t, style.Entity(label, base.color, linestyle, base.marker, filled=i == 0)))
     return out
 
 
@@ -102,17 +118,18 @@ def decade_span(values, pad: float = 1.3) -> Tuple[float, float]:
     return 10 ** math.floor(math.log10(min(v) / pad)), 10 ** math.ceil(math.log10(max(v) * pad))
 
 
-def draw_metric(ax, table2, runs, median_col: str, run_col: str) -> List[str]:
+def draw_metric(ax, table2, runs, median_col: str, run_col: str,
+                threads: Optional[Dict[str, Sequence[int]]] = None) -> List[str]:
     """One metric against genome size: medians (lines, markers), clean repeats (dots); returns notes on setups not run."""
     notes = []
-    for tool, threads, ent in series(table2):
-        rows = table2[(table2.tool == tool) & (table2.threads == threads)].sort_values("size_mb")
+    for tool, t, ent in series(table2, threads):
+        rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")
         ok = rows[rows[median_col].notna()]
         if not ok.empty:
             ax.plot(ok["size_mb"], ok[median_col], color=ent.color, linestyle=ent.linestyle, linewidth=style.LW,
                     zorder=3)
             ax.plot(ok["size_mb"], ok[median_col], **ent.points(markersize=3.4, zorder=4))
-        reps = runs[(runs.tool == tool) & (runs.threads == threads) & (runs["clean"].astype(str) == "True")]
+        reps = runs[(runs.tool == tool) & (runs.threads == t) & (runs["clean"].astype(str) == "True")]
         ax.plot(reps["size_mb"], reps[run_col], linestyle="none", marker=".", markersize=1.5, color=ent.color,
                 zorder=2)
         skipped = rows[rows.status == "skipped"]
@@ -130,8 +147,9 @@ def draw(src: Source):
     gs = style.grid(fig, 1, 3, left_mm=12.5, right_mm=3.0, top_mm=12.0, bottom_mm=9.0, wspace_mm=14.0)
     ax_t, ax_m, ax_s = (fig.add_subplot(gs[0, i]) for i in range(3))
     sizes = sorted(int(s) for s in table2["size_mb"].unique())
+    threads = tool_threads(src.profile.e3)
 
-    notes = draw_metric(ax_t, table2, runs, "wall_median_s", "wall_seconds")
+    notes = draw_metric(ax_t, table2, runs, "wall_median_s", "wall_seconds", threads)
     size_axis(ax_t, sizes)
     log_ticks(ax_t, *decade_span(list(table2["wall_median_s"].dropna()) + list(runs["wall_seconds"])), TIME_TICKS,
               fmt_seconds)
@@ -139,29 +157,29 @@ def draw(src: Source):
     if notes:
         style.note(ax_t, 0.02, 0.98, "\n".join(notes), ha="left", va="top")
 
-    draw_metric(ax_m, table2, runs, "peak_rss_median_mb", "peak_rss_mb")
+    draw_metric(ax_m, table2, runs, "peak_rss_median_mb", "peak_rss_mb", threads)
     size_axis(ax_m, sizes)
     log_ticks(ax_m, *decade_span(list(table2["peak_rss_median_mb"].dropna()) + list(runs["peak_rss_mb"])), MEM_TICKS,
               fmt_mib)
     ax_m.set_ylabel("Peak memory (RSS)")
 
-    speedup_panel(ax_s, table2, sizes)
+    speedup_panel(ax_s, table2, sizes, threads)
 
-    handles = [style.handle(ent, kind="both") for _, _, ent in series(table2)]
+    handles = [style.handle(ent, kind="both") for _, _, ent in series(table2, threads)]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
     style.panel_letters(fig, [ax_t, ax_m, ax_s])
     return fig
 
 
-def speedup_panel(ax, table2, sizes) -> None:
+def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]] = None) -> None:
     """Median wall time of C psmc over each tool's, by genome size."""
     import numpy as np
 
     hi, lo = 1.0, 1.0
-    for tool, threads, ent in series(table2):
+    for tool, t, ent in series(table2, threads):
         if tool == "c":
             continue
-        rows = table2[(table2.tool == tool) & (table2.threads == threads)].sort_values("size_mb")
+        rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")
         rows = rows[rows["speedup_vs_c"].notna()]
         if rows.empty:
             continue
@@ -185,4 +203,4 @@ def speedup_panel(ax, table2, sizes) -> None:
     ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
 
 
-__all__ = ["draw", "fmt_mib", "fmt_seconds", "log_ticks", "series", "size_axis"]
+__all__ = ["draw", "fmt_mib", "fmt_seconds", "log_ticks", "series", "size_axis", "tool_threads"]
