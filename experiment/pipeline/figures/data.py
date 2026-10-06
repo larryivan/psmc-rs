@@ -115,9 +115,33 @@ def curve_span(cs: Iterable[Curve]) -> Tuple[float, float]:
     return (min(firsts), max(lasts)) if firsts else (1e3, 1e7)
 
 
+NICE_STEPS = (1.0, 2.0, 5.0)  # the round limits of a log axis within a decade
+SNAP_DECADES = 1.0 / 3.0  # widen to a power of ten when that adds at most this much of a decade
+
+
 def decades(lo: float, hi: float) -> Tuple[float, float]:
-    """``[lo, hi]`` widened to whole powers of ten."""
-    return 10.0 ** math.floor(math.log10(lo)), 10.0 ** math.ceil(math.log10(hi))
+    """``[lo, hi]`` widened to round limits of a log axis.
+
+    Each end goes to the next power of ten outwards when that widens it by
+    at most a third of a decade; otherwise to the next 1, 2 or 5 times a
+    power of ten, so that rounding never adds a (nearly) empty decade.
+    """
+    return _round_out(lo, down=True), _round_out(hi, down=False)
+
+
+def _round_out(x: float, down: bool) -> float:
+    e = math.floor(math.log10(x))
+    # Values at (or a rounding error from) a power of ten stay there.
+    if math.isclose(x, 10.0 ** e, rel_tol=1e-9):
+        return 10.0 ** e
+    if math.isclose(x, 10.0 ** (e + 1), rel_tol=1e-9):
+        return 10.0 ** (e + 1)
+    decade = 10.0 ** e if down else 10.0 ** (e + 1)
+    if abs(math.log10(decade / x)) <= SNAP_DECADES + 1e-12:
+        return decade
+    if down:
+        return max(s * 10.0 ** e for s in NICE_STEPS if s * 10.0 ** e <= x)
+    return min(s * 10.0 ** e for s in NICE_STEPS[1:] + (10.0,) if s * 10.0 ** e >= x)
 
 
 # ---------------------------------------------------------------------------

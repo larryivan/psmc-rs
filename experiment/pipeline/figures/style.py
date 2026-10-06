@@ -3,9 +3,15 @@
 Every figure module draws through this module, so the figures read as one
 set:
 
-* **Type.** Arial, else Helvetica, else DejaVu Sans; 7 pt text, 6 pt tick
-  labels, 8 pt bold lowercase panel letters. Mathtext (superscripts on log
-  axes, N_e) uses the same family. PDF and SVG keep text as text (TrueType,
+* **Type.** Arial, else Helvetica, else DejaVu Sans; 7 pt text (axis
+  labels, legends, notes in the panels, colorbar labels) and 8 pt bold
+  lowercase panel letters. Mathtext (superscripts on log axes, N_e) uses
+  the same family. **One exception to 7 pt: tick labels are 6 pt**
+  (:data:`TICK_PT`, also the colorbar's ticks). The log axes label every
+  decade as 10 with a superscript, and at 7 pt the end labels of
+  neighbouring panels of the 4-column figures (Figs 2 and S2) run into one
+  another. Category labels set as tick labels (Fig 5's masks, Fig S3's
+  deciles) follow the tick labels. PDF and SVG keep text as text (TrueType,
   fonttype 42; SVG ``svg.fonttype = none``).
 * **Sizes.** Widths of the journal's columns: single 89 mm, 1.5 column
   120 mm, double 183 mm; heights are chosen per figure.
@@ -57,7 +63,7 @@ WIDTH_MM = {"single": 89.0, "onehalf": 120.0, "double": 183.0}
 
 FONT_FAMILY = ("Arial", "Helvetica", "DejaVu Sans")
 TEXT_PT = 7.0
-TICK_PT = 6.0
+TICK_PT = 6.0  # tick labels only: the documented exception to 7 pt (module docstring)
 PANEL_PT = 8.0
 
 LW_THIN = 0.5  # one replicate among many
@@ -351,8 +357,8 @@ def ref_line(ax, y: Optional[float] = None, x: Optional[float] = None, **kw) -> 
 
 
 def note(ax, x: float, y: float, text: str, *, ha: str = "left", va: str = "top", color: str = INK2,
-         size: float = TICK_PT, transform=None, **kw):
-    """A small annotation in secondary ink (never in a series colour)."""
+         size: float = TEXT_PT, transform=None, **kw):
+    """A 7 pt annotation in secondary ink (never in a series colour)."""
     return ax.text(x, y, text, ha=ha, va=va, color=color, fontsize=size,
                    transform=transform if transform is not None else ax.transAxes, **kw)
 
@@ -391,12 +397,15 @@ def handle(entity: Entity, kind: str = "line", **kw):
 
 
 def panel_letters(fig, axes: Sequence, letters: Optional[Sequence[str]] = None, *, pad_pt: float = 2.0,
-                  align_rows: bool = True) -> List:
+                  align_rows: bool = True, align_cols: bool = False) -> List:
     """Bold lowercase letters at the top left of each panel, outside its tick labels.
 
     Each letter sits at the left edge of everything the panel draws (tick
     labels, axis label) and just above the axes. Letters of panels whose
-    axes share a top edge are aligned on one baseline.
+    axes share a top edge are aligned on one baseline; with ``align_cols``,
+    letters of panels whose axes share a left edge (of their grid cells,
+    before a fixed aspect shrinks them) are also aligned on one vertical,
+    the leftmost of theirs.
     """
     import string
 
@@ -415,10 +424,17 @@ def panel_letters(fig, axes: Sequence, letters: Optional[Sequence[str]] = None, 
         top = ax.get_position().y1
         key = round(top, 3) if align_rows else id(ax)
         tops.setdefault(key, []).append((ax, letter, x0, top))
+    lefts: Dict = {}
+    if align_cols:
+        for row in tops.values():
+            for ax, _, x0, _ in row:
+                key = round(ax.get_position(original=True).x0, 3)
+                lefts[key] = min(lefts.get(key, x0), x0)
     for row in tops.values():
         y = max(t for *_, t in row) + pad
         for ax, letter, x0, _ in row:
-            out.append(fig.text(x0, y, letter, fontsize=PANEL_PT, fontweight="bold", ha="left", va="bottom",
+            x = lefts.get(round(ax.get_position(original=True).x0, 3), x0)
+            out.append(fig.text(x, y, letter, fontsize=PANEL_PT, fontweight="bold", ha="left", va="bottom",
                                 color=INK))
     return out
 

@@ -101,6 +101,35 @@ class Style(unittest.TestCase):
         self.assertNotIn(b"CreationDate", first[0])
         self.assertIn(b"<text", first[1])  # text stays text in the SVG
 
+    def test_notes_and_legends_are_7pt_ticks_the_documented_exception(self):
+        from experiment.pipeline.figures import style
+
+        fig = style.figure("single", 40)
+        ax = fig.add_subplot(111)
+        self.assertEqual(style.note(ax, 0.5, 0.5, "a note").get_fontsize(), 7.0)
+        leg = style.legend(ax, [ax.plot([0, 1], [0, 1], label="a line")[0]])
+        self.assertEqual(leg.get_texts()[0].get_fontsize(), 7.0)
+        self.assertEqual(style.TICK_PT, 6.0)
+        self.assertIn("exception to 7 pt: tick labels are 6 pt", " ".join(style.__doc__.split()))
+
+    def test_panel_letters_align_columns(self):
+        from experiment.pipeline.figures import style
+
+        fig = style.figure("single", 80)
+        gs = style.grid(fig, 2, 1, left_mm=20.0)
+        top, bottom = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[1, 0])
+        top.plot([0, 1], [0, 100000])  # wide tick labels
+        bottom.plot([0, 1], [0, 1])
+        top.set_ylabel("y")
+        bottom.set_ylabel("y")
+        a, b = style.panel_letters(fig, [top, bottom])
+        self.assertNotAlmostEqual(a.get_position()[0], b.get_position()[0], places=3)
+        for t in fig.texts[:]:
+            t.remove()
+        a, b = style.panel_letters(fig, [top, bottom], align_cols=True)
+        self.assertAlmostEqual(a.get_position()[0], b.get_position()[0])
+        self.assertLess(a.get_position()[0], top.get_position().x0)
+
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class Data(unittest.TestCase):
@@ -168,7 +197,27 @@ class Data(unittest.TestCase):
         self.assertEqual(data.fmt_bp(2_500_000), "2.5 Mb")
         self.assertEqual(data.fmt_sig(0.0381), "0.038")
         self.assertIn("10$^{-4}$", data.fmt_sig(9.0e-4))
-        self.assertEqual(data.decades(3e3, 2e5), (1e3, 1e6))
+        self.assertEqual(data.decades(1.5e3, 6e5), (1e3, 1e6))
+
+    def test_decades_never_add_an_empty_decade(self):
+        from experiment.pipeline.figures import data
+
+        # More than a third of a decade from a power of ten: the next 1, 2 or 5.
+        self.assertEqual(data.decades(3e3, 2e5), (2e3, 2e5))
+        self.assertEqual(data.decades(769.2, 6.3e4), (500.0, 1e5))  # Fig 5d: not down to 10^2
+        self.assertEqual(data.decades(521.5, 1.073e5), (500.0, 2e5))
+        self.assertEqual(data.decades(1e-6, 2.032), (1e-6, 5.0))
+        self.assertEqual(data.decades(2.449e-6, 0.4902), (2e-6, 1.0))
+        # Close to a power of ten, or on one: that power.
+        self.assertEqual(data.decades(1.561e4, 3.0e6), (1e4, 5e6))
+        self.assertEqual(data.decades(1e3, 1e5), (1e3, 1e5))
+        self.assertEqual(data.decades(1e3 * (1 + 1e-12), 1e5 * (1 - 1e-12)), (1e3, 1e5))
+        for lo, hi in ((1.1, 9.9), (3.3e-5, 4.4e-2), (7.7e2, 1.2e7)):
+            a, b = data.decades(lo, hi)
+            self.assertLessEqual(a, lo)
+            self.assertGreaterEqual(b, hi)
+            self.assertLess(math.log10(lo / a), 0.5)  # under half a decade added at either end
+            self.assertLess(math.log10(b / hi), 0.5)
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
