@@ -10,17 +10,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::bootstrap::{
     BootstrapConfig, BootstrapOptions, BootstrapSummary, InvalidReplicateStart,
-    bootstrap_trunk_count, default_bootstrap_dir, invalid_replicate_starts, rows_to_sequences,
-    run_bootstrap_with_options, summarize_bootstrap_models,
+    bootstrap_trunk_count, default_bootstrap_dir, invalid_replicate_starts,
+    observations_to_sequences, run_bootstrap_sequences, summarize_bootstrap_models,
 };
 use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{
     Cancelled, EStepOptions, EStepPhase, EStepProgress, log_likelihood_with_options,
     write_tmrca_posterior_tsv,
 };
-use psmc_rs::io::Observations;
 use psmc_rs::io::input::Dataset;
 use psmc_rs::io::params::{InputSummary, load_params};
+use psmc_rs::io::{Observations, Sequences};
 use psmc_rs::model::NegativeTransitions;
 use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use psmc_rs::psmc_out::c_pattern;
@@ -329,8 +329,8 @@ fn infer(
     // A bootstrap that cannot vary fails before the main fit, not after.
     let boot_seqs = match &bootstrap {
         Some(plan) => {
-            let seqs = rows_to_sequences(&obs.rows, &obs.row_starts)?;
-            let trunks = bootstrap_trunk_count(&seqs, plan.trunk_size)
+            let seqs = observations_to_sequences(obs)?;
+            let trunks = bootstrap_trunk_count(&seqs.bins, plan.trunk_size)
                 .context("--bootstrap-block-size is too large for this input")?;
             sink(Event::Info(format!(
                 "Bootstrap: {} replicates of {} EM iterations, resampling {trunks} trunks of {} \
@@ -415,7 +415,7 @@ fn infer(
     // skips them.
     let invalid_replicates = match &boot {
         Some((_, seqs, _, cfg)) if saved_start.is_none() => {
-            invalid_replicate_starts(seqs, &model, cfg)?
+            invalid_replicate_starts(&seqs.bins, &model, cfg)?
         }
         _ => Vec::new(),
     };
@@ -1005,7 +1005,7 @@ fn model_loglike(
 /// `start` when given, from the fresh start of `cfg` otherwise.
 #[allow(clippy::too_many_arguments)]
 fn bootstrap_stage(
-    seqs: &[Vec<u8>],
+    seqs: &Sequences,
     model: &PsmcModel,
     cfg: &BootstrapConfig,
     start: Option<&PsmcModel>,
@@ -1040,7 +1040,7 @@ fn bootstrap_stage(
         start,
         skip_invalid_starts: start.is_none(),
     };
-    let replicates = run_bootstrap_with_options(seqs, model, cfg, mstep_config, opts)?;
+    let replicates = run_bootstrap_sequences(seqs, model, cfg, mstep_config, opts)?;
     write_replicate_psmc(dir, &replicates)?;
     let mut fitted = vec![false; cfg.replicates];
     for r in &replicates {

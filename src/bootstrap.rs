@@ -14,6 +14,13 @@
 //! starts its replicates from those parameters too; see
 //! [`BootstrapOptions::start`].
 //!
+//! Input with the callable bases of each bin ([`Sequences`]) keeps them
+//! through the bootstrap: [`observations_to_sequences`],
+//! [`split_sequences_for_bootstrap`] and [`resample_sequences`] cut and draw
+//! the counts with their bins, and [`run_bootstrap_sequences`] fits
+//! replicates whose rows carry them. The trunks drawn are the same with or
+//! without counts.
+//!
 //! A replicate's fresh start takes θ0 from its own resampled data, so a
 //! resample more heterozygous than the input starts from a larger ρ0. Near
 //! the limit on ρ of PSMC's transition probabilities
@@ -77,8 +84,8 @@ use std::sync::{Mutex, PoisonError};
 
 use crate::em::{EmHistory, EmOptions, em_train_with_options};
 use crate::hmm::Cancelled;
-use crate::io::Observations;
 use crate::io::common::chunk_sequences;
+use crate::io::{CallableBases, Observations, Sequences};
 use crate::model::{
     NegativeTransitions, PsmcModel, initial_theta, theta_counts, theta_from_counts,
 };
@@ -220,6 +227,31 @@ pub const DEFAULT_BOOTSTRAP_TRUNK: usize = 500_000;
 /// If `trunk_size` is 0 (`splitfa` would loop forever).
 pub fn split_for_bootstrap(seqs: &[Vec<u8>], trunk_size: usize) -> Vec<Vec<u8>> {
     assert!(trunk_size > 0, "bootstrap trunk_size must be > 0");
+    split_trunks(seqs, trunk_size)
+}
+
+/// [`split_for_bootstrap`] for sequences with the callable bases of their
+/// bins: the counts are cut at the same bins as the symbols, so each trunk
+/// keeps the counts of its bins. The sequences must be valid
+/// ([`Sequences::validate`]).
+///
+/// # Panics
+///
+/// If `trunk_size` is 0.
+pub fn split_sequences_for_bootstrap(seqs: &Sequences, trunk_size: usize) -> Sequences {
+    assert!(trunk_size > 0, "bootstrap trunk_size must be > 0");
+    debug_assert!(seqs.validate().is_ok(), "invalid bootstrap input");
+    Sequences {
+        bins: split_trunks(&seqs.bins, trunk_size),
+        callable: seqs
+            .callable
+            .as_ref()
+            .map(|c| c.with_counts(split_trunks(c.counts(), trunk_size))),
+    }
+}
+
+/// The trunks of [`split_for_bootstrap`], of bins or of their counts.
+fn split_trunks<T: Clone>(seqs: &[Vec<T>], trunk_size: usize) -> Vec<Vec<T>> {
     seqs.iter()
         .flat_map(|seq| trunk_ranges(seq.len(), trunk_size).map(|r| seq[r].to_vec()))
         .collect()
@@ -323,16 +355,54 @@ pub fn resample_chunk_indices(
 /// Each returned chunk is meant to be an independent sequence (its own HMM
 /// chain, `row_starts` true), as each `splitfa` record is in C psmc.
 pub fn resample_chunks(chunks: &[Vec<u8>], rng: &mut impl Rng) -> Vec<Vec<u8>> {
-    let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
-    resample_chunk_indices(&lengths, |n| uniform_index(rng, n))
+    draw_trunks(chunks, rng)
         .into_iter()
         .map(|i| chunks[i].clone())
         .collect()
 }
 
+/// [`resample_chunks`] for trunks with the callable bases of their bins
+/// (normally the output of [`split_sequences_for_bootstrap`]): the same
+/// trunks are drawn from the same random numbers, each with its counts.
+pub fn resample_sequences(trunks: &Sequences, rng: &mut impl Rng) -> Sequences {
+    let drawn = draw_trunks(&trunks.bins, rng);
+    let pick = |seqs: &[Vec<_>]| drawn.iter().map(|&i| seqs[i].clone()).collect();
+    Sequences {
+        bins: drawn.iter().map(|&i| trunks.bins[i].clone()).collect(),
+        callable: trunks
+            .callable
+            .as_ref()
+            .map(|c| c.with_counts(pick(c.counts()))),
+    }
+}
+
+/// The indices of the trunks one `psmc_resamp` draws from `chunks`
+/// ([`resample_chunk_indices`]).
+fn draw_trunks<T>(chunks: &[Vec<T>], rng: &mut impl Rng) -> Vec<usize> {
+    let lengths: Vec<usize> = chunks.iter().map(Vec::len).collect();
+    resample_chunk_indices(&lengths, |n| uniform_index(rng, n))
+}
+
 /// Join HMM rows back into whole sequences (`row_starts` marks the rows
 /// that start one). Errors on empty or inconsistent input.
 pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Vec<u8>>> {
+    join_rows(rows, row_starts)
+}
+
+/// The whole sequences of `obs`, joined as [`rows_to_sequences`] joins
+/// them, with the callable bases of their bins joined the same way.
+pub fn observations_to_sequences(obs: &Observations) -> Result<Sequences> {
+    obs.validate()?;
+    let bins = join_rows(&obs.rows, &obs.row_starts)?;
+    let callable = match &obs.callable {
+        Some(c) => Some(c.with_counts(join_rows(c.counts(), &obs.row_starts)?)),
+        None => None,
+    };
+    Ok(Sequences { bins, callable })
+}
+
+/// [`rows_to_sequences`] for rows of bins or of their counts.
+fn join_rows<T: Clone>(rows: &[Vec<T>], row_starts: &[bool]) -> Result<Vec<Vec<T>>> {
     if rows.is_empty() {
         bail!("cannot build sequences from empty rows");
     }
@@ -347,8 +417,8 @@ pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Ve
         bail!("row_starts[0] must be true");
     }
 
-    let mut seqs = Vec::<Vec<u8>>::new();
-    let mut current = Vec::<u8>::new();
+    let mut seqs = Vec::<Vec<T>>::new();
+    let mut current = Vec::<T>::new();
     for (i, row) in rows.iter().enumerate() {
         if row.is_empty() {
             bail!("row {i} is empty");
@@ -375,7 +445,7 @@ pub fn rows_to_sequences(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Ve
 /// Cut sequences into HMM rows of at most `batch_size` bins (whole
 /// sequences without it), the rows of each sequence chained in one HMM
 /// sequence; empty sequences are skipped. The rows have no callable bases;
-/// [`chunk_sequences`] cuts a [`Sequences`](crate::io::Sequences) with them.
+/// [`chunk_sequences`] cuts a [`Sequences`] with them.
 pub fn sequences_to_observations(
     seqs: &[Vec<u8>],
     batch_size: Option<usize>,
@@ -742,6 +812,41 @@ pub fn run_bootstrap_with_options(
     mstep_cfg: &MStepConfig,
     opts: BootstrapOptions<'_>,
 ) -> Result<Vec<BootstrapReplicate>> {
+    run_replicates(seqs, None, template, cfg, mstep_cfg, opts)
+}
+
+/// [`run_bootstrap_with_options`] on sequences with the callable bases of
+/// their bins: the trunks are cut with [`split_sequences_for_bootstrap`] and
+/// drawn with [`resample_sequences`], so that each replicate's rows carry
+/// the counts of their bins ([`Observations::callable`]). A replicate draws
+/// the same trunks as from the bins alone.
+pub fn run_bootstrap_sequences(
+    seqs: &Sequences,
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+    mstep_cfg: &MStepConfig,
+    opts: BootstrapOptions<'_>,
+) -> Result<Vec<BootstrapReplicate>> {
+    seqs.validate()?;
+    run_replicates(
+        &seqs.bins,
+        seqs.callable.as_ref(),
+        template,
+        cfg,
+        mstep_cfg,
+        opts,
+    )
+}
+
+/// [`run_bootstrap_sequences`] on the bins `seqs` and their callable bases.
+fn run_replicates(
+    seqs: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+    template: &PsmcModel,
+    cfg: &BootstrapConfig,
+    mstep_cfg: &MStepConfig,
+    opts: BootstrapOptions<'_>,
+) -> Result<Vec<BootstrapReplicate>> {
     if cfg.replicates == 0 {
         return Ok(Vec::new());
     }
@@ -771,7 +876,10 @@ pub fn run_bootstrap_with_options(
         }
         None => check_fresh_start(cfg.t_max, cfg.tr_ratio)?,
     }
-    let chunks = split_for_bootstrap(seqs, cfg.trunk_size);
+    let chunks = Sequences {
+        bins: split_for_bootstrap(seqs, cfg.trunk_size),
+        callable: callable.map(|c| c.with_counts(split_trunks(c.counts(), cfg.trunk_size))),
+    };
     if let Some(dir) = &cfg.out_dir {
         fs::create_dir_all(dir)
             .with_context(|| format!("failed to create bootstrap directory {dir:?}"))?;
@@ -791,8 +899,8 @@ pub fn run_bootstrap_with_options(
             return Err(Cancelled.into());
         }
         let fit = || -> Result<Option<BootstrapReplicate>> {
-            let sampled = resample_chunks(&chunks, &mut replicate_rng(cfg.seed, rep));
-            let data = ReplicateData::of(&sampled);
+            let sampled = resample_sequences(&chunks, &mut replicate_rng(cfg.seed, rep));
+            let data = ReplicateData::of(&sampled.bins);
             let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
             let mut model = match start {
                 Some(start) => start.clone(),
