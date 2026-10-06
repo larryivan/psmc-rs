@@ -1,4 +1,4 @@
-"""Fig 5 (E4): partly callable bins bias PSMC, and psmc-rs's per-bin model removes the bias.
+"""Fig 5 (E4): partly callable bins bias PSMC, and psmc-rs's per-bin model removes most of the bias.
 
 Routes (colour, marker): psmc-rs on the VCF with its callable mask, each
 called bin weighed by the callable bases it holds (``--bin-callable auto``,

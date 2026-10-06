@@ -38,9 +38,10 @@ passed explicitly (``config.E4_BIN_CALLABLE``):
 bases are uncallable, so a dispersed mask leaves almost every bin called
 while each holds only about (1 - f) of its 100 bases. Taking them as full
 (``mask_ignore``, ``fq2psmcfa``) makes theta per bin, and with it N0 =
-theta / (4 mu s), every time and every size, low by about (1 - f).
-``mask_auto`` fits P(T | k) = exp(-theta (c / s) avg_t[k]) for a bin of c
-callable bases (docs/design/bin-callable-model.md), which removes the bias.
+theta / (4 mu s), every time and every size, low by about (1 - f) or
+more. ``mask_auto`` fits P(T | k) = exp(-theta (c / s) avg_t[k]) for a bin
+of c callable bases (docs/design/bin-callable-model.md), which removes most
+of the bias (experiment/validation/: theta 2-4% low on average at f = 0.3).
 
 **Complete data.** On the ``nomissing`` control every bin is full, so the
 callable-length model is C psmc's: the report fails unless ``mask_auto`` and

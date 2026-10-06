@@ -65,20 +65,21 @@ so that it can be turned into the caption. Captions should also say:
   marker); sizes a tool was not run at are named in panel a with the reason
   E3 recorded.
 - **Fig 5**: binning with partly callable bins biases PSMC, and psmc-rs's
-  per-bin model removes the bias. With a dispersed mask almost every bin
-  stays called with about (1 - f) of its bases; taking them as full
-  (`--bin-callable ignore`, dark blue dashed) makes theta, and every time
-  and size, low by about the missing fraction f, as the classic consensus
-  FASTA -> fq2psmcfa route does: its bins equal the VCF + mask bins and
-  its fit equals the dark blue one, both asserted, so it is not drawn.
-  Weighing each bin by its callable bases (`auto`, psmc-rs's default,
-  blue) recovers the complete-data fit (grey in d-f). Clustered missing
-  data empty whole bins and change little; multihetsep (the uncalled
-  sites of an interval are placed at its start, and every called bin is
-  taken as full: `auto` fits exact counts only) and a VCF without its mask
-  are shown as they are. The complete-data
-  fit is the control's VCF + mask fit, identical under both models
-  (asserted).
+  per-bin model removes most of the bias. With a dispersed mask almost
+  every bin stays called with about (1 - f) of its bases; taking them as
+  full (`--bin-callable ignore`, dark blue dashed) makes theta, and every
+  time and size, low by about the missing fraction f or more, as the
+  classic consensus FASTA -> fq2psmcfa route does: its bins equal the
+  VCF + mask bins and its fit equals the dark blue one, both asserted, so
+  it is not drawn. Weighing each bin by its callable bases (`auto`,
+  psmc-rs's default, blue) comes close to the complete-data fit (grey in
+  d-f; theta 2-4% low on average at 30% missing in
+  `experiment/validation/`). Clustered missing data empty whole bins and
+  change little; multihetsep (the uncalled sites of an interval are placed
+  at its start, and every called bin is taken as full: `auto` fits exact
+  counts only) and a VCF without its mask are shown as they are. The
+  complete-data fit is the control's VCF + mask fit, identical under both
+  models (asserted).
 - **Fig 6**: coverage over 10 genomes moves in steps of 10% (shaded:
   pointwise Clopper-Pearson 95% interval); the window-averaged coverage in
   the legend has a 95% interval from resampling the genomes.
