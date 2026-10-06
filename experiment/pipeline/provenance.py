@@ -24,9 +24,10 @@ import hashlib
 import json
 import os
 import platform
+import socket
 import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from . import paths
 
@@ -122,14 +123,23 @@ def job_key(job, runs_dir: Path, cache: ChecksumCache) -> Dict:
 
 
 def machine() -> Dict:
-    """What the measurements were taken on."""
+    """What the measurements were taken on (information only: it enters no job key)."""
     info = {
         "system": platform.system(),
         "release": platform.release(),
         "machine": platform.machine(),
         "python": platform.python_version(),
         "cpu_count": os.cpu_count(),
+        "hostname": socket.gethostname(),
     }
+    if platform.system() == "Linux":
+        info.update(linux_machine(Path("/proc")))
+        lib, version = platform.libc_ver()
+        if lib:
+            info["libc"] = f"{lib} {version}"
+        if hasattr(os, "sched_getaffinity"):
+            info["cpus_usable"] = len(os.sched_getaffinity(0))  # a SLURM allocation's cgroup, taskset
+        info.update(slurm(os.environ))
     if platform.system() == "Darwin":
         info["macos"] = platform.mac_ver()[0]
         try:
@@ -143,6 +153,40 @@ def machine() -> Dict:
             info["memory_gb"] = round(int(lines[1]) / 2**30, 1)
         except Exception:
             pass
+    return info
+
+
+def linux_machine(proc: Path) -> Dict:
+    """The CPU model and memory of a Linux machine, from ``proc`` (``/proc``)."""
+    info: Dict = {}
+    try:
+        for line in (proc / "cpuinfo").read_text(errors="replace").splitlines():
+            if line.startswith("model name") and ":" in line:
+                info["cpu"] = line.split(":", 1)[1].strip()
+                break
+    except OSError:
+        pass
+    try:
+        for line in (proc / "meminfo").read_text(errors="replace").splitlines():
+            if line.startswith("MemTotal:"):
+                info["memory_gb"] = round(int(line.split()[1]) / 2**20, 1)  # kB
+                break
+    except (OSError, ValueError, IndexError):
+        pass
+    return info
+
+
+def slurm(environ: Mapping[str, str]) -> Dict:
+    """The SLURM job and node a process runs in, from its environment (empty outside SLURM)."""
+    info: Dict = {}
+    for name, keys in (
+        ("slurm_job_id", ("SLURM_JOB_ID",)),
+        ("slurm_nodelist", ("SLURM_JOB_NODELIST", "SLURMD_NODENAME")),
+        ("slurm_cpus_on_node", ("SLURM_CPUS_ON_NODE",)),
+    ):
+        value = next((environ[k] for k in keys if environ.get(k)), None)
+        if value is not None:
+            info[name] = value
     return info
 
 

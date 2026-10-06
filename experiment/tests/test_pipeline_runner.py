@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -367,6 +368,53 @@ class DetachedRunner(Base):
         st = self.cli("status")
         self.assertIn("runner: not running", st.stdout)
         self.assertRegex(st.stdout, r"\nT\s+3\s+0\s+0\s+0\s+0")
+
+class MachineInfo(unittest.TestCase):
+    """What the runner records about the machine and the SLURM job."""
+
+    def test_linux_machine_reads_the_cpu_model_and_memory(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc = Path(d)
+            (proc / "cpuinfo").write_text("processor\t: 0\nvendor_id\t: AuthenticAMD\n"
+                                          "model name\t: AMD EPYC 7702 64-Core Processor\n\nprocessor\t: 1\n"
+                                          "model name\t: AMD EPYC 7702 64-Core Processor\n")
+            (proc / "meminfo").write_text("MemTotal:       527424588 kB\nMemFree:        1 kB\n")
+            self.assertEqual(provenance.linux_machine(proc), {"cpu": "AMD EPYC 7702 64-Core Processor", "memory_gb": 503.0})
+            self.assertEqual(provenance.linux_machine(proc / "absent"), {})
+
+    def test_slurm_job_from_the_environment(self):
+        self.assertEqual(provenance.slurm({}), {})
+        env = {"SLURM_JOB_ID": "3412", "SLURM_JOB_NODELIST": "cn605-26-l", "SLURMD_NODENAME": "cn605-26-l",
+               "SLURM_CPUS_ON_NODE": "128"}
+        self.assertEqual(provenance.slurm(env),
+                         {"slurm_job_id": "3412", "slurm_nodelist": "cn605-26-l", "slurm_cpus_on_node": "128"})
+        self.assertEqual(provenance.slurm({"SLURM_JOB_ID": "1", "SLURMD_NODENAME": "cn1"}),
+                         {"slurm_job_id": "1", "slurm_nodelist": "cn1"})
+
+    def test_machine_records_the_host_and_on_linux_the_slurm_job(self):
+        from unittest import mock
+
+        info = provenance.machine()
+        self.assertEqual(info["hostname"], socket.gethostname())
+        # Without the variables of a SLURM job the tests may themselves run in.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SLURM")}
+        env.update({"SLURM_JOB_ID": "77", "SLURMD_NODENAME": "cn9"})
+        with mock.patch.object(provenance.platform, "system", return_value="Linux"), \
+                mock.patch.dict(os.environ, env, clear=True):
+            info = provenance.machine()
+        self.assertEqual((info["slurm_job_id"], info["slurm_nodelist"]), ("77", "cn9"))
+        if hasattr(os, "sched_getaffinity"):
+            self.assertGreater(info["cpus_usable"], 0)
+
+    def test_machine_and_host_enter_no_job_key(self):
+        from unittest import mock
+
+        j = Job(id="T/a", command=["true"], settings={"x": 1})
+        key = provenance.job_key(j, Path("/tmp/none"), provenance.ChecksumCache(None))
+        self.assertEqual(set(key), {"job", "command", "env", "settings", "tools", "seeds", "inputs"})
+        with mock.patch.dict(os.environ, {"SLURM_JOB_ID": "77"}), \
+                mock.patch.object(socket, "gethostname", return_value="cn1"):
+            self.assertEqual(provenance.job_key(j, Path("/tmp/none"), provenance.ChecksumCache(None)), key)
 
 
 if __name__ == "__main__":
