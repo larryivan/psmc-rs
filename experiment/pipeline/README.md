@@ -356,8 +356,40 @@ of all cores and at most 1 core busy) within 3 minutes, other processes
 kept at most 5% of all cores and at most 0.5 core busy on average during
 the run, the machine did not sleep, and it ran on AC power without Low
 Power Mode. On a laptop's 8 cores the shares decide; on a node of 128 or
-192 cores the core counts do. Otherwise `measure` writes nothing and exits
-with status 75, and the runner starts the run again a minute later; the
+192 cores the core counts do. Quiet before the run is judged on the whole
+machine's busy CPU time (everything but idle and iowait: processes, kernel
+threads, interrupts, steal), since nothing of ours runs then (`measure`
+reads the processes outside that window). During the run, "other
+processes" are the user-space processes other than the tool's and the
+`measure` wrapper: `measure` reads every process's CPU time, and that of
+the children it has reaped (Linux's cutime and cstime), just before the
+tool starts and right after it ends, matched by pid and creation time (a
+process started during the run counts whole). A process that ended during
+the run, whether it started before it (`other_processes_exited` counts
+those) or in it (a `make -j`'s compilers, a script's commands), counts
+through the process that waited for it, its parent or, orphaned, init;
+one that started before the run counts with its CPU before it too, which
+errs towards rejecting the run. Only a process that nothing waits for
+(its parent ignores SIGCHLD) is missed: its CPU shows in
+`unaccounted_cores`, the machine's busy CPU that nothing measured
+explains, which is recorded but not limited, since it also holds the
+differences between how the kernel counts the machine's CPU time and the
+processes'. Steal time (a hypervisor's other machines; 0 on Ibex's bare
+metal) is limited with the other processes. Kernel threads (kthreadd's
+children) and interrupt time (irq, softirq) are left out of the limit and
+recorded apart: part of them is the kernel's work for the tool itself (a run
+keeping 30 cores busy adds about 0.1 core on Ibex's 128-core nodes, whose
+idle busy CPU is already 0.35 to 0.49 core: counted, it rejected those
+runs against the 0.5 core again and again), the rest the machine's
+housekeeping that the quiet check bounds, and neither is another
+workload. Where not every process can be read (other users' processes on
+macOS, or a `/proc` mounted `hidepid`) or reaped children's CPU time is
+not readable (every system but Linux), the limit applies to the
+machine's busy CPU time but the tool's, kernel and interrupt time
+included, so nothing is under-counted; each timing record says which
+(`during.other_method`: `processes` or `machine`) and keeps the
+machine-wide measure either way. Otherwise `measure` writes nothing and
+exits with status 75, and the runner starts the run again a minute later; the
 report takes medians from clean runs only, and flags clean runs timed on
 more than one kind of machine (CPU model, governor, boost), whose medians
 and speed-ups would mix them: keep E3's runs on nodes of one CPU model.
@@ -365,10 +397,10 @@ and speed-ups would mix them: keep E3's runs on nodes of one CPU model.
 | table | contents |
 | --- | --- |
 | `E3_table2.csv` | Table 2, per tool, thread count and size: status (measured, skipped with the reason, incomplete), estimated peak memory, clean and measured repeats, median, minimum and maximum wall time, median CPU time, seconds per iteration, peak RSS, speed-up over C psmc and over psmc-rs 0.1 at the same threads, C psmc's RSS over the tool's, the M-step budget, whether the repeats' outputs are identical |
-| `E3_runs.csv` | every run: measurements, machine state, power, clean or not, CPU model, governor, boost, usable CPUs, host, SLURM job, theta, rho, t_max, log-likelihood, output SHA-256 |
+| `E3_runs.csv` | every run: measurements, machine state (before: busy cores, and of them processes, kernel threads, interrupts; during: the other work the clean check limited by `other_method`, the machine-wide measure, kernel threads, interrupts, steal, what none explains, processes that ended), power, clean or not, CPU model, governor, boost, usable CPUs, host, SLURM job, theta, rho, t_max, log-likelihood, output SHA-256 |
 | `E3_thread_scaling.csv` | Fig S4: psmc-rs 0.2 on 3000 Mb per thread count: median wall time, speed-up, efficiency, peak RSS, whether the JSON is byte-identical to the one-thread run |
 | `E3_determinism.csv` | Fig S4: every output against its tool's reference at the same size (fewest threads, first repeat) |
-| `E3_environment.csv` | machine (each distinct value: the hosts of merged shards), tools (identities, binary SHA-256, rustc), how C psmc was built (its `BUILD.json`), protocol, power sources, runs not clean, the kinds of machine of the clean runs and whether they mix (`clean_runs_on_mixed_machines`) |
+| `E3_environment.csv` | machine (each distinct value: the hosts of merged shards), tools (identities, binary SHA-256, rustc), how C psmc was built (its `BUILD.json`), protocol, power sources, runs not clean, the measures of other work used and the median and maximum of each CPU-use column of `E3_runs.csv` (the limited other work for each measure apart), the kinds of machine of the clean runs and whether they mix (`clean_runs_on_mixed_machines`) |
 | `E3_seeds.csv` | every seed, with each chromosome's trees and longest stretch without a heterozygous site |
 
 Layout of `experiment/runs/E3/`: `sims/` (not committed), `truth/`,

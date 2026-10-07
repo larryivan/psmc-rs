@@ -294,6 +294,31 @@ two builds of it differ is part of section 9.
 > `BUILD.json`), the timing protocol and which runs it rejected, and how
 > to reproduce the timings with `experiment/slurm` (`submit.sh e3`,
 > `merge_e3.sh`, `submit.sh e3-report`) or on one machine (`start E3`).
+>
+> The protocol (`config.TimingProtocol`, `experiments/e3_run.py`): before
+> each run the whole machine must be quiet, at most 1 core and 10% of all
+> cores busy (all but idle and iowait time, so processes, kernel threads,
+> interrupts and steal), since nothing of the experiment runs then.
+> During the run, the other user-space processes (all but the tool's and
+> the timing wrapper, each one's CPU time read just before and right after
+> the run on Linux, with that of the children it reaped meanwhile) and
+> steal time together may keep at most 0.5 core and 5% of all cores busy;
+> otherwise the run is discarded and repeated later. A process that ended
+> during the run, short-lived or not, is counted through the process that
+> reaped it, its parent or init (one that had started before the run with
+> its earlier CPU time too, which errs towards rejecting runs); only a
+> process that nothing waits for is not measured, and its CPU appears
+> only in the machine-wide time that no measured process explains, which
+> each record keeps but the protocol does not limit, since it also holds
+> accounting differences between the machine's and the processes' CPU
+> time. Kernel threads and interrupt time are recorded but not limited
+> during the run: part of them is the kernel's work for the timed tool
+> itself (on the 128-core nodes, a run keeping 30 cores busy adds about
+> 0.1 core to an idle node's 0.35 to 0.49 busy core), the rest
+> housekeeping the quiet check bounds, and neither is interference from
+> another workload. Where not every process, or the CPU time of reaped
+> children, can be read (macOS), the machine's busy CPU time but the
+> tool's is limited instead; each timing record names the measure used.
 
 ## 11) Release archive integrity
 
