@@ -124,6 +124,24 @@ class Draw(unittest.TestCase):
                     self.assertGreaterEqual(ext.y0, box.y0 - 0.5)
                     self.assertLessEqual(ext.y1, box.y1 + 0.5)
 
+    def test_the_readme_gives_each_figures_size(self):
+        import math
+        import re
+
+        from experiment.pipeline import figures
+
+        text = (Path(figures.__file__).parent / "README.md").read_text()
+        for fs in figures.FIGURES:
+            with self.subTest(figure=fs.name):
+                row = next(line for line in text.splitlines() if line.startswith(f"| `{fs.name}`"))
+                w, h = (float(x) for x in re.search(r"\| (\d+) x (\d+) mm \|$", row).groups())
+                fig = self._draw(fs.module)
+                if fs.module == "fig3":  # a row of panels per two genomes: the README gives the four of E2
+                    n = len(fig.axes)
+                    h += 50.0 * (math.ceil(n / 2) - 2)
+                self.assertAlmostEqual(fig.get_figwidth() * 25.4, w, places=1)
+                self.assertAlmostEqual(fig.get_figheight() * 25.4, h, places=1)
+
     def test_panel_letters_line_up_in_columns(self):
         from experiment.pipeline.figures import style
 

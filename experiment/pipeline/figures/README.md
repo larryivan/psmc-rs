@@ -27,12 +27,12 @@ appear as E2-E6 are added.
 
 | figure | written to | reads | width x height |
 | --- | --- | --- | --- |
-| `fig1_workflow` | `FIG/figures/` | nothing (schematic) | 183 x 82 mm |
+| `fig1_workflow` | `FIG/figures/` | nothing (schematic) | 183 x 86 mm |
 | `fig2_simulated_accuracy` | `E1/figures/` | `E1_curves`, `E1_truth`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E1_mstep` | 183 x 150 mm |
 | `fig3_real_genomes` | `E2/figures/` | `E2_curves`, `E2_bands`, `E2_bootstrap`, `E2_rs_vs_c`, `E2_fit_summary` | 183 x 112 mm |
 | `fig4_performance` | `E3/figures/` | `E3_table2`, `E3_runs` | 183 x 70 mm |
-| `fig5_input_preparation` | `E4/figures/` | `E4_routes`, `E4_curves`, `E4_bias` | 183 x 122 mm |
-| `fig6_bootstrap_calibration` | `E5/figures/` | `E5_summary`, `E5_sampling`, `E5_bands`, `E5_sd_ratio`, `E5_coverage` | 183 x 132 mm |
+| `fig5_input_preparation` | `E4/figures/` | `E4_routes`, `E4_curves`, `E4_bias` | 183 x 126 mm |
+| `fig6_bootstrap_calibration` | `E5/figures/` | `E5_summary`, `E5_sampling`, `E5_bands`, `E5_sd_ratio`, `E5_coverage` | 183 x 178 mm |
 | `figS1_em_convergence` | `E1/figures/` | `E1_traces` | 183 x 118 mm |
 | `figS2_format_consistency` | `E6/figures/` | `E6_S2_curves`, `E6_S2_bins`, `E6_S2_fits` | 183 x 96 mm |
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
@@ -77,21 +77,22 @@ so that it can be turned into the caption. Captions should also say:
   per-bin model removes most of the bias. With a dispersed mask almost
   every bin stays called with about (1 - f) of its bases; taking them as
   full (`--bin-callable ignore`, dark blue dashed) makes theta, and every
-  time and size, low by about the missing fraction f or more, as the
+  time and size, low by about 1.2 times the missing share of the called
+  bins (E4: theta 12% low with 10% missing, 35% with 30%), as the
   classic consensus FASTA -> fq2psmcfa route does: its bins equal the
   VCF + mask bins and its fit equals the dark blue one, both asserted, so
   it is not drawn. Weighting each bin by its callable bases (`auto`,
   psmc-rs's default, blue) comes close to the complete-data fit (grey in
-  d-f; theta 2-4% low on average at 30% missing in
-  `experiment/validation/`). Clustered missing data empty whole bins and
-  change little; multihetsep (the uncalled sites of an interval are placed
-  at its start, and every called bin is taken as full: `auto` fits exact
-  counts only) and a VCF without its mask are shown as they are. The
+  d-f; E4: theta 0.7% low on average with 10% missing, 1.9% with 30%).
+  Clustered missing data empty whole bins and change little; multihetsep
+  (the uncalled sites of an interval are placed at its start, and every
+  called bin is taken as full: `auto` fits exact counts only) and a VCF
+  without its mask are shown as they are. The
   complete-data fit is the control's VCF + mask fit, identical under both
   models (asserted).
-- **Fig 6**: coverage over 10 genomes moves in steps of 10% (shaded:
-  pointwise Clopper-Pearson 95% interval); the window-averaged coverage in
-  the legend has a 95% interval from resampling the genomes.
+- **Fig 6**: coverage over 10 genomes moves in steps of 10% (shaded in d
+  and e: pointwise Clopper-Pearson 95% interval); the window-averaged
+  coverage in the legend has a 95% interval from resampling the genomes.
 
 ## Style (`style.py`)
 
