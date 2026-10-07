@@ -8,6 +8,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import http.server
+import shutil
 import sys
 import tempfile
 import threading
@@ -236,6 +237,20 @@ class Fetch(unittest.TestCase):
         url = self.serve(self.data, ignore_range=True)
         with self.assertRaisesRegex(kg1000.StageError, "ignored the range"):
             kg1000.fetch_ranges(url, self.tmp / "chr21.vcf.gz", len(self.data), parts=2, attempts=1, wait=0.0)
+
+    def test_too_little_local_space_is_refused_before_downloading(self):
+        from unittest import mock
+
+        url = self.serve(self.data)
+        lay = kg1000.layout(self.tmp / "runs")
+        dirs = kg1000.temp_dirs(lay, local_tmp_dir=self.tmp / "node")
+        kg1000.write_json(lay.record_setup, {"vcfs": {"chr21": {"read_from": url,
+                                                                 "head": {"content_length": len(self.data)}}}})
+        full = shutil.disk_usage(self.tmp)._replace(free=len(self.data))
+        with mock.patch.object(kg1000.shutil, "disk_usage", return_value=full):
+            with self.assertRaisesRegex(kg1000.StageError, "GB free"):
+                kg1000.fetch_chrom(config.TINY.e7, lay, dirs, "chr21", log=lambda msg: None)
+        self.assertFalse(kg1000.local_vcf(config.TINY.e7, dirs, "chr21").exists())
 
     def test_a_local_source_is_not_fetched(self):
         lay = kg1000.layout(self.tmp / "runs")

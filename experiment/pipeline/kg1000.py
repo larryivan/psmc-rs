@@ -139,6 +139,7 @@ TMP_ENV = "PSMC_E7_TMPDIR"
 LOCAL_TMP_ENV = "PSMC_E7_LOCAL_TMPDIR"
 NONPASS_EXPR = 'FILTER="PASS" || FILTER="."'  # excluded: what psmc-rs reads as PASS
 SPLIT_EXPR = 'GT="het" || GT="mis"'
+FETCH_ROOM = 1.25  # node-local space a downloaded VCF needs, per byte: the copy, its chunks and their split files
 SAMPLE_COLUMNS = ("sample_id", "population", "superpopulation", "sex", "is_parent", "admixed", "raw_bases",
                   "raw_depth", "default", "selection", "split_check", "bootstrap", "giab")
 QC_COLUMNS = ("sample_id", "chrom", "bins", "t_bins", "k_bins", "missing_bins", "called_bins", "partial_bins",
@@ -1423,6 +1424,13 @@ def fetch_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, parts: Opti
         digests = file_digests(dest)
         fetched = False
     else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        have = sum(p.stat().st_size for p in dest.parent.glob(dest.name + ".part*"))  # a resumed download
+        need = int(size * FETCH_ROOM) - have
+        free = shutil.disk_usage(dest.parent).free
+        if free < need:
+            raise StageError(f"{chrom}: {free / 1e9:.1f} GB free in {dest.parent}, the download and its chunks "
+                             f"need {need / 1e9:.1f} GB (--local-tmp-dir)")
         n = parts or cfg.fetch_parts
         log(f"[fetch] {chrom}: {size / 1e9:.1f} GB from {source} in {n} ranges")
         digests = fetch_ranges(source, dest, size, n, cfg.chunk_attempts * 10, cfg.retry_wait_seconds)
