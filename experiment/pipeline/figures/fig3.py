@@ -16,8 +16,11 @@ gives the tools' difference on it, interval by interval (the RMSE of
 log10(Ne_rs,k / Ne_c,k) over C psmc's intervals in the window, weighted by
 their log-time width, and the largest), and the bootstrap's replicates and
 blocks. The Ne axis covers the fits and the bands inside the window, except
-a coarse band (fewer blocks than psmc-rs's 20), which is clipped. The human
-sample is chromosome 1 only, and the panel says so.
+a coarse band (fewer blocks than psmc-rs's 20), which is clipped where it
+reaches beyond (the panel then says so). The notes have no box: room is
+kept for them above and below the data, and a box would cover the grey of
+the times outside the window. The human sample is chromosome 1 only, and
+the panel says so.
 
 Everything comes from E2's tables: ``E2_curves`` (the fits), ``E2_bands``
 (the bands, on a dense grid), ``E2_bootstrap`` (replicates, blocks),
@@ -38,8 +41,8 @@ C_LW, RS_LW = 2.0, 0.8
 MARGIN_DECADES = 0.5  # the x range: the comparison windows widened by this much on each side
 FINE_STYLE = style.DOT  # the fine band's outline (not the truth's dashes)
 FINE_LW = 0.8
-NOTE_LINE_SHARE = 0.065  # share of a panel's height one line of a note takes
-NOTE_BOX = {"facecolor": style.SURFACE, "edgecolor": "none", "alpha": 0.85, "pad": 0.6}
+NOTE_LINE_SHARE = 0.072  # share of a panel's height one line of a note takes (7 pt, line spacing 1.25)
+SCALING_NOTE_Y = 0.865  # the top of the two-line note under the species name (axes fraction)
 
 
 def genome_order(cfg: config.E2, present) -> List[config.RealGenome]:
@@ -61,20 +64,18 @@ def sci(x: float) -> str:
 
 
 def trunk_text(row, sequences: Optional[int] = None) -> str:
-    """``897 blocks: 889 scaffolds split at 50 Mb`` (and a warning when they are few).
+    """``897 blocks: 889 scaffolds split at 50 Mb``, or ``5 blocks of 50 Mb`` of one sequence (and a warning when few).
 
     psmc-rs's bootstrap, as splitfa, resamples blocks of the sequences
     split at the block size; a sequence shorter than that is one block.
     """
     mb = float(row.trunk_mb)
     blocks = int(row.trunks)
-    if sequences is None:
-        what = "sequences"
-    elif sequences == 1:
-        what = "1 sequence"
+    if sequences == 1:
+        text = f"{blocks:,} blocks of {mb:g} Mb"
     else:
-        what = f"{sequences:,} scaffolds"
-    text = f"{blocks:,} blocks: {what} split at {mb:g} Mb"
+        what = "sequences" if sequences is None else f"{sequences:,} scaffolds"
+        text = f"{blocks:,} blocks: {what} split at {mb:g} Mb"
     return text + " (few: coarse)" if str(row.coarse_band) == "True" else text
 
 
@@ -156,10 +157,12 @@ def draw(src: Source):
                  f"max {fmt_sig(float(pair.max_abs_log10_ne_rs_vs_c_per_interval))}"]
         for row in mine.itertuples():
             lines.append(f"{int(row.replicates)} replicates, {trunk_text(row, sequences)}")
-        # Room for the notes, which are not to cover the curves: the top three
-        # lines above the data, the bottom ones below it (a share of the axis each).
+        # Room for the notes, which are not to cover the curves or the bands
+        # (they have no box, which would cover the grey of the times outside
+        # the window): the top notes above the data, the bottom ones below it.
         lo, hi = min(vals) / 1.6, max(vals) * 1.6
-        room_top, room_bottom = NOTE_LINE_SHARE * 3 + 0.03, NOTE_LINE_SHARE * len(lines) + 0.03
+        room_top = 1.0 - SCALING_NOTE_Y + 2 * NOTE_LINE_SHARE
+        room_bottom = 0.03 + NOTE_LINE_SHARE * len(lines)
         span = math.log10(hi / lo) / (1.0 - room_top - room_bottom)
         lo, hi = lo / 10 ** (room_bottom * span), hi * 10 ** (room_top * span)
         if coarse_hi > hi:
@@ -168,12 +171,10 @@ def draw(src: Source):
         style.ne_axis(ax, (lo, hi), label=style.NE_LABEL if i % ncol == 0 else None)
         if math.log10(hi / lo) < 2.0:
             _log_ticks_1_2_5(ax)
-        style.note(ax, 0.03, 0.97, gnm.species, color=style.INK, size=style.TEXT_PT, fontstyle="italic", zorder=7,
-                   bbox=NOTE_BOX)
-        style.note(ax, 0.03, 0.865, f"{where(gnm)}\n" + rf"$\mu$ = {sci(mu)}, g = {g:g} y", linespacing=1.25,
-                   zorder=7, bbox=NOTE_BOX)
-        style.note(ax, 0.97, 0.03, "\n".join(lines), ha="right", va="bottom", linespacing=1.25, zorder=7,
-                   bbox=NOTE_BOX)
+        style.note(ax, 0.03, 0.97, gnm.species, color=style.INK, size=style.TEXT_PT, fontstyle="italic", zorder=7)
+        style.note(ax, 0.03, SCALING_NOTE_Y, f"{where(gnm)}\n" + rf"$\mu$ = {sci(mu)}, g = {g:g} y",
+                   linespacing=1.25, zorder=7)
+        style.note(ax, 0.97, 0.03, "\n".join(lines), ha="right", va="bottom", linespacing=1.25, zorder=7)
     for j in range(n, nrow * ncol):
         fig.add_subplot(gs[j // ncol, j % ncol]).set_axis_off()
 

@@ -111,6 +111,36 @@ class Draw(unittest.TestCase):
         return [t.get_text() for leg in fig.legends + [ax.get_legend() for ax in fig.axes if ax.get_legend()]
                 for t in leg.get_texts()]
 
+    def _assert_notes_inside_axes(self, fig):
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        for i, ax in enumerate(fig.axes):
+            box = ax.get_window_extent(renderer)
+            for t in ax.texts:
+                ext = t.get_window_extent(renderer)
+                with self.subTest(axes=i, text=t.get_text()[:40]):
+                    self.assertGreaterEqual(ext.x0, box.x0 - 0.5)
+                    self.assertLessEqual(ext.x1, box.x1 + 0.5)
+                    self.assertGreaterEqual(ext.y0, box.y0 - 0.5)
+                    self.assertLessEqual(ext.y1, box.y1 + 0.5)
+
+    def test_fig3_notes_lie_inside_their_panels_and_have_no_box(self):
+        fig = self._draw("fig3")
+        self._assert_notes_inside_axes(fig)
+        for ax in fig.axes:
+            for t in ax.texts:  # a box would cover the grey of the times outside the window
+                self.assertIsNone(t.get_bbox_patch())
+
+    def test_fig3_names_the_blocks_of_one_sequence_by_their_size(self):
+        from types import SimpleNamespace
+
+        from experiment.pipeline.figures import fig3
+
+        row = SimpleNamespace(trunk_mb=50.0, trunks=5, coarse_band="True")
+        self.assertEqual(fig3.trunk_text(row, 1), "5 blocks of 50 Mb (few: coarse)")
+        row = SimpleNamespace(trunk_mb=50.0, trunks=897, coarse_band="False")
+        self.assertEqual(fig3.trunk_text(row, 889), "897 blocks: 889 scaffolds split at 50 Mb")
+
     def test_fig5_draws_every_called_bin_taken_as_full_above_the_vcf_without_its_mask(self):
         from experiment.pipeline.figures import style
 

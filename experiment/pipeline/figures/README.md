@@ -67,7 +67,8 @@ so that it can be turned into the caption. Captions should also say:
   sequences split at 50 Mb (splitfa's trunks), so most of the turtles'
   blocks are whole scaffolds. A genome whose default blocks are fewer than
   20 (Papuan chr1: 5 of 50 Mb) is bootstrapped again on 5 Mb blocks (dark
-  dotted outline); its coarse 50 Mb band is clipped. E5 calibrates
+  dotted outline); its coarse 50 Mb band does not set the Ne axis and is
+  clipped where it reaches beyond it (the panel says so). E5 calibrates
   chromosome-scale blocks only.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
