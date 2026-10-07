@@ -9,7 +9,7 @@ experimental design is:
 2. scaling to years and individuals;
 3. simulation settings and the demographic models;
 4. the seed scheme;
-5. the experiments E1-E6 (each with the settings of its steps);
+5. the experiments E1-E7 (each with the settings of its steps);
 6. the figures (what they show; their style is figures/style.py);
 7. the runner's resource budget and cost model (scheduling only);
 8. the profiles: ``production`` (the manuscript), ``smoke`` (a small
@@ -890,6 +890,155 @@ class E6:
     costs: E6Costs = E6Costs()
 
 
+# --- E7: 1000 Genomes (Fig 7, Figs S5 and S6) ---------------------------------
+# Every setting of E7 is in this block: the sources, samples and processing of
+# its data stage (kg1000.py, run outside the runner: it is network-bound) and
+# the fits, comparisons and figures of its runner jobs (experiments/e7.py).
+#
+# Data: the joint-called NYGC 30x VCFs of the 3,202 samples (GATK
+# HaplotypeCaller, GenotypeGVCFs, VQSR; Byrska-Bishop et al. 2022, Cell
+# 185:3426), chr1-22, 1.68 TB in all: streamed by region over HTTPS, never
+# stored. Samples: the 2,504 unrelated samples of the phase 3 panel (the
+# sample column, 10, of the sequence index). Mask: the GRCh38 strict
+# accessibility mask (2016-06-22) for every sample; non-PASS records are
+# missing at their position, as psmc-rs reads them.
+
+_KG_EBI = "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage"
+_KG_S3 = "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage"
+_KG_JOINT = ("working/20201028_3202_raw_GT_with_annot/"
+             "20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz")
+_KG_PANEL = ("working/20220422_3202_phased_SNV_INDEL_SV/"
+             "1kGP_high_coverage_Illumina.{chrom}.filtered.SNV_INDEL_SV_phased_panel.vcf.gz")
+_KG_MASK = ("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/"
+            "20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed")
+_GIAB = ("https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/"
+         "HG001_GRCh38_1_22_v4.2.1_benchmark")
+
+_KG_SCALING_SOURCE = (
+    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the "
+    "mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. "
+    "2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)"
+)
+
+
+@dataclass(frozen=True)
+class E7Costs:
+    """Expected run time and peak memory of E7's runner jobs, for scheduling and ETA only.
+
+    Fits use :class:`Costs`' rates on the bins of the stage's chunks (all
+    of chr1-22: 2,875 Mb). The GIAB comparison reads two VCFs of a few
+    million records in Python; the report reads every fit.
+    """
+
+    giab_s: float = 300.0
+    giab_gb: float = 2.0
+    report_s_base: float = 60.0
+    report_s_per_fit: float = 0.05
+    report_gb: float = 4.0
+    vcf_fit_gb: float = 0.5  # psmc-rs on a VCF holds the merged mask intervals (4 million rows of the strict mask)
+
+
+@dataclass(frozen=True)
+class E7:
+    """1000 Genomes (Fig 7, Figs S5 and S6): psmc-rs on the 30x NYGC genomes.
+
+    The data stage (``python -m experiment.pipeline.kg1000``, outside the
+    runner) reads the joint-called VCFs region by region (streamed, or from
+    a chromosome downloaded to node-local disk), splits them into
+    one het-or-missing VCF per sample and writes one psmcfa per sample of the
+    cohort, as ``psmc-rs convert --vcf-sample`` would from the joint VCF
+    (byte for byte; its pilot checks it), with the strict mask and every
+    non-PASS position missing (``runs/E7/inputs``). The runner then fits:
+    every sample's psmcfa with psmc-rs (``fit-rs-psmcfa``); the default set,
+    ``per_population`` samples of every population (the ``pinned`` ones
+    first, the others drawn by seed), also from its VCF with the mask and
+    psmc-rs's callable bases per bin (``fit-rs-vcf``, the curves of Fig 7)
+    and by C psmc from the psmcfa (``fit-c``); the ``bootstrap_samples``
+    with psmc-rs's bootstrap (``boot-rs``); the first default sample of
+    every population with the first time window split (``fit-rs-split``,
+    ``split_pattern``; Hilgers et al. 2025, Curr Biol 35:927); and NA12878
+    against GIAB HG001 v4.2.1 (``giab``). Curves are scaled with ``scaling``.
+
+    Seeds: the default set's draw ranks each population's candidates by
+    ``seed("E7", population, 0, "select/<sample>")``; the bootstraps
+    ``seed("E7", sample, 0, "bootstrap")``.
+    """
+
+    # -- Sources (the data stage) ------------------------------------------
+    # The joint VCF of a chromosome ({chrom}) on EBI and on its S3 mirror (the
+    # same files, sizes checked); use_mirror streams from S3.
+    vcf_url: str = f"{_KG_EBI}/{_KG_JOINT}"
+    mirror_url: str = f"{_KG_S3}/{_KG_JOINT}"
+    use_mirror: bool = True
+    manifest_url: str = f"{_KG_EBI}/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv"
+    # The fallback input (D4), only if streaming the joint VCFs is not
+    # possible: the phased panel (EBI only), filtered to MAC >= 2 and without
+    # missing genotypes, which lacks about 3.7% of each genome's PASS
+    # heterozygous SNVs; a figure made from it must say so.
+    input: str = "joint"  # "joint" or "panel"
+    panel_url: str = f"{_KG_EBI}/{_KG_PANEL}"
+    panel_manifest_url: str = f"{_KG_EBI}/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt"
+    mask_url: str = _KG_MASK
+    index_url: str = f"{_KG_EBI}/1000G_2504_high_coverage.sequence.index"
+    ped_url: str = f"{_KG_EBI}/20130606_g1k_3202_samples_ped_population.txt"
+    giab_vcf_url: str = f"{_GIAB}.vcf.gz"
+    giab_bed_url: str = f"{_GIAB}.bed"
+    # A directory of local files named as the URLs' last parts, read instead of
+    # the network (relative: under <runs>/E7); the tiny profile's synthetic
+    # cohort (kg1000 fixture). None: the URLs.
+    local_source: Optional[str] = None
+
+    # -- What the data stage makes ---------------------------------------------
+    chromosomes: Tuple[str, ...] = tuple(f"chr{i}" for i in range(1, 23))
+    # Smoke profile only: the stage reads only these bases of every chromosome
+    # (1-based, inclusive), and the callable mask is cut to them. None: whole
+    # chromosomes.
+    window: Optional[Tuple[int, int]] = None
+    chunk_bp: int = 15_000_000  # one streamed region (a SLURM array task): about 190 chunks for chr1-22
+    # "unrelated2504": a psmcfa for every unrelated sample of the sequence
+    # index; None: the default set only. One stream costs the same either way.
+    cohort: Optional[str] = "unrelated2504"
+    per_population: int = 2
+    pinned: Tuple[str, ...] = ("NA18507", "NA19239", "NA12878")  # Li & Durbin 2011's samples among the 2,504
+    admixed: Tuple[str, ...] = ("ACB", "ASW", "CLM", "MXL", "PEL", "PUR")
+    superpopulations: Tuple[str, ...] = ("AFR", "AMR", "EAS", "EUR", "SAS")  # Fig 7 panels a-e
+    split_batch_size: int = 500  # samples per bcftools +split call (one open file per sample)
+    stream_threads: int = 4  # bcftools view --threads of the stream
+    chunk_attempts: int = 3  # a broken stream is retried this many times in all
+    # fetch-chrom: byte ranges downloaded at once (a slow cluster link: each
+    # connection is slow, several at once are not; kg1000.fetch_ranges)
+    fetch_parts: int = 16
+    retry_wait_seconds: float = 60.0
+    # psmc-rs convert's --min-good-fraction; None: its default (0.2). A window
+    # leaves most of a chromosome uncallable, which the default would drop.
+    min_good_fraction: Optional[float] = None
+    raw_depth_genome_bp: float = 3.1e9  # raw depth = the sample's BASE_COUNT in the index / this
+    # The pilot (kg1000 pilot): these samples' psmcfa of one chromosome made by
+    # the split route must equal psmc-rs convert --vcf-sample on the stream.
+    pilot_samples: Tuple[str, ...] = ("NA18507", "NA19239", "NA12878")
+
+    # -- Fits (the runner) -------------------------------------------------------
+    scaling: Scaling = Scaling(mu=1.25e-8, gen_years=29.0)
+    scaling_source: str = _KG_SCALING_SOURCE
+    inference: Inference = INFERENCE
+    fit_threads: int = 1
+    bootstrap_samples: Tuple[str, ...] = ("NA18507", "NA19239", "NA12878")
+    bootstrap_replicates: int = 100
+    bootstrap_trunk_bins: int = 500_000  # psmc-rs's default (splitfa's 50 Mb): about 60 trunks of chr1-22
+    bootstrap_threads: int = 32
+    band: Tuple[float, float] = (0.025, 0.975)  # the bootstrap's band
+    split_pattern: str = "1+1+1+1+25*2+4+6"  # the first window of 4+25*2+4+6 split into its 4 intervals
+    c_psmc: bool = True  # fit-c on the default set
+    giab: bool = True  # the giab job, when NA12878 is in the default set
+    grid: TimeGrid = TimeGrid()
+    # Population summaries (E7_pop_bands): quantiles across individuals on a
+    # dense log grid of years; the spread between individuals, not a CI.
+    spread: Tuple[float, float] = (0.1, 0.9)
+    display_years: Tuple[float, float, int] = (1e3, 1e8, 400)
+    figure_years: Tuple[float, float] = (1e4, 1e7)  # the time axis of Figs 7 and S5
+    costs: E7Costs = E7Costs()
+
+
 # ---------------------------------------------------------------------------
 # 6. Figures (experiment/pipeline/figures): what the figures show. Their
 #    style (type, sizes, colours) is in figures/style.py; the tables they
@@ -986,6 +1135,7 @@ class Profile:
     e4: E4 = E4()
     e5: E5 = E5()
     e6: E6 = E6()
+    e7: E7 = E7()
     budget: Budget = Budget()
     costs: Costs = Costs()
 
@@ -1005,6 +1155,10 @@ PRODUCTION = Profile(name="production")
 # - E4: 1 replicate of 2 x 2 Mb.
 # - E5: 8 genomes of 2 x 2 Mb, the first 3 bootstrapped with 8 replicates at
 #   trunks of 5,000 and 2,000 bins (8 and 20 trunks, as production's 6 and 60).
+# - E7: the real data, a 1 Mb window of chr21 (30-31 Mb) streamed in two
+#   chunks of 500 kb, the default set only (52 samples); the bootstraps with 4
+#   replicates on trunks of 1,000 bins (the window leaves the rest of chr21
+#   uncallable, so the default trunks would mostly hold no data).
 _SMOKE_GENOME = Genome(n_chromosomes=2, chromosome_length=2_000_000)
 _SMOKE_INFERENCE = replace(INFERENCE, n_iter=3)
 SMOKE = Profile(
@@ -1018,6 +1172,9 @@ SMOKE = Profile(
     e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
     e5=replace(E5(), genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, truth_replicates=8, bootstrap_datasets=3,
                bootstrap_replicates=8, trunk_bins=(5_000, 2_000)),
+    e7=replace(E7(), chromosomes=("chr21",), window=(30_000_001, 31_000_000), chunk_bp=500_000, cohort=None,
+               min_good_fraction=0.0, inference=_SMOKE_INFERENCE, bootstrap_replicates=4, bootstrap_trunk_bins=1_000,
+               bootstrap_threads=2),
 )
 
 # tiny: for the unit tests (seconds per experiment), 2 EM iterations.
@@ -1032,6 +1189,11 @@ SMOKE = Profile(
 #   shortened so that a chromosome holds several.
 # - E5: 3 genomes of one 300 kb chromosome, the first bootstrapped with 3
 #   replicates at trunks of 1,000 and 500 bins.
+# - E7: a synthetic cohort (kg1000 fixture: 24 msprime genomes of 7
+#   populations on a 400 kb "chr21" and a 300 kb "chr22", with missing
+#   genotypes, non-PASS records, indels and a GIAB-like truth) read from local
+#   files, in chunks of 150 kb split in batches of 4 samples; 2 bootstrap
+#   replicates on trunks of 1,000 bins.
 _TINY_GENOME = Genome(n_chromosomes=1, chromosome_length=300_000)
 _TINY_INFERENCE = replace(INFERENCE, n_iter=2)
 TINY = Profile(
@@ -1049,6 +1211,9 @@ TINY = Profile(
                       MaskSpec("dispersed30", 0.3, "dispersed", 20.0))),
     e5=replace(E5(), genome=_TINY_GENOME, inference=_TINY_INFERENCE, truth_replicates=3, bootstrap_datasets=1,
                bootstrap_replicates=3, trunk_bins=(1_000, 500)),
+    e7=replace(E7(), local_source="fixture", chromosomes=("chr21", "chr22"), chunk_bp=150_000,
+               inference=_TINY_INFERENCE, bootstrap_replicates=2, bootstrap_trunk_bins=1_000, bootstrap_threads=2,
+               split_batch_size=4, chunk_attempts=1, retry_wait_seconds=0.0),
 )
 
 PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
@@ -1064,7 +1229,7 @@ def get_profile(name: str) -> Profile:
 
 __all__ = [
     "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_BIN_CALLABLE", "E4_COSTS",
-    "E4_CONTROL_MASK", "E5", "E6", "E6Costs", "FIGURES", "Figures", "Genome", "INFERENCE", "Inference", "MODELS",
+    "E4_CONTROL_MASK", "E5", "E6", "E6Costs", "E7", "E7Costs", "FIGURES", "Figures", "Genome", "INFERENCE", "Inference", "MODELS",
     "MODEL_ORDER", "MaskSpec",
     "PROFILES", "PSMC_RS_SUMMARY_QUANTILES", "Profile", "QUICK_TIMING", "REAL_GENOMES", "RealGenome", "ResourceModel",
     "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation", "SizeChange", "TRUTH_TABLE_YEARS", "TimeGrid",
