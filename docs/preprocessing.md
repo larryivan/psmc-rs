@@ -448,7 +448,7 @@ the routes above:
   worse in the validation, so `--bin-callable auto` does not use them and
   fits every called bin of multihetsep input as a full bin
   (`--bin-callable approximate` uses them). The placement itself still
-  biases θ and Ne low whatever the mode: on simulated genomes θ came out
+  biases θ and Ne low whatever the mode: in the validation θ came out
   0.82 to 0.86 of the fit without missing data with 10% of the sites
   uncalled in runs of about 20 bp, 0.67 to 0.70 with 30%, and 0.89 to 0.93
   with 30% in runs of about 20 kb (QC warns, `APPROX_MISSING_PLACEMENT`,

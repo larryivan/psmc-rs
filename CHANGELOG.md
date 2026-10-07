@@ -135,8 +135,8 @@ Command line and outputs:
   partly called bins. `APPROX_MISSING_PLACEMENT` gives the share of
   uncalled sites of multihetsep input and is a warning above 5%: its
   reader's placement of them biases θ, the times and Ne low whatever
-  `--bin-callable` (θ 0.67 to 0.70 of the complete-data fit with 30% of
-  the sites uncalled in 20 bp runs, 0.89 to 0.93 in 20 kb runs, on
+  `--bin-callable` (θ 0.67 to 0.69 of the complete-data fit with 30% of
+  the sites uncalled in 20 bp runs, 0.89 to 0.91 in 20 kb runs, on E4's
   simulated genomes). `convert --multihetsep` of a VCF with uncalled sites
   says so. The start that `qc`
   and `convert` check (`INVALID_START`) takes θ0 from the callable bases

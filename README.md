@@ -244,8 +244,8 @@ between two rows. psmc-rs places them at the start of each interval, which
 changes which bins are missing compared with fq2psmcfa on the same calls:
 uncalled sites scattered among called ones become runs of `N` bins after
 heterozygous sites, and the bin of a heterozygous site is partly callable
-or lost. With missing data this biases θ, the times and Ne low (on
-simulated genomes θ came out 0.67 to 0.70 of the fit without missing data
+or lost. With missing data this biases θ, the times and Ne low (on E4's
+simulated genomes θ came out 0.67 to 0.69 of the fit without missing data
 with 30% of the sites uncalled in runs of about 20 bp, and 0.89 to 0.91 in
 runs of about 20 kb), and QC warns (`APPROX_MISSING_PLACEMENT`) when more
 than 5% of the sites are uncalled. The callable bases of each bin follow
@@ -298,7 +298,7 @@ and the RMSE of log10 Ne against the truth was 0.007 above that of the
 complete-data fit on average (at most 0.020), where ignoring the counts
 raised it by 0.16 to 0.20. Missing data in 20 kb runs changed the fits
 little either way. Multihetsep input does not recover the exact fit,
-because of where its reader places the uncalled sites (θ 0.67 to 0.70 of
+because of where its reader places the uncalled sites (θ 0.67 to 0.69 of
 the complete-data fit with 30% in short runs, 0.89 to 0.91 in long runs),
 and in the smaller validation runs of
 [experiment/validation/](experiment/validation/README.md) (three runs of
