@@ -1,7 +1,8 @@
 """Fig 2 (E1): accuracy on simulated genomes, and the two tools compared.
 
 * a-d: one panel per model: the true Ne(t) (black, dashed), every replicate's
-  fit by C psmc and psmc-rs 0.2 (thin, in the tool's colour), and the
+  fit by C psmc and psmc-rs 0.2 (thin, in a light tint of the tool's colour,
+  opaque, psmc-rs's over C psmc's, which they hide where the two coincide), and the
   pointwise median of each tool's fits (C psmc drawn wider underneath, so
   that where the medians coincide the blue line runs inside an orange one).
   Times outside the model's informative window, where no metric is
@@ -93,8 +94,8 @@ def draw(src: Source):
         for tool, ent in (("c", style.C_PSMC), ("rs", style.RS02)):
             for c in of(m, tool):
                 x, y = style.step_xy(c.years, c.ne, xlim)
-                ax.plot(x, y, drawstyle="steps-post", color=ent.color, linewidth=style.LW_THIN,
-                        alpha=style.REPLICATE_ALPHA, zorder=2)
+                ax.plot(x, y, drawstyle="steps-post", color=style.tint(ent.color), linewidth=style.LW_THIN,
+                        zorder=2)
         for tool, ent, lw, z in (("c", style.C_PSMC, C_MEDIAN_LW, 4), ("rs", style.RS02, RS_MEDIAN_LW, 5)):
             ax.plot(grid, median(of(m, tool), grid), drawstyle="steps-post", color=ent.color, linewidth=lw, zorder=z)
         tx, ty = truth_xy(m, g, xlim)
@@ -144,8 +145,10 @@ def draw(src: Source):
         style.handle(style.TRUTH, linewidth=style.LW),
         style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
         style.handle(style.RS02, linewidth=RS_MEDIAN_LW, label="psmc-rs 0.2, median"),
-        style.handle(style.C_PSMC, linewidth=style.LW_THIN, alpha=style.REPLICATE_ALPHA, label="C psmc, one replicate"),
-        style.handle(style.RS02, linewidth=style.LW_THIN, alpha=style.REPLICATE_ALPHA,
+        # The replicates' tint, keyed thicker than the 0.5 pt lines so that it shows.
+        style.handle(style.C_PSMC, linewidth=style.LW, color=style.tint(style.C_PSMC.color),
+                     label="C psmc, one replicate"),
+        style.handle(style.RS02, linewidth=style.LW, color=style.tint(style.RS02.color),
                      label="psmc-rs 0.2, one replicate"),
     ]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),

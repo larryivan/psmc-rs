@@ -80,7 +80,7 @@ INK2 = "#52514e"  # secondary text, tick labels, axes
 MUTED = "#898781"  # reference lines, annotations of secondary importance
 GRID = "#e1e0d9"  # hairline grid
 NEUTRAL = "#f0efec"  # neutral shading (outside the informative window)
-REPLICATE_ALPHA = 0.35  # thin replicate lines in an entity's colour
+REPLICATE_ALPHA = 0.35  # thin replicate lines in an entity's colour (see tint)
 BAND_ALPHA = 0.18  # uncertainty bands in an entity's colour
 
 PNG_DPI = 600
@@ -156,6 +156,19 @@ FORMAT_ORDER = ("psmcfa", "vcf", "multihetsep")
 # Sequential blue (magnitude, e.g. counts of a 2-D histogram), steps 100-700 of the ramp.
 BLUE_RAMP = ("#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf",
              "#1c5cab", "#184f95", "#104281", "#0d366b")
+
+
+def tint(color: str, share: float = REPLICATE_ALPHA) -> str:
+    """``color`` at opacity ``share`` over the white surface, as an opaque colour.
+
+    Replicate lines drawn in such a tint do not blend where two entities'
+    lines coincide (half-transparent orange and blue make a grey violet
+    that is neither), and their legend key shows the colour drawn.
+    """
+    from matplotlib.colors import to_hex, to_rgb
+
+    c, s = to_rgb(color), to_rgb(SURFACE)
+    return to_hex(tuple(share * a + (1.0 - share) * b for a, b in zip(c, s)))
 
 
 def blue_cmap():

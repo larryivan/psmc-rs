@@ -112,6 +112,13 @@ class Style(unittest.TestCase):
         self.assertEqual(style.TICK_PT, 6.0)
         self.assertIn("exception to 7 pt: tick labels are 6 pt", " ".join(style.__doc__.split()))
 
+    def test_tint_is_the_colour_at_replicate_opacity_over_white(self):
+        from experiment.pipeline.figures import style
+
+        self.assertEqual(style.tint("#000000", 0.25), "#bfbfbf")
+        self.assertEqual(style.tint(style.BLUE, 1.0), style.BLUE)
+        self.assertEqual(style.tint(style.BLUE, 0.0), style.SURFACE)
+
     def test_panel_letters_align_columns(self):
         from experiment.pipeline.figures import style
 
