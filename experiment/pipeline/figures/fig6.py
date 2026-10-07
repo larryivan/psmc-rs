@@ -3,31 +3,32 @@
 The bottleneck model is simulated as many independent genomes of 6 x 50 Mb,
 each fitted once: their spread at each time is the true sampling
 distribution of the estimate. The first genomes are bootstrapped at two
-trunk sizes, the default 50 Mb (blue) and 5 Mb (dark blue, dashed). Every
-panel spans the model's informative window, where the calibration is
-computed.
+block sizes (splitfa's trunks), the default 50 Mb (blue) and 5 Mb (dark
+blue, dashed). Every panel spans the model's informative window, where the
+calibration is computed.
 
 * a: one genome (``config.E5.example_dataset``): the truth (dashed), the
   95% range of the independent fits (grey), the genome's fit (blue line)
-  and its bootstrap 95% bands (50 Mb trunks filled, 5 Mb trunks as dashed
+  and its bootstrap 95% bands (50 Mb blocks filled, 5 Mb blocks as dashed
   edges);
 * b: SD of log10 Ne: the true sampling SD over the independent fits (black,
   with its chi-square 95% interval, light grey) and the bootstrap's (median
   over the bootstrapped genomes);
 * c: bootstrap SD / true SD: median over the genomes and their
-  interquartile range (filled in each trunk size's colour); the light grey
+  interquartile range (filled in each block size's colour); the light grey
   band is where a bootstrap whose SD equalled the true one would fall,
   given the true SD's own sampling error;
 * d: share of the bootstrapped genomes whose 95% band covers the true Ne
   (thick; with the pointwise Clopper-Pearson 95% interval of the 50 Mb
-  trunks, the 5 Mb trunks' is left out so the panel stays legible) and the
+  blocks, the 5 Mb blocks' is left out so the panel stays legible) and the
   fits' geometric mean (thin), against the nominal 95%; with 10 genomes the
-  share moves in steps of 10%. When E5's tables also give the coverage of
-  the pattern-projected truth (the truth averaged over each free
-  parameter's span, which a PSMC curve can represent), it is drawn too
-  (medium, with markers).
+  share moves in steps of 10%;
+* e: the same share for each genome's pattern-projected truth (the truth
+  averaged over each free parameter's span, which a PSMC curve can
+  represent), with its Clopper-Pearson interval for 50 Mb blocks. Panel a
+  spans the figure's width, so that d and e sit side by side.
 
-The legend gives each trunk size's coverage averaged over the window (an
+The legend gives each block size's coverage averaged over the window (an
 unweighted mean over the window's log-spaced times, with its interval from
 resampling the bootstrapped genomes, ``E5_summary``), of the true Ne, of the
 fits' mean and, when given, of the projected truth. Coverage of the true Ne
@@ -41,7 +42,7 @@ Everything comes from E5's tables: ``E5_bands``, ``E5_sampling``,
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from . import style
 from .data import Source
@@ -49,17 +50,17 @@ from .data import Source
 GREY_BAND = "#c3c2b7"  # the independent fits' range (a)
 REFERENCE_BAND = "#ebeae4"  # the true SD's sampling interval (b, c): lighter, and outlined in the legend
 CI_ALPHA = 0.12  # Clopper-Pearson interval (d)
-PROJECTED_LW = 0.9
 
 
 def trunk_styles(trunks: List[int]) -> Dict[int, tuple]:
-    """``{trunk: (colour, line style, marker)}``, the default (largest) trunk first."""
-    return {t: (style.TRUNK_COLORS[min(i, 1)], style.TRUNK_STYLES[min(i, 1)], style.TRUNK_MARKERS[min(i, 1)])
+    """``{trunk: (colour, line style)}``, the default (largest) trunk first."""
+    return {t: (style.TRUNK_COLORS[min(i, 1)], style.TRUNK_STYLES[min(i, 1)])
             for i, t in enumerate(sorted(trunks, reverse=True))}
 
 
 def trunk_label(row) -> str:
-    return f"{float(row.trunk_mb):g} Mb trunks ({int(row.trunks)} per genome)"
+    """``50 Mb blocks (6 per genome)``: splitfa's trunks, named blocks as in Fig 3."""
+    return f"{float(row.trunk_mb):g} Mb blocks ({int(row.trunks)} per genome)"
 
 
 def _plain(columns, prefix: str = "coverage") -> List[str]:
@@ -103,7 +104,7 @@ def _range(lo, hi) -> str:
 
 
 def coverage_label(row, proj: Optional[Dict[str, Optional[str]]]) -> str:
-    """A trunk size's legend label with its window coverages."""
+    """A block size's legend label with its window coverages."""
     ci = _range(row.coverage_mean_ci_lo, row.coverage_mean_ci_hi)
     parts = [f"true $N_\\mathrm{{e}}$ {_pct(row.coverage_mean)} ({ci})"]
     if proj is not None and proj["mean"] is not None:
@@ -136,10 +137,11 @@ def draw(src: Source):
     years = sampling["years"].to_numpy()
     xlim = (float(years[0]) / 1.12, float(years[-1]) * 1.12)
 
-    fig = style.figure("double", 142)
-    gs = style.grid(fig, 2, 2, left_mm=14.0, right_mm=3.0, top_mm=26.0, bottom_mm=9.0, wspace_mm=16.0,
-                    hspace_mm=11.0)
-    ax_a, ax_b, ax_c, ax_d = (fig.add_subplot(gs[i // 2, i % 2]) for i in range(4))
+    fig = style.figure("double", 178)
+    gs = style.grid(fig, 3, 2, left_mm=14.0, right_mm=3.0, top_mm=29.0, bottom_mm=9.0, wspace_mm=16.0,
+                    hspace_mm=11.0, height_ratios=(0.8, 1.0, 1.0))
+    ax_a = fig.add_subplot(gs[0, :])
+    ax_b, ax_c, ax_d, ax_e = (fig.add_subplot(gs[1 + i // 2, i % 2]) for i in range(4))
 
     # a: one genome.
     ds = cfg.example_dataset if cfg.example_dataset in set(bands["dataset"]) else int(bands["dataset"].min())
@@ -148,7 +150,7 @@ def draw(src: Source):
     fit = None
     for t in trunks:
         b = bands[(bands.dataset == ds) & (bands.trunk_bins == t)].sort_values("point")
-        color, ls, _ = sty[t]
+        color, ls = sty[t]
         if t == trunks[0]:
             ax_a.fill_between(b["years"], b["boot_lo_ne"], b["boot_hi_ne"], color=color, alpha=style.BAND_ALPHA + 0.07,
                               linewidth=0, zorder=2)
@@ -172,7 +174,7 @@ def draw(src: Source):
     top = float(first["sd_true_ci_hi"].max())
     for t in trunks:
         s = sd[sd.trunk_bins == t].sort_values("point")
-        color, ls, _ = sty[t]
+        color, ls = sty[t]
         ax_b.plot(s["years"], s["sd_boot_log10_median"], color=color, linestyle=ls, linewidth=style.LW, zorder=4)
         top = max(top, float(s["sd_boot_log10_median"].max()))
     ax_b.set_ylim(0.0, top * 1.1)
@@ -187,7 +189,7 @@ def draw(src: Source):
     hi = 1.5
     for t in trunks:
         s = sd[sd.trunk_bins == t].sort_values("point")
-        color, ls, _ = sty[t]
+        color, ls = sty[t]
         ax_c.fill_between(s["years"], s["ratio_q25"], s["ratio_q75"], color=color, alpha=style.BAND_ALPHA,
                           linewidth=0, zorder=1)
         ax_c.plot(s["years"], s["ratio_median"], color=color, linestyle=ls, linewidth=style.LW_BOLD, zorder=3)
@@ -195,28 +197,31 @@ def draw(src: Source):
     ax_c.set_ylim(0.0, min(hi * 1.05, 4.0))
     ax_c.set_ylabel("Bootstrap SD / true SD")
 
-    # d: coverage; the Clopper-Pearson interval of the default trunks only.
+    # d: coverage of the true Ne and of the fits' mean; e: of the projected
+    # truth. The Clopper-Pearson interval of the default trunks only.
     nominal = cfg.band[1] - cfg.band[0]
-    style.ref_line(ax_d, y=nominal, linestyle=style.DOT)
-    for t in trunks:
-        c = cov[cov.trunk_bins == t].sort_values("point")
-        color, ls, marker = sty[t]
-        if t == trunks[0]:
-            ax_d.fill_between(c["years"], c["coverage_ci_lo"], c["coverage_ci_hi"], step="mid", color=color,
-                              alpha=CI_ALPHA, linewidth=0, zorder=1)
-        ax_d.plot(c["years"], c["coverage_fit_mean"], drawstyle="steps-mid", color=color, linestyle=ls,
-                  linewidth=style.LW_THIN, zorder=2)
-        if proj is not None:
-            ax_d.plot(c["years"], c[proj["point"]], drawstyle="steps-mid", color=color, linestyle=ls,
-                      linewidth=PROJECTED_LW, marker=marker, markevery=_markevery(len(c), trunks.index(t)),
-                      markersize=2.6, markeredgewidth=0.6, markerfacecolor=style.SURFACE, zorder=3)
-        ax_d.plot(c["years"], c["coverage"], drawstyle="steps-mid", color=color, linestyle=ls,
-                  linewidth=style.LW_BOLD + 0.35, zorder=4)
-    ax_d.set_ylim(-0.03, 1.03)
-    ax_d.yaxis.set_major_formatter(_percent())
-    n = int(cov["datasets"].max())
-    ax_d.set_ylabel(f"Coverage of the 95% band ({n} genomes)")
-    for ax in (ax_b, ax_c, ax_d):
+    panels = [(ax_d, "coverage", "coverage_ci_lo", "coverage_ci_hi", "true $N_\\mathrm{e}$")]
+    if proj is not None:
+        panels.append((ax_e, proj["point"], proj["lo"], proj["hi"], "projected truth"))
+    else:
+        ax_e.set_axis_off()
+    for ax, col, lo, hi, what in panels:
+        style.ref_line(ax, y=nominal, linestyle=style.DOT)
+        for t in trunks:
+            c = cov[cov.trunk_bins == t].sort_values("point")
+            color, ls = sty[t]
+            if t == trunks[0] and lo is not None and hi is not None:
+                ax.fill_between(c["years"], c[lo], c[hi], step="mid", color=color, alpha=CI_ALPHA, linewidth=0,
+                                zorder=1)
+            if ax is ax_d:
+                ax.plot(c["years"], c["coverage_fit_mean"], drawstyle="steps-mid", color=color, linestyle=ls,
+                        linewidth=style.LW_THIN, zorder=2)
+            ax.plot(c["years"], c[col], drawstyle="steps-mid", color=color, linestyle=ls,
+                    linewidth=style.LW_BOLD + 0.35, zorder=4)
+        ax.set_ylim(-0.03, 1.03)
+        ax.yaxis.set_major_formatter(_percent())
+        ax.set_ylabel(f"Coverage, {what}")
+    for ax in (ax_b, ax_c, ax_d, ax_e):
         style.years_axis(ax, xlim)
         ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
     fits = int(sampling["fits"].iloc[0])
@@ -233,7 +238,7 @@ def draw(src: Source):
                      "True sampling SD and its 95% interval (b, c)"]
     trunk_handles, trunk_labels = [], []
     for t in trunks:
-        color, ls, _ = sty[t]
+        color, ls = sty[t]
         line = Line2D([], [], color=color, linestyle=ls, linewidth=style.LW_BOLD)
         trunk_handles.append((Patch(facecolor=color, alpha=style.BAND_ALPHA + 0.07, linewidth=0), line)
                              if t == trunks[0] else line)
@@ -241,16 +246,16 @@ def draw(src: Source):
     key_ink = style.INK2
     keys: List = [Line2D([], [], color=key_ink, linewidth=style.LW_BOLD + 0.35),
                   Line2D([], [], color=key_ink, linewidth=style.LW_THIN)]
-    key_labels = ["Covers the true $N_\\mathrm{e}$ (d)", "Covers the fits' mean (d)"]
-    if proj is not None:
-        keys.append(Line2D([], [], color=key_ink, linewidth=PROJECTED_LW, marker="o", markersize=2.6,
-                           markeredgewidth=0.6, markerfacecolor=style.SURFACE))
-        key_labels.append("Covers the projected truth (d)")
+    n = int(cov["datasets"].max())
+    covered = f"Share of the {n} genomes whose band covers the true $N_\\mathrm{{e}}$ (d)"
+    key_labels = [covered + (" or the projected truth (e)" if proj is not None else ""),
+                  "Share whose band covers the fits' mean (d)"]
     keys += [Patch(facecolor=sty[trunks[0]][0], alpha=CI_ALPHA * 2, linewidth=0),
              Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT),
              (Patch(facecolor=sty[trunks[0]][0], alpha=style.BAND_ALPHA, linewidth=0),
               Patch(facecolor=sty[trunks[-1]][0], alpha=style.BAND_ALPHA, linewidth=0))]
-    key_labels += [f"Its Clopper-Pearson 95% interval, {float(rows[trunks[0]].trunk_mb):g} Mb (d)", "Nominal 95% (d)",
+    mb = float(rows[trunks[0]].trunk_mb)
+    key_labels += [f"Clopper-Pearson 95% interval of the thick {mb:g} Mb line (d, e)", "Nominal 95% (d, e)",
                    "Interquartile range over the genomes (c)"]
 
     from matplotlib.legend_handler import HandlerTuple
@@ -265,16 +270,11 @@ def draw(src: Source):
 
     place(shared, shared_labels, 0.0, 4)
     place(trunk_handles, trunk_labels, 4.6, 1)
-    place(keys, key_labels, 5.2 + 4.0 * len(trunks), 3, side_by_side=True)
-    fig.align_ylabels([ax_a, ax_c])
-    fig.align_ylabels([ax_b, ax_d])
-    style.panel_letters(fig, [ax_a, ax_b, ax_c, ax_d], align_cols=True)
+    place(keys, key_labels, 5.2 + 4.0 * len(trunks), 2, side_by_side=True)
+    fig.align_ylabels([ax_a, ax_b, ax_d])
+    fig.align_ylabels([ax_c, ax_e])
+    style.panel_letters(fig, [ax_a, ax_b, ax_c, ax_d, ax_e], align_cols=True)
     return fig
-
-
-def _markevery(points: int, i: int) -> Tuple[int, int]:
-    """Markers every 20th time, offset by trunk size so the two sizes' markers do not overlap."""
-    return (5 + 10 * (i % 2), 20) if points > 40 else (0, 1)
 
 
 def _percent():

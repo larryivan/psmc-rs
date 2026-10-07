@@ -324,7 +324,7 @@ class FigureContent(unittest.TestCase):
                              "coverage_of_projected_truth_mean": 0.6, "coverage_of_projected_truth_mean_ci_lo": 0.5,
                              "coverage_of_projected_truth_mean_ci_hi": 0.7}]).itertuples().__next__()
         label = fig6.coverage_label(row, cols)
-        self.assertIn("50 Mb trunks (6 per genome)", label)
+        self.assertIn("50 Mb blocks (6 per genome)", label)
         self.assertIn("37% (31–43%)", label)
         self.assertIn("projected truth 60% (50–70%)", label)
         self.assertIn("fits' mean 83%", label)

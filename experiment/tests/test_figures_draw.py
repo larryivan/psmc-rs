@@ -158,19 +158,26 @@ class Draw(unittest.TestCase):
 
         from experiment.pipeline.figures.schemas import SCHEMAS
 
-        # E5's report writes the coverage of the pattern-projected truth, which d draws with markers.
+        # E5's report writes the coverage of the pattern-projected truth, which e draws.
         fig = self._draw("fig6")
         labels = self._labels(fig)
-        for want in ("True sampling SD and its 95% interval (b, c)", "Covers the fits' mean (d)",
-                     "Clopper-Pearson 95% interval", "Interquartile range over the genomes (c)", "Nominal 95% (d)",
-                     "window coverage of the true", "Covers the projected truth (d)"):
+        for want in ("True sampling SD and its 95% interval (b, c)", "Share whose band covers the fits' mean (d)",
+                     "Clopper-Pearson 95% interval of the thick",
+                     "Interquartile range over the genomes (c)", "Nominal 95% (d, e)", "window coverage of the true",
+                     "or the projected truth (e)", " Mb blocks ("):
             self.assertTrue(any(want in label for label in labels), want)
+        self.assertFalse(any("trunk" in label or label.startswith("Its ") for label in labels))
         summary = pd.read_csv(SCHEMAS["E5_summary"].path(self.runs))
         for row in summary[summary.window == "informative"].itertuples():
             pct = f"projected truth {100 * row.coverage_projected_mean:.0f}%"
             self.assertTrue(any(pct in label for label in labels), pct)
+        # d: per block size the true Ne and the fits' mean; e: the projected truth; both the nominal line.
         trunks = pd.read_csv(SCHEMAS["E5_coverage"].path(self.runs))["trunk_bins"].nunique()
-        self.assertEqual(sum(1 for ln in fig.axes[3].lines if ln.get_marker() not in ("None", "", None)), trunks)
+        ax_d, ax_e = fig.axes[3], fig.axes[4]
+        self.assertEqual((len(ax_d.lines), len(ax_e.lines)), (2 * trunks + 1, trunks + 1))
+        for ax in (ax_d, ax_e):
+            self.assertTrue(all(ln.get_marker() in ("None", "", None) for ln in ax.lines))
+            self.assertEqual(len(ax.collections), 1)  # the Clopper-Pearson interval of the default blocks
 
     def test_figs1_ends_both_tools_where_c_psmc_stops_and_shows_its_rounding(self):
         import pandas as pd

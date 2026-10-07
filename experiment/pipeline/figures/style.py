@@ -168,7 +168,6 @@ def blue_cmap():
 # Fig 6 (E5): bootstrap trunk sizes, an ordered pair of steps of the blue ramp.
 TRUNK_COLORS = (BLUE, BLUE_650)  # default (largest) trunk first
 TRUNK_STYLES = ("-", (0, (3.0, 1.2)))
-TRUNK_MARKERS = ("o", "s")
 
 
 def rc_params() -> Dict:
