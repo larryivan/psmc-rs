@@ -11,8 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 C psmc in its defaults, and adds the `qc` and `convert` commands. **Results
 are not comparable with 0.1 runs that relied on the defaults** (first part
 of *Changed*); the manuscript's results are made again with 0.2 by the
-new pipeline in `experiment/pipeline/` (`experiment/runs/E1` to `E6`), and
-those of the earlier scripts (`experiment/runs/main_text`, `real_data` and
+new pipeline in `experiment/pipeline/` (`experiment/runs/E1` to `E6`; E3,
+performance, is still being run, and the runs are committed with the
+release), and those of the earlier scripts (`experiment/runs/main_text`, `real_data` and
 `supplementary`) are 0.1's.
 
 ### Changed

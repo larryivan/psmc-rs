@@ -22,7 +22,9 @@ make none of the manuscript's results.
 
 ## 1) What the repository holds
 
-Each experiment writes `experiment/runs/<EXP>/`. Committed:
+Each experiment writes `experiment/runs/<EXP>/`. The release commits
+(until it is tagged the production runs of E1, E2, E4, E5, E6 and FIG are
+not yet committed, and E3 is still being run):
 
 | item | where |
 | --- | --- |
@@ -88,12 +90,17 @@ multihetsep, and reads the simulated psmcfa to count the bins; S3 compares
 the decoded TMRCA with the true one re-simulated from the replicate's
 seeds. Both need the simulated genomes, which section 4 regenerates.
 
-The analysis does not depend on the platform beyond its last digits:
-regenerated on an Apple M1 Pro laptop (macOS, arm64) from the fits made on
-the Ibex cluster (Linux, x86-64), the tables of E1, E2, E4 and E5 agreed
-with those the same analysis had computed on Ibex to a relative 2e-13 or
-better in every value not close to zero, the differences coming from the
-two platforms' math libraries.
+The analysis does not depend on the platform beyond its last digits.
+The analysis code of the production commit (34f2b00), run on an Apple M1
+Pro laptop (macOS, arm64) on the fits made on the Ibex cluster (Linux,
+x86-64), wrote tables of E1, E2, E4 and E5 that agreed with those it had
+written on Ibex to a relative 1e-13 in every value above 1e-3 in
+magnitude (at most 9.3e-14), and to a relative 2.2e-11 in the
+differences between psmc-rs and C psmc, of order 1e-5 (about 1e-15
+absolute); the differences come from the two platforms' math libraries.
+The tables shipped now come from later analysis code (the tools compared
+interval by interval, E4's RMSE against the complete-data fit integrated
+over log time), which reads the same fits.
 
 ## 4) The runs, on one machine
 
@@ -158,8 +165,8 @@ The `prod` job ran on one node with a runner budget of 62 cores and
 180 GB; its 572 jobs took 1 hour 48 minutes and 81 CPU hours: E1 13.0,
 E2 43.8 (the five bootstrap runs on 50 threads 40.3), E4 5.2, E5 19.1 and
 E6 0.3 (from the jobs' provenance records). Its jobs shared the node with
-one another (load averages of 13 to 72), so these are costs, not timings;
-E3 measures performance (section 10).
+one another (1-minute load averages of 5 to 72 when they started), so
+these are costs, not timings; E3 measures performance (section 10).
 
 ## 6) Provenance
 

@@ -713,8 +713,8 @@ The production run of E1, E2, E4, E5 and E6 (`experiment/slurm`'s `prod`
 job on one Ibex node, a runner budget of 62 cores and 180 GB) ran its 572
 jobs in 1 hour 48 minutes, 81 CPU hours in all; the measured costs above
 come from its provenance records and `runs/_runner/runner.log` (not
-committed). Its jobs shared the node with one another (load averages of 13
-to 72 when they started), so their times are costs, not controlled timings:
+committed). Its jobs shared the node with one another (1-minute load
+averages of 5 to 72 when they started), so their times are costs, not controlled timings:
 E3 times the tools.
 
 Afterwards commit, for every experiment, `experiment/runs/<EXP>/` without
