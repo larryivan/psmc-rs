@@ -210,8 +210,15 @@ class Draw(unittest.TestCase):
 
         from experiment.pipeline.figures.schemas import SCHEMAS
 
+        from experiment.pipeline.figures import style
+
         calib = pd.read_csv(SCHEMAS["E6_S3_calibration"].path(self.runs))
-        labels = self._labels(self._draw("figs3"))
+        fig = self._draw("figs3")
+        labels = self._labels(fig)
+        # Every series of c in a palette colour: grey is for the style keys and the nominal line.
+        series = {ln.get_color() for ln in fig.axes[2].lines if ln.get_marker() not in ("None", "", None)}
+        self.assertIn(style.BLUE, series)
+        self.assertLessEqual(series, {style.BLUE, style.YELLOW})
         self.assertEqual("By decile of the posterior mean" in labels, (calib["by"] == "posterior_mean").any())
         self.assertIn("By decile of the true TMRCA", labels)
         with tempfile.TemporaryDirectory() as d:

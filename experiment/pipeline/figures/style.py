@@ -35,13 +35,14 @@ set:
   24.0); aqua is below 3:1 on white, so it always has its own marker and
   the legend, and Table 2 is its table view. Further categories take the
   next slots in order: the multihetsep route (Fig 5) and input (Fig S2)
-  slot 4 #eda100, the VCF read without its mask slot 5 #e87ba4;
+  slot 4 #eda100 (in Fig S3, which has neither, the coverage by decile of
+  the posterior mean), the VCF read without its mask slot 5 #e87ba4;
   ``"#2a78d6,#eda100,#e87ba4" --pairs all`` passes (CVD 13.0, normal vision
   19.6) with both new slots below 3:1, so their lines also carry their
   marker shapes. A psmc-rs variant of the default (in Fig 5 the VCF + mask
   route with every called bin taken as full, ``--bin-callable ignore``, and
   the fq2psmcfa route it equals; the VCF input of Fig S2; the 5 Mb
-  bootstrap trunks of Figs 3 and 6; the capped M-step of Fig 4) is
+  bootstrap blocks of Figs 3 and 6; the capped M-step of Fig 4) is
   the next step of the blue ramp, 650 #104281, dotted or dashed
   (``"#2a78d6,#104281" --ordinal`` passes). Uncertainty bands use
   the entity's colour at low alpha; counts use the sequential blue ramp.

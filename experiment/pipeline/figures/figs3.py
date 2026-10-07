@@ -14,7 +14,7 @@ replicate's seeds.
   variables; the bins beyond it are counted in the edge cells, which is
   why the left and bottom edges hold strips of cells;
 * c: share of bins whose 95% interval holds the true TMRCA, by decile of
-  the true TMRCA (blue) and by decile of the posterior mean (grey, when
+  the true TMRCA (blue) and by decile of the posterior mean (yellow, when
   ``E6_S3_calibration`` has those rows): the interval of PSMC states from
   the 2.5% to the 97.5% posterior quantile (solid, filled circles), and the
   quantiles' state average times (dashed, open squares), against the
@@ -33,7 +33,7 @@ from . import style
 from .data import Source, decades
 
 GROUPS = (("true", style.BLUE, "decile of the true TMRCA"),
-          ("posterior_mean", style.MUTED, "decile of the posterior mean"))
+          ("posterior_mean", style.YELLOW, "decile of the posterior mean"))  # grey is for keys and references
 
 
 def draw(src: Source):
