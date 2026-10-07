@@ -1,7 +1,7 @@
 """Fig 5 (E4): partly callable bins bias PSMC, and psmc-rs's per-bin model removes most of the bias.
 
 Routes (colour, marker): psmc-rs on the VCF with its callable mask, each
-called bin weighed by the callable bases it holds (``--bin-callable auto``,
+called bin weighted by the callable bases it holds (``--bin-callable auto``,
 psmc-rs's default; blue); the same bins with every called bin taken as full
 (``--bin-callable ignore``, dark blue, dashed), which is what fq2psmcfa and
 C psmc do: the classic consensus FASTA -> fq2psmcfa route has the same bins
@@ -17,7 +17,7 @@ are uncallable, so a dispersed mask leaves almost every bin called with
 only about (1 - f) of its bases. Taken as full, they make theta per bin,
 and every time and size with it, low by somewhat more than the share of
 bases missing from the called bins (about 1.2 times it in E4: theta -12%
-with 10% and -35% with 30% dispersed missing); weighed by their callable
+with 10% and -35% with 30% dispersed missing); weighted by their callable
 bases they are not. Clustered missing data empty whole bins, which
 both models drop. multihetsep does not say which sites of an interval are
 uncalled; psmc-rs places them at the start of each interval, which turns

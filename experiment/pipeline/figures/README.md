@@ -80,7 +80,7 @@ so that it can be turned into the caption. Captions should also say:
   time and size, low by about the missing fraction f or more, as the
   classic consensus FASTA -> fq2psmcfa route does: its bins equal the
   VCF + mask bins and its fit equals the dark blue one, both asserted, so
-  it is not drawn. Weighing each bin by its callable bases (`auto`,
+  it is not drawn. Weighting each bin by its callable bases (`auto`,
   psmc-rs's default, blue) comes close to the complete-data fit (grey in
   d-f; theta 2-4% low on average at 30% missing in
   `experiment/validation/`). Clustered missing data empty whole bins and

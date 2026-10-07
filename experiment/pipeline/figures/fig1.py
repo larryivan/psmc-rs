@@ -8,7 +8,7 @@ with fq2psmcfa's rule, each called bin keeping the number of its bases the
 mask calls callable); psmcfa and multihetsep files made by other tools are
 read as they are. ``psmc-rs qc`` reports how suitable an input is,
 ``convert`` writes it as psmcfa or multihetsep, and the fit, listed as
-bullets, fits C psmc's model with each called bin weighed by its callable
+bullets, fits C psmc's model with each called bin weighted by its callable
 bases (``--bin-callable``, the default ``auto``: a homozygous bin with c of
 its s bases callable has probability e_T(k)^(c/s) in state k) and writes
 the outputs: the parameters (JSON), an HTML report, C psmc's ``.psmc``,
@@ -104,7 +104,7 @@ def bullets(ax, x: float, top: float, items, *, step: float = 3.0, gap: float = 
 
 FIT_ITEMS = (
     "C psmc's model and EM",
-    "each called bin weighed by its\ncallable bases, c of its s\n(--bin-callable, default auto):\n"
+    "each called bin weighted by its\ncallable bases, c of its s\n(--bin-callable, default auto):\n"
     r"$P(T\,|\,k, c) = e_T(k)^{\,c/s}$",
     "exact linear-time\nforward-backward",
     "same result for any --threads",

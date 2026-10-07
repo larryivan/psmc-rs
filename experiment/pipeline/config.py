@@ -604,7 +604,7 @@ class E4:
 # convert`), which both mask routes fit:
 #
 #   mask_auto    psmc-rs on the VCF, mask mode, --vcf-mask callable.bed.gz,
-#                --bin-callable auto (its default): each called bin weighed by
+#                --bin-callable auto (its default): each called bin weighted by
 #                its callable bases, counted exactly from the mask
 #   mask_ignore  the same, --bin-callable ignore: every called bin taken as
 #                bin_size bases, as fq2psmcfa and C psmc take it

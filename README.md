@@ -663,7 +663,7 @@ gives a different fit:
 | bootstrap | 50,000-bin blocks within each sequence, replicates started from the fit | splitfa trunks of 500,000 bins across the input, fresh start | C psmc's scheme; the old one gave zero spread for sequences shorter than a block |
 | `--input-format` | psmcfa | auto | |
 | VCF and multihetsep sequences | all kept | fq2psmcfa's filter | as fq2psmcfa does |
-| partly callable bins (VCF) | treated as full bins | weighed by their callable bases (`--bin-callable auto`; `ignore` gives C psmc's model; multihetsep's approximate counts only with `approximate`) | missing data in short runs otherwise bias θ, times and Ne low by the missing share or more |
+| partly callable bins (VCF) | treated as full bins | weighted by their callable bases (`--bin-callable auto`; `ignore` gives C psmc's model; multihetsep's approximate counts only with `approximate`) | missing data in short runs otherwise bias θ, times and Ne low by the missing share or more |
 | VCF sequence end (mask mode) | last heterozygous SNP | `##contig` length (`--vcf-no-contig-end`: last record) | the sites after the last heterozygous SNP are data (called where callable) |
 | TMRCA years | left edge of each interval | average coalescent time of each state | the time the emission uses |
 | `Last EM loglike` | log-likelihood before the last iteration | of the written model | |

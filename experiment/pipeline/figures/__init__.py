@@ -68,7 +68,7 @@ FIGURES: Tuple[FigureSpec, ...] = (
     FigureSpec("fig4_performance", "fig4", "E3", ("E3_table2", "E3_runs"),
                "Run time and memory against genome size, and the speed-up over C psmc"),
     FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves", "E4_bias"),
-               "Partly callable bins bias PSMC; weighing each bin by its callable bases removes most of the bias"),
+               "Partly callable bins bias PSMC; weighting each bin by its callable bases removes most of the bias"),
     FigureSpec("fig6_bootstrap_calibration", "fig6", "E5",
                ("E5_summary", "E5_sampling", "E5_bands", "E5_sd_ratio", "E5_coverage"),
                "Calibration of the bootstrap"),
