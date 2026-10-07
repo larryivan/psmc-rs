@@ -14,8 +14,9 @@ repository root. The pipeline itself is described in
 The experiments are E1 (simulated accuracy and equivalence with C psmc:
 Fig 2, Table 1, Fig S1), E2 (four real genomes: Fig 3), E3 (performance:
 Fig 4, Table 2, Fig S4), E4 (input preparation and partly callable bins:
-Fig 5), E5 (bootstrap calibration: Fig 6) and E6 (supplementary analyses:
-Figs S2 and S3, Table S5); FIG draws every figure. `experiment/scripts/`,
+Fig 5), E5 (bootstrap calibration: Fig 6), E6 (supplementary analyses:
+Figs S2 and S3, Table S5) and E7 (the 1000 Genomes 30x genomes: Fig 7,
+Figs S5 and S6); FIG draws every figure. `experiment/scripts/`,
 `experiment/run.py`, the notebook and `experiment/runs/{main_text,
 real_data,supplementary}/` are the earlier pipeline of psmc-rs 0.1 and
 make none of the manuscript's results.
@@ -35,6 +36,7 @@ not yet committed, and E3 is still being run):
 | E4's masks, bins and cross-checks; QC reports | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E6}/qc/` |
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (Fig 1: `runs/FIG/`) |
+| E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs, the masks and `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file) | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000`) |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
 (psmcfa, VCF, true TMRCA tracks; `runs/*/sims/`), the bootstrap
@@ -159,6 +161,7 @@ cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the producti
 ./submit.sh e3 1 2 3 4 5           # E3: one exclusive node of one CPU model per repeat
 ./merge_e3.sh                      # once every e3 job has ended
 ./submit.sh e3-report              # E3's tables
+./submit.sh e7-prep                # E7's inputs from the 1000 Genomes VCFs; then prod again for E7's fits
 ```
 
 The `prod` job ran on one node with a runner budget of 62 cores and

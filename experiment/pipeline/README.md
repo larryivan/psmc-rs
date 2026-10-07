@@ -7,7 +7,8 @@ them. Every experiment of the design is implemented: E1 (simulated accuracy
 and equivalence, Fig 2, Table 1, Fig S1), E2 (real genomes, Fig 3), E3
 (performance, Fig 4, Table 2, Fig S4), E4 (input preparation, Fig 5), E5
 (bootstrap calibration, Fig 6), E6 (supplementary analyses, Figs S2 and S3,
-Table S5) and FIG (every figure, Fig 1 included). `experiment/scripts/`
+Table S5), E7 (1000 Genomes, Fig 7, Figs S5 and S6) and FIG (every figure,
+Fig 1 included). `experiment/scripts/`
 holds the earlier pipeline of psmc-rs 0.1's runs.
 
 Run it from the repository root with the experiment's environment
@@ -35,7 +36,7 @@ is described at the end ([Production](#production)).
 
 | module | contents |
 | --- | --- |
-| `config.py` | every parameter: inference settings, scaling, simulation, demographic models, seed scheme, experiments E1-E6, figures, resource budget and cost model, profiles |
+| `config.py` | every parameter: inference settings, scaling, simulation, demographic models, seed scheme, experiments E1-E7, figures, resource budget and cost model, profiles |
 | `paths.py` | repository, tools directory (`PSMC_EXP_TOOLS`), runs directory (`PSMC_EXP_RUNS`) |
 | `demography.py` | models as `msprime.Demography`; true Ne(t) and pairwise coalescence-time distribution in closed form; checks against msprime's `DemographyDebugger` and stdpopsim |
 | `simulate.py` | one diploid genome: psmcfa, bgzipped VCF, truth record; true TMRCA track on demand |
@@ -45,7 +46,8 @@ is described at the end ([Production](#production)).
 | `provenance.py` | checksums and provenance records: when a job is done |
 | `runner.py` | the job graph, scheduler, detached daemon, machine lock, status |
 | `inputprep.py` | E4's data steps: callable masks, masked VCF, consensus FASTA through fq2psmcfa, bins of the routes compared, generate_multihetsep.py cross-check (`python -m experiment.pipeline.inputprep STEP`) |
-| `experiments/e1.py` ... `e6.py` | each experiment as jobs, and its tables (`e3_run.py`: E3's timing wrapper and genome simulation; `e6_analysis.py`: E6's analyses) |
+| `kg1000.py` | E7's data stage, outside the runner: the 1000 Genomes VCFs to one psmcfa per sample (`python -m experiment.pipeline.kg1000 STEP`) |
+| `experiments/e1.py` ... `e7.py` | each experiment as jobs, and its tables (`e3_run.py`: E3's timing wrapper and genome simulation; `e6_analysis.py`: E6's analyses) |
 | `experiments/fig.py` | the figures as runner jobs (experiment `FIG`) |
 | `figures/` | the manuscript's figures: style, table schemas, one module per figure ([README](figures/README.md)) |
 
@@ -715,6 +717,57 @@ E6 reads what E1 and E2 make and adds the runs only it needs
 **Cost** (`plan E6`): 26 jobs, under 1 CPU hour, minutes once E1 is done.
 Measured on Ibex: 0.3 CPU hours; S3's decoding at most 1.3 GB.
 
+## E7: 1000 Genomes
+
+psmc-rs on the 2,504 unrelated genomes of the 1000 Genomes Project's 30x
+NYGC data (26 populations; Byrska-Bishop et al. 2022, Cell 185:3426), with
+the GRCh38 strict accessibility mask (`config.E7`; mu 1.25e-8, g 29).
+
+**Data stage** (`kg1000.py`, outside the runner: its inputs are 1.68 TB).
+`setup` records the sources (HEAD of every VCF on EBI and its S3 mirror,
+checked against the 1000 Genomes manifest; the indexes, sequence index,
+pedigree, strict mask and GIAB HG001 truth downloaded, SHA-256 recorded),
+picks the samples (the default set: `per_population` per population, Li &
+Durbin 2011's NA18507, NA19239 and NA12878 first, the others drawn by
+seed) and cuts chr1-22 into chunks of 15 Mb. Each chunk is read once,
+reduced to GT and FILTER and split into one het-or-missing VCF per sample
+(`bcftools +split`); every non-PASS position goes into one negative mask
+shared by all samples; then `psmc-rs convert --vcf-mode mask` writes each
+sample's psmcfa. The chunks' records must sum to the index's count of each
+chromosome, and the pilot (chr21) must give, for the three samples, the same
+psmcfa byte for byte as `psmc-rs convert --vcf-sample` on the whole joint
+VCF. `assemble-samples` joins the chromosomes and writes `MANIFEST.json`
+(sources, tool versions, commands, checks and the SHA-256 of every output:
+the psmcfa files and the manifest are the Zenodo deliverable). A chromosome
+is either streamed by region over HTTPS (`chunk`) or, where one connection
+is slow, downloaded to node-local disk in parallel byte ranges, MD5
+checked, and processed there (`chrom`; on Ibex 0.4 to 1.7 MB/s per
+connection). `E7.input = "panel"` reads the phased panel instead (MAC >= 2,
+imputed genotypes: it lacks about 3.7% of each genome's PASS heterozygous
+SNVs), a fallback whose figures must say so. `run` does every step in one
+process; on a cluster `experiment/slurm/submit.sh e7-prep` chains setup, a
+task per chromosome and the samples.
+
+**Fits** (the runner, once `MANIFEST.json` exists; before, E7 has no jobs
+and FIG none of its figures): every sample's psmcfa with psmc-rs
+(`fit-rs-psmcfa`); the default set's VCFs with the mask and psmc-rs's
+callable bases per bin (`fit-rs-vcf`: Fig 7's population curves), and its
+psmcfa with C psmc (`fit-c`); psmc-rs's bootstrap of the three samples
+(`boot-rs`, 100 replicates; its main fit must equal `fit-rs-psmcfa`'s);
+the first default sample of every population with the first time window
+split (`fit-rs-split`, `1+1+1+1+25*2+4+6`: a check for the false recent
+peaks of Hilgers et al. 2025); NA12878's heterozygous SNVs against GIAB
+(`giab`); `report`. Tables `E7_samples`, `_inputs`, `_fits`, `_curves`,
+`_pop_bands` (median and 10%-90% spread of Ne across a group's genomes),
+`_rs_vs_c`, `_bootstrap`, `_bands`, `_route_shift` (VCF route against
+psmcfa route), `_split`, `_giab` and `_throughput`; what each holds is in
+`experiments/e7.py` and [figures/README.md](figures/README.md).
+
+**Cost** (`plan E7`, from `config.Costs`): 2,639 jobs and 470 CPU
+hours, 2,504 single-thread fits of about 8 minutes and 52 C psmc fits of
+about 70 minutes dominating; the bootstraps run on 32 threads. The data
+stage is network-bound: hours per chromosome where the link is slow.
+
 ## Figures
 
 `FIG` draws each figure as a runner job after the tables it reads, into
@@ -743,6 +796,8 @@ $PY -m experiment.pipeline plan                  # the estimates below
 $PY -m experiment.pipeline start E3 --mem-gb 15  # first, alone, on a quiet machine on AC power
 $PY -m experiment.pipeline status --jobs         # deferred runs say why
 $PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG --cores 50 --mem-gb 64   # once E3's runner has exited
+$PY -m experiment.pipeline.kg1000 run --jobs 16 --pilot chr21   # E7's data stage (or submit.sh e7-prep)
+$PY -m experiment.pipeline start E7 FIG --cores 50 --mem-gb 64   # then its fits and figures
 ```
 
 `start` refuses while a runner of the same runs directory lives. Running
@@ -762,7 +817,8 @@ back.
 | E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.3 | S1-S3 wait for E1 |
-| FIG | 11 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
+| E7 | 2,639 | 470 | 10 (50 cores) | not yet run | after its data stage; bootstraps on 32 threads |
+| FIG | 14 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
@@ -832,9 +888,11 @@ experiment/.venv/bin/python -m unittest discover -s experiment/tests
 
 `test_pipeline_*.py` and `test_figures_*.py` cover every module; parts that
 need msprime, stdpopsim, psutil, htslib, C psmc or the psmc-rs builds skip
-without them. With all of them present, `tiny_runs.py` runs every experiment
-at the tiny profile through the runner once per test process (about a
-minute); the `EndToEnd` tests check each experiment's tables (for example
+without them. With all of them present, `tiny_runs.py` runs E7's data stage
+on a synthetic cohort (`kg1000 fixture`: msprime genomes written as the
+1000 Genomes files, read locally; it needs `bcftools +split`) and then every
+experiment at the tiny profile through the runner once per test process
+(about three minutes); the `EndToEnd` tests check each experiment's tables (for example
 that the first iteration's log-likelihood of psmc-rs equals C psmc's to its
 printed precision, and that nothing is left to do afterwards), and
 `test_figures_draw` draws every figure from those tables and checks every
