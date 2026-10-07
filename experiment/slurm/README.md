@@ -8,9 +8,10 @@ SLURM allocations:
 | job | what | allocation |
 | --- | --- | --- |
 | `build` | builds psmc-rs 0.2 (release profile, no RUSTFLAGS), psmc-rs 0.1 and C psmc (`tools --build-c`, recorded in `BUILD.json`), runs every Rust and Python test; ends with "all passed" | 32 CPUs, 2 h |
-| `prod` | E1 E2 E4 E5 E6: one runner in the foreground within the allocation | `$PROD_CPUS` CPUs (at least 52: E2's bootstraps run on 50 threads), `$PROD_MEM`, `$PROD_TIME` |
+| `prod` | E1 E2 E4 E5 E6 E7: one runner in the foreground within the allocation (E7 once `e7-prep` is done) | `$PROD_CPUS` CPUs (at least 52: E2's bootstraps run on 50 threads), `$PROD_MEM`, `$PROD_TIME` |
 | `e3 R` | E3's simulations and the timing runs of repeat R, each run alone | an exclusive node of `$E3_CONSTRAINT`, `$E3_TIME` |
 | `e3-report` | E3's tables from the merged repeats | 2 CPUs, 1 h |
+| `e7-prep [N...]` | E7's data stage (`kg1000`): setup; one task per chromosome (default 1-22): its VCF downloaded to node-local disk and checked, split per sample, every sample's psmcfa (chr21: then the pilot); the samples joined and `MANIFEST.json` | setup 2 CPUs, 3 h; chromosomes `$E7_PREP_PARALLEL` at once, each `$E7_PREP_CPUS` CPUs, `$E7_PREP_MEM`, `$E7_PREP_TIME`; samples 16 CPUs, 4 h |
 
 Every repeat of E3 runs on its own exclusive node of one CPU model, so that
 the speed-ups of a repeat are paired on one node and the spread of the
@@ -48,18 +49,23 @@ cd $PROD/experiment/slurm
 ./submit.sh e3 1 2 3 4 5          # in parallel with prod
 ./merge_e3.sh                     # once every e3 job has ended
 ./submit.sh e3-report             # waits for prod: both use $PROD's runs directory
+./submit.sh e7-prep               # E7's inputs (network-bound: hours per chromosome); then prod again for E7
 ```
 
 Every job waits for a build job still queued or running. `prod` and
 `e3-report` share one job name (`psmcrs-runs`) and run one after the other,
 since a runs directory holds one runner; each `e3 R` is its own singleton.
-A job that reaches its time limit leaves its unfinished runs pending: 90
+The `e7-prep` jobs write only `$PROD/experiment/runs/E7/inputs/`, which no
+runner holds, and E7 has no runner jobs until its last step has written the
+manifest; a chromosome task that failed is submitted again with `e7-prep N`
+(setup and finished chromosomes are skipped). A job that reaches its time
+limit leaves its unfinished runs pending: 90
 minutes (E3: 2 hours) before the limit the runner starts nothing new, and
 submitting again runs only what is not done. Status, from a login node:
 
 ```bash
 cd $PROD && PSMC_SLURM_DIR=$PROD/experiment/slurm bash -c 'source experiment/slurm/env.sh && \
-  $PY -m experiment.pipeline status --profile production --runs-dir $PROD/experiment/runs --only "" E1 E2 E3 E4 E5 E6'
+  $PY -m experiment.pipeline status --profile production --runs-dir $PROD/experiment/runs --only "" E1 E2 E3 E4 E5 E6 E7'
 ```
 
 Draw the figures on a machine with Arial (`start FIG`) from the runs

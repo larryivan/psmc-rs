@@ -5,6 +5,7 @@
 #   submit.sh prod             E1 E2 E4 E5 E6 in $PROD/experiment/runs, one allocation
 #   submit.sh e3 1 2 3 4 5     E3's timing runs, one exclusive node per repeat
 #   submit.sh e3-report        E3's tables, once merge_e3.sh merged the repeats
+#   submit.sh e7-prep [N...]   E7's data stage: setup, chromosomes N (default 1-22), samples
 #
 # Arguments after `--` go to sbatch (e.g. `submit.sh prod -- --begin=now+1hour`).
 #
@@ -19,14 +20,14 @@ source "$DIR/site.env"
 mkdir -p "$LOGS"
 PY=$MAIN/experiment/.venv/bin/python
 
-what=${1:?usage: submit.sh build|prod|e3 REPEAT...|e3-report [-- SBATCH_ARGS]}
+what=${1:?usage: submit.sh build|prod|e3 REPEAT...|e3-report|e7-prep [CHROM...] [-- SBATCH_ARGS]}
 shift
 args=() extra=()
 while [ $# -gt 0 ]; do
   if [ "$1" = "--" ]; then shift; extra=("$@"); break; fi
   args+=("$1"); shift
 done
-if [ "$what" != e3 ] && [ ${#args[@]} -gt 0 ]; then
+if [ "$what" != e3 ] && [ "$what" != e7-prep ] && [ ${#args[@]} -gt 0 ]; then
   echo "submit.sh $what takes no arguments (sbatch options go after --): ${args[*]}" >&2; exit 2
 fi
 
@@ -83,7 +84,24 @@ EOF
     id=$(run --job-name=psmcrs-runs $(dependency singleton ${deps[@]+"${deps[@]}"}) \
         --cpus-per-task=2 --mem=16G --time=01:00:00 \
         --output="$LOGS/psmcrs-e3-report-%j.out" --export=ALL,PSMC_SLURM_DIR="$DIR" "$DIR/e3_report.sbatch") ;;
+  e7-prep)
+    # Setup, then one task per chromosome (E7_PREP_PARALLEL at once: each
+    # downloads its VCF), then the samples once every chromosome is done.
+    chroms=${args[*]:-$(seq -s ' ' 1 22)}
+    for c in $chroms; do
+      [[ $c =~ ^([1-9]|1[0-9]|2[0-2])$ ]] || { echo "submit.sh e7-prep: chromosome '$c' is not one of 1..22" >&2; exit 2; }
+    done
+    stage() { echo "--export=ALL,PSMC_SLURM_DIR=$DIR,E7_STAGE=$1"; }
+    setup=$(run --job-name=psmcrs-e7-setup $(dependency ${deps[@]+"${deps[@]}"}) --cpus-per-task=2 --mem=8G \
+        --time=03:00:00 --output="$LOGS/%x-%j.out" "$(stage setup)" "$DIR/e7_prep.sbatch")
+    chrom=$(run --job-name=psmcrs-e7-chrom --dependency=afterok:"$setup" \
+        --array="${chroms// /,}%${E7_PREP_PARALLEL:-4}" --constraint="$PROD_CONSTRAINT" \
+        --cpus-per-task="${E7_PREP_CPUS:-16}" --mem="${E7_PREP_MEM:-64G}" --time="${E7_PREP_TIME:-12:00:00}" \
+        --output="$LOGS/%x-%A_%a.out" "$(stage chrom)" "$DIR/e7_prep.sbatch")
+    samples=$(run --job-name=psmcrs-e7-samples --dependency=afterok:"$chrom" --cpus-per-task=16 --mem=32G \
+        --time=04:00:00 --output="$LOGS/%x-%j.out" "$(stage samples)" "$DIR/e7_prep.sbatch")
+    id="$setup $chrom $samples" ;;
   *)
-    echo "unknown job '$what': build, prod, e3 or e3-report" >&2; exit 2 ;;
+    echo "unknown job '$what': build, prod, e3, e3-report or e7-prep" >&2; exit 2 ;;
 esac
 echo "submitted $what: ${id}${deps[*]:+ (after build ${deps[*]#afterok:})}"

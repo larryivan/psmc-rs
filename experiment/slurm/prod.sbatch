@@ -1,5 +1,6 @@
 #!/bin/bash
-# E1 E2 E4 E5 E6 in one allocation: one runner, in the foreground, within the
+# E1 E2 E4 E5 E6 E7 in one allocation (E7 once its data stage, submit.sh e7-prep,
+# has written its inputs): one runner, in the foreground, within the
 # allocation's CPUs and memory. Submit with experiment/slurm/submit.sh prod.
 #
 # 90 minutes before the time limit SLURM sends USR1 to the runner, which then
@@ -21,4 +22,4 @@ echo "$(hostname) job $SLURM_JOB_ID commit $(git rev-parse --short HEAD): $cores
 psmc_env_report
 # exec: the runner gets SLURM's USR1 itself (sbatch --signal=B: signals the batch shell).
 exec "$PY" -m experiment.pipeline start --foreground --no-keep-awake --profile production \
-  --runs-dir "$PROD/experiment/runs" --cores "$cores" --mem-gb "$mem_gb" E1 E2 E4 E5 E6
+  --runs-dir "$PROD/experiment/runs" --cores "$cores" --mem-gb "$mem_gb" E1 E2 E4 E5 E6 E7
