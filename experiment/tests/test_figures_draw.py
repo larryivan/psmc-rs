@@ -139,6 +139,9 @@ class Draw(unittest.TestCase):
                 if fs.module == "fig3":  # a row of panels per two genomes: the README gives the four of E2
                     n = len(fig.axes)
                     h += 50.0 * (math.ceil(n / 2) - 2)
+                if fs.module == "figs5":  # a row of panels per six populations: the README gives the 26 of E7
+                    rows = math.ceil(len([ax for ax in fig.axes if ax.axison]) / 6)
+                    h += 30.0 * (rows - 5)
                 self.assertAlmostEqual(fig.get_figwidth() * 25.4, w, places=1)
                 self.assertAlmostEqual(fig.get_figheight() * 25.4, h, places=1)
 

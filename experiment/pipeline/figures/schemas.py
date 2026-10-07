@@ -348,6 +348,93 @@ _add("E6_S3_summary", "E6", "set of bins (all, heterozygous, homozygous)", {
 })
 
 
+# ---------------------------------------------------------------------------
+# E7: 1000 Genomes (Fig 7, Figs S5 and S6)
+# ---------------------------------------------------------------------------
+
+_E7_WHO = {
+    "sample_id": "1000 Genomes sample",
+    "population": "population code (26)",
+    "superpopulation": "AFR, AMR, EAS, EUR or SAS",
+    "admixed": "the population is one of config.E7.admixed",
+}
+_add("E7_samples", "E7", "sample of the cohort", {
+    "sample_id": "1000 Genomes sample",
+    "population": "population code",
+    "superpopulation": "superpopulation",
+    "admixed": "admixed population",
+    "raw_depth": "raw sequencing depth (the sequence index's bases / 3.1 Gb)",
+    "default": "in the default set (Fig 7 a-e, the VCF fits, C psmc)",
+    "bootstrap": "bootstrapped (Fig 7 g-i)",
+})
+_add("E7_pop_bands", "E7", "group, route and time on the display grid", {
+    "group_kind": "population, superpopulation or all",
+    "group": "the population or superpopulation code, or all",
+    "superpopulation": "the group's superpopulation ('' for all)",
+    "admixed": "an admixed population",
+    "route": "rs-vcf (the default set's VCF fits) or rs-psmcfa (every genome's psmcfa fit)",
+    "n": "genomes in the group",
+    "years": "time (years ago)",
+    "ne_median": "median Ne across the group's genomes",
+    "ne_lo": "lower quantile (config.E7.spread) across genomes",
+    "ne_hi": "upper quantile across genomes",
+    "window_lo_years": "the group's median comparison window start",
+    "window_hi_years": "its median end",
+})
+_add("E7_bands", "E7", "bootstrapped sample and time", {
+    "sample_id": "sample",
+    "years": "time (years ago)",
+    "ne_c": "C psmc's Ne",
+    "ne_rs": "psmc-rs's Ne (fit-rs-psmcfa)",
+    "ne_band_lo": "bootstrap band lower edge",
+    "ne_band_median": "bootstrap median",
+    "ne_band_hi": "bootstrap band upper edge",
+})
+_add("E7_rs_vs_c", "E7", "sample of the default set fitted by both tools", {
+    **_E7_WHO,
+    "window_lo_years": "comparison window start (1% of coalescences under C psmc's fit)",
+    "window_hi_years": "its end (99%)",
+    "rmse_log10_ne_rs_vs_c_per_interval": "RMSE of log10 Ne between the tools, interval by interval in the window",
+    "max_abs_log10_ne_rs_vs_c_per_interval": "largest per-interval |log10 Ne difference| in the window",
+})
+_add("E7_inputs", "E7", "sample of the cohort", {
+    **_E7_WHO,
+    "default": "in the default set",
+    "raw_depth": "raw sequencing depth",
+    "callable_bases": "bases the strict mask leaves callable",
+    "het_sites": "heterozygous SNVs called",
+    "het_per_callable_kb": "heterozygous SNVs per callable kb",
+    "partly_callable_bin_fraction": "share of called bins with some bases missing",
+})
+_add("E7_route_shift", "E7", "sample of the default set", {
+    **_E7_WHO,
+    "theta_rel_vcf_vs_psmcfa": "relative theta difference, VCF fit (callable bases per bin) vs psmcfa fit",
+    "mean_log10_ne_vcf_vs_psmcfa": "mean log10 Ne difference in the window, VCF vs psmcfa",
+    "partly_callable_bin_fraction": "share of called bins with some bases missing",
+})
+_add("E7_split", "E7", "sample of the split-first-window check", {
+    **_E7_WHO,
+    "log10_first_vs_next_default": "log10 of the first window's Ne over the next one's, default pattern",
+    "log10_first_vs_next_split": "the same, first window split",
+    "max_abs_log10_ne_split_vs_default_per_interval": "largest per-interval |log10 Ne difference|, split vs default",
+})
+_add("E7_giab", "E7", "sample compared with GIAB", {
+    "sample_id": "sample",
+    "precision": "share of its heterozygous SNVs that GIAB has",
+    "recall": "share of GIAB's heterozygous SNVs it has",
+    "truth_het_snvs": "GIAB heterozygous SNVs in strict mask and GIAB's confident regions",
+    "eval_bases": "bases compared",
+})
+_add("E7_throughput", "E7", "route and tool", {
+    "route": "rs-psmcfa, rs-vcf, c, rs-split or boot",
+    "tool": "rs or c",
+    "jobs": "fits",
+    "wall_median_s": "median wall time per fit",
+    "core_hours": "CPU core-hours of all of them",
+    "peak_rss_median_mb": "median peak memory",
+})
+
+
 def describe_all() -> str:
     """Every schema, as the figures README lists them."""
     return "\n\n".join(s.describe() for s in SCHEMAS.values())

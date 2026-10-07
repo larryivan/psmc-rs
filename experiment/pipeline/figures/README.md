@@ -21,7 +21,8 @@ $PY -m experiment.pipeline report FIG            # the same as drawing them all
 A figure job is declared once every experiment it reads is implemented
 (registered in `experiments.REGISTRY`); Fig 1, a schematic, needs none. With
 E1 alone, `FIG` has three jobs (Fig 1, Fig 2, Fig S1); Figs 3-6, S2-S4 and
-the turtle patterns (E2) appear as E2-E6 are added.
+the turtle patterns (E2) appear as E2-E6 are added, and Figs 7, S5 and S6
+with E7.
 
 ## The figures
 
@@ -37,6 +38,9 @@ the turtle patterns (E2) appear as E2-E6 are added.
 | `figS2_format_consistency` | `E6/figures/` | `E6_S2_curves`, `E6_S2_bins`, `E6_S2_fits` | 183 x 96 mm |
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
 | `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
+| `fig7_1000_genomes` (number to be assigned) | `E7/figures/` | `E7_pop_bands`, `E7_bands`, `E7_rs_vs_c` | 183 x 155 mm |
+| `figS5_1000g_populations` (number to be assigned) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
+| `figS6_1000g_checks` (number to be assigned) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
 | `figS_turtle_patterns` (number to be assigned) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
 
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
@@ -191,6 +195,15 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E6/tables/E6_S3_density.csv` | non-empty cell of a log10 grid | `log10_true_lo`, `log10_true_hi`, `log10_mean_lo`, `log10_mean_hi`, `n_bins` |
 | `E6/tables/E6_S3_calibration.csv` | class (decile) of the true TMRCA or of the posterior mean | `by`, `class`, `median_true_years`, `coverage95_states`, `coverage95_point` |
 | `E6/tables/E6_S3_summary.csv` | set of bins (all, heterozygous, homozygous) | `bins`, `n_bins`, `pearson_log10_mean`, `coverage95_states`, `coverage95_point` |
+| `E7/tables/E7_samples.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `raw_depth`, `default`, `bootstrap` |
+| `E7/tables/E7_pop_bands.csv` | group, route and time on the display grid | `group_kind`, `group`, `superpopulation`, `admixed`, `route`, `n`, `years`, `ne_median`, `ne_lo`, `ne_hi`, `window_lo_years`, `window_hi_years` |
+| `E7/tables/E7_bands.csv` | bootstrapped sample and time | `sample_id`, `years`, `ne_c`, `ne_rs`, `ne_band_lo`, `ne_band_median`, `ne_band_hi` |
+| `E7/tables/E7_rs_vs_c.csv` | sample of the default set fitted by both tools | `sample_id`, `population`, `superpopulation`, `admixed`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
+| `E7/tables/E7_inputs.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `default`, `raw_depth`, `callable_bases`, `het_sites`, `het_per_callable_kb`, `partly_callable_bin_fraction` |
+| `E7/tables/E7_route_shift.csv` | sample of the default set | `sample_id`, `population`, `superpopulation`, `admixed`, `theta_rel_vcf_vs_psmcfa`, `mean_log10_ne_vcf_vs_psmcfa`, `partly_callable_bin_fraction` |
+| `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `max_abs_log10_ne_split_vs_default_per_interval` |
+| `E7/tables/E7_giab.csv` | sample compared with GIAB | `sample_id`, `precision`, `recall`, `truth_het_snvs`, `eval_bases` |
+| `E7/tables/E7_throughput.csv` | route and tool | `route`, `tool`, `jobs`, `wall_median_s`, `core_hours`, `peak_rss_median_mb` |
 
 ## Production
 

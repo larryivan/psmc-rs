@@ -44,10 +44,19 @@ class Jobs(unittest.TestCase):
         from experiment.pipeline import figures
 
         ids = {j.id for j in fig.jobs(self.ctx)}
-        want = {f"FIG/{fs.name}" for fs in figures.FIGURES if all(e in REGISTRY for e in fs.sources)}
+        want = {f"FIG/{fs.name}" for fs in figures.FIGURES
+                if all(e in REGISTRY for e in fs.sources) and "E7" not in fs.sources}
         self.assertEqual(ids, want)
         self.assertIn("FIG/fig1_workflow", ids)
         self.assertIn("FIG/fig2_simulated_accuracy", ids)
+
+    def test_e7s_figures_once_its_data_stage_has_finished(self):
+        from experiment.pipeline import kg1000
+
+        e7_figs = {"FIG/fig7_1000_genomes", "FIG/figS5_1000g_populations", "FIG/figS6_1000g_checks"}
+        self.assertFalse(e7_figs & {j.id for j in fig.jobs(self.ctx)})
+        kg1000.write_json(kg1000.layout(self.runs).manifest, {})
+        self.assertTrue(e7_figs <= {j.id for j in fig.jobs(self.ctx)})
 
     def test_a_figure_runs_after_the_tables_it_reads(self):
         jobs = e1.jobs(self.ctx) + fig.jobs(self.ctx)
