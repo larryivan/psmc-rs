@@ -299,37 +299,56 @@ class RealGenome:
     species: str
     label: str  # how figures and tables name it
     scaling: Scaling
-    scaling_source: str
+    scaling_source: str  # where mu and g come from, in full (E2_fit_summary.scaling_source)
+    scaling_cite: str  # the same in a few words, for a figure panel (Fig 3)
 
 
+# The three turtles are pleurodires (side-necked turtles). No pleurodire has
+# a measured mutation rate; the only direct (pedigree) rate of any turtle is
+# that of nine trios of the painted turtle Chrysemys picta, a cryptodire
+# (Bergeron et al. 2023: 3.04e-9 to 6.56e-9 per bp per generation, mean
+# 4.61e-9; the paper's 2.3e-10 per year divides it by an assumed g of 20).
+# The psmc-rs 0.1 runs used 7.9e-9, which is a crocodilian rate: Green et
+# al. 2014 derived it from the alligator-crocodile divergence with a 20-year
+# generation. g 15 years is shared by the three species: close to the values
+# of Sozzoni et al. 2025 (Table S2) for P. castaneus (15.9) and E. subglobosa
+# (12.4); H. tectifera has no published age at maturity or generation time.
+# Ne and time scale as 1/mu, and time also as g (figures/README.md: Fig 3).
 _TURTLE_SCALING_SOURCE = (
-    "UNVERIFIED: mu 7.9e-9 and g 15 are the values of the psmc-rs 0.1 runs "
-    "(experiment/scripts/run_real_data.py, experiment/runs/real_data/tables/"
-    "real_data_rust_vs_c_fit_summary.csv); the repository records no citation "
-    "for them. Confirm and cite before publication."
+    "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios "
+    "(Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a "
+    "pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. "
+    "g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: "
+    "P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. "
+    "Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449)."
 )
+_TURTLE_SCALING_CITE = "painted turtle trios (Bergeron 2023)"
 _HUMAN_SCALING_SOURCE = (
-    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet "
-    "13:745); g 25 as in Li & Durbin 2011. Same values as the psmc-rs 0.1 runs."
+    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); "
+    "g 29 y: the mean human generation interval (Fenner 2005, Am J Phys Anthropol 128:415), "
+    "as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins et al. 2025 (Nat Genet 57:856). "
+    "The psmc-rs 0.1 runs used g 25 (Li & Durbin 2011)."
 )
+_HUMAN_SCALING_CITE = "Scally & Durbin 2012; g: Fenner 2005"
 
 REAL_GENOMES: Tuple[RealGenome, ...] = (
     RealGenome(
         "HLemySub1", "HLemySub1_diploid.psmcfa", "Emydura subglobosa",
-        "Emydura subglobosa (HLemySub1)", Scaling(7.9e-9, 15.0), _TURTLE_SCALING_SOURCE,
+        "Emydura subglobosa (HLemySub1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
     ),
     RealGenome(
         "HLhydTec1", "HLhydTec1_diploid.psmcfa", "Hydromedusa tectifera",
-        "Hydromedusa tectifera (HLhydTec1)", Scaling(7.9e-9, 15.0), _TURTLE_SCALING_SOURCE,
+        "Hydromedusa tectifera (HLhydTec1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
     ),
     RealGenome(
         "HLpelCas1", "HLpelCas1_diploid.psmcfa", "Pelusios castaneus",
-        "Pelusios castaneus (HLpelCas1)", Scaling(7.9e-9, 15.0), _TURTLE_SCALING_SOURCE,
+        "Pelusios castaneus (HLpelCas1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
     ),
     # One sequence, >chr1, of 2,487,383 bins: chromosome 1 only, not a genome.
     RealGenome(
         "Papuan", "Papuan_highlands_diploid.psmcfa", "Homo sapiens",
-        "Homo sapiens (Papuan Highlands, chr1 only)", Scaling(1.25e-8, 25.0), _HUMAN_SCALING_SOURCE,
+        "Homo sapiens (Papuan Highlands, chr1 only)", Scaling(1.25e-8, 29.0), _HUMAN_SCALING_SOURCE,
+        _HUMAN_SCALING_CITE,
     ),
 )
 
@@ -383,6 +402,26 @@ class E2:
     # (FEW_TRUNKS in src/bin/psmc/run.rs); the tables and Fig 3 say so. Papuan
     # chr1 (2.49 M bins) forms 5 trunks of the default 500,000 bins.
     few_trunks: int = 20
+
+    # -- The split-first-window check (E2_split_patterns, figS_turtle_patterns) --
+    # Hilgers et al. 2025 (Curr Biol 35:927) found false recent peaks of Ne in
+    # PSMC curves across many studies, in all their turtles among them, under
+    # the default pattern 4+25*2+4+6: its first free lambda spans the first
+    # four intervals, and splitting that window removed the peaks. psmc-rs
+    # fits each genome of ``split_genomes`` again with each pattern of
+    # ``split_patterns`` (name, pattern; job ``fit-rs-<name>``, every other
+    # setting fit-rs's), and the table compares each fit with fit-rs's. Both
+    # patterns keep the 64 intervals.
+    split_patterns: Tuple[Tuple[str, str], ...] = (("split2", "2+2+25*2+4+6"), ("split1", "1+1+1+1+25*2+4+6"))
+    split_genomes: Tuple[str, ...] = ("HLemySub1", "HLhydTec1", "HLpelCas1")
+    # The recent intervals a false peak lies in: the default pattern's first
+    # window (4 intervals) and the two 2-interval windows after it. The
+    # plateau is the median Ne of the next as many intervals. A fit has a
+    # recent peak when the largest Ne of the recent intervals lies after the
+    # first interval and is at least ``split_peak_ratio`` times both the first
+    # interval's Ne and the plateau.
+    split_recent_intervals: int = 8
+    split_peak_ratio: float = 1.25
     # Smoke and tiny profiles only: fit the first ``max_bins`` bins of each
     # genome (records in file order, the last one cut) instead of the whole
     # file. None (production) fits the packaged files themselves.

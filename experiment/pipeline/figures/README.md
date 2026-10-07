@@ -20,8 +20,8 @@ $PY -m experiment.pipeline report FIG            # the same as drawing them all
 
 A figure job is declared once every experiment it reads is implemented
 (registered in `experiments.REGISTRY`); Fig 1, a schematic, needs none. With
-E1 alone, `FIG` has three jobs (Fig 1, Fig 2, Fig S1); Figs 3-6 and S2-S4
-appear as E2-E6 are added.
+E1 alone, `FIG` has three jobs (Fig 1, Fig 2, Fig S1); Figs 3-6, S2-S4 and
+the turtle patterns (E2) appear as E2-E6 are added.
 
 ## The figures
 
@@ -37,6 +37,7 @@ appear as E2-E6 are added.
 | `figS2_format_consistency` | `E6/figures/` | `E6_S2_curves`, `E6_S2_bins`, `E6_S2_fits` | 183 x 96 mm |
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
 | `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
+| `figS_turtle_patterns` (number to be assigned) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
 
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
 so that it can be turned into the caption. Captions should also say:
@@ -61,8 +62,21 @@ so that it can be turned into the caption. Captions should also say:
   fit's). Their boundaries differ in years only through theta and t_max, and
   a fixed time between two nearly equal boundaries would read a whole step.
   The RMSE weighs each interval by its log-time width inside the window.
-- **Fig 3**: each species with its own mu and g (in the panel; the turtle
-  values are unverified, see `config._TURTLE_SCALING_SOURCE`); the human
+- **Fig 3**: each species with its own mu and g, in the panel with their
+  source in a few words (in full: `config.RealGenome.scaling_source`,
+  repeated in `E2_fit_summary.scaling_source`). Turtle curves are scaled
+  with mu = 4.6 x 10^-9 per bp per generation, the mean germline rate of
+  nine *Chrysemys picta* trios (Bergeron et al. 2023; no pleurodire rate has
+  been measured), and g = 15 years for all three species (close to Sozzoni
+  et al. 2025's 15.9 for *P. castaneus* and 12.4 for *E. subglobosa*; *H.
+  tectifera* has none published); the human with mu = 1.25 x 10^-8 (Scally
+  & Durbin 2012) and g = 29 years (Fenner 2005; as in Bergström et al. 2020
+  and Cousins et al. 2025). Sensitivity: Ne and time scale as 1/mu, and
+  time also scales with g. Plausible turtle values (mu 3.0-7.9 x 10^-9 per
+  generation, from the range of the *C. picta* trios up to the crocodilian
+  rate the psmc-rs 0.1 runs used, Green et al. 2014; g 12-20 years) span a
+  factor of about 2.6 on both axes, and a further factor of 0.8-1.33 on
+  the time axis. The human
   sample is chromosome 1 only. The bootstrap resamples blocks: the
   sequences split at 50 Mb (splitfa's trunks), so most of the turtles'
   blocks are whole scaffolds. A genome whose default blocks are fewer than
@@ -70,6 +84,15 @@ so that it can be turned into the caption. Captions should also say:
   dotted outline); its coarse 50 Mb band does not set the Ne axis and is
   clipped where it reaches beyond it (the panel says so). E5 calibrates
   chromosome-scale blocks only.
+- **Fig 3 and the turtle patterns**: the turtle curves use the pattern
+  `4+25*2+4+6`, under which Hilgers et al. 2025 (Curr Biol 35:927) found
+  false recent peaks of Ne in all their turtles (and across many PSMC
+  studies): the first free lambda spans the first four intervals.
+  `figS_turtle_patterns` fits the three turtles again with that window
+  split (`2+2+25*2+4+6`, `1+1+1+1+25*2+4+6`; psmc-rs only, every other
+  setting the same) and gives, per pattern, the largest Ne of the first 8
+  intervals relative to the plateau of the next 8 (`E2_split_patterns`);
+  the caption should say whether Fig 3's recent peaks persist.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
   E3 recorded.
@@ -113,7 +136,7 @@ mode, checked with `dataviz/scripts/validate_palette.js`):
 | truth | `#0b0b0b`, dashed | |
 | multihetsep route / input (Fig 5, S2) | `#eda100` (slot 4) | `"#2a78d6,#eda100,#e87ba4" --pairs all`: pass (CVD 13.0, normal 19.6); both below 3:1, so they also carry their markers along the lines |
 | VCF without a mask (Fig 5) | `#e87ba4` (slot 5) | |
-| a psmc-rs variant of the default (every called bin full and the fq2psmcfa route in Fig 5, VCF input, 5 Mb trunks) | `#104281` (blue ramp 650), dotted or dashed | `"#2a78d6,#104281" --ordinal`: pass |
+| a psmc-rs variant of the default (every called bin full and the fq2psmcfa route in Fig 5, VCF input, 5 Mb trunks, the split-first-window patterns) | `#104281` (blue ramp 650), dotted or dashed | `"#2a78d6,#104281" --ordinal`: pass |
 | counts (Fig S3) | sequential blue ramp, steps 100-700 | |
 
 Uncertainty bands are the entity's colour at alpha 0.18; the independent
@@ -146,7 +169,9 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E2/tables/E2_bands.csv` | genome, bootstrap trunk size and time of a dense log grid | `sample_id`, `trunk_bins`, `years`, `ne_band_lo`, `ne_band_hi` |
 | `E2/tables/E2_bootstrap.csv` | genome and bootstrap trunk size | `sample_id`, `default_trunks`, `trunk_bins`, `trunk_mb`, `trunks`, `coarse_band`, `replicates` |
 | `E2/tables/E2_rs_vs_c.csv` | genome | `sample_id`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
-| `E2/tables/E2_fit_summary.csv` | genome and tool | `sample_id`, `tool`, `mu`, `gen_years`, `sequences` |
+| `E2/tables/E2_fit_summary.csv` | genome and tool | `sample_id`, `tool`, `mu`, `gen_years`, `scaling_cite`, `sequences` |
+| `E2/tables/E2_split_patterns.csv` | turtle and pattern (`default`: `fit-rs`'s fit) | `sample_id`, `pattern_name`, `pattern`, `mu`, `gen_years`, `window_lo_years`, `window_hi_years`, `recent_end_years`, `first_vs_plateau`, `recent_max_vs_plateau`, `recent_peak` |
+| `E2/tables/E2_split_curves.csv` | turtle, pattern and interval | `sample_id`, `pattern_name`, `interval`, `years`, `ne` |
 | `E3/tables/E3_table2.csv` | tool, thread count and genome size (Table 2) | `tool`, `threads`, `size_mb`, `status`, `note`, `wall_median_s`, `peak_rss_median_mb`, `speedup_vs_c` |
 | `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
 | `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
@@ -176,7 +201,7 @@ in the production run of [the pipeline's README](../README.md#production):
 $PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG
 ```
 
-Ten jobs of a few seconds each (1 core, 0.1-0.4 GB peak; a few CPU
+Eleven jobs of a few seconds each (1 core, 0.1-0.4 GB peak; a few CPU
 minutes in all), none exclusive; `plan` counts 20 s and 1 GB each
 (`config.FIGURES.job_seconds`, `job_gb`). A figure whose experiment has not
 run yet (Fig 4 and Fig S4 until E3 is done) stays blocked on its missing

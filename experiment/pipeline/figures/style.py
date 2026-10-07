@@ -42,7 +42,8 @@ set:
   marker shapes. A psmc-rs variant of the default (in Fig 5 the VCF + mask
   route with every called bin taken as full, ``--bin-callable ignore``, and
   the fq2psmcfa route it equals; the VCF input of Fig S2; the 5 Mb
-  bootstrap blocks of Figs 3 and 6; the capped M-step of Fig 4) is
+  bootstrap blocks of Figs 3 and 6; the capped M-step of Fig 4; the
+  split-first-window patterns of the turtle figure) is
   the next step of the blue ramp, 650 #104281, dotted or dashed
   (``"#2a78d6,#104281" --ordinal`` passes). Uncertainty bands use
   the entity's colour at low alpha; counts use the sequential blue ramp.

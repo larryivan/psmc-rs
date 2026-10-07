@@ -146,7 +146,27 @@ _add("E2_fit_summary", "E2", "genome and tool", {
     "tool": "c or rs",
     "mu": "mutation rate the curves are scaled with",
     "gen_years": "generation time the curves are scaled with",
+    "scaling_cite": "where mu (and g) come from, in a few words (config.RealGenome.scaling_cite)",
     "sequences": "sequences of the input (the bootstrap splits each at the block size)",
+})
+_add("E2_split_patterns", "E2", "turtle and pattern (default: fit-rs's fit)", {
+    "sample_id": "genome (config.E2.split_genomes)",
+    "pattern_name": "default, or a name of config.E2.split_patterns",
+    "pattern": "the pattern fitted",
+    "mu": "mutation rate the curves are scaled with",
+    "gen_years": "generation time the curves are scaled with",
+    "window_lo_years": "start of the comparison window (1% of coalescences under C psmc's default fit)",
+    "window_hi_years": "end of the comparison window (99%)",
+    "recent_end_years": "end of the recent intervals (config.E2.split_recent_intervals) in years",
+    "first_vs_plateau": "Ne of the first interval / the plateau (median Ne of the intervals after the recent ones)",
+    "recent_max_vs_plateau": "largest Ne of the recent intervals / the plateau",
+    "recent_peak": "True when the largest recent Ne lies after the first interval and is at least "
+                   "config.E2.split_peak_ratio times both the first interval's Ne and the plateau",
+})
+_add("E2_split_curves", "E2", "turtle, pattern and interval", {
+    "sample_id": "genome",
+    "pattern_name": "default, or a name of config.E2.split_patterns",
+    **CURVE_COLUMNS,
 })
 
 # ---------------------------------------------------------------------------

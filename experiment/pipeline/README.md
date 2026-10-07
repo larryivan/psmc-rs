@@ -269,11 +269,18 @@ psmc-rs 112 to 133 s (1.4 hours) and 84 MB, the simulations 0.5 hours.
 
 The four genomes of `experiment/real_data` (`config.REAL_GENOMES`): the
 turtles HLemySub1 (*Emydura subglobosa*), HLhydTec1 (*Hydromedusa
-tectifera*) and HLpelCas1 (*Pelusios castaneus*), scaled with mu 7.9e-9 and
-g 15 (the values of the psmc-rs 0.1 runs; the repository records no
-citation for them, and the config marks them unverified), and chromosome 1
-of a Papuan Highlands human (*Homo sapiens*, chr1 only: every table and
-figure says so), scaled with mu 1.25e-8 and g 25. Per genome: `fit-c` (C
+tectifera*) and HLpelCas1 (*Pelusios castaneus*), scaled with mu 4.6e-9 per
+bp per generation, the mean germline rate of nine *Chrysemys picta* trios
+(Bergeron et al. 2023, Nature 615:285; a cryptodire's rate: no pleurodire
+rate has been measured) and g 15 years for all three (close to Sozzoni et
+al. 2025's 15.9 for *P. castaneus* and 12.4 for *E. subglobosa*; *H.
+tectifera* has none published), and chromosome 1 of a Papuan Highlands
+human (*Homo sapiens*, chr1 only: every table and figure says so), scaled
+with mu 1.25e-8 (Scally & Durbin 2012) and g 29 years (Fenner 2005, as in
+Bergström et al. 2020 and Cousins et al. 2025). `config.RealGenome.scaling_source`
+gives the citations in full, and `E2_fit_summary.csv` repeats them. The
+psmc-rs 0.1 runs used mu 7.9e-9 for the turtles, a crocodilian rate (Green
+et al. 2014), and g 25 for the human. Per genome: `fit-c` (C
 psmc), `fit-rs` (psmc-rs 0.2, the identical file and settings),
 `boot-rs/trunk500000` (psmc-rs 0.2 with `--bootstrap 100` on the default
 trunks of 500,000 bins, splitfa's 50 Mb; seed `seed("E2", sample, 0,
@@ -288,6 +295,21 @@ into trunks; the turtles' default bootstraps resample whole scaffolds of
 very different lengths (889, 34 and 1,220 sequences; 50%, 23% and 97% of
 their bins lie in scaffolds shorter than a trunk), a regime E5 does not
 calibrate.
+
+**Split-first-window check** (the turtles). Hilgers et al. 2025 (Curr Biol
+35:927) found false recent peaks of Ne in PSMC curves across many studies,
+in all their turtles among them, under the pattern `4+25*2+4+6` that E2
+uses: its first free lambda spans the first four intervals, and splitting
+that window removed the peaks. psmc-rs fits each turtle again with
+`2+2+25*2+4+6` (`fit-rs-split2`) and `1+1+1+1+25*2+4+6` (`fit-rs-split1`),
+every other setting `fit-rs`'s (`config.E2.split_patterns`,
+`split_genomes`). `E2_split_patterns.csv` compares each fit with `fit-rs`'s:
+the largest Ne of the first 8 intervals (the default's first window and the
+two after it) and the first interval's Ne, each relative to the plateau (the
+median Ne of the next 8 intervals), whether that is a recent peak (the
+largest lies after the first interval and is at least 1.25 times both;
+`split_recent_intervals`, `split_peak_ratio`), and how far each fit lies from
+`fit-rs`'s interval by interval. Figure `figS_turtle_patterns` draws them.
 
 The tools are compared on the window between the 1% and 99% quantiles of
 the pairwise coalescence time under C psmc's fitted model (a real genome
@@ -304,23 +326,35 @@ against `summary.json`.
 | `E2_bands.csv` | per genome and trunk size: both curves and the band on a dense grid (Fig 3) |
 | `E2_curves.csv`, `E2_traces.csv` | the fitted step curves (Fig 3); log-likelihood and parameters per EM iteration |
 | `E2_qc.csv`, `E2_qc_findings.csv` | `psmc-rs qc`'s metrics and findings for each input fitted (in production the packaged files; Table S5 is E6's `E6_S5_*`) |
+| `E2_split_patterns.csv` | per turtle and pattern (`default` is `fit-rs`'s fit): theta, rho, t_max, N0, the final log-likelihood and its gain over the default, the recent intervals' Ne against the plateau (`recent_max_vs_plateau`, `first_vs_plateau`, `recent_peak`), the largest difference from `fit-rs`'s fit in the recent intervals and the RMSE after them in the window |
+| `E2_split_curves.csv` | the step curves of those fits (`figS_turtle_patterns`) |
 
 Layout of `experiment/runs/E2/`: `fits/` (`<sample>.c.psmc`, `.rs.json`,
-`.rs.psmc`), `bootstrap/<sample>/trunk<B>/` (`main.json`,
+`.rs.psmc`; the turtles' `<sample>.split2.rs.{json,psmc}` and
+`.split1.rs.{json,psmc}`), `bootstrap/<sample>/trunk<B>/` (`main.json`,
 `replicate_NNN.json`, `summary.json`, `summary.tsv`; the replicates' `.psmc`
 files are not committed), `qc/`, `provenance/`, `tables/`, `figures/`;
 `inputs/` (smoke and tiny profiles: the first bins of each genome) and
 `logs/` are not committed.
 
-**Cost** (`plan E2`): 18 jobs, about 35 CPU hours (the five bootstrap runs
-31, each on 50 threads, one replicate per thread, so the runner needs
-`--cores 50`; C psmc 2.5, up to 49 minutes and 3.4 GB for HLhydTec1), about
-1.6 hours alone on 50 cores. The bootstraps' output does not depend on
-their threads (replicate i draws from its own seed). Measured on Ibex: 43.8
-CPU hours; the bootstrap runs 40.3 (934 to 979 s each for the turtles, 159
-and 169 s for Papuan, at most 1.4 GB), C psmc 3.1 (3,419 to 3,610 s for
-the turtles and 475 s for Papuan, at most 3.3 GB, HLhydTec1's), psmc-rs
+**Cost** (`plan E2`): 24 jobs, about 35 CPU hours (the five bootstrap runs
+32, each on 50 threads, one replicate per thread, so the runner needs
+`--cores 50`; C psmc 2.5, up to 49 minutes and 3.4 GB for HLhydTec1; the
+six split-first-window fits 0.6), about 1.6 hours alone on 50 cores. The
+bootstraps' output does not depend on their threads (replicate i draws
+from its own seed). Measured on Ibex, before the split-first-window fits:
+43.8 CPU hours; the bootstrap runs 40.3 (934 to 979 s each for the turtles,
+159 and 169 s for Papuan, at most 1.4 GB), C psmc 3.1 (3,419 to 3,610 s
+for the turtles and 475 s for Papuan, at most 3.3 GB, HLhydTec1's), psmc-rs
 0.4 (414 to 439 s for the turtles and 54 s for Papuan, at most 86 MB).
+
+**Re-run after the scaling change.** psmc-rs is given mu and g (`--mu`,
+`--gen-years`) for its own report, so the turtles' new mu and Papuan's new g
+change the commands of every `fit-rs` and `boot-rs` job, and the runner runs
+them again (4 fits and 5 bootstrap runs, about 41 CPU hours on Ibex); their
+fitted parameters do not depend on mu or g. C psmc is given neither: `fit-c`
+and `qc` stay done. The six split-first-window fits are new, and `report`
+and the figures follow.
 
 ## E3: performance
 
@@ -723,12 +757,12 @@ back.
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | CPU hours measured on Ibex | limits |
 | --- | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | 13.0 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
-| E2 | 18 | 35 | 1.6 (50 cores) | 43.8 | bootstraps on 50 threads: `--cores 50`; C psmc up to 49 min (Ibex: 60) and 3.4 GB |
+| E2 | 24 | 35 | 1.6 (50 cores) | 43.8 (before the 6 split-first-window fits) | bootstraps on 50 threads: `--cores 50`; C psmc up to 49 min (Ibex: 60) and 3.4 GB |
 | E3 | 160 | 95 | 21 (exclusive) | not yet run | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.3 | S1-S3 wait for E1 |
-| FIG | 10 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
+| FIG | 11 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so

@@ -145,7 +145,7 @@ class Draw(unittest.TestCase):
     def test_panel_letters_line_up_in_columns(self):
         from experiment.pipeline.figures import style
 
-        for module in ("fig2", "fig5", "fig6", "figs1", "figs2", "figs3"):
+        for module in ("fig2", "fig5", "fig6", "figs1", "figs2", "figs3", "figs_turtle"):
             with self.subTest(figure=module):
                 fig = self._draw(module)
                 letters = [t for t in fig.texts if t.get_fontsize() == style.PANEL_PT and t.get_fontweight() == "bold"]
@@ -158,6 +158,45 @@ class Draw(unittest.TestCase):
         for ax in fig.axes:
             for t in ax.texts:  # a box would cover the grey of the times outside the window
                 self.assertIsNone(t.get_bbox_patch())
+
+    def test_fig3_gives_each_genomes_scaling_and_its_source(self):
+        from experiment.pipeline.figures import fig3
+
+        fig = self._draw("fig3")
+        texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+        for gid in ("Papuan", "HLhydTec1"):  # the tiny profile's genomes
+            g = next(g for g in config.REAL_GENOMES if g.sample_id == gid)
+            note = next(t for t in texts if t.startswith(fig3.where(g)))
+            self.assertIn(f"g = {g.scaling.gen_years:g} y", note)
+            self.assertIn(g.scaling_cite, note)
+        self.assertTrue(any("Fenner 2005" in t for t in texts))
+
+    def test_turtle_patterns_figure(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures import figs_turtle, style
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        fig = self._draw("figs_turtle")
+        self._assert_notes_inside_axes(fig)
+        table = pd.read_csv(SCHEMAS["E2_split_patterns"].path(self.runs))
+        self.assertEqual(len([ax for ax in fig.axes if ax.axison]), table["sample_id"].nunique())
+        labels = self._labels(fig)
+        for pattern in ("4+25*2+4+6 (Fig 3)", "2+2+25*2+4+6", "1+1+1+1+25*2+4+6", "Outside the comparison window"):
+            self.assertTrue(any(pattern in label for label in labels), pattern)
+        ax = fig.axes[0]
+        # The default in psmc-rs's blue, the split patterns as its dark variant, dashed and dotted.
+        drawn = [(ln.get_color(), ln.get_linestyle()) for ln in ax.lines]
+        self.assertEqual(sorted(c for c, _ in drawn), sorted([style.BLUE, style.BLUE_650, style.BLUE_650]))
+        self.assertTrue(all((ls == "-") == (c == style.BLUE) for c, ls in drawn))
+        self.assertEqual([e.linestyle for k, e in figs_turtle.pattern_entities(config.TINY.e2).items() if k != "default"],
+                         list(figs_turtle.SPLIT_STYLES))
+        note = "\n".join(t.get_text() for t in ax.texts)
+        self.assertIn("Recent max / plateau:", note)
+        for row in table[table.sample_id == table.sample_id.iloc[0]].itertuples():
+            self.assertIn(f"{row.pattern}  {row.recent_max_vs_plateau:.2f}", note)
+        cfg = config.PRODUCTION.e2
+        self.assertEqual(list(figs_turtle.pattern_entities(cfg)), ["default", "split2", "split1"])
 
     def test_fig3_names_the_blocks_of_one_sequence_by_their_size(self):
         from types import SimpleNamespace

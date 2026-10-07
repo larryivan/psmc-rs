@@ -81,6 +81,9 @@ FIGURES: Tuple[FigureSpec, ...] = (
                "Posterior TMRCA against the true TMRCA"),
     FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_thread_scaling", "E3_table2", "E3_runs", "E3_determinism"),
                "Thread scaling and determinism of psmc-rs 0.2"),
+    # Not yet numbered among the supplementary figures (S5 and S6 are planned for E7).
+    FigureSpec("figS_turtle_patterns", "figs_turtle", "E2", ("E2_split_curves", "E2_split_patterns"),
+               "The turtles fitted with the first time window split: a check for false recent peaks"),
 )
 BY_NAME: Dict[str, FigureSpec] = {f.name: f for f in FIGURES}
 

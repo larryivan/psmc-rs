@@ -10,6 +10,7 @@ Layout under ``<runs>/E2/``::
 
     fits/<sample>.c.psmc                          C psmc, every round
     fits/<sample>.rs.json, <sample>.rs.psmc       psmc-rs 0.2, one thread (JSON and .psmc)
+    fits/<sample>.<split>.rs.{json,psmc}          psmc-rs 0.2 with the first window split (the turtles)
     bootstrap/<sample>/trunk<B>/main.json         psmc-rs 0.2 with --bootstrap: the main fit, again
     bootstrap/<sample>/trunk<B>/replicate_NNN.json  the replicates' parameters, and summary.{json,tsv}
     bootstrap/<sample>/trunk<B>/replicate_NNN.psmc  the replicates' rounds (not committed)
@@ -24,13 +25,34 @@ Jobs per genome: ``fit-c`` (C psmc), ``fit-rs`` (psmc-rs 0.2),
 ``boot-rs/trunk<B>`` (psmc-rs 0.2 with ``--bootstrap``, at the default
 trunks and, where they are few, at the fine trunks) and ``qc`` (``psmc-rs qc
 --json``, with the default trunk size), plus ``subset`` when the profile
-fits only the first bins of each genome; then ``report``.
+fits only the first bins of each genome, and for the turtles
+``fit-rs-split2`` and ``fit-rs-split1`` (the split-first-window check); then
+``report``.
 
 **Settings.** Both tools fit with the psmc README's human recipe
 (``-N25 -t15 -r5 -p "4+25*2+4+6"``; :class:`.config.Inference`). Curves are
-scaled per genome (:class:`.config.RealGenome`): the turtles with mu 7.9e-9
-and g 15, whose source the repository does not record (the config flags
-them as unverified), the human with mu 1.25e-8 and g 25.
+scaled per genome (:class:`.config.RealGenome`, whose ``scaling_source``
+gives the citations): the turtles with mu 4.6e-9 per bp per generation, the
+mean germline rate of nine *Chrysemys picta* trios (Bergeron et al. 2023; a
+cryptodire's rate, since no pleurodire rate has been measured; the psmc-rs
+0.1 runs' 7.9e-9 was a crocodilian rate, Green et al. 2014), and g 15 years
+for all three; the human with mu 1.25e-8 (Scally & Durbin 2012) and g 29
+years (Fenner 2005). psmc-rs is given mu and g (``--mu``, ``--gen-years``)
+for its own report; its fitted parameters do not depend on them, and C
+psmc is given neither.
+
+**Split-first-window check.** Hilgers et al. 2025 (Curr Biol 35:927) found
+false recent peaks of Ne across many PSMC studies, in all their turtles
+among them, under the pattern ``4+25*2+4+6``, whose first free lambda spans
+the first four intervals; splitting that window removed them. psmc-rs fits
+each genome of ``split_genomes`` (the turtles) again with each pattern of
+``split_patterns`` (``fit-rs-split2``: ``2+2+25*2+4+6``; ``fit-rs-split1``:
+``1+1+1+1+25*2+4+6``; every other setting fit-rs's), and
+``E2_split_patterns.csv`` compares each with fit-rs's fit: the Ne of the
+recent intervals (the first ``split_recent_intervals``) against the plateau
+(the median Ne of the next as many), whether the curve has a recent peak
+(:func:`recent_shape`), and the difference from fit-rs's fit interval by
+interval in the recent intervals and after them.
 
 **Bootstrap.** ``boot-rs`` runs ``psmc-rs IN main.json N_ITER --bootstrap
 B --bootstrap-block-size T --bootstrap-seed S``: psmc-rs fits the main model
@@ -100,6 +122,16 @@ Tables (``tables/``):
 * ``E2_qc.csv`` and ``E2_qc_findings.csv``: the metrics and the findings
   of ``psmc-rs qc`` for each input E2 fitted (in production the packaged
   files, whose reports Table S5 shows: E6's ``E6_S5_*``).
+* ``E2_split_patterns.csv``: per turtle and pattern (``default`` is
+  fit-rs's fit): theta, rho, t_max, N0, the final log-likelihood and its
+  gain over the default (the split patterns have 1 and 3 more free
+  lambdas), the recent intervals' Ne against the plateau
+  (``recent_max_vs_plateau``, ``first_vs_plateau``, ``recent_peak``), and
+  the largest difference from fit-rs's fit in the recent intervals and the
+  RMSE after them, on the comparison window (log10 Ne, interval by
+  interval).
+* ``E2_split_curves.csv``: the step curves of those fits (figure
+  ``figS_turtle_patterns``).
 
 Run ``python -m experiment.pipeline.experiments.e2 subset SRC DST
 --max-bins N`` to write the first N bins of a psmcfa (the ``subset`` job).
@@ -112,7 +144,7 @@ import functools
 import json
 import math
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
@@ -135,6 +167,8 @@ TABLES = {
     "traces": "E2_traces.csv",
     "qc": "E2_qc.csv",
     "qc_findings": "E2_qc_findings.csv",
+    "split": "E2_split_patterns.csv",
+    "split_curves": "E2_split_curves.csv",
 }
 SUMMARY_PROBS = config.PSMC_RS_SUMMARY_QUANTILES  # the quantiles of psmc-rs's summary.json
 # The fields of a psmc-rs JSON that are the fit. Its ``qc`` record describes
@@ -261,6 +295,12 @@ class Layout:
     def rs_psmc(self, sid: str) -> Path:
         return self.root / "fits" / f"{sid}.rs.psmc"
 
+    def split_json(self, sid: str, name: str) -> Path:
+        return self.root / "fits" / f"{sid}.{name}.rs.json"
+
+    def split_psmc(self, sid: str, name: str) -> Path:
+        return self.root / "fits" / f"{sid}.{name}.rs.psmc"
+
     def boot_dir(self, sid: str, trunk: int) -> Path:
         return self.root / "bootstrap" / sid / f"trunk{trunk}"
 
@@ -299,6 +339,16 @@ def source(genome: config.RealGenome) -> Path:
 def fit_input(lay: Layout, cfg: config.E2, genome: config.RealGenome) -> Path:
     """The psmcfa the fits read: the packaged file, or its first bins when the profile says so."""
     return source(genome) if cfg.max_bins is None else lay.subset(genome.sample_id)
+
+
+def split_kind(name: str) -> str:
+    """The job kind (and provenance directory) of a split-first-window fit: ``fit-rs-<name>``."""
+    return f"fit-rs-{name}"
+
+
+def split_inference(cfg: config.E2, pattern: str) -> config.Inference:
+    """fit-rs's settings with another pattern."""
+    return replace(cfg.inference, pattern=pattern)
 
 
 def boot_kind(trunk: int) -> str:
@@ -413,6 +463,28 @@ def jobs(ctx: Context) -> List[Job]:
                 description=f"psmc-rs 0.2 on {g.label}",
             )
         )
+        if g.sample_id in cfg.split_genomes:
+            for name, pattern in cfg.split_patterns:
+                inf = split_inference(cfg, pattern)
+                out.append(
+                    Job(
+                        id=job_id(split_kind(name), sid),
+                        command=tools.rs02_fit(
+                            rs_tool, inf, g.scaling, inp, lay.split_json(sid, name),
+                            threads=cfg.fit_threads, psmc_out=lay.split_psmc(sid, name),
+                        ),
+                        inputs=[inp],
+                        outputs=[lay.split_json(sid, name), lay.split_psmc(sid, name)],
+                        cores=cfg.fit_threads,
+                        mem_gb=costs.rs02_gb,
+                        est_seconds=costs.rs02_seconds(mb, inf, min(cfg.fit_threads, shape.sequences)),
+                        settings={"inference": asdict(inf), "scaling": scaling, "threads": cfg.fit_threads},
+                        tools=rs_ident,
+                        description=f"psmc-rs 0.2 on {g.label}, pattern {pattern} (first window split)",
+                    )
+                )
+                report_inputs += [lay.split_json(sid, name), lay.split_psmc(sid, name),
+                                  lay.record(split_kind(name), sid)]
         boot_outputs: List[Path] = []
         for trunk in trunk_sizes(cfg, input_lengths(cfg, g)):
             # psmc-rs skips a replicate whose fresh start is invalid (it gets no
@@ -704,6 +776,7 @@ def fit_summary_rows(gr: GenomeResult, cfg: config.E2) -> List[Dict]:
                 "mu": g.scaling.mu,
                 "gen_years": g.scaling.gen_years,
                 "scaling_source": g.scaling_source,
+                "scaling_cite": g.scaling_cite,
                 "tool": tool,
                 "sequences": gr.c.header.get("n_seqs") if tool == "c" else inp.get("sequences"),
                 "called_bins": gr.c.header.get("sum_L") if tool == "c" else inp.get("bins", 0) - inp.get("missing_bins", 0),
@@ -924,6 +997,129 @@ def qc_finding_rows(gr: GenomeResult) -> List[Dict]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# The split-first-window check
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SplitFit:
+    """One psmc-rs fit of a genome with a pattern: fit-rs's (``default``) or a split-first-window one."""
+
+    name: str
+    pattern: str
+    params: Dict
+    fit: results.Fit
+    curve: results.Curve
+    run: Dict
+
+
+def load_split(lay: Layout, cfg: config.E2, gr: GenomeResult, name: str, pattern: str) -> SplitFit:
+    """A split-first-window fit, checked to be of its pattern and of fit-rs's input."""
+    g, n_iter = gr.genome, cfg.inference.n_iter
+    path = lay.split_json(g.sample_id, name)
+    params = results.read_rs_json(path)
+    if int(params.get("n_iter", -1)) != n_iter:
+        raise ValueError(f"{path}: not a fit of {n_iter} iterations")
+    if params.get("pattern") != pattern:
+        raise ValueError(f"{path}: pattern {params.get('pattern')}, expected {pattern}")
+    keys = ("sequences", "bins", "missing_bins", "het_bins")
+    mine, main = params.get("input", {}), gr.rs_params.get("input", {})
+    if any(mine.get(k) != main.get(k) for k in keys):
+        raise ValueError(f"{path}: another input than fit-rs's ({', '.join(f'{k} {mine.get(k)}' for k in keys)})")
+    fit = results.fit_from_rs(params)
+    sc = g.scaling
+    return SplitFit(name, pattern, params, fit, fit.curve(sc.mu, sc.gen_years, cfg.inference.bin_size),
+                    _run_record(lay.record(split_kind(name), g.sample_id)))
+
+
+def split_fits(lay: Layout, cfg: config.E2, gr: GenomeResult) -> List[SplitFit]:
+    """fit-rs's fit (``default``), then the genome's split-first-window fits in the configuration's order."""
+    default = SplitFit("default", cfg.inference.pattern, gr.rs_params, gr.fits["rs"], gr.curves["rs"],
+                       gr.runs["fit-rs"])
+    return [default] + [load_split(lay, cfg, gr, name, pattern) for name, pattern in cfg.split_patterns]
+
+
+def recent_shape(curve: results.Curve, recent: int, peak_ratio: float) -> Dict:
+    """The recent intervals of a curve against the plateau before them (``config.E2.split_recent_intervals``).
+
+    The plateau is the median Ne of the ``recent`` intervals after the
+    recent ones. A recent peak: the largest Ne of the recent intervals lies
+    after the first interval and is at least ``peak_ratio`` times both the
+    first interval's Ne and the plateau.
+    """
+    import statistics
+
+    ne = curve.ne
+    if len(ne) < 2 * recent:
+        raise ValueError(f"{len(ne)} intervals, fewer than twice the {recent} recent ones")
+    k = max(range(recent), key=lambda i: ne[i])  # the first of equal maxima
+    plateau = statistics.median(ne[recent:2 * recent])
+    return {
+        "recent_end_years": curve.years[recent],
+        "ne_first": ne[0],
+        "recent_max_interval": k,
+        "recent_max_years": curve.years[k],
+        "ne_recent_max": ne[k],
+        "ne_plateau": plateau,
+        "first_vs_plateau": ne[0] / plateau,
+        "recent_max_vs_plateau": ne[k] / plateau,
+        "recent_max_vs_first": ne[k] / ne[0],
+        "recent_peak": k > 0 and ne[k] >= peak_ratio * ne[0] and ne[k] >= peak_ratio * plateau,
+    }
+
+
+def split_rows(gr: GenomeResult, cfg: config.E2, fits: Sequence[SplitFit]) -> List[Dict]:
+    """One row per fit of the genome: its parameters, its recent intervals, and how it differs from fit-rs's fit."""
+    g, n, recent = gr.genome, cfg.inference.n_iter, cfg.split_recent_intervals
+    default = fits[0]
+    ll_default = results.rs_loglikes(default.params)
+    older = (default.curve.years[recent], gr.window[1])  # fit-rs's intervals after the recent ones, in the window
+    rows = []
+    for sf in fits:
+        ratio = metrics.interval_log10_ratio(sf.curve, default.curve)
+        ll = results.rs_loglikes(sf.params)
+        rows.append(
+            {
+                "sample_id": g.sample_id,
+                "label": g.label,
+                "mu": g.scaling.mu,
+                "gen_years": g.scaling.gen_years,
+                "pattern_name": sf.name,
+                "pattern": sf.pattern,
+                "free_lambdas": results.pattern_free(sf.pattern),
+                "n_iter": n,
+                "theta": sf.fit.theta,
+                "rho": sf.fit.rho,
+                "t_max": sf.fit.t_max,
+                "n0": sf.fit.n0(g.scaling.mu, cfg.inference.bin_size),
+                "loglike_final": ll[n] if len(ll) > n else None,
+                "loglike_gain_vs_default": ll[n] - ll_default[n] if len(ll) > n and len(ll_default) > n else None,
+                "window_lo_years": gr.window[0],
+                "window_hi_years": gr.window[1],
+                "recent_intervals": recent,
+                **recent_shape(sf.curve, recent, cfg.split_peak_ratio),
+                "max_abs_log10_ne_vs_default_recent": float(max(abs(x) for x in ratio[:recent])),
+                "rmse_log10_ne_vs_default_older": (
+                    metrics.interval_diff(sf.curve, default.curve, older).rmse if older[0] < older[1] else None
+                ),
+                **_run_fields(sf.run),
+            }
+        )
+    return rows
+
+
+def split_curve_rows(gr: GenomeResult, fits: Sequence[SplitFit]) -> List[Dict]:
+    rows = []
+    for sf in fits:
+        for k, (t, y, lam, ne) in enumerate(zip(sf.fit.boundaries(), sf.curve.years, sf.fit.lambdas, sf.curve.ne)):
+            rows.append(
+                {"sample_id": gr.genome.sample_id, "pattern_name": sf.name, "pattern": sf.pattern, "interval": k,
+                 "t_2n0": t, "years": y, "lambda": lam, "ne": ne}
+            )
+    return rows
+
+
 def report(ctx: Context) -> Dict[str, Path]:
     """Write every E2 table from the outputs; returns the paths written."""
     cfg = ctx.profile.e2
@@ -941,6 +1137,10 @@ def report(ctx: Context) -> Dict[str, Path]:
         rows["traces"] += trace_rows(gr, cfg)
         rows["qc"].append(qc_row(gr))
         rows["qc_findings"] += qc_finding_rows(gr)
+        if g.sample_id in cfg.split_genomes:
+            fits = split_fits(lay, cfg, gr)
+            rows["split"] += split_rows(gr, cfg, fits)
+            rows["split_curves"] += split_curve_rows(gr, fits)
     written = {}
     for key, table in rows.items():
         write_csv(lay.table(key), table)
@@ -978,8 +1178,9 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "TABLES", "band", "below_trunk_fraction", "boot_kind",
-    "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "jobs", "load_genome",
-    "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "report", "summary_difference", "trunk_sizes",
-    "write_psmcfa_prefix",
+    "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "below_trunk_fraction",
+    "boot_kind", "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "jobs",
+    "load_genome", "load_split", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "recent_shape", "report",
+    "split_curve_rows", "split_fits", "split_inference", "split_kind", "split_rows", "summary_difference",
+    "trunk_sizes", "write_psmcfa_prefix",
 ]

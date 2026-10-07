@@ -90,11 +90,19 @@ class Design(unittest.TestCase):
         self.assertEqual([g.sample_id for g in p.e2.genomes], ["HLemySub1", "HLhydTec1", "HLpelCas1", "Papuan"])
         papuan = p.e2.genomes[-1]
         self.assertIn("chr1 only", papuan.label)
-        self.assertEqual((papuan.scaling.mu, papuan.scaling.gen_years), (1.25e-8, 25.0))
+        self.assertEqual((papuan.scaling.mu, papuan.scaling.gen_years), (1.25e-8, 29.0))
+        self.assertIn("Fenner 2005", papuan.scaling_source)
         for g in p.e2.genomes[:3]:
-            self.assertEqual((g.scaling.mu, g.scaling.gen_years), (7.9e-9, 15.0))
-            self.assertIn("UNVERIFIED", g.scaling_source)
+            # The mean of nine Chrysemys picta trios (Bergeron et al. 2023), not the crocodilian 7.9e-9.
+            self.assertEqual((g.scaling.mu, g.scaling.gen_years), (4.6e-9, 15.0))
+            self.assertIn("Bergeron et al. 2023", g.scaling_source)
+            self.assertIn("no pleurodire rate has been measured", g.scaling_source)
+            self.assertIn("crocodilian rate (Green et al. 2014", g.scaling_source)
+            self.assertNotIn("UNVERIFIED", g.scaling_source)
+            self.assertTrue(g.scaling_cite)
             self.assertTrue((paths.REAL_DATA / g.file).exists())
+        self.assertEqual([g for g in p.e2.genomes if g.sample_id in p.e2.split_genomes], list(p.e2.genomes[:3]))
+        self.assertEqual(dict(p.e2.split_patterns), {"split2": "2+2+25*2+4+6", "split1": "1+1+1+1+25*2+4+6"})
         self.assertEqual(p.e2.bootstrap_replicates, 100)
         self.assertEqual(p.e3.genome_sizes_mb, (100, 300, 1000, 3000))
         self.assertEqual(p.e2.rs_threads, 50)

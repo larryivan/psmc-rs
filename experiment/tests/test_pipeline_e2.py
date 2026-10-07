@@ -57,9 +57,25 @@ class Config(unittest.TestCase):
         self.assertEqual(sorted(cfg.panel_order), sorted(g.sample_id for g in cfg.genomes))
         papuan = genome("Papuan")
         self.assertIn("chr1 only", papuan.label)
-        self.assertEqual((papuan.scaling.mu, papuan.scaling.gen_years), (1.25e-8, 25.0))
+        self.assertEqual((papuan.scaling.mu, papuan.scaling.gen_years), (1.25e-8, 29.0))
         for sid in ("HLemySub1", "HLhydTec1", "HLpelCas1"):
-            self.assertEqual((genome(sid).scaling.mu, genome(sid).scaling.gen_years), (7.9e-9, 15.0))
+            self.assertEqual((genome(sid).scaling.mu, genome(sid).scaling.gen_years), (4.6e-9, 15.0))
+
+    def test_split_patterns_keep_the_intervals_and_split_the_first_window(self):
+        cfg = config.PRODUCTION.e2
+        self.assertEqual(cfg.split_genomes, ("HLemySub1", "HLhydTec1", "HLpelCas1"))
+        default = results.pattern_groups(cfg.inference.pattern)
+        self.assertEqual(default[0], (1, 4))
+        for name, pattern in cfg.split_patterns:
+            with self.subTest(pattern=pattern):
+                self.assertEqual(results.pattern_intervals(pattern), results.pattern_intervals(cfg.inference.pattern))
+                groups = results.pattern_groups(pattern)
+                # The first four intervals take more than one free lambda; the rest is the default's.
+                head = groups[: len(groups) - len(default) + 1]
+                self.assertEqual(sum(a * b for a, b in head), 4)
+                self.assertGreater(sum(a for a, _ in head), 1)
+                self.assertEqual(groups[len(head):], default[1:])
+        self.assertLessEqual(2 * cfg.split_recent_intervals, results.pattern_intervals(cfg.inference.pattern))
 
     def test_smoke_and_tiny_fit_prefixes(self):
         self.assertEqual(config.get_profile("smoke").e2.max_bins, 200_000)
@@ -78,14 +94,16 @@ class Jobs(unittest.TestCase):
         self.by_id = {j.id: j for j in self.jobs}
 
     def test_four_jobs_per_genome_then_the_report(self):
-        # Papuan chr1 forms 5 default trunks (< 20): it gets the second bootstrap, on 5 Mb trunks.
-        self.assertEqual(len(self.jobs), 4 * 4 + 1 + 1)
+        # Papuan chr1 forms 5 default trunks (< 20): it gets the second bootstrap, on 5 Mb trunks. Each
+        # turtle gets two split-first-window fits.
+        self.assertEqual(len(self.jobs), 4 * 4 + 1 + 3 * 2 + 1)
         self.assertIn("E2/boot-rs/trunk50000/Papuan", self.by_id)
         self.assertNotIn("E2/boot-rs/trunk50000/HLhydTec1", self.by_id)  # 51 default trunks
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E2/fit-c/Papuan"], [])  # reads the packaged file
         report = set(g.deps["E2/report"])
-        self.assertEqual(report, {j.id for j in self.jobs if j.id.split("/")[1] in ("fit-c", "fit-rs", "boot-rs", "qc")})
+        kinds = ("fit-c", "fit-rs", "boot-rs", "qc", "fit-rs-split2", "fit-rs-split1")
+        self.assertEqual(report, {j.id for j in self.jobs if j.id.split("/")[1] in kinds})
 
     def test_tools_read_the_identical_input_with_identical_settings(self):
         c, rs = self.by_id["E2/fit-c/HLhydTec1"], self.by_id["E2/fit-rs/HLhydTec1"]
@@ -93,9 +111,33 @@ class Jobs(unittest.TestCase):
         self.assertEqual(c.inputs, rs.inputs)
         self.assertEqual(c.command[1:6], ["-N25", "-t15", "-r5", "-p", "4+25*2+4+6"])
         self.assertEqual(rs.command[3], "25")
-        self.assertEqual(rs.command[rs.command.index("--mu") + 1], "7.9e-09")
+        self.assertEqual(rs.command[rs.command.index("--mu") + 1], "4.6e-09")
         self.assertEqual(rs.command[rs.command.index("--gen-years") + 1], "15")
         self.assertEqual(c.settings["inference"], rs.settings["inference"])
+        # C psmc is given no scaling: its command does not change with mu and g.
+        self.assertNotIn("--mu", c.command)
+        papuan = self.by_id["E2/fit-rs/Papuan"]
+        self.assertEqual(papuan.command[papuan.command.index("--gen-years") + 1], "29")
+
+    def test_split_first_window_fits(self):
+        lay = e2.Layout(self.runs / "E2")
+        rs = self.by_id["E2/fit-rs/HLpelCas1"]
+        for name, pattern in config.PRODUCTION.e2.split_patterns:
+            with self.subTest(pattern=pattern):
+                job = self.by_id[f"E2/fit-rs-{name}/HLpelCas1"]
+                self.assertEqual(job.inputs, rs.inputs)
+                self.assertEqual(job.outputs, [lay.split_json("HLpelCas1", name), lay.split_psmc("HLpelCas1", name)])
+                self.assertEqual(job.outputs[0].name, f"HLpelCas1.{name}.rs.json")
+                self.assertEqual(job.command[job.command.index("--pattern") + 1], pattern)
+                # Every other argument is fit-rs's (its output files aside).
+                differ = [(a, b) for a, b in zip(rs.command, job.command) if a != b]
+                self.assertEqual(differ, [(str(lay.rs_json("HLpelCas1")), str(lay.split_json("HLpelCas1", name))),
+                                          ("4+25*2+4+6", pattern),
+                                          (str(lay.rs_psmc("HLpelCas1")), str(lay.split_psmc("HLpelCas1", name)))])
+                self.assertEqual(job.settings["inference"], dict(rs.settings["inference"], pattern=pattern))
+                self.assertEqual(job.settings["scaling"], rs.settings["scaling"])
+                self.assertEqual(job.record_path(self.runs), lay.record(e2.split_kind(name), "HLpelCas1"))
+        self.assertFalse([j for j in self.jobs if j.id.startswith("E2/fit-rs-split") and j.id.endswith("/Papuan")])
 
     def test_bootstrap_job(self):
         boot = self.by_id["E2/boot-rs/trunk500000/Papuan"]
@@ -246,11 +288,29 @@ class WindowAndBand(unittest.TestCase):
         self.assertEqual(e2.main_fit_mismatch(dict(fit, lam=[1.0, 2.0000001]), fit), ("lam",))
 
 
+SPLIT_FIRST_SCALE = 3.0  # the stand-in split fits' first free lambda, relative to fit-rs's
+
+
+def write_stand_in_splits(lay: e2.Layout, cfg: config.E2, sid: str, main: dict) -> None:
+    """Split-first-window fits equal to fit-rs's ``main`` but for a first free lambda 3 times as large."""
+    lam = results.expand_lambdas(main["lam"], main["pattern"], main["n_steps"] + 1)
+    for name, pattern in cfg.split_patterns:
+        free, k = [], 0
+        for count, width in results.pattern_groups(pattern):
+            for _ in range(count):
+                free.append(lam[k])
+                k += width
+        free[0] *= SPLIT_FIRST_SCALE
+        lay.split_json(sid, name).write_text(json.dumps(dict(main, pattern=pattern, lam=free)))
+        shutil.copy(C_REF, lay.split_psmc(sid, name))
+
+
 def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
     """Outputs of every E2 job for ``cfg``, made from C psmc's reference output (5 iterations).
 
     psmc-rs's fit is C's last round; replicate r scales its lambdas by
-    1 + r/10; HLhydTec1's psmc-rs fit has lambdas twice C's.
+    1 + r/10; HLhydTec1's psmc-rs fit has lambdas twice C's, and its split-first-window fits
+    are that fit with the first free lambda 3 times as large (:func:`write_stand_in_splits`).
     """
     lay = e2.Layout(runs / "E2")
     ref = results.parse_psmc(C_REF)
@@ -275,6 +335,8 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
 
         main = json.dumps(params(scale), indent=2)
         lay.rs_json(sid).write_text(main)
+        if sid in cfg.split_genomes:
+            write_stand_in_splits(lay, cfg, sid, params(scale))
         sc = g.scaling
         main_curve = results.fit_from_rs(params(scale)).curve(sc.mu, sc.gen_years, 100)
         for trunk in e2.trunk_sizes(cfg, e2.input_lengths(cfg, g)):
@@ -371,7 +433,7 @@ class Tables(unittest.TestCase):
         self.assertEqual({(r["sample_id"], r["tool"]) for r in rows},
                          {(s, t) for s in ("Papuan", "HLhydTec1") for t in ("c", "rs")})
         papuan = next(r for r in rows if r["sample_id"] == "Papuan" and r["tool"] == "c")
-        self.assertEqual((papuan["mu"], papuan["gen_years"]), ("1.25e-08", "25.0"))
+        self.assertEqual((papuan["mu"], papuan["gen_years"]), ("1.25e-08", "29.0"))
         self.assertIn("chr1", papuan["label"])
         self.assertEqual(papuan["loglike_final"], "")  # C psmc never evaluates its final model
         qc = {r["sample_id"]: r for r in read_csv(self.lay.table("qc"))}
@@ -388,6 +450,93 @@ class Tables(unittest.TestCase):
         self.assertTrue(all(float(r["ne_band_lo"]) <= float(r["ne_band_hi"]) for r in bands))
         curves = read_csv(self.lay.table("curves"))
         self.assertEqual(len(curves), 2 * 2 * 64)
+
+    def test_split_first_window_table(self):
+        rows = {r["pattern_name"]: r for r in read_csv(self.lay.table("split"))}
+        self.assertEqual(list(rows), ["default", "split2", "split1"])  # HLhydTec1 only: Papuan is not a turtle
+        self.assertEqual({r["sample_id"] for r in rows.values()}, {"HLhydTec1"})
+        self.assertEqual([rows[k]["free_lambdas"] for k in rows], ["28", "29", "31"])
+        self.assertEqual(rows["split1"]["pattern"], "1+1+1+1+25*2+4+6")
+        self.assertEqual((rows["default"]["mu"], rows["default"]["gen_years"]), ("4.6e-09", "15.0"))
+        self.assertEqual(float(rows["default"]["max_abs_log10_ne_vs_default_recent"]), 0.0)
+        for name in ("split2", "split1"):
+            # Only the first free lambda differs (3 times fit-rs's): the older intervals are fit-rs's.
+            self.assertAlmostEqual(float(rows[name]["max_abs_log10_ne_vs_default_recent"]),
+                                   math.log10(SPLIT_FIRST_SCALE), places=12)
+            self.assertEqual(float(rows[name]["rmse_log10_ne_vs_default_older"]), 0.0)
+            self.assertEqual(float(rows[name]["loglike_gain_vs_default"]), 0.0)
+            self.assertEqual(rows[name]["ne_plateau"], rows["default"]["ne_plateau"])
+            self.assertAlmostEqual(float(rows[name]["first_vs_plateau"]),
+                                   SPLIT_FIRST_SCALE * float(rows["default"]["first_vs_plateau"]), places=9)
+        pairs = {r["sample_id"]: r for r in read_csv(self.lay.table("pairs"))}
+        self.assertEqual(float(rows["default"]["window_hi_years"]), float(pairs["HLhydTec1"]["window_hi_years"]))
+        curves = read_csv(self.lay.table("split_curves"))
+        self.assertEqual(len(curves), 3 * 64)
+        fit_rs = [r["ne"] for r in read_csv(self.lay.table("curves")) if r["sample_id"] == "HLhydTec1" and r["tool"] == "rs"]
+        self.assertEqual([r["ne"] for r in curves if r["pattern_name"] == "default"], fit_rs)
+
+    def test_fit_summary_names_the_scaling_source(self):
+        rows = {(r["sample_id"], r["tool"]): r for r in read_csv(self.lay.table("fit_summary"))}
+        self.assertEqual(rows[("HLhydTec1", "rs")]["scaling_cite"], genome("HLhydTec1").scaling_cite)
+        self.assertIn("Bergeron et al. 2023", rows[("HLhydTec1", "c")]["scaling_source"])
+        self.assertIn("Fenner 2005", rows[("Papuan", "c")]["scaling_source"])
+
+
+@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
+class SplitFits(unittest.TestCase):
+    """A split-first-window fit must be of its pattern and of fit-rs's input."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.runs = Path(self._tmp.name)
+        inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
+        self.profile = replace(config.TINY, e2=replace(config.TINY.e2, inference=inference, bootstrap_replicates=3))
+        self.lay = write_stand_in_outputs(self.runs, self.profile.e2)
+        self.path = self.lay.split_json("HLhydTec1", "split2")
+        self.params = json.loads(self.path.read_text())
+
+    def test_another_pattern_fails_the_report(self):
+        self.params["pattern"] = "1+1+1+1+25*2+4+6"
+        self.params["lam"] = self.params["lam"] + [1.0, 1.0]
+        self.path.write_text(json.dumps(self.params))
+        with self.assertRaisesRegex(ValueError, "pattern 1\\+1\\+1\\+1\\+25\\*2\\+4\\+6, expected 2\\+2\\+25"):
+            e2.report(Context(self.profile, self.runs))
+
+    def test_another_input_fails_the_report(self):
+        self.params["input"]["het_bins"] += 1
+        self.path.write_text(json.dumps(self.params))
+        with self.assertRaisesRegex(ValueError, "another input than fit-rs's"):
+            e2.report(Context(self.profile, self.runs))
+
+
+class RecentShape(unittest.TestCase):
+    """The recent intervals of a curve against the plateau after them (the false-peak check)."""
+
+    @staticmethod
+    def curve(ne):
+        return results.Curve(tuple(float(10 * k) for k in range(len(ne))), tuple(float(x) for x in ne))
+
+    def test_a_peak_after_a_low_first_window(self):
+        # The turtles' default fits: a low first window, a high second one, then a plateau.
+        s = e2.recent_shape(self.curve([0.2] * 4 + [5.0] * 2 + [2.6] * 2 + [2.0] * 8 + [3.0] * 48), 8, 1.25)
+        self.assertEqual((s["recent_max_interval"], s["recent_max_years"]), (4, 40.0))
+        self.assertEqual(s["ne_plateau"], 2.0)
+        self.assertEqual((s["recent_max_vs_plateau"], s["first_vs_plateau"]), (2.5, 0.1))
+        self.assertTrue(s["recent_peak"])
+        self.assertEqual(s["recent_end_years"], 80.0)
+
+    def test_no_peak(self):
+        flat = e2.recent_shape(self.curve([2.0] * 64), 8, 1.25)
+        self.assertEqual((flat["recent_max_interval"], flat["recent_peak"]), (0, False))
+        # The recent maximum is the first interval: a decline towards the past, not a peak.
+        falling = e2.recent_shape(self.curve([8.0, 6.0, 4.0, 3.0] + [2.0] * 60), 8, 1.25)
+        self.assertEqual((falling["recent_max_interval"], falling["recent_peak"]), (0, False))
+        # A bump below the ratio over the plateau.
+        bump = e2.recent_shape(self.curve([1.0] * 4 + [2.4] * 4 + [2.0] * 56), 8, 1.25)
+        self.assertEqual((bump["recent_max_interval"], bump["recent_peak"]), (4, False))
+        with self.assertRaises(ValueError):
+            e2.recent_shape(self.curve([1.0] * 10), 8, 1.25)
 
 
 @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
@@ -439,6 +588,11 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E2/fits/HLemySub1.c.psmc",
             "experiment/runs/E2/fits/HLemySub1.rs.json",
             "experiment/runs/E2/fits/HLemySub1.rs.psmc",
+            "experiment/runs/E2/fits/HLemySub1.split2.rs.json",
+            "experiment/runs/E2/fits/HLemySub1.split1.rs.psmc",
+            "experiment/runs/E2/provenance/fit-rs-split1/HLemySub1.json",
+            "experiment/runs/E2/tables/E2_split_patterns.csv",
+            "experiment/runs/E2/figures/figS_turtle_patterns.pdf",
             "experiment/runs/E2/qc/HLemySub1.qc.json",
             "experiment/runs/E2/qc/HLemySub1.qc.txt",
             "experiment/runs/E2/provenance/boot-rs/trunk500000/HLemySub1.json",
@@ -460,6 +614,7 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/replicate_001.html",
             "experiment/runs/E2/inputs/HLemySub1.psmcfa",
             "experiment/runs/E2/fits/HLemySub1.rs.html",
+            "experiment/runs/E2/fits/HLemySub1.split2.rs.html",
             "experiment/runs/E2/logs/jobs/boot-rs/HLemySub1.log",
         ):
             self.assertTrue(ignored(p), p)
@@ -485,6 +640,14 @@ class EndToEnd(unittest.TestCase):
         trunks = {(r["sample_id"], r["trunk_bins"]): int(r["trunks"]) for r in rows}
         self.assertEqual(trunks[("Papuan", "5000")], 4)  # 20,000 bins in trunks of 5,000
         self.assertEqual(trunks[("Papuan", "1000")], 20)
+        # The split-first-window fits of the turtle: the same input as fit-rs, their own patterns.
+        split = read_csv(lay.table("split"))
+        self.assertEqual([(r["sample_id"], r["pattern"]) for r in split],
+                         [("HLhydTec1", p) for p in ("4+25*2+4+6", "2+2+25*2+4+6", "1+1+1+1+25*2+4+6")])
+        self.assertEqual(float(split[0]["max_abs_log10_ne_vs_default_recent"]), 0.0)
+        for name in ("split2", "split1"):
+            self.assertEqual(json.loads(lay.split_json("HLhydTec1", name).read_text())["input"],
+                             json.loads(lay.rs_json("HLhydTec1").read_text())["input"])
         statuses = runner.job_statuses(tiny_runs.graph(), runs, daemon_pid=None)
         self.assertTrue(all(s.state == runner.DONE for s in statuses if s.job.experiment == "E2"))
 

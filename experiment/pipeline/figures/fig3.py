@@ -8,8 +8,14 @@ blocks of 50 Mb), the band at 5 Mb blocks too (dark blue, dotted outline).
 The bootstrap resamples blocks: the genome's sequences split at the block
 size (splitfa's trunks; a remainder under 1.5 blocks stays in the last
 block), so the turtles' blocks are mostly whole scaffolds shorter than 50
-Mb. Each genome is scaled with its own mu and g (given in the panel; the
-turtle values are unverified, see ``config._TURTLE_SCALING_SOURCE``). Times
+Mb. Each genome is scaled with its own mu and g, given in the panel with
+their source in a few words (``config.RealGenome.scaling_cite``; in full in
+``scaling_source``): the turtles with mu = 4.6e-9 per bp per generation,
+the mean germline rate of nine *Chrysemys picta* (painted turtle) trios
+(Bergeron et al. 2023; no pleurodire rate has been measured), and g = 15
+years for all three species; the human with mu = 1.25e-8 (Scally & Durbin
+2012) and g = 29 years (Fenner 2005). Ne and time scale as 1/mu, and time
+also as g (the caption's sensitivity sentence: figures/README.md). Times
 outside the window on which the tools are compared (1% to 99% of pairwise
 coalescence times under C psmc's fitted model) are shaded grey; the panel
 gives the tools' difference on it, interval by interval (the RMSE of
@@ -24,8 +30,8 @@ the panel says so.
 
 Everything comes from E2's tables: ``E2_curves`` (the fits), ``E2_bands``
 (the bands, on a dense grid), ``E2_bootstrap`` (replicates, blocks),
-``E2_rs_vs_c`` (window, differences) and ``E2_fit_summary`` (scaling,
-sequences).
+``E2_rs_vs_c`` (window, differences) and ``E2_fit_summary`` (scaling and
+its source, sequences).
 """
 
 from __future__ import annotations
@@ -42,7 +48,8 @@ MARGIN_DECADES = 0.5  # the x range: the comparison windows widened by this much
 FINE_STYLE = style.DOT  # the fine band's outline (not the truth's dashes)
 FINE_LW = 0.8
 NOTE_LINE_SHARE = 0.072  # share of a panel's height one line of a note takes (7 pt, line spacing 1.25)
-SCALING_NOTE_Y = 0.865  # the top of the two-line note under the species name (axes fraction)
+SCALING_NOTE_Y = 0.865  # the top of the note under the species name (axes fraction)
+SCALING_NOTE_LINES = 3  # sample; mu and g; their source
 
 
 def genome_order(cfg: config.E2, present) -> List[config.RealGenome]:
@@ -151,6 +158,7 @@ def draw(src: Source):
         sc = summary.get(sid)
         mu = float(sc.mu) if sc is not None else gnm.scaling.mu
         g = float(sc.gen_years) if sc is not None else gnm.scaling.gen_years
+        cite = str(sc.scaling_cite) if sc is not None else gnm.scaling_cite
         sequences = int(sc.sequences) if sc is not None else None
         lines = [r"psmc-rs vs C, log$_{10}$ $N_\mathrm{e}$ per interval:",
                  f"RMSE {fmt_sig(float(pair.rmse_log10_ne_rs_vs_c_per_interval))}, "
@@ -161,7 +169,7 @@ def draw(src: Source):
         # (they have no box, which would cover the grey of the times outside
         # the window): the top notes above the data, the bottom ones below it.
         lo, hi = min(vals) / 1.6, max(vals) * 1.6
-        room_top = 1.0 - SCALING_NOTE_Y + 2 * NOTE_LINE_SHARE
+        room_top = 1.0 - SCALING_NOTE_Y + SCALING_NOTE_LINES * NOTE_LINE_SHARE
         room_bottom = 0.03 + NOTE_LINE_SHARE * len(lines)
         span = math.log10(hi / lo) / (1.0 - room_top - room_bottom)
         lo, hi = lo / 10 ** (room_bottom * span), hi * 10 ** (room_top * span)
@@ -172,8 +180,8 @@ def draw(src: Source):
         if math.log10(hi / lo) < 2.0:
             _log_ticks_1_2_5(ax)
         style.note(ax, 0.03, 0.97, gnm.species, color=style.INK, size=style.TEXT_PT, fontstyle="italic", zorder=7)
-        style.note(ax, 0.03, SCALING_NOTE_Y, f"{where(gnm)}\n" + rf"$\mu$ = {sci(mu)}, g = {g:g} y",
-                   linespacing=1.25, zorder=7)
+        style.note(ax, 0.03, SCALING_NOTE_Y, f"{where(gnm)}\n" + rf"$\mu$ = {sci(mu)}, g = {g:g} y" + "\n"
+                   + rf"$\mu$: {cite}", linespacing=1.25, zorder=7)
         style.note(ax, 0.97, 0.03, "\n".join(lines), ha="right", va="bottom", linespacing=1.25, zorder=7)
     for j in range(n, nrow * ncol):
         fig.add_subplot(gs[j // ncol, j % ncol]).set_axis_off()
