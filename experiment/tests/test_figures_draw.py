@@ -123,34 +123,23 @@ class Draw(unittest.TestCase):
             if len(z) == 2:
                 self.assertGreater(min(z[style.BLUE_650]), max(z[style.MAGENTA]))
 
-    def test_fig6_legend_names_every_element_and_the_projected_truth_when_given(self):
+    def test_fig6_legend_names_every_element_and_the_projected_truth(self):
         import pandas as pd
 
         from experiment.pipeline.figures.schemas import SCHEMAS
 
+        # E5's report writes the coverage of the pattern-projected truth, which d draws with markers.
         fig = self._draw("fig6")
         labels = self._labels(fig)
         for want in ("True sampling SD and its 95% interval (b, c)", "Covers the fits' mean (d)",
                      "Clopper-Pearson 95% interval", "Interquartile range over the genomes (c)", "Nominal 95% (d)",
-                     "window coverage of the true"):
+                     "window coverage of the true", "Covers the projected truth (d)"):
             self.assertTrue(any(want in label for label in labels), want)
-        self.assertFalse(any("projected" in label for label in labels))
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            shutil.copytree(self.runs / "E5" / "tables", runs / "E5" / "tables")
-            path = SCHEMAS["E5_coverage"].path(runs)
-            cov = pd.read_csv(path)
-            cov["coverage_projected"] = cov["coverage_fit_mean"]
-            cov.to_csv(path, index=False)
-            path = SCHEMAS["E5_summary"].path(runs)
-            summary = pd.read_csv(path)
-            summary["coverage_projected_mean"] = 0.5
-            summary.to_csv(path, index=False)
-            fig = self._draw("fig6", runs)
-        labels = self._labels(fig)
-        self.assertIn("Covers the projected truth (d)", labels)
-        self.assertTrue(any("projected truth 50%" in label for label in labels))
-        trunks = cov["trunk_bins"].nunique()
+        summary = pd.read_csv(SCHEMAS["E5_summary"].path(self.runs))
+        for row in summary[summary.window == "informative"].itertuples():
+            pct = f"projected truth {100 * row.coverage_projected_mean:.0f}%"
+            self.assertTrue(any(pct in label for label in labels), pct)
+        trunks = pd.read_csv(SCHEMAS["E5_coverage"].path(self.runs))["trunk_bins"].nunique()
         self.assertEqual(sum(1 for ln in fig.axes[3].lines if ln.get_marker() not in ("None", "", None)), trunks)
 
     def test_figs1_ends_both_tools_where_c_psmc_stops_and_shows_its_rounding(self):
