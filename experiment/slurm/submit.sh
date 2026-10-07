@@ -39,7 +39,9 @@ fi
 dependency() { local IFS=,; [ $# -gt 0 ] && echo "--dependency=$*"; }
 
 common=(--account="$ACCOUNT" --partition="$PARTITION" --chdir="$PROD" --nodes=1 --ntasks=1 --parsable)
-run() { sbatch "${common[@]}" "$@" ${extra[@]+"${extra[@]}"}; }
+# sbatch options, then the extra ones (which override them), then the script:
+# anything after the script would be the script's own arguments.
+run() { sbatch "${common[@]}" "${@:1:$#-1}" ${extra[@]+"${extra[@]}"} "${@: -1}"; }
 
 case $what in
   build)
