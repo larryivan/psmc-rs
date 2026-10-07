@@ -170,7 +170,8 @@ _add("E3_runs", "E3", "timed run", {
     "repeat": "repeat (1..)",
     "wall_seconds": "wall time",
     "peak_rss_mb": "peak RSS of the tool's process tree (MiB)",
-    "clean": "True when the run was timed on a quiet machine (only clean runs enter the medians)",
+    "clean": "True when the run was clean by the timing protocol: a quiet machine before it, little CPU used by "
+             "other processes during it (other_method), no sleep (only clean runs enter the medians)",
 })
 _add("E3_thread_scaling", "E3", "thread count (psmc-rs 0.2 on the thread-scaling genome)", {
     "size_mb": "genome size (Mb)",

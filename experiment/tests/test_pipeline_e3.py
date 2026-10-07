@@ -373,6 +373,52 @@ class Report(unittest.TestCase):
         timing["machine_before"]["busy_cores"] = 1.5
         self.assertFalse(e3.is_clean(timing, protocol))
 
+    def test_a_run_is_judged_by_its_own_measure_of_other_work(self):
+        run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02" and r.repeat == 1)
+        timing = json.loads(self.lay.timing(run).read_text())
+        protocol = config.TimingProtocol()
+        # timing/3: the machine's busy CPU but the tool's, interrupts included (a 30-thread run on Ibex)
+        timing["during"] = {"other_cpu_share": 0.0044, "other_cores": 0.56, "other_cpu_seconds": 56.0}
+        self.assertFalse(e3.is_clean(timing, protocol))
+        # timing/4 on Linux: other user-space processes; kernel threads and interrupts recorded apart
+        timing["record"] = "psmc-rs-manuscript/E3/timing/4"
+        timing["machine_before"].update(process_cores=0.2, kernel_thread_cores=0.1, interrupt_cores=0.1)
+        timing["during"] = {
+            "other_method": "processes", "other_process_cpu_seconds": 20.0, "other_process_cpu_share": 0.0016,
+            "other_process_cores": 0.2, "other_processes_exited": 2, "processes_unreadable": 0,
+            "kernel_thread_cores": 0.15, "interrupt_cores": 0.2, "steal_cores": 0.0, "unaccounted_cores": 0.01,
+            "other_cpu_seconds": 56.0, "other_cpu_share": 0.0044, "other_cores": 0.56, "machine_busy_percent": 23.9,
+        }
+        self.assertTrue(e3.is_clean(timing, protocol))
+        self.assertFalse(e3.is_clean({**timing, "during": {**timing["during"], "other_process_cores": 0.6}}, protocol))
+        self.assertFalse(e3.is_clean({**timing, "during": {**timing["during"], "other_process_cpu_share": 0.06}},
+                                     protocol))
+        # timing/4 where not every process could be read: the machine-wide measure
+        fallback = {**timing["during"], "other_method": "machine", "other_process_cores": None,
+                    "other_process_cpu_share": None, "processes_unreadable": 155}
+        self.assertFalse(e3.is_clean({**timing, "during": fallback}, protocol))
+        self.assertTrue(e3.is_clean({**timing, "during": {**fallback, "other_cores": 0.4}}, protocol))
+        self.lay.timing(run).write_text(json.dumps(timing))
+        e3.report(Context(self.profile, self.runs))
+        row = next(r for r in read_csv(self.lay.table("runs"))
+                   if (r["tool"], r["threads"], r["repeat"]) == ("rs02", str(run.setup.threads), "1"))
+        self.assertEqual((row["clean"], row["other_method"]), ("True", "processes"))
+        self.assertEqual((row["other_cores_during"], row["machine_other_cores_during"]), ("0.2", "0.56"))
+        self.assertEqual((row["kernel_thread_cores_during"], row["interrupt_cores_during"]), ("0.15", "0.2"))
+        self.assertEqual((row["process_cores_before"], row["other_processes_exited"]), ("0.2", "2"))
+        old = next(r for r in read_csv(self.lay.table("runs")) if r["tool"] == "c")
+        self.assertEqual((old["other_method"], old["kernel_thread_cores_during"]), ("machine", ""))
+        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.assertEqual(env["other_methods"], "machine;processes")
+        # other_cores_during is a different quantity by method: summarised apart
+        self.assertEqual(env["cores.other_cores_during.processes"], "median 0.200, max 0.200 over 1 runs")
+        self.assertTrue(env["cores.other_cores_during.machine"].endswith(f" over {len(e3.runs(self.cfg)) - 1} runs"))
+        self.assertNotIn("cores.other_cores_during", env)
+        self.assertEqual(env["cores.interrupt_cores_during"], "median 0.200, max 0.200 over 1 runs")
+        self.assertEqual(env["cores.machine_other_cores_during"].split(", max")[1], " 0.560 over "
+                         f"{len(e3.runs(self.cfg))} runs")
+        self.assertEqual(env["other_processes_exited"], "2 over 1 runs")
+
     def test_a_run_with_more_threads_than_usable_cpus_is_not_clean(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02" and r.setup.threads == 2)
         timing = json.loads(self.lay.timing(run).read_text())

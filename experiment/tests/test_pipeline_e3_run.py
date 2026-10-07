@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import collections
 import contextlib
+import functools
 import importlib.util
 import io
 import json
+import os
 import sys
 import tempfile
 import textwrap
 import time
+import types
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -142,6 +146,201 @@ class Quiet(unittest.TestCase):
         self.assertFalse(seen["quiet"])
 
 
+CPU = collections.namedtuple("scputimes", "user nice system idle iowait irq softirq steal")
+PROC_TIMES = collections.namedtuple("pcputimes", "user system children_user children_system")
+TOOL, LEFTOVER, WRAPPER = 4001, 4002, 4000  # the tool, a process it started that outlives it, this wrapper
+
+
+def proc(pid: int, ppid: int, cpu: float, created: float = 1.0, name: str = "p", reaped: float = 0.0):
+    """A process as psutil.process_iter(attrs) gives it; ``reaped``: its waited-for children's CPU."""
+    return types.SimpleNamespace(pid=pid, info={"ppid": ppid, "name": name, "create_time": created,
+                                                "cpu_times": PROC_TIMES(cpu * 0.75, cpu * 0.25, reaped / 2, reaped / 2)})
+LINUX_METHOD = functools.partial(e3_run.process_method, platform="linux")
+
+
+# An idle 128-core node as Ibex's: init, kthreadd and a kworker, the WekaFS
+# client and the timing wrapper, before and after a run of 100 s (the
+# wrapper has reaped the tool, of 3000 s, by then).
+IDLE_BEFORE = [proc(1, 0, 100.0, name="systemd", reaped=40.0), proc(2, 0, 0.0, name="kthreadd"),
+               proc(50, 2, 10.0, name="kworker/0:1"), proc(900, 1, 500.0, name="wekanode"),
+               proc(WRAPPER, 3999, 2.0, name="python")]
+IDLE_AFTER = [proc(1, 0, 100.0, name="systemd", reaped=40.0), proc(2, 0, 0.0, name="kthreadd"),
+              proc(50, 2, 25.0, name="kworker/0:1"), proc(900, 1, 520.0, name="wekanode"),
+              proc(WRAPPER, 3999, 3.0, name="python", reaped=3000.0)]
+
+
+@unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
+class OtherProcesses(unittest.TestCase):
+    """What counts as other work during a run, with psutil's counters made up (Linux, 128 cores, 100 s)."""
+
+    CPU0 = CPU(user=0.0, nice=0.0, system=0.0, idle=0.0, iowait=0.0, irq=0.0, softirq=0.0, steal=0.0)
+
+    def during(self, before, after, extra_user: float = 0.0, extra_system: float = 0.0, hidden: bool = False,
+               steal: float = 0.0, platform: str = "linux"):
+        """A 30-thread run (3000 s of CPU) and what the machine-wide counters add to it: wekanode 20 s,
+        the kworker 15 s, the wrapper 1 s, 20 s of interrupts, plus ``extra_*`` and ``steal``."""
+        import psutil
+
+        user, system, irq, softirq = 2950.0 + 15.0 + extra_user, 50.0 + 5.0 + 15.0 + 1.0 + extra_system, 5.0, 15.0
+        cpu1 = CPU(user=user, nice=0.0, system=system, idle=128 * 100.0 - user - system - irq - softirq - steal,
+                   iowait=0.0, irq=irq, softirq=softirq, steal=steal)
+        with mock.patch.object(psutil, "process_iter", side_effect=[before, after]):
+            procs0, unread0 = e3_run.process_times("linux")
+            procs1, unread1 = e3_run.process_times("linux")
+        with mock.patch.object(e3_run, "processes_hidden", return_value=hidden):
+            method = e3_run.process_method(unread0, unread1, platform=platform)
+        during = e3_run.during_run(self.CPU0, cpu1, procs0, procs1, 100.0, 3000.0, exclude={TOOL, LEFTOVER, WRAPPER},
+                                   method=method, unreadable=max(unread0, unread1))
+        return {"during": during, "wall_seconds": 100.0, "clock_span_seconds": 100.0}
+
+    def test_a_run_on_many_cores_is_clean_though_the_kernel_works_for_it(self):
+        res = self.during(IDLE_BEFORE, IDLE_AFTER + [proc(LEFTOVER, TOOL, 2.0, created=10.0, name="helper")],
+                          extra_system=2.0)
+        d = res["during"]
+        self.assertEqual(d["other_method"], "processes")
+        self.assertAlmostEqual(d["other_process_cores"], 0.2)  # wekanode only: not the tool, not the wrapper
+        self.assertAlmostEqual(d["other_process_cpu_share"], 20.0 / 12800, places=4)
+        self.assertAlmostEqual(d["kernel_thread_cores"], 0.15)
+        self.assertAlmostEqual(d["interrupt_cores"], 0.2)
+        self.assertEqual(d["steal_cores"], 0.0)
+        # the wrapper and the leftover, their own CPU: not other work (the tool the wrapper reaped is the tool's)
+        self.assertAlmostEqual(d["excluded_cores"], 0.03)
+        self.assertAlmostEqual(d["unaccounted_cores"], 0.0)
+        self.assertEqual([b["name"] for b in d["busiest_others"]], ["wekanode", "systemd"])
+        protocol = config.TimingProtocol()
+        # the machine-wide measure is recorded, and would have rejected the run
+        self.assertAlmostEqual(d["other_cores"], 0.58)
+        self.assertGreater(e3_run.machine_other_cores(res), protocol.max_other_cores)
+        self.assertIsNone(e3_run.unclean(res, protocol))
+        self.assertAlmostEqual(e3_run.other_cores(res), 0.2)
+        # a kernel thread busy for a whole core is recorded, not limited
+        busy_kworker = [proc(50, 2, 125.0, name="kworker/0:1") if p.pid == 50 else p for p in IDLE_AFTER]
+        res = self.during(IDLE_BEFORE, busy_kworker, extra_system=100.0)
+        self.assertAlmostEqual(res["during"]["kernel_thread_cores"], 1.15)
+        self.assertIsNone(e3_run.unclean(res, protocol))
+
+    def test_another_process_using_more_than_half_a_core_makes_the_run_unclean(self):
+        res = self.during(IDLE_BEFORE + [proc(950, 1, 0.0, name="job")],
+                          IDLE_AFTER + [proc(950, 1, 60.0, name="job")], extra_user=60.0)
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 0.8)
+        self.assertEqual(res["during"]["busiest_others"][0], {"pid": 950, "name": "job", "cores": 0.6})
+        self.assertIn("other user-space processes and steal time kept 0.80 cores",
+                      e3_run.unclean(res, config.TimingProtocol()))
+
+    def test_a_process_started_during_the_run_counts_whole(self):
+        res = self.during(IDLE_BEFORE, IDLE_AFTER + [proc(960, 1, 40.0, created=50.0)], extra_user=40.0)
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 0.6)
+        self.assertIsNotNone(e3_run.unclean(res, config.TimingProtocol()))
+        # a pid used again is another process: matched by pid and creation time
+        res = self.during(IDLE_BEFORE + [proc(970, 1, 300.0, created=1.0)],
+                          IDLE_AFTER + [proc(970, 1, 5.0, created=60.0)], extra_user=5.0)
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 0.25)
+        self.assertEqual(res["during"]["other_processes_exited"], 1)
+
+    def test_processes_that_ended_during_the_run_are_counted(self):
+        res = self.during(IDLE_BEFORE + [proc(980, 1, 7.0), proc(51, 2, 1.0, name="kworker/1:2")], IDLE_AFTER)
+        self.assertEqual(res["during"]["other_processes_exited"], 1)  # kernel threads not among them
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 0.2)
+        protocol = config.TimingProtocol()
+        # a job of 20 cores for 95 s that ended before the tool: its CPU is in its parent's reaped children's
+        shell = proc(990, 1, 1.0, name="bash")
+        job_before = [shell, proc(991, 990, 0.0, name="job")]
+        res = self.during(IDLE_BEFORE + job_before, IDLE_AFTER + [proc(990, 1, 1.0, name="bash", reaped=1900.0)],
+                          extra_user=1900.0)
+        d = res["during"]
+        self.assertEqual(d["other_processes_exited"], 1)
+        self.assertAlmostEqual(d["other_process_cores"], 19.2)
+        self.assertAlmostEqual(d["unaccounted_cores"], 0.0)
+        self.assertEqual(d["busiest_others"][0], {"pid": 990, "name": "bash", "cores": 19.0})
+        self.assertIn("used 15.0% of all cores", e3_run.unclean(res, protocol))
+        # short-lived processes (a make -j's compilers), never seen: counted through make, which waited for them
+        make = proc(995, 1, 0.5, name="make")
+        res = self.during(IDLE_BEFORE + [make], IDLE_AFTER + [proc(995, 1, 0.6, name="make", reaped=400.0)],
+                          extra_user=400.1)
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 4.201)
+        self.assertEqual(res["during"]["other_processes_exited"], 0)
+        self.assertIsNotNone(e3_run.unclean(res, protocol))
+        # one orphaned and reaped by init counts through init; a process nothing waits for is only unaccounted
+        reaped_by_init = [proc(1, 0, 100.0, name="systemd", reaped=70.0)] + IDLE_AFTER[1:]
+        res = self.during(IDLE_BEFORE, reaped_by_init, extra_user=30.0)
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 0.5)
+        res = self.during(IDLE_BEFORE, IDLE_AFTER, extra_user=30.0)
+        self.assertAlmostEqual(res["during"]["other_process_cores"], 0.2)
+        self.assertAlmostEqual(res["during"]["unaccounted_cores"], 0.3)
+
+    def test_steal_time_is_other_work(self):
+        res = self.during(IDLE_BEFORE, IDLE_AFTER, steal=40.0)
+        d = res["during"]
+        self.assertEqual((d["steal_cores"], d["steal_cpu_share"]), (0.4, round(40.0 / 12800, 4)))
+        self.assertAlmostEqual(e3_run.other_cores(res), 0.6)
+        self.assertAlmostEqual(e3_run.other_share(res), (20.0 + 40.0) / 12800, places=4)
+        self.assertIn("kept 0.60 cores", e3_run.unclean(res, config.TimingProtocol()))
+        self.assertIsNone(e3_run.unclean(self.during(IDLE_BEFORE, IDLE_AFTER, steal=20.0), config.TimingProtocol()))
+
+    def test_unreadable_processes_fall_back_to_the_whole_machine(self):
+        denied = proc(990, 1, 0.0, name="other user's")
+        denied.info["cpu_times"] = e3_run._DENIED
+        res = self.during(IDLE_BEFORE, IDLE_AFTER + [denied])
+        d = res["during"]
+        self.assertEqual((d["other_method"], d["processes_unreadable"]), ("machine", 1))
+        self.assertIsNone(d["other_process_cores"])  # a partial sum would under-count
+        self.assertIsNone(d["kernel_thread_cores"])
+        self.assertAlmostEqual(e3_run.other_cores(res), 0.56)
+        self.assertIn("the machine's busy CPU but the tool's", e3_run.unclean(res, config.TimingProtocol()))
+        # a /proc that hides other users' processes: the same
+        res = self.during(IDLE_BEFORE, IDLE_AFTER, hidden=True)
+        self.assertEqual(res["during"]["other_method"], "machine")
+        self.assertIsNotNone(e3_run.unclean(res, config.TimingProtocol()))
+        # and every process read but not on Linux (macOS as root), which gives no reaped children's CPU
+        res = self.during(IDLE_BEFORE, IDLE_AFTER, platform="darwin")
+        self.assertEqual(res["during"]["other_method"], "machine")
+        self.assertIsNone(res["during"]["other_process_cores"])
+
+    def test_proc_mounted_hidepid_hides_processes(self):
+        with tempfile.TemporaryDirectory() as d:
+            mounts = Path(d) / "mounts"
+            with mock.patch.object(e3_run.os, "geteuid", return_value=1000, create=True):
+                for opts, hidden in (("rw,nosuid,nodev,noexec,relatime", False), ("rw,relatime,hidepid=2", True),
+                                     ("rw,hidepid=invisible,gid=10", True), ("rw,hidepid=0", False)):
+                    mounts.write_text(f"sysfs /sys sysfs rw 0 0\nproc /proc proc {opts} 0 0\n")
+                    self.assertEqual(e3_run.processes_hidden(mounts, "linux"), hidden, opts)
+                self.assertFalse(e3_run.processes_hidden(mounts, "darwin"))
+            with mock.patch.object(e3_run.os, "geteuid", return_value=0, create=True):
+                self.assertFalse(e3_run.processes_hidden(mounts, "linux"))  # root sees every process
+
+    def test_kernel_threads(self):
+        self.assertTrue(e3_run.is_kernel_thread(2, 0, "linux"))
+        self.assertTrue(e3_run.is_kernel_thread(50, 2, "linux"))
+        self.assertFalse(e3_run.is_kernel_thread(1, 0, "linux"))
+        self.assertTrue(e3_run.is_kernel_thread(0, 0, "darwin"))
+        self.assertFalse(e3_run.is_kernel_thread(50, 2, "darwin"))
+
+    def test_the_quiet_check_records_what_kept_the_machine_busy(self):
+        import psutil
+
+        window = 2.0  # wekanode 0.2 core, the kworker 0.15, the wrapper 0.05, interrupts 0.25
+        cpu1 = CPU(user=0.4, nice=0.0, system=0.4, idle=128 * window - 1.3, iowait=0.0, irq=0.1, softirq=0.4, steal=0.0)
+        before = [proc(50, 2, 10.0, name="kworker/0:1"), proc(900, 1, 500.0, name="wekanode"), proc(WRAPPER, 1, 2.0)]
+        after = [proc(50, 2, 10.3, name="kworker/0:1"), proc(900, 1, 500.4, name="wekanode"), proc(WRAPPER, 1, 2.1)]
+        linux_times = functools.partial(e3_run.process_times, "linux")
+        with mock.patch.object(psutil, "cpu_times", side_effect=[self.CPU0, cpu1]), \
+                mock.patch.object(psutil, "cpu_count", return_value=128), \
+                mock.patch.object(psutil, "process_iter", side_effect=[before, after]), \
+                mock.patch.object(e3_run, "process_times", linux_times), \
+                mock.patch.object(e3_run, "process_method", LINUX_METHOD), \
+                mock.patch.object(e3_run, "processes_hidden", return_value=False), \
+                mock.patch.object(e3_run.os, "getpid", return_value=WRAPPER), \
+                mock.patch.object(e3_run.time, "sleep"), \
+                mock.patch.object(e3_run.time, "perf_counter", side_effect=[0.0, window, window]):
+            act = e3_run.machine_activity(window)
+        self.assertAlmostEqual(act["busy_cores"], 0.65)  # the whole machine: what the quiet check limits
+        self.assertAlmostEqual(act["process_cores"], 0.2)  # this process (the wrapper) left out
+        self.assertAlmostEqual(act["kernel_thread_cores"], 0.15)
+        self.assertAlmostEqual(act["interrupt_cores"], 0.25)
+        self.assertEqual((act["steal_cores"], act["processes_unreadable"]), (0.0, 0))
+        self.assertEqual(act["busiest"][0], {"pid": 900, "name": "wekanode", "cpu_percent": 20.0})
+
+
 @unittest.skipUnless(HAS_MSPRIME, "msprime not installed")
 class SimulateSize(unittest.TestCase):
     def test_tiny_genome_uses_the_e3_seeds(self):
@@ -197,6 +396,23 @@ class Measure(unittest.TestCase):
         self.assertEqual(self.measure(96, nested=True), 0)
         rec = json.loads(self.out.read_text())
         self.assertGreaterEqual(rec["peak_rss_tree_sampled_mb"], 96)
+
+    def test_every_process_is_read_before_and_after_the_run(self):
+        import psutil
+
+        me = os.getpid()
+        before = [proc(900, 1, 500.0, name="wekanode"), proc(me, 1, 2.0, name="python")]
+        after = [proc(900, 1, 500.5, name="wekanode"), proc(me, 1, 50.0, name="python")]
+        with mock.patch.object(psutil, "process_iter", side_effect=[before, after]), \
+                mock.patch.object(e3_run, "process_method", LINUX_METHOD), \
+                mock.patch.object(e3_run, "processes_hidden", return_value=False):
+            res = e3_run.run_measured([sys.executable, "-c", "pass"], 0.01)
+        d = res["during"]
+        self.assertEqual(d["other_method"], "processes")
+        self.assertAlmostEqual(d["other_process_cpu_seconds"], 0.5)  # this wrapper's 48 s are not other work
+        self.assertAlmostEqual(d["other_process_cores"] * res["wall_seconds"], 0.5, places=2)
+        self.assertEqual([b["name"] for b in d["busiest_others"]], ["wekanode"])
+        self.assertGreaterEqual(d["other_cores"], 0.0)  # the machine-wide measure, beside it
 
     def test_a_failed_run_writes_nothing_and_passes_its_status_on(self):
         self.assertEqual(self.measure(1, status=3), 3)

@@ -11,18 +11,21 @@
     ``--threads N`` it first refuses (exit status 69) to time a tool of N
     threads on fewer CPUs than N, which would time it oversubscribed: the
     CPUs this process may run on (its affinity: a SLURM allocation's).
-    Before the run it waits ``--settle`` seconds, then until the machine is quiet: the
-    CPU use of all processes together over ``--quiet-window`` seconds is at
-    most ``--quiet-cpu`` percent of all cores and at most
-    ``--quiet-max-cores`` cores. It then starts the tool, with
-    the environment cleaned of variables that change psmc-rs's behaviour or
-    build (``PSMC_*``, ``RUSTFLAGS``, ...), and samples the RSS of the tool's
-    process tree every ``--sample`` seconds; the peak RSS is the larger of
-    the sampled peak and the tool's own ``ru_maxrss``. The record holds the
-    wall time, the tool's user and system CPU time, the peak RSS, the load
-    average before and after, the busiest processes before the run, the CPU
-    time that other processes used while it ran, the power source, the
-    environment and the machine (on Linux also its CPU model, frequency
+    Before the run it waits ``--settle`` seconds, then until the machine is
+    quiet: the CPU use of the whole machine (everything but idle and iowait
+    time, so kernel threads, interrupts and steal too) over
+    ``--quiet-window`` seconds is at most ``--quiet-cpu`` percent of all
+    cores and at most ``--quiet-max-cores`` cores; nothing of ours runs
+    then (it reads the processes outside that window), so all of it is
+    other work. It then starts the tool, with the environment cleaned of
+    variables that change psmc-rs's behaviour or build (``PSMC_*``,
+    ``RUSTFLAGS``, ...), and samples the RSS of the tool's process tree
+    every ``--sample`` seconds; the peak RSS is the larger of the sampled
+    peak and the tool's own ``ru_maxrss``. The record holds the wall time,
+    the tool's user and system CPU time, the peak RSS, the load average
+    before and after, what kept the machine busy before the run, the CPU
+    time other processes used while it ran (see below), the power source,
+    the environment and the machine (on Linux also its CPU model, frequency
     governor and boost, and the SLURM job). When the tool fails, nothing is
     written and the command exits with the tool's status. When the run is
     not clean (the machine did not become quiet within ``--max-wait``
@@ -31,6 +34,50 @@
     all cores or more than ``--max-other-cores`` cores on average), nothing
     is written and the command exits with status 75, which the runner takes
     as "not now": it starts the run again later.
+
+What "other processes" means during a run (``during.other_method``):
+
+``processes`` (Linux, where every process's ``/proc/<pid>/stat`` is
+    readable): the CPU time (user + system) of the user-space processes
+    other than the tool's process tree and this wrapper, read for every
+    process just before the tool starts and right after it ends
+    (:func:`process_times`) and matched by pid and creation time: the
+    increase of each process seen both times, the whole CPU time of one
+    that started during the run, each with the CPU time of the children it
+    reaped meanwhile (Linux's cutime and cstime). So a process that ended
+    during the run (``other_processes_exited`` counts those seen before it)
+    or started and ended in it (a ``make -j``'s compilers, a script's
+    commands) is counted through the process that waited for it, its
+    parent or, orphaned, init; one that had started before the run counts
+    whole, its CPU before the run too, which errs towards rejecting a run.
+    Only a process that no running process waits for (whose parent ignores
+    SIGCHLD) is missed: its CPU shows only in ``unaccounted_cores``, the
+    machine's busy CPU that nothing here explains, which is recorded but
+    not limited, since it also holds the differences between how the
+    kernel counts the machine's CPU time and the processes'. Time that a
+    hypervisor gave to other machines (``steal_cores``, 0 on bare metal) is
+    other work too, and is limited with the processes. Kernel threads
+    (kthreadd and its children) and the kernel's interrupt time (irq and
+    softirq) are not other processes. They are the kernel's work for the
+    run itself (a tool that keeps 30 cores busy makes the kernel handle its
+    page faults, timers, scheduling and I/O: about 0.1 core more than on
+    the idle 128-core node) and the machine's own housekeeping, which the
+    quiet check before the run bounds; neither is another workload, and the
+    two cannot be told apart. Counted as other work, the run's own share
+    would reject the runs that keep the most cores busy. They are recorded
+    apart (``kernel_thread_cores``, ``interrupt_cores``).
+``machine`` (where some process cannot be read, as other users' processes
+    on macOS, or ``/proc`` hides them, ``hidepid``; and wherever reaped
+    children's CPU time cannot be read: every system but Linux): all busy
+    CPU time of the machine but the tool's, as before the run. Counting
+    only the processes it could read would under-count, so the record says
+    which measure the limits were checked against.
+
+The machine-wide measure is recorded in either case (``other_cpu_seconds``,
+``other_cpu_share``, ``other_cores``, ``machine_busy_percent``), so records
+of either kind stay comparable with older ones (``timing/3``, which have
+only it); :func:`other_cores` and :func:`other_share` give the measure the
+limits apply to.
 
 Only the tool's processes are measured, not this wrapper (the runner's own
 record of the job includes the wrapper's Python interpreter). The module is
@@ -54,7 +101,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import config, paths, provenance, simulate
 
-RECORD = "psmc-rs-manuscript/E3/timing/3"
+RECORD = "psmc-rs-manuscript/E3/timing/4"
 EX_TEMPFAIL = 75  # not a clean run: the runner defers the job
 EX_UNAVAILABLE = 69  # too few CPUs for the tool's threads: a failure, which the next start retries
 # Variables removed from the tool's environment: psmc-rs reads PSMC_*
@@ -111,46 +158,166 @@ def busy_seconds(times) -> float:
     return sum(times) - idle
 
 
-def machine_activity(window: float, top: int = 5) -> Dict:
-    """The CPU use of the whole machine over ``window`` seconds, and the busiest processes.
+_DENIED = object()  # psutil's value for what this process may not read
 
-    ``busy_percent`` is the share of all cores in use (100 = every core
-    busy) and ``busy_cores`` the same as a number of cores; ``busiest``
-    lists the processes with the most CPU in the window (``cpu_percent``:
-    100 = one core), this process excluded.
+
+def is_kernel_thread(pid: int, ppid: Optional[int], platform: str = sys.platform) -> bool:
+    """Whether a process is the kernel's: kernel_task (pid 0) on macOS; on Linux kthreadd (pid 2) and its children.
+
+    Every Linux kernel thread is started by kthreadd. (A process without a
+    command line is not necessarily one: a zombie has none either.)
+    """
+    if platform.startswith("linux"):
+        return pid == 2 or ppid == 2
+    return pid == 0
+
+
+def process_times(platform: str = sys.platform) -> Tuple[Dict[Tuple[int, float], Tuple[float, float, bool, str]], int]:
+    """Every process's CPU seconds so far, by pid and creation time, and how many processes could not be read.
+
+    Each value is (user + system CPU seconds, those of the children it has
+    waited for, kernel thread, name). The children's (Linux's cutime and
+    cstime; 0 elsewhere) hold every process that ended and was reaped by
+    this one, with the children they had reaped in turn. A process this one
+    may not read (AccessDenied: other users' processes on macOS) is counted,
+    not listed; one that ends while it is being read is neither.
+    """
+    import psutil
+
+    procs: Dict[Tuple[int, float], Tuple[float, float, bool, str]] = {}
+    unreadable = 0
+    for p in psutil.process_iter(["ppid", "name", "create_time", "cpu_times"], ad_value=_DENIED):
+        info = p.info
+        if any(info[k] is _DENIED or info[k] is None for k in ("ppid", "create_time", "cpu_times")):
+            unreadable += 1
+            continue
+        t = info["cpu_times"]
+        name = "?" if info["name"] is _DENIED else str(info["name"])
+        reaped = getattr(t, "children_user", 0.0) + getattr(t, "children_system", 0.0)
+        procs[(p.pid, info["create_time"])] = (t.user + t.system, reaped, is_kernel_thread(p.pid, info["ppid"], platform),
+                                               name)
+    return procs, unreadable
+
+
+def processes_hidden(mounts: Path = Path("/proc/mounts"), platform: str = sys.platform) -> bool:
+    """Whether Linux's /proc hides other users' processes from this one (mounted ``hidepid``, and not root)."""
+    if not platform.startswith("linux") or os.geteuid() == 0:
+        return False
+    for line in (_read_text(mounts) or "").splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and fields[1] == "/proc":
+            opts = dict(o.partition("=")[::2] for o in fields[3].split(","))
+            return opts.get("hidepid", "0") not in ("0", "off")
+    return False
+
+
+def process_method(*unreadable: int, platform: str = sys.platform) -> str:
+    """``processes`` when every process could be read (no :func:`process_times` count above 0, none hidden), else ``machine``.
+
+    Only on Linux: elsewhere (macOS) a process's reaped children's CPU time
+    is not readable, and the processes that ended during a run would be
+    missed.
+    """
+    if not platform.startswith("linux") or any(unreadable) or processes_hidden(platform=platform):
+        return "machine"
+    return "processes"
+
+
+def _delta(cpu0, cpu1, *fields: str) -> Optional[float]:
+    """The increase of these ``psutil.cpu_times()`` fields together; None where it has none of them (macOS)."""
+    have = [f for f in fields if hasattr(cpu1, f)]
+    return sum(getattr(cpu1, f) - getattr(cpu0, f) for f in have) if have else None
+
+
+def cpu_breakdown(cpu0, cpu1, procs0: Dict, procs1: Dict, exclude=()) -> Dict:
+    """What kept the CPUs busy between two looks at the machine (``psutil.cpu_times()`` and :func:`process_times`).
+
+    CPU seconds of: ``processes``, the user-space processes (the increase of
+    each one seen both times, the same pid and creation time, and of its
+    reaped children's; the whole of both for one that started in between);
+    ``kernel_threads``, the same for the kernel's threads; ``excluded``, the
+    own CPU of the pids in ``exclude``, which neither of those counts (not
+    their reaped children's: the timed tool is this wrapper's);
+    ``interrupts``, the machine's irq and softirq time, and ``steal``, time
+    a hypervisor gave to other machines (None where psutil has neither).
+    A process that ended in between is counted through the one that reaped
+    it, its parent (or init, if it was orphaned), with its whole CPU time:
+    for one that had started before, also what it used before, which errs
+    towards counting too much. ``exited``: how many user-space processes
+    seen the first time were gone the second. ``busiest``: (CPU seconds,
+    pid, name, kernel thread) of every process seen the second time, most
+    first.
+    """
+    out: Dict = {"processes": 0.0, "kernel_threads": 0.0, "excluded": 0.0, "busiest": []}
+    for key, (cpu, reaped, kernel, name) in procs1.items():
+        prev = procs0.get(key) or (0.0, 0.0)
+        own = max(cpu - prev[0], 0.0)
+        if key[0] in exclude:
+            out["excluded"] += own
+            continue
+        used = own + max(reaped - prev[1], 0.0)
+        out["kernel_threads" if kernel else "processes"] += used
+        out["busiest"].append((used, key[0], name, kernel))
+    out["busiest"].sort(key=lambda u: -u[0])
+    out["exited"] = sum(1 for key, (_, _, kernel, _) in procs0.items()
+                        if key not in procs1 and key[0] not in exclude and not kernel)
+    out["interrupts"] = _delta(cpu0, cpu1, "irq", "softirq")
+    out["steal"] = _delta(cpu0, cpu1, "steal")
+    return out
+
+
+def _per(seconds: Optional[float], span: float, digits: int = 3) -> Optional[float]:
+    """CPU seconds over ``span`` seconds: the cores they kept busy on average (None stays None)."""
+    if seconds is None:
+        return None
+    return round(seconds / span, digits) if span > 0 else 0.0
+
+
+def machine_activity(window: float, top: int = 5) -> Dict:
+    """The CPU use of the whole machine over ``window`` seconds, what it was, and the busiest processes.
+
+    ``busy_percent`` is the share of all cores in use (everything but idle
+    and iowait time; 100 = every core busy) and ``busy_cores`` the same as a
+    number of cores: what the quiet check limits. Of it, as cores
+    (:func:`cpu_breakdown`): ``process_cores`` (user-space processes, this
+    one excluded), ``kernel_thread_cores``, ``interrupt_cores`` and
+    ``steal_cores``; the first two are None when some process could not be
+    read (``processes_unreadable`` of them, or /proc hides them, or not
+    Linux), since they would under-count. ``busiest`` lists the processes
+    with the most CPU in the window (``cpu_percent``: 100 = one core),
+    kernel threads included, this process excluded.
+
+    The two reads of every process fall outside the window of the machine's
+    counters, so that their CPU (this process's) is not in ``busy_*``; each
+    process's two reads are about the window and one read of them all apart.
     """
     import psutil
 
     me = os.getpid()
-    procs = []
-    for p in psutil.process_iter(["pid", "name"]):
-        if p.pid == me:
-            continue
-        try:
-            p.cpu_percent(None)
-            procs.append(p)
-        except psutil.Error:
-            pass
-    before = psutil.cpu_times()
+    procs0, unread0 = process_times()
     t0 = time.perf_counter()
+    before = psutil.cpu_times()
     time.sleep(max(window, 0.0))
     after = psutil.cpu_times()
     elapsed = time.perf_counter() - t0
+    procs1, unread1 = process_times()
+    span = time.perf_counter() - t0
     total = sum(after) - sum(before)
     busy = busy_seconds(after) - busy_seconds(before)
-    usage = []
-    for p in procs:
-        try:
-            usage.append((p.cpu_percent(None), p.info["pid"], p.info["name"]))
-        except psutil.Error:
-            pass
-    usage.sort(key=lambda u: -u[0])
     share = busy / total if total > 0 else 0.0
+    parts = cpu_breakdown(before, after, procs0, procs1, exclude={me})
+    complete = process_method(unread0, unread1) == "processes"
     return {
         "window_seconds": round(elapsed, 3),
         "busy_percent": round(100.0 * share, 2),
         "busy_cores": round(share * (psutil.cpu_count() or 1), 3),
-        "busiest": [{"pid": pid, "name": name, "cpu_percent": round(c, 1)} for c, pid, name in usage[:top]],
+        "process_cores": _per(parts["processes"], span) if complete else None,
+        "kernel_thread_cores": _per(parts["kernel_threads"], span) if complete else None,
+        "interrupt_cores": _per(parts["interrupts"], elapsed),
+        "steal_cores": _per(parts["steal"], elapsed),
+        "processes_unreadable": max(unread0, unread1),
+        "busiest": [{"pid": pid, "name": name, "cpu_percent": round(100.0 * used / span, 1) if span > 0 else 0.0}
+                    for used, pid, name, _ in parts["busiest"][:top]],
     }
 
 
@@ -181,7 +348,13 @@ def clean_environment(env: Optional[Dict[str, str]] = None) -> Tuple[Dict[str, s
 
 
 def wait_until_quiet(protocol: config.TimingProtocol, log=print) -> Dict:
-    """Settle, then wait for a quiet machine (see the module documentation); returns what was seen."""
+    """Settle, then wait for a quiet machine (see the module documentation); returns what was seen.
+
+    Quiet is judged on the whole machine's busy CPU (``busy_percent``,
+    ``busy_cores``): before the run nothing of ours runs, so kernel threads
+    and interrupts are other work too. What it was made of is recorded with
+    it (:func:`machine_activity`).
+    """
     time.sleep(max(protocol.settle_seconds, 0.0))
     t0 = time.monotonic()
     while True:
@@ -203,6 +376,9 @@ def wait_until_quiet(protocol: config.TimingProtocol, log=print) -> Dict:
         "window_seconds": act["window_seconds"],
         "settle_seconds": protocol.settle_seconds,
         "waited_seconds": round(waited, 3),
+        # of busy_cores, for the report (the check is on the whole machine)
+        **{k: act[k] for k in ("process_cores", "kernel_thread_cores", "interrupt_cores", "steal_cores",
+                               "processes_unreadable")},
         "busiest": act["busiest"],
     }
 
@@ -270,14 +446,16 @@ def machine() -> Dict:
     return info
 
 
-def tree_rss(proc) -> int:
-    """Resident set size of a psutil process and all its descendants, in bytes."""
+def tree_rss(proc, pids: Optional[set] = None) -> int:
+    """Resident set size of a psutil process and all its descendants, in bytes; their pids are added to ``pids``."""
     import psutil
 
     try:
         procs = [proc, *proc.children(recursive=True)]
     except psutil.Error:
         return 0
+    if pids is not None:
+        pids.update(p.pid for p in procs)
     total = 0
     for p in procs:
         try:
@@ -292,15 +470,74 @@ def maxrss_mb(rusage) -> float:
     return rusage.ru_maxrss / (2**20 if sys.platform == "darwin" else 2**10)
 
 
+def during_run(cpu0, cpu1, procs0: Dict, procs1: Dict, wall: float, tool_cpu: float, exclude, method: str,
+               unreadable: int = 0, top: int = 5) -> Dict:
+    """What else used the CPUs during a run of ``wall`` seconds whose tool used ``tool_cpu`` CPU seconds.
+
+    From ``psutil.cpu_times()`` and :func:`process_times` just before and
+    right after the run, ``exclude`` the pids of the tool's process tree
+    and this wrapper; ``method`` (:func:`process_method`) says whether every
+    process could be read. ``other_process_*`` (the CPU of other user-space
+    processes: what the limits check with ``processes``, with the steal
+    time) and ``kernel_thread_cores`` and ``unaccounted_cores`` are None
+    with ``machine``, since they would under-count; ``other_cpu_*`` and
+    ``other_cores`` (the machine's busy CPU but the tool's: what the limits
+    check with ``machine``) are always given. See the module documentation.
+    """
+    machine_busy = busy_seconds(cpu1) - busy_seconds(cpu0)
+    machine_total = sum(cpu1) - sum(cpu0)
+    other = max(machine_busy - tool_cpu, 0.0)
+    parts = cpu_breakdown(cpu0, cpu1, procs0, procs1, exclude)
+    measured = method == "processes"
+    explained = sum(parts[k] or 0.0 for k in ("processes", "kernel_threads", "excluded", "interrupts", "steal"))
+
+    def share(seconds: float) -> float:
+        return round(seconds / machine_total, 4) if machine_total > 0 else 0.0
+
+    return {
+        # the measure the limits check: "processes" (other_process_* and steal_*) or
+        # "machine" (other_cpu_share, other_cores)
+        "other_method": method,
+        # CPU of the user-space processes other than the tool's tree and this wrapper
+        "other_process_cpu_seconds": round(parts["processes"], 3) if measured else None,
+        "other_process_cpu_share": share(parts["processes"]) if measured else None,
+        "other_process_cores": _per(parts["processes"], wall, 4) if measured else None,
+        "other_processes_exited": parts["exited"],  # ended during the run: counted through their reaper
+        "processes_unreadable": unreadable,
+        # not other processes: the kernel's work, mostly the run's own
+        "kernel_thread_cores": _per(parts["kernel_threads"], wall, 4) if measured else None,
+        "interrupt_cores": _per(parts["interrupts"], wall, 4),
+        # other machines' (a hypervisor's): other work, limited with other_process_*
+        "steal_cores": _per(parts["steal"], wall, 4),
+        "steal_cpu_share": None if parts["steal"] is None else share(parts["steal"]),
+        # this wrapper, and any process of the tool's tree still running after it
+        "excluded_cores": _per(parts["excluded"], wall, 4) if measured else None,
+        # the machine's busy CPU that none of these nor the tool explains (processes no
+        # running process reaped, differences in how the kernel counts each)
+        "unaccounted_cores": _per(machine_busy - tool_cpu - explained, wall, 4) if measured else None,
+        "busiest_others": [{"pid": pid, "name": name, "cores": _per(used, wall, 4)}
+                           for used, pid, name, kernel in parts["busiest"] if not kernel][:top],
+        # machine-wide: all busy CPU time (everything but idle and iowait, so kernel
+        # threads and interrupts too) but the tool's, as a share of every core over
+        # the run and as the cores it kept busy on average; recorded with either method
+        "other_cpu_seconds": round(other, 3),
+        "other_cpu_share": share(other),
+        "other_cores": round(other / wall, 4) if wall > 0 else 0.0,
+        "machine_busy_percent": round(100.0 * machine_busy / machine_total, 2) if machine_total > 0 else 0.0,
+    }
+
+
 def run_measured(cmd: Sequence[str], sample_seconds: float, env: Optional[Dict[str, str]] = None) -> Dict:
     """Run ``cmd`` (its output goes to ours) and measure it; see the module documentation."""
     import psutil
 
     cpu_before = psutil.cpu_times()
+    procs_before, unread_before = process_times()
     load_before = os.getloadavg()
     start = time.time()
     t0 = time.perf_counter()
     proc = subprocess.Popen([str(c) for c in cmd], stdin=subprocess.DEVNULL, env=env)
+    tree = {proc.pid}
     try:
         ps = psutil.Process(proc.pid)
     except psutil.Error:
@@ -311,18 +548,16 @@ def run_measured(cmd: Sequence[str], sample_seconds: float, env: Optional[Dict[s
         if pid != 0:
             break
         if ps is not None:
-            peak = max(peak, tree_rss(ps))
+            peak = max(peak, tree_rss(ps, tree))
             samples += 1
         time.sleep(sample_seconds)
     wall = time.perf_counter() - t0
     clock_span = time.time() - start  # runs on while the machine sleeps; perf_counter does not
     proc.returncode = os.waitstatus_to_exitcode(status)
+    procs_after, unread_after = process_times()
     cpu_after = psutil.cpu_times()
     load_after = os.getloadavg()
     tool_cpu = rusage.ru_utime + rusage.ru_stime
-    machine_busy = busy_seconds(cpu_after) - busy_seconds(cpu_before)
-    machine_total = sum(cpu_after) - sum(cpu_before)
-    other = max(machine_busy - tool_cpu, 0.0)
     maxrss = maxrss_mb(rusage)
     return {
         "exit_status": proc.returncode,
@@ -339,14 +574,9 @@ def run_measured(cmd: Sequence[str], sample_seconds: float, env: Optional[Dict[s
         "rss_samples": samples,
         "loadavg_before": [round(x, 2) for x in load_before],
         "loadavg_after": [round(x, 2) for x in load_after],
-        "during": {
-            "other_cpu_seconds": round(other, 3),
-            # CPU time of other processes as a share of every core over the run,
-            # and as the cores they kept busy on average
-            "other_cpu_share": round(other / machine_total, 4) if machine_total > 0 else 0.0,
-            "other_cores": round(other / wall, 4) if wall > 0 else 0.0,
-            "machine_busy_percent": round(100.0 * machine_busy / machine_total, 2) if machine_total > 0 else 0.0,
-        },
+        "during": during_run(cpu_before, cpu_after, procs_before, procs_after, wall, tool_cpu,
+                             exclude=tree | {os.getpid()}, method=process_method(unread_before, unread_after),
+                             unreadable=max(unread_before, unread_after)),
     }
 
 
@@ -414,8 +644,13 @@ def measure(
     return 0
 
 
-def other_cores(res: Dict) -> float:
-    """The cores other processes kept busy on average during a run (from their CPU seconds in older records)."""
+def other_method(res: Dict) -> str:
+    """Which measure of other work a run's limits check: ``processes`` or ``machine`` (records before ``timing/4``)."""
+    return res.get("during", {}).get("other_method", "machine")
+
+
+def machine_other_cores(res: Dict) -> float:
+    """The cores the machine's busy CPU but the tool's kept busy on average (from their CPU seconds in older records)."""
     during = res.get("during", {})
     if "other_cores" in during:
         return float(during["other_cores"])
@@ -423,15 +658,36 @@ def other_cores(res: Dict) -> float:
     return float(during.get("other_cpu_seconds") or 0.0) / wall if wall > 0 else 0.0
 
 
+def other_cores(res: Dict) -> float:
+    """The cores other work kept busy on average during a run, by its :func:`other_method`: what ``max_other_cores`` limits.
+
+    With ``processes``: other user-space processes and steal time.
+    """
+    if other_method(res) == "processes":
+        during = res["during"]
+        return float(during["other_process_cores"]) + float(during.get("steal_cores") or 0.0)
+    return machine_other_cores(res)
+
+
+def other_share(res: Dict) -> float:
+    """The share of all cores other work used during a run, by its :func:`other_method`: what ``max_other_cpu_share`` limits."""
+    during = res.get("during", {})
+    if other_method(res) == "processes":
+        return float(during["other_process_cpu_share"]) + float(during.get("steal_cpu_share") or 0.0)
+    return float(during.get("other_cpu_share") or 0.0)
+
+
 def unclean(res: Dict, protocol: config.TimingProtocol) -> Optional[str]:
     """Why a finished run is not a clean measurement, or None."""
-    share = res["during"]["other_cpu_share"]
+    who = ("other user-space processes and steal time" if other_method(res) == "processes"
+           else "other work (the machine's busy CPU but the tool's)")
+    share = other_share(res)
     if share > protocol.max_other_cpu_share:
-        return (f"other processes used {100 * share:.1f}% of all cores during the run "
+        return (f"{who} used {100 * share:.1f}% of all cores during the run "
                 f"(at most {100 * protocol.max_other_cpu_share:g}%)")
     cores = other_cores(res)
     if cores > protocol.max_other_cores:
-        return f"other processes kept {cores:.2f} cores busy during the run (at most {protocol.max_other_cores:g})"
+        return f"{who} kept {cores:.2f} cores busy during the run (at most {protocol.max_other_cores:g})"
     slept = res["clock_span_seconds"] - res["wall_seconds"]
     if slept > protocol.max_sleep_seconds:
         return f"the machine slept for about {slept:.0f} s during the run"
@@ -525,6 +781,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "EX_TEMPFAIL", "EX_UNAVAILABLE", "clean_environment", "genome_for", "linux_machine", "machine_activity", "measure", "measure_args",
-    "other_cores", "power_state", "run_measured", "simulate_size", "unclean", "usable_cpus", "wait_until_quiet",
+    "EX_TEMPFAIL", "EX_UNAVAILABLE", "clean_environment", "cpu_breakdown", "during_run", "genome_for", "linux_machine",
+    "machine_activity", "machine_other_cores", "measure", "measure_args", "other_cores", "other_method", "other_share",
+    "power_state", "process_method", "process_times", "processes_hidden", "run_measured", "simulate_size", "unclean",
+    "usable_cpus", "wait_until_quiet",
 ]

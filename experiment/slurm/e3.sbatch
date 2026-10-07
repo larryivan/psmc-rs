@@ -25,7 +25,9 @@ from experiment.pipeline.experiments.e3_run import machine_activity
 p = config.get_profile("production").e3.timing
 act = machine_activity(30)
 print(f"idle node: {act['busy_cores']:.2f} cores busy ({act['busy_percent']:.2f}% of all); the protocol allows "
-      f"{p.quiet_max_cores} before a run and {p.max_other_cores} of other work during one")
+      f"{p.quiet_max_cores} before a run and {p.max_other_cores} of other processes during one")
+print(f"  of them: user-space processes {act['process_cores']}, kernel threads {act['kernel_thread_cores']}, "
+      f"interrupts {act['interrupt_cores']} cores")
 for b in act["busiest"]:
     print(f"  {b['name']} (pid {b['pid']}): {b['cpu_percent']}% of a core")
 raise SystemExit(0 if act["busy_cores"] <= p.quiet_max_cores else 3)

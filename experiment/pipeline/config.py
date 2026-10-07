@@ -397,7 +397,8 @@ class TimingProtocol:
     """How ``experiments/e3_run.py measure`` times one run of a tool.
 
     Before the run it waits ``settle_seconds``, then until the CPU use of the
-    whole machine over ``quiet_window_seconds`` is at most
+    whole machine (all but idle and iowait time: processes, kernel threads,
+    interrupts and steal) over ``quiet_window_seconds`` is at most
     ``quiet_cpu_percent`` of all cores and at most ``quiet_max_cores`` cores.
     During the run it samples the RSS of the tool's process tree every
     ``rss_sample_seconds`` (the tools are single processes, whose own
@@ -411,6 +412,23 @@ class TimingProtocol:
     ``require_ac_power``, it ran on AC power without Low Power Mode.
     Otherwise ``measure`` writes no record and exits with status 75, and the
     runner starts the run again later (it defers it).
+
+    "Other processes" during the run are the user-space processes other than
+    the tool's and the timing wrapper, each one's CPU time, with that of the
+    children it reaped, read before and after the run (Linux): a process
+    that ended during the run counts through the one that waited for it,
+    and only one that nothing waits for is missed (it shows in
+    ``during.unaccounted_cores``, recorded, not limited). Steal time
+    (another machine's, under a hypervisor) is limited with them. The
+    kernel's threads and interrupt time are not counted: part of it is the
+    kernel's work for the tool (a run keeping 30 cores busy adds about 0.1
+    core of it on a 128-core node), the rest the machine's housekeeping
+    that the quiet check before the run bounds, and neither is another
+    workload. Where not every process can be read (other users' processes
+    on macOS, where reaped children's CPU is not readable either), the
+    machine's busy CPU time but the tool's is limited instead, kernel and
+    interrupt time included, so that nothing is under-counted; each record
+    says which (``during.other_method``).
 
     Each limit is the smaller of a share of all cores and a number of cores:
     on the 8 to 10 cores of a laptop the shares decide (0.8 to 1 core busy

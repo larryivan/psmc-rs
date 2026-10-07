@@ -22,10 +22,16 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
    machine's (:func:`machine_cores`), timed by ``e3_run measure`` (wall
    time, CPU time, peak RSS of the tool's process tree, machine load before
    and after, CPU used by other processes during the run, power source; see
-   :mod:`.e3_run`). A run that is not clean (the machine not quiet before
-   it, more than ``timing.max_other_cpu_share`` of the cores or
-   ``timing.max_other_cores`` cores used by others during it, a sleep,
-   battery power) is not kept: the runner starts it again later.
+   :mod:`.e3_run`). A run that is not clean (the whole machine not quiet
+   before it, more than ``timing.max_other_cpu_share`` of the cores or
+   ``timing.max_other_cores`` cores used during it by other user-space
+   processes, with the children they reaped, and steal time; a sleep;
+   battery power) is not kept: the runner starts it again later. During
+   the run the kernel's threads and interrupt time do not count as other
+   work (they are the kernel's work for the tool and the machine's own
+   housekeeping, not another workload); where not every process can be
+   read (macOS), the machine's busy CPU but the tool's does, and each
+   record says which (``other_method``).
    Jobs are ranked by repeat, so every setup's first repeat runs before any
    second one and drift over the night does not fall on one tool;
 3. writes the tables, from clean runs only.
@@ -62,7 +68,12 @@ Tables (``tables/``):
   same thread count, C psmc's peak RSS over the tool's, the M-step budget,
   and whether the repeats' outputs are byte-identical.
 * ``E3_runs.csv``: one row per run: every measurement, the machine's state
-  before and during it, the machine it ran on (CPU model, governor, boost,
+  before and during it (before: busy cores, and of them user-space
+  processes, kernel threads and interrupts; during: the other work the
+  clean check limited, ``other_cores_during`` and ``other_cpu_share_during``
+  by ``other_method``, and beside it the machine-wide measure, kernel
+  threads, interrupts, steal, what none explains and the processes that
+  ended during the run), the machine it ran on (CPU model, governor, boost,
   usable cores, host, SLURM job), the fitted theta, rho and t_max, and the
   SHA-256 of the output.
 * ``E3_thread_scaling.csv`` (Fig S4): psmc-rs 0.2 on the thread-scaling
@@ -76,10 +87,12 @@ Tables (``tables/``):
 * ``E3_environment.csv``: the machine (each distinct value over the runs,
   ';'-joined: hosts, SLURM jobs), the tools' identities, how C psmc was
   built (its ``BUILD.json``, see :func:`.tools.build_c`), the timing
-  protocol, the memory limit, and the kinds of machine (CPU model, governor,
-  boost) the clean runs were timed on: when there are several
-  (``clean_runs_on_mixed_machines``), the medians and speed-ups mix them,
-  and the report warns.
+  protocol, the memory limit, the measures of other work used and the
+  median and maximum of each of E3_runs' CPU-use columns over the runs
+  (``other_cores_during`` for each measure apart), and
+  the kinds of machine (CPU model, governor, boost) the clean runs were
+  timed on: when there are several (``clean_runs_on_mixed_machines``), the
+  medians and speed-ups mix them, and the report warns.
 * ``E3_seeds.csv``: every simulation seed.
 """
 
@@ -96,7 +109,7 @@ from .. import config, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
-from .e3_run import genome_for, measure_args, other_cores, usable_cpus
+from .e3_run import genome_for, machine_other_cores, measure_args, other_cores, other_method, other_share, usable_cpus
 
 NAME = "E3"
 TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
@@ -553,8 +566,21 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
         "busy_before_percent": before.get("busy_percent"),
         "busy_before_cores": before.get("busy_cores"),
         "waited_seconds": before.get("waited_seconds"),
-        "other_cpu_share_during": during.get("other_cpu_share"),
+        "process_cores_before": before.get("process_cores"),
+        "kernel_thread_cores_before": before.get("kernel_thread_cores"),
+        "interrupt_cores_before": before.get("interrupt_cores"),
+        # the other work the clean check limits: other user-space processes
+        # (other_method "processes") or the machine's busy CPU but the tool's ("machine")
+        "other_method": other_method(timing),
+        "other_cpu_share_during": other_share(timing),
         "other_cores_during": other_cores(timing),
+        "machine_other_cores_during": machine_other_cores(timing),
+        "machine_other_cpu_share_during": during.get("other_cpu_share"),
+        "kernel_thread_cores_during": during.get("kernel_thread_cores"),
+        "interrupt_cores_during": during.get("interrupt_cores"),
+        "steal_cores_during": during.get("steal_cores"),
+        "unaccounted_cores_during": during.get("unaccounted_cores"),
+        "other_processes_exited": during.get("other_processes_exited"),
         "clock_span_seconds": timing.get("clock_span_seconds"),
         "power_source": power.get("source"),
         "low_power_mode": power.get("low_power_mode"),
@@ -581,15 +607,19 @@ def is_clean(timing: Dict, protocol: config.TimingProtocol) -> bool:
 
     Checked again here, so that a record written under an older or laxer
     protocol never enters the medians; a run with more threads than usable
-    CPUs (:func:`oversubscribed`) is not clean either.
+    CPUs (:func:`oversubscribed`) is not clean either. The other work during
+    the run is the record's own measure (:func:`.e3_run.other_cores`, by
+    ``during.other_method``): other user-space processes in records that
+    have it (with steal time), else the machine's busy CPU but the tool's
+    (``timing/3``).
     """
-    before, during = timing.get("machine_before", {}), timing.get("during", {})
+    before = timing.get("machine_before", {})
     power = before.get("power") or {}
     span = timing.get("clock_span_seconds")
     return bool(
         before.get("quiet")
         and (before.get("busy_cores") or 0.0) <= protocol.quiet_max_cores
-        and (during.get("other_cpu_share") or 0.0) <= protocol.max_other_cpu_share
+        and other_share(timing) <= protocol.max_other_cpu_share
         and other_cores(timing) <= protocol.max_other_cores
         and not oversubscribed(timing)
         and (span is None or span - timing["wall_seconds"] <= protocol.max_sleep_seconds)
@@ -767,11 +797,47 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
     add("repeats", str(cfg.repeats))
     add("runs_not_quiet", str(sum(1 for r in rows.values() if not r["quiet_before"])))
     add("runs_not_clean", str(sum(1 for r in rows.values() if not r["clean"])))
+    for key, value in cpu_use_rows(rows):
+        add(key, value)
     kinds = clean_machine_kinds(rows, timings)
     add("clean_runs_machines", ";".join(kinds))
     add("clean_runs_on_mixed_machines", str(len(kinds) > 1))
     add("power_sources", ";".join(sorted({str(r["power_source"]) for r in rows.values()})))
     add("low_power_mode_seen", str(any(r["low_power_mode"] for r in rows.values())))
+    return out
+
+
+# What kept the machine busy before and during the runs, in cores (E3_runs.csv's columns).
+CPU_USE_COLUMNS = (
+    "busy_before_cores", "process_cores_before", "kernel_thread_cores_before", "interrupt_cores_before",
+    "other_cores_during", "machine_other_cores_during", "kernel_thread_cores_during", "interrupt_cores_during",
+    "steal_cores_during", "unaccounted_cores_during",
+)
+OTHER_METHODS = ("processes", "machine")  # what other_cores_during measures, by run (e3_run.other_method)
+
+
+def cpu_use_rows(rows: Dict[Run, Dict]) -> List[Tuple[str, str]]:
+    """What kept the machine busy over every run, for E3_environment.csv.
+
+    The measures of other work the clean checks used (``other_methods``),
+    the median and maximum of each of :data:`CPU_USE_COLUMNS` over the runs
+    that recorded it (``other_cores_during`` apart for each measure, as
+    ``cores.other_cores_during.processes`` and ``.machine``, which are not
+    the same quantity), and how many other processes ended during runs.
+    """
+    def summary(xs: List[float]) -> str:
+        return f"median {statistics.median(xs):.3f}, max {max(xs):.3f} over {len(xs)} runs" if xs else "not recorded"
+
+    out = [("other_methods", ";".join(sorted({str(r["other_method"]) for r in rows.values()})))]
+    for col in CPU_USE_COLUMNS:
+        if col == "other_cores_during":
+            for method in OTHER_METHODS:
+                out.append((f"cores.{col}.{method}", summary([float(r[col]) for r in rows.values()
+                                                              if r["other_method"] == method and r.get(col) is not None])))
+            continue
+        out.append((f"cores.{col}", summary([float(r[col]) for r in rows.values() if r.get(col) is not None])))
+    exited = [r["other_processes_exited"] for r in rows.values() if r.get("other_processes_exited") is not None]
+    out.append(("other_processes_exited", f"{sum(exited)} over {len(exited)} runs" if exited else "not recorded"))
     return out
 
 
