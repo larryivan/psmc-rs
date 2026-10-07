@@ -102,7 +102,7 @@ def mask_axis(ax, masks) -> None:
     for s, idx in groups.items():
         lo, hi = min(idx) - 0.4, max(idx) + 0.4
         ax.plot([lo, hi], [-0.13, -0.13], color=style.MUTED, linewidth=style.LW_GRID, transform=trans, clip_on=False)
-        ax.text((lo + hi) / 2, -0.15, s, ha="center", va="top", fontsize=style.TICK_PT, color=style.INK2,
+        ax.text((lo + hi) / 2, -0.15, s, ha="center", va="top", fontsize=style.TEXT_PT, color=style.INK2,
                 transform=trans)
 
 
@@ -172,7 +172,7 @@ def draw(src: Source):
     ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs the truth")
     dot_panel(ax_b, routes, "rmse_log10_ne_vs_complete", 1.0, masks, route_names)
     ax_b.set_ylim(bottom=0.0)
-    ax_b.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs the complete data")
+    ax_b.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs complete data")
 
     # d: one replicate, one mask, with its complete-data fit.
     rep, mask = figs.e4_example_replicate, figs.e4_example_mask
@@ -240,7 +240,7 @@ def draw(src: Source):
     handles.append(style.handle(style.TRUTH, linewidth=style.LW))
     handles.append(Line2D([], [], color=style.MUTED, linewidth=REFERENCE_LW, label="Complete-data fit (d-f)"))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3)
-    style.panel_letters(fig, [ax_t, ax_r, ax_b, ax_c, ax_e, ax_f])
+    style.panel_letters(fig, [ax_t, ax_r, ax_b, ax_c, ax_e, ax_f], align_cols=True)
     return fig
 
 

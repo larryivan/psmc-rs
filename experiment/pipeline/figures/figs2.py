@@ -122,7 +122,7 @@ def draw(src: Source):
     handles = [style.handle(FORMATS[i], linewidth=FORMAT_LW.get(i, style.LW)) for i in inputs]
     handles.append(style.handle(style.TRUTH, linewidth=style.LW))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
-    style.panel_letters(fig, [*top, *bottom])
+    style.panel_letters(fig, [*top, *bottom], align_cols=True)
     return fig
 
 

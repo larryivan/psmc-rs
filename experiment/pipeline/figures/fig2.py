@@ -150,7 +150,7 @@ def draw(src: Source):
     ]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
                  columnspacing=1.0)
-    style.panel_letters(fig, [*top, *mid, bottom])
+    style.panel_letters(fig, [*top, *mid, bottom], align_cols=True)
     return fig
 
 

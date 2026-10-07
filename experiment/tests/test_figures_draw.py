@@ -124,6 +124,16 @@ class Draw(unittest.TestCase):
                     self.assertGreaterEqual(ext.y0, box.y0 - 0.5)
                     self.assertLessEqual(ext.y1, box.y1 + 0.5)
 
+    def test_panel_letters_line_up_in_columns(self):
+        from experiment.pipeline.figures import style
+
+        for module in ("fig2", "fig5", "fig6", "figs1", "figs2", "figs3"):
+            with self.subTest(figure=module):
+                fig = self._draw(module)
+                letters = [t for t in fig.texts if t.get_fontsize() == style.PANEL_PT and t.get_fontweight() == "bold"]
+                columns = {round(ax.get_position(original=True).x0, 3) for ax in fig.axes if ax.axison}
+                self.assertEqual(len({round(t.get_position()[0], 4) for t in letters}), len(columns))
+
     def test_fig3_notes_lie_inside_their_panels_and_have_no_box(self):
         fig = self._draw("fig3")
         self._assert_notes_inside_axes(fig)

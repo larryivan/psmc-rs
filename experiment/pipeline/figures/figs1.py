@@ -116,5 +116,5 @@ def draw(src: Source):
                Patch(facecolor=ROUNDING, linewidth=0,
                      label=f"Rounding of C psmc's printed θ ({C_THETA_DECIMALS} decimals; i-l)")]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
-    style.panel_letters(fig, [ax for row in rows for ax in row])
+    style.panel_letters(fig, [ax for row in rows for ax in row], align_cols=True)
     return fig
