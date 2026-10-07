@@ -251,10 +251,10 @@ class Schemas(unittest.TestCase):
         self.assertIn("rmse_log10_ne_rs_vs_c", str(cm.exception))
 
     def test_every_schema_names_an_experiments_table(self):
-        from experiment.pipeline.experiments import e1, e2, e3, e4, e5, e6
+        from experiment.pipeline.experiments import e1, e2, e3, e4, e5, e6, e7
         from experiment.pipeline.figures.schemas import SCHEMAS
 
-        written = {f"{m.NAME}/{name}" for m in (e1, e2, e3, e4, e5) for name in m.TABLES.values()}
+        written = {f"{m.NAME}/{name}" for m in (e1, e2, e3, e4, e5, e7) for name in m.TABLES.values()}
         written |= {f"E6/{name}" for part in e6.TABLES.values() for name in part.values()}
         for key, s in SCHEMAS.items():
             self.assertIn(f"{s.experiment}/{s.file}", written, key)

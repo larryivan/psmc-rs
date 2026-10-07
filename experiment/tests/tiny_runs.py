@@ -1,7 +1,7 @@
 """Every experiment at the tiny profile, run once through the runner and shared by the tests.
 
 E7's data stage (kg1000, outside the runner) runs first, on its synthetic
-cohort. The end-to-end tests of E1-E6 and the figure tests read the tables these
+cohort. The end-to-end tests of E1-E7 and the figure tests read the tables these
 runs write, so the figures are drawn from what the experiments really
 write (not from stand-ins), and each experiment runs once per test process
 instead of once per test module. The runs directory is temporary and is
@@ -25,7 +25,7 @@ if str(ROOT) not in sys.path:
 from experiment.pipeline import config, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, jobs_for  # noqa: E402
 
-EXPERIMENTS = ("E1", "E2", "E3", "E4", "E5", "E6")
+EXPERIMENTS = ("E1", "E2", "E3", "E4", "E5", "E6", "E7")
 MODULES = ("msprime", "psutil", "numpy", "pandas", "scipy", "matplotlib")
 
 

@@ -4,8 +4,8 @@ One job per figure of :data:`..figures.FIGURES`: its inputs are the tables
 the figure reads (so it runs after the experiment's ``report`` job, and again
 whenever a table changes), its outputs ``<runs>/<EXP>/figures/<name>.{pdf,
 svg,png}``. A figure is declared once every experiment it reads is
-implemented (registered in :data:`.REGISTRY`); Fig 1, a schematic, needs
-none. The provenance key holds the figure's code (style, data, schemas and
+implemented (registered in :data:`.REGISTRY`) and, for E7, its data stage
+has finished; Fig 1, a schematic, needs none. The provenance key holds the figure's code (style, data, schemas and
 its module), the figure settings (:data:`..config.FIGURES`), the profile's
 settings of the experiments it reads, the package versions and the font
 file the text is set in.
@@ -22,7 +22,7 @@ from typing import Dict, List
 
 from .. import config, figures, paths, provenance
 from ..runner import Job
-from . import REGISTRY, Context
+from . import REGISTRY, Context, module
 
 NAME = "FIG"
 PACKAGES = ("matplotlib", "numpy", "pandas")
@@ -37,9 +37,20 @@ def font_identity() -> Dict[str, str]:
     return {"file": path.name, "sha256": digest}
 
 
-def declared(fs: figures.FigureSpec) -> bool:
-    """Whether every experiment the figure reads has jobs (is implemented)."""
-    return all(exp in REGISTRY for exp in fs.sources)
+def declared(fs: figures.FigureSpec, ctx: Context) -> bool:
+    """Whether every experiment the figure reads has jobs: it is implemented, and ready if it says when.
+
+    An experiment whose inputs come from outside the runner (E7's data
+    stage) has a ``ready(ctx)``; until then it has no jobs, and its figures
+    none either (they would wait for tables no job writes).
+    """
+    for exp in fs.sources:
+        if exp not in REGISTRY:
+            return False
+        ready = getattr(module(exp), "ready", None)
+        if ready is not None and not ready(ctx):
+            return False
+    return True
 
 
 def job(ctx: Context, fs: figures.FigureSpec, fonts: Dict[str, str]) -> Job:
@@ -64,7 +75,7 @@ def job(ctx: Context, fs: figures.FigureSpec, fonts: Dict[str, str]) -> Job:
 
 def jobs(ctx: Context) -> List[Job]:
     fonts = font_identity()
-    return [job(ctx, fs, fonts) for fs in figures.FIGURES if declared(fs)]
+    return [job(ctx, fs, fonts) for fs in figures.FIGURES if declared(fs, ctx)]
 
 
 def report(ctx: Context) -> Dict[str, Path]:
