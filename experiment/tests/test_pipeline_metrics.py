@@ -134,6 +134,24 @@ class IntervalDiff(unittest.TestCase):
         self.assertAlmostEqual(half.rmse, math.sqrt((1.0 + 0.0 + 0.5 * 4.0) / 2.5))
         self.assertAlmostEqual(metrics.interval_rmse(rs, c, (10.0, 1e4)), d.rmse)
 
+    def test_log_time_diff_integrates_exactly_over_the_union_of_boundaries(self):
+        # Boundaries 1% apart: the piece between them counts by its width in log time.
+        c = Curve((0.0, 100.0, 1000.0), (1e3, 1e4, 1e3))
+        rs = Curve((0.0, 101.0, 1010.0), (1e3, 1e4, 1e3))
+        d = metrics.log_time_diff(rs, c, (10.0, 1e4))
+        want = math.sqrt(2 * math.log(1.01) / math.log(1e3))  # two slivers of a whole step (1 in log10)
+        self.assertAlmostEqual(d.rmse, want)
+        self.assertEqual(d.max_abs, 1.0)
+        # The limit a dense log-spaced grid approaches; 200 times hit no sliver or a whole one.
+        dense = metrics.rmse_between(rs, c, metrics.log_grid(10.0, 1e4, 200_001))
+        self.assertAlmostEqual(dense, want, delta=0.01 * want)
+        # Curves that differ by a constant factor everywhere.
+        double = Curve(c.years, tuple(2 * x for x in c.ne))
+        self.assertAlmostEqual(metrics.log_time_diff(double, c, (10.0, 1e4)).rmse, math.log10(2))
+        self.assertEqual(metrics.log_time_diff(c, c, (10.0, 1e4)).rmse, 0.0)
+        with self.assertRaises(ValueError):
+            metrics.log_time_diff(rs, c, (0.0, 1e4))
+
     def test_the_curves_need_the_same_intervals(self):
         with self.assertRaises(ValueError):
             metrics.interval_diff(Curve((0.0, 1.0), (1.0, 2.0)), Curve((0.0,), (1.0,)), (0.5, 2.0))

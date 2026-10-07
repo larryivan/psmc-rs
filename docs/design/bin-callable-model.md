@@ -740,9 +740,10 @@ three runs' means:
   PSMC's error.
 - **Clustered missing data** change little either way: the called bins
   hold 99.8% of their bases, and the runs' mean RMSEs against the
-  complete-data fit of `auto` and `ignore` differ by at most 0.002. Single
-  genomes can differ more: in E4, with 30% clustered, by up to 0.024 (0.040
-  against 0.064, one of the five replicates; the others by at most 0.005).
+  complete-data fit of `auto` and `ignore` differ by at most 0.002, and
+  in E4 single genomes did not differ more: by 0.001 to 0.002 with 10%
+  clustered and 0.003 to 0.004 with 30%, `auto` the closer in every
+  replicate.
 - **Multihetsep.** No mode recovers the exact route, and missing data in
   long runs bias it too (θ 0.89 to 0.93 where the exact route is
   unbiased). The bias comes from the placement of the uncalled sites,

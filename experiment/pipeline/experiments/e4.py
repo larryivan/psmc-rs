@@ -12,7 +12,7 @@ by five routes (``config.E4.routes``; section 8 of config.py and
 passed explicitly (``config.E4_BIN_CALLABLE``):
 
 * ``mask_auto``: the VCF with ``--vcf-mask``, ``--bin-callable auto``
-  (psmc-rs's default): each called bin is weighed by its callable bases,
+  (psmc-rs's default): each called bin is weighted by its callable bases,
   counted exactly from the mask;
 * ``mask_ignore``: the same bins with ``--bin-callable ignore``: every called
   bin is taken as ``bin_size`` bases, as fq2psmcfa and C psmc take it;
@@ -54,7 +54,21 @@ bases of its called bins (``bin_callable.callable.mean_fraction * s`` of its
 JSON), corrects the bias on average, after the fit. The table sets that
 global correction beside ``mask_auto``'s per-bin model: the two should agree
 on the scale, and the per-bin model should be at least as close to the
-complete-data fit.
+complete-data fit. The rescaled fit has the pattern and the bins of
+``mask_auto``'s, so the two are compared interval by interval
+(:func:`.metrics.interval_diff`, ``*_per_interval``); their scales are the
+theta columns.
+
+**Against the complete-data fit.** A route's fit and the complete-data fit
+have the same pattern but time scales that differ by percents (theta), so
+the RMSE of log10 Ne between them (``rmse_log10_ne_vs_complete``) is the
+exact mean over log time on the informative window
+(:func:`.metrics.log_time_diff`), not a mean at the window's grid times:
+on 200 times, a time that falls between two nearby boundaries of the two
+fits reads a whole step, and such hits made the RMSE of close fits noisy
+by tens of percent. ``max_abs_log10_ne_vs_complete`` is the largest
+difference anywhere in the window, a whole step where two boundaries are
+close.
 
 QC codes are those of each fit's own QC (the ``qc`` record of its JSON,
 which psmc-rs computes with the fit's settings, ``--bin-callable`` included).
@@ -673,9 +687,8 @@ def report(ctx: Context) -> Dict[str, Path]:
     def vs_complete(curve, complete: Optional[RouteFit]) -> Dict:
         if complete is None:
             return {"rmse_log10_ne_vs_complete": None, "max_abs_log10_ne_vs_complete": None}
-        return {"rmse_log10_ne_vs_complete": metrics.rmse_between(curve, complete.curve, window),
-                "max_abs_log10_ne_vs_complete": float(np.max(np.abs(
-                    np.log10(curve.at(window)) - np.log10(complete.curve.at(window)))))}
+        diff = metrics.log_time_diff(curve, complete.curve, (window[0], window[-1]))
+        return {"rmse_log10_ne_vs_complete": diff.rmse, "max_abs_log10_ne_vs_complete": diff.max_abs}
 
     for r in range(1, cfg.replicates + 1):
         truth = _read(lay.truth(r))
@@ -822,7 +835,9 @@ def rescaling_row(cfg: config.E4, mask: str, r: int, missing_fraction: float, fi
         row[f"rmse_truth_{name}"] = t.get("rmse_log10_ne_vs_truth")
         row[f"rmse_complete_{name}"] = c.get("rmse_log10_ne_vs_complete")
         row[f"mean_log10_bias_{name}"] = t.get("mean_log10_bias")
-    row["rmse_rescaled_vs_auto"] = metrics.rmse_between(rescaled, auto.curve, window) if rescaled else None
+    diff = metrics.interval_diff(rescaled, auto.curve, (window[0], window[-1])) if rescaled else None
+    row["rmse_rescaled_vs_auto_per_interval"] = diff.rmse if diff else None
+    row["max_abs_rescaled_vs_auto_per_interval"] = diff.max_abs if diff else None
     return row
 
 
@@ -880,7 +895,7 @@ FIELDS: Dict[str, Sequence[str]] = {
     "rescaling": ["mask", "replicate", "structure", "missing_fraction", "mean_callable_fraction", "scale",
                   *(f"{m}_{v}" for m in ("theta_rel_complete", "rmse_truth", "rmse_complete", "mean_log10_bias")
                     for v in ("auto", "ignore", "rescaled")),
-                  "rmse_rescaled_vs_auto"],
+                  "rmse_rescaled_vs_auto_per_interval", "max_abs_rescaled_vs_auto_per_interval"],
 }
 
 

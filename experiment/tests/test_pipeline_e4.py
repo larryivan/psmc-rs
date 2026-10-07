@@ -248,7 +248,7 @@ class Summary(unittest.TestCase):
             return {"rmse_log10_ne_vs_truth": 0.0, "mean_log10_bias": 0.0}
 
         def vs_complete(curve, c):
-            return {"rmse_log10_ne_vs_complete": metrics.rmse_between(curve, c.curve, window)}
+            return {"rmse_log10_ne_vs_complete": metrics.log_time_diff(curve, c.curve, (window[0], window[-1])).rmse}
 
         row = e4.rescaling_row(cfg, "dispersed30", 1, 0.3, fits, complete, vs_truth, vs_complete, window)
         self.assertAlmostEqual(row["scale"], 1 / 0.7)
@@ -257,7 +257,8 @@ class Summary(unittest.TestCase):
         self.assertAlmostEqual(row["theta_rel_complete_auto"], 0.0)
         # theta / 0.7 and times and sizes x 1 / 0.7: the rescaled curve is the complete one here.
         self.assertLess(row["rmse_complete_rescaled"], 1e-9)
-        self.assertLess(row["rmse_rescaled_vs_auto"], 1e-9)
+        self.assertLess(row["rmse_rescaled_vs_auto_per_interval"], 1e-9)
+        self.assertLess(row["max_abs_rescaled_vs_auto_per_interval"], 1e-9)
         self.assertGreater(row["rmse_complete_ignore"], 0.1)
         self.assertTrue(np.isfinite(row["rmse_complete_auto"]))
         self.assertEqual(set(row), set(e4.FIELDS["rescaling"]))

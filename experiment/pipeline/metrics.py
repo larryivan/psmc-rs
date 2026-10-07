@@ -5,10 +5,11 @@ log-spaced grid of times in years. A fitted PSMC curve is a step function
 (:class:`.results.Curve`); the truth is evaluated exactly at each point from
 the model's epochs (:mod:`.demography`), with exponential growth where the
 model has it. Two fits of the same time pattern are compared interval by
-interval instead (:func:`interval_diff`). For simulations the informative
-window of a model is the range between two quantiles of its true pairwise
-coalescence time (see :class:`.config.TimeGrid` for why), the same for both
-tools and all replicates.
+interval instead (:func:`interval_diff`), and two fits whose time scales
+differ exactly over log time (:func:`log_time_diff`). For simulations the
+informative window of a model is the range between two quantiles of its
+true pairwise coalescence time (see :class:`.config.TimeGrid` for why), the
+same for both tools and all replicates.
 """
 
 from __future__ import annotations
@@ -80,13 +81,58 @@ def rmse_vs_truth(curve: Curve, epochs: Sequence[demography.Epoch], years, gen_y
 def rmse_between(a: Curve, b: Curve, years) -> float:
     """RMSE of log10 Ne between two fitted curves on ``years``.
 
-    Sampling at fixed times suits curves whose time boundaries differ
-    materially (fits whose theta, and so whose N0, differ by percents).
-    For two fits of the same time pattern, whose boundaries differ only by
-    a hair, use :func:`interval_rmse`: a fixed time that falls between two
-    nearly equal boundaries picks up a whole step of the curve.
+    A fixed time that falls between two nearly equal boundaries picks up a
+    whole step of the curve, so on a grid of a few hundred times the RMSE
+    of two close fits is noisy by a large share of itself. Compare two
+    fits of the same time pattern, whose boundaries differ only by a hair,
+    with :func:`interval_rmse`, and fits whose boundaries differ by
+    percents (their theta, and so their N0, does) with
+    :func:`log_time_diff`, which integrates exactly.
     """
     return rmse_log10(a.at(years), b.at(years))
+
+
+@dataclass(frozen=True)
+class LogTimeDiff:
+    """log10(Ne_a / Ne_b) on the pieces between both curves' boundaries in a window (see :func:`log_time_diff`)."""
+
+    log10_ratio: Tuple[float, ...]  # one per piece, where both curves are constant
+    weight: Tuple[float, ...]  # ln(end / start) of the piece
+
+    @property
+    def rmse(self) -> float:
+        """Root of the mean over log time of the squared difference on the window."""
+        total = sum(self.weight)
+        return math.sqrt(sum(w * d * d for w, d in zip(self.weight, self.log10_ratio)) / total)
+
+    @property
+    def max_abs(self) -> float:
+        """Largest |difference| on the window, a sliver between two near boundaries included."""
+        return max(abs(d) for d in self.log10_ratio)
+
+
+def log_time_diff(a: Curve, b: Curve, window: Tuple[float, float]) -> LogTimeDiff:
+    """Two step curves compared exactly over log time on ``window`` (years).
+
+    Between consecutive boundaries of either curve both are constant, so
+    the mean over log time of the squared difference of log10 Ne is a sum
+    over those pieces, each weighted by ln(end / start). This is the limit
+    :func:`rmse_between` approaches on an ever denser log-spaced grid,
+    without its sampling noise: a piece between two near boundaries counts
+    by its width, not by whether a grid time happens to fall in it. Suits
+    fits whose time scales differ (by percents in theta), where matching
+    intervals (:func:`interval_diff`) would compare different times.
+    """
+    import numpy as np
+
+    lo, hi = float(window[0]), float(window[1])
+    if not 0 < lo < hi:
+        raise ValueError(f"bad window [{lo}, {hi}]")
+    knots = sorted({lo, hi, *(float(t) for t in (*a.years, *b.years) if lo < t < hi)})
+    starts = knots[:-1]
+    diffs = np.log10(a.at(starts)) - np.log10(b.at(starts))
+    weights = [math.log(e / s) for s, e in zip(knots[:-1], knots[1:])]
+    return LogTimeDiff(tuple(float(d) for d in diffs), tuple(weights))
 
 
 # ---------------------------------------------------------------------------

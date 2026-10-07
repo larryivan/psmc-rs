@@ -428,7 +428,11 @@ psmc's: the report fails unless `mask_auto` and `mask_ignore` fit
 identically there, and that fit is the complete-data fit with which every
 route of the replicate is compared. The tables report, per route: theta
 against the complete-data fit, the RMSE of log10 Ne against the truth
-(informative and fixed windows) and against the complete-data fit, the
+(informative and fixed windows) and against the complete-data fit (exact
+over log time on the informative window, `metrics.log_time_diff`: the
+fits' time scales differ by percents, and on the window's 200 times a time
+between two nearby boundaries reads a whole step, which made the RMSE of
+close fits noisy by tens of percent), the
 mean log10 bias and the bias at every time of the informative window, the
 callable bases of the called bins (mean share, and the share of bins
 partly callable), the bins unlike the exact bins, and the QC codes. Those
@@ -448,9 +452,9 @@ called bins (theta at 0.877 to 0.883 of the complete-data fit with 10%
 missing and 0.644 to 0.658 with 30%, whose called bins are 90.1% and 70.5%
 callable on average), and the callable-length model removes most of the
 bias (0.988 to 0.995 and 0.971 to 0.988: at 30% it stays 1.9% low on
-average). Its RMSE of log10 Ne against the complete-data fit is 6.6 and
-4.6 times smaller than `mask_ignore`'s (mean 0.029 against 0.191 at 10%,
-0.076 against 0.349 at 30%). Against the truth the contrast is clear at 30%
+average). Its RMSE of log10 Ne against the complete-data fit is 4.6 and
+4.4 times smaller than `mask_ignore`'s (mean 0.041 against 0.191 at 10%,
+0.080 against 0.349 at 30%). Against the truth the contrast is clear at 30%
 (mean 0.280 against 0.449; complete data 0.273) and smaller at 10% (0.275
 against 0.323), where PSMC's own error weighs more, so theta and the RMSE
 against the complete-data fit are the measures of the bias. Clustered
@@ -501,7 +505,7 @@ checks that every fit read the bins of its route and ran with its route's
 | `E4_summary.csv` | per mask and route (Fig 5): `--bin-callable`, the model fitted and where its callable bases came from (`exact`, `approximate`, none), realised missing fraction, mean share of callable bases of the called bins and share of them partly callable, share of missing bins and of bins unlike the exact bins, theta against the complete-data fit, RMSE of log10 Ne against the truth (informative and fixed windows) and against the complete-data fit of the same genome, mean log10 bias, fits identical to `mask_auto`'s and to `mask_ignore`'s, QC codes in every / any replicate |
 | `E4_routes.csv` | per mask, route and replicate: the fit, the model, its input as read (bins, heterozygous and missing bins, called bases, callable bases of the called bins), metrics, QC codes, wall time and peak RSS |
 | `E4_bias.csv` | log10(fitted / true Ne) on the informative-window grid: mean, SD, min, max over replicates |
-| `E4_rescaling.csv` | per mask and replicate: the rescaling cross-check, `mask_auto`, `mask_ignore` and `mask_ignore` rescaled (theta against the complete-data fit, RMSE against the truth and against the complete-data fit, mean log10 bias), and the RMSE between the rescaled curve and `mask_auto`'s |
+| `E4_rescaling.csv` | per mask and replicate: the rescaling cross-check, `mask_auto`, `mask_ignore` and `mask_ignore` rescaled (theta against the complete-data fit, RMSE against the truth and against the complete-data fit, mean log10 bias), and the RMSE and largest difference of log10 Ne between the rescaled curve and `mask_auto`'s, interval by interval (`*_per_interval`; the two have the same pattern and bins, and their scales are the theta columns) |
 | `E4_bins.csv` | per mask, replicate and route: the exact T/K/N bins against the route's (`N_T`: missing in the exact bins, called in the route), bins only one has (the multihetsep tail after its last row) |
 | `E4_masks.csv` | per mask and replicate: target and realised missing fraction, uncallable runs and their mean length, heterozygous sites removed |
 | `E4_qc.csv` | every QC finding of every fit (mask, route, replicate, code, severity: `warning` or `note`, from the fit JSON's `qc.warnings` and `qc.notes`; the QC JSON that E2's and E6's tables read calls a note's severity `info`) |

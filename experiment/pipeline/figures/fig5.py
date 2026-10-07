@@ -28,7 +28,8 @@ counts every uncallable site as homozygous.
 * a: theta per bin against the complete-data fit of the same genome, as a
   change in percent (every replicate, and the mean);
 * b: RMSE of log10 Ne against the truth on the informative window;
-* c: RMSE of log10 Ne against the complete-data fit of the same genome;
+* c: RMSE of log10 Ne against the complete-data fit of the same genome,
+  exact over log time on the informative window;
 * d: the curves of one replicate with the dispersed 30% mask, its
   complete-data fit (grey) and the truth;
 * e, f: bias over time, mean over replicates of log10(Ne / true Ne), with

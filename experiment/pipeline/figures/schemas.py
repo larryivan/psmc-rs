@@ -196,7 +196,8 @@ _add("E4_routes", "E4", "mask, route and replicate", {
     "replicate": "replicate",
     "theta_rel_complete": "theta / theta of the complete-data fit of the same genome (the control's mask_auto) - 1",
     "rmse_log10_ne_vs_truth": "RMSE of log10 Ne against the truth on the informative window",
-    "rmse_log10_ne_vs_complete": "RMSE of log10 Ne against the complete-data fit of the same genome, same window",
+    "rmse_log10_ne_vs_complete": "RMSE of log10 Ne against the complete-data fit of the same genome, same window, "
+                                 "exact over log time (metrics.log_time_diff)",
 })
 _add("E4_curves", "E4", "mask, route, replicate and interval", {
     "mask": "mask",
