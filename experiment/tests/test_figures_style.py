@@ -112,6 +112,32 @@ class Style(unittest.TestCase):
         self.assertEqual(style.TICK_PT, 6.0)
         self.assertIn("exception to 7 pt: tick labels are 6 pt", " ".join(style.__doc__.split()))
 
+    def test_no_text_below_5pt_superscripts_included(self):
+        import matplotlib._mathtext as mt
+
+        from experiment.pipeline.figures import style
+
+        fig = style.figure("single", 40)
+        self.assertEqual(mt.SHRINK_FACTOR, style.MATH_SHRINK)
+        ax = fig.add_subplot(111)
+        ax.plot([1e3, 1e6], [1e3, 1e5])
+        style.log_axis(ax, "x")
+        style.log_axis(ax, "y")
+        ax.set_ylabel(style.NE_LABEL)
+        style.note(ax, 0.1, 0.9, r"max 1.9$\times$10$^{-5}$")
+        with tempfile.TemporaryDirectory() as d:
+            svg = next(p for p in style.save(fig, Path(d), "f", dpi=72) if p.suffix == ".svg")
+            self.assertEqual(style.small_text(svg), [])
+            text = svg.read_text()
+            # A 6 pt tick label's exponent at 0.84 of it, not mathtext's 0.7 (4.2 pt).
+            self.assertIn("font-size: 5.04px", text)
+            self.assertNotIn("font-size: 4.2px", text)
+            bad = Path(d) / "bad.svg"
+            bad.write_text('<svg><text style="font-size: 6px">10</text>'
+                           '<tspan x="1" style="font-size: 4.2px; font-family: Arial">3</tspan></svg>')
+            self.assertEqual(style.small_text(bad), [(4.2, "3")])
+        self.assertIn("no text is below :data:`MIN_TEXT_PT` (5 pt)", " ".join(style.__doc__.split()))
+
     def test_tint_is_the_colour_at_replicate_opacity_over_white(self):
         from experiment.pipeline.figures import style
 
@@ -371,6 +397,43 @@ class Performance(unittest.TestCase):
             self.assertEqual([e.filled for e in ents], [True, False, False])
             self.assertEqual(ents[0].linestyle, "-")
         self.assertEqual(len(fig4.series(table2)), 10)  # without the profile's counts: every one in the table
+
+    def test_fig4_gives_each_size_its_chromosomes(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures import fig4
+
+        table2 = pd.DataFrame({"size_mb": [100, 100, 300, 3000], "chromosomes": [1, 1, 3, 30]})
+        self.assertEqual(fig4.chromosome_counts(table2), {100: 1, 300: 3, 3000: 30})
+        with self.assertRaises(ValueError):
+            fig4.chromosome_counts(pd.DataFrame({"size_mb": [100, 100], "chromosomes": [1, 2]}))
+        self.assertIn("ceil(n / t)", " ".join(fig4.__doc__.split()))
+
+    def test_figs4_names_the_runs_behind_more_than_one_output(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures import figs4
+
+        rows = []
+        for size in (100, 300, 1000):
+            for t in (1, 8, 30):
+                for r in (1, 2):
+                    sha = "same" if size == 100 or t > 1 else f"one-{size}"
+                    rows.append(("rs01", size, t, r, sha, 2.5e-5 if sha.startswith("one") else 0.0))
+            rows.append(("c", size, 1, 1, f"c-{size}", 0.0))
+        det = pd.DataFrame(rows, columns=["tool", "size_mb", "threads", "repeat", "sha256", "max_rel_diff_params"])
+        (n, text), = figs4.output_differences(det)
+        nb = figs4.NBSP
+        self.assertEqual(n, 2)
+        self.assertTrue(text.startswith(f"psmc-rs 0.1 at 300{nb}Mb and above: 1{nb}thread wrote different bytes "
+                                        f"from 8 and 30{nb}threads"), text)
+        self.assertIn("2.5$\\times$10$^{-5}$ relative", text)
+        self.assertIn("repeats at a thread count are identical", text)
+        # Repeats that disagree are named as such.
+        det.loc[(det.size_mb == 1000) & (det.threads == 8) & (det.repeat == 2), "sha256"] = "odd"
+        (n, text), = figs4.output_differences(det)
+        self.assertIn("runs differ", text)
+        self.assertEqual(figs4.output_differences(det[det.tool == "c"]), [])
 
     def test_figs4_ceiling_of_whole_sequences_per_thread(self):
         from experiment.pipeline.figures import figs4

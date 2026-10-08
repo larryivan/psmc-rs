@@ -56,10 +56,14 @@ so that it can be turned into the caption. Captions should also say:
   window (1% to 99% quantiles of the true pairwise coalescence time), where
   no metric is computed. In Fig 2a-d, Ne values of the fits outside the axis
   are clipped; a replicate's first or last free lambda, which the data barely
-  constrain, can lie far above it. In expansion replicate 5, C psmc's first
-  lambda ran away to about 1e6 (psmc-rs bounds every free lambda at 1e4):
-  2.0 in log10 Ne before the window, which leaves Fig 2c and is named, off
-  scale, in Fig 2g (`E1_rs_vs_c.max_abs_log10_ne_rs_vs_c_any_interval`).
+  constrain, can lie far above it. In expansion replicate 5 the first free
+  lambda (intervals 0-3, before 4.8 ky, outside the window) ran away in both
+  tools: psmc-rs's stopped at its upper bound (lambda 1e4, Ne 2.3e7; psmc-rs
+  bounds every free lambda), and C psmc's, which is unbounded, reached about
+  1.1e6 (Ne 2.5e9). Both leave Fig 2c at 4.8 ky, C psmc's line under
+  psmc-rs's. The 2.0 named off scale in Fig 2g, with C psmc higher
+  (`E1_rs_vs_c.max_abs_log10_ne_rs_vs_c_any_interval`), is the gap between
+  the two, set by psmc-rs's bound, not a disagreement on what the data say.
 - **Fig 2e-i, 3 and S2e-h**: two fits of the same pattern are compared
   interval by interval, not at fixed times: interval k of one with interval k
   of the other, drawn on the reference's intervals (C psmc's, the psmcfa
@@ -87,13 +91,20 @@ so that it can be turned into the caption. Captions should also say:
   curves are Fig 3's, and E2 bootstraps it with E7's seed, replicates,
   trunks and iterations (`config.RealGenome.bootstrap_shared_with`), so
   its band is Fig 3's too. The bootstrap resamples blocks: the
-  sequences split at 50 Mb (splitfa's trunks), so most of the turtles'
-  blocks are whole scaffolds and NA12878's are its 22 chromosomes cut into
-  59 blocks. A genome whose default blocks are fewer than 20 is bootstrapped
-  again on 5 Mb blocks (dark dotted outline), and its coarse 50 Mb band does
-  not set the Ne axis and is clipped where it reaches beyond it (the panel
-  says so); no genome of the production run has so few, so Fig 3 has
-  neither. E5 calibrates chromosome-scale blocks only.
+  sequences split at 50 Mb (splitfa's trunks; a remainder under 1.5 trunks
+  stays in the last block), so a sequence shorter than 50 Mb is one whole
+  block. Whole scaffolds shorter than 50 Mb hold 97% of *P. castaneus*'s
+  bins, 50% of *E. subglobosa*'s and 23% of *H. tectifera*'s, and only
+  chr21 (1.6%) of NA12878's (`E2_bootstrap.bins_below_trunk_fraction`;
+  NA12878's 22 chromosomes form 59 blocks). The legend gives no block size,
+  since few blocks are 50 Mb long; each panel gives its blocks and
+  sequences. A genome whose default blocks are fewer than 20 is bootstrapped
+  again on 5 Mb blocks (dark dotted outline; the legend then names both
+  sizes), and its coarse 50 Mb band does not set the Ne axis and is clipped
+  where it reaches beyond it (the panel says so); no genome of the
+  production run has so few, so Fig 3 has neither. E5 calibrates equal
+  50 Mb and 5 Mb blocks of 50 Mb chromosomes, the scheme closest to
+  NA12878's; the turtles' bands are not calibrated.
 - **Fig 3 and the turtle patterns**: the turtle curves use the pattern
   `4+25*2+4+6`, under which Hilgers et al. 2025 (Curr Biol 35:927) found
   false recent peaks of Ne in all their turtles (and across many PSMC
@@ -105,7 +116,15 @@ so that it can be turned into the caption. Captions should also say:
   the caption should say whether Fig 3's recent peaks persist.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
-  E3 recorded. Panel b's peak memory is the larger of the tool's
+  E3 recorded. psmc-rs (0.1 and 0.2) runs the E-step of each sequence on
+  one thread, in parallel across sequences, so on t threads a genome of n
+  equal chromosomes takes about ceil(n / t) times one chromosome's time:
+  17.2 to 18.3 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
+  10). The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the second
+  line of the size ticks). Threads beyond the chromosome count add nothing:
+  the 30-thread lines are flat, and the 30-thread speed-up at 3,000 Mb
+  (243x) holds because its 30 equal chromosomes give each thread one. On a
+  real genome the longest sequence sets the floor (Fig S4). Panel b's peak memory is the larger of the tool's
   `ru_maxrss` and its sampled peak; for psmc-rs 0.2 on 100 and 300 Mb, and
   on 1000 Mb on one thread, it is `ru_maxrss`'s 25.0 MB in every repeat,
   above the sampled 7.0 to 20.2 MB, so the caption should call those points
@@ -134,7 +153,10 @@ so that it can be turned into the caption. Captions should also say:
 ## Style (`style.py`)
 
 Arial (else Helvetica, else DejaVu Sans), 7 pt text, 6 pt tick labels, 8 pt
-bold lowercase panel letters; data lines 0.75-1.25 pt (thin replicate lines
+bold lowercase panel letters; superscripts and subscripts at 0.84 of their
+text (`style.MATH_SHRINK`; mathtext's own 0.7 would set a 6 pt tick label's
+exponent at 4.2 pt), so no text is below 5 pt (the tests check every
+figure's SVG with `style.small_text`); data lines 0.75-1.25 pt (thin replicate lines
 0.5 pt; C psmc's medians 2 pt underneath psmc-rs's 0.8 pt where the two
 coincide); no top or right spines, no titles, no dual axes; hairline grids
 on log axes. Widths are the journal's: 89, 120 and 183 mm.
@@ -186,7 +208,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E2/tables/E2_fit_summary.csv` | genome and tool | `sample_id`, `tool`, `mu`, `gen_years`, `scaling_cite`, `sequences` |
 | `E2/tables/E2_split_patterns.csv` | turtle and pattern (`default`: `fit-rs`'s fit) | `sample_id`, `pattern_name`, `pattern`, `mu`, `gen_years`, `window_lo_years`, `window_hi_years`, `recent_end_years`, `first_vs_plateau`, `recent_max_vs_plateau`, `recent_peak` |
 | `E2/tables/E2_split_curves.csv` | turtle, pattern and interval | `sample_id`, `pattern_name`, `interval`, `years`, `ne` |
-| `E3/tables/E3_table2.csv` | tool, thread count and genome size (Table 2) | `tool`, `threads`, `size_mb`, `status`, `note`, `wall_median_s`, `peak_rss_median_mb`, `speedup_vs_c` |
+| `E3/tables/E3_table2.csv` | tool, thread count and genome size (Table 2) | `tool`, `threads`, `size_mb`, `chromosomes`, `status`, `note`, `wall_median_s`, `peak_rss_median_mb`, `speedup_vs_c` |
 | `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
 | `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
 | `E3/tables/E3_determinism.csv` | run, against its tool's reference at the same size | `tool`, `size_mb`, `threads`, `sha256` |
@@ -206,14 +228,16 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E6/tables/E6_S3_calibration.csv` | class (decile) of the true TMRCA or of the posterior mean | `by`, `class`, `median_true_years`, `coverage95_states`, `coverage95_point` |
 | `E6/tables/E6_S3_summary.csv` | set of bins (all, heterozygous, homozygous) | `bins`, `n_bins`, `pearson_log10_mean`, `coverage95_states`, `coverage95_point` |
 | `E7/tables/E7_samples.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `raw_depth`, `default`, `bootstrap` |
+| `E7/tables/E7_fits.csv` | sample and route | `sample_id`, `route`, `n0` |
+| `E7/tables/E7_curves.csv` | sample, route and interval | `sample_id`, `route`, `interval`, `years`, `ne` |
 | `E7/tables/E7_pop_bands.csv` | group, route and time on the display grid | `group_kind`, `group`, `superpopulation`, `admixed`, `route`, `n`, `years`, `ne_median`, `ne_lo`, `ne_hi`, `window_lo_years`, `window_hi_years` |
 | `E7/tables/E7_bands.csv` | bootstrapped sample and time | `sample_id`, `years`, `ne_c`, `ne_rs`, `ne_band_lo`, `ne_band_median`, `ne_band_hi` |
 | `E7/tables/E7_rs_vs_c.csv` | sample of the default set fitted by both tools | `sample_id`, `population`, `superpopulation`, `admixed`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
 | `E7/tables/E7_inputs.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `default`, `raw_depth`, `callable_bases`, `het_sites`, `het_per_callable_kb`, `partly_callable_bin_fraction` |
-| `E7/tables/E7_route_shift.csv` | sample of the default set | `sample_id`, `population`, `superpopulation`, `admixed`, `theta_rel_vcf_vs_psmcfa`, `mean_log10_ne_vcf_vs_psmcfa`, `partly_callable_bin_fraction` |
-| `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `log10_first_vs_next_split_lo`, `log10_first_vs_next_split_hi`, `max_abs_log10_ne_split_vs_default_per_interval` |
+| `E7/tables/E7_route_shift.csv` | sample of the default set | `sample_id`, `population`, `superpopulation`, `admixed`, `theta_rel_vcf_vs_psmcfa`, `mean_log10_ne_vcf_vs_psmcfa`, `partly_callable_bin_fraction`, `missing_share_of_called_bins` |
+| `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `log10_first_vs_next_split_lo`, `log10_first_vs_next_split_hi`, `max_abs_log10_ne_split_vs_default_per_interval`, `ne_next_split` |
 | `E7/tables/E7_giab.csv` | sample compared with GIAB | `sample_id`, `precision`, `recall`, `truth_het_snvs`, `eval_bases` |
-| `E7/tables/E7_throughput.csv` | route and tool | `route`, `tool`, `jobs`, `wall_median_s`, `core_hours`, `peak_rss_median_mb` |
+| `E7/tables/E7_throughput.csv` | route and tool | `route`, `tool`, `jobs`, `threads`, `wall_median_s`, `core_hours`, `peak_rss_median_mb` |
 
 ## Production
 

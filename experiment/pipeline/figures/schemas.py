@@ -177,6 +177,7 @@ _add("E3_table2", "E3", "tool, thread count and genome size (Table 2)", {
     "tool": "c, rs01, rs02 or rs02-default",
     "threads": "threads given to the tool (1 for C psmc)",
     "size_mb": "genome size (Mb)",
+    "chromosomes": "chromosomes of the genome (100 Mb each in production)",
     "status": "measured, skipped (estimated memory above the limit) or incomplete",
     "note": "why a setup was skipped or is incomplete",
     "wall_median_s": "median wall time of the clean repeats",
@@ -364,7 +365,7 @@ _add("E7_samples", "E7", "sample of the cohort", {
     "superpopulation": "superpopulation",
     "admixed": "admixed population",
     "raw_depth": "raw sequencing depth (the sequence index's bases / 3.1 Gb)",
-    "default": "in the default set (Fig 7 a-e, the VCF fits, C psmc)",
+    "default": "in the default set (the VCF fits, C psmc, the split check)",
     "bootstrap": "bootstrapped (Fig 7 g-i)",
 })
 _add("E7_pop_bands", "E7", "group, route and time on the display grid", {
@@ -411,6 +412,7 @@ _add("E7_route_shift", "E7", "sample of the default set", {
     "theta_rel_vcf_vs_psmcfa": "relative theta difference, VCF fit (callable bases per bin) vs psmcfa fit",
     "mean_log10_ne_vcf_vs_psmcfa": "mean log10 Ne difference in the window, VCF vs psmcfa",
     "partly_callable_bin_fraction": "share of called bins with some bases missing",
+    "missing_share_of_called_bins": "share of the called bins' bases that are missing",
 })
 _add("E7_split", "E7", "sample of the split-first-window check", {
     **_E7_WHO,
@@ -419,6 +421,19 @@ _add("E7_split", "E7", "sample of the split-first-window check", {
     "log10_first_vs_next_split_lo": "the same with the lowest of the four intervals",
     "log10_first_vs_next_split_hi": "the same with the highest of the four intervals",
     "max_abs_log10_ne_split_vs_default_per_interval": "largest per-interval |log10 Ne difference|, split vs default",
+    "ne_next_split": "the next window's Ne, first window split",
+})
+_add("E7_fits", "E7", "sample and route", {
+    "sample_id": "sample",
+    "route": "rs-psmcfa, rs-vcf, c or rs-split",
+    "n0": "N0 of the fit (Ne = lambda N0)",
+})
+_add("E7_curves", "E7", "sample, route and interval", {
+    "sample_id": "sample",
+    "route": "rs-psmcfa, rs-vcf, c or rs-split",
+    "interval": "PSMC interval",
+    "years": "its start (years ago)",
+    "ne": "its Ne",
 })
 _add("E7_giab", "E7", "sample compared with GIAB", {
     "sample_id": "sample",
@@ -428,10 +443,11 @@ _add("E7_giab", "E7", "sample compared with GIAB", {
     "eval_bases": "bases compared",
 })
 _add("E7_throughput", "E7", "route and tool", {
-    "route": "rs-psmcfa, rs-vcf, c, rs-split or boot",
+    "route": "rs-psmcfa, rs-vcf, c, rs-split or boot-rs",
     "tool": "rs or c",
-    "jobs": "fits",
-    "wall_median_s": "median wall time per fit",
+    "jobs": "runs (a fit each; a bootstrap run fits the data, then every replicate)",
+    "threads": "threads per run",
+    "wall_median_s": "median wall time per run",
     "core_hours": "CPU core-hours of all of them",
     "peak_rss_median_mb": "median peak memory",
 })

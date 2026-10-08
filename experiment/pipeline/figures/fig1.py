@@ -6,9 +6,11 @@ whose all-sites VCF psmc-rs reads exactly as ``vcfutils.pl vcf2fq |
 fq2psmcfa`` would) or variant calls with a callable mask (Route B, binned
 with fq2psmcfa's rule, each called bin keeping the number of its bases the
 mask calls callable); psmcfa and multihetsep files made by other tools are
-read as they are. ``psmc-rs qc`` reports how suitable an input is,
-``convert`` writes it as psmcfa or multihetsep, and the fit, listed as
-bullets, fits C psmc's model with each called bin weighted by its callable
+read as they are. ``qc`` and ``convert`` are subcommands: ``psmc-rs qc``
+reports how suitable an input is, and ``psmc-rs convert`` writes it as
+psmcfa or multihetsep. The fit is psmc-rs's command without one
+(``psmc-rs INPUT OUTPUT N_ITER``, the line under its title); listed as
+bullets, it fits C psmc's model with each called bin weighted by its callable
 bases (``--bin-callable``, the default ``auto``: a homozygous bin with c of
 its s bases callable has probability e_T(k)^(c/s) in state k) and writes
 the outputs: the parameters (JSON), an HTML report, C psmc's ``.psmc``,
@@ -102,6 +104,7 @@ def bullets(ax, x: float, top: float, items, *, step: float = 3.0, gap: float = 
     return y + gap
 
 
+FIT_USAGE = "psmc-rs INPUT OUTPUT N_ITER"  # the fit has no subcommand (src/bin/psmc/cli.rs)
 FIT_ITEMS = (
     "C psmc's model and EM",
     "each called bin weighted by its\ncallable bases, c of its s\n(--bin-callable, default auto):\n"
@@ -152,12 +155,14 @@ def draw(src: Optional[Source] = None):
                                 edgecolor=RS_EDGE, linewidth=0.9, zorder=1))
     ax.text(px + pw / 2, py + ph - 2.0, "psmc-rs", ha="center", va="top", fontsize=style.PANEL_PT,
             fontweight="bold", color=style.INK)
-    bx, bw = px + 3.0, pw - 6.0
+    bx, bw = px + 2.0, pw - 4.0  # inset 2 mm: the fit's invocation line is 38 mm wide
     box(ax, bx, 61.5, bw, 15.5, "qc", "is the input suitable?\ncounts, heterozygosity,\nmissing data, QC codes",
         rs=True, bold=True)
     box(ax, bx, 47.0, bw, 12.0, "convert", "psmcfa or multihetsep,\nread as the fit reads it", rs=True, bold=True)
-    fit = box(ax, bx, 4.5, bw, 40.0, "fit", rs=True, bold=True, title_top=True)
-    bullets(ax, bx + 2.0, fit[1] + fit[3] - 6.6, FIT_ITEMS)
+    # The fit is psmc-rs without a subcommand: its invocation under the title, so
+    # that "fit" does not read as a third subcommand beside qc and convert.
+    fit = box(ax, bx, py + 2.0, bw, 44.5 - (py + 2.0), "fit", FIT_USAGE, rs=True, bold=True)
+    bullets(ax, bx + 2.0, fit[1] + fit[3] - 9.4, FIT_ITEMS, gap=0.6)
     for b in (a2, b2, b3, o2, o3):
         arrow(ax, right(b), (px, right(b)[1]), color=style.BLUE)
 

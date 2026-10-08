@@ -1,103 +1,258 @@
 """Fig S6 (E7): the 1000 Genomes inputs and checks.
 
-a: heterozygous SNVs per callable kb against raw sequencing depth, every
-genome of the cohort, by superpopulation (marker). b: the two routes on the
-default set: theta of the VCF fit (callable bases per bin,
-``--bin-callable auto``) relative to the psmcfa fit, against the share of
-called bins with some bases missing. c: the split-first-window check
-(Hilgers et al. 2025): the first window's Ne over the next window's, under
-the default pattern and with the first window split
-(``config.E7.split_pattern``; its four intervals' log10 Ne averaged by
-duration, the vertical line their range); points on the diagonal did not
-move. d:
-NA12878's heterozygous SNVs against GIAB HG001 v4.2.1 inside the strict mask
-and GIAB's confident regions. e: wall time per fit (median) of every route,
-one thread; C psmc on the default set.
+a: heterozygous SNVs per callable kb of every genome of the cohort, by
+superpopulation (points jittered sideways; the line is the median); under
+each superpopulation, Spearman's rho between het/kb and raw sequencing
+depth among its genomes: near zero, so depth does not drive the
+differences between superpopulations. b: the two routes on the default set
+(52 genomes): theta of the VCF fit (the strict mask, callable bases per
+bin, ``--bin-callable auto``) over theta of the psmcfa fit of the same
+genome, minus one, by superpopulation, with zero for reference. The VCF
+fit's theta is 8.4% higher on average (7.9-8.8%), as the psmcfa fit takes
+every called bin as full, and the bases missing from the called bins (the
+panel gives their share, the same in every genome: 7.6%) make theta low
+(Fig 5); AFR's shift is a little smaller (8.1% against 8.5%). c: the
+split-first-window check (Hilgers et al. 2025): the first window's Ne over
+the next window's, under the default pattern (x) and with the first window
+split into its four intervals (y; ``config.E7.split_pattern``; their
+log10 Ne averaged by duration, the vertical line their range). Both axes
+share their scale, so a point on the diagonal did not move. A range that
+runs past the top ends in an arrow. Filled markers: genomes whose split
+fit put one first-window interval at psmc-rs's upper bound on a free
+lambda (10^4 N0; in production 3 of 26: HG04134, NA12878 and NA18633),
+where one genome barely constrains such a short interval; the cross is
+the duration-weighted mean of their other intervals, which lies near the
+diagonal, so their rise comes from that one interval. d: time per fit of
+every route, on a linear axis: single-thread fits by their median wall
+time; psmc-rs's bootstrap (a main fit and ``config.E7.bootstrap_replicates``
+replicates per run, on ``config.E7.bootstrap_threads`` threads; 3 runs) by
+its median wall time times its threads over its fits, the core time of one
+of its fits. C psmc ran on the default set; on one thread psmc-rs fits the
+same psmcfa about 8.6 times faster (the bar gives the ratio). The note
+under the legend gives NA12878's heterozygous SNVs against GIAB HG001
+v4.2.1 inside the strict mask and GIAB's confident regions.
 
-From ``E7_inputs``, ``E7_route_shift``, ``E7_split``, ``E7_giab`` and
+From ``E7_inputs``, ``E7_route_shift``, ``E7_split``, ``E7_fits`` (N0 of
+the split fits), ``E7_curves`` (their intervals), ``E7_giab`` and
 ``E7_throughput``.
 """
 
 from __future__ import annotations
 
+import math
+from typing import Dict, List, Sequence, Tuple
+
 from . import style
 
-SUP_MARKERS = ("o", "s", "^", "D", "v")  # by config.E7.superpopulations
-ROUTE_LABELS = {"rs-psmcfa": "psmc-rs, psmcfa", "rs-vcf": "psmc-rs, VCF + mask", "rs-split": "psmc-rs, split window",
-                "c": "C psmc, psmcfa", "boot-rs": "psmc-rs bootstrap (whole run)"}
+SUP_MARKERS = ("o", "s", "^", "D", "v")  # by config.E7.superpopulations (c)
+FIRST_WINDOW = 4  # intervals of the default pattern's first free lambda, split by the check (as e7.split_row)
+LAMBDA_HI = 1e4  # psmc-rs's upper bound on a free lambda (src/opt.rs), Ne = 1e4 N0
+AT_BOUND = 1e-6  # within this share of the bound, a lambda is at it (as psmc-rs's run report)
+ROUTE_LABELS = {"c": "C psmc (psmcfa)", "rs-psmcfa": "psmc-rs (psmcfa)", "rs-vcf": "psmc-rs (VCF + mask)",
+                "rs-split": "psmc-rs (split first window)", "boot-rs": "psmc-rs bootstrap, per fit"}
+ROUTE_ORDER = ("c", "rs-psmcfa", "rs-vcf", "rs-split", "boot-rs")  # top down
+STRIP_WIDTH = 0.36  # half the width of a superpopulation's strip (category units)
+EDGE_MM = 2.0  # the least distance between d's route labels and the figure's left edge
 
 
-def _by_sup(ax, df, x: str, y: str, sups, size: float = 3.0, alpha: float = 0.6) -> None:
-    for sup, m in zip(sups, SUP_MARKERS):
-        d = df[df.superpopulation == sup]
-        if not d.empty:
-            ax.scatter(d[x], d[y], s=size, marker=m, facecolor="none", edgecolor=style.INK2, linewidths=0.4,
-                       alpha=alpha, label=sup, zorder=3)
+def jitter(n: int, width: float = STRIP_WIDTH) -> List[float]:
+    """``n`` sideways offsets spread evenly over ``[-width, width]`` (a low-discrepancy sequence: no seed, no clumps)."""
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
+    return [width * (2.0 * ((k * phi) % 1.0) - 1.0) for k in range(n)]
+
+
+def split_first_window(split, fits, curves) -> Dict[str, Tuple[bool, float]]:
+    """``{sample: (at_bound, log10 first / next window Ne without the intervals at the bound)}`` of the split fits.
+
+    ``at_bound``: one of the first window's intervals has its lambda at
+    psmc-rs's upper bound. The ratio averages the other intervals' log10 Ne
+    by their durations, as ``E7_split.log10_first_vs_next_split`` averages
+    all four (NaN when every interval is at the bound).
+    """
+    n0 = {r.sample_id: float(r.n0) for r in fits[fits.route == "rs-split"].itertuples()}
+    mine = curves[curves.route == "rs-split"]
+    out: Dict[str, Tuple[bool, float]] = {}
+    for r in split.itertuples():
+        c = mine[mine.sample_id == r.sample_id].sort_values("interval")
+        if len(c) <= FIRST_WINDOW or r.sample_id not in n0:
+            continue
+        years, ne = list(c["years"]), list(c["ne"])
+        spans = [years[k + 1] - years[k] for k in range(FIRST_WINDOW)]
+        bound = [ne[k] / n0[r.sample_id] >= LAMBDA_HI * (1.0 - AT_BOUND) for k in range(FIRST_WINDOW)]
+        keep = [(w, math.log10(ne[k] / float(r.ne_next_split))) for k, w in enumerate(spans) if not bound[k]]
+        mean = sum(w * v for w, v in keep) / sum(w for w, _ in keep) if keep else float("nan")
+        out[r.sample_id] = (any(bound), mean)
+    return out
+
+
+def _strip(ax, groups: Sequence[str], values: Dict[str, Sequence[float]], size: float, alpha: float) -> None:
+    """Every value of each group as a point jittered sideways, and the group's median as a line."""
+    import numpy as np
+
+    for i, g in enumerate(groups):
+        v = np.asarray(values.get(g, []), dtype=float)
+        if not len(v):
+            continue
+        ax.scatter(i + np.asarray(jitter(len(v))), v, s=size, color=style.INK2, alpha=alpha, linewidths=0,
+                   zorder=3, rasterized=len(v) > 200)
+        ax.plot([i - STRIP_WIDTH - 0.06, i + STRIP_WIDTH + 0.06], [np.median(v)] * 2, color=style.INK,
+                linewidth=style.LW_BOLD, solid_capstyle="butt", zorder=4)
+    ax.set_xlim(-0.6, len(groups) - 0.4)
+    ax.set_xticks(range(len(groups)))
+    ax.tick_params(axis="x", length=0)
 
 
 def draw(src):
+    import numpy as np
+    from matplotlib.lines import Line2D
+
     cfg = src.profile.e7
     sups = list(cfg.superpopulations)
     inputs = src.table("E7_inputs")
     shift = src.table("E7_route_shift")
     split = src.table("E7_split")
+    fits = src.table("E7_fits")
+    curves = src.table("E7_curves")
     giab = src.table("E7_giab")
     thr = src.table("E7_throughput")
 
     fig = style.figure("double", 110.0)
-    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=3.0, top_mm=8.0, bottom_mm=9.0, wspace_mm=12.0, hspace_mm=13.0)
-    axes = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(3)]
-    a, b, c, d, e, f = axes
+    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=3.0, top_mm=5.0, bottom_mm=9.0, wspace_mm=12.0, hspace_mm=15.0)
+    a, b, c = (fig.add_subplot(gs[0, i]) for i in range(3))
+    d = fig.add_subplot(gs[1, 0:2])
+    f = fig.add_subplot(gs[1, 2])
 
-    _by_sup(a, inputs, "raw_depth", "het_per_callable_kb", sups)
-    a.set_xlabel("Raw sequencing depth")
+    # a: het/kb by superpopulation, and its rank correlation with depth.
+    _strip(a, sups, {s: inputs[inputs.superpopulation == s].het_per_callable_kb for s in sups}, size=1.2,
+           alpha=0.35)
+    ticks = []
+    for s in sups:
+        g = inputs[inputs.superpopulation == s]
+        rho = g.het_per_callable_kb.corr(g.raw_depth, method="spearman") if len(g) > 2 else float("nan")
+        ticks.append(s if math.isnan(rho) else f"{s}\nρ = {rho:.2f}".replace("-", "−"))
+    a.set_xticklabels(ticks)
     a.set_ylabel("Heterozygous SNVs per callable kb")
+    a.set_xlabel("ρ: Spearman's, with raw depth")
+    a.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
 
-    _by_sup(b, shift, "partly_callable_bin_fraction", "theta_rel_vcf_vs_psmcfa", sups, size=8.0, alpha=0.9)
+    # b: the VCF route's theta over the psmcfa route's, by superpopulation.
+    _strip(b, sups, {s: 100.0 * shift[shift.superpopulation == s].theta_rel_vcf_vs_psmcfa for s in sups}, size=7.0,
+           alpha=0.8)
+    b.set_xticklabels(sups)
     style.ref_line(b, y=0.0)
-    b.set_xlabel("Called bins with bases missing")
-    b.set_ylabel(r"$\theta$, VCF fit vs psmcfa fit (relative)")
+    top = float(100.0 * shift.theta_rel_vcf_vs_psmcfa.max()) if not shift.empty else 1.0
+    b.set_ylim(min(0.0, float(100.0 * shift.theta_rel_vcf_vs_psmcfa.min()) * 1.1) if not shift.empty else 0.0,
+               max(top, 0.0) * 1.12 + 0.2)
+    b.set_ylabel(r"$\theta_\mathrm{VCF}$ / $\theta_\mathrm{psmcfa}$ $-$ 1 (%)")
+    b.set_xlabel(f"Superpopulation ({len(shift)} genomes)")
+    b.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    if not shift.empty:
+        lo, hi = 100.0 * shift.missing_share_of_called_bins.min(), 100.0 * shift.missing_share_of_called_bins.max()
+        share = f"{lo:.1f}%" if round(lo, 1) == round(hi, 1) else f"{lo:.1f}-{hi:.1f}%"
+        style.note(b, 0.5, 0.06, f"Bases missing in the called bins:\n{share} of each genome's", ha="center",
+                   va="bottom", linespacing=1.25)
 
-    if not split.empty:  # the four split intervals' range: one genome barely constrains them, so one can run away
-        c.vlines(split.log10_first_vs_next_default, split.log10_first_vs_next_split_lo,
-                 split.log10_first_vs_next_split_hi, color=style.MUTED, linewidth=style.LW_THIN, zorder=2)
-    _by_sup(c, split, "log10_first_vs_next_default", "log10_first_vs_next_split", sups, size=8.0, alpha=0.9)
+    # c: the split-first-window check, on a square of shared limits.
+    robust = split_first_window(split, fits, curves)
     if not split.empty:
-        lo = float(min(split.log10_first_vs_next_default.min(), split.log10_first_vs_next_split.min()))
-        hi = float(max(split.log10_first_vs_next_default.max(), split.log10_first_vs_next_split.max()))
-        pad = 0.05 * max(hi - lo, 0.1)
-        c.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=style.MUTED, linewidth=style.LW_REF, zorder=2)
+        x, y = split.log10_first_vs_next_default, split.log10_first_vs_next_split
+        rob = [v for _, v in robust.values() if not math.isnan(v)]
+        lo = float(min(x.min(), y.min(), split.log10_first_vs_next_split_lo.min(), *rob))
+        hi = float(max(x.max(), y.max(), *rob))
+        pad = 0.08 * max(hi - lo, 0.1)
+        lim = (lo - pad, hi + 2.0 * pad)
+        c.plot(lim, lim, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
+        for r in split.itertuples():
+            top = min(float(r.log10_first_vs_next_split_hi), lim[1])
+            c.vlines(r.log10_first_vs_next_default, r.log10_first_vs_next_split_lo, top, color=style.MUTED,
+                     linewidth=style.LW_THIN, zorder=2)
+            if r.log10_first_vs_next_split_hi > lim[1]:  # the range runs past the top
+                c.annotate("", xy=(r.log10_first_vs_next_default, lim[1]),
+                           xytext=(r.log10_first_vs_next_default, lim[1] - 0.06 * (lim[1] - lim[0])),
+                           arrowprops={"arrowstyle": "-|>,head_length=0.35,head_width=0.18", "color": style.MUTED,
+                                       "linewidth": style.LW_THIN, "shrinkA": 0.0, "shrinkB": 0.0}, zorder=2)
+        for sup, m in zip(sups, SUP_MARKERS):
+            dd = split[split.superpopulation == sup]
+            for r in dd.itertuples():
+                at_bound, mean = robust.get(r.sample_id, (False, float("nan")))
+                c.plot(r.log10_first_vs_next_default, r.log10_first_vs_next_split, linestyle="none", marker=m,
+                       markersize=3.4, markeredgewidth=0.6, markeredgecolor=style.INK2,
+                       markerfacecolor=style.INK2 if at_bound else style.SURFACE, zorder=4)
+                if at_bound and not math.isnan(mean):
+                    c.plot(r.log10_first_vs_next_default, mean, linestyle="none", marker="x", markersize=3.4,
+                           markeredgewidth=0.7, color=style.INK, zorder=5)
+        c.set_xlim(*lim)
+        c.set_ylim(*lim)
+        c.set_aspect("equal", adjustable="box", anchor="W")
     c.set_xlabel(r"log$_{10}$ first / next window $N_\mathrm{e}$, default")
     c.set_ylabel(r"log$_{10}$ first / next window $N_\mathrm{e}$, split")
 
-    d.axis("off")
-    lines = ["GIAB HG001 v4.2.1 (NA12878)"]
+    # d: time per fit, linear from zero, in minutes.
+    routes = [r for r in ROUTE_ORDER if r in set(thr.route)] + sorted(set(thr.route) - set(ROUTE_ORDER))
+    by = {r.route: r for r in thr.itertuples()}
+    minutes, notes = [], []
+    reps = int(cfg.bootstrap_replicates) + 1  # a run fits the data once, then each replicate
+    for route in routes:
+        r = by[route]
+        if route == "boot-rs":
+            per_fit = float(r.wall_median_s) * int(r.threads) / reps
+            minutes.append(per_fit / 60.0)
+            notes.append(f"{per_fit / 60.0:.1f} min ({int(r.jobs)} runs of {reps} fits, {int(r.threads)} threads: "
+                         f"{float(r.wall_median_s) / 60.0:.1f} min each)")
+        else:
+            minutes.append(float(r.wall_median_s) / 60.0)
+            notes.append(f"{minutes[-1]:.1f} min (n = {int(r.jobs):,})")
+    if "c" in by and "rs-psmcfa" in by:
+        k = routes.index("c")
+        notes[k] += f"; {float(by['c'].wall_median_s) / float(by['rs-psmcfa'].wall_median_s):.1f}x psmc-rs (psmcfa)"
+    ypos = list(range(len(routes)))[::-1]
+    colors = [style.ORANGE if by[r].tool == "c" else style.BLUE for r in routes]
+    d.barh(ypos, minutes, color=colors, height=0.62, zorder=3)
+    d.set_yticks(ypos)
+    d.set_yticklabels([ROUTE_LABELS.get(r, r) for r in routes])
+    d.tick_params(axis="y", length=0)
+    # The route labels are wider than the figure's left margin: move the panel right until they clear the edge.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    labels_x0 = min(t.get_window_extent(renderer).x0 for t in d.get_yticklabels()) / fig.bbox.width
+    need = EDGE_MM / style.WIDTH_MM["double"] - labels_x0
+    if need > 0:
+        pos = d.get_position()
+        d.set_position([pos.x0 + need, pos.y0, pos.width - need, pos.height])
+    d.set_xlim(0.0, max(minutes or [1.0]) * 1.02)
+    d.set_xlabel("Time per fit (min): median wall time on one thread; bootstrap: core time per fit")
+    d.grid(True, which="major", axis="x", color=style.GRID, linewidth=style.LW_GRID)
+    span = d.get_xlim()[1]
+    for yy, m, text in zip(ypos, minutes, notes):
+        inside = m > 0.6 * span
+        d.text(m - 0.01 * span if inside else m + 0.01 * span, yy, text, va="center", ha="right" if inside else "left",
+               fontsize=style.TEXT_PT, color=style.SURFACE if inside else style.INK2, zorder=4)
+
+    # f: the key to c, and the GIAB comparison.
+    f.axis("off")
+    handles: List = [Line2D([], [], linestyle="none", marker=m, markersize=3.4, markeredgewidth=0.6,
+                            markeredgecolor=style.INK2, markerfacecolor=style.SURFACE, label=s)
+                     for s, m in zip(sups, SUP_MARKERS)]
+    handles += [
+        Line2D([], [], linestyle="none", marker="o", markersize=3.4, markeredgewidth=0.6, markeredgecolor=style.INK2,
+               markerfacecolor=style.INK2, label=r"An interval at psmc-rs's bound ($\lambda$ = 10$^4$)"),
+        Line2D([], [], linestyle="none", marker="x", markersize=3.4, markeredgewidth=0.7, color=style.INK,
+               label="Mean of the other intervals"),
+        Line2D([], [], color=style.MUTED, linewidth=style.LW_THIN, label="Range of the four split intervals"),
+        Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, label="No change (diagonal)"),
+    ]
+    style.legend(f, handles, loc="upper left", bbox_to_anchor=(0.0, 1.04), title="c: superpopulation and keys",
+                 handlelength=1.6, alignment="left")
+    lines = []
     for r in giab.itertuples():
         mb = int(r.eval_bases) / 1e6
-        lines += [f"{r.sample_id}: {int(r.truth_het_snvs):,} GIAB het SNVs in {mb:,.0f} Mb" if mb >= 10 else
-                  f"{r.sample_id}: {int(r.truth_het_snvs):,} GIAB het SNVs in {mb:.2g} Mb",
-                  f"precision {float(r.precision):.4f}", f"recall {float(r.recall):.4f}"]
-    style.note(d, 0.0, 0.95, "\n".join(lines) if len(lines) > 1 else "no GIAB comparison", color=style.INK,
-               linespacing=1.4)
-
-    t = thr.sort_values("wall_median_s")
-    labels = [ROUTE_LABELS.get(r, r) for r in t.route]
-    colors = [style.ORANGE if tool == "c" else style.BLUE for tool in t.tool]
-    e.barh(range(len(t)), t.wall_median_s, color=colors, height=0.6, zorder=3)
-    e.set_yticks(range(len(t)))
-    e.set_yticklabels(labels)
-    style.log_axis(e, "x", grid=True)
-    e.set_xlabel("Wall time per fit, median (s)")
-    for i, r in enumerate(t.itertuples()):
-        e.text(float(r.wall_median_s) * 1.15, i, f"n = {int(r.jobs):,}", va="center", fontsize=style.TICK_PT,
-               color=style.INK2)
-
-    f.axis("off")
-    handles, labels = a.get_legend_handles_labels()
-    if handles:
-        style.legend(f, handles, labels, loc="center left", title="Superpopulation", markerscale=2.0)
-    style.panel_letters(fig, axes[:5], align_cols=True)
+        size = f"{mb:,.0f} Mb" if mb >= 10 else f"{mb:.2g} Mb"
+        lines += [f"{r.sample_id} against GIAB HG001 v4.2.1:", f"{int(r.truth_het_snvs):,} het SNVs in {size};",
+                  f"precision {float(r.precision):.4f}, recall {float(r.recall):.4f}"]
+    style.note(f, 0.0, 0.0, "\n".join(lines) if lines else "No GIAB comparison", va="bottom", color=style.INK,
+               linespacing=1.3)
+    style.panel_letters(fig, [a, b, c, d])
     return fig
 
 
-__all__ = ["draw"]
+__all__ = ["draw", "jitter", "split_first_window"]

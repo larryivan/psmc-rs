@@ -7,16 +7,24 @@
   that where the medians coincide the blue line runs inside an orange one).
   Times outside the model's informative window, where no metric is
   computed, are shaded. The Ne axis covers the truth and the fits inside the
-  windows; fits outside them can leave the panel (they are clipped).
+  windows; fits outside them can leave the panel (they are clipped). In
+  production, expansion replicate 5's first free lambda (intervals 0-3,
+  before 4.8 ky, outside the window) ran away in both tools: psmc-rs's
+  stopped at its upper bound (lambda 1e4, Ne 2.3e7) and C psmc's, which is
+  unbounded, reached about 1.1e6 (Ne 2.5e9). Both leave c at 4.8 ky, C
+  psmc's line under psmc-rs's.
 * e-h: |log10(Ne_psmc-rs / Ne_C)| interval by interval for every replicate,
   drawn as a step curve on C psmc's intervals (log scale; smaller values are
   drawn on the axis floor). The two fits have the same intervals, whose
   boundaries differ in years only through theta and t_max, so interval k is
   compared with interval k (:func:`..metrics.interval_diff`). The axis
   covers the differences of the intervals inside the window; a larger one
-  outside it (a first lambda the data barely constrain, which ran away in
-  one tool) is off scale and named in the panel, and
-  ``E1_rs_vs_c.max_abs_log10_ne_rs_vs_c_any_interval`` gives it.
+  outside it (a first lambda the data barely constrain) is off scale and
+  named in the panel with the tool whose Ne is higher, and
+  ``E1_rs_vs_c.max_abs_log10_ne_rs_vs_c_any_interval`` gives it. The 2.0
+  named in g (production) is the gap between expansion replicate 5's two
+  runaway first lambdas, set by psmc-rs's bound, not a disagreement on what
+  the data say.
 * i: RMSE of log10 Ne on the informative window, per replicate: each tool
   against the truth (on 200 log-spaced times) and psmc-rs against C psmc
   (interval by interval, each interval weighted by its log-time width in
@@ -127,9 +135,13 @@ def draw(src: Source):
                     linewidth=style.LW_THIN, alpha=0.8, zorder=3)
         if off_scale[m]:
             r, d = max(off_scale[m], key=lambda rd: rd[1].max_abs_any)
+            # log10(Ne_rs / Ne_C) at the largest difference: which tool is higher.
+            worst = max(d.all_log10_ratio, key=abs)
+            higher = "psmc-rs" if worst > 0 else "C psmc"
             # Top right, in the decade of headroom: the clipped line is at the left.
             style.note(ax, 0.97, 0.97, f"↑ off scale outside the window:\n"
-                       f"{fmt_sig(d.max_abs_any)} in replicate {int(r)}", ha="right", size=style.TEXT_PT,
+                       f"{fmt_sig(d.max_abs_any)} in replicate {int(r)}, {higher} higher", ha="right",
+                       size=style.TEXT_PT,
                        linespacing=1.2, zorder=6,
                        bbox={"facecolor": style.SURFACE, "edgecolor": "none", "pad": 0.5})
         style.years_axis(ax, xlim, label=True)

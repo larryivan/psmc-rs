@@ -11,8 +11,12 @@ set:
   decade as 10 with a superscript, and at 7 pt the end labels of
   neighbouring panels of the 4-column figures (Figs 2 and S2) run into one
   another. Category labels set as tick labels (Fig 5's masks, Fig S3's
-  deciles) follow the tick labels. PDF and SVG keep text as text (TrueType,
-  fonttype 42; SVG ``svg.fonttype = none``).
+  deciles) follow the tick labels. Superscripts and subscripts are set at
+  :data:`MATH_SHRINK` (0.84) of their text, not mathtext's 0.7, so a 6 pt
+  tick label's exponent is 5.04 pt and a 7 pt N_e's subscript 5.9 pt:
+  **no text is below :data:`MIN_TEXT_PT` (5 pt)**, the journal's minimum
+  (:func:`small_text` finds any in a written SVG). PDF and SVG keep text as
+  text (TrueType, fonttype 42; SVG ``svg.fonttype = none``).
 * **Sizes.** Widths of the journal's columns: single 89 mm, 1.5 column
   120 mm, double 183 mm; heights are chosen per figure.
 * **Marks.** Data lines 0.75-1.25 pt, thin replicate lines 0.5 pt, axes
@@ -56,6 +60,7 @@ bytes.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
@@ -67,6 +72,12 @@ FONT_FAMILY = ("Arial", "Helvetica", "DejaVu Sans")
 TEXT_PT = 7.0
 TICK_PT = 6.0  # tick labels only: the documented exception to 7 pt (module docstring)
 PANEL_PT = 8.0
+MIN_TEXT_PT = 5.0  # the smallest text of any figure (the journal's minimum)
+# Size of a superscript or subscript relative to its text (mathtext's own is
+# 0.7: a 6 pt tick label's exponent would be 4.2 pt). matplotlib is pinned
+# (experiment/pipeline/requirements.lock), and :func:`apply` checks that the
+# private constant it sets exists.
+MATH_SHRINK = 0.84
 
 LW_THIN = 0.5  # one replicate among many
 LW = 1.0  # a data line
@@ -264,6 +275,28 @@ def apply() -> None:
 
     plt.rcdefaults()
     plt.rcParams.update(rc_params())
+    _set_math_shrink(MATH_SHRINK)
+
+
+def _set_math_shrink(factor: float) -> None:
+    """Set mathtext's superscript and subscript size to ``factor`` of their text.
+
+    mathtext reads the module constant each time it lays out a script; the
+    parses it has cached at another factor are dropped.
+    """
+    import matplotlib._mathtext as mt
+    import matplotlib.mathtext
+    import matplotlib.text
+
+    if not isinstance(getattr(mt, "SHRINK_FACTOR", None), float):
+        raise RuntimeError("matplotlib._mathtext.SHRINK_FACTOR is gone: the figures' superscripts would be "
+                           "below 5 pt (check the pinned matplotlib, experiment/pipeline/requirements.lock)")
+    if mt.SHRINK_FACTOR != factor:
+        mt.SHRINK_FACTOR = factor
+        matplotlib.mathtext.MathTextParser._parse_cached.cache_clear()
+        cached = getattr(matplotlib.text, "_get_text_metrics_with_cache_impl", None)
+        if cached is not None:
+            cached.cache_clear()
 
 
 def figure(width: Union[str, float], height_mm: float):
@@ -481,6 +514,26 @@ def save(fig, out_dir: Path, name: str, dpi: int = PNG_DPI) -> List[Path]:
         written.append(path)
     plt.close(fig)
     return written
+
+
+_SVG_SIZE = re.compile(r"font-size:\s*([0-9.]+)px|font:\s*(?:[a-z-]+\s+)*([0-9.]+)px")
+_SVG_TEXT = re.compile(r"<(?:text|tspan)\b[^>]*?style=\"([^\"]*)\"[^>]*>([^<]*)")
+
+
+def small_text(svg: Union[str, Path], min_pt: float = MIN_TEXT_PT) -> List[Tuple[float, str]]:
+    """``(size, text)`` of every piece of text in a written SVG smaller than ``min_pt``.
+
+    The SVG's user units are points (matplotlib writes its width in pt), and
+    with ``svg.fonttype = none`` every text element keeps its size.
+    """
+    out = []
+    for style_attr, text in _SVG_TEXT.findall(Path(svg).read_text()):
+        m = _SVG_SIZE.search(style_attr)
+        if m:
+            size = float(m.group(1) or m.group(2))
+            if size < min_pt - 1e-6:
+                out.append((size, text))
+    return out
 
 
 def step_xy(years: Sequence[float], ne: Sequence[float], xlim: Tuple[float, float]):

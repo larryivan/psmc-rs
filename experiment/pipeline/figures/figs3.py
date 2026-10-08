@@ -10,18 +10,27 @@ replicate's seeds.
   heterozygous bins;
 * b: the posterior mean against the true TMRCA over every bin, as a 2-D
   histogram (sequential blue, log counts), with the identity line and the
-  correlation of the logs. The grid spans the central 99.9% of both
-  variables; the bins beyond it are counted in the edge cells, which is
-  why the left and bottom edges hold strips of cells;
+  correlation of the logs. The grid runs from the youngest true TMRCA
+  (1.5 ky) to the 99.95% quantile of both variables (2.8 My); the bins
+  beyond it are counted in the right edge cells (true TMRCA, 0.10% of the
+  bins) and the top ones (posterior mean, under 0.01%). Each vertical
+  streak is a stretch of many bins that share one true TMRCA (one long
+  genealogical segment, or a few): young coalescences are rare and their
+  segments long, and the leftmost column, 0.4% of the bins, is the
+  genome's youngest coalescence; along a streak the posterior moves across
+  the segment's ends;
 * c: share of bins whose 95% interval holds the true TMRCA, by decile of
   the true TMRCA (blue) and by decile of the posterior mean (yellow, when
   ``E6_S3_calibration`` has those rows): the interval of PSMC states from
   the 2.5% to the 97.5% posterior quantile (solid, filled circles), and the
   quantiles' state average times (dashed, open squares), against the
-  nominal 95%. Grouped by the true TMRCA the coverage dips where the
-  posterior shrinks extreme times towards the middle (the youngest and
-  oldest deciles); grouped by what the decoding sees, the posterior mean,
-  it stays near 95%.
+  nominal 95%. Grouped by the true TMRCA, the coverage of the states'
+  interval is 95% to 98% in most deciles but 92% in decile 3 (33 to
+  100 ky, just older than the bottleneck, whose times the posterior mean
+  puts too old by 0.15 log10 on average), 90% in the oldest decile (too
+  young by 0.13 log10) and 94% in the youngest; grouped by what the
+  decoding sees, the posterior mean, it stays at 95% to 97%. One
+  replicate's numbers (``E6_S3_calibration``).
 
 Everything comes from ``E6_S3_track``, ``E6_S3_density``,
 ``E6_S3_calibration`` and ``E6_S3_summary``.
@@ -109,7 +118,7 @@ def draw(src: Source):
     if overall is not None:
         style.note(ax_b, 0.03, 0.97, f"r(log$_{{10}}$) = {float(overall.pearson_log10_mean):.2f}\n"
                                      f"{int(overall.n_bins):,} bins", ha="left", va="top")
-    style.note(ax_b, 0.97, 0.03, "edge cells also hold\nthe bins beyond the axes", ha="right", va="bottom")
+    style.note(ax_b, 0.97, 0.03, "right and top edge cells also\nhold the bins beyond the axes", ha="right", va="bottom")
     cax = ax_b.inset_axes([1.04, 0.0, 0.05, 1.0])
     cb = fig.colorbar(mesh, cax=cax)
     cb.outline.set_linewidth(style.LW_GRID)

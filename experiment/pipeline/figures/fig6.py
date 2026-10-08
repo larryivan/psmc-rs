@@ -8,16 +8,17 @@ blue, dashed). Every panel spans the model's informative window, where the
 calibration is computed.
 
 * a: one genome (``config.E5.example_dataset``): the truth (dashed), the
-  95% range of the independent fits (grey), the genome's fit (blue line)
-  and its bootstrap 95% bands (50 Mb blocks filled, 5 Mb blocks as dashed
-  edges);
+  95% range of the independent fits (grey, the panel's only fill), the
+  genome's fit (blue line) and the edges of its bootstrap 95% bands (50 Mb
+  blocks light blue, 5 Mb blocks dark blue, dashed);
 * b: SD of log10 Ne: the true sampling SD over the independent fits (black,
   with its chi-square 95% interval, light grey) and the bootstrap's (median
   over the bootstrapped genomes);
 * c: bootstrap SD / true SD: median over the genomes and their
-  interquartile range (filled in each block size's colour); the light grey
-  band is where a bootstrap whose SD equalled the true one would fall,
-  given the true SD's own sampling error;
+  interquartile range (50 Mb blocks filled, 5 Mb blocks as dashed edges);
+  the light grey band is where a bootstrap whose SD equalled the true one
+  would fall, given the true SD's own sampling error. The axis ends at 2;
+  a quartile above it is marked at the top with its value;
 * d: share of the bootstrapped genomes whose 95% band covers the true Ne
   (thick; with the pointwise Clopper-Pearson 95% interval of the 50 Mb
   blocks, the 5 Mb blocks' is left out so the panel stays legible) and the
@@ -27,6 +28,11 @@ calibration is computed.
   averaged over each free parameter's span, which a PSMC curve can
   represent), with its Clopper-Pearson interval for 50 Mb blocks. Panel a
   spans the figure's width, so that d and e sit side by side.
+
+The one-point spikes in b-e are times at which the fits' interval
+boundaries, which move with each fit's theta and t_max, straddle the grid
+time, so that the fits read different intervals there: the SD there is
+genuinely larger, not an error.
 
 The legend gives each block size's coverage averaged over the window (an
 unweighted mean over the window's log-spaced times, with its interval from
@@ -47,7 +53,9 @@ from typing import Dict, List, Optional
 from . import style
 from .data import Source
 
-GREY_BAND = "#c3c2b7"  # the independent fits' range (a)
+GREY_BAND = "#dbdad4"  # the independent fits' range (a), opaque: the only fill of a
+BOOT_EDGE = style.BLUE_RAMP[4]  # the 50 Mb bootstrap band's edges in a: lighter than the fit's line
+C_TOP = 2.0  # c's y-axis ends here (or just above the highest median); higher quartiles are marked at the top
 REFERENCE_BAND = "#ebeae4"  # the true SD's sampling interval (b, c): lighter, and outlined in the legend
 CI_ALPHA = 0.12  # Clopper-Pearson interval (d)
 
@@ -145,17 +153,17 @@ def draw(src: Source):
 
     # a: one genome.
     ds = cfg.example_dataset if cfg.example_dataset in set(bands["dataset"]) else int(bands["dataset"].min())
-    ax_a.fill_between(years, sampling["lo_ne"], sampling["hi_ne"], color=GREY_BAND, alpha=0.6, linewidth=0, zorder=1)
+    ax_a.fill_between(years, sampling["lo_ne"], sampling["hi_ne"], color=GREY_BAND, linewidth=0, zorder=1)
     vals = [float(sampling["lo_ne"].min()), float(sampling["hi_ne"].max())]
     fit = None
     for t in trunks:
         b = bands[(bands.dataset == ds) & (bands.trunk_bins == t)].sort_values("point")
         color, ls = sty[t]
-        if t == trunks[0]:
-            ax_a.fill_between(b["years"], b["boot_lo_ne"], b["boot_hi_ne"], color=color, alpha=style.BAND_ALPHA + 0.07,
-                              linewidth=0, zorder=2)
-        else:
-            for edge in ("boot_lo_ne", "boot_hi_ne"):
+        # The bootstrap bands as edges only, so that no fill overlaps the grey range of the independent fits.
+        for edge in ("boot_lo_ne", "boot_hi_ne"):
+            if t == trunks[0]:
+                ax_a.plot(b["years"], b[edge], color=BOOT_EDGE, linewidth=0.6, zorder=3)
+            else:
                 ax_a.plot(b["years"], b[edge], color=color, linestyle=ls, linewidth=0.7, zorder=3)
         vals += [float(b["boot_lo_ne"].min()), float(b["boot_hi_ne"].max())]
         fit = b
@@ -186,15 +194,34 @@ def draw(src: Source):
     # A bootstrap SD equal to the true SD gives sigma / sigma_hat, inside [ci_lo, ci_hi] / sigma_hat.
     ax_c.axhspan(ref_lo, ref_hi, color=REFERENCE_BAND, linewidth=0, zorder=0)
     style.ref_line(ax_c, y=1.0)
-    hi = 1.5
+    top_c = max(C_TOP, 1.1 * float(np.nanmax(sd["ratio_median"])))
+    over = []  # (years, upper quartile, colour) of the times whose upper quartile is off the top
     for t in trunks:
         s = sd[sd.trunk_bins == t].sort_values("point")
         color, ls = sty[t]
-        ax_c.fill_between(s["years"], s["ratio_q25"], s["ratio_q75"], color=color, alpha=style.BAND_ALPHA,
-                          linewidth=0, zorder=1)
+        if t == trunks[0]:  # one fill only: the other block size's quartiles are drawn as edges
+            ax_c.fill_between(s["years"], s["ratio_q25"], s["ratio_q75"], color=color, alpha=style.BAND_ALPHA,
+                              linewidth=0, zorder=1)
+        else:
+            for q in ("ratio_q25", "ratio_q75"):
+                ax_c.plot(s["years"], s[q], color=color, linestyle=ls, linewidth=0.6, zorder=2)
         ax_c.plot(s["years"], s["ratio_median"], color=color, linestyle=ls, linewidth=style.LW_BOLD, zorder=3)
-        hi = max(hi, float(np.nanmax(s["ratio_q75"])))
-    ax_c.set_ylim(0.0, min(hi * 1.05, 4.0))
+        over += [(r.years, r.ratio_q75, color) for r in s[s["ratio_q75"] > top_c].itertuples()]
+    # The quartiles off the top (grid times where the fits' interval boundaries straddle the time): one mark at
+    # the top edge per cluster of neighbouring times, both block sizes together, with the highest value.
+    over.sort()
+    clusters: List[List] = []
+    for p in over:
+        if clusters and p[0] / clusters[-1][-1][0] < 1.1:
+            clusters[-1].append(p)
+        else:
+            clusters.append([p])
+    for cl in clusters:
+        x, v, color = max(cl, key=lambda p: p[1])
+        ax_c.plot(x, top_c, marker="^", markersize=3.0, color=color, clip_on=False, zorder=4)
+        ax_c.annotate(f"{v:.1f}", (x, top_c), xytext=(3, -1), textcoords="offset points", ha="left", va="top",
+                      fontsize=style.TICK_PT, color=style.INK2, annotation_clip=False)
+    ax_c.set_ylim(0.0, top_c)
     ax_c.set_ylabel("Bootstrap SD / true SD")
 
     # d: coverage of the true Ne and of the fits' mean; e: of the projected
@@ -230,7 +257,7 @@ def draw(src: Source):
     ref_patch = Patch(facecolor=REFERENCE_BAND, edgecolor=style.MUTED, linewidth=0.4)
     shared: List = [
         style.handle(style.TRUTH, linewidth=style.LW),
-        Patch(facecolor=GREY_BAND, alpha=0.6, linewidth=0, label=f"95% range of {fits} independent fits (a)"),
+        Patch(facecolor=GREY_BAND, linewidth=0, label=f"95% range of {fits} independent fits (a)"),
         Line2D([], [], color=style.BLUE, linewidth=style.LW, label="Fit of one genome (a)"),
         (ref_patch, Line2D([], [], color=style.INK, linewidth=style.LW_BOLD)),
     ]
@@ -240,8 +267,7 @@ def draw(src: Source):
     for t in trunks:
         color, ls = sty[t]
         line = Line2D([], [], color=color, linestyle=ls, linewidth=style.LW_BOLD)
-        trunk_handles.append((Patch(facecolor=color, alpha=style.BAND_ALPHA + 0.07, linewidth=0), line)
-                             if t == trunks[0] else line)
+        trunk_handles.append(line)
         trunk_labels.append(coverage_label(rows[t], proj))
     key_ink = style.INK2
     keys: List = [Line2D([], [], color=key_ink, linewidth=style.LW_BOLD + 0.35),
@@ -253,10 +279,12 @@ def draw(src: Source):
     keys += [Patch(facecolor=sty[trunks[0]][0], alpha=CI_ALPHA * 2, linewidth=0),
              Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT),
              (Patch(facecolor=sty[trunks[0]][0], alpha=style.BAND_ALPHA, linewidth=0),
-              Patch(facecolor=sty[trunks[-1]][0], alpha=style.BAND_ALPHA, linewidth=0))]
+              Line2D([], [], color=sty[trunks[-1]][0], linestyle=sty[trunks[-1]][1], linewidth=0.6)),
+             (Line2D([], [], color=BOOT_EDGE, linewidth=0.6),
+              Line2D([], [], color=sty[trunks[-1]][0], linestyle=sty[trunks[-1]][1], linewidth=0.7))]
     mb = float(rows[trunks[0]].trunk_mb)
     key_labels += [f"Clopper-Pearson 95% interval of the thick {mb:g} Mb line (d, e)", "Nominal 95% (d, e)",
-                   "Interquartile range over the genomes (c)"]
+                   "Interquartile range over the genomes (c)", "The genome's bootstrap 95% band, its edges (a)"]
 
     from matplotlib.legend_handler import HandlerTuple
 

@@ -4,26 +4,36 @@ On the thread-scaling genome (3,000 Mb as 30 chromosomes of 100 Mb, 25 EM
 iterations, E3's clean runs), on 1 to 30 threads:
 
 * a: wall time against threads: every repeat (dots) and the median (line),
-  with ideal scaling from the fewest threads (dotted); psmc-rs 0.2 with
-  capped M-steps (dark blue) at its thread counts when E3 timed it (not by
-  default). The M-step runs on one thread but converges in a few ms per EM
-  iteration, so the E-step's sequences set the speed-up. psmc-rs works on
+  with ideal scaling from the fewest threads (dotted). The M-step runs on
+  one thread but converges in a few ms per EM iteration, so the E-step's
+  sequences set the speed-up. psmc-rs works on
   one sequence per thread, so the ideal is that of whole sequences per
   thread (:func:`ceiling_speedup`: 30 sequences on 8 threads take 4 rounds,
   a speed-up of 7.5), and its floor, marked, is the time of one chromosome:
   threads beyond the 30 sequences add nothing.
 * b: parallel efficiency, speed-up / threads, of the medians, and the
   ideal's (dotted): 1 where the threads divide the sequences, below where
-  they do not (94% on 4, 8 and 16 threads).
+  they do not (94% on 4, 8 and 16 threads). Every point is labelled but
+  the fewest threads', 100% by construction.
 * c: peak memory of the process tree against threads.
-* d: determinism: for every tool and genome size, how many runs (thread
-  counts and repeats) were made and how many distinct outputs they wrote.
+* d: determinism, per tool, with its thread counts in brackets: Runs, the
+  runs summed over E3's four genome sizes (100 to 3,000 Mb; thread counts
+  x repeats x sizes), and Outputs, how many distinct output files the runs
+  at one genome size wrote (a range where the sizes differ). A footnote
+  names the runs behind any count above 1: in production, psmc-rs 0.1 on
+  one thread wrote different bytes than on 8 and 30 threads at 300 Mb and
+  above (parameters within 2.5 x 10^-5 relative), while its repeats at a
+  thread count were identical.
 
-Everything comes from ``E3_thread_scaling``, ``E3_table2``, ``E3_runs``
-and ``E3_determinism``.
+Only when E3 times psmc-rs 0.2 with capped M-steps
+(``E3.default_mstep_iters``, which production does not set) do a and b
+draw it too (dark blue) and the legend name it. Everything comes from
+``E3_thread_scaling``, ``E3_table2``, ``E3_runs`` and ``E3_determinism``.
 """
 
 from __future__ import annotations
+
+from typing import List, Tuple
 
 from . import style
 from .data import Source
@@ -105,7 +115,9 @@ def draw(src: Source):
                   ha="center", va="bottom", fontsize=style.TICK_PT, color=style.MUTED)
     ax_e.plot(t, eff, color=style.BLUE, linewidth=style.LW, zorder=3)
     ax_e.plot(t, eff, **style.RS02.points(markersize=3.2, zorder=4))
-    for x, e in zip(t, eff):
+    # The fewest threads are 100% by construction (the gridline and tick say so); a
+    # label there would sit on the y axis.
+    for x, e in zip(t[1:], eff[1:]):
         ax_e.annotate(f"{100 * e:.0f}%", (x, e), xytext=(0, -5), textcoords="offset points", ha="center", va="top",
                       fontsize=style.TICK_PT, color=style.INK2)
     if len(default) > 1:
@@ -130,36 +142,119 @@ def draw(src: Source):
     ax_m.set_ylabel("Peak memory (RSS)")
     ax_m.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
 
+    # Panel d has no y axis: it takes most of the gap before it, which a-c keep for their y labels.
+    pos = ax_d.get_position()
+    shift = TABLE_SHIFT_MM / (fig.get_figwidth() / style.MM)
+    ax_d.set_position((pos.x0 - shift, pos.y0, pos.width + shift, pos.height))
     determinism_panel(ax_d, det)
-    handles = [style.handle(style.RS02, kind="both", linewidth=style.LW, label="psmc-rs 0.2"),
-               style.handle(dent, kind="both", linewidth=style.LW)]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=2)
+    handles = [style.handle(style.RS02, kind="both", linewidth=style.LW, label="psmc-rs 0.2")]
+    if not default.empty:  # timed only when E3.default_mstep_iters sets a cap
+        handles.append(style.handle(dent, kind="both", linewidth=style.LW))
+    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
     style.panel_letters(fig, [ax_t, ax_e, ax_m, ax_d])
     return fig
 
 
+TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
+TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
+
+
+NBSP = "\u00a0"  # keeps a number on the line of its unit when a footnote wraps
+
+
+def _threads_text(threads) -> str:
+    threads = sorted(int(t) for t in threads)
+    if len(threads) == 1:
+        return f"{threads[0]}{NBSP}thread" + ("s" if threads[0] > 1 else "")
+    return ", ".join(str(t) for t in threads[:-1]) + f" and {threads[-1]}{NBSP}threads"
+
+
+def _sizes_text(sizes, all_sizes) -> str:
+    sizes, all_sizes = sorted(int(x) for x in sizes), sorted(int(x) for x in all_sizes)
+    if 1 < len(sizes) < len(all_sizes) and sizes == [x for x in all_sizes if x >= sizes[0]]:
+        return f"{sizes[0]:,}{NBSP}Mb and above"
+    names = [f"{x:,}" for x in sizes]
+    return (", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]) + f"{NBSP}Mb"
+
+
+def output_differences(det) -> List[Tuple[int, str]]:
+    """``(outputs, sentence)`` for each tool whose runs at a genome size wrote more than one output.
+
+    Within a size, runs are grouped by the bytes they wrote. When each
+    thread count's repeats agree and the thread counts split the same way
+    at every such size, the sentence names the thread counts on each side;
+    ``outputs`` is the tool's most distinct outputs at one size.
+    """
+    from .data import fmt_sig
+
+    out = []
+    all_sizes = det["size_mb"].unique()
+    for tool in [k for k in TOOL_LABELS if k in set(det["tool"])]:
+        sub = det[det.tool == tool]
+        per_size = sub.groupby("size_mb")["sha256"].nunique()
+        diff_sizes = sorted(int(x) for x in per_size[per_size > 1].index)
+        if not diff_sizes:
+            continue
+        rows = sub[sub.size_mb.isin(diff_sizes)]
+        repeats_agree = bool((rows.groupby(["size_mb", "threads"])["sha256"].nunique() == 1).all())
+        splits = {tuple(sorted(tuple(sorted(int(t) for t in g["threads"].unique()))
+                               for _, g in rows[rows.size_mb == size].groupby("sha256")))
+                  for size in diff_sizes}
+        rel = fmt_sig(float(rows["max_rel_diff_params"].max()))
+        where = f"{TOOL_LABELS[tool]} at {_sizes_text(diff_sizes, all_sizes)}"
+        if repeats_agree and len(splits) == 1 and len(next(iter(splits))) == 2:
+            fewer, more = sorted(next(iter(splits)), key=lambda g: (len(g), g))
+            text = (f"{where}: {_threads_text(fewer)} wrote different bytes from {_threads_text(more)} "
+                    f"(parameters within {rel} relative); repeats at a thread count are identical")
+        else:
+            text = f"{where}: runs differ (parameters within {rel} relative)"
+        out.append((int(per_size.max()), text))
+    return out
+
+
+def _wrap(ax, text: str, width: float = 1.0, **kw) -> str:
+    """``text`` broken at spaces into lines no wider than ``width`` of ``ax`` (measured as drawn)."""
+    renderer = ax.figure.canvas.get_renderer()
+    limit = ax.get_window_extent(renderer).width * width
+    probe = ax.text(0.0, 0.0, "", transform=ax.transAxes, **kw)
+    lines, line = [], ""
+    for word in text.split(" "):
+        trial = f"{line} {word}" if line else word
+        probe.set_text(trial)
+        if line and probe.get_window_extent(renderer).width > limit:
+            lines.append(line)
+            line = word
+        else:
+            line = trial
+    probe.remove()
+    return "\n".join(lines + [line])
+
+
 def determinism_panel(ax, det) -> None:
-    """Per tool: runs (thread counts and repeats at every size) and the distinct outputs per size."""
+    """Per tool: runs (thread counts and repeats, summed over the sizes) and the distinct outputs per size."""
     ax.set_axis_off()
     style.note(ax, 0.0, 0.99, "Outputs of repeated runs", color=style.INK, size=style.TEXT_PT)
-    y = 0.86
-    cols = (0.0, 0.68, 0.86)
-    for x, head in zip(cols, ("Tool (threads)", "Runs", "Outputs\nper size")):
-        style.note(ax, x, y, head, color=style.INK2, linespacing=1.1)
-    y -= 0.1
-    ax.plot([0.0, 1.0], [y + 0.015, y + 0.015], color=style.GRID, linewidth=style.LW_GRID, transform=ax.transAxes,
-            clip_on=False)
-    labels = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
-    for tool in [k for k in labels if k in set(det["tool"])]:
+    # The tool left-aligned, the two counts right-aligned under one-line headers, all on baselines.
+    cols = ((0.0, "left"), (0.68, "right"), (1.0, "right"))
+    y = 0.80
+    for (x, ha), head in zip(cols, ("Tool (threads)", "Runs", "Outputs")):
+        style.note(ax, x, y, head, ha=ha, va="baseline", color=style.INK2)
+    ax.plot([0.0, cols[-1][0]], [y - 0.045, y - 0.045], color=style.GRID, linewidth=style.LW_GRID,
+            transform=ax.transAxes, clip_on=False)
+    for tool in [k for k in TOOL_LABELS if k in set(det["tool"])]:
         sub = det[det.tool == tool]
         threads = sorted(int(x) for x in sub["threads"].unique())
         span = f"{threads[0]}-{threads[-1]}" if len(threads) > 1 else str(threads[0])
         per_size = sub.groupby("size_mb")["sha256"].nunique()
-        outputs = str(int(per_size.max())) if per_size.min() == per_size.max() else f"{per_size.min()}-{per_size.max()}"
+        lo, hi = int(per_size.min()), int(per_size.max())
+        outputs = str(hi) if lo == hi else f"{lo}-{hi}"
         y -= 0.1
-        for x, text in zip(cols, (f"{labels[tool]} ({span})", str(len(sub)), outputs)):
-            style.note(ax, x, y, text, color=style.INK)
-    style.note(ax, 0.0, y - 0.13, "1: every run at a size wrote\nthe same bytes", color=style.INK2, linespacing=1.1)
+        for (x, ha), text in zip(cols, (f"{TOOL_LABELS[tool]} ({span})", str(len(sub)), outputs)):
+            style.note(ax, x, y, text, ha=ha, va="baseline", color=style.INK)
+    notes = ["1: all runs at a size wrote the same bytes"]
+    notes += [f"{n}: {text}" for n, text in output_differences(det)]
+    text = "\n".join(_wrap(ax, n, cols[-1][0], fontsize=style.TEXT_PT) for n in notes)
+    style.note(ax, 0.0, y - 0.09, text, color=style.INK2, linespacing=1.15)
 
 
-__all__ = ["ceiling_speedup", "determinism_panel", "draw"]
+__all__ = ["ceiling_speedup", "determinism_panel", "draw", "output_differences"]

@@ -7,12 +7,18 @@ light) and, for a genome whose default blocks are few (fewer than
 psmc-rs's 20), the band at 5 Mb blocks too (dark blue, dotted outline); no
 genome of the production run has so few (NA12878: 59), only the smoke and
 tiny profiles' prefixes. The bootstrap resamples blocks: the genome's
-sequences split at the block size (splitfa's trunks; a remainder under 1.5
-blocks stays in the last block), so the turtles' blocks are mostly whole
-scaffolds shorter than 50 Mb, and the human's are its 22 chromosomes cut
-into 59 blocks of 50 Mb (``config.RealGenome.sequence_noun`` names the
-sequences). Each genome is scaled with its own mu and g, given in the
-panel with their source in a few words (``config.RealGenome.scaling_cite``;
+sequences split at the block size, 50 Mb (splitfa's trunks; a remainder
+under 1.5 blocks stays in the last block), so a sequence shorter than that
+is one whole block, and each panel gives its genome's blocks and sequences
+(``config.RealGenome.sequence_noun`` names them). Whole sequences shorter
+than 50 Mb hold 97% of *P. castaneus*'s bins, 50% of *E. subglobosa*'s,
+23% of *H. tectifera*'s and only chr21's 1.6% of NA12878's (production,
+``E2_bootstrap.bins_below_trunk_fraction``). E5 calibrates equal 50 Mb and
+5 Mb blocks of 50 Mb chromosomes, the scheme closest to NA12878's; the
+turtles' bands are not calibrated. The legend gives no block size (few
+blocks are 50 Mb long), unless a 5 Mb band is drawn too. Each genome is
+scaled with its own mu and g, given in the panel with their source in a
+few words (``config.RealGenome.scaling_cite``;
 in full in ``scaling_source``): the turtles with mu = 4.6e-9 per bp per generation,
 the mean germline rate of nine *Chrysemys picta* (painted turtle) trios
 (Bergeron et al. 2023; no pleurodire rate has been measured), and g = 15
@@ -41,7 +47,7 @@ its source, sequences).
 from __future__ import annotations
 
 import math
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .. import config
 from . import style
@@ -125,6 +131,7 @@ def draw(src: Source):
     gs = style.grid(fig, nrow, ncol, left_mm=13.0, right_mm=3.0, top_mm=8.5, bottom_mm=8.5, hspace_mm=9.0,
                     wspace_mm=10.0)
     axes = []
+    panels: List = []  # (index, axes, genome, Ne values to show, bottom note lines, coarse band top, mu, g, cite)
     for i, gnm in enumerate(genomes):
         sid = gnm.sample_id
         ax = fig.add_subplot(gs[i // ncol, i % ncol])
@@ -170,14 +177,26 @@ def draw(src: Source):
                  f"max {fmt_sig(float(pair.max_abs_log10_ne_rs_vs_c_per_interval))}"]
         for row in mine.itertuples():
             lines.append(f"{int(row.replicates)} replicates, {trunk_text(row, sequences, gnm.sequence_noun)}")
-        # Room for the notes, which are not to cover the curves or the bands
-        # (they have no box, which would cover the grey of the times outside
-        # the window): the top notes above the data, the bottom ones below it.
-        lo, hi = min(vals) / 1.6, max(vals) * 1.6
-        room_top = 1.0 - SCALING_NOTE_Y + SCALING_NOTE_LINES * NOTE_LINE_SHARE
-        room_bottom = 0.03 + NOTE_LINE_SHARE * len(lines)
+        panels.append((i, ax, gnm, vals, lines, coarse_hi, mu, g, cite))
+    # One Ne range per scaling (the turtles share theirs) with room for the notes, which are not to cover the
+    # curves or the bands (they have no box, which would cover the grey of the times outside the window): the top
+    # notes above the data, the bottom ones below it. Every panel then spans the same number of decades, widened
+    # evenly about its data, so that a ten-fold change is drawn at the same height in all of them.
+    room_top = 1.0 - SCALING_NOTE_Y + SCALING_NOTE_LINES * NOTE_LINE_SHARE
+    ranges: Dict = {}
+    for key in {(p[6], p[7]) for p in panels}:
+        group = [p for p in panels if (p[6], p[7]) == key]
+        lo = min(v for p in group for v in p[3]) / 1.6
+        hi = max(v for p in group for v in p[3]) * 1.6
+        room_bottom = 0.03 + NOTE_LINE_SHARE * max(len(p[4]) for p in group)
         span = math.log10(hi / lo) / (1.0 - room_top - room_bottom)
-        lo, hi = lo / 10 ** (room_bottom * span), hi * 10 ** (room_top * span)
+        ranges[key] = (lo / 10 ** (room_bottom * span), hi * 10 ** (room_top * span))
+    decades = max(math.log10(hi / lo) for lo, hi in ranges.values())
+    for key, (lo, hi) in ranges.items():
+        extra = (decades - math.log10(hi / lo)) / 2.0
+        ranges[key] = (lo / 10**extra, hi * 10**extra)
+    for i, ax, gnm, vals, lines, coarse_hi, mu, g, cite in panels:
+        lo, hi = ranges[(mu, g)]
         if coarse_hi > hi:
             lines = [t.replace("(few: coarse)", "(few: coarse, clipped)") for t in lines]
         style.years_axis(ax, xlim, label=i // ncol == nrow - 1)
@@ -194,14 +213,18 @@ def draw(src: Source):
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
+    # The block size names a band only beside the other band: a genome's blocks are
+    # its sequences split at that size, so few of them are that long (the panels say
+    # how many blocks of how many sequences).
     default_mb = cfg.bootstrap_trunk_bins * cfg.inference.bin_size / 1e6
+    fine = (boots["default_trunks"].astype(str) == "False").any()
     handles = [
         style.handle(style.C_PSMC, linewidth=C_LW),
         style.handle(style.RS02, linewidth=RS_LW),
         Patch(facecolor=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0,
-              label=f"Bootstrap 95% band, {default_mb:g} Mb blocks"),
+              label=f"Bootstrap 95% band, {default_mb:g} Mb blocks" if fine else "Bootstrap 95% band"),
     ]
-    if (boots["default_trunks"].astype(str) == "False").any():
+    if fine:
         fine_mb = float(boots[boots["default_trunks"].astype(str) == "False"]["trunk_mb"].iloc[0])
         handles.append(Line2D([], [], color=style.BLUE_650, linewidth=FINE_LW, linestyle=FINE_STYLE,
                               label=f"Bootstrap 95% band, {fine_mb:g} Mb blocks"))

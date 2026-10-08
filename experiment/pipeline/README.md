@@ -251,9 +251,11 @@ step of one curve against the next of the other. The `*_per_interval`
 columns hold log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap
 the window, the RMSE weighting each by its log-time width inside the window
 (as the log-spaced grid weighs the RMSE against the truth). A first lambda
-the data barely constrain can run away in one tool outside the window (C
-psmc's in expansion replicate 5; psmc-rs bounds every free lambda):
-`max_abs_log10_ne_rs_vs_c_any_interval` gives it.
+the data barely constrain can run away outside the window, and
+`max_abs_log10_ne_rs_vs_c_any_interval` gives the difference there. In
+expansion replicate 5 it ran away in both tools: psmc-rs's stopped at its
+upper bound (lambda 1e4; psmc-rs bounds every free lambda) and C psmc's,
+unbounded, reached about 1.1e6, so the 2.0 there is set by psmc-rs's bound.
 
 Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 `fits/<model>/` (`repNN.c.psmc`, `repNN.rs.json`, `repNN.rs.psmc`,

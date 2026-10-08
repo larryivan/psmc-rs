@@ -1,7 +1,19 @@
 """Fig 4 (E3): run time and peak memory against genome size, and the speed-up over C psmc.
 
 Every run fits 25 EM iterations of the recipe to a constant-model genome of
-100 Mb chromosomes, alone on the machine (E3's clean runs only).
+100 Mb chromosomes, alone on the machine (E3's clean runs only): 1, 3, 10
+and 30 chromosomes at 100, 300, 1,000 and 3,000 Mb, the second line of each
+size's tick label.
+
+psmc-rs (0.1 and 0.2) runs the E-step of each sequence on one thread, in
+parallel across sequences, so on t threads a genome of n equal chromosomes
+takes about ceil(n / t) times one chromosome's time: 17.2 to 18.3 s for
+every psmc-rs 0.2 setup in production (Supplementary Note 1, section 10).
+Threads beyond the chromosome count add nothing: at 100 Mb (one
+chromosome) the 1-, 8- and 30-thread points coincide, the 30-thread lines
+are flat, and the 30-thread speed-up at 3,000 Mb (243x in production)
+holds because its 30 equal chromosomes give each thread one. On a real
+genome the longest sequence sets the floor (Fig S4).
 
 * a: wall time against genome size: C psmc (one thread), psmc-rs 0.1 and
   psmc-rs 0.2 at each of the thread counts E3 times every size at (1, 8
@@ -102,12 +114,16 @@ def log_ticks(ax, lo: float, hi: float, ticks: List[float], fmt) -> None:
     ax.set_ylim(lo, hi)
 
 
-def size_axis(ax, sizes) -> None:
+def size_axis(ax, sizes, chromosomes: Optional[Dict[int, int]] = None) -> None:
+    """The genome-size axis; with ``chromosomes`` (size -> count), each size's count on a second line."""
     from matplotlib.ticker import FixedLocator, NullLocator
 
     ax.set_xscale("log")
     ax.xaxis.set_major_locator(FixedLocator(sorted(sizes)))
-    ax.xaxis.set_major_formatter(_formatter(lambda v: f"{v:,.0f}"))
+    if chromosomes:
+        ax.xaxis.set_major_formatter(_formatter(lambda v: f"{v:,.0f}\n{chromosomes[int(round(v))]} chr."))
+    else:
+        ax.xaxis.set_major_formatter(_formatter(lambda v: f"{v:,.0f}"))
     ax.xaxis.set_minor_locator(NullLocator())
     ax.set_xlim(min(sizes) / 1.35, max(sizes) * 1.35)
     ax.set_xlabel("Genome size (Mb)")
@@ -144,13 +160,15 @@ def draw(src: Source):
     table2 = src.table("E3_table2")
     runs = src.table("E3_runs")
     fig = style.figure("double", 70)
-    gs = style.grid(fig, 1, 3, left_mm=12.5, right_mm=3.0, top_mm=12.0, bottom_mm=9.0, wspace_mm=14.0)
+    # bottom_mm: a second tick line under each size, its chromosome count.
+    gs = style.grid(fig, 1, 3, left_mm=12.5, right_mm=3.0, top_mm=12.0, bottom_mm=11.5, wspace_mm=14.0)
     ax_t, ax_m, ax_s = (fig.add_subplot(gs[0, i]) for i in range(3))
     sizes = sorted(int(s) for s in table2["size_mb"].unique())
+    chromosomes = chromosome_counts(table2)
     threads = tool_threads(src.profile.e3)
 
     notes = draw_metric(ax_t, table2, runs, "wall_median_s", "wall_seconds", threads)
-    size_axis(ax_t, sizes)
+    size_axis(ax_t, sizes, chromosomes)
     log_ticks(ax_t, *decade_span(list(table2["wall_median_s"].dropna()) + list(runs["wall_seconds"])), TIME_TICKS,
               fmt_seconds)
     ax_t.set_ylabel(f"Wall time, {src.profile.e3.inference.n_iter} EM iterations")
@@ -158,12 +176,12 @@ def draw(src: Source):
         style.note(ax_t, 0.02, 0.98, "\n".join(notes), ha="left", va="top")
 
     draw_metric(ax_m, table2, runs, "peak_rss_median_mb", "peak_rss_mb", threads)
-    size_axis(ax_m, sizes)
+    size_axis(ax_m, sizes, chromosomes)
     log_ticks(ax_m, *decade_span(list(table2["peak_rss_median_mb"].dropna()) + list(runs["peak_rss_mb"])), MEM_TICKS,
               fmt_mib)
     ax_m.set_ylabel("Peak memory (RSS)")
 
-    speedup_panel(ax_s, table2, sizes, threads)
+    speedup_panel(ax_s, table2, sizes, threads, chromosomes)
 
     handles = [style.handle(ent, kind="both") for _, _, ent in series(table2, threads)]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
@@ -171,7 +189,19 @@ def draw(src: Source):
     return fig
 
 
-def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]] = None) -> None:
+def chromosome_counts(table2) -> Dict[int, int]:
+    """Genome size (Mb) -> its number of chromosomes, from Table 2."""
+    counts = table2.groupby("size_mb")["chromosomes"].unique()
+    out = {}
+    for size, n in counts.items():
+        if len(n) != 1:
+            raise ValueError(f"E3_table2 gives {size} Mb more than one chromosome count: {sorted(n)}")
+        out[int(size)] = int(n[0])
+    return out
+
+
+def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]] = None,
+                  chromosomes: Optional[Dict[int, int]] = None) -> None:
     """Median wall time of C psmc over each tool's, by genome size."""
     import numpy as np
 
@@ -189,7 +219,7 @@ def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]]
         hi = max(hi, float(np.nanmax(rows["speedup_vs_c"])))
         lo = min(lo, float(np.nanmin(rows["speedup_vs_c"])))
     style.ref_line(ax, y=1.0)
-    size_axis(ax, sizes)
+    size_axis(ax, sizes, chromosomes)
     ax.set_yscale("log", base=2)
     from matplotlib.ticker import FixedLocator, NullLocator
 
@@ -203,4 +233,5 @@ def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]]
     ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
 
 
-__all__ = ["draw", "fmt_mib", "fmt_seconds", "log_ticks", "series", "size_axis", "tool_threads"]
+__all__ = ["chromosome_counts", "draw", "fmt_mib", "fmt_seconds", "log_ticks", "series", "size_axis",
+           "tool_threads"]

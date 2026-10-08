@@ -35,9 +35,10 @@ recent peaks Hilgers et al. 2025 found with ``4+...``), ``giab`` (NA12878:
 every called bin as 100 bases, as C psmc does (Fig 5's "every called bin
 full"); the strict mask leaves about a fifth of the called bins partly
 callable. The VCF route weighs each bin by its callable bases. Fig 7's
-population curves are the default set's VCF fits; the cohort spread and
-Fig S5 use the psmcfa fits, and ``E7_route_shift`` measures the difference
-on the default set. psmc-rs and C psmc are compared on the identical psmcfa
+population curves, the cohort spread and Fig S5 use the psmcfa fits of
+every genome (61 to 113 per population); Fig S5 adds the median of each
+population's default genomes' VCF fits, and ``E7_route_shift`` measures
+the difference between the routes on the default set. psmc-rs and C psmc are compared on the identical psmcfa
 (as E2: interval by interval on the window of 1% to 99% of coalescences
 under C psmc's fit, :func:`..metrics.interval_diff`).
 

@@ -60,8 +60,10 @@ log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap the window,
 the RMSE weighted by each interval's log-time width inside the window and
 the largest absolute value; ``max_abs_log10_ne_rs_vs_c_any_interval`` is the
 largest over every interval, also outside the window, where a first lambda
-the data barely constrain can run away in one tool (C psmc's first lambda
-of expansion replicate 5 reaches 1e6; psmc-rs bounds every free lambda).
+the data barely constrain can run away (in expansion replicate 5 both
+tools' first lambda did: psmc-rs's stopped at its bound on every free
+lambda, 1e4, C psmc's reached about 1.1e6, so that this column gives the
+gap the bound sets).
 Sampling both step curves at fixed times would instead read whole steps
 wherever a time falls between two nearly equal boundaries.
 """

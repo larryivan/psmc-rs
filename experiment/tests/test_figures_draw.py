@@ -45,6 +45,7 @@ class Draw(unittest.TestCase):
 
     def test_every_figure_draws_from_the_experiments_tables(self):
         from experiment.pipeline import figures
+        from experiment.pipeline.figures import style
 
         for fs in figures.FIGURES:
             with self.subTest(figure=fs.name):
@@ -53,6 +54,8 @@ class Draw(unittest.TestCase):
                 self.assertEqual([p.name for p in written], [p.name for p in fs.outputs(self.runs)])
                 for p in written:
                     self.assertGreater(p.stat().st_size, 1000, p)
+                svg = next(p for p in written if p.suffix == ".svg")
+                self.assertEqual(style.small_text(svg), [], "text below 5 pt")
 
     def test_figures_are_written_where_their_experiment_is(self):
         from experiment.pipeline import figures
@@ -214,6 +217,74 @@ class Draw(unittest.TestCase):
         human = next(g for g in config.REAL_GENOMES if g.sample_id == "NA12878")
         row = SimpleNamespace(trunk_mb=50.0, trunks=59, coarse_band="False")
         self.assertEqual(fig3.trunk_text(row, 22, human.sequence_noun), "59 blocks: 22 chromosomes split at 50 Mb")
+
+    def test_fig1_gives_the_fit_its_invocation(self):
+        from experiment.pipeline.figures import fig1
+
+        fig = self._draw("fig1")
+        texts = [t.get_text() for t in fig.axes[0].texts]
+        self.assertIn("fit", texts)
+        self.assertIn("psmc-rs INPUT OUTPUT N_ITER", texts)
+        self.assertEqual(fig1.FIT_USAGE, "psmc-rs INPUT OUTPUT N_ITER")
+
+    def test_fig4_names_each_sizes_chromosomes_under_it(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        table2 = pd.read_csv(SCHEMAS["E3_table2"].path(self.runs))
+        fig = self._draw("fig4")
+        fig.canvas.draw()
+        for ax in fig.axes:
+            labels = [t.get_text() for t in ax.get_xticklabels() if t.get_text()]
+            want = [f"{int(s):,}\n{int(n)} chr." for s, n in
+                    sorted(table2.groupby("size_mb")["chromosomes"].first().items())]
+            self.assertEqual(labels, want)
+
+    def test_figs4_legend_draws_what_is_drawn_and_d_fits_the_figure(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        def check(runs):
+            fig = self._draw("figs4", runs)
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+            right = fig.bbox.x1
+            for t in fig.axes[3].texts:  # d's table and its notes lie inside the figure
+                self.assertLessEqual(t.get_window_extent(renderer).x1, right, t.get_text())
+            heads = [t.get_text() for t in fig.axes[3].texts]
+            self.assertIn("Outputs", heads)
+            self.assertFalse(any("\n" in h for h in heads[:4]))  # one-line title and headers
+            # b: no label at the fewest threads, whose efficiency is 100% by construction.
+            ax_e = fig.axes[1]
+            first = min(float(x) for x in ax_e.lines[0].get_xdata())
+            self.assertFalse(any(abs(a.xy[0] - first) < 1e-9 for a in ax_e.texts if hasattr(a, "xy")
+                                 and a.get_text().endswith("%")))
+            return self._labels(fig)
+
+        table2 = pd.read_csv(SCHEMAS["E3_table2"].path(self.runs))
+        labels = check(self.runs)
+        self.assertEqual(any("capped" in label for label in labels), (table2.tool == "rs02-default").any())
+        with tempfile.TemporaryDirectory() as d:
+            runs = Path(d)
+            shutil.copytree(self.runs / "E3" / "tables", runs / "E3" / "tables")
+            for key in ("E3_table2", "E3_runs", "E3_determinism"):
+                path = SCHEMAS[key].path(runs)
+                t = pd.read_csv(path)
+                t[t.tool != "rs02-default"].to_csv(path, index=False)
+            self.assertEqual(check(runs), ["psmc-rs 0.2"])
+
+    def test_fig3_legend_names_a_block_size_only_beside_another(self):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        boots = pd.read_csv(SCHEMAS["E2_bootstrap"].path(self.runs))
+        labels = self._labels(self._draw("fig3"))
+        fine = (boots["default_trunks"].astype(str) == "False").any()
+        self.assertEqual("Bootstrap 95% band" in labels, not fine)
+        self.assertEqual(any(label.endswith(" Mb blocks") for label in labels), fine)
 
     def test_fig5_draws_every_called_bin_taken_as_full_above_the_vcf_without_its_mask(self):
         from experiment.pipeline.figures import style
