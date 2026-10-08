@@ -1,0 +1,62 @@
+Input QC (psmcfa): 34 sequences, 18,494,879 bins of 100 bp
+1 warning, 1 note
+
+WARNING  SHORT_SEQUENCES
+  23.2% of bins lie in 23 sequences shorter than the bootstrap trunk (500,000 bins), which the
+  bootstrap can only resample whole.
+  -> For the bootstrap, a trunk of at most 391,607 bins keeps at least 80.0% of bins in sequences of
+     one trunk or more (--bootstrap-block-size).
+
+INFO     HET_OUTLIER
+  1 of 29 sequences with at least 1.00 Mb in called bins have a heterozygosity far from their median
+  of 1.39 per kb (more than 5 MADs of log theta and 1.5-fold): manual_scaffold_29 (1.6x).
+  -> High heterozygosity can come from contamination, collapsed duplications or copy-number
+     variants, or reference errors; low heterozygosity from sex-linked scaffolds (near zero when
+     hemizygous), runs of homozygosity (inbreeding, a real signal), deletions or an over-strict
+     mask. Check depth, mapping quality, the mask and the chromosome assignment of these sequences,
+     and exclude any that are artefacts or hemizygous.
+
+Metrics
+  Bins              T 15,987,812 (86.4%), K 2,422,447 (13.1%), N 84,620 (0.5%)
+  theta0            0.141 per bin, 0.00141 per bp (1.41 per kb)
+  Called length     1.84 Gb in called bins
+  Sequence lengths  N50 118 Mb (L50 5), longest 315 Mb; 0.028% of bins in sequences < 1 Mb
+  Bootstrap         51 trunks of 500,000 bins; 23.2% of bins in sequences shorter than a trunk
+  Longest N run     2,624 bins (262 kb) in manual_scaffold_1 from bin 1,225,352
+  Bin saturation    about 6.8% of K bins hold >= 2 het sites (1.41 per kb); below 5.0% up to 73 bp per bin
+  Autosomal het     1.39 per kb (median of 29 sequences)
+  Recombinations    about 638,083 expected by C psmc's starting model (theta/rho = 4)
+
+Sequences (30 of 34, input order)
+  sequence                bins   T%   K%   N% het/kb vs ref longest N kind
+  manual_scaffold_1  3,152,835 86.2 13.4  0.4   1.44   1.03     2,624
+  manual_scaffold_2  2,388,704 86.3 13.4  0.3   1.45   1.04        53
+  manual_scaffold_3  2,005,889 87.1 12.5  0.3   1.35   0.97       107
+  manual_scaffold_4  1,273,028 86.1 13.6  0.4   1.46   1.05       202
+  manual_scaffold_5  1,185,691 86.8 12.9  0.3   1.39   1.00       354
+  manual_scaffold_6  1,128,245 86.2 13.5  0.3   1.45   1.04       705
+  manual_scaffold_7    791,107 86.5 12.9  0.7   1.39   1.00       169
+  manual_scaffold_8    633,719 86.2 13.5  0.3   1.45   1.04        63
+  manual_scaffold_9    566,155 86.4 13.3  0.3   1.43   1.03        32
+  manual_scaffold_10   555,134 86.7 13.0  0.3   1.39   1.00        46
+  manual_scaffold_11   520,762 87.6 11.5  0.9   1.24   0.89        87
+  manual_scaffold_12   431,647 87.3 12.3  0.4   1.32   0.95        84
+  manual_scaffold_13   391,607 87.3 12.4  0.3   1.33   0.96        61
+  manual_scaffold_14   387,141 86.4 13.3  0.4   1.43   1.03       114
+  manual_scaffold_15   367,961 87.6 11.9  0.5   1.27   0.91       179
+  manual_scaffold_16   324,136 86.9 12.6  0.5   1.35   0.97       376
+  manual_scaffold_17   283,226 89.6 10.0  0.4   1.06   0.76        77
+  manual_scaffold_18   264,910 86.8 12.8  0.4   1.37   0.99        69
+  manual_scaffold_19   229,374 87.1 12.7  0.3   1.36   0.97        23
+  manual_scaffold_20   218,534 88.6 11.0  0.4   1.17   0.84       109
+  manual_scaffold_21   215,200 85.9 11.1  3.0   1.21   0.87       177
+  manual_scaffold_22   196,476 84.1 15.3  0.6   1.67   1.20       174
+  manual_scaffold_23   164,122 86.3 13.3  0.4   1.43   1.03        41
+  manual_scaffold_24   159,578 85.0 14.3  0.8   1.55   1.11        76
+  manual_scaffold_25   141,532 79.2 17.7  3.0   2.02   1.45       409
+  manual_scaffold_26   138,820 87.8 11.4  0.9   1.22   0.87        36
+  manual_scaffold_27   135,505 83.5 15.6  0.9   1.72   1.23        30
+  manual_scaffold_28   128,669 83.6 15.5  1.0   1.70   1.22       117
+  manual_scaffold_29   109,936 78.7 19.8  1.4   2.25   1.61        48
+  manual_scaffold_30     2,628 65.1 21.2 13.7   2.81   2.02        33
+  ... 4 more sequences with 2,608 bins (included in the totals)

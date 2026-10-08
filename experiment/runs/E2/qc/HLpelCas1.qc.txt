@@ -1,0 +1,88 @@
+Input QC (psmcfa): 1,220 sequences, 19,423,871 bins of 100 bp
+2 warnings, 2 notes
+
+WARNING  BIN_SATURATION
+  At 100 bp per bin, 21.2% of called bins are heterozygous (K), which implies 2.39 heterozygous
+  sites per kb and about 11.4% of K bins holding two or more of them (more if heterozygosity varies
+  along the genome). PSMC only sees whether a bin holds one, so the oldest part of the curve loses
+  resolution.
+  -> Re-bin the per-site data at 43 bp per bin or less, the largest size that keeps the share below
+     5.0% at this heterozygosity: `--bin-size 43` for VCF and multihetsep input, or `fq2psmcfa -s
+     43` for a psmcfa file, which psmc-rs then reads with `--bin-size 43` so that the results are
+     scaled with the same bin size.
+
+WARNING  SHORT_SEQUENCES
+  97.0% of bins lie in 1,219 sequences shorter than the bootstrap trunk (500,000 bins), which the
+  bootstrap can only resample whole.
+  -> For the bootstrap, a trunk of at most 52,847 bins keeps at least 80.0% of bins in sequences of
+     one trunk or more (--bootstrap-block-size).
+
+INFO     PARTLY_CALLABLE_BINS
+  This input records which bins are called (at least 10% of their 100 bases callable, fq2psmcfa's
+  rule) but not how many of their bases are, as psmcfa does, so the fit treats every called bin as
+  100 bases, as C psmc does. 3.8% of bins are missing (N), and 191,470 called bins (1.0% of them)
+  border those runs: they hold fewer than 100 callable bases unless a run starts or ends at a bin
+  boundary. If missing data are also scattered in runs shorter than a bin, most called bins do,
+  which this input cannot show. Partly callable bins show fewer heterozygous sites, which biases
+  theta, the times and Ne low by about their missing share.
+  -> To measure it, run `psmc-rs qc` on the data the psmcfa was made from: a VCF with its callable
+     mask (--vcf-mask) or an all-sites VCF from `bcftools call -c`. It reports the share of callable
+     bases of the called bins, and a fit of that VCF weighs each bin by its callable bases
+     (--bin-callable auto), which removes the bias.
+
+INFO     HET_OUTLIER
+  17 of 207 sequences with at least 1.00 Mb in called bins have a heterozygosity far from their
+  median of 2.43 per kb (more than 5 MADs of log theta and 1.5-fold): ML685846.1 (0.0049x),
+  ML688392.1 (0.0063x), ML688485.1 (0.0080x), ML688283.1 (0.010x), ML686217.1 (0.015x), ML688537.1
+  (0.019x), ML688284.1 (0.020x), ML688386.1 (0.022x), ML688390.1 (0.022x), ML686214.1 (0.051x) and 7
+  more.
+  -> High heterozygosity can come from contamination, collapsed duplications or copy-number
+     variants, or reference errors; low heterozygosity from sex-linked scaffolds (near zero when
+     hemizygous), runs of homozygosity (inbreeding, a real signal), deletions or an over-strict
+     mask. Check depth, mapping quality, the mask and the chromosome assignment of these sequences,
+     and exclude any that are artefacts or hemizygous.
+
+Metrics
+  Bins              T 14,722,565 (75.8%), K 3,972,041 (20.4%), N 729,265 (3.8%)
+  theta0            0.239 per bin, 0.00239 per bp (2.39 per kb)
+  Called length     1.86 Gb in called bins
+  Sequence lengths  N50 14.9 Mb (L50 38), longest 57.5 Mb; 4.5% of bins in sequences < 1 Mb
+  Bootstrap         1,220 trunks of 500,000 bins; 97.0% of bins in sequences shorter than a trunk
+  Longest N run     607 bins (60.7 kb) in ML685769.1 from bin 272,201
+  Bin saturation    about 11.4% of K bins hold >= 2 het sites (2.39 per kb); below 5.0% up to 43 bp per bin
+  Autosomal het     2.43 per kb (median of 207 sequences)
+  Recombinations    about 1,083,956 expected by C psmc's starting model (theta/rho = 4)
+
+Sequences (30 of 1,220, input order)
+  sequence      bins   T%   K%   N% het/kb vs ref longest N kind
+  ML685755.1 575,198 77.4 20.4  2.2   2.34   0.96       251
+  ML685756.1 353,431 78.8 17.8  3.4   2.03   0.83       251
+  ML685764.1 489,597 76.7 19.8  3.5   2.30   0.95       602
+  ML685765.1 348,033 77.6 20.5  1.9   2.35   0.97       201
+  ML685766.1 416,890 76.3 20.3  3.3   2.36   0.97       353
+  ML685767.1 308,433 76.3 20.3  3.4   2.36   0.97       551
+  ML685768.1 341,958 75.1 21.0  3.9   2.47   1.01       252
+  ML685769.1 422,073 78.4 18.0  3.7   2.06   0.85       607
+  ML685770.1 286,126 76.9 21.4  1.7   2.45   1.01       202
+  ML685779.1 287,961 74.8 21.3  3.9   2.51   1.03       256
+  ML685783.1 284,487 78.8 19.6  1.6   2.22   0.91       202
+  ML685784.1 293,539 71.8 24.2  4.0   2.90   1.19       551
+  ML685785.1 304,285 75.4 20.8  3.7   2.44   1.00       257
+  ML685829.1  17,006 86.8  6.9  6.3  0.765   0.31       353
+  ML685846.1  19,695 97.5  0.1  2.3 0.0120   0.00       101
+  ML685896.1  37,916 88.4  9.5  2.1   1.03   0.42       150
+  ML685933.1  16,782 87.4  6.3  6.2  0.700   0.29       155
+  ML685964.1  12,953 89.8  9.1  1.1  0.968   0.40        17
+  ML686112.1  16,965 90.3  5.1  4.6  0.546   0.22       155
+  ML686138.1  22,025 83.9  3.3 12.8  0.386   0.16       552
+  ML686204.1  23,770 88.8  7.8  3.4  0.846   0.35       106
+  ML686214.1  13,275 92.8  1.2  6.1  0.124   0.05       154
+  ML686217.1  21,108 92.0  0.3  7.6 0.0365   0.01       273
+  ML688283.1  17,924 60.6  0.2 39.2 0.0248   0.01       117
+  ML688284.1  18,053 63.0  0.3 36.7 0.0483   0.02       116
+  ML688386.1  15,561 88.4  0.5 11.1 0.0529   0.02       152
+  ML688390.1  10,817 93.2  0.5  6.3 0.0544   0.02       151
+  ML688392.1  15,189 98.1  0.2  1.8 0.0154   0.01        60
+  ML688485.1  12,399 94.9  0.2  5.0 0.0195   0.01       101
+  ML688537.1  13,631 94.1  0.4  5.5 0.0467   0.02       200
+  ... 1,190 more sequences with 14,406,791 bins (included in the totals)

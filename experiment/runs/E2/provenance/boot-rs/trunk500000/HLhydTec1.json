@@ -1,0 +1,118 @@
+{
+  "digest": "3964c4fd3b96e67186c83fb4c100a3d6a215b8fdf92ecdec114229978e4743ee",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa",
+      "<runs>/E2/bootstrap/HLhydTec1/trunk500000/main.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "4.6e-09",
+      "--gen-years",
+      "15",
+      "--threads",
+      "50",
+      "--no-progress",
+      "--bootstrap",
+      "100",
+      "--bootstrap-block-size",
+      "500000",
+      "--bootstrap-seed",
+      "1851186446",
+      "--bootstrap-iters",
+      "25",
+      "--bootstrap-dir",
+      "<runs>/E2/bootstrap/HLhydTec1/trunk500000"
+    ],
+    "env": {},
+    "inputs": {
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa": "5088d51c1df2064ab869e95479f41c6fa8b62a36c63b656d44728efdb6eb1d59"
+    },
+    "job": "E2/boot-rs/trunk500000/HLhydTec1",
+    "seeds": {
+      "bootstrap": 1851186446
+    },
+    "settings": {
+      "bootstrap": {
+        "iterations": 25,
+        "replicates": 100,
+        "trunk_bins": 500000
+      },
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "scaling": {
+        "gen_years": 15.0,
+        "mu": 4.6e-09
+      },
+      "threads": 50
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E2/bootstrap/HLhydTec1/trunk500000/main.json": "35390e40a7544a399cd08cd447f064a9a932dfe4c0be2128842e2014dd073517",
+    "<runs>/E2/bootstrap/HLhydTec1/trunk500000/summary.json": "30dc27aab3b487cfb71889608fc90808a08f1b9508213d349a22ea5b99365acc",
+    "<runs>/E2/bootstrap/HLhydTec1/trunk500000/summary.tsv": "8921c0e84c88e9437b8b464de9d555bf31213cf1ad3c668b619f629493f256f8"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 50,
+    "end": "2026-10-08T11:41:18",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-14-r",
+    "loadavg_after": [
+      76.75,
+      83.51,
+      99.42
+    ],
+    "loadavg_before": [
+      85.74,
+      109.13,
+      122.1
+    ],
+    "maxrss_main_mb": 1288.9,
+    "mem_gb": 10.0,
+    "peak_rss_mb": 1288.9,
+    "peak_rss_tree_sampled_mb": 1288.9,
+    "slurm_job_id": "53452276",
+    "start": "2026-10-08T11:27:05",
+    "system_seconds": 17.029,
+    "user_seconds": 38963.475,
+    "wall_seconds": 852.983
+  }
+}

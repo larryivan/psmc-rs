@@ -1,0 +1,102 @@
+{
+  "digest": "39f7c36100efc5b324102c9c220c94554b3655537577395fb3e340d7ed183950",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa",
+      "<runs>/E2/fits/HLhydTec1.split2.rs.json",
+      "25",
+      "--pattern",
+      "2+2+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "4.6e-09",
+      "--gen-years",
+      "15",
+      "--threads",
+      "1",
+      "--no-progress",
+      "--psmc-out",
+      "<runs>/E2/fits/HLhydTec1.split2.rs.psmc"
+    ],
+    "env": {},
+    "inputs": {
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa": "5088d51c1df2064ab869e95479f41c6fa8b62a36c63b656d44728efdb6eb1d59"
+    },
+    "job": "E2/fit-rs-split2/HLhydTec1",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "2+2+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "scaling": {
+        "gen_years": 15.0,
+        "mu": 4.6e-09
+      },
+      "threads": 1
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E2/fits/HLhydTec1.split2.rs.json": "239aa069ece0c78a412d1ac98403bd22a483c396190e77ab648830249a8e51e9",
+    "<runs>/E2/fits/HLhydTec1.split2.rs.psmc": "a53dfd7eee712d04bc58866c6977eddbd90df8f077e47ea9520e6368b48977ea"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T05:30:56",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-14-r",
+    "loadavg_after": [
+      100.5,
+      97.98,
+      102.84
+    ],
+    "loadavg_before": [
+      90.24,
+      90.23,
+      104.03
+    ],
+    "maxrss_main_mb": 100.7,
+    "mem_gb": 0.2,
+    "peak_rss_mb": 100.7,
+    "peak_rss_tree_sampled_mb": 31.4,
+    "slurm_job_id": "53452276",
+    "start": "2026-10-08T05:24:09",
+    "system_seconds": 0.124,
+    "user_seconds": 403.175,
+    "wall_seconds": 406.541
+  }
+}

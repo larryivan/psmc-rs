@@ -1,0 +1,101 @@
+{
+  "input_format": "psmcfa",
+  "bin_size": 100,
+  "bootstrap_trunk_bins": 500000,
+  "n_sequences": 1,
+  "empty_sequences": 0,
+  "totals": {
+    "bins": 2487383,
+    "t_bins": 2116453,
+    "k_bins": 123684,
+    "missing_bins": 247246,
+    "t_fraction": 0.8508753979584165,
+    "k_fraction": 0.049724549858224484,
+    "missing_fraction": 0.09940005218335897,
+    "het_bin_fraction": 0.05521269458073323,
+    "theta0_per_bin": 0.05679545045167059,
+    "theta0_callable": null,
+    "mean_callable_fraction": null,
+    "partly_callable_fraction": null,
+    "called_next_to_missing": 10622,
+    "theta_per_bp": 0.0005679545045167058,
+    "het_per_kb": 0.5679545045167058,
+    "called_bases_from_bins": 224013700,
+    "called_bases": null,
+    "uncalled_site_fraction": null,
+    "het_sites": null,
+    "site_het_per_kb": null,
+    "length_bases": 248738300,
+    "longest_missing_run_bins": 180002
+  },
+  "lengths": {
+    "total_bases": 248738300,
+    "longest_bases": 248738300,
+    "n50_bases": 248738300,
+    "l50": 1,
+    "below_1mb": {
+      "sequences": 0,
+      "bins": 0,
+      "fraction": 0.0
+    },
+    "below_trunk": {
+      "sequences": 0,
+      "bins": 0,
+      "fraction": 0.0
+    },
+    "bootstrap_trunks": 5
+  },
+  "longest_missing_run": {
+    "sequence": "chr1",
+    "start_bin": 1251845,
+    "bins": 180002,
+    "bases": 18000200
+  },
+  "callable": null,
+  "saturation": {
+    "het_per_site": 0.0005677932488871711,
+    "multi_het_share": 0.027852887877137245,
+    "max_bin_size_below_target": 180
+  },
+  "het_reference": {
+    "theta0_per_bin": 0.05679545045167059,
+    "het_per_kb": 0.5679545045167059,
+    "sequences": 1,
+    "method": "median"
+  },
+  "depth": null,
+  "dropped": [],
+  "expected_recombinations": 31583.174916354965,
+  "findings": [],
+  "sequences": [
+    {
+      "index": 0,
+      "name": "chr1",
+      "kind": null,
+      "het_vs_reference": 1.0,
+      "bins": 2487383,
+      "t_bins": 2116453,
+      "k_bins": 123684,
+      "missing_bins": 247246,
+      "t_fraction": 0.8508753979584165,
+      "k_fraction": 0.049724549858224484,
+      "missing_fraction": 0.09940005218335897,
+      "het_bin_fraction": 0.05521269458073323,
+      "theta0_per_bin": 0.05679545045167059,
+      "theta0_callable": null,
+      "mean_callable_fraction": null,
+      "partly_callable_fraction": null,
+      "called_next_to_missing": 10622,
+      "theta_per_bp": 0.0005679545045167058,
+      "het_per_kb": 0.5679545045167058,
+      "called_bases_from_bins": 224013700,
+      "called_bases": null,
+      "uncalled_site_fraction": null,
+      "het_sites": null,
+      "site_het_per_kb": null,
+      "length_bases": 248738300,
+      "longest_missing_run_bins": 180002
+    }
+  ],
+  "omitted": null
+}

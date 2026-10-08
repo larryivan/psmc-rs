@@ -1,0 +1,51 @@
+Input QC (psmcfa): 22 sequences, 28,750,027 bins of 100 bp
+0 warnings, 1 note
+
+INFO     PARTLY_CALLABLE_BINS
+  This input records which bins are called (at least 10% of their 100 bases callable, fq2psmcfa's
+  rule) but not how many of their bases are, as psmcfa does, so the fit treats every called bin as
+  100 bases, as C psmc does. 18.6% of bins are missing (N), and 1,901,098 called bins (8.1% of them)
+  border those runs: they hold fewer than 100 callable bases unless a run starts or ends at a bin
+  boundary. If missing data are also scattered in runs shorter than a bin, most called bins do,
+  which this input cannot show. Partly callable bins show fewer heterozygous sites, which biases
+  theta, the times and Ne low by about their missing share.
+  -> To measure it, run `psmc-rs qc` on the data the psmcfa was made from: a VCF with its callable
+     mask (--vcf-mask) or an all-sites VCF from `bcftools call -c`. It reports the share of callable
+     bases of the called bins, and a fit of that VCF weighs each bin by its callable bases
+     (--bin-callable auto), which removes the bias.
+
+Metrics
+  Bins              T 21,919,560 (76.2%), K 1,469,926 (5.1%), N 5,360,541 (18.6%)
+  theta0            0.0649 per bin, 0.000649 per bp (0.649 per kb)
+  Called length     2.33 Gb in called bins
+  Sequence lengths  N50 145 Mb (L50 8), longest 248 Mb; 0.0% of bins in sequences < 1 Mb
+  Bootstrap         59 trunks of 500,000 bins; 1.6% of bins in sequences shorter than a trunk
+  Longest N run     183,801 bins (18.3 Mb) in chr1 from bin 1,251,610
+  Bin saturation    about 3.2% of K bins hold >= 2 het sites (0.649 per kb); below 5.0% up to 157 bp per bin
+  Autosomal het     0.655 per kb (median of 22 sequences)
+  Recombinations    about 376,482 expected by C psmc's starting model (theta/rho = 4)
+
+Sequences (22 of 22, input order)
+  sequence      bins   T%  K%   N% het/kb vs ref longest N kind
+  chr1     2,489,565 73.5 4.4 22.1  0.587   0.90   183,801
+  chr2     2,421,936 81.6 5.2 13.2  0.613   0.94    20,871
+  chr3     1,982,956 83.2 5.3 11.5  0.623   0.95    21,738
+  chr4     1,902,146 82.6 5.6 11.8  0.656   1.00    23,085
+  chr5     1,815,383 80.9 5.6 13.5  0.669   1.02    30,443
+  chr6     1,708,060 81.9 5.9 12.2  0.695   1.06    17,946
+  chr7     1,593,460 77.9 5.2 16.9  0.652   1.00    27,947
+  chr8     1,451,387 82.1 5.8 12.2  0.678   1.03    19,921
+  chr9     1,383,948 65.5 4.6 29.9  0.685   1.05   172,506
+  chr10    1,337,975 80.0 5.7 14.3  0.687   1.05    21,423
+  chr11    1,350,867 80.4 5.4 14.2  0.649   0.99    37,168
+  chr12    1,332,754 81.5 5.2 13.3  0.620   0.95    17,914
+  chr13    1,143,644 71.0 5.0 24.0  0.674   1.03   160,567
+  chr14    1,070,438 68.1 4.5 27.5  0.636   0.97   160,929
+  chr15    1,019,912 62.5 3.9 33.5  0.612   0.93   170,100
+  chr16      903,384 65.4 4.9 29.7  0.726   1.11   100,661
+  chr17      832,575 72.2 4.1 23.7  0.553   0.84    38,867
+  chr18      803,733 78.4 5.5 16.0  0.682   1.04    48,007
+  chr19      586,177 70.1 4.7 25.2  0.644   0.98    28,237
+  chr20      644,442 77.5 5.2 17.2  0.655   1.00    19,704
+  chr21      467,100 58.2 4.5 37.3  0.740   1.13    50,661
+  chr22      508,185 51.3 3.8 44.9  0.721   1.10   106,616

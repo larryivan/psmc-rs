@@ -1,0 +1,75 @@
+Input QC (psmcfa): 889 sequences, 19,278,113 bins of 100 bp
+2 warnings, 1 note
+
+WARNING  BIN_SATURATION
+  At 100 bp per bin, 22.5% of called bins are heterozygous (K), which implies 2.54 heterozygous
+  sites per kb and about 12.1% of K bins holding two or more of them (more if heterozygosity varies
+  along the genome). PSMC only sees whether a bin holds one, so the oldest part of the curve loses
+  resolution.
+  -> Re-bin the per-site data at 40 bp per bin or less, the largest size that keeps the share below
+     5.0% at this heterozygosity: `--bin-size 40` for VCF and multihetsep input, or `fq2psmcfa -s
+     40` for a psmcfa file, which psmc-rs then reads with `--bin-size 40` so that the results are
+     scaled with the same bin size.
+
+WARNING  SHORT_SEQUENCES
+  50.2% of bins lie in 877 sequences shorter than the bootstrap trunk (500,000 bins), which the
+  bootstrap can only resample whole.
+  -> For the bootstrap, a trunk of at most 176,763 bins keeps at least 80.0% of bins in sequences of
+     one trunk or more (--bootstrap-block-size).
+
+INFO     HET_OUTLIER
+  15 of 87 sequences with at least 1.00 Mb in called bins have a heterozygosity far from their
+  median of 2.90 per kb (more than 5 MADs of log theta and 1.5-fold): ML679952.1 (0x), ML679949.1
+  (0.00040x), ML679950.1 (0.00071x), ML681653.1 (0.00072x), ML681645.1 (0.00083x), ML679951.1
+  (0.0013x), ML679965.1 (0.0061x), ML679957.1 (0.015x), ML680145.1 (0.035x), ML679988.1 (0.046x) and
+  5 more.
+  -> High heterozygosity can come from contamination, collapsed duplications or copy-number
+     variants, or reference errors; low heterozygosity from sex-linked scaffolds (near zero when
+     hemizygous), runs of homozygosity (inbreeding, a real signal), deletions or an over-strict
+     mask. Check depth, mapping quality, the mask and the chromosome assignment of these sequences,
+     and exclude any that are artefacts or hemizygous.
+
+Metrics
+  Bins              T 14,601,116 (75.7%), K 4,234,287 (22.0%), N 442,710 (2.3%)
+  theta0            0.255 per bin, 0.00255 per bp (2.55 per kb)
+  Called length     1.88 Gb in called bins
+  Sequence lengths  N50 44.7 Mb (L50 13), longest 111 Mb; 2.0% of bins in sequences < 1 Mb
+  Bootstrap         897 trunks of 500,000 bins; 50.2% of bins in sequences shorter than a trunk
+  Longest N run     1,018 bins (101 kb) in ML679961.1 from bin 199,729
+  Bin saturation    about 12.1% of K bins hold >= 2 het sites (2.54 per kb); below 5.0% up to 40 bp per bin
+  Autosomal het     2.90 per kb (median of 87 sequences)
+  Recombinations    about 1,162,074 expected by C psmc's starting model (theta/rho = 4)
+
+Sequences (30 of 889, input order)
+  sequence        bins   T%   K%   N%  het/kb vs ref longest N kind
+  ML679940.1   837,016 97.0  2.5  0.4   0.257   0.09       204
+  ML679941.1   848,173 88.9 10.6  0.5    1.12   0.39     1,001
+  ML679942.1   947,636 80.4 18.8  0.8    2.10   0.72     1,001
+  ML679943.1   242,127 95.9  3.2  0.9   0.327   0.11       851
+  ML679944.1   501,766 78.7 20.8  0.5    2.34   0.81       401
+  ML679945.1    54,689 93.8  4.6  1.5   0.482   0.17       351
+  ML679946.1 1,093,443 74.4 25.1  0.5    2.90   1.00       255
+  ML679947.1   393,498 82.1 17.2  0.7    1.90   0.65       751
+  ML679949.1   138,300 68.9  0.0 31.1 0.00116   0.00       178
+  ML679950.1   138,391 70.4  0.0 29.6 0.00205   0.00       113
+  ML679951.1    20,000 67.4  0.0 32.6 0.00371   0.00        40
+  ML679952.1    20,001 64.9  0.0 35.1       0   0.00        67
+  ML679954.1   583,643 75.2 24.1  0.7    2.78   0.96       850
+  ML679956.1   811,436 73.6 25.8  0.6    3.01   1.04       653
+  ML679957.1    67,460 96.6  0.4  3.0  0.0435   0.01       402
+  ML679958.1   805,598 74.1 25.6  0.3    2.96   1.02       200
+  ML679961.1 1,111,826 72.8 26.3  0.9    3.08   1.06     1,018
+  ML679962.1   400,505 75.7 23.9  0.3    2.74   0.95       100
+  ML679964.1   703,572 74.9 24.6  0.5    2.84   0.98       851
+  ML679965.1    38,613 95.1  0.2  4.7  0.0177   0.01       550
+  ML679966.1   817,812 74.3 25.1  0.6    2.91   1.00     1,000
+  ML679969.1   545,617 72.9 26.4  0.7    3.10   1.07       751
+  ML679970.1   447,591 72.2 26.7  1.1    3.15   1.08       801
+  ML679972.1   395,792 72.7 26.9  0.4    3.14   1.08       153
+  ML679977.1    31,243 81.0  4.8 14.1   0.581   0.20     1,001
+  ML679988.1    18,873 82.8  1.1 16.1   0.135   0.05       853
+  ML680143.1    14,399 77.4  1.1 21.4   0.147   0.05     1,001
+  ML680145.1    39,921 77.6  0.8 21.6   0.102   0.04     1,002
+  ML681645.1   136,774 72.7  0.0 27.3 0.00241   0.00       555
+  ML681653.1   136,854 73.5  0.0 26.5 0.00209   0.00       561
+  ... 859 more sequences with 6,935,544 bins (included in the totals)

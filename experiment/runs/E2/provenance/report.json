@@ -1,0 +1,258 @@
+{
+  "digest": "4898e44f3530b5db11e08d91fdd4c17feea68a5630f0ce323c0177675785dff3",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline",
+      "report",
+      "E2",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<repo>/experiment/real_data/HLemySub1_diploid.psmcfa": "4c2c299a234afe50550379a7e2f7ae77533e0a463aa6275a75f26fdc4f91ecb2",
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa": "5088d51c1df2064ab869e95479f41c6fa8b62a36c63b656d44728efdb6eb1d59",
+      "<repo>/experiment/real_data/HLpelCas1_diploid.psmcfa": "f61c5e34ec24812e30b0862d253c437d9f70edf845a4a0c80a29389e5cdb5fad",
+      "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+      "<runs>/E2/bootstrap/HLemySub1/trunk500000/main.json": "7835a3988c97d37d3b8b1b9e481f98b2f9a277f1097ef572b4f7065ffa04df40",
+      "<runs>/E2/bootstrap/HLemySub1/trunk500000/summary.json": "d8e3e7a83fc0849e60028a1ac55f395865ec1955ed968cdf9207754a6b3cf160",
+      "<runs>/E2/bootstrap/HLemySub1/trunk500000/summary.tsv": "0fde8b69af9aa2b503ba8f7bf299ec9cb3dfa50bf0b8f1bf810ba9c44f65be2c",
+      "<runs>/E2/bootstrap/HLhydTec1/trunk500000/main.json": "35390e40a7544a399cd08cd447f064a9a932dfe4c0be2128842e2014dd073517",
+      "<runs>/E2/bootstrap/HLhydTec1/trunk500000/summary.json": "30dc27aab3b487cfb71889608fc90808a08f1b9508213d349a22ea5b99365acc",
+      "<runs>/E2/bootstrap/HLhydTec1/trunk500000/summary.tsv": "8921c0e84c88e9437b8b464de9d555bf31213cf1ad3c668b619f629493f256f8",
+      "<runs>/E2/bootstrap/HLpelCas1/trunk500000/main.json": "981f3f812991cabb33961016864b8afc912bd69c0a944523788aba225c66344f",
+      "<runs>/E2/bootstrap/HLpelCas1/trunk500000/summary.json": "61a3dc2d6be6caf59a7a0fe4d746d32e0d1c91ccbd35d722cc75f3b831ba5628",
+      "<runs>/E2/bootstrap/HLpelCas1/trunk500000/summary.tsv": "1e1a8ed2ab8313cbc859d1ba0b99378b36ffc4034ae699cd56da445abac5f07e",
+      "<runs>/E2/bootstrap/NA12878/trunk500000/main.json": "1f0affaf69a47a1e35a96fc48e97f20566edea62322490ee8d5b6e3b029e3f1a",
+      "<runs>/E2/bootstrap/NA12878/trunk500000/summary.json": "b480379818cb370c84916c93c61770a6065570cd00a0274bd6cf27c39ef057d3",
+      "<runs>/E2/bootstrap/NA12878/trunk500000/summary.tsv": "72d59efb2559f5e4d3743fa0057ba16eee92cbed8141e1deb88489ac6cdafa38",
+      "<runs>/E2/fits/HLemySub1.c.psmc": "eb05a0b302914cb60867eb558fb62a87623c94cc0a9aab1b9c126f4b38e22587",
+      "<runs>/E2/fits/HLemySub1.rs.json": "327e1e88b69427ed5995d754941c87cfed1330e4364c3ed4173e297cc1bff0ef",
+      "<runs>/E2/fits/HLemySub1.rs.psmc": "3a03ad50ffbb83ea73c70db9cbf3a23d5e373eb1799ad0bd7d4b593274215362",
+      "<runs>/E2/fits/HLemySub1.split1.rs.json": "9dfb40e7058adc469dd7cf56fa409e42ba688c0fb6befe99db80cb1a5e824d04",
+      "<runs>/E2/fits/HLemySub1.split1.rs.psmc": "0ce4a26e82ea41407691f40f2a3691a21be9ed7def389256a78e8ffc5fe761e3",
+      "<runs>/E2/fits/HLemySub1.split2.rs.json": "5b147029cd249a642ad8cbd48bbaa6e0ca0491246d4f2168321031227c66cb83",
+      "<runs>/E2/fits/HLemySub1.split2.rs.psmc": "078611035692800a4a516308dc06f9ed45530d79510c99f6e0687e3e296c29f0",
+      "<runs>/E2/fits/HLhydTec1.c.psmc": "1ef20ac3176489fb74fe8b9d5c380e2c563c963c3c6d65b578eb36ca652c1acc",
+      "<runs>/E2/fits/HLhydTec1.rs.json": "0308cbb2108e2c693259d9682e2d756ce617afb5d90e02ce10bef565d38229aa",
+      "<runs>/E2/fits/HLhydTec1.rs.psmc": "f1c11895d521ed920575b329d84d15464e0267a242f048250696bdc7483c090b",
+      "<runs>/E2/fits/HLhydTec1.split1.rs.json": "56224a9294c09e6c673d9c4036a9eeec3afaaa83fcf17719141ac117e6b30edd",
+      "<runs>/E2/fits/HLhydTec1.split1.rs.psmc": "8d7d3763e1264f0535011d5b31a7077c8bda6f4c15b1c5ef437691a799605062",
+      "<runs>/E2/fits/HLhydTec1.split2.rs.json": "239aa069ece0c78a412d1ac98403bd22a483c396190e77ab648830249a8e51e9",
+      "<runs>/E2/fits/HLhydTec1.split2.rs.psmc": "a53dfd7eee712d04bc58866c6977eddbd90df8f077e47ea9520e6368b48977ea",
+      "<runs>/E2/fits/HLpelCas1.c.psmc": "153a08aa1f7eb3a4d27b7e216e6b78d4b65a4ef7c594bfe309379143f84a929c",
+      "<runs>/E2/fits/HLpelCas1.rs.json": "12b8ac9a4bc43a84c3dd5c2dda14d7ab60b247f3e72d21bdf462118320f5a63f",
+      "<runs>/E2/fits/HLpelCas1.rs.psmc": "cc435dd137572c9bd932f250ccc81150e014d446c202bb430ce6128237f398d4",
+      "<runs>/E2/fits/HLpelCas1.split1.rs.json": "3db02ba6b06fed675f0485bbfed0cb5f20c11fffddd842f7af5ed24480b874b3",
+      "<runs>/E2/fits/HLpelCas1.split1.rs.psmc": "1d3ee95eb7fc6ea58b6be6e1aa2dadee72cc23fb82aa07a0ce01df281cd89bb2",
+      "<runs>/E2/fits/HLpelCas1.split2.rs.json": "3a6d974a679c38eefcda3cf76fe0794e11432833446481f9073c57b7aedce447",
+      "<runs>/E2/fits/HLpelCas1.split2.rs.psmc": "1eb8f77e6eb28c17fd06a3c01177a54c002725034e948f1bfb97b4d0281d164c",
+      "<runs>/E2/fits/NA12878.c.psmc": "c0dd8e2d277dcaf7cdbc23db63d1a95243e801c1bf5205d40d0d55a86aa808eb",
+      "<runs>/E2/fits/NA12878.rs.json": "1f0affaf69a47a1e35a96fc48e97f20566edea62322490ee8d5b6e3b029e3f1a",
+      "<runs>/E2/fits/NA12878.rs.psmc": "50a8c9ed67011b85fb1f3de088ba7b8a6207ebf7f1c515afc4a0d0a3e3bb0683",
+      "<runs>/E2/provenance/boot-rs/trunk500000/HLemySub1.json": "4d050147b2d42420deaa7e0a8909c2a7c34450b7751eef8450078ec963232e82",
+      "<runs>/E2/provenance/boot-rs/trunk500000/HLhydTec1.json": "0be97ce02904410b18d8a96bc9b4e1d6b6cee20fc7c38a05ef2cf0ba826b88b3",
+      "<runs>/E2/provenance/boot-rs/trunk500000/HLpelCas1.json": "19a2af25912dd2a92c3e9e6c9063fae1643db12a5f5643bd32adbffd43f731e6",
+      "<runs>/E2/provenance/boot-rs/trunk500000/NA12878.json": "d6d6587dc0a3feb3b773dc81fd98807ef4f1617ddbb2ad93248152937063d13e",
+      "<runs>/E2/provenance/fit-c/HLemySub1.json": "468ee6f8faaaa14ff27e48a729a1b9ec511c9b04776ff3eff504b31fc1752c60",
+      "<runs>/E2/provenance/fit-c/HLhydTec1.json": "57eaf2bceb4f5c62afbe6dd7eab7dcf5d5ca7f34838c01253b3690726c028e8c",
+      "<runs>/E2/provenance/fit-c/HLpelCas1.json": "8afa89df269f2247e12133db8ed40b58bc7adf4599bbc26ca17abfa732c67f57",
+      "<runs>/E2/provenance/fit-c/NA12878.json": "441912d57de0eeb6dd44801cebebf497ac8a104bb2c861bc3d2ee3b1e67ff901",
+      "<runs>/E2/provenance/fit-rs-split1/HLemySub1.json": "c5a47533b7903db5599a876c304f0dc12199bcf4f079b91f660c5ed4290c383e",
+      "<runs>/E2/provenance/fit-rs-split1/HLhydTec1.json": "fa2e928e6716df5be8e6327d1027a83f628c7cbbd06ae6ac8d2c3f1b2d54cda8",
+      "<runs>/E2/provenance/fit-rs-split1/HLpelCas1.json": "16699c425a803b29c288ee3b3de682e849c0e09a57b6d69c3ab421edf42965f4",
+      "<runs>/E2/provenance/fit-rs-split2/HLemySub1.json": "141987777910547ccab530ff87eec49669ad917e25c5fc81e58186f0571e2f89",
+      "<runs>/E2/provenance/fit-rs-split2/HLhydTec1.json": "c35a5ffd076322dc8b95be04ae13b4bc9939bdc9f9ec8b18040b7f63872c299c",
+      "<runs>/E2/provenance/fit-rs-split2/HLpelCas1.json": "7dbaeef6d0ba03b7080bb1774fa970dd3d508ff332ec0ae51cac4aa5510866df",
+      "<runs>/E2/provenance/fit-rs/HLemySub1.json": "28354d255fe0d166b3b21ddb09aa08b32e14eacf56072138e39408cd4baa12de",
+      "<runs>/E2/provenance/fit-rs/HLhydTec1.json": "c07e9b25e8e5189ec298fb6433b16d1f64135801485c2f7378753375d323c186",
+      "<runs>/E2/provenance/fit-rs/HLpelCas1.json": "39a33d2296ba3c985bdc37f1f0a5b5648f751c1f3152c5cd802df03810242729",
+      "<runs>/E2/provenance/fit-rs/NA12878.json": "7d87637b6b2bd96b19b3c570ac10a00cc1c0f279af5edb1cfb95a8ada0296940",
+      "<runs>/E2/qc/HLemySub1.qc.json": "26cf681083fb9be86ca92a09cb83b627558ee7327d0724c9490dd66cd15c3e52",
+      "<runs>/E2/qc/HLhydTec1.qc.json": "c03607c7743debf7a149c6a3c2eb57145ae611421969e67e1d602d3a1f10bc03",
+      "<runs>/E2/qc/HLpelCas1.qc.json": "8ecf718e3d3fab62dfcba738b2eeca16d1e0dbb62d25b23f873f690b15220223",
+      "<runs>/E2/qc/NA12878.qc.json": "7ee720818bd33a78f090c2466f48579e888512cdabd3e1f712e57636bba23ada"
+    },
+    "job": "E2/report",
+    "seeds": {},
+    "settings": {
+      "e2": {
+        "band": [
+          0.025,
+          0.975
+        ],
+        "bootstrap_replicates": 100,
+        "bootstrap_trunk_bins": 500000,
+        "display_years": [
+          100.0,
+          100000000.0,
+          600
+        ],
+        "few_trunks": 20,
+        "fine_trunk_bins": 50000,
+        "fit_threads": 1,
+        "genomes": [
+          {
+            "bootstrap_shared_with": null,
+            "file": "HLemySub1_diploid.psmcfa",
+            "label": "Emydura subglobosa (HLemySub1)",
+            "sample_id": "HLemySub1",
+            "scaling": {
+              "gen_years": 15.0,
+              "mu": 4.6e-09
+            },
+            "scaling_cite": "painted turtle trios (Bergeron 2023)",
+            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+            "sequence_noun": "scaffolds",
+            "sha256": null,
+            "species": "Emydura subglobosa"
+          },
+          {
+            "bootstrap_shared_with": null,
+            "file": "HLhydTec1_diploid.psmcfa",
+            "label": "Hydromedusa tectifera (HLhydTec1)",
+            "sample_id": "HLhydTec1",
+            "scaling": {
+              "gen_years": 15.0,
+              "mu": 4.6e-09
+            },
+            "scaling_cite": "painted turtle trios (Bergeron 2023)",
+            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+            "sequence_noun": "scaffolds",
+            "sha256": null,
+            "species": "Hydromedusa tectifera"
+          },
+          {
+            "bootstrap_shared_with": null,
+            "file": "HLpelCas1_diploid.psmcfa",
+            "label": "Pelusios castaneus (HLpelCas1)",
+            "sample_id": "HLpelCas1",
+            "scaling": {
+              "gen_years": 15.0,
+              "mu": 4.6e-09
+            },
+            "scaling_cite": "painted turtle trios (Bergeron 2023)",
+            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+            "sequence_noun": "scaffolds",
+            "sha256": null,
+            "species": "Pelusios castaneus"
+          },
+          {
+            "bootstrap_shared_with": "E7",
+            "file": "NA12878_1kGP30x_diploid.psmcfa.gz",
+            "label": "Homo sapiens (NA12878, CEU)",
+            "sample_id": "NA12878",
+            "scaling": {
+              "gen_years": 29.0,
+              "mu": 1.25e-08
+            },
+            "scaling_cite": "Scally & Durbin 2012; g: Fenner 2005",
+            "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+            "sequence_noun": "chromosomes",
+            "sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+            "species": "Homo sapiens"
+          }
+        ],
+        "grid": {
+          "fixed_years": [
+            10000.0,
+            1000000.0
+          ],
+          "points": 200,
+          "quantiles": [
+            0.01,
+            0.99
+          ]
+        },
+        "inference": {
+          "bin_size": 100,
+          "mstep_iters": 1000,
+          "n_iter": 25,
+          "pattern": "4+25*2+4+6",
+          "smooth_lambda": 0.0,
+          "t_max": 15.0,
+          "tr_ratio": 5.0
+        },
+        "max_bins": null,
+        "panel_order": [
+          "NA12878",
+          "HLemySub1",
+          "HLhydTec1",
+          "HLpelCas1"
+        ],
+        "rs_threads": 50,
+        "split_genomes": [
+          "HLemySub1",
+          "HLhydTec1",
+          "HLpelCas1"
+        ],
+        "split_patterns": [
+          [
+            "split2",
+            "2+2+25*2+4+6"
+          ],
+          [
+            "split1",
+            "1+1+1+1+25*2+4+6"
+          ]
+        ],
+        "split_peak_ratio": 1.25,
+        "split_recent_intervals": 8
+      }
+    },
+    "tools": {
+      "pipeline": {
+        "code": "82ebf2452c9a6443246e4a400d47ada53da6187f3ad951d600f44e0763d462b8",
+        "numpy": "2.5.3",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E2/tables/E2_bands.csv": "d083aef8b86705d399009ac3415e6ce59b6e486509789a5524daa4abc3291562",
+    "<runs>/E2/tables/E2_bootstrap.csv": "624c3dbc32fc4142b72730b8201a937d49910d561a3b8ca1380da802ac502236",
+    "<runs>/E2/tables/E2_bootstrap_replicates.csv": "5af2009f2ce65baa0ecd25bb5f7f93d36b58553eb38ed1f64571fa793cc4141a",
+    "<runs>/E2/tables/E2_curves.csv": "bbfebe5e0f5f260a4223854c4bf392f3a72c18a2fd164ad262f337466fc22382",
+    "<runs>/E2/tables/E2_fit_summary.csv": "9e9693fe9d20a248c1b9fabf9ba1a5d18c77a5ed5021b6d94cb734e8ae0a3ba0",
+    "<runs>/E2/tables/E2_qc.csv": "386a662a7e2b56f65e0acad6114f5006c69258fd1f3c5b810554c0ce4b13ccd6",
+    "<runs>/E2/tables/E2_qc_findings.csv": "d67d8951e877190042a6cf67fa500e2fa13061a6bc576c8f71444624b138af44",
+    "<runs>/E2/tables/E2_rs_vs_c.csv": "936c9727d3f2d537311eead78008dd6cd6e5c43e972234975006e8b4df4a37af",
+    "<runs>/E2/tables/E2_split_curves.csv": "8491ee805a404d2d5d1e020e6f3c73241fc74d3a11610e69f77a689231a421e8",
+    "<runs>/E2/tables/E2_split_patterns.csv": "1c115bbadffa536ed2b3eabf0568b8593194d7357da857e0f76dd7119e8b6587",
+    "<runs>/E2/tables/E2_traces.csv": "8a10d8e0cf3972e28ce8f2499c8b42c273d4a85b7c6008159923da4bb08df0f2"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:52:43",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn511-19",
+    "loadavg_after": [
+      116.23,
+      122.41,
+      124.39
+    ],
+    "loadavg_before": [
+      116.23,
+      122.41,
+      124.39
+    ],
+    "maxrss_main_mb": 105.4,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 105.4,
+    "peak_rss_tree_sampled_mb": 19.5,
+    "slurm_job_id": "53467834",
+    "start": "2026-10-08T13:52:42",
+    "system_seconds": 0.064,
+    "user_seconds": 0.332,
+    "wall_seconds": 0.68
+  }
+}
