@@ -470,8 +470,11 @@ class TimingProtocol:
     interrupts and steal) over ``quiet_window_seconds`` is at most
     ``quiet_cpu_percent`` of all cores and at most ``quiet_max_cores`` cores.
     During the run it samples the RSS of the tool's process tree every
-    ``rss_sample_seconds`` (the tools are single processes, whose own
-    ``ru_maxrss`` is the exact peak; the larger is kept) and afterwards
+    ``rss_sample_seconds`` (the tools are single processes; the larger of
+    that sample and the tool's own ``ru_maxrss`` is kept: ``ru_maxrss`` is
+    never below the peak, but on Linux it also counts the memory the process
+    held when it was launched from the Python wrapper, about 25 MB on Ibex,
+    so it is an upper bound for a tool that needs less) and afterwards
     records the CPU time that other processes used while it ran. A run is
     only kept when it was clean: the machine became quiet within
     ``max_wait_seconds``, other processes used at most
