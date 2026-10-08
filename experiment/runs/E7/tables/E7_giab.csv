@@ -1,0 +1,2 @@
+called_het_snvs,eval_bases,fn,fn_het_indel,fn_hom_or_absent,fn_missing_gt,fn_nonpass,fn_other_alleles,fp,precision,recall,sample_id,tp,truth_het_snvs
+1560297,2108734601,5287,3472,397,14,1402,2,1174,0.9992475791467906,0.9966204511605014,NA12878,1559123,1564410

@@ -1,0 +1,99 @@
+{
+  "digest": "63edd7cb46ebc2cdec40ceaafe0276350943addfd97657f8f9bcbd0adc6e0f26",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<runs>/E7/inputs/psmcfa/NA18595.psmcfa.gz",
+      "<runs>/E7/fits/rs-psmcfa/NA18595.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "1.25e-08",
+      "--gen-years",
+      "29",
+      "--threads",
+      "1",
+      "--no-progress"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E7/inputs/psmcfa/NA18595.psmcfa.gz": "1b6339a7f19211d658375aad819408f0cb4238e33ca708c88e6e2fb193917689"
+    },
+    "job": "E7/fit-rs-psmcfa/NA18595",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "scaling": {
+        "gen_years": 29.0,
+        "mu": 1.25e-08
+      },
+      "threads": 1
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E7/fits/rs-psmcfa/NA18595.json": "abf7eb2794d2b26f2bc860c346786256a0a96fbe9e38d4e33f35c8c3c19cdc7d"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T10:01:22",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-14-r",
+    "loadavg_after": [
+      130.65,
+      130.88,
+      130.82
+    ],
+    "loadavg_before": [
+      130.75,
+      130.66,
+      130.69
+    ],
+    "maxrss_main_mb": 107.0,
+    "mem_gb": 0.2,
+    "peak_rss_mb": 107.0,
+    "peak_rss_tree_sampled_mb": 39.9,
+    "slurm_job_id": "53452276",
+    "start": "2026-10-08T09:49:09",
+    "system_seconds": 1.491,
+    "user_seconds": 707.939,
+    "wall_seconds": 732.121
+  }
+}

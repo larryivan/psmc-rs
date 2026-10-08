@@ -1,0 +1,115 @@
+{
+  "digest": "8ae794d49cbe8f320ad85dc949db42efd9ccc65580af6fb3844edf43d891e5da",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<runs>/E7/inputs/vcf/NA18626.vcf.gz",
+      "<runs>/E7/fits/rs-vcf/NA18626.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "1.25e-08",
+      "--gen-years",
+      "29",
+      "--threads",
+      "1",
+      "--no-progress",
+      "--psmc-out",
+      "<runs>/E7/fits/rs-vcf/NA18626.psmc",
+      "--vcf-mode",
+      "mask",
+      "--vcf-mask",
+      "<runs>/E7/inputs/mask/callable.bed",
+      "--vcf-negative-mask",
+      "<runs>/E7/inputs/nonpass/nonpass.bed.gz",
+      "--bin-callable",
+      "auto"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E7/inputs/mask/callable.bed": "b2764045cdde1fc6a02a87d611e555ead01ca01f16fbf3d79791d9bd1009456d",
+      "<runs>/E7/inputs/nonpass/nonpass.bed.gz": "43f2027ab9d33bb455da93b05ba9a5e6c2fe85d25eeb20cd0bcbd735d7dbf8cc",
+      "<runs>/E7/inputs/vcf/NA18626.vcf.gz": "94283e4ad5d9a980718af6850e34d0fcbe511679844830613a9e2067bc65ccaf"
+    },
+    "job": "E7/fit-rs-vcf/NA18626",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "scaling": {
+        "gen_years": 29.0,
+        "mu": 1.25e-08
+      },
+      "threads": 1,
+      "vcf": {
+        "min_good_fraction": null
+      }
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E7/fits/rs-vcf/NA18626.json": "d445b0c48c3558b151219bef5f93e78f3bc331d32424c35422e4ca69fdd9d640",
+    "<runs>/E7/fits/rs-vcf/NA18626.psmc": "aaa8e819c24e3050d57a678c8f946b6b0ba3392f529f64cc6e9e82b24bbf14d5"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T04:33:50",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-14-r",
+    "loadavg_after": [
+      128.94,
+      131.15,
+      130.18
+    ],
+    "loadavg_before": [
+      128.45,
+      130.3,
+      128.37
+    ],
+    "maxrss_main_mb": 283.3,
+    "mem_gb": 0.5,
+    "peak_rss_mb": 283.3,
+    "peak_rss_tree_sampled_mb": 81.8,
+    "slurm_job_id": "53452276",
+    "start": "2026-10-08T04:21:36",
+    "system_seconds": 0.874,
+    "user_seconds": 701.285,
+    "wall_seconds": 734.725
+  }
+}

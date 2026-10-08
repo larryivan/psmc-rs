@@ -1,0 +1,16 @@
+{
+  "called_het_snvs": 1560297,
+  "eval_bases": 2108734601,
+  "fn": 5287,
+  "fn_het_indel": 3472,
+  "fn_hom_or_absent": 397,
+  "fn_missing_gt": 14,
+  "fn_nonpass": 1402,
+  "fn_other_alleles": 2,
+  "fp": 1174,
+  "precision": 0.9992475791467906,
+  "recall": 0.9966204511605014,
+  "sample_id": "NA12878",
+  "tp": 1559123,
+  "truth_het_snvs": 1564410
+}

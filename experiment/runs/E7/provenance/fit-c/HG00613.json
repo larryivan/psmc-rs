@@ -1,0 +1,74 @@
+{
+  "digest": "41d6b8482bf3577f69dca39138124434ffe910b6a629b2bc1d345203a107f4e1",
+  "key": {
+    "command": [
+      "<tools>/psmc_c/psmc",
+      "-N25",
+      "-t15",
+      "-r5",
+      "-p",
+      "4+25*2+4+6",
+      "-o",
+      "<runs>/E7/fits/c/HG00613.psmc",
+      "<runs>/E7/inputs/psmcfa/HG00613.psmcfa.gz"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E7/inputs/psmcfa/HG00613.psmcfa.gz": "eac17c5e6f7b9939e576581edf4b93a1f62a40ee52b17a0472ea11ac3a48cb36"
+    },
+    "job": "E7/fit-c/HG00613",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      }
+    },
+    "tools": {
+      "c-psmc": {
+        "cc": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
+        "cflags": "-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function",
+        "sha256": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8",
+        "version": "0.6.5-r74-dirty"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E7/fits/c/HG00613.psmc": "ce8bf1db6d57aa9949b229525fc10da3b59fcd3f035bc31bc9388d0c6fee39a5"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T05:16:21",
+    "exclusive": false,
+    "executables": {
+      "<tools>/psmc_c/psmc": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8"
+    },
+    "exit_status": 0,
+    "host": "cn514-14-r",
+    "loadavg_after": [
+      94.56,
+      106.03,
+      116.2
+    ],
+    "loadavg_before": [
+      33.26,
+      58.99,
+      93.22
+    ],
+    "maxrss_main_mb": 2598.1,
+    "mem_gb": 2.71,
+    "peak_rss_mb": 2598.1,
+    "peak_rss_tree_sampled_mb": 2598.1,
+    "slurm_job_id": "53452276",
+    "start": "2026-10-08T03:30:44",
+    "system_seconds": 180.138,
+    "user_seconds": 5687.132,
+    "wall_seconds": 6336.861
+  }
+}

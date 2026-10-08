@@ -1,0 +1,99 @@
+{
+  "digest": "99d05ede32c0c20807bcb377b92f17cd709c21211731df2f183bd30e06e62a39",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.experiments.e7",
+      "giab",
+      "--vcf",
+      "<runs>/E7/inputs/vcf/NA12878.vcf.gz",
+      "--truth",
+      "<runs>/E7/inputs/meta/giab.vcf.gz",
+      "--truth-bed",
+      "<runs>/E7/inputs/meta/giab.bed",
+      "--mask",
+      "<runs>/E7/inputs/mask/callable.bed",
+      "--chromosomes",
+      "chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22",
+      "--sample",
+      "NA12878",
+      "--out",
+      "<runs>/E7/qc/giab_NA12878.json"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E7/inputs/mask/callable.bed": "b2764045cdde1fc6a02a87d611e555ead01ca01f16fbf3d79791d9bd1009456d",
+      "<runs>/E7/inputs/meta/giab.bed": "dc3485e60447a3e863c34dfc063c3710ea5ed5efae50855c5197ba62538263b9",
+      "<runs>/E7/inputs/meta/giab.vcf.gz": "93bc4c2c696eaf13515ab058caecc064bfed704f85bac7482330ca91bc730daa",
+      "<runs>/E7/inputs/vcf/NA12878.vcf.gz": "64b4c60dadd7a24a55e988b8f98fedb7f485a2133bdc02c47e6acdedb0b235cd"
+    },
+    "job": "E7/giab/NA12878",
+    "seeds": {},
+    "settings": {
+      "chromosomes": [
+        "chr1",
+        "chr2",
+        "chr3",
+        "chr4",
+        "chr5",
+        "chr6",
+        "chr7",
+        "chr8",
+        "chr9",
+        "chr10",
+        "chr11",
+        "chr12",
+        "chr13",
+        "chr14",
+        "chr15",
+        "chr16",
+        "chr17",
+        "chr18",
+        "chr19",
+        "chr20",
+        "chr21",
+        "chr22"
+      ]
+    },
+    "tools": {
+      "pipeline": {
+        "code": "7dfdd54e4afe8c53ebeb6739e76eb1662a29e853a4240d5e4b13ff6fd62f7714",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E7/qc/giab_NA12878.json": "34b35acb667a2cca74466252112872ab10705562b7a12e2735c98ede11285d85"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:53:14",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn511-19",
+    "loadavg_after": [
+      116.23,
+      121.85,
+      124.14
+    ],
+    "loadavg_before": [
+      116.23,
+      122.41,
+      124.39
+    ],
+    "maxrss_main_mb": 2186.8,
+    "mem_gb": 2.0,
+    "peak_rss_mb": 2186.8,
+    "peak_rss_tree_sampled_mb": 2186.8,
+    "slurm_job_id": "53467834",
+    "start": "2026-10-08T13:52:42",
+    "system_seconds": 0.813,
+    "user_seconds": 30.697,
+    "wall_seconds": 31.852
+  }
+}
