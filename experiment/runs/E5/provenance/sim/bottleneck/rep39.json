@@ -1,0 +1,158 @@
+{
+  "digest": "ff4aaa946ce9a366d81ed739ab2cb3c31cac585f9116fd4223df579ab01a1149",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline",
+      "simulate",
+      "--profile",
+      "production",
+      "--experiment",
+      "E5",
+      "--model",
+      "bottleneck",
+      "--replicate",
+      "39",
+      "--out-dir",
+      "<runs>/E5/sims/bottleneck/rep39",
+      "--truth",
+      "<runs>/E5/truth/bottleneck/rep39.json",
+      "--no-vcf"
+    ],
+    "env": {},
+    "inputs": {},
+    "job": "E5/sim/bottleneck/rep39",
+    "seeds": {
+      "chr1": {
+        "ancestry": 943975163,
+        "mutations": 50178329
+      },
+      "chr2": {
+        "ancestry": 919563453,
+        "mutations": 807721383
+      },
+      "chr3": {
+        "ancestry": 1460930513,
+        "mutations": 1606957376
+      },
+      "chr4": {
+        "ancestry": 1810741517,
+        "mutations": 652526407
+      },
+      "chr5": {
+        "ancestry": 676435728,
+        "mutations": 1649467716
+      },
+      "chr6": {
+        "ancestry": 1898315768,
+        "mutations": 1406214816
+      }
+    },
+    "settings": {
+      "genome": {
+        "chromosome_length": 50000000,
+        "n_chromosomes": 6
+      },
+      "model": {
+        "changes": [
+          {
+            "growth_rate": 0.0,
+            "size": 1000.0,
+            "time": 800.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 10000.0,
+            "time": 1200.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 5000.0,
+            "time": 4000.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 10000.0,
+            "time": 40000.0
+          }
+        ],
+        "initial_size": 20000.0,
+        "ms_events": [
+          [
+            0.01,
+            0.05
+          ],
+          [
+            0.015,
+            0.5
+          ],
+          [
+            0.05,
+            0.25
+          ],
+          [
+            0.5,
+            0.5
+          ]
+        ],
+        "ms_n0": 20000.0,
+        "name": "bottleneck",
+        "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+      },
+      "simulation": {
+        "ancestry_model": "hudson",
+        "bin_size": 100,
+        "discrete_genome": true,
+        "mutation_model": "jc69",
+        "mutation_rate": 2.5e-08,
+        "ploidy": 2,
+        "recombination_rate": 1e-08
+      }
+    },
+    "tools": {
+      "pipeline": {
+        "code": "d18629043b1b64c7524db2bd58953cd63e13120e43663bc09ece6c91a8ba5379",
+        "msprime": "1.4.4",
+        "numpy": "2.5.3",
+        "python": "3.13.13",
+        "stdpopsim": "0.3.0",
+        "tskit": "1.0.3"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E5/sims/bottleneck/rep39/genome.psmcfa": "721d56f4c7c4f30253d862f5c3e7c8f768dbeabad7faf30ef72a08dba3a0b783",
+    "<runs>/E5/truth/bottleneck/rep39.json": "8fe70a52ae85c8f90062dd861ff06be116efcecfd1255f151c66449b4062bb8a"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:26:22",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      60.52,
+      62.85,
+      52.25
+    ],
+    "loadavg_before": [
+      60.62,
+      62.94,
+      52.16
+    ],
+    "maxrss_main_mb": 96.9,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 96.9,
+    "peak_rss_tree_sampled_mb": 77.9,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:26:10",
+    "system_seconds": 0.088,
+    "user_seconds": 11.155,
+    "wall_seconds": 11.741
+  }
+}
