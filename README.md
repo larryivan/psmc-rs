@@ -712,6 +712,20 @@ The psmc-rs 0.2 figure for the first row is the median of three runs
 (24.7 to 24.8 s); C psmc is single-threaded, and 0.1 started from θ0/5.
 The JSON outputs at 1 and 8 threads were byte-identical.
 
+The manuscript's experiment E3 timed the tools under a controlled protocol
+on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
+exclusive node, 5 repeats on five nodes, 25 EM iterations of
+`-N25 -t15 -r5 -p "4+25*2+4+6"` on simulated genomes of 100 Mb
+chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`. On 3000 Mb
+(30 chromosomes) psmc-rs 0.2 took a median 519 s on 1 thread, 36.0 s on
+16 and 18.3 s on 30, against 4,446 s for C psmc: 8.6, 123 and 243 times as
+fast (psmc-rs 0.1: 6,193 s on 1 thread, 317 s on 30). psmc-rs 0.2 peaked
+at 36 MB of resident memory on 1 thread and 148 MB on 30, C psmc at
+1,062 MB and psmc-rs 0.1 at 14,959 MB on 30 threads. Every size and
+thread count, the ranges over the repeats, the thread scaling and the
+outputs' determinism are in
+[Supplementary Note 1, section 10](experiment/Supplementary_Note_1_Reproducibility.md#10-performance-e3).
+
 Use a release build, and `-q --no-progress` for batch runs. The model has
 psmc's PSMC_T_INF = 1000 time grid and at most 10,000 states; models of more
 than 256 states use dense kernels, which cache forward rows within a
@@ -842,8 +856,8 @@ tables); [experiment/pipeline/README.md](experiment/pipeline/README.md)
 describes it, and
 [Supplementary Note 1](experiment/Supplementary_Note_1_Reproducibility.md)
 how to reproduce the results on a laptop or a SLURM cluster. Its results
-go to `experiment/runs/E1` to `E6` and `FIG`; E3 (performance) is still
-being run. The scripts, notebook and results described in
+go to `experiment/runs/E1` to `E6` and `FIG`. The scripts, notebook and
+results described in
 [experiment/README.md](experiment/README.md) are the earlier pipeline of
 0.1.
 

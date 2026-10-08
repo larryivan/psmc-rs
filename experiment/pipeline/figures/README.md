@@ -105,7 +105,11 @@ so that it can be turned into the caption. Captions should also say:
   the caption should say whether Fig 3's recent peaks persist.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
-  E3 recorded.
+  E3 recorded. Panel b's peak memory is the larger of the tool's
+  `ru_maxrss` and its sampled peak; for psmc-rs 0.2 on 100 and 300 Mb, and
+  on 1000 Mb on one thread, it is `ru_maxrss`'s 25.0 MB in every repeat,
+  above the sampled 7.0 to 20.2 MB, so the caption should call those points
+  an upper bound (Supplementary Note 1, section 10).
 - **Fig 5**: binning with partly callable bins biases PSMC, and psmc-rs's
   per-bin model removes most of the bias. With a dispersed mask almost
   every bin stays called with about (1 - f) of its bases; taking them as
