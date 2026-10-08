@@ -1,0 +1,335 @@
+{
+  "experiment": "E1",
+  "model": "expansion",
+  "replicate": 3,
+  "genome": {
+    "n_chromosomes": 10,
+    "chromosome_length": 50000000
+  },
+  "simulation": {
+    "mutation_rate": 2.5e-08,
+    "recombination_rate": 1e-08,
+    "ancestry_model": "hudson",
+    "mutation_model": "jc69",
+    "discrete_genome": true,
+    "ploidy": 2,
+    "bin_size": 100
+  },
+  "seed_scheme": "config.seed(experiment, model, replicate, stage); stages ancestry/<chrom>, mutations/<chrom>",
+  "software": {
+    "python": "3.13.13",
+    "msprime": "1.4.4",
+    "tskit": "1.0.3",
+    "numpy": "2.5.3",
+    "bgzip": "bgzip (htslib) 1.24",
+    "tabix": "tabix (htslib) 1.24"
+  },
+  "chromosomes": [
+    {
+      "name": "chr1",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 16314,
+      "het_bins": 15512,
+      "derived_hom_sites": 1,
+      "trees": 4350,
+      "last_het_position": 49982796,
+      "longest_het_gap_bp": 363264,
+      "longest_het_gap_start": 11590232,
+      "longest_hetfree_bins": 3631,
+      "het_positions_sha256": "a41f66ff0b1d08a6974d2b9b8d8cf2a72cef635f3df0aa5b4b26166d764d429b",
+      "seeds": {
+        "ancestry": 817778497,
+        "mutations": 1644139440
+      }
+    },
+    {
+      "name": "chr2",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 16232,
+      "het_bins": 15398,
+      "derived_hom_sites": 5,
+      "trees": 4401,
+      "last_het_position": 49988488,
+      "longest_het_gap_bp": 219480,
+      "longest_het_gap_start": 32336588,
+      "longest_hetfree_bins": 2194,
+      "het_positions_sha256": "e66e508aab5a1f879c6c2ba8d5ed736cd930fc8d40110fa1339a1404c4633a66",
+      "seeds": {
+        "ancestry": 1827800871,
+        "mutations": 1815260372
+      }
+    },
+    {
+      "name": "chr3",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 16718,
+      "het_bins": 15866,
+      "derived_hom_sites": 0,
+      "trees": 4389,
+      "last_het_position": 49984137,
+      "longest_het_gap_bp": 190201,
+      "longest_het_gap_start": 35060294,
+      "longest_hetfree_bins": 1901,
+      "het_positions_sha256": "819807ddb0a9a839891c5aee2053dde2904432bf7193f2ae596c21b517b8bad1",
+      "seeds": {
+        "ancestry": 1300823555,
+        "mutations": 810879211
+      }
+    },
+    {
+      "name": "chr4",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 14826,
+      "het_bins": 14086,
+      "derived_hom_sites": 1,
+      "trees": 3966,
+      "last_het_position": 49999346,
+      "longest_het_gap_bp": 1064648,
+      "longest_het_gap_start": 40101881,
+      "longest_hetfree_bins": 10646,
+      "het_positions_sha256": "79f0559b8d3cee19aa14661ca7b5819eea3c2b9f7c4f93b39a8bfdb6f0b4b9f0",
+      "seeds": {
+        "ancestry": 1702310388,
+        "mutations": 1096124469
+      }
+    },
+    {
+      "name": "chr5",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 15459,
+      "het_bins": 14682,
+      "derived_hom_sites": 2,
+      "trees": 4146,
+      "last_het_position": 49999763,
+      "longest_het_gap_bp": 192518,
+      "longest_het_gap_start": 6182433,
+      "longest_hetfree_bins": 1924,
+      "het_positions_sha256": "bf3a1463c4240461df0a6d650fcab872b2c660dd03c405055983dc3f0a1ea212",
+      "seeds": {
+        "ancestry": 1598339432,
+        "mutations": 1072264045
+      }
+    },
+    {
+      "name": "chr6",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 15330,
+      "het_bins": 14517,
+      "derived_hom_sites": 0,
+      "trees": 3995,
+      "last_het_position": 49999701,
+      "longest_het_gap_bp": 252393,
+      "longest_het_gap_start": 23146148,
+      "longest_hetfree_bins": 2523,
+      "het_positions_sha256": "4db06cf63dd71490a8ccecc5c3c8b7c826875d0e52ad5957f60695e306ef9930",
+      "seeds": {
+        "ancestry": 39855492,
+        "mutations": 774237873
+      }
+    },
+    {
+      "name": "chr7",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 16102,
+      "het_bins": 15212,
+      "derived_hom_sites": 2,
+      "trees": 4313,
+      "last_het_position": 49989517,
+      "longest_het_gap_bp": 144819,
+      "longest_het_gap_start": 31639111,
+      "longest_hetfree_bins": 1447,
+      "het_positions_sha256": "5f5ba3af55bcc11bb13667c354890d6a1ea4ba9c4a7c2d965bd4fea9e76cca12",
+      "seeds": {
+        "ancestry": 1531086307,
+        "mutations": 1571272359
+      }
+    },
+    {
+      "name": "chr8",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 15523,
+      "het_bins": 14800,
+      "derived_hom_sites": 3,
+      "trees": 4279,
+      "last_het_position": 49977823,
+      "longest_het_gap_bp": 182929,
+      "longest_het_gap_start": 21229841,
+      "longest_hetfree_bins": 1828,
+      "het_positions_sha256": "97fcd2085c1195257eed31f52f0f7dc44a64739b55f2fbcb5a77800a731e433b",
+      "seeds": {
+        "ancestry": 1717778574,
+        "mutations": 457187509
+      }
+    },
+    {
+      "name": "chr9",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 15731,
+      "het_bins": 14903,
+      "derived_hom_sites": 1,
+      "trees": 4279,
+      "last_het_position": 49936222,
+      "longest_het_gap_bp": 208551,
+      "longest_het_gap_start": 29251761,
+      "longest_hetfree_bins": 2085,
+      "het_positions_sha256": "0689bbab30522af95aac895236c560ec0d3a86495dd50d6811cfd30e12ded12d",
+      "seeds": {
+        "ancestry": 854182151,
+        "mutations": 74462806
+      }
+    },
+    {
+      "name": "chr10",
+      "length": 50000000,
+      "bins": 500000,
+      "het_sites": 17518,
+      "het_bins": 16576,
+      "derived_hom_sites": 0,
+      "trees": 4587,
+      "last_het_position": 49895051,
+      "longest_het_gap_bp": 243974,
+      "longest_het_gap_start": 34689408,
+      "longest_hetfree_bins": 2438,
+      "het_positions_sha256": "95fc22b2243c689e1878a8db8b08265e8d584f832e2fc1e546b77e001b944881",
+      "seeds": {
+        "ancestry": 229785027,
+        "mutations": 1744021054
+      }
+    }
+  ],
+  "totals": {
+    "length": 500000000,
+    "het_sites": 159753
+  },
+  "files": {
+    "psmcfa": {
+      "name": "genome.psmcfa",
+      "sha256": "df7ecdab14d979fbfa191664787c3ed9cfa907b19ae8bd2945b66c7c4eee0d1f"
+    },
+    "vcf": {
+      "name": "genome.vcf.gz",
+      "sha256": "b614c9cbfae7598bd88403a1e92571e3d8e5745623fe25d7418fe00fa019fcf7"
+    }
+  },
+  "truth": {
+    "model": "expansion",
+    "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly",
+    "units": {
+      "time": "generations ago",
+      "size": "diploid individuals"
+    },
+    "initial_size": 10000.0,
+    "changes": [
+      {
+        "time": 400.0,
+        "size": 1000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "time": 2400.0,
+        "size": 10000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "time": 8000.0,
+        "size": 5000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "time": 40000.0,
+        "size": 10000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "time": 80000.0,
+        "size": 20000.0,
+        "growth_rate": 0.0
+      }
+    ],
+    "epochs": [
+      {
+        "start": 0.0,
+        "end": 400.0,
+        "start_size": 10000.0,
+        "end_size": 10000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "start": 400.0,
+        "end": 2400.0,
+        "start_size": 1000.0,
+        "end_size": 1000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "start": 2400.0,
+        "end": 8000.0,
+        "start_size": 10000.0,
+        "end_size": 10000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "start": 8000.0,
+        "end": 40000.0,
+        "start_size": 5000.0,
+        "end_size": 5000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "start": 40000.0,
+        "end": 80000.0,
+        "start_size": 10000.0,
+        "end_size": 10000.0,
+        "growth_rate": 0.0
+      },
+      {
+        "start": 80000.0,
+        "end": null,
+        "start_size": 20000.0,
+        "end_size": 20000.0,
+        "growth_rate": 0.0
+      }
+    ],
+    "coalescence_quantiles": {
+      "0.01": 201.00671707002883,
+      "0.025": 410.63561596857977,
+      "0.5": 1746.2943611198905,
+      "0.975": 31888.794541139352,
+      "0.99": 42103.4037197618
+    },
+    "ms": {
+      "n0": 10000.0,
+      "events": [
+        {
+          "time_4n0": 0.01,
+          "size_ratio": 0.1
+        },
+        {
+          "time_4n0": 0.06,
+          "size_ratio": 1.0
+        },
+        {
+          "time_4n0": 0.2,
+          "size_ratio": 0.5
+        },
+        {
+          "time_4n0": 1.0,
+          "size_ratio": 1.0
+        },
+        {
+          "time_4n0": 2.0,
+          "size_ratio": 2.0
+        }
+      ]
+    }
+  }
+}

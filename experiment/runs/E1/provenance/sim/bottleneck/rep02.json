@@ -1,0 +1,180 @@
+{
+  "digest": "cb3b2185e8c6bcf1fba2930514a8e0d8c648e70ffc480fbec347119d000097fe",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline",
+      "simulate",
+      "--profile",
+      "production",
+      "--experiment",
+      "E1",
+      "--model",
+      "bottleneck",
+      "--replicate",
+      "2",
+      "--out-dir",
+      "<runs>/E1/sims/bottleneck/rep02",
+      "--truth",
+      "<runs>/E1/truth/bottleneck/rep02.json"
+    ],
+    "env": {},
+    "inputs": {},
+    "job": "E1/sim/bottleneck/rep02",
+    "seeds": {
+      "chr1": {
+        "ancestry": 257354874,
+        "mutations": 1164921581
+      },
+      "chr10": {
+        "ancestry": 707974010,
+        "mutations": 262037786
+      },
+      "chr2": {
+        "ancestry": 821538492,
+        "mutations": 2137102559
+      },
+      "chr3": {
+        "ancestry": 705734150,
+        "mutations": 2108238424
+      },
+      "chr4": {
+        "ancestry": 2070396349,
+        "mutations": 1082411162
+      },
+      "chr5": {
+        "ancestry": 753196602,
+        "mutations": 196282340
+      },
+      "chr6": {
+        "ancestry": 1120961261,
+        "mutations": 51448063
+      },
+      "chr7": {
+        "ancestry": 1321027439,
+        "mutations": 843868530
+      },
+      "chr8": {
+        "ancestry": 994220004,
+        "mutations": 567460182
+      },
+      "chr9": {
+        "ancestry": 765549288,
+        "mutations": 181754543
+      }
+    },
+    "settings": {
+      "genome": {
+        "chromosome_length": 50000000,
+        "n_chromosomes": 10
+      },
+      "model": {
+        "changes": [
+          {
+            "growth_rate": 0.0,
+            "size": 1000.0,
+            "time": 800.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 10000.0,
+            "time": 1200.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 5000.0,
+            "time": 4000.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 10000.0,
+            "time": 40000.0
+          }
+        ],
+        "initial_size": 20000.0,
+        "ms_events": [
+          [
+            0.01,
+            0.05
+          ],
+          [
+            0.015,
+            0.5
+          ],
+          [
+            0.05,
+            0.25
+          ],
+          [
+            0.5,
+            0.5
+          ]
+        ],
+        "ms_n0": 20000.0,
+        "name": "bottleneck",
+        "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+      },
+      "simulation": {
+        "ancestry_model": "hudson",
+        "bin_size": 100,
+        "discrete_genome": true,
+        "mutation_model": "jc69",
+        "mutation_rate": 2.5e-08,
+        "ploidy": 2,
+        "recombination_rate": 1e-08
+      }
+    },
+    "tools": {
+      "htslib": {
+        "bcftools": "bcftools 1.24",
+        "bgzip": "bgzip (htslib) 1.24",
+        "tabix": "tabix (htslib) 1.24"
+      },
+      "pipeline": {
+        "code": "d18629043b1b64c7524db2bd58953cd63e13120e43663bc09ece6c91a8ba5379",
+        "msprime": "1.4.4",
+        "numpy": "2.5.3",
+        "python": "3.13.13",
+        "stdpopsim": "0.3.0",
+        "tskit": "1.0.3"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E1/sims/bottleneck/rep02/genome.psmcfa": "3bda1aad67454c91a9b93db7e2e4160aa37ec5e7e24185e208b35b0305aaf8a6",
+    "<runs>/E1/sims/bottleneck/rep02/genome.vcf.gz": "e3ddf1d6625d1bfe412220ec36fbb08737c27b161fff599500518e5e2749c18b",
+    "<runs>/E1/sims/bottleneck/rep02/genome.vcf.gz.tbi": "228c9a8d5d13b2fab579e17a5daf88fe30afc2b96e7dda1347e9ed6c432941b5",
+    "<runs>/E1/truth/bottleneck/rep02.json": "26f0a9bd6de165ac03731497bfdf8d0448b20977071b65c686d7dd4bab572ad6"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:04:37",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      21.23,
+      8.36,
+      5.8
+    ],
+    "loadavg_before": [
+      4.8,
+      4.6,
+      4.56
+    ],
+    "maxrss_main_mb": 111.6,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 111.6,
+    "peak_rss_tree_sampled_mb": 106.6,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:04:15",
+    "system_seconds": 0.142,
+    "user_seconds": 16.849,
+    "wall_seconds": 21.68
+  }
+}

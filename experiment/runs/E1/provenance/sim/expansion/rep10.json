@@ -1,0 +1,189 @@
+{
+  "digest": "38bf0957a3ed7e2ac7a660ff6b151bb42fb368f5095fedfb9281fba14c83a95d",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline",
+      "simulate",
+      "--profile",
+      "production",
+      "--experiment",
+      "E1",
+      "--model",
+      "expansion",
+      "--replicate",
+      "10",
+      "--out-dir",
+      "<runs>/E1/sims/expansion/rep10",
+      "--truth",
+      "<runs>/E1/truth/expansion/rep10.json"
+    ],
+    "env": {},
+    "inputs": {},
+    "job": "E1/sim/expansion/rep10",
+    "seeds": {
+      "chr1": {
+        "ancestry": 1553645829,
+        "mutations": 1194680128
+      },
+      "chr10": {
+        "ancestry": 1785926573,
+        "mutations": 77493252
+      },
+      "chr2": {
+        "ancestry": 309455908,
+        "mutations": 763411229
+      },
+      "chr3": {
+        "ancestry": 1766400977,
+        "mutations": 757224295
+      },
+      "chr4": {
+        "ancestry": 1905663660,
+        "mutations": 311092018
+      },
+      "chr5": {
+        "ancestry": 946116401,
+        "mutations": 961404370
+      },
+      "chr6": {
+        "ancestry": 252812924,
+        "mutations": 1195646687
+      },
+      "chr7": {
+        "ancestry": 195230831,
+        "mutations": 1063568312
+      },
+      "chr8": {
+        "ancestry": 1620188085,
+        "mutations": 338470403
+      },
+      "chr9": {
+        "ancestry": 1728695854,
+        "mutations": 1219761040
+      }
+    },
+    "settings": {
+      "genome": {
+        "chromosome_length": 50000000,
+        "n_chromosomes": 10
+      },
+      "model": {
+        "changes": [
+          {
+            "growth_rate": 0.0,
+            "size": 1000.0,
+            "time": 400.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 10000.0,
+            "time": 2400.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 5000.0,
+            "time": 8000.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 10000.0,
+            "time": 40000.0
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 20000.0,
+            "time": 80000.0
+          }
+        ],
+        "initial_size": 10000.0,
+        "ms_events": [
+          [
+            0.01,
+            0.1
+          ],
+          [
+            0.06,
+            1.0
+          ],
+          [
+            0.2,
+            0.5
+          ],
+          [
+            1.0,
+            1.0
+          ],
+          [
+            2.0,
+            2.0
+          ]
+        ],
+        "ms_n0": 10000.0,
+        "name": "expansion",
+        "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+      },
+      "simulation": {
+        "ancestry_model": "hudson",
+        "bin_size": 100,
+        "discrete_genome": true,
+        "mutation_model": "jc69",
+        "mutation_rate": 2.5e-08,
+        "ploidy": 2,
+        "recombination_rate": 1e-08
+      }
+    },
+    "tools": {
+      "htslib": {
+        "bcftools": "bcftools 1.24",
+        "bgzip": "bgzip (htslib) 1.24",
+        "tabix": "tabix (htslib) 1.24"
+      },
+      "pipeline": {
+        "code": "d18629043b1b64c7524db2bd58953cd63e13120e43663bc09ece6c91a8ba5379",
+        "msprime": "1.4.4",
+        "numpy": "2.5.3",
+        "python": "3.13.13",
+        "stdpopsim": "0.3.0",
+        "tskit": "1.0.3"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E1/sims/expansion/rep10/genome.psmcfa": "cef2a314f3064310a8099d8835414d3f579749dc8b32bc1f3c36235ca931e131",
+    "<runs>/E1/sims/expansion/rep10/genome.vcf.gz": "5a54d1629324b0416854e93a9c7abfa1125bf562213d9b57c125ce406b2c2211",
+    "<runs>/E1/sims/expansion/rep10/genome.vcf.gz.tbi": "52370a5a61098358951e8e9335506ebaa8d1e14fae4b6cb82442fcd5fddcbf83",
+    "<runs>/E1/truth/expansion/rep10.json": "70c6e09dfa65d5a1289388c0bff5ac458cd649bc40ed78c3d4afb6860c70cf10"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:04:26",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      13.45,
+      6.46,
+      5.17
+    ],
+    "loadavg_before": [
+      4.8,
+      4.6,
+      4.56
+    ],
+    "maxrss_main_mb": 95.4,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 95.4,
+    "peak_rss_tree_sampled_mb": 83.4,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:04:16",
+    "system_seconds": 0.077,
+    "user_seconds": 9.039,
+    "wall_seconds": 10.28
+  }
+}

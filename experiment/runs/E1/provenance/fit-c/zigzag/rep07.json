@@ -1,0 +1,74 @@
+{
+  "digest": "da38c4f5bb238cef06f1042127b6bbab5f056452930bcda0781509546ef4f121",
+  "key": {
+    "command": [
+      "<tools>/psmc_c/psmc",
+      "-N25",
+      "-t15",
+      "-r5",
+      "-p",
+      "4+25*2+4+6",
+      "-o",
+      "<runs>/E1/fits/zigzag/rep07.c.psmc",
+      "<runs>/E1/sims/zigzag/rep07/genome.psmcfa"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E1/sims/zigzag/rep07/genome.psmcfa": "5cb393aac293bfa9bac6838e9c665cf78695138338f348a561bc7f8eab4afa7d"
+    },
+    "job": "E1/fit-c/zigzag/rep07",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      }
+    },
+    "tools": {
+      "c-psmc": {
+        "cc": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
+        "cflags": "-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function",
+        "sha256": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8",
+        "version": "0.6.5-r74-dirty"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E1/fits/zigzag/rep07.c.psmc": "aac7db62511cb6baa5fac09c2d27cf314029fc2819ba473443fcd02590fc9c8c"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:22:48",
+    "exclusive": false,
+    "executables": {
+      "<tools>/psmc_c/psmc": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      54.75,
+      65.92,
+      50.34
+    ],
+    "loadavg_before": [
+      58.92,
+      23.92,
+      11.53
+    ],
+    "maxrss_main_mb": 522.8,
+    "mem_gb": 0.62,
+    "peak_rss_mb": 522.8,
+    "peak_rss_tree_sampled_mb": 522.8,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:05:59",
+    "system_seconds": 1.07,
+    "user_seconds": 998.838,
+    "wall_seconds": 1009.275
+  }
+}

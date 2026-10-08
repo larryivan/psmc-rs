@@ -1,0 +1,173 @@
+{
+  "digest": "dcdbc19b71436cb645a7221cf79fdd20b996a5a9647755a82023545a0b1ce7fe",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline",
+      "simulate",
+      "--profile",
+      "production",
+      "--experiment",
+      "E1",
+      "--model",
+      "zigzag",
+      "--replicate",
+      "1",
+      "--out-dir",
+      "<runs>/E1/sims/zigzag/rep01",
+      "--truth",
+      "<runs>/E1/truth/zigzag/rep01.json"
+    ],
+    "env": {},
+    "inputs": {},
+    "job": "E1/sim/zigzag/rep01",
+    "seeds": {
+      "chr1": {
+        "ancestry": 978675119,
+        "mutations": 1873291821
+      },
+      "chr10": {
+        "ancestry": 1385356371,
+        "mutations": 1752012066
+      },
+      "chr2": {
+        "ancestry": 1196731312,
+        "mutations": 1680483620
+      },
+      "chr3": {
+        "ancestry": 338553600,
+        "mutations": 2126382292
+      },
+      "chr4": {
+        "ancestry": 2073028861,
+        "mutations": 1441787254
+      },
+      "chr5": {
+        "ancestry": 886451656,
+        "mutations": 1917428857
+      },
+      "chr6": {
+        "ancestry": 124895486,
+        "mutations": 438179469
+      },
+      "chr7": {
+        "ancestry": 1911543643,
+        "mutations": 99712885
+      },
+      "chr8": {
+        "ancestry": 1864260505,
+        "mutations": 1923295704
+      },
+      "chr9": {
+        "ancestry": 74334162,
+        "mutations": 531249515
+      }
+    },
+    "settings": {
+      "genome": {
+        "chromosome_length": 50000000,
+        "n_chromosomes": 10
+      },
+      "model": {
+        "changes": [
+          {
+            "growth_rate": 0.02302578256,
+            "size": null,
+            "time": 33.333334976
+          },
+          {
+            "growth_rate": -0.0057564631,
+            "size": null,
+            "time": 133.3334544
+          },
+          {
+            "growth_rate": 0.00143911578,
+            "size": null,
+            "time": 533.33324512
+          },
+          {
+            "growth_rate": -0.0003597785,
+            "size": null,
+            "time": 2133.3352704
+          },
+          {
+            "growth_rate": 8.9944801565e-05,
+            "size": null,
+            "time": 8533.329632
+          },
+          {
+            "growth_rate": 0.0,
+            "size": 7156.0,
+            "time": 34133.318528
+          }
+        ],
+        "initial_size": 71560.0,
+        "ms_events": [],
+        "ms_n0": null,
+        "name": "zigzag",
+        "source": "stdpopsim 0.3.0 HomSap/Zigzag_1S14 (Schiffels & Durbin 2014), converted to msprime.Demography"
+      },
+      "simulation": {
+        "ancestry_model": "hudson",
+        "bin_size": 100,
+        "discrete_genome": true,
+        "mutation_model": "jc69",
+        "mutation_rate": 2.5e-08,
+        "ploidy": 2,
+        "recombination_rate": 1e-08
+      }
+    },
+    "tools": {
+      "htslib": {
+        "bcftools": "bcftools 1.24",
+        "bgzip": "bgzip (htslib) 1.24",
+        "tabix": "tabix (htslib) 1.24"
+      },
+      "pipeline": {
+        "code": "d18629043b1b64c7524db2bd58953cd63e13120e43663bc09ece6c91a8ba5379",
+        "msprime": "1.4.4",
+        "numpy": "2.5.3",
+        "python": "3.13.13",
+        "stdpopsim": "0.3.0",
+        "tskit": "1.0.3"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E1/sims/zigzag/rep01/genome.psmcfa": "7f594a3c6becc69e66b5c8a1743fdcf167e8368a7ee63914fd52c76f199855a0",
+    "<runs>/E1/sims/zigzag/rep01/genome.vcf.gz": "e19bb23e0a4898b67ce93207c580307be4d5129adaa56c888940dd93deb82152",
+    "<runs>/E1/sims/zigzag/rep01/genome.vcf.gz.tbi": "b37041fc7bca48699fec9a40efaddb7561ae2e2a0a255e41ad5caaf4725b2184",
+    "<runs>/E1/truth/zigzag/rep01.json": "94c88b3c3e861b3e2415dae76ecd7384dfc805da2e8bb07d581d2da1cb7db7d3"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:05:57",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      58.21,
+      23.19,
+      11.23
+    ],
+    "loadavg_before": [
+      4.8,
+      4.6,
+      4.56
+    ],
+    "maxrss_main_mb": 207.4,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 207.4,
+    "peak_rss_tree_sampled_mb": 205.9,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:04:16",
+    "system_seconds": 0.526,
+    "user_seconds": 97.937,
+    "wall_seconds": 100.949
+  }
+}
