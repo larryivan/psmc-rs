@@ -1,0 +1,227 @@
+{
+  "digest": "6df464e939816ade33447b077267b06b6d94fadca76719a25ba42d3d042be500",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "fig7_1000_genomes",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E7/tables/E7_bands.csv": "028ad1c9045bf34192fbbde5bb08226e5930ea8227ff533983441b8f05a59680",
+      "<runs>/E7/tables/E7_pop_bands.csv": "541b3cf66c4c0a9701309a30b1d6f82909612e58699e30d480ea14a2aa8ec47b",
+      "<runs>/E7/tables/E7_rs_vs_c.csv": "11846ce9431f1df3fa32187739a3400181fadaf4a2ae8a9ecfac15fe2d0665ce"
+    },
+    "job": "FIG/fig7_1000_genomes",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E7": {
+          "admixed": [
+            "ACB",
+            "ASW",
+            "CLM",
+            "MXL",
+            "PEL",
+            "PUR"
+          ],
+          "band": [
+            0.025,
+            0.975
+          ],
+          "bootstrap_replicates": 100,
+          "bootstrap_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "bootstrap_threads": 32,
+          "bootstrap_trunk_bins": 500000,
+          "c_psmc": true,
+          "chromosomes": [
+            "chr1",
+            "chr2",
+            "chr3",
+            "chr4",
+            "chr5",
+            "chr6",
+            "chr7",
+            "chr8",
+            "chr9",
+            "chr10",
+            "chr11",
+            "chr12",
+            "chr13",
+            "chr14",
+            "chr15",
+            "chr16",
+            "chr17",
+            "chr18",
+            "chr19",
+            "chr20",
+            "chr21",
+            "chr22"
+          ],
+          "chunk_attempts": 3,
+          "chunk_bp": 15000000,
+          "cohort": "unrelated2504",
+          "costs": {
+            "giab_gb": 2.0,
+            "giab_s": 300.0,
+            "report_gb": 4.0,
+            "report_s_base": 60.0,
+            "report_s_per_fit": 0.05,
+            "vcf_fit_gb": 0.5
+          },
+          "display_years": [
+            1000.0,
+            100000000.0,
+            400
+          ],
+          "fetch_parts": 16,
+          "figure_years": [
+            10000.0,
+            10000000.0
+          ],
+          "fit_threads": 1,
+          "giab": true,
+          "giab_bed_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.bed",
+          "giab_vcf_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "index_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index",
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "input": "joint",
+          "local_source": null,
+          "manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv",
+          "mask_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed",
+          "min_good_fraction": null,
+          "mirror_url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "panel_manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt",
+          "panel_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.{chrom}.filtered.SNV_INDEL_SV_phased_panel.vcf.gz",
+          "ped_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt",
+          "per_population": 2,
+          "pilot_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "pinned": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "raw_depth_genome_bp": 3100000000.0,
+          "retry_wait_seconds": 60.0,
+          "scaling": {
+            "gen_years": 29.0,
+            "mu": 1.25e-08
+          },
+          "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+          "split_batch_size": 500,
+          "split_pattern": "1+1+1+1+25*2+4+6",
+          "spread": [
+            0.1,
+            0.9
+          ],
+          "stream_threads": 4,
+          "superpopulations": [
+            "AFR",
+            "AMR",
+            "EAS",
+            "EUR",
+            "SAS"
+          ],
+          "use_mirror": true,
+          "vcf_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "window": null
+        }
+      },
+      "figure": "fig7_1000_genomes",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "79c891c5be0902cc1c9629327f15bd25fe03ed7d5ab3193e91908ec86427c5fc",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E7/figures/fig7_1000_genomes.pdf": "3f6808eb0b1a4dd89ea112beb1d8b7197855811bea30683bf3b8f7dbd939d245",
+    "<runs>/E7/figures/fig7_1000_genomes.png": "9160496b1cae9454648f0e652f92fad792d6ba708d50af51c970eadd98c0b063",
+    "<runs>/E7/figures/fig7_1000_genomes.svg": "ec29c27b51b42e63de0ff0f01c5d3fb39e49ef1ef0d58a0961c43655daad0841"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:11",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 221.6,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 221.6,
+    "peak_rss_tree_sampled_mb": 220.5,
+    "start": "2026-10-08T13:54:08",
+    "system_seconds": 0.218,
+    "user_seconds": 2.696,
+    "wall_seconds": 3.297
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "digest": "ddddb3356f0c41b8127fcab0073d4ef7599bebfd36acbb68239052f523dd83a1",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "figS1_em_convergence",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E1/tables/E1_traces.csv": "6e5b156578109d80ea2adc1ed0967a19538b9cb677750fd833335c77780adfdf"
+    },
+    "job": "FIG/figS1_em_convergence",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E1": {
+          "default_mstep_iters": null,
+          "genome": {
+            "chromosome_length": 50000000,
+            "n_chromosomes": 10
+          },
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "models": [
+            "constant",
+            "bottleneck",
+            "expansion",
+            "zigzag"
+          ],
+          "replicates": 10,
+          "rs_threads": 1,
+          "scaling": {
+            "gen_years": 25.0,
+            "mu": 2.5e-08
+          },
+          "simulation": {
+            "ancestry_model": "hudson",
+            "bin_size": 100,
+            "discrete_genome": true,
+            "mutation_model": "jc69",
+            "mutation_rate": 2.5e-08,
+            "ploidy": 2,
+            "recombination_rate": 1e-08
+          }
+        }
+      },
+      "figure": "figS1_em_convergence",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "04d0e3f6dc5f6fadf0a8adcc94db6d876f8104fe7b59723f258627794f52abbf",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E1/figures/figS1_em_convergence.pdf": "72ad6a9b5a70ccdf63a8eba4d2e90e3f9c5b6c00e148adfc1da6cf0c7feeb0ac",
+    "<runs>/E1/figures/figS1_em_convergence.png": "e9b7d5dc96e638688ef636a425a49eabbf96ad628e78b18b81a026b2894b08c8",
+    "<runs>/E1/figures/figS1_em_convergence.svg": "3986f853feac9ac8e4a0b8bd486c0762481a2dce0c71bc7c209f1cb59b012354"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:11",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 182.9,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 182.9,
+    "peak_rss_tree_sampled_mb": 181.9,
+    "start": "2026-10-08T13:54:08",
+    "system_seconds": 0.18,
+    "user_seconds": 1.96,
+    "wall_seconds": 2.492
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "digest": "b0d0fe55a9d0c456fe670e0fb26097d9fa155e6ea69ccd34a97c2f9033d43a0d",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "fig2_simulated_accuracy",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E1/tables/E1_curves.csv": "cfe60db2726c88ad0f60a749d8f304bda42696b5629c6fb0abd8e463e7733e2e",
+      "<runs>/E1/tables/E1_mstep.csv": "2c0ee06537d7682eff453f6bfa533a28138c2021d94648998434ac1f97b7a60d",
+      "<runs>/E1/tables/E1_replicates.csv": "fb5d83e49829aa06dfa1ba0e1ea0601f0f0861529accb447a2bb0294be4844ce",
+      "<runs>/E1/tables/E1_rs_vs_c.csv": "ed3fd4ba80affeabdcfc206f620b83a3aa0d8b5cd8c988f88e1f577bdc28bcc3",
+      "<runs>/E1/tables/E1_table1.csv": "bbb2429776fe9d63d48fbebb0bd9beddc45f8b2c9abcabe936fc332dbd029a55",
+      "<runs>/E1/tables/E1_truth.csv": "da5418740e1b183b82748c8e25e77915642ecec984c50645b963c51eeb689ef7"
+    },
+    "job": "FIG/fig2_simulated_accuracy",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E1": {
+          "default_mstep_iters": null,
+          "genome": {
+            "chromosome_length": 50000000,
+            "n_chromosomes": 10
+          },
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "models": [
+            "constant",
+            "bottleneck",
+            "expansion",
+            "zigzag"
+          ],
+          "replicates": 10,
+          "rs_threads": 1,
+          "scaling": {
+            "gen_years": 25.0,
+            "mu": 2.5e-08
+          },
+          "simulation": {
+            "ancestry_model": "hudson",
+            "bin_size": 100,
+            "discrete_genome": true,
+            "mutation_model": "jc69",
+            "mutation_rate": 2.5e-08,
+            "ploidy": 2,
+            "recombination_rate": 1e-08
+          }
+        }
+      },
+      "figure": "fig2_simulated_accuracy",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "37d53f084e9c374d4b705af9f2c873a58d367d440ab2ffd4593ac94a7de6b3db",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E1/figures/fig2_simulated_accuracy.pdf": "3aebdea77729cc64a6fbaec605861e2fcb8424e53534fc7f01710d7834457424",
+    "<runs>/E1/figures/fig2_simulated_accuracy.png": "3b7505cdd45d343955df89ff16f2502d291ae41957cf8e8ca764d3cd37e2db3a",
+    "<runs>/E1/figures/fig2_simulated_accuracy.svg": "08f51dac2bffe611849d105dd46f441819b6ea5c1f4b1c21895f56205155508e"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:10",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 211.6,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 211.6,
+    "peak_rss_tree_sampled_mb": 211.3,
+    "start": "2026-10-08T13:54:06",
+    "system_seconds": 0.223,
+    "user_seconds": 3.163,
+    "wall_seconds": 4.078
+  }
+}

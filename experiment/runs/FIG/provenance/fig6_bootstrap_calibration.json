@@ -1,0 +1,147 @@
+{
+  "digest": "d78c7a5bbadfb3bf817f535f2a67860c781a31058fa7732c9a904ea2b38abdda",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "fig6_bootstrap_calibration",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E5/tables/E5_bands.csv": "5ac26c97f3d8273500899150046a17262efd41347f5232db09bc6031a727259f",
+      "<runs>/E5/tables/E5_coverage.csv": "1f59102cfdb80ab035f623b8da35e3abe0c50491e2ba088d45c4863c2e1695f9",
+      "<runs>/E5/tables/E5_sampling.csv": "61ec2836c72e4d7e9ea5fdec9d6f372d7752e7e63364ec0db42eed643cb40612",
+      "<runs>/E5/tables/E5_sd_ratio.csv": "98c156af4e189a712bc40360b0371e942e02ee6d0911fda5be3b7bb549eb8291",
+      "<runs>/E5/tables/E5_summary.csv": "37ba9173c542e84f2a178ad9202aeb916bc6a383563601b3165ee9dee78b04e4"
+    },
+    "job": "FIG/fig6_bootstrap_calibration",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E5": {
+          "band": [
+            0.025,
+            0.975
+          ],
+          "bootstrap_datasets": 10,
+          "bootstrap_replicates": 50,
+          "bootstrap_threads": 1,
+          "dataset_resamples": 10000,
+          "example_dataset": 1,
+          "genome": {
+            "chromosome_length": 50000000,
+            "n_chromosomes": 6
+          },
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "model": "bottleneck",
+          "rs_threads": 1,
+          "scaling": {
+            "gen_years": 25.0,
+            "mu": 2.5e-08
+          },
+          "simulation": {
+            "ancestry_model": "hudson",
+            "bin_size": 100,
+            "discrete_genome": true,
+            "mutation_model": "jc69",
+            "mutation_rate": 2.5e-08,
+            "ploidy": 2,
+            "recombination_rate": 1e-08
+          },
+          "trunk_bins": [
+            500000,
+            50000
+          ],
+          "truth_replicates": 50
+        }
+      },
+      "figure": "fig6_bootstrap_calibration",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "dc12afdffd0acef80245472b40851f90b3aa5d52dfb39a6d2fbdbc46e149e8c8",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E5/figures/fig6_bootstrap_calibration.pdf": "f946baff6e64f8ab10887effcd6a3752edc17b71d51af7b62fc11a890d9005ee",
+    "<runs>/E5/figures/fig6_bootstrap_calibration.png": "b77ccc5bc4048422d1f9447db58b111f2de7ea3b41b05e251eee69d3c8b681bc",
+    "<runs>/E5/figures/fig6_bootstrap_calibration.svg": "89bf253acc9cd471f6619ec021bf0c19e29f82b3692506bbd19b3488b9068b46"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:09",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 205.6,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 205.6,
+    "peak_rss_tree_sampled_mb": 205.1,
+    "start": "2026-10-08T13:54:06",
+    "system_seconds": 0.207,
+    "user_seconds": 2.266,
+    "wall_seconds": 3.097
+  }
+}

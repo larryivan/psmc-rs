@@ -1,0 +1,231 @@
+{
+  "digest": "0e6f8f2cf8550a00ef6892f325bd12c8acf732ae81f6bbd9c7e775179ff2200e",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "figS6_1000g_checks",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E7/tables/E7_curves.csv": "ee6450cf3b7c620945ee57db0fbf4f9aeecda44d8c733b6b33904547357e3f2c",
+      "<runs>/E7/tables/E7_fits.csv": "804c8bc0f3de803eaf26c918661a4294523eeb7572914140f5162088a77e4193",
+      "<runs>/E7/tables/E7_giab.csv": "875dea157148f7528bb58c016ba40ae233904924d9aa88a28a6a153ab97e2689",
+      "<runs>/E7/tables/E7_inputs.csv": "b239b3e60fd809771ef3c029ca192e7c26bc5377d10fd72b2e5cded8596b6328",
+      "<runs>/E7/tables/E7_route_shift.csv": "c7a25db1ca6a664e37f03704b5da5e9642c44a042d0bfcf36ddef58bac798935",
+      "<runs>/E7/tables/E7_split.csv": "b16d11d78762cc987940f5a3780213e0d3cba70d12d4cf6205be2ef54eb3473f",
+      "<runs>/E7/tables/E7_throughput.csv": "3b111cfc46122adcbdccaf3f4b00c1778997d8ca32d7097cf8b3349f569faeda"
+    },
+    "job": "FIG/figS6_1000g_checks",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E7": {
+          "admixed": [
+            "ACB",
+            "ASW",
+            "CLM",
+            "MXL",
+            "PEL",
+            "PUR"
+          ],
+          "band": [
+            0.025,
+            0.975
+          ],
+          "bootstrap_replicates": 100,
+          "bootstrap_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "bootstrap_threads": 32,
+          "bootstrap_trunk_bins": 500000,
+          "c_psmc": true,
+          "chromosomes": [
+            "chr1",
+            "chr2",
+            "chr3",
+            "chr4",
+            "chr5",
+            "chr6",
+            "chr7",
+            "chr8",
+            "chr9",
+            "chr10",
+            "chr11",
+            "chr12",
+            "chr13",
+            "chr14",
+            "chr15",
+            "chr16",
+            "chr17",
+            "chr18",
+            "chr19",
+            "chr20",
+            "chr21",
+            "chr22"
+          ],
+          "chunk_attempts": 3,
+          "chunk_bp": 15000000,
+          "cohort": "unrelated2504",
+          "costs": {
+            "giab_gb": 2.0,
+            "giab_s": 300.0,
+            "report_gb": 4.0,
+            "report_s_base": 60.0,
+            "report_s_per_fit": 0.05,
+            "vcf_fit_gb": 0.5
+          },
+          "display_years": [
+            1000.0,
+            100000000.0,
+            400
+          ],
+          "fetch_parts": 16,
+          "figure_years": [
+            10000.0,
+            10000000.0
+          ],
+          "fit_threads": 1,
+          "giab": true,
+          "giab_bed_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.bed",
+          "giab_vcf_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "index_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index",
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "input": "joint",
+          "local_source": null,
+          "manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv",
+          "mask_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed",
+          "min_good_fraction": null,
+          "mirror_url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "panel_manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt",
+          "panel_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.{chrom}.filtered.SNV_INDEL_SV_phased_panel.vcf.gz",
+          "ped_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt",
+          "per_population": 2,
+          "pilot_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "pinned": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "raw_depth_genome_bp": 3100000000.0,
+          "retry_wait_seconds": 60.0,
+          "scaling": {
+            "gen_years": 29.0,
+            "mu": 1.25e-08
+          },
+          "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+          "split_batch_size": 500,
+          "split_pattern": "1+1+1+1+25*2+4+6",
+          "spread": [
+            0.1,
+            0.9
+          ],
+          "stream_threads": 4,
+          "superpopulations": [
+            "AFR",
+            "AMR",
+            "EAS",
+            "EUR",
+            "SAS"
+          ],
+          "use_mirror": true,
+          "vcf_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "window": null
+        }
+      },
+      "figure": "figS6_1000g_checks",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "3d4106a08825c171014a7e2e7cf4a8dd67ee3d27a2aa6ab77c2066ec558a4ef5",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E7/figures/figS6_1000g_checks.pdf": "e1bbe64acdb0d85603329148ee39af26a529b7adb98c885d5e0f553ae7f8a2d8",
+    "<runs>/E7/figures/figS6_1000g_checks.png": "f467fba7a513d9fc3afbf2fae0e2da32924076613644396fcde46ced47fafc89",
+    "<runs>/E7/figures/figS6_1000g_checks.svg": "40658b5cbbfcfb9b36b0f337dcf10b10fb67003213b93d9ba2f473c108126db5"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:14",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "loadavg_before": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "maxrss_main_mb": 325.6,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 325.6,
+    "peak_rss_tree_sampled_mb": 325.2,
+    "start": "2026-10-08T13:54:11",
+    "system_seconds": 0.356,
+    "user_seconds": 2.664,
+    "wall_seconds": 3.41
+  }
+}

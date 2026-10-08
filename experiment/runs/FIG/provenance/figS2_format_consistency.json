@@ -1,0 +1,122 @@
+{
+  "digest": "d811753885396a5c980d703721febb68c684e76d77eedf2f631ce2e27f64eeb2",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "figS2_format_consistency",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E6/tables/E6_S2_bins.csv": "28d713dd8def52ffcf639601abeac3ab6fa11083f180018a7533839eb407c2ac",
+      "<runs>/E6/tables/E6_S2_curves.csv": "418f49ead196f4966abb83aca4bd790635fc51b46d78179079daeae0006804ed",
+      "<runs>/E6/tables/E6_S2_fits.csv": "faf111d4474841f6e5c7480905edcb0993f57d529a9f9e33667759a200e80b3e"
+    },
+    "job": "FIG/figS2_format_consistency",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E6": {
+          "convergence_within_loglike": 1.0,
+          "costs": {
+            "convert_gb": 0.5,
+            "convert_s_base": 2.0,
+            "convert_s_per_mb": 0.05,
+            "decode_gb": 0.5,
+            "decode_s_per_mb": 0.015,
+            "qc_gb": 0.5,
+            "qc_s": 5.0,
+            "table_gb": 1.0,
+            "table_s": 20.0,
+            "tmrca_report_gb": 2.5,
+            "tmrca_report_s_base": 5.0,
+            "tmrca_report_s_per_mb": 0.04,
+            "tmrca_truth_gb": 1.0,
+            "tmrca_truth_s_base": 5.0,
+            "tmrca_truth_s_per_mb": 0.025
+          },
+          "format_replicate": 1,
+          "loglike_decrease_tolerance": 0.001,
+          "qc_experiment": "E2",
+          "tmrca_calibration_classes": 10,
+          "tmrca_decode_threads": 4,
+          "tmrca_density_cells": 60,
+          "tmrca_example_chrom": "chr1",
+          "tmrca_example_start_bp": 0,
+          "tmrca_example_track_bp": 5000000,
+          "tmrca_interval": 0.95,
+          "tmrca_model": "bottleneck",
+          "tmrca_replicate": 1
+        }
+      },
+      "figure": "figS2_format_consistency",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "afc1b1263c573b4e9671850f31ef47a494959db7d9be8680980431d9c02980c6",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E6/figures/figS2_format_consistency.pdf": "ba21eb7be57612df278c54f6025adf8df9a89070f9085a43fa84cbca664373a9",
+    "<runs>/E6/figures/figS2_format_consistency.png": "ad276b46efa8906f00386494b3d237916b789b3f14dc5aca54b876f4454d68bd",
+    "<runs>/E6/figures/figS2_format_consistency.svg": "ddbca89e97dd4ade5f43812486e66faa31c12eb02e0d53eaf0d549cefc670063"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:12",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 188.3,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 188.3,
+    "peak_rss_tree_sampled_mb": 187.7,
+    "start": "2026-10-08T13:54:09",
+    "system_seconds": 0.178,
+    "user_seconds": 2.643,
+    "wall_seconds": 3.182
+  }
+}

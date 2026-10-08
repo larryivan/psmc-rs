@@ -1,0 +1,167 @@
+{
+  "digest": "b32c0e6b454066af9a11ad4ef65da195a6a162cfd8444d89ebc79de39ff8f131",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "fig5_input_preparation",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/tables/E4_bias.csv": "37ce969e83d2e41f2103ed0c43ddae46087275519ea173202c7d76e0bb032207",
+      "<runs>/E4/tables/E4_curves.csv": "83cf5adbbb5e2593b986a75c56f6bb18dd3caa4cc68f3d0742d64325fed06eaa",
+      "<runs>/E4/tables/E4_routes.csv": "74d6d35002ed0f76bf13801efa2d32e9897d437f21f1cac3ceaa4d50775032ee"
+    },
+    "job": "FIG/fig5_input_preparation",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E4": {
+          "genome": {
+            "chromosome_length": 50000000,
+            "n_chromosomes": 10
+          },
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "masks": [
+            {
+              "mean_run_bp": 20000.0,
+              "missing_fraction": 0.1,
+              "name": "clustered10",
+              "structure": "clustered"
+            },
+            {
+              "mean_run_bp": 20000.0,
+              "missing_fraction": 0.3,
+              "name": "clustered30",
+              "structure": "clustered"
+            },
+            {
+              "mean_run_bp": 20.0,
+              "missing_fraction": 0.1,
+              "name": "dispersed10",
+              "structure": "dispersed"
+            },
+            {
+              "mean_run_bp": 20.0,
+              "missing_fraction": 0.3,
+              "name": "dispersed30",
+              "structure": "dispersed"
+            }
+          ],
+          "model": "bottleneck",
+          "multihetsep_crosscheck_replicates": 1,
+          "no_missing_control": true,
+          "replicates": 5,
+          "routes": [
+            "mask_auto",
+            "mask_ignore",
+            "fq2psmcfa",
+            "multihetsep",
+            "nomask"
+          ],
+          "rs_threads": 1,
+          "scaling": {
+            "gen_years": 25.0,
+            "mu": 2.5e-08
+          },
+          "simulation": {
+            "ancestry_model": "hudson",
+            "bin_size": 100,
+            "discrete_genome": true,
+            "mutation_model": "jc69",
+            "mutation_rate": 2.5e-08,
+            "ploidy": 2,
+            "recombination_rate": 1e-08
+          }
+        }
+      },
+      "figure": "fig5_input_preparation",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "6db86cd0d0ff0af080fdcd8127e1b27452c6c426e7bee138f87dbea2bd041f96",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/figures/fig5_input_preparation.pdf": "bac9fd15c8b4bf41d8892d4d77e5c1485909bcb05bcc84a716fd58db08b9d343",
+    "<runs>/E4/figures/fig5_input_preparation.png": "a7aef965794b5481679c842578fdef8c5e3f53e2cef6a8dffba2bfe1bcbaf8b0",
+    "<runs>/E4/figures/fig5_input_preparation.svg": "99259f13413d6a6bc8c63a938d3a9a73e96a8853ff5fc36360e69f5ae8626c9b"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:09",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 181.5,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 181.5,
+    "peak_rss_tree_sampled_mb": 180.8,
+    "start": "2026-10-08T13:54:06",
+    "system_seconds": 0.216,
+    "user_seconds": 2.222,
+    "wall_seconds": 3.006
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "digest": "612290dd4183dea105e854675a61d4e4105b936a432d538b5b879d461fc89daf",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "figS3_tmrca_decoding",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E6/tables/E6_S3_calibration.csv": "379c913760b1bcaba303c2e25150014359a667e0205395b3953554b3ba21b083",
+      "<runs>/E6/tables/E6_S3_density.csv": "8bebe3d9f0a16f5cd40842352754d973d9e704d195d98da39e2fcff46e7364bd",
+      "<runs>/E6/tables/E6_S3_summary.csv": "9ad9738455cc06711dc5e6d2fe7bab91f1456df9345ea2b2e42b7bc0f2254074",
+      "<runs>/E6/tables/E6_S3_track.csv": "1125635902667284372361872e5c06a6a4835d118d548e95eafdd4c00dc3810b"
+    },
+    "job": "FIG/figS3_tmrca_decoding",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E6": {
+          "convergence_within_loglike": 1.0,
+          "costs": {
+            "convert_gb": 0.5,
+            "convert_s_base": 2.0,
+            "convert_s_per_mb": 0.05,
+            "decode_gb": 0.5,
+            "decode_s_per_mb": 0.015,
+            "qc_gb": 0.5,
+            "qc_s": 5.0,
+            "table_gb": 1.0,
+            "table_s": 20.0,
+            "tmrca_report_gb": 2.5,
+            "tmrca_report_s_base": 5.0,
+            "tmrca_report_s_per_mb": 0.04,
+            "tmrca_truth_gb": 1.0,
+            "tmrca_truth_s_base": 5.0,
+            "tmrca_truth_s_per_mb": 0.025
+          },
+          "format_replicate": 1,
+          "loglike_decrease_tolerance": 0.001,
+          "qc_experiment": "E2",
+          "tmrca_calibration_classes": 10,
+          "tmrca_decode_threads": 4,
+          "tmrca_density_cells": 60,
+          "tmrca_example_chrom": "chr1",
+          "tmrca_example_start_bp": 0,
+          "tmrca_example_track_bp": 5000000,
+          "tmrca_interval": 0.95,
+          "tmrca_model": "bottleneck",
+          "tmrca_replicate": 1
+        }
+      },
+      "figure": "figS3_tmrca_decoding",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "18508c824e1dc5e6d63f5ab4aed2c1e8388d8d06121153d2503984f3a0309239",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E6/figures/figS3_tmrca_decoding.pdf": "a1a43373f1fd0eca9f4db0fd7fc18638daa1b2560a5a3494f4e855b5036f6872",
+    "<runs>/E6/figures/figS3_tmrca_decoding.png": "707314797f6ef5bdded4ff72e3c90eff7aa139ade2d9a76ade38552681645d11",
+    "<runs>/E6/figures/figS3_tmrca_decoding.svg": "a11d5f1938d5b4be4ab068315711d94a6472380ffd7262b490c1f9cb7de417e1"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:54:12",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      8.23,
+      4.86,
+      5.48
+    ],
+    "loadavg_before": [
+      5.82,
+      4.33,
+      5.3
+    ],
+    "maxrss_main_mb": 425.1,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 425.1,
+    "peak_rss_tree_sampled_mb": 425.0,
+    "start": "2026-10-08T13:54:09",
+    "system_seconds": 0.268,
+    "user_seconds": 2.719,
+    "wall_seconds": 3.37
+  }
+}
