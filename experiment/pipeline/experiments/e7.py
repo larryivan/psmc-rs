@@ -58,7 +58,9 @@ Tables (``tables/``):
   psmcfa compared (as ``E2_rs_vs_c``).
 * ``E7_bootstrap.csv``, ``E7_bands.csv``: the bootstraps (as E2's).
 * ``E7_route_shift.csv``: the VCF route against the psmcfa route.
-* ``E7_split.csv``: the split-first-window fits against the recipe's.
+* ``E7_split.csv``: the split-first-window fits against the recipe's: per
+  interval, and the first window's Ne over the next one's (for the split fit
+  its four intervals' duration-weighted log mean, with their range).
 * ``E7_giab.csv``: NA12878's heterozygous SNVs against GIAB HG001 v4.2.1
   inside the strict mask and GIAB's confident regions.
 * ``E7_throughput.csv``: per kind of fit, the measured wall times, peak RSS
@@ -634,6 +636,12 @@ def split_row(sf: SampleFits) -> Dict:
     diff = metrics.interval_diff(sf.curves["rs-split"], sf.curves["rs-psmcfa"], window)
     cd, cs = sf.curves["rs-psmcfa"].ne, sf.curves["rs-split"].ne
     first_split = cs[:4]
+    # The split fit's first window: its four intervals' log10 Ne averaged by their durations (comparable with the
+    # default pattern's single first lambda over the same span); the four intervals' range is reported too, since
+    # one genome barely constrains such short intervals and one of them can run away.
+    years = sf.curves["rs-split"].years
+    spans = [years[k + 1] - years[k] for k in range(4)]
+    first_split_mean = 10 ** (sum(w * math.log10(n) for w, n in zip(spans, first_split)) / sum(spans))
     return {
         **_who(sf.sample), "pattern_default": fd.pattern, "pattern_split": fs.pattern,
         "window_lo_years": window[0], "window_hi_years": window[1],
@@ -642,7 +650,9 @@ def split_row(sf: SampleFits) -> Dict:
         "ne_first_window_default": cd[0], "ne_first_window_split_min": min(first_split),
         "ne_first_window_split_max": max(first_split), "ne_next_default": cd[4], "ne_next_split": cs[4],
         "log10_first_vs_next_default": math.log10(cd[0] / cd[4]),
-        "log10_first_vs_next_split": math.log10(max(first_split) / cs[4]),
+        "log10_first_vs_next_split": math.log10(first_split_mean / cs[4]),
+        "log10_first_vs_next_split_lo": math.log10(min(first_split) / cs[4]),
+        "log10_first_vs_next_split_hi": math.log10(max(first_split) / cs[4]),
         "theta_rel_split_vs_default": fs.theta / fd.theta - 1.0,
     }
 

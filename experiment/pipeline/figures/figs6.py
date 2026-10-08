@@ -7,7 +7,9 @@ default set: theta of the VCF fit (callable bases per bin,
 called bins with some bases missing. c: the split-first-window check
 (Hilgers et al. 2025): the first window's Ne over the next window's, under
 the default pattern and with the first window split
-(``config.E7.split_pattern``); points on the diagonal did not move. d:
+(``config.E7.split_pattern``; its four intervals' log10 Ne averaged by
+duration, the vertical line their range); points on the diagonal did not
+move. d:
 NA12878's heterozygous SNVs against GIAB HG001 v4.2.1 inside the strict mask
 and GIAB's confident regions. e: wall time per fit (median) of every route,
 one thread; C psmc on the default set.
@@ -56,6 +58,9 @@ def draw(src):
     b.set_xlabel("Called bins with bases missing")
     b.set_ylabel(r"$\theta$, VCF fit vs psmcfa fit (relative)")
 
+    if not split.empty:  # the four split intervals' range: one genome barely constrains them, so one can run away
+        c.vlines(split.log10_first_vs_next_default, split.log10_first_vs_next_split_lo,
+                 split.log10_first_vs_next_split_hi, color=style.MUTED, linewidth=style.LW_THIN, zorder=2)
     _by_sup(c, split, "log10_first_vs_next_default", "log10_first_vs_next_split", sups, size=8.0, alpha=0.9)
     if not split.empty:
         lo = float(min(split.log10_first_vs_next_default.min(), split.log10_first_vs_next_split.min()))

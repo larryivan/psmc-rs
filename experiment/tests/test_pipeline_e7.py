@@ -234,6 +234,15 @@ class TinyRun(unittest.TestCase):
             self.assertLessEqual(float(r["ne_lo"]), float(r["ne_median"]) * (1 + 1e-9))
             self.assertLessEqual(float(r["ne_median"]), float(r["ne_hi"]) * (1 + 1e-9))
 
+    def test_the_split_first_window_lies_within_its_intervals(self):
+        rows = self.table("split")
+        self.assertEqual({r["sample_id"] for r in rows}, {s.sample_id for s in self.samples if s.split_check})
+        for r in rows:
+            lo, mid, hi = (float(r[k]) for k in ("log10_first_vs_next_split_lo", "log10_first_vs_next_split",
+                                                  "log10_first_vs_next_split_hi"))
+            self.assertLessEqual(lo, mid + 1e-12, r["sample_id"])
+            self.assertLessEqual(mid, hi + 1e-12, r["sample_id"])
+
     def test_giab_on_the_fixture(self):
         rows = self.table("giab")
         self.assertEqual([r["sample_id"] for r in rows], [s.sample_id for s in self.samples if s.giab])

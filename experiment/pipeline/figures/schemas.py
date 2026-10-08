@@ -415,7 +415,9 @@ _add("E7_route_shift", "E7", "sample of the default set", {
 _add("E7_split", "E7", "sample of the split-first-window check", {
     **_E7_WHO,
     "log10_first_vs_next_default": "log10 of the first window's Ne over the next one's, default pattern",
-    "log10_first_vs_next_split": "the same, first window split",
+    "log10_first_vs_next_split": "the same, first window split: its four intervals' log10 Ne averaged by duration",
+    "log10_first_vs_next_split_lo": "the same with the lowest of the four intervals",
+    "log10_first_vs_next_split_hi": "the same with the highest of the four intervals",
     "max_abs_log10_ne_split_vs_default_per_interval": "largest per-interval |log10 Ne difference|, split vs default",
 })
 _add("E7_giab", "E7", "sample compared with GIAB", {

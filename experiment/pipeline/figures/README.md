@@ -207,7 +207,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E7/tables/E7_rs_vs_c.csv` | sample of the default set fitted by both tools | `sample_id`, `population`, `superpopulation`, `admixed`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
 | `E7/tables/E7_inputs.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `default`, `raw_depth`, `callable_bases`, `het_sites`, `het_per_callable_kb`, `partly_callable_bin_fraction` |
 | `E7/tables/E7_route_shift.csv` | sample of the default set | `sample_id`, `population`, `superpopulation`, `admixed`, `theta_rel_vcf_vs_psmcfa`, `mean_log10_ne_vcf_vs_psmcfa`, `partly_callable_bin_fraction` |
-| `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `max_abs_log10_ne_split_vs_default_per_interval` |
+| `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `log10_first_vs_next_split_lo`, `log10_first_vs_next_split_hi`, `max_abs_log10_ne_split_vs_default_per_interval` |
 | `E7/tables/E7_giab.csv` | sample compared with GIAB | `sample_id`, `precision`, `recall`, `truth_het_snvs`, `eval_bases` |
 | `E7/tables/E7_throughput.csv` | route and tool | `route`, `tool`, `jobs`, `wall_median_s`, `core_hours`, `peak_rss_median_mb` |
 
