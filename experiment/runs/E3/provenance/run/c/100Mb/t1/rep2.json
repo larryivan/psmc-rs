@@ -1,0 +1,156 @@
+{
+  "digest": "2b7f3620c051e61a0454830dc22aafc044d3d127f51e32036ee7c9b1e8f427ea",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.experiments.e3_run",
+      "measure",
+      "--out",
+      "<runs>/E3/timings/c/100Mb/t1/rep2.json",
+      "--runs-dir",
+      "<runs>",
+      "--threads",
+      "1",
+      "--settle",
+      "10",
+      "--quiet-cpu",
+      "10",
+      "--quiet-max-cores",
+      "1",
+      "--quiet-window",
+      "2",
+      "--max-wait",
+      "180",
+      "--sample",
+      "0.5",
+      "--max-other-cpu",
+      "0.05",
+      "--max-other-cores",
+      "0.5",
+      "--max-sleep",
+      "2",
+      "--require-ac",
+      "--",
+      "<tools>/psmc_c/psmc",
+      "-N25",
+      "-t15",
+      "-r5",
+      "-p",
+      "4+25*2+4+6",
+      "-o",
+      "<runs>/E3/fits/c/100Mb/t1/rep2.psmc",
+      "<runs>/E3/sims/100Mb/genome.psmcfa"
+    ],
+    "env": {
+      "RAYON_NUM_THREADS": "1"
+    },
+    "inputs": {
+      "<runs>/E3/sims/100Mb/genome.psmcfa": "c3d1957731e3f42398de047d84dedb54bb66396f406f07edbd59f93db9be4ca7"
+    },
+    "job": "E3/run/c/100Mb/t1/rep2",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "repeat": 2,
+      "size_mb": 100,
+      "threads": 1,
+      "timing": {
+        "max_other_cores": 0.5,
+        "max_other_cpu_share": 0.05,
+        "max_sleep_seconds": 2.0,
+        "max_wait_seconds": 180.0,
+        "quiet_cpu_percent": 10.0,
+        "quiet_max_cores": 1.0,
+        "quiet_window_seconds": 2.0,
+        "require_ac_power": true,
+        "rss_sample_seconds": 0.5,
+        "settle_seconds": 10.0
+      },
+      "tool": "c"
+    },
+    "tools": {
+      "c-psmc": {
+        "cc": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
+        "cflags": "-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function",
+        "sha256": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8",
+        "version": "0.6.5-r74-dirty"
+      },
+      "timing": {
+        "code": "8510c6373c946b68b65f7b4cc159fc5fdf0db21310e6f31259a70bc19ac63af6",
+        "psutil": "7.2.2",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E3/fits/c/100Mb/t1/rep2.psmc": "4bb9d3e4ea2b16c446db9d08638d01d700b624ed8dabe5af6a189f70eb70199d",
+    "<runs>/E3/timings/c/100Mb/t1/rep2.json": "21467dd60480b8199b2c93608ff5dbc9f502d93df10da3d1be31ff0b57fb7637"
+  },
+  "record_version": 1,
+  "run": {
+    "busiest_processes_before": [
+      {
+        "cpu_percent": 5.5,
+        "name": "wekanode",
+        "pid": 95450
+      },
+      {
+        "cpu_percent": 5.5,
+        "name": "wekanode",
+        "pid": 95449
+      },
+      {
+        "cpu_percent": 5.5,
+        "name": "wekanode",
+        "pid": 95220
+      },
+      {
+        "cpu_percent": 0.0,
+        "name": "rtkit-daemon",
+        "pid": 3935978
+      },
+      {
+        "cpu_percent": 0.0,
+        "name": "jived",
+        "pid": 3823263
+      }
+    ],
+    "cores": 1,
+    "end": "2026-10-07T19:30:20",
+    "exclusive": true,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
+      "<tools>/psmc_c/psmc": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8"
+    },
+    "exit_status": 0,
+    "host": "cn506-18-l",
+    "loadavg_after": [
+      1.37,
+      1.97,
+      2.64
+    ],
+    "loadavg_before": [
+      3.66,
+      2.51,
+      2.92
+    ],
+    "maxrss_main_mb": 1034.7,
+    "mem_gb": 0.99,
+    "peak_rss_mb": 1034.7,
+    "peak_rss_tree_sampled_mb": null,
+    "slurm_job_id": "53420813",
+    "start": "2026-10-07T19:27:34",
+    "system_seconds": 5.801,
+    "user_seconds": 153.02,
+    "wall_seconds": 165.588
+  }
+}

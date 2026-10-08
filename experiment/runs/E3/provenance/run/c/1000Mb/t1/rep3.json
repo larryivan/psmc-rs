@@ -1,0 +1,156 @@
+{
+  "digest": "fba1be10d3c7d6fc622e70f4c4248054d367b331d35fb5f22c7571b10ee8f3c5",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.experiments.e3_run",
+      "measure",
+      "--out",
+      "<runs>/E3/timings/c/1000Mb/t1/rep3.json",
+      "--runs-dir",
+      "<runs>",
+      "--threads",
+      "1",
+      "--settle",
+      "10",
+      "--quiet-cpu",
+      "10",
+      "--quiet-max-cores",
+      "1",
+      "--quiet-window",
+      "2",
+      "--max-wait",
+      "180",
+      "--sample",
+      "0.5",
+      "--max-other-cpu",
+      "0.05",
+      "--max-other-cores",
+      "0.5",
+      "--max-sleep",
+      "2",
+      "--require-ac",
+      "--",
+      "<tools>/psmc_c/psmc",
+      "-N25",
+      "-t15",
+      "-r5",
+      "-p",
+      "4+25*2+4+6",
+      "-o",
+      "<runs>/E3/fits/c/1000Mb/t1/rep3.psmc",
+      "<runs>/E3/sims/1000Mb/genome.psmcfa"
+    ],
+    "env": {
+      "RAYON_NUM_THREADS": "1"
+    },
+    "inputs": {
+      "<runs>/E3/sims/1000Mb/genome.psmcfa": "3db7b46ebdc6c1052ab7ce9977689b25a1c566dd67aed60fb50097ad8c9db05d"
+    },
+    "job": "E3/run/c/1000Mb/t1/rep3",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "repeat": 3,
+      "size_mb": 1000,
+      "threads": 1,
+      "timing": {
+        "max_other_cores": 0.5,
+        "max_other_cpu_share": 0.05,
+        "max_sleep_seconds": 2.0,
+        "max_wait_seconds": 180.0,
+        "quiet_cpu_percent": 10.0,
+        "quiet_max_cores": 1.0,
+        "quiet_window_seconds": 2.0,
+        "require_ac_power": true,
+        "rss_sample_seconds": 0.5,
+        "settle_seconds": 10.0
+      },
+      "tool": "c"
+    },
+    "tools": {
+      "c-psmc": {
+        "cc": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
+        "cflags": "-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function",
+        "sha256": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8",
+        "version": "0.6.5-r74-dirty"
+      },
+      "timing": {
+        "code": "8510c6373c946b68b65f7b4cc159fc5fdf0db21310e6f31259a70bc19ac63af6",
+        "psutil": "7.2.2",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E3/fits/c/1000Mb/t1/rep3.psmc": "3c0bac2254c3ec837a4dc64efed9040cf5fc225e43c597dd09b63a21b733b888",
+    "<runs>/E3/timings/c/1000Mb/t1/rep3.json": "9d2124b2cca47f2172b618cd761f34ff55413e0a86c56d8d140ef9def7cd03c4"
+  },
+  "record_version": 1,
+  "run": {
+    "busiest_processes_before": [
+      {
+        "cpu_percent": 5.5,
+        "name": "wekanode",
+        "pid": 94548
+      },
+      {
+        "cpu_percent": 5.5,
+        "name": "wekanode",
+        "pid": 94360
+      },
+      {
+        "cpu_percent": 3.7,
+        "name": "wekanode",
+        "pid": 94549
+      },
+      {
+        "cpu_percent": 1.8,
+        "name": "icinga2",
+        "pid": 1090052
+      },
+      {
+        "cpu_percent": 0.0,
+        "name": "automount",
+        "pid": 3750710
+      }
+    ],
+    "cores": 1,
+    "end": "2026-10-08T00:07:03",
+    "exclusive": true,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
+      "<tools>/psmc_c/psmc": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8"
+    },
+    "exit_status": 0,
+    "host": "cn514-07-r",
+    "loadavg_after": [
+      1.43,
+      1.47,
+      1.44
+    ],
+    "loadavg_before": [
+      1.44,
+      1.45,
+      1.41
+    ],
+    "maxrss_main_mb": 1043.0,
+    "mem_gb": 0.99,
+    "peak_rss_mb": 1043.0,
+    "peak_rss_tree_sampled_mb": null,
+    "slurm_job_id": "53420814",
+    "start": "2026-10-07T23:42:15",
+    "system_seconds": 45.0,
+    "user_seconds": 1487.84,
+    "wall_seconds": 1488.36
+  }
+}

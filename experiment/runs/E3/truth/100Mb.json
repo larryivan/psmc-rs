@@ -1,0 +1,87 @@
+{
+  "experiment": "E3",
+  "model": "constant",
+  "replicate": 1,
+  "genome": {
+    "n_chromosomes": 1,
+    "chromosome_length": 100000000
+  },
+  "simulation": {
+    "mutation_rate": 2.5e-08,
+    "recombination_rate": 1e-08,
+    "ancestry_model": "hudson",
+    "mutation_model": "jc69",
+    "discrete_genome": true,
+    "ploidy": 2,
+    "bin_size": 100
+  },
+  "seed_scheme": "config.seed(experiment, model, replicate, stage); stages ancestry/<chrom>, mutations/<chrom>",
+  "software": {
+    "python": "3.13.13",
+    "msprime": "1.4.4",
+    "tskit": "1.0.3",
+    "numpy": "2.5.3",
+    "bgzip": "bgzip (htslib) 1.24",
+    "tabix": "tabix (htslib) 1.24"
+  },
+  "chromosomes": [
+    {
+      "name": "chr1",
+      "length": 100000000,
+      "bins": 1000000,
+      "het_sites": 98734,
+      "het_bins": 89959,
+      "derived_hom_sites": 18,
+      "trees": 26246,
+      "last_het_position": 99998306,
+      "longest_het_gap_bp": 147454,
+      "longest_het_gap_start": 90807948,
+      "longest_hetfree_bins": 1474,
+      "het_positions_sha256": "c72bb855d3dcf852384de03fa1b3e692122953eb76045b3f8ff237f8279d1ddb",
+      "seeds": {
+        "ancestry": 1814408591,
+        "mutations": 1425933926
+      }
+    }
+  ],
+  "totals": {
+    "length": 100000000,
+    "het_sites": 98734
+  },
+  "files": {
+    "psmcfa": {
+      "name": "genome.psmcfa",
+      "sha256": "c3d1957731e3f42398de047d84dedb54bb66396f406f07edbd59f93db9be4ca7"
+    }
+  },
+  "truth": {
+    "model": "constant",
+    "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly",
+    "units": {
+      "time": "generations ago",
+      "size": "diploid individuals"
+    },
+    "initial_size": 10000.0,
+    "changes": [],
+    "epochs": [
+      {
+        "start": 0.0,
+        "end": null,
+        "start_size": 10000.0,
+        "end_size": 10000.0,
+        "growth_rate": 0.0
+      }
+    ],
+    "coalescence_quantiles": {
+      "0.01": 201.00671707002883,
+      "0.025": 506.35615968579754,
+      "0.5": 13862.943611198905,
+      "0.975": 73777.5890822787,
+      "0.99": 92103.4037197618
+    },
+    "ms": {
+      "n0": 10000.0,
+      "events": []
+    }
+  }
+}

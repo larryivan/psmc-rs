@@ -1,0 +1,175 @@
+{
+  "digest": "b6c894b7f8f9f2bec77c10d784c5d2026ab5e22a7be287ccf5f9850c3f138b08",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.experiments.e3_run",
+      "measure",
+      "--out",
+      "<runs>/E3/timings/rs01/3000Mb/t1/rep4.json",
+      "--runs-dir",
+      "<runs>",
+      "--threads",
+      "1",
+      "--settle",
+      "10",
+      "--quiet-cpu",
+      "10",
+      "--quiet-max-cores",
+      "1",
+      "--quiet-window",
+      "2",
+      "--max-wait",
+      "180",
+      "--sample",
+      "0.5",
+      "--max-other-cpu",
+      "0.05",
+      "--max-other-cores",
+      "0.5",
+      "--max-sleep",
+      "2",
+      "--require-ac",
+      "--",
+      "<tools>/psmc-rs-0.1/target/release/psmc-rs",
+      "<runs>/E3/sims/3000Mb/genome.psmcfa",
+      "<runs>/E3/fits/rs01/3000Mb/t1/rep4.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--n-steps",
+      "63",
+      "--t-max",
+      "15",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--mu",
+      "2.5e-08",
+      "--threads",
+      "1",
+      "--no-progress"
+    ],
+    "env": {
+      "RAYON_NUM_THREADS": "1"
+    },
+    "inputs": {
+      "<runs>/E3/sims/3000Mb/genome.psmcfa": "75ee82f121ea4f8f4cad371e17f5bafae83792f3dc8a97cdf267eadc8a94a259"
+    },
+    "job": "E3/run/rs01/3000Mb/t1/rep4",
+    "seeds": {},
+    "settings": {
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "repeat": 4,
+      "scaling": {
+        "gen_years": 25.0,
+        "mu": 2.5e-08
+      },
+      "size_mb": 3000,
+      "threads": 1,
+      "timing": {
+        "max_other_cores": 0.5,
+        "max_other_cpu_share": 0.05,
+        "max_sleep_seconds": 2.0,
+        "max_wait_seconds": 180.0,
+        "quiet_cpu_percent": 10.0,
+        "quiet_max_cores": 1.0,
+        "quiet_window_seconds": 2.0,
+        "require_ac_power": true,
+        "rss_sample_seconds": 0.5,
+        "settle_seconds": 10.0
+      },
+      "tool": "rs01"
+    },
+    "tools": {
+      "psmc-rs-0.1": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "commit": "e50d69da83da8a8e53496eacf9950f7dcce4646a",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "target_features": "none",
+        "version": "psmc-rs 0.1.0"
+      },
+      "timing": {
+        "code": "8510c6373c946b68b65f7b4cc159fc5fdf0db21310e6f31259a70bc19ac63af6",
+        "psutil": "7.2.2",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E3/fits/rs01/3000Mb/t1/rep4.json": "166a8d50546d8591424077a683e507853dc4df23e0935ce97c7d188909f54c0a",
+    "<runs>/E3/timings/rs01/3000Mb/t1/rep4.json": "fe1d5df1374cc7541c2bbea5ef762d2cc6efcca6b6363a7973f7fcb994fd0d87"
+  },
+  "record_version": 1,
+  "run": {
+    "busiest_processes_before": [
+      {
+        "cpu_percent": 5.6,
+        "name": "wekanode",
+        "pid": 90493
+      },
+      {
+        "cpu_percent": 5.6,
+        "name": "wekanode",
+        "pid": 90304
+      },
+      {
+        "cpu_percent": 3.7,
+        "name": "wekanode",
+        "pid": 90494
+      },
+      {
+        "cpu_percent": 1.9,
+        "name": "trace-server",
+        "pid": 90047
+      },
+      {
+        "cpu_percent": 0.0,
+        "name": "jived",
+        "pid": 4112464
+      }
+    ],
+    "cores": 1,
+    "end": "2026-10-07T23:49:23",
+    "exclusive": true,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
+      "<tools>/psmc-rs-0.1/target/release/psmc-rs": "57af353148269d30687b2a0ad6715379b510f38ed51276ed05a791fc2f3a62ec"
+    },
+    "exit_status": 0,
+    "host": "cn513-19-l",
+    "loadavg_after": [
+      1.56,
+      1.36,
+      1.35
+    ],
+    "loadavg_before": [
+      1.47,
+      1.49,
+      1.65
+    ],
+    "maxrss_main_mb": 2512.4,
+    "mem_gb": 2.46,
+    "peak_rss_mb": 2512.4,
+    "peak_rss_tree_sampled_mb": null,
+    "slurm_job_id": "53420815",
+    "start": "2026-10-07T22:07:08",
+    "system_seconds": 173.908,
+    "user_seconds": 6178.348,
+    "wall_seconds": 6135.167
+  }
+}
