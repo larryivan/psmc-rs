@@ -818,11 +818,11 @@ genomes of four models (E1) and four real genomes (E2) with both tools as
 interval over the informative window, the 1% to 99% quantiles of the
 coalescence time (`experiment/pipeline/README.md`; `E1_rs_vs_c.csv`,
 `E2_rs_vs_c.csv`). The RMSE of log10 Ne between psmc-rs and C psmc was
-3.7e-6 to 2.0e-4 over E1's genomes (median 2.5e-5) and 7.7e-6 to 2.8e-4
+3.7e-6 to 2.0e-4 over E1's genomes (median 2.5e-5) and 9.7e-6 to 2.8e-4
 over the real ones, and no interval in the window differed by more than
 6.6e-4 (E1) and 4.5e-4 (E2). θ, ρ and t_max agreed within a relative
 5.5e-4 in E1 and 1.0e-3 in E2, and the final log-likelihood within
-3.5e-8 and 3.7e-7. On one simulated 4 × 25 Mb bottleneck genome (msprime,
+3.5e-8 and 2.3e-7. On one simulated 4 × 25 Mb bottleneck genome (msprime,
 Hudson, μ = 2.5e-8, r = 1e-8), the curves are 7.7e-5 apart (at most
 2.6e-4), with θ, ρ and t_max within 1.4e-4 and the log-likelihood within
 4e-9 (relative); on this genome the sources of the difference were

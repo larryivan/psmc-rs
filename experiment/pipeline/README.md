@@ -69,7 +69,7 @@ bottleneck genome the RMSE of log10 Ne between psmc-rs and C psmc on the
 informative window is 7.7e-5, as small as with C psmc's own Hooke-Jeeves
 search run inside psmc-rs's EM (7.5e-5); over E1's 40 genomes, compared
 interval by interval, it is 3.7e-6 to 2.0e-4 (median 2.5e-5), and over
-E2's four real genomes 7.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
+E2's four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
 `E2_rs_vs_c.csv`). psmc-rs 0.1's L-BFGS stopped after 100 iterations,
 which left the two 0.03 to 0.16 apart;
 that is why the experiments pass the cap explicitly. Since psmc-rs's

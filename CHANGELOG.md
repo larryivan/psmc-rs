@@ -48,7 +48,7 @@ Defaults, each of which changes the results of a run that relied on it:
   genomes (E2), compared interval by interval, the curves are 3.7e-6 to
   2.8e-4 apart (RMSE of log10 Ne; at most 6.6e-4 in any interval of the
   window), θ, ρ and t_max agree within a relative 1.0e-3 and the final
-  log-likelihood within 3.7e-7 (`experiment/pipeline/README.md`).
+  log-likelihood within 2.3e-7 (`experiment/pipeline/README.md`).
   Without a pattern (one λ per interval) the capped M-steps had let the fit
   drift away from C's in every interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of
