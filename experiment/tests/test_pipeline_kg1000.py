@@ -316,6 +316,11 @@ class TinyStage(unittest.TestCase):
         self.assertEqual(self.lay.record_setup.read_bytes(), before)
         self.assertEqual(rec["step"], "setup")
 
+    def test_the_manifest_says_how_each_chromosome_was_read(self):
+        manifest = kg1000.read_json(self.lay.manifest)
+        for chrom in self.cfg.chromosomes:  # the fixture's files are local copies
+            self.assertEqual(manifest["chromosomes"][chrom]["read"], {"how": "read by region from a local copy"})
+
     def test_the_chunks_records_add_up_to_each_chromosome(self):
         for chrom in self.cfg.chromosomes:
             rec = kg1000.read_json(self.lay.record_chrom(chrom))

@@ -77,8 +77,9 @@ Steps (``python -m experiment.pipeline.kg1000 STEP --profile P --runs-dir R``):
     members); the default set's VCFs concatenated likewise (``bcftools
     concat --naive``); the non-PASS BEDs and the QC summed per sample; then
     ``MANIFEST.json``: the sources, tool versions, exact commands, every
-    chunk's record count and the chromosome checks, and the SHA-256 of every
-    output. ``--prune`` then deletes the per-chromosome psmcfa and VCFs.
+    chunk's record count and the chromosome checks, how each chromosome's VCF
+    was read (downloaded first, streamed, or a local copy), and the SHA-256 of
+    every output. ``--prune`` then deletes the per-chromosome psmcfa and VCFs.
 
 Layout under ``<runs>/E7/inputs/`` (not committed; the psmcfa files and the
 manifest are the Zenodo deliverable)::
@@ -1279,6 +1280,17 @@ def assemble_samples(cfg: config.E7, lay: Layout, jobs: int = 1, prune: bool = F
     return rec
 
 
+def chrom_read(lay: Layout, setup_rec: Dict, chrom: str) -> Dict[str, object]:
+    """How a chromosome's VCF was read: downloaded whole first (fetch-chrom's record), from a local copy, or streamed."""
+    if lay.record_fetch(chrom).exists():
+        r = read_json(lay.record_fetch(chrom))
+        return {"how": "downloaded whole to node-local disk in byte ranges, size and MD5 checked against the "
+                       "manifest, then read by region", "url": r.get("url"), "bytes": r.get("bytes"), "md5": r.get("md5"),
+                "mb_per_s": r.get("mb_per_s")}
+    source = setup_rec["vcfs"][chrom]["read_from"]
+    return {"how": "streamed by region over HTTPS" if "://" in source else "read by region from a local copy"}
+
+
 def write_manifest(cfg: config.E7, lay: Layout, rows: Sequence[Dict]) -> Dict:
     """``MANIFEST.json``: sources, tools, commands, chunk counts and checks, and every output's SHA-256."""
     setup_rec = read_json(lay.record_setup)
@@ -1303,9 +1315,10 @@ def write_manifest(cfg: config.E7, lay: Layout, rows: Sequence[Dict]) -> Dict:
     manifest = {
         "manifest": MANIFEST_ID,
         "written": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "data": ("1000 Genomes 30x NYGC joint-called VCFs (20201028_3202_raw_GT_with_annot), streamed by region"
-                 if cfg.input == "joint" else "1000 Genomes phased panel (20220422), streamed by region: MAC >= 2, "
-                                              "no missing genotypes (a fallback; figures must say so)"),
+        "data": ("1000 Genomes 30x NYGC joint-called VCFs (20201028_3202_raw_GT_with_annot), read by region"
+                 if cfg.input == "joint" else "1000 Genomes phased panel (20220422), read by region: MAC >= 2, "
+                                              "no missing genotypes (a fallback; figures must say so)")
+                + " (how each chromosome was read: chromosomes.<chrom>.read)",
         "settings": setup_rec["settings"],
         "sources": {
             "vcfs": {c: {k: v for k, v in e.items() if k != "read_from"} for c, e in setup_rec["vcfs"].items()},
@@ -1323,8 +1336,9 @@ def write_manifest(cfg: config.E7, lay: Layout, rows: Sequence[Dict]) -> Dict:
         },
         "chunks": [{k: r[k] for k in ("chrom", "chunk", "start", "end", "records", "nonpass", "attempts", "seconds",
                                       "bcf_bytes", "split_bytes")} for r in chunks],
-        "chromosomes": {c: {k: r[k] for k in ("records", "index_records", "records_check", "nonpass", "samples",
-                                              "vcf_bytes_total", "psmcfa_bytes_total", "stream_seconds", "seconds")}
+        "chromosomes": {c: {**{k: r[k] for k in ("records", "index_records", "records_check", "nonpass", "samples",
+                                                 "vcf_bytes_total", "psmcfa_bytes_total", "stream_seconds", "seconds")},
+                            "read": chrom_read(lay, setup_rec, c)}
                         for c, r in chroms.items()},
         "pilots": {c: {k: p[k] for k in ("region", "identical", "samples", "storage")} for c, p in pilots.items()},
         "outputs": outputs,
