@@ -245,7 +245,7 @@ class Schemas(unittest.TestCase):
         path = SCHEMAS["E2_rs_vs_c"].path(self.runs)
         path.parent.mkdir(parents=True)
         with open(path, "w", newline="") as f:
-            csv.writer(f).writerows([["sample_id", "window_lo_years"], ["Papuan", "1000"]])
+            csv.writer(f).writerows([["sample_id", "window_lo_years"], ["NA12878", "1000"]])
         with self.assertRaises(data.SchemaError) as cm:
             data.read(self.runs, "E2_rs_vs_c")
         self.assertIn("rmse_log10_ne_rs_vs_c", str(cm.exception))

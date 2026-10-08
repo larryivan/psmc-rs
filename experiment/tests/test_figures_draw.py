@@ -167,7 +167,7 @@ class Draw(unittest.TestCase):
 
         fig = self._draw("fig3")
         texts = [t.get_text() for ax in fig.axes for t in ax.texts]
-        for gid in ("Papuan", "HLhydTec1"):  # the tiny profile's genomes
+        for gid in ("NA12878", "HLhydTec1"):  # the tiny profile's genomes
             g = next(g for g in config.REAL_GENOMES if g.sample_id == gid)
             note = next(t for t in texts if t.startswith(fig3.where(g)))
             self.assertIn(f"g = {g.scaling.gen_years:g} y", note)
@@ -210,6 +210,10 @@ class Draw(unittest.TestCase):
         self.assertEqual(fig3.trunk_text(row, 1), "5 blocks of 50 Mb (few: coarse)")
         row = SimpleNamespace(trunk_mb=50.0, trunks=897, coarse_band="False")
         self.assertEqual(fig3.trunk_text(row, 889), "897 blocks: 889 scaffolds split at 50 Mb")
+        # The human's sequences are chromosomes (config.RealGenome.sequence_noun).
+        human = next(g for g in config.REAL_GENOMES if g.sample_id == "NA12878")
+        row = SimpleNamespace(trunk_mb=50.0, trunks=59, coarse_band="False")
+        self.assertEqual(fig3.trunk_text(row, 22, human.sequence_noun), "59 blocks: 22 chromosomes split at 50 Mb")
 
     def test_fig5_draws_every_called_bin_taken_as_full_above_the_vcf_without_its_mask(self):
         from experiment.pipeline.figures import style

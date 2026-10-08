@@ -113,7 +113,7 @@ _add("E1_traces", "E1", "model, replicate, tool and EM iteration", {
 # ---------------------------------------------------------------------------
 
 _add("E2_curves", "E2", "genome, tool and interval", {
-    "sample_id": "config.RealGenome.sample_id (HLemySub1, HLhydTec1, HLpelCas1, Papuan)",
+    "sample_id": "config.RealGenome.sample_id (HLemySub1, HLhydTec1, HLpelCas1, NA12878)",
     "tool": "c or rs",
     **CURVE_COLUMNS,
 })

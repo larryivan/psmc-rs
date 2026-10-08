@@ -29,7 +29,7 @@ not yet committed, and E3 is still being run):
 
 | item | where |
 | --- | --- |
-| real genomes (inputs of E2 and E6's S5) | `experiment/real_data/*.psmcfa` |
+| real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's `MANIFEST.json` and `config.RealGenome.sha256`) | `experiment/real_data/{HLemySub1,HLhydTec1,HLpelCas1}_diploid.psmcfa`, `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (`Papuan_highlands_diploid.psmcfa`, a chromosome 1, serves the README's benchmarks, the Rust tests and the psmc-rs 0.1 scripts' Figure 3 (`experiment/scripts/run_real_data.py`); E2 does not read it) |
 | truth records of the simulated genomes (settings, seeds, software versions, per-chromosome counts and checksums, the true Ne(t)) | `runs/<EXP>/truth/` |
 | every fit: psmc-rs JSON and `.psmc`, C psmc `.psmc` | `runs/<EXP>/fits/` |
 | bootstrap runs: main fit, every replicate's JSON, `summary.json` and `summary.tsv` | `runs/E2/bootstrap/`, `runs/E5/boot/` |
@@ -95,7 +95,8 @@ seeds. Both need the simulated genomes, which section 4 regenerates.
 The analysis does not depend on the platform beyond its last digits.
 The analysis code of the production commit (34f2b00), run on an Apple M1
 Pro laptop (macOS, arm64) on the fits made on the Ibex cluster (Linux,
-x86-64), wrote tables of E1, E2, E4 and E5 that agreed with those it had
+x86-64), wrote tables of E1, E2, E4 and E5 (E2 then with the Papuan
+chromosome 1 in place of NA12878) that agreed with those it had
 written on Ibex to a relative 1e-13 in every value above 1e-3 in
 magnitude (at most 9.3e-14), and to a relative 2.2e-11 in the
 differences between psmc-rs and C psmc, of order 1e-5 (about 1e-15
@@ -166,7 +167,8 @@ cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the producti
 
 The `prod` job ran on one node with a runner budget of 62 cores and
 180 GB; its 572 jobs took 1 hour 48 minutes and 81 CPU hours: E1 13.0,
-E2 43.8 (the five bootstrap runs on 50 threads 40.3), E4 5.2, E5 19.1 and
+E2 43.8 (the five bootstrap runs on 50 threads 40.3; E2 and E6's S5 then
+had the Papuan chromosome 1 in place of NA12878), E4 5.2, E5 19.1 and
 E6 0.3 (from the jobs' provenance records). Its jobs shared the node with
 one another (1-minute load averages of 5 to 72 when they started), so
 these are costs, not timings; E3 measures performance (section 10).
@@ -194,8 +196,8 @@ holds what determines the outputs:
 
 The record then adds the SHA-256 of every output and how the job ran: host,
 SLURM job, cores, wall, user and system time, peak resident memory, load
-average and the SHA-256 of the executables it ran. In the production run
-every psmc-rs 0.2 fit was made from the same sources (the `src/` tree
+average and the SHA-256 of the executables it ran. In the earlier production run
+(E2 then with the Papuan chromosome 1 in place of NA12878) every psmc-rs 0.2 fit was made from the same sources (the `src/` tree
 that commits 0c84f05 to 34f2b00 share), by rustc 1.99.0 without build
 flags, and the JSON of every fit and every bootstrap run's main fit
 records the HMM kernels that ran (`simd`: `avx2+fma` in all 253; section

@@ -87,11 +87,30 @@ class Design(unittest.TestCase):
 
     def test_later_experiments(self):
         p = config.PRODUCTION
-        self.assertEqual([g.sample_id for g in p.e2.genomes], ["HLemySub1", "HLhydTec1", "HLpelCas1", "Papuan"])
-        papuan = p.e2.genomes[-1]
-        self.assertIn("chr1 only", papuan.label)
-        self.assertEqual((papuan.scaling.mu, papuan.scaling.gen_years), (1.25e-8, 29.0))
-        self.assertIn("Fenner 2005", papuan.scaling_source)
+        self.assertEqual([g.sample_id for g in p.e2.genomes], ["HLemySub1", "HLhydTec1", "HLpelCas1", "NA12878"])
+        human = p.e2.genomes[-1]
+        self.assertEqual((human.file, human.label, human.sequence_noun),
+                         ("NA12878_1kGP30x_diploid.psmcfa.gz", "Homo sapiens (NA12878, CEU)", "chromosomes"))
+        # E7's psmcfa of NA12878, committed byte for byte: the pin is its SHA-256 in E7's MANIFEST.json.
+        self.assertEqual(hashlib.sha256((paths.REAL_DATA / human.file).read_bytes()).hexdigest(), human.sha256)
+        self.assertEqual((human.scaling.mu, human.scaling.gen_years), (1.25e-8, 29.0))
+        self.assertIn("Fenner 2005", human.scaling_source)
+        self.assertEqual((human.scaling, human.scaling_source), (p.e7.scaling, p.e7.scaling_source))  # as E7 scales it
+        for g in p.e2.genomes:
+            self.assertTrue((paths.REAL_DATA / g.file).exists(), g.file)
+
+    def test_na12878_is_e7s_psmcfa(self):
+        # The pin is E7's record of the file, not only the committed file's own hash: once E7's tables are
+        # committed, E7_inputs.csv gives the SHA-256 of the psmcfa its data stage wrote for NA12878.
+        import csv
+
+        table = paths.RUNS / "E7" / "tables" / "E7_inputs.csv"
+        if not table.exists():
+            self.skipTest("E7's tables are not committed yet")
+        with open(table, newline="") as f:
+            row = next(r for r in csv.DictReader(f) if r["sample_id"] == "NA12878")
+        human = next(g for g in config.PRODUCTION.e2.genomes if g.sample_id == "NA12878")
+        self.assertEqual(row["psmcfa_sha256"], human.sha256)
         for g in p.e2.genomes[:3]:
             # The mean of nine Chrysemys picta trios (Bergeron et al. 2023), not the crocodilian 7.9e-9.
             self.assertEqual((g.scaling.mu, g.scaling.gen_years), (4.6e-9, 15.0))
@@ -100,7 +119,6 @@ class Design(unittest.TestCase):
             self.assertIn("crocodilian rate (Green et al. 2014", g.scaling_source)
             self.assertNotIn("UNVERIFIED", g.scaling_source)
             self.assertTrue(g.scaling_cite)
-            self.assertTrue((paths.REAL_DATA / g.file).exists())
         self.assertEqual([g for g in p.e2.genomes if g.sample_id in p.e2.split_genomes], list(p.e2.genomes[:3]))
         self.assertEqual(dict(p.e2.split_patterns), {"split2": "2+2+25*2+4+6", "split1": "1+1+1+1+25*2+4+6"})
         self.assertEqual(p.e2.bootstrap_replicates, 100)

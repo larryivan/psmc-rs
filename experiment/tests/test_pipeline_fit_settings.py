@@ -111,7 +111,8 @@ class CallableBases(unittest.TestCase):
                     with self.subTest(profile=p.name, job=j.id):
                         counted = [str(x) for x in j.inputs if str(x).endswith(COUNTED_SUFFIXES)]
                         self.assertEqual(counted, [])
-                        self.assertTrue(str(j.command[1]).endswith(".psmcfa"), j.command[1])
+                        # E2's NA12878 is the packaged gzip psmcfa, read as it is.
+                        self.assertTrue(str(j.command[1]).endswith((".psmcfa", ".psmcfa.gz")), j.command[1])
                         self.assertNotIn("--bin-callable", [str(c) for c in j.command])
                         self.assertIn(flag(j.command, "--input-format"), (None, "psmcfa"))
 

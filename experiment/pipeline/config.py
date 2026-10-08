@@ -292,7 +292,7 @@ class E1:
 
 @dataclass(frozen=True)
 class RealGenome:
-    """One empirical genome of E2 (a psmcfa in experiment/real_data)."""
+    """One empirical genome of E2 (a psmcfa, plain or gzip-compressed, in experiment/real_data)."""
 
     sample_id: str
     file: str
@@ -301,6 +301,18 @@ class RealGenome:
     scaling: Scaling
     scaling_source: str  # where mu and g come from, in full (E2_fit_summary.scaling_source)
     scaling_cite: str  # the same in a few words, for a figure panel (Fig 3)
+    sequence_noun: str = "scaffolds"  # what its sequences are, in Fig 3's notes ("22 chromosomes split at 50 Mb")
+    # The file's SHA-256 where its source records one (the tests check the
+    # committed file against it); None: not pinned.
+    sha256: Optional[str] = None
+    # Another experiment that bootstraps this psmcfa too (E7 for NA12878).
+    # E2's bootstrap of it at the default trunks is then that experiment's
+    # run: it draws that experiment's seed, seed(<experiment>, sample_id, 0,
+    # "bootstrap"), and E2 refuses to plan a run of the whole file unless the
+    # experiment's replicates, trunks and inference (the replicates'
+    # iterations among it) are E2's, so that both figures show the identical
+    # band. None: E2's own seed.
+    bootstrap_shared_with: Optional[str] = None
 
 
 # The three turtles are pleurodires (side-necked turtles). No pleurodire has
@@ -323,11 +335,12 @@ _TURTLE_SCALING_SOURCE = (
     "Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449)."
 )
 _TURTLE_SCALING_CITE = "painted turtle trios (Bergeron 2023)"
+# The human scaling, shared with E7 (config.E7.scaling_source), which fits
+# the same NA12878 psmcfa.
 _HUMAN_SCALING_SOURCE = (
-    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); "
-    "g 29 y: the mean human generation interval (Fenner 2005, Am J Phys Anthropol 128:415), "
-    "as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins et al. 2025 (Nat Genet 57:856). "
-    "The psmc-rs 0.1 runs used g 25 (Li & Durbin 2011)."
+    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the "
+    "mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. "
+    "2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)"
 )
 _HUMAN_SCALING_CITE = "Scally & Durbin 2012; g: Fenner 2005"
 
@@ -344,11 +357,24 @@ REAL_GENOMES: Tuple[RealGenome, ...] = (
         "HLpelCas1", "HLpelCas1_diploid.psmcfa", "Pelusios castaneus",
         "Pelusios castaneus (HLpelCas1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
     ),
-    # One sequence, >chr1, of 2,487,383 bins: chromosome 1 only, not a genome.
+    # NA12878 (CEU; GIAB's HG001): chr1-22 of the 1000 Genomes 30x NYGC
+    # joint-called VCF, 22 sequences of 28,750,027 bins in all (GRCh38's
+    # lengths / 100; 59 trunks of 50 Mb), one gzip member per chromosome.
+    # E7's data stage made it (kg1000.py: the GRCh38 strict mask, every
+    # non-PASS position missing; assemble-samples): it is E7's
+    # inputs/psmcfa/NA12878.psmcfa.gz byte for byte, and sha256 is that
+    # file's entry in E7's MANIFEST.json. E7 bootstraps it too
+    # (E7.bootstrap_samples), and E2's bootstrap of it is E7's run, seed and
+    # settings (Fig 3a and Fig 7 show one band). The Papuan chromosome 1 E2
+    # fitted before (Papuan_highlands_diploid.psmcfa) stays in real_data for
+    # the top-level README's benchmarks, the Rust tests and the psmc-rs 0.1
+    # scripts (experiment/scripts/run_real_data.py).
     RealGenome(
-        "Papuan", "Papuan_highlands_diploid.psmcfa", "Homo sapiens",
-        "Homo sapiens (Papuan Highlands, chr1 only)", Scaling(1.25e-8, 29.0), _HUMAN_SCALING_SOURCE,
-        _HUMAN_SCALING_CITE,
+        "NA12878", "NA12878_1kGP30x_diploid.psmcfa.gz", "Homo sapiens",
+        "Homo sapiens (NA12878, CEU)", Scaling(1.25e-8, 29.0), _HUMAN_SCALING_SOURCE, _HUMAN_SCALING_CITE,
+        sequence_noun="chromosomes",
+        sha256="a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+        bootstrap_shared_with="E7",
     ),
 )
 
@@ -370,8 +396,10 @@ class E2:
     bootstrap_trunk_bins: int = 500_000  # psmc-rs default (splitfa's 50 Mb at 100 bp)
     # A second bootstrap, with trunks of the size E5 also calibrates (50,000
     # bins, 5 Mb), of every genome whose default trunks are fewer than
-    # ``few_trunks``: Papuan chr1 forms only 5 trunks of 50 Mb, so its default
-    # band rests on 5 resampling units. E5 calibrates bootstraps of 50 Mb
+    # ``few_trunks``, whose default band rests on that few resampling units.
+    # No genome of the production run has so few (NA12878 59, HLhydTec1 51,
+    # HLemySub1 897, HLpelCas1 1,220), so production runs none; the smoke and
+    # tiny profiles' prefixes do. E5 calibrates bootstraps of 50 Mb
     # chromosomes cut into 50 Mb and 5 Mb trunks; the turtles' default
     # bootstraps resample whole scaffolds of very different lengths (50%, 23%
     # and 97% of the bins of HLemySub1, HLhydTec1 and HLpelCas1 lie in
@@ -384,7 +412,8 @@ class E2:
     # replicate_rng(seed, i)). 50: the turtles' bootstraps were E2's critical
     # path on 7 threads.
     rs_threads: int = 50
-    # Seeds: seed("E2", sample_id, 0, "bootstrap") for the default trunks,
+    # Seeds: seed("E2", sample_id, 0, "bootstrap") for the default trunks
+    # (seed("E7", ...) for NA12878: RealGenome.bootstrap_shared_with),
     # seed("E2", sample_id, 0, "bootstrap/trunk<bins>") for the fine ones.
 
     # -- Settings of the E2 jobs and tables (experiments/e2.py) --------------
@@ -397,10 +426,11 @@ class E2:
     # ``grid.fixed_years`` is reported next to it.
     grid: TimeGrid = TimeGrid()
     display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (Fig 3)
-    panel_order: Tuple[str, ...] = ("Papuan", "HLemySub1", "HLhydTec1", "HLpelCas1")  # Fig 3 panels A-D
+    panel_order: Tuple[str, ...] = ("NA12878", "HLemySub1", "HLhydTec1", "HLpelCas1")  # Fig 3 panels A-D
     # Below this many trunks psmc-rs warns that the bands are coarse
-    # (FEW_TRUNKS in src/bin/psmc/run.rs); the tables and Fig 3 say so. Papuan
-    # chr1 (2.49 M bins) forms 5 trunks of the default 500,000 bins.
+    # (FEW_TRUNKS in src/bin/psmc/run.rs); the tables and Fig 3 say so. Of
+    # the production genomes HLhydTec1 forms the fewest trunks of the default
+    # 500,000 bins, 51 (NA12878's chr1-22: 59).
     few_trunks: int = 20
 
     # -- The split-first-window check (E2_split_patterns, figS_turtle_patterns) --
@@ -914,11 +944,7 @@ _KG_MASK = ("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_ge
 _GIAB = ("https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/"
          "HG001_GRCh38_1_22_v4.2.1_benchmark")
 
-_KG_SCALING_SOURCE = (
-    "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the "
-    "mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. "
-    "2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)"
-)
+_KG_SCALING_SOURCE = _HUMAN_SCALING_SOURCE  # E2's, whose NA12878 is the same psmcfa
 
 
 @dataclass(frozen=True)
@@ -1022,6 +1048,8 @@ class E7:
     scaling_source: str = _KG_SCALING_SOURCE
     inference: Inference = INFERENCE
     fit_threads: int = 1
+    # E2's bootstrap of NA12878 is this one (RealGenome.bootstrap_shared_with):
+    # E2 plans it only with these replicates, trunks and inference.
     bootstrap_samples: Tuple[str, ...] = ("NA18507", "NA19239", "NA12878")
     bootstrap_replicates: int = 100
     bootstrap_trunk_bins: int = 500_000  # psmc-rs's default (splitfa's 50 Mb): about 60 trunks of chr1-22
@@ -1146,10 +1174,10 @@ PRODUCTION = Profile(name="production")
 # iterations everywhere.
 # - E1: 2 models x 2 replicates x 2 chromosomes of 2 Mb.
 # - E2: the first 20 Mb (200,000 bins) of each of the four genomes (job
-#   E2/subset/<sample>; the real genomes hold 0.25 to 1.94 Gb and C psmc
-#   needs about 50 minutes for each turtle), 4 bootstrap replicates on 2 Mb
-#   trunks: 10 per genome, so each genome also gets the second bootstrap, on
-#   trunks of 0.5 Mb.
+#   E2/subset/<sample>; the real genomes hold 1.85 to 2.88 Gb and C psmc
+#   needs about 50 minutes for each turtle and 70 for NA12878), 4 bootstrap
+#   replicates on 2 Mb trunks: 10 per genome, so each genome also gets the
+#   second bootstrap, on trunks of 0.5 Mb.
 # - E3: genomes of 2 and 4 Mb (chromosomes of 2 Mb), 1 repeat, every run
 #   kept whatever the machine does (QUICK_TIMING).
 # - E4: 1 replicate of 2 x 2 Mb.
@@ -1180,7 +1208,7 @@ SMOKE = Profile(
 # tiny: for the unit tests (seconds per experiment), 2 EM iterations.
 # - E1: one replicate of one model, one chromosome of 300 kb; a second
 #   psmc-rs fit with M-steps capped at 5 iterations exercises that arm.
-# - E2: the first 2 Mb of the human chromosome and of one turtle, 2
+# - E2: the first 2 Mb of NA12878 (of its chr1) and of one turtle, 2
 #   bootstrap replicates on 500 kb trunks (and on 100 kb trunks).
 # - E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats, and
 #   psmc-rs 0.2 with M-steps capped at 5 iterations.
@@ -1200,7 +1228,7 @@ TINY = Profile(
     name="tiny",
     e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=_TINY_INFERENCE,
           default_mstep_iters=5),
-    e2=E2(genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("Papuan", "HLhydTec1")), inference=_TINY_INFERENCE,
+    e2=E2(genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("NA12878", "HLhydTec1")), inference=_TINY_INFERENCE,
           bootstrap_replicates=2, bootstrap_trunk_bins=5_000, fine_trunk_bins=1_000, rs_threads=2, max_bins=20_000),
     e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=_TINY_INFERENCE,
           rs01_threads=(1,), rs02_threads=(1, 2), rs02_default_threads=(1,), default_mstep_iters=5,

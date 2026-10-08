@@ -81,7 +81,7 @@ from .. import config, kg1000, metrics, paths, provenance, results, tools
 from ..runner import Job
 from . import Context
 from .e1 import write_csv
-from .e2 import band, fitted_window, main_fit_mismatch, summary_difference
+from .e2 import band, fitted_window, main_fit_mismatch, psmcfa_lengths, summary_difference
 from .e5 import main_fit_difference, trunk_count
 
 NAME = "E7"
@@ -461,16 +461,6 @@ def giab_compare(vcf: Path, truth: Path, truth_bed: Path, mask: Path, chromosome
 # ---------------------------------------------------------------------------
 
 
-def psmcfa_gz_lengths(path: Path) -> Tuple[int, ...]:
-    """The bins of each record of a gzipped psmcfa (concatenated members too)."""
-    data = gzip.decompress(Path(path).read_bytes())
-    out = []
-    for chunk in data.split(b">")[1:]:
-        _, _, body = chunk.partition(b"\n")
-        out.append(len(body.translate(None, b" \t\r\n")))
-    return tuple(out)
-
-
 def run_record(path: Path) -> Dict:
     try:
         return json.loads(Path(path).read_text()).get("run", {})
@@ -680,7 +670,7 @@ def bootstrap_rows(lay: Layout, cfg: config.E7, sf: SampleFits) -> Tuple[Dict, L
     lo, med, hi = band(curves, grid, (cfg.band[0], 0.5, cfg.band[1]))
     rs_ne = sf.curves["rs-psmcfa"].at(grid)
     c_ne = sf.curves["c"].at(grid) if "c" in sf.curves else None
-    lengths = psmcfa_gz_lengths(lay.data.psmcfa(sid))
+    lengths = psmcfa_lengths(lay.data.psmcfa(sid))  # gzip, one member per chromosome
     row = {
         **_who(sf.sample), "replicates": len(reps), "skipped_replicates": len(skipped), "seed": summary.get("seed"),
         "trunk_bins": cfg.bootstrap_trunk_bins, "trunk_mb": cfg.bootstrap_trunk_bins * bin_size / 1e6,
@@ -817,5 +807,5 @@ if __name__ == "__main__":
 
 __all__ = [
     "Intervals", "Layout", "NAME", "ROUTES", "SampleFits", "TABLES", "bootstrap_seed", "classify", "giab_compare",
-    "jobs", "load_sample", "pop_band_rows", "psmcfa_gz_lengths", "ready", "report", "vcf_fit_args",
+    "jobs", "load_sample", "pop_band_rows", "ready", "report", "vcf_fit_args",
 ]

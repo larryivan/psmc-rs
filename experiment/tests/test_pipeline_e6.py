@@ -126,7 +126,7 @@ class RunsLayout(unittest.TestCase):
         lay = e6.Layout(ROOT / "experiment" / "runs" / "E6")
         rel = lambda p: Path(p).relative_to(ROOT).as_posix()  # noqa: E731
         kept = [lay.s2_fit("constant", 1, "vcf"), lay.s2_fit_psmc("constant", 1, "multihetsep"),
-                lay.s3_decode("bottleneck", 1), lay.s5_qc("Papuan"), lay.table("s3", "track"),
+                lay.s3_decode("bottleneck", 1), lay.s5_qc("NA12878"), lay.table("s3", "track"),
                 lay.root / "figures" / "figS3_tmrca_decoding.pdf", lay.root / "provenance" / "s3" / "report.json"]
         dropped = [lay.s2_vcf_psmcfa("constant", 1), lay.s2_multihetsep("constant", 1), lay.s2_mhs_psmcfa("zigzag", 1),
                    lay.s3_true_track("bottleneck", 1), lay.s3_posterior("bottleneck", 1),
@@ -174,7 +174,10 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(s3["all"]["decoded_model_is_e1_fit"], "True")
         self.assertGreater(float(s3["all"]["pearson_log10_mean"]), 0.3)
         qc = read_csv(lay.table("s5", "qc"))
-        self.assertIn("chr1 only", qc[-1]["label"])
+        # S5 reads E2's packaged files whole, even in the tiny profile: NA12878's chr1-22.
+        human = next(g for g in config.TINY.e2.genomes if g.sample_id == "NA12878")
+        self.assertEqual((qc[-1]["sample_id"], qc[-1]["label"]), ("NA12878", human.label))
+        self.assertEqual((qc[-1]["sequences"], qc[-1]["bins"]), ("22", "28750027"))
         self.assertTrue(all("/Users/" not in p.read_text() for part in e6.PARTS for p in lay.tables(part)))
 
 

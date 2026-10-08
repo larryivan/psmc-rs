@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import importlib.util
 import json
 import math
@@ -19,7 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from experiment.pipeline import config, demography, paths, results, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, available, e2  # noqa: E402
+from experiment.pipeline.experiments import Context, available, e2, e5, e7  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
@@ -55,9 +56,9 @@ class Config(unittest.TestCase):
         self.assertEqual((cfg.bootstrap_replicates, cfg.bootstrap_trunk_bins), (100, 500_000))
         self.assertEqual(cfg.inference, config.INFERENCE)
         self.assertEqual(sorted(cfg.panel_order), sorted(g.sample_id for g in cfg.genomes))
-        papuan = genome("Papuan")
-        self.assertIn("chr1 only", papuan.label)
-        self.assertEqual((papuan.scaling.mu, papuan.scaling.gen_years), (1.25e-8, 29.0))
+        human = genome("NA12878")
+        self.assertEqual(human.label, "Homo sapiens (NA12878, CEU)")
+        self.assertEqual((human.scaling.mu, human.scaling.gen_years), (1.25e-8, 29.0))
         for sid in ("HLemySub1", "HLhydTec1", "HLpelCas1"):
             self.assertEqual((genome(sid).scaling.mu, genome(sid).scaling.gen_years), (4.6e-9, 15.0))
 
@@ -80,7 +81,7 @@ class Config(unittest.TestCase):
     def test_smoke_and_tiny_fit_prefixes(self):
         self.assertEqual(config.get_profile("smoke").e2.max_bins, 200_000)
         tiny = config.get_profile("tiny").e2
-        self.assertEqual({g.sample_id for g in tiny.genomes}, {"Papuan", "HLhydTec1"})
+        self.assertEqual({g.sample_id for g in tiny.genomes}, {"NA12878", "HLhydTec1"})
         self.assertLess(tiny.bootstrap_trunk_bins, tiny.max_bins)
         self.assertEqual(config.get_profile("smoke").e1, config.SMOKE.e1)
 
@@ -94,13 +95,12 @@ class Jobs(unittest.TestCase):
         self.by_id = {j.id: j for j in self.jobs}
 
     def test_four_jobs_per_genome_then_the_report(self):
-        # Papuan chr1 forms 5 default trunks (< 20): it gets the second bootstrap, on 5 Mb trunks. Each
-        # turtle gets two split-first-window fits.
-        self.assertEqual(len(self.jobs), 4 * 4 + 1 + 3 * 2 + 1)
-        self.assertIn("E2/boot-rs/trunk50000/Papuan", self.by_id)
-        self.assertNotIn("E2/boot-rs/trunk50000/HLhydTec1", self.by_id)  # 51 default trunks
+        # Every genome forms at least 20 default trunks (NA12878 59, the turtles 51 to 1,220), so none gets
+        # the second bootstrap on 5 Mb trunks. Each turtle gets two split-first-window fits.
+        self.assertEqual(len(self.jobs), 4 * 4 + 3 * 2 + 1)
+        self.assertFalse([j.id for j in self.jobs if j.id.startswith("E2/boot-rs/trunk50000/")])
         g = runner.Graph(self.jobs, self.runs)
-        self.assertEqual(g.deps["E2/fit-c/Papuan"], [])  # reads the packaged file
+        self.assertEqual(g.deps["E2/fit-c/NA12878"], [])  # reads the packaged file
         report = set(g.deps["E2/report"])
         kinds = ("fit-c", "fit-rs", "boot-rs", "qc", "fit-rs-split2", "fit-rs-split1")
         self.assertEqual(report, {j.id for j in self.jobs if j.id.split("/")[1] in kinds})
@@ -116,8 +116,12 @@ class Jobs(unittest.TestCase):
         self.assertEqual(c.settings["inference"], rs.settings["inference"])
         # C psmc is given no scaling: its command does not change with mu and g.
         self.assertNotIn("--mu", c.command)
-        papuan = self.by_id["E2/fit-rs/Papuan"]
-        self.assertEqual(papuan.command[papuan.command.index("--gen-years") + 1], "29")
+        human = self.by_id["E2/fit-rs/NA12878"]
+        self.assertEqual(human.command[human.command.index("--gen-years") + 1], "29")
+        # Both tools read the packaged gzip file itself (C psmc and psmc-rs read gzip).
+        packaged = paths.REAL_DATA / "NA12878_1kGP30x_diploid.psmcfa.gz"
+        self.assertEqual(self.by_id["E2/fit-c/NA12878"].inputs, [packaged])
+        self.assertEqual(human.inputs, [packaged])
 
     def test_split_first_window_fits(self):
         lay = e2.Layout(self.runs / "E2")
@@ -137,12 +141,12 @@ class Jobs(unittest.TestCase):
                 self.assertEqual(job.settings["inference"], dict(rs.settings["inference"], pattern=pattern))
                 self.assertEqual(job.settings["scaling"], rs.settings["scaling"])
                 self.assertEqual(job.record_path(self.runs), lay.record(e2.split_kind(name), "HLpelCas1"))
-        self.assertFalse([j for j in self.jobs if j.id.startswith("E2/fit-rs-split") and j.id.endswith("/Papuan")])
+        self.assertFalse([j for j in self.jobs if j.id.startswith("E2/fit-rs-split") and j.id.endswith("/NA12878")])
 
     def test_bootstrap_job(self):
-        boot = self.by_id["E2/boot-rs/trunk500000/Papuan"]
+        boot = self.by_id["E2/boot-rs/trunk500000/HLhydTec1"]
         cmd = boot.command
-        seed = config.seed("E2", "Papuan", 0, "bootstrap")
+        seed = config.seed("E2", "HLhydTec1", 0, "bootstrap")
         self.assertEqual(boot.seeds, {"bootstrap": seed})
         self.assertEqual(cmd[cmd.index("--bootstrap-seed") + 1], str(seed))
         self.assertEqual(cmd[cmd.index("--bootstrap") + 1], "100")
@@ -152,14 +156,54 @@ class Jobs(unittest.TestCase):
         self.assertEqual(boot.mem_gb, 10.0)  # one replicate per thread at once
         lay = e2.Layout(self.runs / "E2")
         # Replicates are not declared: psmc-rs may skip one, and the report reads those the summary names.
-        self.assertEqual(boot.outputs, [lay.boot_main("Papuan", 500_000), lay.boot_summary("Papuan", 500_000),
-                                        lay.boot_summary("Papuan", 500_000, "tsv")])
-        self.assertNotEqual(seed, config.seed("E2", "HLhydTec1", 0, "bootstrap"))
-        fine = self.by_id["E2/boot-rs/trunk50000/Papuan"]
-        self.assertEqual(fine.command[fine.command.index("--bootstrap-block-size") + 1], "50000")
-        self.assertEqual(fine.seeds, {"bootstrap": config.seed("E2", "Papuan", 0, "bootstrap/trunk50000")})
+        self.assertEqual(boot.outputs, [lay.boot_main("HLhydTec1", 500_000), lay.boot_summary("HLhydTec1", 500_000),
+                                        lay.boot_summary("HLhydTec1", 500_000, "tsv")])
+        self.assertNotEqual(seed, config.seed("E2", "HLpelCas1", 0, "bootstrap"))
+        # NA12878's chr1-22 form 59 default trunks: no second bootstrap.
+        lengths = e2.input_lengths(config.PRODUCTION.e2, genome("NA12878"))
+        self.assertEqual((len(lengths), sum(lengths)), (22, 28_750_027))
+        self.assertEqual(e5.trunk_count(lengths, 500_000), 59)
+        self.assertEqual(e2.trunk_sizes(config.PRODUCTION.e2, lengths), [500_000])
+        # One sequence the size of chromosome 1 (5 trunks) would get it.
         self.assertEqual(e2.trunk_sizes(config.PRODUCTION.e2, [2_487_383]), [500_000, 50_000])
         self.assertEqual(e2.trunk_sizes(config.PRODUCTION.e2, [600_000] * 30), [500_000])
+
+    def test_na12878_bootstrap_is_e7s(self):
+        # Fig 3a and Fig 7 show one band for NA12878: E2 bootstraps E7's psmcfa of it (byte for byte) as E7 does,
+        # with E7's seed, replicates, trunks and iterations (threads aside: psmc-rs's output does not depend on them).
+        p = config.PRODUCTION
+        human = genome("NA12878")
+        self.assertEqual(human.bootstrap_shared_with, "E7")
+        self.assertIn("NA12878", p.e7.bootstrap_samples)
+        self.assertEqual([g.sample_id for g in p.e2.genomes if g.bootstrap_shared_with], ["NA12878"])
+        self.assertEqual(e2.shared_bootstrap_differences(p, human), ())
+        self.assertEqual(p.e2.inference, p.e7.inference)
+        boot = self.by_id[f"E2/boot-rs/trunk{p.e7.bootstrap_trunk_bins}/NA12878"]
+        self.assertEqual(boot.seeds, {"bootstrap": e7.bootstrap_seed("NA12878")})
+        self.assertEqual(e7.bootstrap_seed("NA12878"), config.seed("E7", "NA12878", 0, "bootstrap"))
+        self.assertEqual(boot.settings["bootstrap"], {"replicates": p.e7.bootstrap_replicates,
+                                                      "trunk_bins": p.e7.bootstrap_trunk_bins,
+                                                      "iterations": p.e7.inference.n_iter})
+        # The command is the one E7 builds, but for the input's and outputs' paths and the threads.
+        lay, trunk = e2.Layout(self.runs / "E2"), p.e7.bootstrap_trunk_bins
+        self.assertEqual(boot.command, tools.rs02_fit(
+            FAKE_RS, p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file, lay.boot_main("NA12878", trunk),
+            threads=p.e2.rs_threads, extra=e7.bootstrap_args(p.e7, "NA12878", lay.boot_dir("NA12878", trunk)),
+        ))
+        # One bootstrap: none on fine trunks, whose seed would be E2's own.
+        self.assertEqual([j.id for j in self.jobs if j.id.startswith("E2/boot-rs/") and j.id.endswith("/NA12878")],
+                         [boot.id])
+        self.assertEqual(e2.bootstrap_seed(p.e2, human, 50_000),
+                         config.seed("E2", "NA12878", 0, "bootstrap/trunk50000"))
+        # E2 does not plan a whole-file bootstrap whose settings would differ from E7's.
+        for e7_cfg, what in ((replace(p.e7, bootstrap_replicates=200), "replicates"),
+                             (replace(p.e7, bootstrap_trunk_bins=50_000), "trunk_bins"),
+                             (replace(p.e7, inference=replace(p.e7.inference, n_iter=30)), "inference")):
+            with self.subTest(differing=what):
+                other = replace(p, e2=replace(p.e2, genomes=(human,)), e7=e7_cfg)
+                self.assertEqual(e2.shared_bootstrap_differences(other, human), (what,))
+                with self.assertRaisesRegex(ValueError, f"NA12878 with E7's seed, but with other {what}"):
+                    e2.jobs(fake_ctx(other, self.runs))
 
     def test_qc_job_checks_the_bootstrap_trunks(self):
         qc = self.by_id["E2/qc/HLpelCas1"]
@@ -173,7 +217,7 @@ class Jobs(unittest.TestCase):
         self.assertGreater(c.est_seconds, 30 * 60)
         # The bootstraps' 50 threads need a cluster node (an EPYC 7702 node: 128 cores, 503 GB), not the
         # laptop's default budget.
-        self.assertEqual(runner.fits_budget(self.by_id["E2/boot-rs/trunk500000/Papuan"], config.Budget()),
+        self.assertEqual(runner.fits_budget(self.by_id["E2/boot-rs/trunk500000/NA12878"], config.Budget()),
                          "needs 50 cores, budget 7")
         budget = config.Budget(cores=128, mem_gb=480.0)
         for j in self.jobs:
@@ -184,10 +228,17 @@ class Jobs(unittest.TestCase):
 
     def test_smoke_profile_fits_prefixes_written_by_a_job(self):
         jobs = {j.id: j for j in e2.jobs(fake_ctx(config.SMOKE, self.runs))}
-        subset = jobs["E2/subset/Papuan"]
+        subset = jobs["E2/subset/NA12878"]
+        self.assertEqual(subset.inputs, [paths.REAL_DATA / "NA12878_1kGP30x_diploid.psmcfa.gz"])
         self.assertEqual(subset.command[-2:], ["--max-bins", "200000"])
-        self.assertEqual(jobs["E2/fit-c/Papuan"].inputs, subset.outputs)
-        self.assertEqual(jobs["E2/fit-c/Papuan"].mem_gb, round(0.1 + 0.0105 * 20, 2))
+        self.assertEqual(subset.outputs, [self.runs / "E2" / "inputs" / "NA12878.psmcfa"])  # written plain
+        self.assertEqual(jobs["E2/fit-c/NA12878"].inputs, subset.outputs)
+        self.assertEqual(jobs["E2/fit-c/NA12878"].mem_gb, round(0.1 + 0.0105 * 20, 2))  # 20 Mb of chr1
+        # The prefix forms 10 trunks of 20,000 bins (< 20): a second bootstrap, on trunks of 5,000.
+        fine = jobs["E2/boot-rs/trunk5000/NA12878"]
+        self.assertEqual(fine.inputs, subset.outputs)
+        self.assertEqual(fine.command[fine.command.index("--bootstrap-block-size") + 1], "5000")
+        self.assertEqual(fine.seeds, {"bootstrap": config.seed("E2", "NA12878", 0, "bootstrap/trunk5000")})
 
 
 class Psmcfa(unittest.TestCase):
@@ -224,6 +275,33 @@ class Psmcfa(unittest.TestCase):
         res = subprocess.run([sys.executable, "-m", e2.MODULE, "subset", str(self.src), str(dst), "--max-bins", "80"],
                              cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(e2.psmcfa_lengths(dst), (75, 5))
+
+    def gzip_copy(self, name: str) -> Path:
+        """The source compressed one gzip member per record, as E7 writes one per chromosome."""
+        dst = self.tmp / name
+        dst.write_bytes(b"".join(gzip.compress(b">" + r) for r in self.src.read_bytes().split(b">")[1:]))
+        return dst
+
+    def test_gzip_reads_as_the_plain_file(self):
+        gz = self.gzip_copy("in.psmcfa.gz")
+        self.assertEqual((e2.is_gzip(gz), e2.is_gzip(self.src)), (True, False))
+        self.assertEqual(e2.psmcfa_lengths(gz), (75, 0, 80, 10))
+        self.assertEqual(list(e2.read_psmcfa(gz)), list(e2.read_psmcfa(self.src)))
+        # Told by its first bytes, not by its name.
+        self.assertEqual(e2.psmcfa_lengths(self.gzip_copy("named.psmcfa")), (75, 0, 80, 10))
+
+    def test_prefix_of_a_gzip_file_is_plain(self):
+        gz = self.gzip_copy("in.psmcfa.gz")
+        shape = e2.write_psmcfa_prefix(gz, self.tmp / "from_gz.psmcfa", 100)
+        e2.write_psmcfa_prefix(self.src, self.tmp / "from_plain.psmcfa", 100)
+        self.assertEqual(shape, e2.Shape(2, 100, 75))
+        self.assertEqual((self.tmp / "from_gz.psmcfa").read_bytes(), (self.tmp / "from_plain.psmcfa").read_bytes())
+        dst = self.tmp / "cli.psmcfa"
+        res = subprocess.run([sys.executable, "-m", e2.MODULE, "subset", str(gz), str(dst), "--max-bins", "80"],
+                             cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertFalse(e2.is_gzip(dst))
         self.assertEqual(e2.psmcfa_lengths(dst), (75, 5))
 
 
@@ -393,58 +471,59 @@ class Tables(unittest.TestCase):
 
     def test_tool_comparison(self):
         pairs = {r["sample_id"]: r for r in read_csv(self.lay.table("pairs"))}
-        self.assertEqual(float(pairs["Papuan"]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.0)
+        self.assertEqual(float(pairs["NA12878"]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.0)
         self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c_per_interval"]), math.log10(2),
                                places=12)
         self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c_per_interval_fixed"]), math.log10(2),
                                places=12)
         self.assertAlmostEqual(float(pairs["HLhydTec1"]["max_abs_log10_ne_rs_vs_c_per_interval"]), math.log10(2),
                                places=12)
-        self.assertEqual(float(pairs["Papuan"]["loglike_iteration0_rel_diff"]), 0.0)
-        self.assertEqual(pairs["Papuan"]["bootstrap_main_identical"], "True")
-        lo, hi = float(pairs["Papuan"]["window_lo_years"]), float(pairs["Papuan"]["window_hi_years"])
+        self.assertEqual(float(pairs["NA12878"]["loglike_iteration0_rel_diff"]), 0.0)
+        self.assertEqual(pairs["NA12878"]["bootstrap_main_identical"], "True")
+        lo, hi = float(pairs["NA12878"]["window_lo_years"]), float(pairs["NA12878"]["window_hi_years"])
         fit = results.parse_psmc(C_REF).last().fit()
-        self.assertEqual((lo, hi), e2.fitted_window(fit, genome("Papuan").scaling, 100, (0.01, 0.99)))
+        self.assertEqual((lo, hi), e2.fitted_window(fit, genome("NA12878").scaling, 100, (0.01, 0.99)))
         self.assertLess(lo, hi)
 
     def test_bootstrap_summary(self):
         rows = read_csv(self.lay.table("bootstrap"))
         # 20,000 bins of each genome: 4 trunks of 5,000 bins (< 20), so a second bootstrap on 1,000-bin trunks.
         self.assertEqual({(r["sample_id"], r["trunk_bins"]) for r in rows},
-                         {(s, t) for s in ("Papuan", "HLhydTec1") for t in ("5000", "1000")})
+                         {(s, t) for s in ("NA12878", "HLhydTec1") for t in ("5000", "1000")})
         fine = {r["sample_id"]: r for r in rows if r["default_trunks"] == "False"}
-        self.assertEqual((fine["Papuan"]["trunks"], fine["Papuan"]["coarse_band"]), ("20", "False"))
-        self.assertEqual(fine["Papuan"]["seed"], str(config.seed("E2", "Papuan", 0, "bootstrap/trunk1000")))
+        self.assertEqual((fine["NA12878"]["trunks"], fine["NA12878"]["coarse_band"]), ("20", "False"))
+        self.assertEqual(fine["NA12878"]["seed"], str(config.seed("E2", "NA12878", 0, "bootstrap/trunk1000")))
         boot = {r["sample_id"]: r for r in rows if r["default_trunks"] == "True"}
-        self.assertEqual(boot["Papuan"]["replicates"], "3")
-        self.assertEqual((boot["Papuan"]["trunks"], boot["Papuan"]["coarse_band"]), ("4", "True"))  # 4 < 20
-        self.assertEqual(boot["Papuan"]["seed"], str(config.seed("E2", "Papuan", 0, "bootstrap")))
-        self.assertLess(float(boot["Papuan"]["summary_max_rel_diff"]), 1e-12)
+        self.assertEqual(boot["NA12878"]["replicates"], "3")
+        self.assertEqual((boot["NA12878"]["trunks"], boot["NA12878"]["coarse_band"]), ("4", "True"))  # 4 < 20
+        self.assertEqual(boot["NA12878"]["seed"], str(config.seed("E7", "NA12878", 0, "bootstrap")))  # E7's
+        self.assertEqual(boot["HLhydTec1"]["seed"], str(config.seed("E2", "HLhydTec1", 0, "bootstrap")))
+        self.assertLess(float(boot["NA12878"]["summary_max_rel_diff"]), 1e-12)
         # The replicates are 1.1 to 1.3 times the main curve, which lies below the band.
-        self.assertEqual(float(boot["Papuan"]["rs_in_band_fraction"]), 0.0)
+        self.assertEqual(float(boot["NA12878"]["rs_in_band_fraction"]), 0.0)
         width = math.log10(1.3 - 0.005) - math.log10(1.1 + 0.005)
-        self.assertAlmostEqual(float(boot["Papuan"]["band_width_log10_median"]), width, places=9)
-        reps = [r for r in read_csv(self.lay.table("replicates")) if r["sample_id"] == "Papuan" and r["trunk_bins"] == "5000"]
+        self.assertAlmostEqual(float(boot["NA12878"]["band_width_log10_median"]), width, places=9)
+        reps = [r for r in read_csv(self.lay.table("replicates")) if r["sample_id"] == "NA12878" and r["trunk_bins"] == "5000"]
         self.assertEqual([r["replicate"] for r in reps], ["1", "2", "3"])
         self.assertEqual(len(reps[0]["lam"].split()), 28)
 
     def test_fit_summary_scaling_and_qc(self):
         rows = read_csv(self.lay.table("fit_summary"))
         self.assertEqual({(r["sample_id"], r["tool"]) for r in rows},
-                         {(s, t) for s in ("Papuan", "HLhydTec1") for t in ("c", "rs")})
-        papuan = next(r for r in rows if r["sample_id"] == "Papuan" and r["tool"] == "c")
-        self.assertEqual((papuan["mu"], papuan["gen_years"]), ("1.25e-08", "29.0"))
-        self.assertIn("chr1", papuan["label"])
-        self.assertEqual(papuan["loglike_final"], "")  # C psmc never evaluates its final model
+                         {(s, t) for s in ("NA12878", "HLhydTec1") for t in ("c", "rs")})
+        human = next(r for r in rows if r["sample_id"] == "NA12878" and r["tool"] == "c")
+        self.assertEqual((human["mu"], human["gen_years"]), ("1.25e-08", "29.0"))
+        self.assertEqual(human["label"], genome("NA12878").label)
+        self.assertEqual(human["loglike_final"], "")  # C psmc never evaluates its final model
         qc = {r["sample_id"]: r for r in read_csv(self.lay.table("qc"))}
-        self.assertEqual(qc["Papuan"]["warnings"], "TOO_SHORT")
-        self.assertEqual(qc["Papuan"]["notes"], "HET_OUTLIER")
-        self.assertEqual(qc["Papuan"]["scope"], "1 sequence (chr1 only)")
+        self.assertEqual(qc["NA12878"]["warnings"], "TOO_SHORT")
+        self.assertEqual(qc["NA12878"]["notes"], "HET_OUTLIER")
+        self.assertEqual(qc["NA12878"]["scope"], "1 sequence (chr1 only)")  # the stand-in qc names one sequence
         findings = read_csv(self.lay.table("qc_findings"))
         self.assertEqual(len(findings), 4)
 
     def test_bands_and_curves(self):
-        bands = [r for r in read_csv(self.lay.table("bands")) if r["sample_id"] == "Papuan"]
+        bands = [r for r in read_csv(self.lay.table("bands")) if r["sample_id"] == "NA12878"]
         self.assertEqual(len(bands), 2 * self.profile.e2.display_years[2])  # two trunk sizes
         self.assertTrue(any(r["in_window"] == "True" for r in bands))
         self.assertTrue(all(float(r["ne_band_lo"]) <= float(r["ne_band_hi"]) for r in bands))
@@ -453,7 +532,7 @@ class Tables(unittest.TestCase):
 
     def test_split_first_window_table(self):
         rows = {r["pattern_name"]: r for r in read_csv(self.lay.table("split"))}
-        self.assertEqual(list(rows), ["default", "split2", "split1"])  # HLhydTec1 only: Papuan is not a turtle
+        self.assertEqual(list(rows), ["default", "split2", "split1"])  # HLhydTec1 only: NA12878 is not a turtle
         self.assertEqual({r["sample_id"] for r in rows.values()}, {"HLhydTec1"})
         self.assertEqual([rows[k]["free_lambdas"] for k in rows], ["28", "29", "31"])
         self.assertEqual(rows["split1"]["pattern"], "1+1+1+1+25*2+4+6")
@@ -479,7 +558,7 @@ class Tables(unittest.TestCase):
         rows = {(r["sample_id"], r["tool"]): r for r in read_csv(self.lay.table("fit_summary"))}
         self.assertEqual(rows[("HLhydTec1", "rs")]["scaling_cite"], genome("HLhydTec1").scaling_cite)
         self.assertIn("Bergeron et al. 2023", rows[("HLhydTec1", "c")]["scaling_source"])
-        self.assertIn("Fenner 2005", rows[("Papuan", "c")]["scaling_source"])
+        self.assertIn("Fenner 2005", rows[("NA12878", "c")]["scaling_source"])
 
 
 @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
@@ -550,24 +629,24 @@ class BootstrapMainFit(unittest.TestCase):
         inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
         self.profile = replace(config.TINY, e2=replace(config.TINY.e2, inference=inference, bootstrap_replicates=3))
         self.lay = write_stand_in_outputs(self.runs, self.profile.e2)
-        g = genome("Papuan")
-        self.main = self.lay.boot_main("Papuan", e2.trunk_sizes(self.profile.e2, e2.input_lengths(self.profile.e2, g))[0])
+        g = genome("NA12878")
+        self.main = self.lay.boot_main("NA12878", e2.trunk_sizes(self.profile.e2, e2.input_lengths(self.profile.e2, g))[0])
         self.params = json.loads(self.main.read_text())
 
     def test_a_qc_record_of_the_bootstrap_trunks_is_not_a_difference(self):
         self.params["qc"]["warnings"].append("SHORT_SEQUENCES")
         self.main.write_text(json.dumps(self.params))
         e2.report(Context(self.profile, self.runs))
-        rows = [r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "Papuan"]
+        rows = [r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "NA12878"]
         self.assertTrue(all(r["main_identical_to_fit"] == "True" for r in rows))
         self.assertTrue(all(float(r["main_fit_max_abs_diff"]) == 0.0 for r in rows))
 
     def test_a_different_fit_fails_the_report_after_writing_the_tables(self):
         self.params["theta"] *= 1.0 + 1e-12
         self.main.write_text(json.dumps(self.params))
-        with self.assertRaisesRegex(ValueError, "Papuan trunk5000: theta"):
+        with self.assertRaisesRegex(ValueError, "NA12878 trunk5000: theta"):
             e2.report(Context(self.profile, self.runs))
-        row = next(r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "Papuan")
+        row = next(r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "NA12878")
         self.assertEqual((row["main_identical_to_fit"], row["main_fit_fields_differing"]), ("False", "theta"))
 
 def in_git_work_tree() -> bool:
@@ -628,7 +707,7 @@ class EndToEnd(unittest.TestCase):
         runs = tiny_runs.runs_dir()
         lay = e2.Layout(runs / "E2")
         pairs = {r["sample_id"]: r for r in read_csv(lay.table("pairs"))}
-        self.assertEqual(set(pairs), {"Papuan", "HLhydTec1"})
+        self.assertEqual(set(pairs), {"NA12878", "HLhydTec1"})
         for sid, row in pairs.items():
             # The first iteration's log-likelihood equals C psmc's to its printed precision.
             self.assertLess(float(row["loglike_iteration0_rel_diff"]), 1e-8, sid)
@@ -638,8 +717,8 @@ class EndToEnd(unittest.TestCase):
             self.assertLess(float(row["summary_max_rel_diff"]), 1e-9, row["sample_id"])
             self.assertEqual(row["main_identical_to_fit"], "True", row["sample_id"])
         trunks = {(r["sample_id"], r["trunk_bins"]): int(r["trunks"]) for r in rows}
-        self.assertEqual(trunks[("Papuan", "5000")], 4)  # 20,000 bins in trunks of 5,000
-        self.assertEqual(trunks[("Papuan", "1000")], 20)
+        self.assertEqual(trunks[("NA12878", "5000")], 4)  # 20,000 bins in trunks of 5,000
+        self.assertEqual(trunks[("NA12878", "1000")], 20)
         # The split-first-window fits of the turtle: the same input as fit-rs, their own patterns.
         split = read_csv(lay.table("split"))
         self.assertEqual([(r["sample_id"], r["pattern"]) for r in split],

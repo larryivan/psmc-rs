@@ -1,10 +1,11 @@
 """E2: real genomes (Fig 3).
 
 For every genome of :class:`.config.E2` (three turtle assemblies and the
-chromosome 1 of a Papuan Highlands human, which is not a whole genome) the
-runner fits the packaged psmcfa (``experiment/real_data``) with C psmc and
-with psmc-rs 0.2 (the identical file and settings), fits psmc-rs's
-C-compatible bootstrap, runs ``psmc-rs qc``, and then writes the tables
+human NA12878's chr1-22, E7's psmcfa of that sample) the runner fits the
+packaged psmcfa (``experiment/real_data``, plain or gzip-compressed; both
+tools read either) with C psmc and with psmc-rs 0.2 (the identical file
+and settings), fits psmc-rs's C-compatible bootstrap, runs ``psmc-rs
+qc``, and then writes the tables
 (Figure 3 is drawn from them by ``figures/fig3.py``, job ``FIG/fig3_real_genomes``).
 Layout under ``<runs>/E2/``::
 
@@ -59,20 +60,27 @@ B --bootstrap-block-size T --bootstrap-seed S``: psmc-rs fits the main model
 again, then B replicates, each drawing splitfa trunks of T bins (default
 500,000, splitfa's 50 Mb) with replacement and fitted from a fresh start, as
 ``splitfa | psmc -b`` does. S is ``config.seed("E2", sample_id, 0,
-"bootstrap")``. psmc-rs's output does not depend on ``--threads``, so
+"bootstrap")``, but NA12878's bootstrap is E7's run of the same psmcfa
+(``RealGenome.bootstrap_shared_with``): E7's seed, ``seed("E7", "NA12878",
+0, "bootstrap")``, with E7's replicates, trunks and iterations (E2 refuses
+to plan the whole file with other settings), so that Fig 3a and Fig 7 show
+the identical band. psmc-rs's output does not depend on ``--threads``, so
 ``main.json`` must hold ``fit-rs``'s fit exactly: every field of
 :data:`MAIN_FIT_FIELDS` (parameters, log-likelihoods, iterations, pattern)
 equal. Its ``qc`` record may differ, since it describes the input as the
 run cut it (a bootstrap adds SHORT_SEQUENCES where sequences are shorter
 than its trunks). The report writes its tables and then fails when a main
-fit differs. A genome whose default trunks are fewer than ``few_trunks`` (Papuan
-chr1: 5 trunks of 50 Mb) is bootstrapped a second time with trunks of
-``fine_trunk_bins`` (5 Mb, a size E5 calibrates), seed stage
-``bootstrap/trunk<B>``. E5 calibrates bootstraps of chromosome-scale
-sequences; the turtles' default bootstraps resample whole scaffolds of
-very different lengths (``bins_below_trunk_fraction`` of
-``E2_bootstrap.csv``: 50%, 23% and 97% of their bins lie in scaffolds
-shorter than a trunk), which E5 does not calibrate. The job
+fit differs. A genome whose default trunks are fewer than ``few_trunks`` is
+bootstrapped a second time with trunks of ``fine_trunk_bins`` (5 Mb, a size
+E5 calibrates), seed stage ``bootstrap/trunk<B>``. No genome of the
+production run is (NA12878 forms 59 default trunks, the turtles 51 to
+1,220); the smoke and tiny profiles' prefixes are. E5 calibrates bootstraps
+of chromosome-scale sequences cut into trunks, as NA12878's are (its 22
+chromosomes cut at 50 Mb; only chr21, 1.6% of its bins, is shorter than a
+trunk); the turtles' default bootstraps resample whole scaffolds of very
+different lengths (``bins_below_trunk_fraction`` of ``E2_bootstrap.csv``:
+50%, 23% and 97% of their bins lie in scaffolds shorter than a trunk),
+which E5 does not calibrate. The job
 declares ``main.json`` and the summary only: psmc-rs skips a replicate
 whose fresh start is invalid, and the report reads exactly the replicates
 the summary names. The replicates' parameters (``replicate_NNN.json``) are
@@ -134,13 +142,15 @@ Tables (``tables/``):
   ``figS_turtle_patterns``).
 
 Run ``python -m experiment.pipeline.experiments.e2 subset SRC DST
---max-bins N`` to write the first N bins of a psmcfa (the ``subset`` job).
+--max-bins N`` to write the first N bins of a psmcfa, plain or gzip, to a
+plain psmcfa (the ``subset`` job).
 """
 
 from __future__ import annotations
 
 import argparse
 import functools
+import gzip
 import json
 import math
 import sys
@@ -191,11 +201,21 @@ class Shape:
     longest: int
 
 
+GZIP_MAGIC = b"\x1f\x8b"
+
+
+def is_gzip(path: Path) -> bool:
+    """Whether a file is gzip-compressed, told by its first two bytes as psmc-rs tells it (not by its name)."""
+    with open(path, "rb") as f:
+        return f.read(2) == GZIP_MAGIC
+
+
 def read_psmcfa(path: Path) -> Iterator[Tuple[str, str]]:
-    """``(header, bins)`` of each record of a psmcfa file, in order (header without '>')."""
+    """``(header, bins)`` of each record of a psmcfa file, plain or gzip, in order (header without '>')."""
     name: Optional[str] = None
     chunks: List[str] = []
-    with open(path, encoding="ascii") as f:
+    opened = gzip.open(path, "rt", encoding="ascii") if is_gzip(path) else open(path, encoding="ascii")
+    with opened as f:
         for line in f:
             if line.startswith(">"):
                 if name is not None:
@@ -210,6 +230,8 @@ def read_psmcfa(path: Path) -> Iterator[Tuple[str, str]]:
 @functools.lru_cache(maxsize=None)
 def _record_lengths(path: str, size: int, mtime_ns: int) -> Tuple[int, ...]:
     data = Path(path).read_bytes()
+    if data[:2] == GZIP_MAGIC:
+        data = gzip.decompress(data)  # every member: E7 writes one per chromosome
     out = []
     for chunk in data.split(b">")[1:]:
         _, _, body = chunk.partition(b"\n")
@@ -218,7 +240,7 @@ def _record_lengths(path: str, size: int, mtime_ns: int) -> Tuple[int, ...]:
 
 
 def psmcfa_lengths(path: Path) -> Tuple[int, ...]:
-    """The bins of each record of a psmcfa file (cached by size and modification time)."""
+    """The bins of each record of a psmcfa file, plain or gzip (cached by size and modification time)."""
     st = Path(path).stat()
     return _record_lengths(str(Path(path).resolve()), st.st_size, st.st_mtime_ns)
 
@@ -248,8 +270,10 @@ def input_shape(lengths: Sequence[int], max_bins: Optional[int] = None) -> Shape
 def write_psmcfa_prefix(src: Path, dst: Path, max_bins: int) -> Shape:
     """Write the first ``max_bins`` bins of ``src`` to ``dst``, laid out as fq2psmcfa writes them.
 
-    Records are kept in order with their headers; the last one is cut and
-    empty ones are left out (as :func:`prefix_lengths`). Written atomically.
+    ``src`` may be plain or gzip; ``dst`` is plain (the fits read it as
+    is). Records are kept in order with their headers; the last one is cut
+    and empty ones are left out (as :func:`prefix_lengths`). Written
+    atomically.
     """
     if max_bins < 1:
         raise ValueError(f"max_bins must be >= 1, got {max_bins}")
@@ -362,7 +386,29 @@ def bootstrap_stage(cfg: config.E2, trunk: int) -> str:
 
 
 def bootstrap_seed(cfg: config.E2, genome: config.RealGenome, trunk: int) -> int:
-    return config.seed(NAME, genome.sample_id, 0, bootstrap_stage(cfg, trunk))
+    """E2's seed of a bootstrap; at the default trunks, that of the experiment the genome shares its bootstrap with."""
+    stage = bootstrap_stage(cfg, trunk)
+    experiment = (genome.bootstrap_shared_with or NAME) if stage == "bootstrap" else NAME
+    return config.seed(experiment, genome.sample_id, 0, stage)
+
+
+def shared_bootstrap_differences(profile: config.Profile, genome: config.RealGenome) -> Tuple[str, ...]:
+    """The settings in which E2's default bootstrap of a genome and that of the experiment it shares it with differ.
+
+    Replicates, trunks and inference (the replicates' iterations among it);
+    not threads, on which psmc-rs's output does not depend. Empty when the
+    genome shares no bootstrap.
+    """
+    other = genome.bootstrap_shared_with
+    if other is None:
+        return ()
+    mine, theirs = profile.e2, getattr(profile, other.lower())
+    pairs = {
+        "replicates": (mine.bootstrap_replicates, theirs.bootstrap_replicates),
+        "trunk_bins": (mine.bootstrap_trunk_bins, theirs.bootstrap_trunk_bins),
+        "inference": (mine.inference, theirs.inference),
+    }
+    return tuple(name for name, (a, b) in pairs.items() if a != b)
 
 
 def input_lengths(cfg: config.E2, genome: config.RealGenome) -> Tuple[int, ...]:
@@ -414,6 +460,10 @@ def jobs(ctx: Context) -> List[Job]:
     report_inputs: List[Path] = []
     for g in cfg.genomes:
         sid = g.sample_id
+        differing = shared_bootstrap_differences(ctx.profile, g) if cfg.max_bins is None else ()
+        if differing:
+            raise ValueError(f"E2 bootstraps {sid} with {g.bootstrap_shared_with}'s seed, but with other "
+                             f"{', '.join(differing)}: the two bands would differ")
         src = source(g)
         shape = input_shape(psmcfa_lengths(src), cfg.max_bins)
         mb, longest_mb = shape.bins * bin_mb, shape.longest * bin_mb
@@ -1179,8 +1229,8 @@ if __name__ == "__main__":
 
 __all__ = [
     "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "below_trunk_fraction",
-    "boot_kind", "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "jobs",
+    "boot_kind", "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "is_gzip", "jobs",
     "load_genome", "load_split", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "recent_shape", "report",
-    "split_curve_rows", "split_fits", "split_inference", "split_kind", "split_rows", "summary_difference",
-    "trunk_sizes", "write_psmcfa_prefix",
+    "shared_bootstrap_differences", "split_curve_rows", "split_fits", "split_inference", "split_kind", "split_rows",
+    "summary_difference", "trunk_sizes", "write_psmcfa_prefix",
 ]

@@ -178,7 +178,7 @@ class Outputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "s.psmcfa.gz"
             p.write_bytes(gzip.compress(b">chr1\nTTKN\nT\n") + gzip.compress(b">chr2\nNN\n"))
-            self.assertEqual(e7.psmcfa_gz_lengths(p), (5, 2))
+            self.assertEqual(e7.psmcfa_lengths(p), (5, 2))  # e2's reader
 
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)

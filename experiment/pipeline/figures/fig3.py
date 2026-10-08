@@ -3,14 +3,17 @@
 One panel per genome, in ``config.E2.panel_order``, on a common time axis:
 C psmc's fit (orange, wider, underneath) and psmc-rs's (blue), the
 pointwise 95% band of psmc-rs's bootstrap at the default block size (blue,
-light) and, for a genome whose default blocks are few (Papuan chr1: 5
-blocks of 50 Mb), the band at 5 Mb blocks too (dark blue, dotted outline).
-The bootstrap resamples blocks: the genome's sequences split at the block
-size (splitfa's trunks; a remainder under 1.5 blocks stays in the last
-block), so the turtles' blocks are mostly whole scaffolds shorter than 50
-Mb. Each genome is scaled with its own mu and g, given in the panel with
-their source in a few words (``config.RealGenome.scaling_cite``; in full in
-``scaling_source``): the turtles with mu = 4.6e-9 per bp per generation,
+light) and, for a genome whose default blocks are few (fewer than
+psmc-rs's 20), the band at 5 Mb blocks too (dark blue, dotted outline); no
+genome of the production run has so few (NA12878: 59), only the smoke and
+tiny profiles' prefixes. The bootstrap resamples blocks: the genome's
+sequences split at the block size (splitfa's trunks; a remainder under 1.5
+blocks stays in the last block), so the turtles' blocks are mostly whole
+scaffolds shorter than 50 Mb, and the human's are its 22 chromosomes cut
+into 59 blocks of 50 Mb (``config.RealGenome.sequence_noun`` names the
+sequences). Each genome is scaled with its own mu and g, given in the
+panel with their source in a few words (``config.RealGenome.scaling_cite``;
+in full in ``scaling_source``): the turtles with mu = 4.6e-9 per bp per generation,
 the mean germline rate of nine *Chrysemys picta* (painted turtle) trios
 (Bergeron et al. 2023; no pleurodire rate has been measured), and g = 15
 years for all three species; the human with mu = 1.25e-8 (Scally & Durbin
@@ -22,11 +25,12 @@ gives the tools' difference on it, interval by interval (the RMSE of
 log10(Ne_rs,k / Ne_c,k) over C psmc's intervals in the window, weighted by
 their log-time width, and the largest), and the bootstrap's replicates and
 blocks. The Ne axis covers the fits and the bands inside the window, except
-a coarse band (fewer blocks than psmc-rs's 20), which is clipped where it
-reaches beyond (the panel then says so). The notes have no box: room is
-kept for them above and below the data, and a box would cover the grey of
-the times outside the window. The human sample is chromosome 1 only, and
-the panel says so.
+a coarse band (fewer blocks than psmc-rs's 20; none in the production
+run), which is clipped where it reaches beyond (the panel then says so).
+The notes have no box: room is kept for them above and below the data, and
+a box would cover the grey of the times outside the window. The human
+genome is NA12878's chr1-22, the psmcfa E7 fits for that sample, and the
+panel names the sample (``config.RealGenome.label``).
 
 Everything comes from E2's tables: ``E2_curves`` (the fits), ``E2_bands``
 (the bands, on a dense grid), ``E2_bootstrap`` (replicates, blocks),
@@ -70,18 +74,19 @@ def sci(x: float) -> str:
     return rf"{float(mant):g}$\times$10$^{{{int(exp)}}}$"
 
 
-def trunk_text(row, sequences: Optional[int] = None) -> str:
-    """``897 blocks: 889 scaffolds split at 50 Mb``, or ``5 blocks of 50 Mb`` of one sequence (and a warning when few).
+def trunk_text(row, sequences: Optional[int] = None, noun: str = "scaffolds") -> str:
+    """``59 blocks: 22 chromosomes split at 50 Mb``, or ``4 blocks of 0.5 Mb`` of one sequence (and a warning when few).
 
     psmc-rs's bootstrap, as splitfa, resamples blocks of the sequences
     split at the block size; a sequence shorter than that is one block.
+    ``noun`` says what the sequences are (``config.RealGenome.sequence_noun``).
     """
     mb = float(row.trunk_mb)
     blocks = int(row.trunks)
     if sequences == 1:
         text = f"{blocks:,} blocks of {mb:g} Mb"
     else:
-        what = "sequences" if sequences is None else f"{sequences:,} scaffolds"
+        what = "sequences" if sequences is None else f"{sequences:,} {noun}"
         text = f"{blocks:,} blocks: {what} split at {mb:g} Mb"
     return text + " (few: coarse)" if str(row.coarse_band) == "True" else text
 
@@ -164,7 +169,7 @@ def draw(src: Source):
                  f"RMSE {fmt_sig(float(pair.rmse_log10_ne_rs_vs_c_per_interval))}, "
                  f"max {fmt_sig(float(pair.max_abs_log10_ne_rs_vs_c_per_interval))}"]
         for row in mine.itertuples():
-            lines.append(f"{int(row.replicates)} replicates, {trunk_text(row, sequences)}")
+            lines.append(f"{int(row.replicates)} replicates, {trunk_text(row, sequences, gnm.sequence_noun)}")
         # Room for the notes, which are not to cover the curves or the bands
         # (they have no box, which would cover the grey of the times outside
         # the window): the top notes above the data, the bottom ones below it.

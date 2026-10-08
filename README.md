@@ -791,7 +791,7 @@ The suite compares psmc-rs with the original tools' outputs, stored under
   `tests/psmc_out_plot.rs`: the `.psmc` output line by line against C's,
   C's expectations (`post_sigma`, Q) and psmc_plot.pl's reading of the file.
 - `tests/io_text_psmcfa_c.rs`: psmcfa parsing against C psmc's counts on the
-  real data in `experiment/real_data`.
+  turtle and Papuan psmcfa files in `experiment/real_data`.
 - `tests/io_route_a.rs`: consensus mode against goldens made with
   `bcftools call -c | vcfutils.pl vcf2fq | fq2psmcfa`, and multihetsep output
   against `generate_multihetsep.py`, byte for byte.

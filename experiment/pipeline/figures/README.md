@@ -80,14 +80,20 @@ so that it can be turned into the caption. Captions should also say:
   generation, from the range of the *C. picta* trios up to the crocodilian
   rate the psmc-rs 0.1 runs used, Green et al. 2014; g 12-20 years) span a
   factor of about 2.6 on both axes, and a further factor of 0.8-1.33 on
-  the time axis. The human
-  sample is chromosome 1 only. The bootstrap resamples blocks: the
+  the time axis. The human genome is NA12878 (CEU; GIAB's HG001), chr1-22 of
+  the 1000 Genomes 30x NYGC joint call with the GRCh38 strict mask and every
+  non-PASS position missing: E7's psmcfa of that sample, byte for byte. Fig
+  7's NA12878 panel fits the same psmcfa with the same settings, so its
+  curves are Fig 3's, and E2 bootstraps it with E7's seed, replicates,
+  trunks and iterations (`config.RealGenome.bootstrap_shared_with`), so
+  its band is Fig 3's too. The bootstrap resamples blocks: the
   sequences split at 50 Mb (splitfa's trunks), so most of the turtles'
-  blocks are whole scaffolds. A genome whose default blocks are fewer than
-  20 (Papuan chr1: 5 of 50 Mb) is bootstrapped again on 5 Mb blocks (dark
-  dotted outline); its coarse 50 Mb band does not set the Ne axis and is
-  clipped where it reaches beyond it (the panel says so). E5 calibrates
-  chromosome-scale blocks only.
+  blocks are whole scaffolds and NA12878's are its 22 chromosomes cut into
+  59 blocks. A genome whose default blocks are fewer than 20 is bootstrapped
+  again on 5 Mb blocks (dark dotted outline), and its coarse 50 Mb band does
+  not set the Ne axis and is clipped where it reaches beyond it (the panel
+  says so); no genome of the production run has so few, so Fig 3 has
+  neither. E5 calibrates chromosome-scale blocks only.
 - **Fig 3 and the turtle patterns**: the turtle curves use the pattern
   `4+25*2+4+6`, under which Hilgers et al. 2025 (Curr Biol 35:927) found
   false recent peaks of Ne in all their turtles (and across many PSMC

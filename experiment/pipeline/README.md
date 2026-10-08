@@ -269,34 +269,56 @@ psmc-rs 112 to 133 s (1.4 hours) and 84 MB, the simulations 0.5 hours.
 
 ## E2: real genomes
 
-The four genomes of `experiment/real_data` (`config.REAL_GENOMES`): the
+Four genomes of `experiment/real_data` (`config.REAL_GENOMES`): the
 turtles HLemySub1 (*Emydura subglobosa*), HLhydTec1 (*Hydromedusa
 tectifera*) and HLpelCas1 (*Pelusios castaneus*), scaled with mu 4.6e-9 per
 bp per generation, the mean germline rate of nine *Chrysemys picta* trios
 (Bergeron et al. 2023, Nature 615:285; a cryptodire's rate: no pleurodire
 rate has been measured) and g 15 years for all three (close to Sozzoni et
 al. 2025's 15.9 for *P. castaneus* and 12.4 for *E. subglobosa*; *H.
-tectifera* has none published), and chromosome 1 of a Papuan Highlands
-human (*Homo sapiens*, chr1 only: every table and figure says so), scaled
-with mu 1.25e-8 (Scally & Durbin 2012) and g 29 years (Fenner 2005, as in
-Bergström et al. 2020 and Cousins et al. 2025). `config.RealGenome.scaling_source`
-gives the citations in full, and `E2_fit_summary.csv` repeats them. The
-psmc-rs 0.1 runs used mu 7.9e-9 for the turtles, a crocodilian rate (Green
-et al. 2014), and g 25 for the human. Per genome: `fit-c` (C
+tectifera* has none published), and the human NA12878 (*Homo sapiens*,
+CEU; GIAB's HG001), scaled as E7 scales it, with mu 1.25e-8 (Scally &
+Durbin 2012) and g 29 years (Fenner 2005, as in Bergström et al. 2020 and
+Cousins et al. 2025). NA12878's file, `NA12878_1kGP30x_diploid.psmcfa.gz`,
+is its whole genome, chr1-22 (22 sequences, 28,750,027 bins, one gzip
+member per chromosome): the psmcfa E7's data stage makes from the 1000
+Genomes 30x NYGC joint-called VCF, with the GRCh38 strict mask and every
+non-PASS position missing, and E7's `inputs/psmcfa/NA12878.psmcfa.gz` byte
+for byte (`config.RealGenome.sha256` is that file's SHA-256 in E7's
+`MANIFEST.json`, and a test checks the committed file against it). Both
+tools read the gzip file as it is. E7 fits the same file with the same
+settings (`fit-c`, `fit-rs-psmcfa`), and E2's bootstrap of it is E7's
+`boot-rs` run, with E7's seed, replicates, trunks and iterations
+(`config.RealGenome.bootstrap_shared_with`), so Fig 3a and Fig 7 show the
+identical band.
+`real_data/Papuan_highlands_diploid.psmcfa`, the chromosome 1 of a Papuan
+Highlands human that E2 fitted before, stays for the top-level README's
+benchmarks, the Rust tests and the psmc-rs 0.1 scripts
+(`experiment/scripts/run_real_data.py`); E2 does not read it.
+`config.RealGenome.scaling_source` gives the citations in full, and
+`E2_fit_summary.csv` repeats them. The psmc-rs 0.1 runs used mu 7.9e-9 for
+the turtles, a crocodilian rate (Green et al. 2014), and g 25 for the
+Papuan chromosome 1. Per genome: `fit-c` (C
 psmc), `fit-rs` (psmc-rs 0.2, the identical file and settings),
 `boot-rs/trunk500000` (psmc-rs 0.2 with `--bootstrap 100` on the default
 trunks of 500,000 bins, splitfa's 50 Mb; seed `seed("E2", sample, 0,
-"bootstrap")`; the bootstrap run's main fit must be `fit-rs`'s fit, every
-parameter, log-likelihood, iteration count and the pattern equal, and the
+"bootstrap")`, NA12878's `seed("E7", "NA12878", 0, "bootstrap")`; the
+bootstrap run's main fit must be `fit-rs`'s fit, every parameter,
+log-likelihood, iteration count and the pattern equal, and the
 report fails otherwise; its `qc` record may differ, since a bootstrap adds
 SHORT_SEQUENCES where sequences are shorter than its trunks) and `qc` (`psmc-rs qc --json`). A genome whose default trunks are
-fewer than 20 (Papuan chr1: 5) is bootstrapped a second time on 5 Mb trunks
+fewer than 20 is bootstrapped a second time on 5 Mb trunks
 (`boot-rs/trunk50000`, seed stage `bootstrap/trunk50000`), the size E5
-also calibrates. E5's calibration applies to chromosome-scale sequences cut
-into trunks; the turtles' default bootstraps resample whole scaffolds of
-very different lengths (889, 34 and 1,220 sequences; 50%, 23% and 97% of
-their bins lie in scaffolds shorter than a trunk), a regime E5 does not
-calibrate.
+also calibrates. No genome of the production run is: NA12878's chromosomes
+form 59 trunks of 50 Mb (only chr21, 1.6% of its bins, is shorter than a
+trunk) and the turtles 51 to 1,220, so production runs no second
+bootstrap; the smoke and tiny profiles' prefixes (one sequence of 10 and 4
+trunks) do. E5's calibration applies to chromosome-scale sequences cut
+into trunks, as NA12878's are (trunks of 50 Mb, the size of E5's default
+arm, and 59 of them, about as many as its 5 Mb arm's 60); the turtles'
+default bootstraps resample whole scaffolds of very different lengths
+(889, 34 and 1,220 sequences; 50%, 23% and 97% of their bins lie in
+scaffolds shorter than a trunk), a regime E5 does not calibrate.
 
 **Split-first-window check** (the turtles). Hilgers et al. 2025 (Curr Biol
 35:927) found false recent peaks of Ne in PSMC curves across many studies,
@@ -339,24 +361,34 @@ files are not committed), `qc/`, `provenance/`, `tables/`, `figures/`;
 `inputs/` (smoke and tiny profiles: the first bins of each genome) and
 `logs/` are not committed.
 
-**Cost** (`plan E2`): 24 jobs, about 35 CPU hours (the five bootstrap runs
-32, each on 50 threads, one replicate per thread, so the runner needs
-`--cores 50`; C psmc 2.5, up to 49 minutes and 3.4 GB for HLhydTec1; the
-six split-first-window fits 0.6), about 1.6 hours alone on 50 cores. The
+**Cost** (`plan E2`): 23 jobs, about 47 CPU hours (the four bootstrap
+runs 42.5, each on 50 threads, one replicate per thread, so the runner
+needs `--cores 50`, NA12878's the longest at about 17 minutes; C psmc 3.6,
+up to 72 minutes for NA12878, and 3.4 GB for HLhydTec1; the six
+split-first-window fits 0.6), about 2.1 hours alone on 50 cores. The
 bootstraps' output does not depend on their threads (replicate i draws
-from its own seed). Measured on Ibex, before the split-first-window fits:
+from its own seed). Measured on Ibex in the earlier run, with the Papuan
+chromosome 1 in place of NA12878 and before the split-first-window fits:
 43.8 CPU hours; the bootstrap runs 40.3 (934 to 979 s each for the turtles,
 159 and 169 s for Papuan, at most 1.4 GB), C psmc 3.1 (3,419 to 3,610 s
 for the turtles and 475 s for Papuan, at most 3.3 GB, HLhydTec1's), psmc-rs
 0.4 (414 to 439 s for the turtles and 54 s for Papuan, at most 86 MB).
 
-**Re-run after the scaling change.** psmc-rs is given mu and g (`--mu`,
-`--gen-years`) for its own report, so the turtles' new mu and Papuan's new g
-change the commands of every `fit-rs` and `boot-rs` job, and the runner runs
-them again (4 fits and 5 bootstrap runs, about 41 CPU hours on Ibex); their
-fitted parameters do not depend on mu or g. C psmc is given neither: `fit-c`
-and `qc` stay done. The six split-first-window fits are new, and `report`
-and the figures follow.
+**Re-run after the scaling and genome changes.** psmc-rs is given mu and g
+(`--mu`, `--gen-years`) for its own report, so the turtles' new mu changes
+the commands of their `fit-rs` and `boot-rs` jobs, and the runner runs
+them again (3 fits and 3 bootstrap runs); their fitted parameters do not
+depend on mu or g. C psmc is given neither: the turtles' `fit-c` and `qc`
+stay done. NA12878's `fit-c`, `fit-rs`, `boot-rs/trunk500000` and `qc`,
+E6's S5 `qc` of it and the six split-first-window fits are new. The
+re-run, these with the turtles' 3 fits and 3 bootstrap runs, takes about
+45 CPU hours by `config.Costs` (NA12878's jobs and the split-first-window
+fits about 16). `report`, E6's S5 report and the figures follow. The
+Papuan jobs have left the graph, and the runner does not delete their
+outputs: remove `runs/E2/fits/Papuan.*`,
+`runs/E2/qc/Papuan.*`, `runs/E2/bootstrap/Papuan/`, every
+`runs/E2/provenance/**/Papuan.json`, `runs/E6/qc/s5/Papuan.json` and
+`runs/E6/provenance/s5/qc/Papuan.json` before the runs are committed.
 
 ## E3: performance
 
@@ -738,7 +770,10 @@ chromosome, and the pilot (chr21) must give, for the three samples, the same
 psmcfa byte for byte as `psmc-rs convert --vcf-sample` on the whole joint
 VCF. `assemble-samples` joins the chromosomes and writes `MANIFEST.json`
 (sources, tool versions, commands, checks and the SHA-256 of every output:
-the psmcfa files and the manifest are the Zenodo deliverable). A chromosome
+the psmcfa files and the manifest are the Zenodo deliverable). NA12878's
+psmcfa is also E2's human genome, committed as
+`experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (the same
+SHA-256). A chromosome
 is either streamed by region over HTTPS (`chunk`) or, where one connection
 is slow, downloaded to node-local disk in parallel byte ranges, MD5
 checked, and processed there (`chrom`; on Ibex 0.4 to 1.7 MB/s per
@@ -812,7 +847,7 @@ back.
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | CPU hours measured on Ibex | limits |
 | --- | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | 13.0 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
-| E2 | 24 | 35 | 1.6 (50 cores) | 43.8 (before the 6 split-first-window fits) | bootstraps on 50 threads: `--cores 50`; C psmc up to 49 min (Ibex: 60) and 3.4 GB |
+| E2 | 23 | 47 | 2.1 (50 cores) | 43.8 (the earlier run, with the Papuan chromosome 1 and without the 6 split-first-window fits) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
 | E3 | 160 | 95 | 21 (exclusive) | not yet run | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
@@ -825,14 +860,15 @@ on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
 the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost a few
 ms per EM iteration (allowed 0.02 s), its E-steps the rest. E3 alone takes
 about 21 hours (psmc-rs 0.1's M-steps of 1000 forward-mode iterations and C
-psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 1.5 hours on 50
+psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 2.1 hours on 50
 cores and 64 GB (E2's bootstraps dominate; E2 cannot start on fewer than 50
-cores): about 22 hours in all, either way. Every job is resumable: `stop`
+cores): about 23 hours in all, either way. Every job is resumable: `stop`
 (or a crash, or a reboot) and `start` again rerun only what is not done, at
 most the jobs that were running.
 
 The production run of E1, E2, E4, E5 and E6 (`experiment/slurm`'s `prod`
-job on one Ibex node, a runner budget of 62 cores and 180 GB) ran its 572
+job on one Ibex node, a runner budget of 62 cores and 180 GB; E2 and E6's
+S5 then had the Papuan chromosome 1 in place of NA12878) ran its 572
 jobs in 1 hour 48 minutes, 81 CPU hours in all; the measured costs above
 come from its provenance records and `runs/_runner/runner.log` (not
 committed). Its jobs shared the node with one another (1-minute load

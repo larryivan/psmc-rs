@@ -95,7 +95,9 @@ callable bases, so the model changes nothing there.
   `real_data/Papuan_highlands_diploid.psmcfa` holds one sequence, `>chr1`,
   of 2,487,383 bins (about 249 Mb). The tables and the notebook now label it
   "Homo sapiens (Papuan Highlands, chr1)"; the committed Figure 3 files still
-  carry the old title until they are redrawn.
+  carry the old title until they are redrawn. The new pipeline's E2 fits a
+  whole human genome instead, NA12878's chr1-22
+  (`real_data/NA12878_1kGP30x_diploid.psmcfa.gz`).
 - The stdpopsim and msprime versions used for the 0.1 simulations were not
   recorded. The simulation scripts now print them into the command logs.
 
@@ -117,7 +119,8 @@ experiment/
 │   ├── run_supplementary.py
 │   └── exp_common.py
 ├── tests/                          # python3 -m unittest discover -s experiment/tests
-├── real_data/                      # input psmcfa of the four empirical samples
+├── real_data/                      # input psmcfa: the three turtles, the Papuan chr1 (this pipeline),
+│                                   #   NA12878's chr1-22, gzip (the new pipeline's E2)
 ├── assets/ui/                      # screenshots for Supplementary Figure S3
 └── runs/
     ├── main_text/    {inputs,outputs,perf,logs,tables,figures}
