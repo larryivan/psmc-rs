@@ -1,0 +1,108 @@
+{
+  "digest": "b77fd8accac0b9a61a2e9e23d91242ff6be76694c36cce7285e70aec18fc138b",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<runs>/E6/sims/s2/zigzag/rep01/genome.multihetsep",
+      "<runs>/E6/fits/s2/zigzag/rep01.multihetsep.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "2.5e-08",
+      "--gen-years",
+      "25",
+      "--threads",
+      "1",
+      "--no-progress",
+      "--psmc-out",
+      "<runs>/E6/fits/s2/zigzag/rep01.multihetsep.psmc",
+      "--input-format",
+      "mhs"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E6/sims/s2/zigzag/rep01/genome.multihetsep": "7a8943ed118d3d83e14e01eba0aafceffb440ee186a1918cf3f1a0c62bf27bae"
+    },
+    "job": "E6/s2/fit-multihetsep/zigzag/rep01",
+    "seeds": {},
+    "settings": {
+      "formats": [
+        "--input-format",
+        "mhs"
+      ],
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "scaling": {
+        "gen_years": 25.0,
+        "mu": 2.5e-08
+      },
+      "threads": 1
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E6/fits/s2/zigzag/rep01.multihetsep.json": "13986f4baf50c578826bf5e222b2dd88a763066a6e76191cf383aa217aeac732",
+    "<runs>/E6/fits/s2/zigzag/rep01.multihetsep.psmc": "7ade8d591c84f26cffdb1cd00b15cdb2acca548eba82bd70b1cb07868a59afc8"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:27:12",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      51.95,
+      60.17,
+      51.89
+    ],
+    "loadavg_before": [
+      59.57,
+      63.07,
+      51.59
+    ],
+    "maxrss_main_mb": 83.6,
+    "mem_gb": 0.7,
+    "peak_rss_mb": 83.6,
+    "peak_rss_tree_sampled_mb": 9.3,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:25:19",
+    "system_seconds": 0.035,
+    "user_seconds": 109.767,
+    "wall_seconds": 112.562
+  }
+}

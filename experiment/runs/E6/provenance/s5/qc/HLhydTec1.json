@@ -1,0 +1,77 @@
+{
+  "digest": "f11d2b85b69007af9db242f79025adb74db0a07d2257567bb8936d8c2aa34db8",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "qc",
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa",
+      "--json",
+      "<runs>/E6/qc/s5/HLhydTec1.json",
+      "--bin-size",
+      "100",
+      "--bootstrap-block-size",
+      "500000"
+    ],
+    "env": {},
+    "inputs": {
+      "<repo>/experiment/real_data/HLhydTec1_diploid.psmcfa": "5088d51c1df2064ab869e95479f41c6fa8b62a36c63b656d44728efdb6eb1d59"
+    },
+    "job": "E6/s5/qc/HLhydTec1",
+    "seeds": {},
+    "settings": {
+      "options": [
+        "--bin-size",
+        "100",
+        "--bootstrap-block-size",
+        "500000"
+      ]
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E6/qc/s5/HLhydTec1.json": "c03607c7743debf7a149c6a3c2eb57145ae611421969e67e1d602d3a1f10bc03"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:04:23",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      9.22,
+      5.52,
+      4.86
+    ],
+    "loadavg_before": [
+      4.8,
+      4.6,
+      4.56
+    ],
+    "maxrss_main_mb": 76.5,
+    "mem_gb": 0.5,
+    "peak_rss_mb": 76.5,
+    "peak_rss_tree_sampled_mb": 0.0,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:04:17",
+    "system_seconds": 0.013,
+    "user_seconds": 0.163,
+    "wall_seconds": 5.074
+  }
+}

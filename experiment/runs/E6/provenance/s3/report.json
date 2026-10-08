@@ -1,0 +1,103 @@
+{
+  "digest": "de68ab1ebc1952c745a465adbe57daa7270e79fa5b19f3b570d6f36b24b0f91b",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.experiments.e6",
+      "report",
+      "--part",
+      "s3",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E1/fits/bottleneck/rep01.rs.json": "ff9649a69153a8769e78370ab6c9691556092a2e67e4b2a6553d539ca673613d",
+      "<runs>/E1/truth/bottleneck/rep01.json": "6491bbde2d8fcbf2429459970853e4836ccef18906ec78094987b32fdd7fba3b",
+      "<runs>/E6/fits/s3/bottleneck/rep01.decode.json": "6af3bfc1b944b1c5ff8e8b72cf55b03ae83505365ffa502d3920011e790a7e99",
+      "<runs>/E6/sims/s3/bottleneck/rep01/posterior.tsv.gz": "42e673cad4ced03f7ea33275ebbde031d750c43e8b14c6f7af41a71be4766185",
+      "<runs>/E6/sims/s3/bottleneck/rep01/tmrca_true.tsv.gz": "4a18747f22ac1433ad8f61597378eec59cf50868e2bd0f05135bcbd2c4174229"
+    },
+    "job": "E6/s3/report",
+    "seeds": {},
+    "settings": {
+      "e1": {
+        "genome": {
+          "chromosome_length": 50000000,
+          "n_chromosomes": 10
+        },
+        "inference": {
+          "bin_size": 100,
+          "mstep_iters": 1000,
+          "n_iter": 25,
+          "pattern": "4+25*2+4+6",
+          "smooth_lambda": 0.0,
+          "t_max": 15.0,
+          "tr_ratio": 5.0
+        },
+        "scaling": {
+          "gen_years": 25.0,
+          "mu": 2.5e-08
+        }
+      },
+      "e6": {
+        "tmrca_calibration_classes": 10,
+        "tmrca_density_cells": 60,
+        "tmrca_example_chrom": "chr1",
+        "tmrca_example_start_bp": 0,
+        "tmrca_example_track_bp": 5000000,
+        "tmrca_interval": 0.95,
+        "tmrca_model": "bottleneck",
+        "tmrca_replicate": 1
+      }
+    },
+    "tools": {
+      "pipeline": {
+        "code": "4bcd18057c2f4cde68182b0a911a942cfa739189c2ab514824f61d7c1b62452a",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13",
+        "scipy": "1.18.1"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E6/tables/E6_S3_calibration.csv": "379c913760b1bcaba303c2e25150014359a667e0205395b3953554b3ba21b083",
+    "<runs>/E6/tables/E6_S3_density.csv": "8bebe3d9f0a16f5cd40842352754d973d9e704d195d98da39e2fcff46e7364bd",
+    "<runs>/E6/tables/E6_S3_summary.csv": "9ad9738455cc06711dc5e6d2fe7bab91f1456df9345ea2b2e42b7bc0f2254074",
+    "<runs>/E6/tables/E6_S3_track.csv": "1125635902667284372361872e5c06a6a4835d118d548e95eafdd4c00dc3810b"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-08T13:52:52",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn511-19",
+    "loadavg_after": [
+      116.08,
+      122.18,
+      124.29
+    ],
+    "loadavg_before": [
+      116.23,
+      122.41,
+      124.39
+    ],
+    "maxrss_main_mb": 1263.8,
+    "mem_gb": 2.5,
+    "peak_rss_mb": 1263.8,
+    "peak_rss_tree_sampled_mb": 881.3,
+    "slurm_job_id": "53467834",
+    "start": "2026-10-08T13:52:42",
+    "system_seconds": 1.596,
+    "user_seconds": 7.492,
+    "wall_seconds": 9.702
+  }
+}
