@@ -58,6 +58,19 @@ class Jobs(unittest.TestCase):
         kg1000.write_json(kg1000.layout(self.runs).manifest, {})
         self.assertTrue(e7_figs <= {j.id for j in fig.jobs(self.ctx)})
 
+    def test_e7s_figures_from_its_tables_without_its_inputs(self):
+        # Committed runs hold E7's tables but not the data stage's inputs (MANIFEST.json among them).
+        from experiment.pipeline import figures
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        fs = figures.spec("fig7")
+        self.assertNotIn("FIG/fig7_1000_genomes", {j.id for j in fig.jobs(self.ctx)})
+        for key in fs.tables:
+            p = SCHEMAS[key].path(self.runs)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("x\n")
+        self.assertIn("FIG/fig7_1000_genomes", {j.id for j in fig.jobs(self.ctx)})
+
     def test_a_figure_runs_after_the_tables_it_reads(self):
         jobs = e1.jobs(self.ctx) + fig.jobs(self.ctx)
         g = runner.Graph(jobs, self.runs)

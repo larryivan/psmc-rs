@@ -38,19 +38,23 @@ def font_identity() -> Dict[str, str]:
 
 
 def declared(fs: figures.FigureSpec, ctx: Context) -> bool:
-    """Whether every experiment the figure reads has jobs: it is implemented, and ready if it says when.
+    """Whether the figure can be drawn: every experiment it reads is implemented, and ready if it says when.
 
     An experiment whose inputs come from outside the runner (E7's data
     stage) has a ``ready(ctx)``; until then it has no jobs, and its figures
-    none either (they would wait for tables no job writes).
+    none either (they would wait for tables no job writes), unless the
+    tables the figure reads are there already (committed runs, copied
+    without the data stage's inputs).
     """
+    tables_there = not figures.missing_tables(fs, ctx.runs_dir)
     for exp in fs.sources:
         if exp not in REGISTRY:
             return False
         ready = getattr(module(exp), "ready", None)
-        if ready is not None and not ready(ctx):
+        if ready is not None and not ready(ctx) and not tables_there:
             return False
     return True
+
 
 
 def job(ctx: Context, fs: figures.FigureSpec, fonts: Dict[str, str]) -> Job:
