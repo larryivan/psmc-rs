@@ -1,0 +1,776 @@
+{
+  "exact": {
+    "file": "exact.psmcfa",
+    "counts": {
+      "T": 4752285,
+      "K": 247715,
+      "N": 0
+    },
+    "bins": 5000000
+  },
+  "routes": {
+    "fq2psmcfa": {
+      "chromosomes": [
+        {
+          "name": "chr1",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475770,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24230,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr2",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 474465,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 25535,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr3",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 474900,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 25100,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr4",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475694,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24306,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr5",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 473579,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 26421,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr6",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 476541,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 23459,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr7",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475281,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24719,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr8",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475608,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24392,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr9",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475131,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24869,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr10",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475316,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24684,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        }
+      ],
+      "extra_sequences": [],
+      "totals": {
+        "bins_exact": 5000000,
+        "bins_route": 5000000,
+        "differing": 0,
+        "differing_fraction": 0.0,
+        "identical": true,
+        "confusion": {
+          "T_T": 4752285,
+          "T_K": 0,
+          "T_N": 0,
+          "K_T": 0,
+          "K_K": 247715,
+          "K_N": 0,
+          "N_T": 0,
+          "N_K": 0,
+          "N_N": 0,
+          "other": 0,
+          "exact_only": 0,
+          "route_only": 0
+        }
+      },
+      "counts": {
+        "T": 4752285,
+        "K": 247715,
+        "N": 0
+      },
+      "file": "fq2psmcfa.psmcfa",
+      "bytes_identical": true
+    },
+    "multihetsep": {
+      "chromosomes": [
+        {
+          "name": "chr1",
+          "bins_exact": 500000,
+          "bins_route": 499767,
+          "present": true,
+          "identical": false,
+          "differing": 233,
+          "confusion": {
+            "T_T": 475537,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24230,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 233,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr2",
+          "bins_exact": 500000,
+          "bins_route": 499986,
+          "present": true,
+          "identical": false,
+          "differing": 14,
+          "confusion": {
+            "T_T": 474451,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 25535,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 14,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr3",
+          "bins_exact": 500000,
+          "bins_route": 499881,
+          "present": true,
+          "identical": false,
+          "differing": 119,
+          "confusion": {
+            "T_T": 474781,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 25100,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 119,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr4",
+          "bins_exact": 500000,
+          "bins_route": 499996,
+          "present": true,
+          "identical": false,
+          "differing": 4,
+          "confusion": {
+            "T_T": 475690,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24306,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 4,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr5",
+          "bins_exact": 500000,
+          "bins_route": 499962,
+          "present": true,
+          "identical": false,
+          "differing": 38,
+          "confusion": {
+            "T_T": 473541,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 26421,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 38,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr6",
+          "bins_exact": 500000,
+          "bins_route": 499992,
+          "present": true,
+          "identical": false,
+          "differing": 8,
+          "confusion": {
+            "T_T": 476533,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 23459,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 8,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr7",
+          "bins_exact": 500000,
+          "bins_route": 499887,
+          "present": true,
+          "identical": false,
+          "differing": 113,
+          "confusion": {
+            "T_T": 475168,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24719,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 113,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr8",
+          "bins_exact": 500000,
+          "bins_route": 499929,
+          "present": true,
+          "identical": false,
+          "differing": 71,
+          "confusion": {
+            "T_T": 475537,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24392,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 71,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr9",
+          "bins_exact": 500000,
+          "bins_route": 499990,
+          "present": true,
+          "identical": false,
+          "differing": 10,
+          "confusion": {
+            "T_T": 475121,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24869,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 10,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr10",
+          "bins_exact": 500000,
+          "bins_route": 499793,
+          "present": true,
+          "identical": false,
+          "differing": 207,
+          "confusion": {
+            "T_T": 475109,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24684,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 207,
+            "route_only": 0
+          }
+        }
+      ],
+      "extra_sequences": [],
+      "totals": {
+        "bins_exact": 5000000,
+        "bins_route": 4999183,
+        "differing": 817,
+        "differing_fraction": 0.0001634,
+        "identical": false,
+        "confusion": {
+          "T_T": 4751468,
+          "T_K": 0,
+          "T_N": 0,
+          "K_T": 0,
+          "K_K": 247715,
+          "K_N": 0,
+          "N_T": 0,
+          "N_K": 0,
+          "N_N": 0,
+          "other": 0,
+          "exact_only": 817,
+          "route_only": 0
+        }
+      },
+      "counts": {
+        "T": 4751468,
+        "K": 247715,
+        "N": 0
+      },
+      "file": "multihetsep.psmcfa",
+      "bytes_identical": false
+    },
+    "nomask": {
+      "chromosomes": [
+        {
+          "name": "chr1",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475770,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24230,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr2",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 474465,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 25535,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr3",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 474900,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 25100,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr4",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475694,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24306,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr5",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 473579,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 26421,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr6",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 476541,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 23459,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr7",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475281,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24719,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr8",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475608,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24392,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr9",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475131,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24869,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        },
+        {
+          "name": "chr10",
+          "bins_exact": 500000,
+          "bins_route": 500000,
+          "present": true,
+          "identical": true,
+          "differing": 0,
+          "confusion": {
+            "T_T": 475316,
+            "T_K": 0,
+            "T_N": 0,
+            "K_T": 0,
+            "K_K": 24684,
+            "K_N": 0,
+            "N_T": 0,
+            "N_K": 0,
+            "N_N": 0,
+            "other": 0,
+            "exact_only": 0,
+            "route_only": 0
+          }
+        }
+      ],
+      "extra_sequences": [],
+      "totals": {
+        "bins_exact": 5000000,
+        "bins_route": 5000000,
+        "differing": 0,
+        "differing_fraction": 0.0,
+        "identical": true,
+        "confusion": {
+          "T_T": 4752285,
+          "T_K": 0,
+          "T_N": 0,
+          "K_T": 0,
+          "K_K": 247715,
+          "K_N": 0,
+          "N_T": 0,
+          "N_K": 0,
+          "N_N": 0,
+          "other": 0,
+          "exact_only": 0,
+          "route_only": 0
+        }
+      },
+      "counts": {
+        "T": 4752285,
+        "K": 247715,
+        "N": 0
+      },
+      "file": "nomask.psmcfa",
+      "bytes_identical": true
+    }
+  },
+  "asserted_identical": [
+    "fq2psmcfa"
+  ],
+  "assertions_passed": true
+}

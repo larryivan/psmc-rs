@@ -1,0 +1,126 @@
+{
+  "script": "generate_multihetsep.py",
+  "script_sha256": "caaa87a07e0fe2dc7228f30c9aff759cf86e9f61b8332aabd41398399ea6331b",
+  "python": "3.13.13",
+  "command": [
+    "python",
+    "generate_multihetsep.py",
+    "--mask",
+    "<chrom>.bed.gz",
+    "<chrom>.vcf.gz"
+  ],
+  "chromosomes": [
+    {
+      "name": "chr1",
+      "vcf_records": 24031,
+      "rows_generate_multihetsep": 24028,
+      "rows_psmc_rs": 24028,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "93a7c3b45956f0db21e9b07b45561db08bc00c0fdc3c44df436b8084ab1e3d71",
+      "sha256_psmc_rs": "93a7c3b45956f0db21e9b07b45561db08bc00c0fdc3c44df436b8084ab1e3d71",
+      "seconds": 48.56
+    },
+    {
+      "name": "chr2",
+      "vcf_records": 23731,
+      "rows_generate_multihetsep": 23729,
+      "rows_psmc_rs": 23729,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "cba22f5ed31e177e01f6beb27837a5d70121189bc1de53f2f760e721a33730d9",
+      "sha256_psmc_rs": "cba22f5ed31e177e01f6beb27837a5d70121189bc1de53f2f760e721a33730d9",
+      "seconds": 46.92
+    },
+    {
+      "name": "chr3",
+      "vcf_records": 24239,
+      "rows_generate_multihetsep": 24237,
+      "rows_psmc_rs": 24237,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "3b01efdd1d168f67a3e60d89cb28d6f509257c4c118955062ae39b7ed37f6e08",
+      "sha256_psmc_rs": "3b01efdd1d168f67a3e60d89cb28d6f509257c4c118955062ae39b7ed37f6e08",
+      "seconds": 45.63
+    },
+    {
+      "name": "chr4",
+      "vcf_records": 23442,
+      "rows_generate_multihetsep": 23442,
+      "rows_psmc_rs": 23442,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "e6d5f01abf4c9a710f2a1152a43a5e6a6b29ae08d8877abd16394e222bb98e4c",
+      "sha256_psmc_rs": "e6d5f01abf4c9a710f2a1152a43a5e6a6b29ae08d8877abd16394e222bb98e4c",
+      "seconds": 51.02
+    },
+    {
+      "name": "chr5",
+      "vcf_records": 23591,
+      "rows_generate_multihetsep": 23589,
+      "rows_psmc_rs": 23589,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "e6b9798d3d0e1dd0e7a03be1f534bddedc390e2844c728770d970a4475ed46d1",
+      "sha256_psmc_rs": "e6b9798d3d0e1dd0e7a03be1f534bddedc390e2844c728770d970a4475ed46d1",
+      "seconds": 50.7
+    },
+    {
+      "name": "chr6",
+      "vcf_records": 24100,
+      "rows_generate_multihetsep": 24099,
+      "rows_psmc_rs": 24099,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "421fcf6585333bd9737a22d62380f54066b276eccef8fa2787b1f65546b3073d",
+      "sha256_psmc_rs": "421fcf6585333bd9737a22d62380f54066b276eccef8fa2787b1f65546b3073d",
+      "seconds": 46.57
+    },
+    {
+      "name": "chr7",
+      "vcf_records": 24280,
+      "rows_generate_multihetsep": 24280,
+      "rows_psmc_rs": 24280,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "3a14635446117d318af4165b4dc574038a0ff9d150e1a2872737163a8e08ebb2",
+      "sha256_psmc_rs": "3a14635446117d318af4165b4dc574038a0ff9d150e1a2872737163a8e08ebb2",
+      "seconds": 48.42
+    },
+    {
+      "name": "chr8",
+      "vcf_records": 23509,
+      "rows_generate_multihetsep": 23507,
+      "rows_psmc_rs": 23507,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "9c43ac706c6b6bb0064c8ad401dd1b0f0c2e6fcce828041bc29431c2d7b84bd9",
+      "sha256_psmc_rs": "9c43ac706c6b6bb0064c8ad401dd1b0f0c2e6fcce828041bc29431c2d7b84bd9",
+      "seconds": 48.78
+    },
+    {
+      "name": "chr9",
+      "vcf_records": 22171,
+      "rows_generate_multihetsep": 22167,
+      "rows_psmc_rs": 22167,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "8ce2d9761fca6c0d8f981fd06c339d9101b24a9936fd5d8e2577f6d452cda943",
+      "sha256_psmc_rs": "8ce2d9761fca6c0d8f981fd06c339d9101b24a9936fd5d8e2577f6d452cda943",
+      "seconds": 36.63
+    },
+    {
+      "name": "chr10",
+      "vcf_records": 23576,
+      "rows_generate_multihetsep": 23574,
+      "rows_psmc_rs": 23574,
+      "identical": true,
+      "first_difference": null,
+      "sha256_generate_multihetsep": "f6e600c42c9af3377937dab722912a4378d08b645ab2541aaa19061e8574f865",
+      "sha256_psmc_rs": "f6e600c42c9af3377937dab722912a4378d08b645ab2541aaa19061e8574f865",
+      "seconds": 34.74
+    }
+  ],
+  "psmc_rs_rows_on_other_chromosomes": [],
+  "identical": true
+}

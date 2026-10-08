@@ -1,0 +1,152 @@
+{
+  "experiment": "E4",
+  "model": "bottleneck",
+  "replicate": 2,
+  "mask": {
+    "name": "dispersed10",
+    "missing_fraction": 0.1,
+    "structure": "dispersed",
+    "mean_run_bp": 20.0
+  },
+  "process": "alternating renewal: geometric callable stretches (mean mean_run_bp*(1-f)/f) and uncallable runs (mean mean_run_bp), starting with a callable stretch at position 0",
+  "seeds": {
+    "chr1": 1154281446,
+    "chr2": 169507025,
+    "chr3": 286727199,
+    "chr4": 10021731,
+    "chr5": 1714685352,
+    "chr6": 2017050512,
+    "chr7": 392089704,
+    "chr8": 528124376,
+    "chr9": 1953703441,
+    "chr10": 658427144
+  },
+  "summary": {
+    "chromosomes": [
+      {
+        "name": "chr1",
+        "length": 50000000,
+        "callable_sites": 45002806,
+        "missing_sites": 4997194,
+        "missing_fraction": 0.09994388,
+        "uncallable_runs": 249937,
+        "mean_uncallable_run_bp": 19.99381444123919,
+        "callable_intervals": 249938
+      },
+      {
+        "name": "chr2",
+        "length": 50000000,
+        "callable_sites": 45014850,
+        "missing_sites": 4985150,
+        "missing_fraction": 0.099703,
+        "uncallable_runs": 249340,
+        "mean_uncallable_run_bp": 19.99338252987888,
+        "callable_intervals": 249341
+      },
+      {
+        "name": "chr3",
+        "length": 50000000,
+        "callable_sites": 44997975,
+        "missing_sites": 5002025,
+        "missing_fraction": 0.1000405,
+        "uncallable_runs": 249842,
+        "mean_uncallable_run_bp": 20.020753115969292,
+        "callable_intervals": 249843
+      },
+      {
+        "name": "chr4",
+        "length": 50000000,
+        "callable_sites": 45015080,
+        "missing_sites": 4984920,
+        "missing_fraction": 0.0996984,
+        "uncallable_runs": 249533,
+        "mean_uncallable_run_bp": 19.976997030452885,
+        "callable_intervals": 249534
+      },
+      {
+        "name": "chr5",
+        "length": 50000000,
+        "callable_sites": 45006648,
+        "missing_sites": 4993352,
+        "missing_fraction": 0.09986704,
+        "uncallable_runs": 249813,
+        "mean_uncallable_run_bp": 19.988359292750978,
+        "callable_intervals": 249813
+      },
+      {
+        "name": "chr6",
+        "length": 50000000,
+        "callable_sites": 45017682,
+        "missing_sites": 4982318,
+        "missing_fraction": 0.09964636,
+        "uncallable_runs": 249177,
+        "mean_uncallable_run_bp": 19.995095855556492,
+        "callable_intervals": 249178
+      },
+      {
+        "name": "chr7",
+        "length": 50000000,
+        "callable_sites": 45011337,
+        "missing_sites": 4988663,
+        "missing_fraction": 0.09977326,
+        "uncallable_runs": 249789,
+        "mean_uncallable_run_bp": 19.971507952712088,
+        "callable_intervals": 249790
+      },
+      {
+        "name": "chr8",
+        "length": 50000000,
+        "callable_sites": 45001438,
+        "missing_sites": 4998562,
+        "missing_fraction": 0.09997124,
+        "uncallable_runs": 249983,
+        "mean_uncallable_run_bp": 19.99560770132369,
+        "callable_intervals": 249984
+      },
+      {
+        "name": "chr9",
+        "length": 50000000,
+        "callable_sites": 44986872,
+        "missing_sites": 5013128,
+        "missing_fraction": 0.10026256,
+        "uncallable_runs": 250532,
+        "mean_uncallable_run_bp": 20.00993086711478,
+        "callable_intervals": 250533
+      },
+      {
+        "name": "chr10",
+        "length": 50000000,
+        "callable_sites": 44992838,
+        "missing_sites": 5007162,
+        "missing_fraction": 0.10014324,
+        "uncallable_runs": 250509,
+        "mean_uncallable_run_bp": 19.987952528651665,
+        "callable_intervals": 250510
+      }
+    ],
+    "totals": {
+      "length": 500000000,
+      "missing_sites": 49952474,
+      "missing_fraction": 0.099904948,
+      "uncallable_runs": 2498455,
+      "mean_uncallable_run_bp": 19.99334548751128
+    }
+  },
+  "vcf": {
+    "records_in": 259609,
+    "records_kept": 233714,
+    "het_sites_kept": 233694,
+    "het_sites_removed": 25893,
+    "hom_sites_removed": 2
+  },
+  "files": {
+    "bed": {
+      "name": "callable.bed.gz",
+      "sha256": "470c87609e6e6b471f6fcc8e8f304a5e98c7e18997c5451c4454bdc3b91dc758"
+    },
+    "vcf": {
+      "name": "variants.vcf.gz",
+      "sha256": "08b9aca74d207bbc5d13af7700d5d8880266b9c7bc85df53b82841a4abd1dfef"
+    }
+  }
+}

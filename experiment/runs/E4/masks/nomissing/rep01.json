@@ -1,0 +1,152 @@
+{
+  "experiment": "E4",
+  "model": "bottleneck",
+  "replicate": 1,
+  "mask": {
+    "name": "nomissing",
+    "missing_fraction": 0.0,
+    "structure": "none",
+    "mean_run_bp": 0.0
+  },
+  "process": "alternating renewal: geometric callable stretches (mean mean_run_bp*(1-f)/f) and uncallable runs (mean mean_run_bp), starting with a callable stretch at position 0",
+  "seeds": {
+    "chr1": null,
+    "chr2": null,
+    "chr3": null,
+    "chr4": null,
+    "chr5": null,
+    "chr6": null,
+    "chr7": null,
+    "chr8": null,
+    "chr9": null,
+    "chr10": null
+  },
+  "summary": {
+    "chromosomes": [
+      {
+        "name": "chr1",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr2",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr3",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr4",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr5",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr6",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr7",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr8",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr9",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      },
+      {
+        "name": "chr10",
+        "length": 50000000,
+        "callable_sites": 50000000,
+        "missing_sites": 0,
+        "missing_fraction": 0.0,
+        "uncallable_runs": 0,
+        "mean_uncallable_run_bp": 0.0,
+        "callable_intervals": 1
+      }
+    ],
+    "totals": {
+      "length": 500000000,
+      "missing_sites": 0,
+      "missing_fraction": 0.0,
+      "uncallable_runs": 0,
+      "mean_uncallable_run_bp": 0.0
+    }
+  },
+  "vcf": {
+    "records_in": 262467,
+    "records_kept": 262467,
+    "het_sites_kept": 262447,
+    "het_sites_removed": 0,
+    "hom_sites_removed": 0
+  },
+  "files": {
+    "bed": {
+      "name": "callable.bed.gz",
+      "sha256": "bd75a010b868784523958657ed713e5714bf3d18129f854f736e0411ef5ef1b1"
+    },
+    "vcf": {
+      "name": "variants.vcf.gz",
+      "sha256": "438da7b8d7d5e5131d6fd2c19633aaf2decdc197ed54663b825ff34115e64823"
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "digest": "2275e5751aa1404e29198362b6e682b36afb84991cb7e5b5f9824f2569cab95f",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.inputprep",
+      "consensus",
+      "--experiment",
+      "E4",
+      "--model",
+      "bottleneck",
+      "--replicate",
+      "4",
+      "--vcf",
+      "<runs>/E4/sims/rep04/nomissing/variants.vcf.gz",
+      "--mask",
+      "<runs>/E4/sims/rep04/nomissing/callable.bed.gz",
+      "--fq2psmcfa",
+      "<tools>/psmc_c/utils/fq2psmcfa",
+      "--bin-size",
+      "100",
+      "--out",
+      "<runs>/E4/sims/rep04/nomissing/fq2psmcfa.psmcfa",
+      "--record",
+      "<runs>/E4/consensus/nomissing/rep04.json"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep04/nomissing/callable.bed.gz": "bd75a010b868784523958657ed713e5714bf3d18129f854f736e0411ef5ef1b1",
+      "<runs>/E4/sims/rep04/nomissing/variants.vcf.gz": "af2a2f5c103b37da391f19aa64676f2ee3b18b03f9106ad966c5e2de1ab6b27b"
+    },
+    "job": "E4/consensus/nomissing/rep04",
+    "seeds": {
+      "chr1": 1719427593,
+      "chr10": 102496790,
+      "chr2": 2086376289,
+      "chr3": 1175561907,
+      "chr4": 947601660,
+      "chr5": 1013832995,
+      "chr6": 1964368172,
+      "chr7": 1215954672,
+      "chr8": 977849689,
+      "chr9": 169491939
+    },
+    "settings": {
+      "bin_size": 100
+    },
+    "tools": {
+      "fq2psmcfa": {
+        "sha256": "8312a96eed34d274691a8726dca3619b7fe2436871aa616bbfaef564a87c9caf"
+      },
+      "pipeline": {
+        "code": "2367d1dd063d3eca2481d309d62ed406f2c4a62b96852e370ddd7052c4377b7e",
+        "numpy": "2.5.3",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/consensus/nomissing/rep04.json": "9c1f8206bb20c9a6c1361dc306a95d5b466f619ad67cfec359fa658224216198",
+    "<runs>/E4/sims/rep04/nomissing/fq2psmcfa.psmcfa": "de22c1500640bb3041e74fc4c4d9ed64a60589bbc8a1481b9a7466b5b82eb7f4"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:25:45",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
+      "<tools>/psmc_c/utils/fq2psmcfa": "8312a96eed34d274691a8726dca3619b7fe2436871aa616bbfaef564a87c9caf"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      62.19,
+      63.44,
+      52.02
+    ],
+    "loadavg_before": [
+      59.62,
+      63.13,
+      51.55
+    ],
+    "maxrss_main_mb": 452.4,
+    "mem_gb": 1.5,
+    "peak_rss_mb": 501.1,
+    "peak_rss_tree_sampled_mb": 501.1,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:25:18",
+    "system_seconds": 1.384,
+    "user_seconds": 20.796,
+    "wall_seconds": 26.157
+  }
+}

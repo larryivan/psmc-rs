@@ -1,0 +1,110 @@
+{
+  "digest": "c9008a06d189be54dbc7644c9ae572838c10e5cb5132195b06c4f9b50a811b07",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.inputprep",
+      "mask",
+      "--experiment",
+      "E4",
+      "--model",
+      "bottleneck",
+      "--replicate",
+      "3",
+      "--vcf",
+      "<runs>/E4/sims/rep03/genome.vcf.gz",
+      "--mask-name",
+      "dispersed10",
+      "--missing-fraction",
+      "0.1",
+      "--structure",
+      "dispersed",
+      "--mean-run-bp",
+      "20.0",
+      "--bed-out",
+      "<runs>/E4/sims/rep03/dispersed10/callable.bed.gz",
+      "--vcf-out",
+      "<runs>/E4/sims/rep03/dispersed10/variants.vcf.gz",
+      "--record",
+      "<runs>/E4/masks/dispersed10/rep03.json"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep03/genome.vcf.gz": "418591911379d7f695b5bcb4e27789ba19fc3960cd5ae5ca4d7eb385dfc66130"
+    },
+    "job": "E4/mask/dispersed10/rep03",
+    "seeds": {
+      "chr1": 1305043539,
+      "chr10": 554339078,
+      "chr2": 1377047214,
+      "chr3": 678289445,
+      "chr4": 242242171,
+      "chr5": 722092805,
+      "chr6": 2042212223,
+      "chr7": 1098942169,
+      "chr8": 1864493904,
+      "chr9": 1605227513
+    },
+    "settings": {
+      "genome": {
+        "chromosome_length": 50000000,
+        "n_chromosomes": 10
+      },
+      "mask": {
+        "mean_run_bp": 20.0,
+        "missing_fraction": 0.1,
+        "name": "dispersed10",
+        "structure": "dispersed"
+      }
+    },
+    "tools": {
+      "htslib": {
+        "bcftools": "bcftools 1.24",
+        "bgzip": "bgzip (htslib) 1.24",
+        "tabix": "tabix (htslib) 1.24"
+      },
+      "pipeline": {
+        "code": "2367d1dd063d3eca2481d309d62ed406f2c4a62b96852e370ddd7052c4377b7e",
+        "numpy": "2.5.3",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/masks/dispersed10/rep03.json": "dc095e67ab627d2760f30cccdf573fa9beabef3ad2a85f5a28adfcddaee37678",
+    "<runs>/E4/sims/rep03/dispersed10/callable.bed.gz": "a30003fa6f98f32666a13a6d9865a54ba0952fe78b579059a658089252a9459b",
+    "<runs>/E4/sims/rep03/dispersed10/variants.vcf.gz": "0917fa657d2554dca66d0d48e58d139a7291576bcf9006519be1fe4bb50c13bd",
+    "<runs>/E4/sims/rep03/dispersed10/variants.vcf.gz.tbi": "80d3106925ced6a3dcb587d9306da862d7a492ce6ff369958115b0ba7686ff3b"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:23:59",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      57.78,
+      63.78,
+      50.76
+    ],
+    "loadavg_before": [
+      57.58,
+      63.85,
+      50.71
+    ],
+    "maxrss_main_mb": 226.1,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 226.1,
+    "peak_rss_tree_sampled_mb": 0.0,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:23:54",
+    "system_seconds": 0.349,
+    "user_seconds": 3.236,
+    "wall_seconds": 5.743
+  }
+}

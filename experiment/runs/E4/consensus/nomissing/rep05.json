@@ -1,0 +1,90 @@
+{
+  "experiment": "E4",
+  "model": "bottleneck",
+  "replicate": 5,
+  "fasta": "hom: base, het: IUPAC code, uncallable: N; other sites: uniform ACGT (seed reference/<chrom>)",
+  "fq2psmcfa": [
+    "fq2psmcfa",
+    "-s",
+    "100",
+    "-"
+  ],
+  "chromosomes": [
+    {
+      "name": "chr1",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 28211,
+      "reference_seed": 1547259869
+    },
+    {
+      "name": "chr2",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 26265,
+      "reference_seed": 150884841
+    },
+    {
+      "name": "chr3",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 23976,
+      "reference_seed": 201037248
+    },
+    {
+      "name": "chr4",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 26624,
+      "reference_seed": 1680035964
+    },
+    {
+      "name": "chr5",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 24661,
+      "reference_seed": 1752069312
+    },
+    {
+      "name": "chr6",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 26346,
+      "reference_seed": 1312290099
+    },
+    {
+      "name": "chr7",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 25725,
+      "reference_seed": 2013370
+    },
+    {
+      "name": "chr8",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 25870,
+      "reference_seed": 1075639335
+    },
+    {
+      "name": "chr9",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 23007,
+      "reference_seed": 2112565196
+    },
+    {
+      "name": "chr10",
+      "length": 50000000,
+      "n_sites": 0,
+      "het_sites": 25562,
+      "reference_seed": 1528393952
+    }
+  ],
+  "files": {
+    "psmcfa": {
+      "name": "fq2psmcfa.psmcfa",
+      "sha256": "8bbc5d023fa15327e62559bf131c24720a305a35828644c5f4584e8b16610326"
+    }
+  }
+}

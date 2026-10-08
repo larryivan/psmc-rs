@@ -1,0 +1,71 @@
+{
+  "digest": "d7e880efa333c0e1bbb983da873b08c3f7faccc77b8ebb149850f1cb4432dab4",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "convert",
+      "<runs>/E4/sims/rep01/dispersed10/input.multihetsep",
+      "--input-format",
+      "mhs",
+      "--bin-size",
+      "100",
+      "--psmcfa",
+      "<runs>/E4/sims/rep01/dispersed10/bins/multihetsep.psmcfa",
+      "--quiet"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep01/dispersed10/input.multihetsep": "0ea967ac1f6ec7c193e9cf310affbfed1efcb644f16b98ea13327420e5e26924"
+    },
+    "job": "E4/convert/dispersed10/multihetsep/rep01",
+    "seeds": {},
+    "settings": {},
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/sims/rep01/dispersed10/bins/multihetsep.psmcfa": "bd0ac2f170eeb3dd481776c7df9736e54a1f3f65cafad6fdac6916369973c740"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:25:49",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      61.21,
+      63.21,
+      52.01
+    ],
+    "loadavg_before": [
+      62.19,
+      63.44,
+      52.02
+    ],
+    "maxrss_main_mb": 83.6,
+    "mem_gb": 0.3,
+    "peak_rss_mb": 83.6,
+    "peak_rss_tree_sampled_mb": 0.0,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:25:45",
+    "system_seconds": 0.012,
+    "user_seconds": 0.234,
+    "wall_seconds": 4.336
+  }
+}

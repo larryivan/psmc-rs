@@ -1,0 +1,79 @@
+{
+  "digest": "f366ed6dca08280370754cb5c70bf8796ec91db4789f6592d05e07d86015a98f",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "convert",
+      "<runs>/E4/sims/rep03/nomissing/variants.vcf.gz",
+      "--input-format",
+      "vcf",
+      "--vcf-mode",
+      "mask",
+      "--vcf-mask",
+      "<runs>/E4/sims/rep03/nomissing/callable.bed.gz",
+      "--bin-size",
+      "100",
+      "--psmcfa",
+      "<runs>/E4/sims/rep03/nomissing/bins/exact.psmcfa",
+      "--multihetsep",
+      "<runs>/E4/sims/rep03/nomissing/input.multihetsep",
+      "--quiet"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep03/nomissing/callable.bed.gz": "bd75a010b868784523958657ed713e5714bf3d18129f854f736e0411ef5ef1b1",
+      "<runs>/E4/sims/rep03/nomissing/variants.vcf.gz": "bd3905f35d2ee335fc7d2b047747218ab7143c3c23bc6adf737610bbb8688b1a"
+    },
+    "job": "E4/convert/nomissing/rep03",
+    "seeds": {},
+    "settings": {},
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/sims/rep03/nomissing/bins/exact.psmcfa": "18618f194c99e4c198cfd957478c1e1f505c9945e5958afa6965828bf3fc4c2c",
+    "<runs>/E4/sims/rep03/nomissing/input.multihetsep": "4f063b07e3241657bffa1f9eb2d69b39a729fe2952a9fc903f119d0e60c02544"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:24:25",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      59.54,
+      63.7,
+      51.08
+    ],
+    "loadavg_before": [
+      58.97,
+      63.67,
+      51.0
+    ],
+    "maxrss_main_mb": 80.3,
+    "mem_gb": 0.3,
+    "peak_rss_mb": 80.3,
+    "peak_rss_tree_sampled_mb": 0.0,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:24:19",
+    "system_seconds": 0.048,
+    "user_seconds": 0.269,
+    "wall_seconds": 5.998
+  }
+}

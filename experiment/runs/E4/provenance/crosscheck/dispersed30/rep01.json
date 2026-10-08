@@ -1,0 +1,75 @@
+{
+  "digest": "0b7b580de51ed20e3d7585f8eecb85e4831ff3ffddf03bf7f02d689e0ce317e6",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.inputprep",
+      "crosscheck",
+      "--vcf",
+      "<runs>/E4/sims/rep01/dispersed30/variants.vcf.gz",
+      "--mask",
+      "<runs>/E4/sims/rep01/dispersed30/callable.bed.gz",
+      "--multihetsep",
+      "<runs>/E4/sims/rep01/dispersed30/input.multihetsep",
+      "--script",
+      "<tools>/msmc-tools/generate_multihetsep.py",
+      "--work-dir",
+      "<runs>/E4/sims/rep01/dispersed30",
+      "--out",
+      "<runs>/E4/crosscheck/dispersed30/rep01.json"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep01/dispersed30/callable.bed.gz": "7035c923900883b5a05e02b231e7323000376feb300fdc91e0f69aef4ffc0805",
+      "<runs>/E4/sims/rep01/dispersed30/input.multihetsep": "7e3690f6bdad0862cacd37b07b2d7939bfc8eb91a32dcab6a272d332cd047fbb",
+      "<runs>/E4/sims/rep01/dispersed30/variants.vcf.gz": "de9e24300f330ae559d40b08cded28fa7bed11d1a67a655db876c0dcd79980a3"
+    },
+    "job": "E4/crosscheck/dispersed30/rep01",
+    "seeds": {},
+    "settings": {},
+    "tools": {
+      "generate_multihetsep.py": {
+        "sha256": "caaa87a07e0fe2dc7228f30c9aff759cf86e9f61b8332aabd41398399ea6331b"
+      },
+      "pipeline": {
+        "code": "2367d1dd063d3eca2481d309d62ed406f2c4a62b96852e370ddd7052c4377b7e",
+        "numpy": "2.5.3",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/crosscheck/dispersed30/rep01.json": "6e9f463361bcc3ac1b32e7b993442525ebc14f8555b3e4299b6e0cec82bef729"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:44:35",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      45.67,
+      58.44,
+      55.39
+    ],
+    "loadavg_before": [
+      33.32,
+      45.08,
+      48.97
+    ],
+    "maxrss_main_mb": 398.3,
+    "mem_gb": 0.5,
+    "peak_rss_mb": 398.3,
+    "peak_rss_tree_sampled_mb": 358.4,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:36:44",
+    "system_seconds": 10.986,
+    "user_seconds": 445.357,
+    "wall_seconds": 470.321
+  }
+}

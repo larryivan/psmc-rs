@@ -1,0 +1,116 @@
+{
+  "digest": "062824767f4133d186d49a9af632d3dce7acae7b79512d6cc33364238ddacfbc",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<runs>/E4/sims/rep05/clustered30/variants.vcf.gz",
+      "<runs>/E4/fits/clustered30/mask_auto/rep05.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "2.5e-08",
+      "--gen-years",
+      "25",
+      "--threads",
+      "1",
+      "--no-progress",
+      "--input-format",
+      "vcf",
+      "--vcf-mode",
+      "mask",
+      "--vcf-mask",
+      "<runs>/E4/sims/rep05/clustered30/callable.bed.gz",
+      "--bin-callable",
+      "auto"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep05/clustered30/callable.bed.gz": "5dd0ba97a570e5476a14eed248c5ccc6f8f2adf7cb4913daa7b4a5dbff19e97d",
+      "<runs>/E4/sims/rep05/clustered30/variants.vcf.gz": "8726896c2ba4896d5fb04fffeb5cee0e98e1fa73a3204972b9e6115af303e195"
+    },
+    "job": "E4/fit/clustered30/mask_auto/rep05",
+    "seeds": {},
+    "settings": {
+      "bin_callable": "auto",
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "mask": {
+        "mean_run_bp": 20000.0,
+        "missing_fraction": 0.3,
+        "name": "clustered30",
+        "structure": "clustered"
+      },
+      "route": "mask_auto",
+      "scaling": {
+        "gen_years": 25.0,
+        "mu": 2.5e-08
+      },
+      "threads": 1
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/fits/clustered30/mask_auto/rep05.json": "549b75774b70370a484d2c644ec248c3f1f539653a15979a4fea21255e1030c4"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:38:56",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      67.72,
+      54.92,
+      52.12
+    ],
+    "loadavg_before": [
+      33.32,
+      45.08,
+      48.97
+    ],
+    "maxrss_main_mb": 83.8,
+    "mem_gb": 0.3,
+    "peak_rss_mb": 83.8,
+    "peak_rss_tree_sampled_mb": 9.9,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:36:45",
+    "system_seconds": 0.036,
+    "user_seconds": 126.968,
+    "wall_seconds": 131.456
+  }
+}

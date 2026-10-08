@@ -1,0 +1,109 @@
+{
+  "digest": "6391c999f03d10fe0f0ae266259ff17b8d950a8c98c4b19f1b3abf479ec2bd0d",
+  "key": {
+    "command": [
+      "<repo>/target/release/psmc-rs",
+      "<runs>/E4/sims/rep05/nomissing/fq2psmcfa.psmcfa",
+      "<runs>/E4/fits/nomissing/fq2psmcfa/rep05.json",
+      "25",
+      "--pattern",
+      "4+25*2+4+6",
+      "--t-max",
+      "15",
+      "--tr-ratio",
+      "5",
+      "--smooth-lambda",
+      "0",
+      "--mstep-iters",
+      "1000",
+      "--bin-size",
+      "100",
+      "--mu",
+      "2.5e-08",
+      "--gen-years",
+      "25",
+      "--threads",
+      "1",
+      "--no-progress",
+      "--input-format",
+      "psmcfa",
+      "--bin-callable",
+      "auto"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep05/nomissing/fq2psmcfa.psmcfa": "8bbc5d023fa15327e62559bf131c24720a305a35828644c5f4584e8b16610326"
+    },
+    "job": "E4/fit/nomissing/fq2psmcfa/rep05",
+    "seeds": {},
+    "settings": {
+      "bin_callable": "auto",
+      "inference": {
+        "bin_size": 100,
+        "mstep_iters": 1000,
+        "n_iter": 25,
+        "pattern": "4+25*2+4+6",
+        "smooth_lambda": 0.0,
+        "t_max": 15.0,
+        "tr_ratio": 5.0
+      },
+      "mask": {
+        "missing_fraction": 0.0,
+        "name": "nomissing"
+      },
+      "route": "fq2psmcfa",
+      "scaling": {
+        "gen_years": 25.0,
+        "mu": 2.5e-08
+      },
+      "threads": 1
+    },
+    "tools": {
+      "psmc-rs-0.2": {
+        "cargo_build_rustflags": "",
+        "cargo_encoded_rustflags": "",
+        "cargo_profile_release": "",
+        "cargo_target_rustflags": "",
+        "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+        "rustflags": "",
+        "source_dirty": "",
+        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "target_features": "none",
+        "version": "psmc-rs 0.2.0"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/fits/nomissing/fq2psmcfa/rep05.json": "7b5a5de0ee6bf227b7a86571086a24e2edb68d40fd0ff848b5a0bcfd6c728d29"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:43:27",
+    "exclusive": false,
+    "executables": {
+      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      70.39,
+      64.72,
+      57.02
+    ],
+    "loadavg_before": [
+      68.99,
+      60.76,
+      54.73
+    ],
+    "maxrss_main_mb": 83.8,
+    "mem_gb": 0.3,
+    "peak_rss_mb": 83.8,
+    "peak_rss_tree_sampled_mb": 8.2,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:41:16",
+    "system_seconds": 0.688,
+    "user_seconds": 126.703,
+    "wall_seconds": 131.367
+  }
+}

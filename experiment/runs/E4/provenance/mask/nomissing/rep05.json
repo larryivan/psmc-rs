@@ -1,0 +1,102 @@
+{
+  "digest": "dd0244fd687c53b854db24bf9a397a3862d724f0e24401c1eebbdbb7b01584eb",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.inputprep",
+      "mask",
+      "--experiment",
+      "E4",
+      "--model",
+      "bottleneck",
+      "--replicate",
+      "5",
+      "--vcf",
+      "<runs>/E4/sims/rep05/genome.vcf.gz",
+      "--mask-name",
+      "nomissing",
+      "--bed-out",
+      "<runs>/E4/sims/rep05/nomissing/callable.bed.gz",
+      "--vcf-out",
+      "<runs>/E4/sims/rep05/nomissing/variants.vcf.gz",
+      "--record",
+      "<runs>/E4/masks/nomissing/rep05.json"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E4/sims/rep05/genome.vcf.gz": "a496216890fd1b9f9075c80e160b44df488d40a6f9e431c96db1a2c38160d6df"
+    },
+    "job": "E4/mask/nomissing/rep05",
+    "seeds": {
+      "chr1": null,
+      "chr10": null,
+      "chr2": null,
+      "chr3": null,
+      "chr4": null,
+      "chr5": null,
+      "chr6": null,
+      "chr7": null,
+      "chr8": null,
+      "chr9": null
+    },
+    "settings": {
+      "genome": {
+        "chromosome_length": 50000000,
+        "n_chromosomes": 10
+      },
+      "mask": {
+        "missing_fraction": 0.0,
+        "name": "nomissing"
+      }
+    },
+    "tools": {
+      "htslib": {
+        "bcftools": "bcftools 1.24",
+        "bgzip": "bgzip (htslib) 1.24",
+        "tabix": "tabix (htslib) 1.24"
+      },
+      "pipeline": {
+        "code": "2367d1dd063d3eca2481d309d62ed406f2c4a62b96852e370ddd7052c4377b7e",
+        "numpy": "2.5.3",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E4/masks/nomissing/rep05.json": "2c7dda1cd040fc273a4743149cd99593eba1599bc0412a723d20639b5bb1f193",
+    "<runs>/E4/sims/rep05/nomissing/callable.bed.gz": "bd75a010b868784523958657ed713e5714bf3d18129f854f736e0411ef5ef1b1",
+    "<runs>/E4/sims/rep05/nomissing/variants.vcf.gz": "8c744b32c12cf5e691a845aa68ed6e07a6fd8f583edd3ed676b65121f8f0ab05",
+    "<runs>/E4/sims/rep05/nomissing/variants.vcf.gz.tbi": "f354761745f8a7d453848066f2916bccd76d1446f13d9480553f8a5912dbd01a"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-07T00:24:11",
+    "exclusive": false,
+    "executables": {
+      "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
+    },
+    "exit_status": 0,
+    "host": "cn514-11-r",
+    "loadavg_after": [
+      58.52,
+      63.74,
+      50.89
+    ],
+    "loadavg_before": [
+      57.95,
+      63.72,
+      50.81
+    ],
+    "maxrss_main_mb": 138.0,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 138.0,
+    "peak_rss_tree_sampled_mb": 0.0,
+    "slurm_job_id": "53386770",
+    "start": "2026-10-07T00:24:05",
+    "system_seconds": 0.109,
+    "user_seconds": 1.301,
+    "wall_seconds": 6.292
+  }
+}
