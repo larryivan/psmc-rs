@@ -109,7 +109,7 @@ FIT_ITEMS = (
     "C psmc's model and EM",
     "each called bin weighted by its\ncallable bases, c of its s\n(--bin-callable, default auto):\n"
     r"$P(T\,|\,k, c) = e_T(k)^{\,c/s}$",
-    "exact linear-time\nforward-backward",
+    "exact forward and backward\npasses in linear time",
     "same result for any --threads",
     "C-compatible bootstrap",
 )
