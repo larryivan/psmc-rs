@@ -38,13 +38,14 @@ with E7.
 | `figS2_format_consistency` | `E6/figures/` | `E6_S2_curves`, `E6_S2_bins`, `E6_S2_fits` | 183 x 96 mm |
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
 | `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
-| `fig7_1000_genomes` (number to be assigned) | `E7/figures/` | `E7_pop_bands`, `E7_bands`, `E7_rs_vs_c` | 183 x 155 mm |
+| `fig7_1000_genomes` (number to be assigned) | `E7/figures/` | `E7_pop_bands` | 183 x 138 mm |
 | `figS5_1000g_populations` (number to be assigned) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
 | `figS6_1000g_checks` (number to be assigned) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
 | `figS_turtle_patterns` (number to be assigned) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
 
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
-so that it can be turned into the caption. Captions should also say:
+so that it can be turned into the caption. The article numbers its figures in its own order
+(Supplementary Note 1, section 3, maps them to these files). Captions should also say:
 
 - **Every psmc-rs fit** uses its default M-step, which runs to convergence
   as C psmc's does (`--mstep-iters 1000` is passed explicitly and is only
@@ -231,8 +232,6 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E7/tables/E7_fits.csv` | sample and route | `sample_id`, `route`, `n0` |
 | `E7/tables/E7_curves.csv` | sample, route and interval | `sample_id`, `route`, `interval`, `years`, `ne` |
 | `E7/tables/E7_pop_bands.csv` | group, route and time on the display grid | `group_kind`, `group`, `superpopulation`, `admixed`, `route`, `n`, `years`, `ne_median`, `ne_lo`, `ne_hi`, `window_lo_years`, `window_hi_years` |
-| `E7/tables/E7_bands.csv` | bootstrapped sample and time | `sample_id`, `years`, `ne_c`, `ne_rs`, `ne_band_lo`, `ne_band_median`, `ne_band_hi` |
-| `E7/tables/E7_rs_vs_c.csv` | sample of the default set fitted by both tools | `sample_id`, `population`, `superpopulation`, `admixed`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
 | `E7/tables/E7_inputs.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `default`, `raw_depth`, `callable_bases`, `het_sites`, `het_per_callable_kb`, `partly_callable_bin_fraction` |
 | `E7/tables/E7_route_shift.csv` | sample of the default set | `sample_id`, `population`, `superpopulation`, `admixed`, `theta_rel_vcf_vs_psmcfa`, `mean_log10_ne_vcf_vs_psmcfa`, `partly_callable_bin_fraction`, `missing_share_of_called_bins` |
 | `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `log10_first_vs_next_split_lo`, `log10_first_vs_next_split_hi`, `max_abs_log10_ne_split_vs_default_per_interval`, `ne_next_split` |

@@ -1,5 +1,5 @@
 {
-  "digest": "6df464e939816ade33447b077267b06b6d94fadca76719a25ba42d3d042be500",
+  "digest": "b92136fd495cd2b8e0dd0deebbf68c6f7f0b8f0d6836d36f7693d853edb2b4d9",
   "key": {
     "command": [
       "<python>",
@@ -13,9 +13,7 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E7/tables/E7_bands.csv": "028ad1c9045bf34192fbbde5bb08226e5930ea8227ff533983441b8f05a59680",
-      "<runs>/E7/tables/E7_pop_bands.csv": "541b3cf66c4c0a9701309a30b1d6f82909612e58699e30d480ea14a2aa8ec47b",
-      "<runs>/E7/tables/E7_rs_vs_c.csv": "11846ce9431f1df3fa32187739a3400181fadaf4a2ae8a9ecfac15fe2d0665ce"
+      "<runs>/E7/tables/E7_pop_bands.csv": "541b3cf66c4c0a9701309a30b1d6f82909612e58699e30d480ea14a2aa8ec47b"
     },
     "job": "FIG/fig7_1000_genomes",
     "seeds": {},
@@ -182,7 +180,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "79c891c5be0902cc1c9629327f15bd25fe03ed7d5ab3193e91908ec86427c5fc",
+        "code": "9ce41cee4294033bc9c65102fc583750c6a96b549d1eb544b76936804ab0d227",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -191,14 +189,14 @@
     }
   },
   "outputs": {
-    "<runs>/E7/figures/fig7_1000_genomes.pdf": "3f6808eb0b1a4dd89ea112beb1d8b7197855811bea30683bf3b8f7dbd939d245",
-    "<runs>/E7/figures/fig7_1000_genomes.png": "9160496b1cae9454648f0e652f92fad792d6ba708d50af51c970eadd98c0b063",
-    "<runs>/E7/figures/fig7_1000_genomes.svg": "ec29c27b51b42e63de0ff0f01c5d3fb39e49ef1ef0d58a0961c43655daad0841"
+    "<runs>/E7/figures/fig7_1000_genomes.pdf": "50e4f4a94b0724d388325aa20370262f5e1fc761567e7d72b4ae3a7c4662aefb",
+    "<runs>/E7/figures/fig7_1000_genomes.png": "7b0a5a77a3a5defb25bf59aa4ca73fc6c7bec766eeffe8b7666525473106a99e",
+    "<runs>/E7/figures/fig7_1000_genomes.svg": "be8a9bc0bd35db6ba4a5ab2cb5d0a8e9cc575440daa3efc3ed2cde48cac94c95"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-08T13:54:11",
+    "end": "2026-10-11T19:40:05",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -206,22 +204,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      8.23,
-      4.86,
-      5.48
+      2.17,
+      2.64,
+      3.0
     ],
     "loadavg_before": [
-      5.82,
-      4.33,
-      5.3
+      2.27,
+      2.67,
+      3.02
     ],
-    "maxrss_main_mb": 221.6,
+    "maxrss_main_mb": 205.5,
     "mem_gb": 1.0,
-    "peak_rss_mb": 221.6,
-    "peak_rss_tree_sampled_mb": 220.5,
-    "start": "2026-10-08T13:54:08",
-    "system_seconds": 0.218,
-    "user_seconds": 2.696,
-    "wall_seconds": 3.297
+    "peak_rss_mb": 205.5,
+    "peak_rss_tree_sampled_mb": 204.6,
+    "start": "2026-10-11T19:40:03",
+    "system_seconds": 0.106,
+    "user_seconds": 1.754,
+    "wall_seconds": 1.916
   }
 }

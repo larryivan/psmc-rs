@@ -82,8 +82,8 @@ FIGURES: Tuple[FigureSpec, ...] = (
     FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_thread_scaling", "E3_table2", "E3_runs", "E3_determinism"),
                "Thread scaling and determinism of psmc-rs 0.2"),
     # Not yet numbered among the supplementary figures (S5 and S6 are planned for E7).
-    FigureSpec("fig7_1000_genomes", "fig7", "E7", ("E7_pop_bands", "E7_bands", "E7_rs_vs_c"),
-               "1000 Genomes: psmc-rs on the 30x genomes of 26 populations"),
+    FigureSpec("fig7_1000_genomes", "fig7", "E7", ("E7_pop_bands",),
+               "1000 Genomes: the superpopulations compared, and their populations"),
     FigureSpec("figS5_1000g_populations", "figs5", "E7", ("E7_pop_bands", "E7_samples"),
                "1000 Genomes: every population, every genome's spread"),
     FigureSpec("figS6_1000g_checks", "figs6", "E7",
