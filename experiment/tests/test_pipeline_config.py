@@ -104,6 +104,7 @@ class Design(unittest.TestCase):
         # committed, E7_inputs.csv gives the SHA-256 of the psmcfa its data stage wrote for NA12878.
         import csv
 
+        p = config.PRODUCTION
         table = paths.RUNS / "E7" / "tables" / "E7_inputs.csv"
         if not table.exists():
             self.skipTest("E7's tables are not committed yet")
