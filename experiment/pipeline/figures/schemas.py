@@ -382,6 +382,13 @@ _add("E7_pop_bands", "E7", "group, route and time on the display grid", {
     "window_lo_years": "the group's median comparison window start",
     "window_hi_years": "its median end",
 })
+_add("E7_rs_vs_c", "E7", "sample of the default set fitted by both tools", {
+    **_E7_WHO,
+    "window_lo_years": "comparison window start (1% of coalescences under C psmc's fit)",
+    "window_hi_years": "its end (99%)",
+    "rmse_log10_ne_rs_vs_c_per_interval": "RMSE of log10 Ne between the tools, interval by interval in the window",
+    "max_abs_log10_ne_rs_vs_c_per_interval": "largest per-interval |log10 Ne difference| in the window",
+})
 _add("E7_inputs", "E7", "sample of the cohort", {
     **_E7_WHO,
     "default": "in the default set",

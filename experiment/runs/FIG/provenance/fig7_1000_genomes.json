@@ -1,5 +1,5 @@
 {
-  "digest": "b92136fd495cd2b8e0dd0deebbf68c6f7f0b8f0d6836d36f7693d853edb2b4d9",
+  "digest": "52bcaf91957f5bb2c7a421302c5f4b9ed0ea491082df09bbd7f62f5b7279b207",
   "key": {
     "command": [
       "<python>",
@@ -180,7 +180,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "9ce41cee4294033bc9c65102fc583750c6a96b549d1eb544b76936804ab0d227",
+        "code": "4ff4906ce5b7f171d0e7ae30bdc4d206401ae6a5d4b25ffa6a9393a26f93a8d0",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -189,14 +189,14 @@
     }
   },
   "outputs": {
-    "<runs>/E7/figures/fig7_1000_genomes.pdf": "50e4f4a94b0724d388325aa20370262f5e1fc761567e7d72b4ae3a7c4662aefb",
-    "<runs>/E7/figures/fig7_1000_genomes.png": "7b0a5a77a3a5defb25bf59aa4ca73fc6c7bec766eeffe8b7666525473106a99e",
-    "<runs>/E7/figures/fig7_1000_genomes.svg": "be8a9bc0bd35db6ba4a5ab2cb5d0a8e9cc575440daa3efc3ed2cde48cac94c95"
+    "<runs>/E7/figures/fig7_1000_genomes.pdf": "c74be9cfded847507238007f3c44f5ee66f96c6b78fdda65736db2b702644af5",
+    "<runs>/E7/figures/fig7_1000_genomes.png": "8331ecad0267916d1c3cfb7d8e9cdf6a7ca958c6ff0425a17d54b3e9ac09a8f1",
+    "<runs>/E7/figures/fig7_1000_genomes.svg": "5759659866c863c93355d204631891631b19deab0bc67f28260acf428ce49427"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-11T19:40:05",
+    "end": "2026-10-11T23:45:31",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -204,22 +204,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      2.17,
-      2.64,
-      3.0
+      3.5,
+      3.64,
+      3.42
     ],
     "loadavg_before": [
-      2.27,
-      2.67,
-      3.02
+      3.54,
+      3.65,
+      3.43
     ],
-    "maxrss_main_mb": 205.5,
+    "maxrss_main_mb": 200.1,
     "mem_gb": 1.0,
-    "peak_rss_mb": 205.5,
-    "peak_rss_tree_sampled_mb": 204.6,
-    "start": "2026-10-11T19:40:03",
-    "system_seconds": 0.106,
-    "user_seconds": 1.754,
-    "wall_seconds": 1.916
+    "peak_rss_mb": 200.1,
+    "peak_rss_tree_sampled_mb": 200.0,
+    "start": "2026-10-11T23:45:29",
+    "system_seconds": 0.163,
+    "user_seconds": 1.933,
+    "wall_seconds": 2.266
   }
 }

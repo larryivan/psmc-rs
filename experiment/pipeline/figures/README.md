@@ -22,12 +22,16 @@ A figure job is declared once every experiment it reads is implemented
 (registered in `experiments.REGISTRY`); Fig 1, a schematic, needs none. With
 E1 alone, `FIG` has three jobs (Fig 1, Fig 2, Fig S1); Figs 3-6, S2-S4 and
 the turtle patterns (E2) appear as E2-E6 are added, and Figs 7, S5 and S6
-with E7.
+with E7. The article numbers its figures in its own order: its Fig 1 is
+`art1_agreement` (once E1, E2 and E7 are implemented), its Fig 2
+`art2_performance` (E3), and its Fig 3 `fig7_1000_genomes`.
 
 ## The figures
 
 | figure | written to | reads | width x height |
 | --- | --- | --- | --- |
+| `art1_agreement` (the article's Fig 1) | `FIG/figures/` | `E1_curves`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E2_curves`, `E2_bands`, `E2_rs_vs_c`, `E7_curves`, `E7_rs_vs_c` | 183 x 176 mm |
+| `art2_performance` (the article's Fig 2) | `E3/figures/` | `E3_table2` | 183 x 62 mm |
 | `fig1_workflow` | `FIG/figures/` | nothing (schematic) | 183 x 86 mm |
 | `fig2_simulated_accuracy` | `E1/figures/` | `E1_curves`, `E1_truth`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E1_mstep` | 183 x 150 mm |
 | `fig3_real_genomes` | `E2/figures/` | `E2_curves`, `E2_bands`, `E2_bootstrap`, `E2_rs_vs_c`, `E2_fit_summary` | 183 x 112 mm |
@@ -232,6 +236,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E7/tables/E7_fits.csv` | sample and route | `sample_id`, `route`, `n0` |
 | `E7/tables/E7_curves.csv` | sample, route and interval | `sample_id`, `route`, `interval`, `years`, `ne` |
 | `E7/tables/E7_pop_bands.csv` | group, route and time on the display grid | `group_kind`, `group`, `superpopulation`, `admixed`, `route`, `n`, `years`, `ne_median`, `ne_lo`, `ne_hi`, `window_lo_years`, `window_hi_years` |
+| `E7/tables/E7_rs_vs_c.csv` | sample of the default set fitted by both tools | `sample_id`, `population`, `superpopulation`, `admixed`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
 | `E7/tables/E7_inputs.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `default`, `raw_depth`, `callable_bases`, `het_sites`, `het_per_callable_kb`, `partly_callable_bin_fraction` |
 | `E7/tables/E7_route_shift.csv` | sample of the default set | `sample_id`, `population`, `superpopulation`, `admixed`, `theta_rel_vcf_vs_psmcfa`, `mean_log10_ne_vcf_vs_psmcfa`, `partly_callable_bin_fraction`, `missing_share_of_called_bins` |
 | `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `log10_first_vs_next_split_lo`, `log10_first_vs_next_split_hi`, `max_abs_log10_ne_split_vs_default_per_interval`, `ne_next_split` |

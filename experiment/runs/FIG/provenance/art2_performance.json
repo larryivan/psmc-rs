@@ -1,0 +1,180 @@
+{
+  "digest": "05bfcd7823a75cc622fb9fe0b94d50ce23522269cbbf3e34742650556e530681",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "art2_performance",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E3/tables/E3_table2.csv": "3145f49259b923e653048d5701590283dcb240ee21f15f5546edeae2b9f0decc"
+    },
+    "job": "FIG/art2_performance",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E3": {
+          "chromosome_length": 100000000,
+          "default_mstep_iters": null,
+          "genome_sizes_mb": [
+            100,
+            300,
+            1000,
+            3000
+          ],
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "memory_limit_gb": 64.0,
+          "model": "constant",
+          "repeats": 5,
+          "replicate": 1,
+          "resources": {
+            "c_mb_base": 6.0,
+            "c_mb_per_mb_longest": 10.05,
+            "c_s_per_mb_iter": 0.05,
+            "parallel_efficiency": 0.7,
+            "rs01_cache_mb": 2048.0,
+            "rs01_mb_base": 5.0,
+            "rs01_mb_per_mb_buffer": 4.96,
+            "rs01_mb_per_mb_cache": 2.48,
+            "rs01_mb_per_mb_input": 0.0095,
+            "rs01_mstep_s_per_iter_1000": 8.0,
+            "rs01_s_per_mb_iter": 0.03,
+            "rs01_uncached_extra": 0.5,
+            "rs02_mb_base": 10.8,
+            "rs02_mb_per_extra_thread": 4.0,
+            "rs02_mb_per_mb_input": 0.0103,
+            "rs02_mstep_s_per_iter": 0.02,
+            "rs02_s_per_mb_iter": 0.006
+          },
+          "rs01_commit": "e50d69d",
+          "rs01_threads": [
+            1,
+            8,
+            30
+          ],
+          "rs02_default_threads": [
+            1,
+            8,
+            30
+          ],
+          "rs02_threads": [
+            1,
+            8,
+            30
+          ],
+          "scaling": {
+            "gen_years": 25.0,
+            "mu": 2.5e-08
+          },
+          "simulation": {
+            "ancestry_model": "hudson",
+            "bin_size": 100,
+            "discrete_genome": true,
+            "mutation_model": "jc69",
+            "mutation_rate": 2.5e-08,
+            "ploidy": 2,
+            "recombination_rate": 1e-08
+          },
+          "thread_scaling_size_mb": 3000,
+          "thread_scaling_threads": [
+            1,
+            2,
+            4,
+            8,
+            16,
+            30
+          ],
+          "timing": {
+            "max_other_cores": 0.5,
+            "max_other_cpu_share": 0.05,
+            "max_sleep_seconds": 2.0,
+            "max_wait_seconds": 180.0,
+            "quiet_cpu_percent": 10.0,
+            "quiet_max_cores": 1.0,
+            "quiet_window_seconds": 2.0,
+            "require_ac_power": true,
+            "rss_sample_seconds": 0.5,
+            "settle_seconds": 10.0
+          }
+        }
+      },
+      "figure": "art2_performance",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "4e2ac0091ce6698e6903d3f985a3527821849ad4605bd328819b87fb85111708",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/E3/figures/art2_performance.pdf": "f0c763feaa7f8a6baf1a0de97856aa4d637f1a74ae798ab4760518200539a704",
+    "<runs>/E3/figures/art2_performance.png": "d14f062297ec0009fec3adc26cc8c8c965acb0a987187f14ef67a80495531dc7",
+    "<runs>/E3/figures/art2_performance.svg": "400f1888eda80479a6605d541e2b8f81d2e5ce472db5505cc790a2fece15d44f"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-11T20:31:38",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      2.43,
+      3.9,
+      3.31
+    ],
+    "loadavg_before": [
+      2.43,
+      3.9,
+      3.31
+    ],
+    "maxrss_main_mb": 154.1,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 154.1,
+    "peak_rss_tree_sampled_mb": 153.2,
+    "start": "2026-10-11T20:31:37",
+    "system_seconds": 0.133,
+    "user_seconds": 1.183,
+    "wall_seconds": 1.503
+  }
+}

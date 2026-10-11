@@ -58,6 +58,13 @@ class FigureSpec:
 
 
 FIGURES: Tuple[FigureSpec, ...] = (
+    # The article's Figs 1 and 2 (Supplementary Note 1, section 3, maps every article figure to its file).
+    FigureSpec("art1_agreement", "art1_agreement", "FIG",
+               ("E1_curves", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E2_curves", "E2_bands", "E2_rs_vs_c",
+                "E7_curves", "E7_rs_vs_c"),
+               "psmc-rs reproduces C psmc, on simulated and on real genomes"),
+    FigureSpec("art2_performance", "art2_performance", "E3", ("E3_table2",),
+               "psmc-rs is fast and lean: run time, speed-up over C psmc and memory"),
     FigureSpec("fig1_workflow", "fig1", "FIG", (), "From reads to a PSMC history with psmc-rs"),
     FigureSpec("fig2_simulated_accuracy", "fig2", "E1",
                ("E1_curves", "E1_truth", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E1_mstep"),

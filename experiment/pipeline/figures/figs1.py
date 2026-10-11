@@ -1,4 +1,4 @@
-"""Fig S1 (E1): EM convergence of C psmc and psmc-rs 0.2 on the same genomes.
+"""Fig S1 (E1): EM convergence of C psmc and psmc-rs (0.2) on the same genomes.
 
 One column per model; every replicate is a line. Iteration i counts
 completed EM iterations: C psmc's LK of round i + 1 and psmc-rs's
@@ -110,11 +110,12 @@ def draw(src: Source):
     fig.align_ylabels([row[0] for row in rows])
     from matplotlib.patches import Patch
 
-    handles = [style.handle(style.C_PSMC, linewidth=C_LW), style.handle(style.RS02, linewidth=RS_LW),
-               style.handle(style.Entity("psmc-rs 0.2 − C psmc (one replicate)", style.BLUE, "-", "o"),
+    handles = [style.handle(style.C_PSMC, linewidth=C_LW),
+               style.handle(style.Entity("psmc-rs", style.BLUE, "-", "o"), linewidth=RS_LW),
+               style.handle(style.Entity("psmc-rs − C psmc (one replicate)", style.BLUE, "-", "o"),
                         kind="both", linewidth=style.LW_THIN + 0.2, markersize=1.6),
                Patch(facecolor=ROUNDING, linewidth=0,
-                     label=f"Rounding of C psmc's printed θ ({C_THETA_DECIMALS} decimals; i-l)")]
+                     label=f"Rounding of C psmc's printed θ ({C_THETA_DECIMALS} decimals; i\u2013l)")]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
     style.panel_letters(fig, [ax for row in rows for ax in row], align_cols=True)
     return fig

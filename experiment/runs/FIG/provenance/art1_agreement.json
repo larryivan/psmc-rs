@@ -1,0 +1,404 @@
+{
+  "digest": "f4de16d9edb777df75d0f5ed5a2797aae8eee5bdb2e42918075b34b9cbb7c827",
+  "key": {
+    "command": [
+      "<python>",
+      "-m",
+      "experiment.pipeline.figures",
+      "art1_agreement",
+      "--profile",
+      "production",
+      "--runs-dir",
+      "<runs>"
+    ],
+    "env": {},
+    "inputs": {
+      "<runs>/E1/tables/E1_curves.csv": "cfe60db2726c88ad0f60a749d8f304bda42696b5629c6fb0abd8e463e7733e2e",
+      "<runs>/E1/tables/E1_replicates.csv": "fb5d83e49829aa06dfa1ba0e1ea0601f0f0861529accb447a2bb0294be4844ce",
+      "<runs>/E1/tables/E1_rs_vs_c.csv": "ed3fd4ba80affeabdcfc206f620b83a3aa0d8b5cd8c988f88e1f577bdc28bcc3",
+      "<runs>/E1/tables/E1_table1.csv": "bbb2429776fe9d63d48fbebb0bd9beddc45f8b2c9abcabe936fc332dbd029a55",
+      "<runs>/E2/tables/E2_bands.csv": "d083aef8b86705d399009ac3415e6ce59b6e486509789a5524daa4abc3291562",
+      "<runs>/E2/tables/E2_curves.csv": "bbfebe5e0f5f260a4223854c4bf392f3a72c18a2fd164ad262f337466fc22382",
+      "<runs>/E2/tables/E2_rs_vs_c.csv": "936c9727d3f2d537311eead78008dd6cd6e5c43e972234975006e8b4df4a37af",
+      "<runs>/E7/tables/E7_curves.csv": "ee6450cf3b7c620945ee57db0fbf4f9aeecda44d8c733b6b33904547357e3f2c",
+      "<runs>/E7/tables/E7_rs_vs_c.csv": "11846ce9431f1df3fa32187739a3400181fadaf4a2ae8a9ecfac15fe2d0665ce"
+    },
+    "job": "FIG/art1_agreement",
+    "seeds": {},
+    "settings": {
+      "experiments": {
+        "E1": {
+          "default_mstep_iters": null,
+          "genome": {
+            "chromosome_length": 50000000,
+            "n_chromosomes": 10
+          },
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "models": [
+            "constant",
+            "bottleneck",
+            "expansion",
+            "zigzag"
+          ],
+          "replicates": 10,
+          "rs_threads": 1,
+          "scaling": {
+            "gen_years": 25.0,
+            "mu": 2.5e-08
+          },
+          "simulation": {
+            "ancestry_model": "hudson",
+            "bin_size": 100,
+            "discrete_genome": true,
+            "mutation_model": "jc69",
+            "mutation_rate": 2.5e-08,
+            "ploidy": 2,
+            "recombination_rate": 1e-08
+          }
+        },
+        "E2": {
+          "band": [
+            0.025,
+            0.975
+          ],
+          "bootstrap_replicates": 100,
+          "bootstrap_trunk_bins": 500000,
+          "display_years": [
+            100.0,
+            100000000.0,
+            600
+          ],
+          "few_trunks": 20,
+          "fine_trunk_bins": 50000,
+          "fit_threads": 1,
+          "genomes": [
+            {
+              "bootstrap_shared_with": null,
+              "file": "HLemySub1_diploid.psmcfa",
+              "label": "Emydura subglobosa (HLemySub1)",
+              "sample_id": "HLemySub1",
+              "scaling": {
+                "gen_years": 15.0,
+                "mu": 4.6e-09
+              },
+              "scaling_cite": "painted turtle trios (Bergeron 2023)",
+              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+              "sequence_noun": "scaffolds",
+              "sha256": null,
+              "species": "Emydura subglobosa"
+            },
+            {
+              "bootstrap_shared_with": null,
+              "file": "HLhydTec1_diploid.psmcfa",
+              "label": "Hydromedusa tectifera (HLhydTec1)",
+              "sample_id": "HLhydTec1",
+              "scaling": {
+                "gen_years": 15.0,
+                "mu": 4.6e-09
+              },
+              "scaling_cite": "painted turtle trios (Bergeron 2023)",
+              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+              "sequence_noun": "scaffolds",
+              "sha256": null,
+              "species": "Hydromedusa tectifera"
+            },
+            {
+              "bootstrap_shared_with": null,
+              "file": "HLpelCas1_diploid.psmcfa",
+              "label": "Pelusios castaneus (HLpelCas1)",
+              "sample_id": "HLpelCas1",
+              "scaling": {
+                "gen_years": 15.0,
+                "mu": 4.6e-09
+              },
+              "scaling_cite": "painted turtle trios (Bergeron 2023)",
+              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+              "sequence_noun": "scaffolds",
+              "sha256": null,
+              "species": "Pelusios castaneus"
+            },
+            {
+              "bootstrap_shared_with": "E7",
+              "file": "NA12878_1kGP30x_diploid.psmcfa.gz",
+              "label": "Homo sapiens (NA12878, CEU)",
+              "sample_id": "NA12878",
+              "scaling": {
+                "gen_years": 29.0,
+                "mu": 1.25e-08
+              },
+              "scaling_cite": "Scally & Durbin 2012; g: Fenner 2005",
+              "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+              "sequence_noun": "chromosomes",
+              "sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+              "species": "Homo sapiens"
+            }
+          ],
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "max_bins": null,
+          "panel_order": [
+            "NA12878",
+            "HLemySub1",
+            "HLhydTec1",
+            "HLpelCas1"
+          ],
+          "rs_threads": 50,
+          "split_genomes": [
+            "HLemySub1",
+            "HLhydTec1",
+            "HLpelCas1"
+          ],
+          "split_patterns": [
+            [
+              "split2",
+              "2+2+25*2+4+6"
+            ],
+            [
+              "split1",
+              "1+1+1+1+25*2+4+6"
+            ]
+          ],
+          "split_peak_ratio": 1.25,
+          "split_recent_intervals": 8
+        },
+        "E7": {
+          "admixed": [
+            "ACB",
+            "ASW",
+            "CLM",
+            "MXL",
+            "PEL",
+            "PUR"
+          ],
+          "band": [
+            0.025,
+            0.975
+          ],
+          "bootstrap_replicates": 100,
+          "bootstrap_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "bootstrap_threads": 32,
+          "bootstrap_trunk_bins": 500000,
+          "c_psmc": true,
+          "chromosomes": [
+            "chr1",
+            "chr2",
+            "chr3",
+            "chr4",
+            "chr5",
+            "chr6",
+            "chr7",
+            "chr8",
+            "chr9",
+            "chr10",
+            "chr11",
+            "chr12",
+            "chr13",
+            "chr14",
+            "chr15",
+            "chr16",
+            "chr17",
+            "chr18",
+            "chr19",
+            "chr20",
+            "chr21",
+            "chr22"
+          ],
+          "chunk_attempts": 3,
+          "chunk_bp": 15000000,
+          "cohort": "unrelated2504",
+          "costs": {
+            "giab_gb": 2.0,
+            "giab_s": 300.0,
+            "report_gb": 4.0,
+            "report_s_base": 60.0,
+            "report_s_per_fit": 0.05,
+            "vcf_fit_gb": 0.5
+          },
+          "display_years": [
+            1000.0,
+            100000000.0,
+            400
+          ],
+          "fetch_parts": 16,
+          "figure_years": [
+            10000.0,
+            10000000.0
+          ],
+          "fit_threads": 1,
+          "giab": true,
+          "giab_bed_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.bed",
+          "giab_vcf_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "index_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index",
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "input": "joint",
+          "local_source": null,
+          "manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv",
+          "mask_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed",
+          "min_good_fraction": null,
+          "mirror_url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "panel_manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt",
+          "panel_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.{chrom}.filtered.SNV_INDEL_SV_phased_panel.vcf.gz",
+          "ped_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt",
+          "per_population": 2,
+          "pilot_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "pinned": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "raw_depth_genome_bp": 3100000000.0,
+          "retry_wait_seconds": 60.0,
+          "scaling": {
+            "gen_years": 29.0,
+            "mu": 1.25e-08
+          },
+          "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+          "split_batch_size": 500,
+          "split_pattern": "1+1+1+1+25*2+4+6",
+          "spread": [
+            0.1,
+            0.9
+          ],
+          "stream_threads": 4,
+          "superpopulations": [
+            "AFR",
+            "AMR",
+            "EAS",
+            "EUR",
+            "SAS"
+          ],
+          "use_mirror": true,
+          "vcf_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "window": null
+        }
+      },
+      "figure": "art1_agreement",
+      "figures": {
+        "curve_grid_points": 600,
+        "e4_bias_masks": [
+          "clustered30",
+          "dispersed30"
+        ],
+        "e4_example_mask": "dispersed30",
+        "e4_example_replicate": 1,
+        "job_gb": 1.0,
+        "job_seconds": 20.0,
+        "sim_years": [
+          1000.0,
+          10000000.0
+        ]
+      }
+    },
+    "tools": {
+      "font": {
+        "file": "Arial.ttf",
+        "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
+      },
+      "pipeline": {
+        "code": "45c057f74d454d4a1f7ae537db896cf39f0d5dce2572f9fce8c7884074bb3220",
+        "matplotlib": "3.11.2",
+        "numpy": "2.5.3",
+        "pandas": "3.0.6",
+        "python": "3.13.13"
+      }
+    }
+  },
+  "outputs": {
+    "<runs>/FIG/figures/art1_agreement.pdf": "85a5048eac24434ab84f59bd47a5b7ccd445642e1b08878e1a45806fa54798de",
+    "<runs>/FIG/figures/art1_agreement.png": "2fbda4a1c0c8912c61d88e62e682f70b25250c8638063b3893648168ce314d1c",
+    "<runs>/FIG/figures/art1_agreement.svg": "deb623eb14f96e7638a99d828ff0ec416a5a29d26fabd517f3a521526a0ecbf6"
+  },
+  "record_version": 1,
+  "run": {
+    "cores": 1,
+    "end": "2026-10-11T23:45:32",
+    "exclusive": false,
+    "executables": {
+      "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
+    },
+    "exit_status": 0,
+    "host": "Larryivanhans-MacBook-Pro.local",
+    "loadavg_after": [
+      3.5,
+      3.64,
+      3.42
+    ],
+    "loadavg_before": [
+      3.54,
+      3.65,
+      3.43
+    ],
+    "maxrss_main_mb": 334.7,
+    "mem_gb": 1.0,
+    "peak_rss_mb": 334.7,
+    "peak_rss_tree_sampled_mb": 333.8,
+    "start": "2026-10-11T23:45:29",
+    "system_seconds": 0.201,
+    "user_seconds": 2.942,
+    "wall_seconds": 3.269
+  }
+}

@@ -121,7 +121,6 @@ def _time_axis(ax, data: Tuple[float, float], left: float, label: bool) -> None:
     from matplotlib.ticker import FixedLocator
 
     style.years_axis(ax, (left, data[1]), label=label)
-    ax.spines["bottom"].set_bounds(*data)
     minor = [m * 10.0**e for e in range(math.floor(math.log10(data[0])), math.ceil(math.log10(data[1])))
              for m in range(2, 10) if data[0] < m * 10.0**e < data[1]]
     ax.xaxis.set_minor_locator(FixedLocator(minor))
@@ -209,12 +208,14 @@ def draw(src):
     ylim_a = _ylim([v for d in sups.values() for v in in_x(d).ne_median if v > 0] or [1e3, 1e5], room_top=0.05)
     ylim_b = _ylim([v for d in pops.values() for v in in_x(d).ne_median if v > 0] or [1e3, 1e5], room_top=0.16)
 
-    renderer = fig.canvas.get_renderer()
-
     def width_mm(text: str) -> float:
+        """The width of a label as it prints: measured at the PNG's dpi (at the screen's, hinting narrows it)."""
+        dpi = fig.dpi
+        fig.set_dpi(style.PNG_DPI)
         t = fig.text(0, 0, text, fontsize=LABEL_PT)
-        w = t.get_window_extent(renderer).width / fig.dpi * 25.4
+        w = t.get_window_extent(fig.canvas.get_renderer()).width / fig.dpi * 25.4
         t.remove()
+        fig.set_dpi(dpi)
         return w
 
     # a: the superpopulations on one axis.
@@ -257,7 +258,7 @@ def draw(src):
             ax.tick_params(axis="y", labelleft=False)
         style.note(ax, 0.97, 0.97, SUP_NAMES.get(sup, sup), ha="right", color=style.INK, size=style.TEXT_PT, zorder=7)
     handles = [Line2D([], [], color=style.INK2, linewidth=style.LW,
-                      label="Median of a superpopulation's (a) or a population's (b-f) genomes"),
+                      label="Median of a superpopulation's (a) or a population's (b–f) genomes"),
                Line2D([], [], color=style.INK2, linestyle=style.DASH, linewidth=style.LW, label="Admixed population"),
                Line2D([], [], color=context, linewidth=1.0, label="The other populations")]
     style.legend(ax_a, handles, loc="lower right", bbox_to_anchor=(1.0, 0.0), handlelength=2.4)

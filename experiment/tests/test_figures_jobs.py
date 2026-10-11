@@ -95,7 +95,7 @@ class Jobs(unittest.TestCase):
         shutil.copytree(tiny_runs.runs_dir() / "E3" / "tables", self.runs / "E3" / "tables")
         ctx = Context(config.TINY, self.runs, log=lambda _msg: None)
         written = fig.report(ctx)
-        self.assertEqual(set(written), {"fig1_workflow", "fig4_performance", "figS4_thread_scaling"})
+        self.assertEqual(set(written), {"art2_performance", "fig1_workflow", "fig4_performance", "figS4_thread_scaling"})
         self.assertTrue(all(p.exists() for p in written.values()))
 
     def test_every_figure_has_one_owner(self):

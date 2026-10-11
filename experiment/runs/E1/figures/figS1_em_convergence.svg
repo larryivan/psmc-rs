@@ -8579,27 +8579,27 @@ L 511.135675 270.950091
   </g>
   <g id="legend_1">
    <g id="line2d_335">
-    <path d="M 45.140001 5.446191 
-L 53.540001 5.446191 
-L 61.940001 5.446191 
+    <path d="M 56.033751 5.446191 
+L 64.433751 5.446191 
+L 72.833751 5.446191 
 " style="fill: none; stroke: #eb6834; stroke-width: 1.6; stroke-linejoin: miter"/>
    </g>
    <g id="text_65">
-    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="65.440001" y="7.896191" transform="rotate(-0 65.440001 7.896191)">C psmc</text>
+    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="76.333751" y="7.896191" transform="rotate(-0 76.333751 7.896191)">C psmc</text>
    </g>
    <g id="line2d_336">
-    <path d="M 97.563438 5.446191 
-L 105.963438 5.446191 
-L 114.363438 5.446191 
+    <path d="M 108.457188 5.446191 
+L 116.857188 5.446191 
+L 125.257188 5.446191 
 " style="fill: none; stroke: #2a78d6; stroke-width: 0.6; stroke-linejoin: miter"/>
    </g>
    <g id="text_66">
-    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="117.863438" y="7.896191" transform="rotate(-0 117.863438 7.896191)">psmc-rs 0.2</text>
+    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="128.757188" y="7.896191" transform="rotate(-0 128.757188 7.896191)">psmc-rs</text>
    </g>
    <g id="line2d_337">
-    <path d="M 162.823126 5.446191 
-L 171.223126 5.446191 
-L 179.623126 5.446191 
+    <path d="M 162.042188 5.446191 
+L 170.442188 5.446191 
+L 178.842188 5.446191 
 " style="fill: none; stroke: #2a78d6; stroke-width: 0.7; stroke-linejoin: miter"/>
     <defs>
      <path id="m4d2aa5bbae" d="M 0 0.8 
@@ -8615,22 +8615,22 @@ z
 " style="stroke: #2a78d6; stroke-width: 0.6"/>
     </defs>
     <g>
-     <use xlink:href="#m4d2aa5bbae" x="171.223126" y="5.446191" style="fill: #2a78d6; stroke: #2a78d6; stroke-width: 0.6"/>
+     <use xlink:href="#m4d2aa5bbae" x="170.442188" y="5.446191" style="fill: #2a78d6; stroke: #2a78d6; stroke-width: 0.6"/>
     </g>
    </g>
    <g id="text_67">
-    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="183.123126" y="7.896191" transform="rotate(-0 183.123126 7.896191)">psmc-rs 0.2 − C psmc (one replicate)</text>
+    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="182.342188" y="7.896191" transform="rotate(-0 182.342188 7.896191)">psmc-rs − C psmc (one replicate)</text>
    </g>
    <g id="patch_38">
-    <path d="M 306.469688 7.896191 
-L 323.269688 7.896191 
-L 323.269688 2.996191 
-L 306.469688 2.996191 
+    <path d="M 294.014063 7.896191 
+L 310.814063 7.896191 
+L 310.814063 2.996191 
+L 294.014063 2.996191 
 z
 " style="fill: #deddd5"/>
    </g>
    <g id="text_68">
-    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="326.769688" y="7.896191" transform="rotate(-0 326.769688 7.896191)">Rounding of C psmc's printed θ (6 decimals; i-l)</text>
+    <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #0b0b0b" x="314.314063" y="7.896191" transform="rotate(-0 314.314063 7.896191)">Rounding of C psmc's printed θ (6 decimals; i–l)</text>
    </g>
   </g>
  </g>
