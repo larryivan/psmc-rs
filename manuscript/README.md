@@ -1,7 +1,8 @@
 # Manuscript
 
-The article (`psmc-rs.tex`) and its supplementary information
-(`supplement.tex`: Figs S1–S7, Table S1 and Supplementary Note 1).
+The article (`psmc-rs.tex`: three figures, two tables) and its
+supplementary information (`supplement.tex`: Figs S1–S10, Tables S1 and S2
+and Supplementary Note 1).
 
 ```bash
 make            # numbers and tables from the results, then build/psmc-rs.pdf and build/supplement.pdf
@@ -13,8 +14,8 @@ Supplementary Note 1, section 2), [tectonic](https://tectonic-typesetting.github
 and pandoc.
 
 - `make_numbers.py` writes `numbers.tex`, one `\newcommand` per number the
-  text quotes, each with its source in a comment, and Tables 1, 2 and S1
-  (`table1.tex`, `table2.tex`, `tableS1.tex`), from the committed tables of
+  text quotes, each with its source in a comment, and Tables 1, 2, S1 and
+  S2 (`table1.tex`, `table2.tex`, `tableS1.tex`, `tableS2.tex`), from the committed tables of
   `experiment/runs/*/tables`, E7's `MANIFEST.json`, the two runs of
   NA12878's bootstrap, `experiment/crossplatform` and the README's
   diagnostic of the residual difference from C psmc. The text quotes no
@@ -27,7 +28,8 @@ and pandoc.
   Crossref's print dates; the software entries were checked against their
   repositories.
 - The figures are those of `experiment/runs/*/figures`, drawn by the
-  pipeline (`python -m experiment.pipeline.figures`).
+  pipeline (`python -m experiment.pipeline.figures`); Supplementary Note 1,
+  section 3, maps the article's figure numbers to their files.
 
 Red bracketed text in the PDFs marks what the author still has to supply:
 names, affiliation, the source of the turtle data, Zenodo DOIs, funding,

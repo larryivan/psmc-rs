@@ -18,7 +18,7 @@ sn1.tex: $(SN1) make_sn1.py
 $(BUILD)/psmc-rs.pdf: psmc-rs.tex numbers.tex table1.tex table2.tex references.bib
 	mkdir -p $(BUILD) && $(TECTONIC) --outdir $(BUILD) psmc-rs.tex
 
-$(BUILD)/supplement.pdf: supplement.tex numbers.tex tableS1.tex sn1.tex references.bib
+$(BUILD)/supplement.pdf: supplement.tex numbers.tex tableS1.tex tableS2.tex sn1.tex references.bib
 	mkdir -p $(BUILD) && $(TECTONIC) --outdir $(BUILD) supplement.tex
 
 # exit 1 if numbers.tex or a table is not what the committed results give

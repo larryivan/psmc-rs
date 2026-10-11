@@ -1,12 +1,11 @@
 \begin{tabular}{lrrrrrr}
 \toprule
-& \multicolumn{2}{c}{Window (years)} & \multicolumn{2}{c}{RMSE vs truth} & \multicolumn{2}{c}{psmc-rs vs C psmc} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
-Model & from & to & C psmc & psmc-rs & RMSE (median) & max $|\Delta|$ \\
+& & \multicolumn{2}{c}{$\log_{10}N_\mathrm{e}$ in the window} & \multicolumn{3}{c}{largest relative difference} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-7}
+Genomes & $n$ & RMSE & largest $|\Delta|$ & $\theta,\rho,t_{\max}$ & log-likelihood & first E-step \\
 \midrule
-constant & 5,025 & 2,302,585 & 0.048 $\pm$ 0.023 & 0.048 $\pm$ 0.023 & \ensuremath{7.8\times10^{-6}} & \ensuremath{9.2\times10^{-5}} \\
-bottleneck & 10,050 & 1,322,585 & 0.291 $\pm$ 0.021 & 0.291 $\pm$ 0.021 & \ensuremath{3.9\times10^{-5}} & \ensuremath{6.6\times10^{-4}} \\
-expansion & 5,025 & 1,052,585 & 0.240 $\pm$ 0.043 & 0.240 $\pm$ 0.043 & \ensuremath{3.0\times10^{-5}} & \ensuremath{4.8\times10^{-4}} \\
-zigzag & 7,141 & 2,167,766 & 0.138 $\pm$ 0.013 & 0.138 $\pm$ 0.013 & \ensuremath{1.9\times10^{-5}} & \ensuremath{6.6\times10^{-5}} \\
+Simulated (E1) & 40 & \ensuremath{3.7\times10^{-6}}--\ensuremath{2.0\times10^{-4}} & \ensuremath{6.6\times10^{-4}} & \ensuremath{5.5\times10^{-4}} & \ensuremath{1.3\times10^{-8}} & \ensuremath{7.0\times10^{-13}} \\
+Turtles and NA12878 (E2) & 4 & \ensuremath{9.7\times10^{-6}}--\ensuremath{2.8\times10^{-4}} & \ensuremath{4.5\times10^{-4}} & \ensuremath{1.0\times10^{-3}} & \ensuremath{2.3\times10^{-7}} & \ensuremath{6.9\times10^{-14}} \\
+1000 Genomes (E7) & 52 & \ensuremath{5.7\times10^{-6}}--\ensuremath{2.1\times10^{-5}} & \ensuremath{5.8\times10^{-5}} & \ensuremath{5.4\times10^{-5}} & \ensuremath{2.8\times10^{-9}} & \ensuremath{1.1\times10^{-13}} \\
 \bottomrule
 \end{tabular}
