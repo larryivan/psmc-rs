@@ -1,0 +1,5168 @@
+[
+ {
+  "job": "E2/fit-rs/NA12878",
+  "ibex_record": "experiment/runs/E2/provenance/fit-rs/NA12878.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz",
+   "<runs>/E2/fits/NA12878.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "1.25e-08",
+   "--gen-years",
+   "29",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E2/fits/NA12878.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz",
+   "<xplat>/runs/E2/fits/NA12878.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "1.25e-08",
+   "--gen-years",
+   "29",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E2/fits/NA12878.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz",
+    "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz"
+   ],
+   [
+    "<runs>/E2/fits/NA12878.rs.json",
+    "<xplat>/runs/E2/fits/NA12878.rs.json"
+   ],
+   [
+    "<runs>/E2/fits/NA12878.rs.psmc",
+    "<xplat>/runs/E2/fits/NA12878.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz": {
+    "ibex_placeholder": "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz",
+    "ibex_sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+    "laptop_sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E2/fits/NA12878.rs.json": "1f0affaf69a47a1e35a96fc48e97f20566edea62322490ee8d5b6e3b029e3f1a",
+   "<runs>/E2/fits/NA12878.rs.psmc": "50a8c9ed67011b85fb1f3de088ba7b8a6207ebf7f1c515afc4a0d0a3e3bb0683"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 29.0,
+    "mu": 1.25e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-14-r",
+   "cores": 1,
+   "wall_seconds": 601.326,
+   "user_seconds": 597.786,
+   "start": "2026-10-08T11:27:12"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep01",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep01.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep01/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep01.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep01/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep01.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep01/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep01/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep01.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep01.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep01.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep01.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep01/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep01/genome.psmcfa",
+    "ibex_sha256": "719bc89a784620e27fd59e7dd2f9e131367b8be7fbedca071b18dbc4e20a0a29",
+    "laptop_sha256": "719bc89a784620e27fd59e7dd2f9e131367b8be7fbedca071b18dbc4e20a0a29",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep01.rs.json": "cf16bdbf8e148cf33759b02d0598764606e1bf8ab0b762011d882f40fb9f33d9",
+   "<runs>/E1/fits/constant/rep01.rs.psmc": "5c6e9201de95629d0c8ad9f7a1de20be255734a0b5e9ba49e92234ce8c9af481"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.05,
+   "user_seconds": 123.129,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep02",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep02.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep02/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep02.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep02/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep02.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep02/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep02/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep02.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep02.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep02.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep02.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep02/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep02/genome.psmcfa",
+    "ibex_sha256": "d46a1c8ad8613f000e91caa18190362c4bde148b73274373f53d5875ea6058df",
+    "laptop_sha256": "d46a1c8ad8613f000e91caa18190362c4bde148b73274373f53d5875ea6058df",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep02.rs.json": "4386bfe06d1f5bdb33406c3a9fcd063228101a53e9ba181313c9c0d92082fa3a",
+   "<runs>/E1/fits/constant/rep02.rs.psmc": "3ba84d15a496da1271957d0bbd7645096e40e072e299fdbce5e160d2f1639cfc"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.971,
+   "user_seconds": 122.301,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep03",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep03.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep03/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep03.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep03/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep03.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep03/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep03/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep03.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep03.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep03.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep03.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep03/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep03/genome.psmcfa",
+    "ibex_sha256": "17536615df7e7cd3ab9d4d0682b4552bfae5fe740472b79585f0978f8ab194db",
+    "laptop_sha256": "17536615df7e7cd3ab9d4d0682b4552bfae5fe740472b79585f0978f8ab194db",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep03.rs.json": "c5803ee1e5bf27b2b8609f66834dc503dfc23fbed1a5ab65ee292aa4bb34aeb5",
+   "<runs>/E1/fits/constant/rep03.rs.psmc": "e987a8862d8f483ff26d8020254c0013f5530ef65c379b53efae2af2aedca233"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.731,
+   "user_seconds": 122.345,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep04",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep04.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep04/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep04.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep04/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep04.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep04/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep04/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep04.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep04.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep04.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep04.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep04/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep04/genome.psmcfa",
+    "ibex_sha256": "6f8f41999265b801e6015ba3ae44830d7374b8879f455b29b42cde98713d9a44",
+    "laptop_sha256": "6f8f41999265b801e6015ba3ae44830d7374b8879f455b29b42cde98713d9a44",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep04.rs.json": "f946f9c42ce99ab25c16779323657041b23c8ebedf3802b6dd8de97bfa5b05ef",
+   "<runs>/E1/fits/constant/rep04.rs.psmc": "919f7521ed8680ec7a81142689a1b14b9d6462b3e80998427ddf7206e0846d55"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.006,
+   "user_seconds": 123.138,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep05",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep05.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep05/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep05.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep05/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep05.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep05/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep05/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep05.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep05.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep05.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep05.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep05/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep05/genome.psmcfa",
+    "ibex_sha256": "de765609aaf255a243d6226ec706f374fb1de36bdf70e13116fd135b972632ab",
+    "laptop_sha256": "de765609aaf255a243d6226ec706f374fb1de36bdf70e13116fd135b972632ab",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep05.rs.json": "9f6fc0a9dafea1b43f92719da69e2792ba584bc83fa8e1b2c303b70e61aa2e6a",
+   "<runs>/E1/fits/constant/rep05.rs.psmc": "fd031cc7d915b862ffa05e0c020183130bee53c8022b4c7a1b4cb388291d2db8"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.681,
+   "user_seconds": 122.146,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep06",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep06.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep06/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep06.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep06/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep06.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep06/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep06/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep06.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep06.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep06.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep06.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep06/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep06/genome.psmcfa",
+    "ibex_sha256": "0a3278d82837838f11bed63f66815700a576e631d05ebe9bac8fa1bec92ce504",
+    "laptop_sha256": "0a3278d82837838f11bed63f66815700a576e631d05ebe9bac8fa1bec92ce504",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep06.rs.json": "68f59e918795fffcc47132aaae74a806ced4ba78be612c675b110c04139815e7",
+   "<runs>/E1/fits/constant/rep06.rs.psmc": "1b5a183b7eca1d181c6353b6de9fb06dc3bf87d715ca4c9ac2097483ad3cc496"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.514,
+   "user_seconds": 122.673,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep07",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep07.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep07/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep07.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep07/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep07.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep07/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep07/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep07.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep07.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep07.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep07.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep07/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep07/genome.psmcfa",
+    "ibex_sha256": "23116448b2566b49fc6227f63264d8f31be8ea27a44d4d9df69040db007fba9e",
+    "laptop_sha256": "23116448b2566b49fc6227f63264d8f31be8ea27a44d4d9df69040db007fba9e",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep07.rs.json": "17bd26db4b8393e1fcf9174ae7986321f24af52fabba6c604d4a8f457b754bdb",
+   "<runs>/E1/fits/constant/rep07.rs.psmc": "70b8a14549613554f02db1c69eb92bff9dac96babfb7ca6550be0256914f4248"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.055,
+   "user_seconds": 123.083,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep08",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep08.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep08/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep08.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep08/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep08.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep08/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep08/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep08.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep08.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep08.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep08.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep08/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep08/genome.psmcfa",
+    "ibex_sha256": "4e43016c7c12261a63262dc378bc270a398897ecabe2e91f2df268f50f31bd92",
+    "laptop_sha256": "4e43016c7c12261a63262dc378bc270a398897ecabe2e91f2df268f50f31bd92",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep08.rs.json": "a1b41302c6837c0ad39329aaff34f3e98a3cef1639c4665e11fe1bed3764f712",
+   "<runs>/E1/fits/constant/rep08.rs.psmc": "004c5db6d0dbd0a6c87d20b2e31740af7f65e1992cc4aca7b36e67f091b54bc8"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.334,
+   "user_seconds": 121.88,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep09",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep09.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep09/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep09.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep09/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep09.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep09/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep09/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep09.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep09.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep09.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep09.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep09/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep09/genome.psmcfa",
+    "ibex_sha256": "acbc467fab13c74a25add23c02787f9f00ad3597a54082557c0b9bb24dbaff65",
+    "laptop_sha256": "acbc467fab13c74a25add23c02787f9f00ad3597a54082557c0b9bb24dbaff65",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep09.rs.json": "48039853c1117c949173056bec3045847083672688f27d4f82bb0659a2d27dc0",
+   "<runs>/E1/fits/constant/rep09.rs.psmc": "a003a788eb830abaa0a4aaa6404c524e9971cd440c15f064739632750677f879"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 125.368,
+   "user_seconds": 123.639,
+   "start": "2026-10-07T00:23:12"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/constant/rep10",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/constant/rep10.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/constant/rep10/genome.psmcfa",
+   "<runs>/E1/fits/constant/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/constant/rep10.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep10/genome.psmcfa",
+   "<xplat>/runs/E1/fits/constant/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/constant/rep10.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/constant/rep10/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep10/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep10.rs.json",
+    "<xplat>/runs/E1/fits/constant/rep10.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/constant/rep10.rs.psmc",
+    "<xplat>/runs/E1/fits/constant/rep10.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/constant/rep10/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/constant/rep10/genome.psmcfa",
+    "ibex_sha256": "580f5e89f674a291cc24f2d013e4bf7dde368a1c3c4b01076855c3537203947f",
+    "laptop_sha256": "580f5e89f674a291cc24f2d013e4bf7dde368a1c3c4b01076855c3537203947f",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/constant/rep10.rs.json": "0ceba8688cb15bb4cfd36e239daf10c39aad5c6e5845a325006f579c1e75c445",
+   "<runs>/E1/fits/constant/rep10.rs.psmc": "8d6052fa97affac59adff185eb47661bc446cff5e4181d33f80d4c75a0ef2b9c"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.721,
+   "user_seconds": 122.908,
+   "start": "2026-10-07T00:23:12"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep01",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep01.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep01/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep01.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep01.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep01/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep01.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep01.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep01.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep01.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep01/genome.psmcfa",
+    "ibex_sha256": "c1fbcd57350cf8429fd30e2c672c3925b53c08c7f3c1f59f734b62534eaba3ba",
+    "laptop_sha256": "c1fbcd57350cf8429fd30e2c672c3925b53c08c7f3c1f59f734b62534eaba3ba",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep01.rs.json": "ff9649a69153a8769e78370ab6c9691556092a2e67e4b2a6553d539ca673613d",
+   "<runs>/E1/fits/bottleneck/rep01.rs.psmc": "cff2ca0138eb95c28987e22e6412480efc530001866077cc051e7c7cadd306b5"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.95,
+   "user_seconds": 122.897,
+   "start": "2026-10-07T00:23:10"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep02",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep02.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep02/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep02.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep02/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep02.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep02/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep02/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep02.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep02.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep02.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep02.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep02/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep02/genome.psmcfa",
+    "ibex_sha256": "3bda1aad67454c91a9b93db7e2e4160aa37ec5e7e24185e208b35b0305aaf8a6",
+    "laptop_sha256": "3bda1aad67454c91a9b93db7e2e4160aa37ec5e7e24185e208b35b0305aaf8a6",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep02.rs.json": "10ff93ea5a2dde8f5a9687f0a4c4a5edc06f836d2078d28a534fea228caebd9c",
+   "<runs>/E1/fits/bottleneck/rep02.rs.psmc": "e8343ab6caa1569ba6d315b2e671669dc9c00df44863aa01b08e6cc589297518"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.695,
+   "user_seconds": 122.326,
+   "start": "2026-10-07T00:23:10"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep03",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep03.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep03/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep03.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep03/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep03.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep03/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep03/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep03.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep03.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep03.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep03.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep03/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep03/genome.psmcfa",
+    "ibex_sha256": "19a63e5b4b60ebf091bdee2dc66548393469fc19b64840821c8bc44dc3bd0c2b",
+    "laptop_sha256": "19a63e5b4b60ebf091bdee2dc66548393469fc19b64840821c8bc44dc3bd0c2b",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep03.rs.json": "6e770c48f5a8d303520f9c037d525e77aeb6b0f5e0775dff09adc442e62c1827",
+   "<runs>/E1/fits/bottleneck/rep03.rs.psmc": "9b497dc1b9986bb9b24329c592a0fd5e44acbfa6bf0660f55ad766dde24edf97"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.389,
+   "user_seconds": 122.959,
+   "start": "2026-10-07T00:23:10"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep04",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep04.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep04/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep04.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep04/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep04.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep04/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep04/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep04.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep04.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep04.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep04.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep04/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep04/genome.psmcfa",
+    "ibex_sha256": "c6b48104ea264b31956e4d8ea24d55431f840f43e07ec5035912f46de906069a",
+    "laptop_sha256": "c6b48104ea264b31956e4d8ea24d55431f840f43e07ec5035912f46de906069a",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep04.rs.json": "bb0e96c2e5b14a649c7bae65943bd8d4ca2a42e4d6d76bdcf0c7c3ddf3463238",
+   "<runs>/E1/fits/bottleneck/rep04.rs.psmc": "75408cf7c68cc971bccf33fa34daee82435b9dcd8ecb2b736a1a941d0c794f30"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.359,
+   "user_seconds": 122.697,
+   "start": "2026-10-07T00:23:10"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep05",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep05.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep05/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep05.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep05/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep05.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep05/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep05/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep05.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep05.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep05.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep05.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep05/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep05/genome.psmcfa",
+    "ibex_sha256": "fd43da44c685b8247f026872b22c9a9c2fdfc601c697e71a49798f7323b99bc1",
+    "laptop_sha256": "fd43da44c685b8247f026872b22c9a9c2fdfc601c697e71a49798f7323b99bc1",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep05.rs.json": "ee1d3612f0f2d55d54fd5e3ee27f87fd85ad19288a89582d74adfe80857ea2f8",
+   "<runs>/E1/fits/bottleneck/rep05.rs.psmc": "c2553b706cf078025206c4714cee4413d4dd3393761ab55a26f447bac84e78ba"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.156,
+   "user_seconds": 123.06,
+   "start": "2026-10-07T00:23:10"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep06",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep06.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep06/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep06.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep06/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep06.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep06/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep06/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep06.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep06.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep06.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep06.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep06/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep06/genome.psmcfa",
+    "ibex_sha256": "00322c1bc3d7753413bb2d040b257de246957bebd16007f0a74b1b2430aaa534",
+    "laptop_sha256": "00322c1bc3d7753413bb2d040b257de246957bebd16007f0a74b1b2430aaa534",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep06.rs.json": "e1bd9088c283c0fda83c37c80a6b839da64822fe6f731a022a00f80ee57ebc37",
+   "<runs>/E1/fits/bottleneck/rep06.rs.psmc": "d93e9e5e8fb9b82464e0264475686cb3f3fe52a481ca7756bed4beaf85a4f348"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.296,
+   "user_seconds": 122.648,
+   "start": "2026-10-07T00:23:10"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep07",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep07.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep07/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep07.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep07/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep07.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep07/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep07/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep07.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep07.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep07.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep07.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep07/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep07/genome.psmcfa",
+    "ibex_sha256": "da4c15cdd2af62206baa2945edcf0481e0deb5a7723e145bf5387bec4c4947db",
+    "laptop_sha256": "da4c15cdd2af62206baa2945edcf0481e0deb5a7723e145bf5387bec4c4947db",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep07.rs.json": "ad738500ef403f4cf2796ae56f38b94d30d664a8155d5c56feb7d3a860b29e83",
+   "<runs>/E1/fits/bottleneck/rep07.rs.psmc": "0a61f82ffaa22d537bb62f512f0a64d3dd52904531ec5bda32b93bfe9594b9ef"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.204,
+   "user_seconds": 122.751,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep08",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep08.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep08/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep08.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep08/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep08.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep08/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep08/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep08.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep08.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep08.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep08.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep08/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep08/genome.psmcfa",
+    "ibex_sha256": "d99ea6a7c5cf978235577f3669097d5e147025b2ef536343e3ce78ac82007933",
+    "laptop_sha256": "d99ea6a7c5cf978235577f3669097d5e147025b2ef536343e3ce78ac82007933",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep08.rs.json": "d8cf30e87579f3cf8554199004e57d435b6e5dc1deeab4551b7530deeaeb95e7",
+   "<runs>/E1/fits/bottleneck/rep08.rs.psmc": "6fc60c732606192d7d4afb65bab29596d9fa8d55bb3a332126027af0c0c224fe"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.197,
+   "user_seconds": 122.673,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep09",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep09.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep09/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep09.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep09/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep09.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep09/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep09/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep09.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep09.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep09.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep09.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep09/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep09/genome.psmcfa",
+    "ibex_sha256": "28f5f6f4aa3d407bab1e9b3f6bfc65d745d03d49ce89df70198f985171bda8fd",
+    "laptop_sha256": "28f5f6f4aa3d407bab1e9b3f6bfc65d745d03d49ce89df70198f985171bda8fd",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep09.rs.json": "e5960c259b32f76f1057c941774b2a58284b0c0a9352a808c1541adeee4b8b8a",
+   "<runs>/E1/fits/bottleneck/rep09.rs.psmc": "65e00c409063b26cd4c9cdf39544d5193bfa6d413b7d5a8f117ed16329ee18f0"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 124.085,
+   "user_seconds": 122.321,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/bottleneck/rep10",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep10.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/bottleneck/rep10/genome.psmcfa",
+   "<runs>/E1/fits/bottleneck/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/bottleneck/rep10.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep10/genome.psmcfa",
+   "<xplat>/runs/E1/fits/bottleneck/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/bottleneck/rep10.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/bottleneck/rep10/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep10/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep10.rs.json",
+    "<xplat>/runs/E1/fits/bottleneck/rep10.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/bottleneck/rep10.rs.psmc",
+    "<xplat>/runs/E1/fits/bottleneck/rep10.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep10/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/bottleneck/rep10/genome.psmcfa",
+    "ibex_sha256": "0605baeb088946a4712984d72c3bd7f96c668896c0671bcfc39e88f4f4ee5333",
+    "laptop_sha256": "0605baeb088946a4712984d72c3bd7f96c668896c0671bcfc39e88f4f4ee5333",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/bottleneck/rep10.rs.json": "e7e8164d5e4f04deb455afd77beb7df12ad3a5a816df1c996df5e44761fb429f",
+   "<runs>/E1/fits/bottleneck/rep10.rs.psmc": "1a987ff12744a5fc0d273b4e73eeae12bd62c10a5bb076b36a02087bc2d5a2ac"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.971,
+   "user_seconds": 122.758,
+   "start": "2026-10-07T00:23:11"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep01",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep01.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep01/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep01.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep01/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep01.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep01/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep01/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep01.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep01.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep01.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep01.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep01/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep01/genome.psmcfa",
+    "ibex_sha256": "1d992b3e9d735f5b2865d6c15d89b30003ee7ac1cb3ab1e208bc9db502e64f0c",
+    "laptop_sha256": "1d992b3e9d735f5b2865d6c15d89b30003ee7ac1cb3ab1e208bc9db502e64f0c",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep01.rs.json": "0d05b286ad1d27cb8fa8ae2674b2586eb30ebd84314188a8b84c73727814e46c",
+   "<runs>/E1/fits/expansion/rep01.rs.psmc": "59547f104616b61aea9444101c9bf59b47903b31d53ff035820d7c042ce4709b"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 123.36,
+   "user_seconds": 122.556,
+   "start": "2026-10-07T00:23:12"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep02",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep02.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep02/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep02.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep02/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep02.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep02/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep02/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep02.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep02.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep02.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep02.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep02/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep02/genome.psmcfa",
+    "ibex_sha256": "d4b4906f03e1e2b572fbb63ac84acb0aff07d445e046de0e8d966df8e89a770a",
+    "laptop_sha256": "d4b4906f03e1e2b572fbb63ac84acb0aff07d445e046de0e8d966df8e89a770a",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep02.rs.json": "c42346022b2858d7eceae44657d96d376219ca268634abf39440b1b5421af547",
+   "<runs>/E1/fits/expansion/rep02.rs.psmc": "041fc5e18f4c064a67996028e69c3246eadb97138a2c98049d4b6679a63dddd5"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 113.829,
+   "user_seconds": 112.565,
+   "start": "2026-10-07T00:25:19"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep03",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep03.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep03/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep03.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep03/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep03.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep03/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep03/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep03.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep03.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep03.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep03.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep03/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep03/genome.psmcfa",
+    "ibex_sha256": "df7ecdab14d979fbfa191664787c3ed9cfa907b19ae8bd2945b66c7c4eee0d1f",
+    "laptop_sha256": "df7ecdab14d979fbfa191664787c3ed9cfa907b19ae8bd2945b66c7c4eee0d1f",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep03.rs.json": "990dfc6d568355a0996725b33bebc58a913dda5467f8b569120ae21ba22371fd",
+   "<runs>/E1/fits/expansion/rep03.rs.psmc": "99121302f3a28ef25f75de91019a8a13e480e4c1e0ba4c1353ef32f9c01ccfa4"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 115.446,
+   "user_seconds": 112.425,
+   "start": "2026-10-07T00:25:20"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep04",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep04.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep04/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep04.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep04/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep04.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep04/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep04/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep04.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep04.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep04.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep04.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep04/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep04/genome.psmcfa",
+    "ibex_sha256": "e78bd04a52096d38743428ff675b6e631326eb26ff291e2c3a73b6c44abb9e82",
+    "laptop_sha256": "e78bd04a52096d38743428ff675b6e631326eb26ff291e2c3a73b6c44abb9e82",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep04.rs.json": "265aee6bd56225bdac51c489c77a8704a56751547f6bf364db8ccad1f53cc297",
+   "<runs>/E1/fits/expansion/rep04.rs.psmc": "1b74eab7fe5ecc76af938a3975ab31546f2353efb29a7b744f2a48c7c8544f22"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 114.536,
+   "user_seconds": 112.776,
+   "start": "2026-10-07T00:25:20"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep05",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep05.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep05/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep05.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep05/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep05.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep05/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep05/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep05.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep05.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep05.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep05.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep05/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep05/genome.psmcfa",
+    "ibex_sha256": "20daf73073dc6d4d214aca3134159a156c0e81e8c8ba91b74353951724ede09c",
+    "laptop_sha256": "20daf73073dc6d4d214aca3134159a156c0e81e8c8ba91b74353951724ede09c",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep05.rs.json": "92e032dc3f05a2cfb1abc8df1ad17a235db660267e1e00c9e5a28d10d9fb7a29",
+   "<runs>/E1/fits/expansion/rep05.rs.psmc": "7c739ee9d249b04b9fa71bb23c8a0269c9e76cb94fbadda80bd5434c036b34b3"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 112.052,
+   "user_seconds": 109.765,
+   "start": "2026-10-07T00:25:20"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep06",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep06.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep06/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep06.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep06/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep06.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep06/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep06/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep06.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep06.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep06.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep06.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep06/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep06/genome.psmcfa",
+    "ibex_sha256": "4209d9889a9a8f0ce482a3607de9022473c6ca1e150232272146a9569906d79f",
+    "laptop_sha256": "4209d9889a9a8f0ce482a3607de9022473c6ca1e150232272146a9569906d79f",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep06.rs.json": "0808b6dd6b12d2a5a105ce7cb9fdf918a238be88e0c21518828062598ac460a3",
+   "<runs>/E1/fits/expansion/rep06.rs.psmc": "6afa8a627a77afdc2314472a04bcf615e52f4151881c3300c12faebac196ff36"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 114.004,
+   "user_seconds": 112.407,
+   "start": "2026-10-07T00:25:20"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep07",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep07.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep07/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep07.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep07/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep07.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep07/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep07/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep07.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep07.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep07.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep07.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep07/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep07/genome.psmcfa",
+    "ibex_sha256": "8d6d9c90d4402ac5780735131951dda0bea75ce1813665e6670740641d8547fc",
+    "laptop_sha256": "8d6d9c90d4402ac5780735131951dda0bea75ce1813665e6670740641d8547fc",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep07.rs.json": "1456057b78854e33c9f6242e43f4a3ac6918c0c890e0562cc650ec28f4244a5d",
+   "<runs>/E1/fits/expansion/rep07.rs.psmc": "be944c9d8470f8307e75e5588265388bc45078443a6835d16d279c2aa2c5b393"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 133.131,
+   "user_seconds": 127.459,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep08",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep08.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep08/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep08.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep08/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep08.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep08/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep08/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep08.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep08.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep08.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep08.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep08/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep08/genome.psmcfa",
+    "ibex_sha256": "bd2d13730384f7185b4af8ba955178e3f3a07a2a70caaad4f91b608e6523fc49",
+    "laptop_sha256": "bd2d13730384f7185b4af8ba955178e3f3a07a2a70caaad4f91b608e6523fc49",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep08.rs.json": "2440eb4df9c266d0427be16a5d40151dfe3f5993a8b4bfa1d37f82ecd1a3f0a0",
+   "<runs>/E1/fits/expansion/rep08.rs.psmc": "0d6c4270902ba4c95527ad1fb20cf6d0ab68443a405dc1f30f3cd1534db5035f"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.622,
+   "user_seconds": 127.884,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep09",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep09.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep09/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep09.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep09/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep09.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep09/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep09/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep09.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep09.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep09.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep09.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep09/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep09/genome.psmcfa",
+    "ibex_sha256": "d307aacc98f308f116fda755c5fcde6c0b5fc9e8af4d42589f5ee8bdb0d2f4f0",
+    "laptop_sha256": "d307aacc98f308f116fda755c5fcde6c0b5fc9e8af4d42589f5ee8bdb0d2f4f0",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep09.rs.json": "3bf5f330f43669a40f0bfe3812e076247d45c56a2c26488f33c8f807bf155ad3",
+   "<runs>/E1/fits/expansion/rep09.rs.psmc": "def3e20d711d7303aa190d9fada55853f07250f4181e6b316ff3ae0569276450"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.576,
+   "user_seconds": 127.912,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/expansion/rep10",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep10.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/expansion/rep10/genome.psmcfa",
+   "<runs>/E1/fits/expansion/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/expansion/rep10.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa",
+   "<xplat>/runs/E1/fits/expansion/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/expansion/rep10.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/expansion/rep10/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep10.rs.json",
+    "<xplat>/runs/E1/fits/expansion/rep10.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/expansion/rep10.rs.psmc",
+    "<xplat>/runs/E1/fits/expansion/rep10.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/expansion/rep10/genome.psmcfa",
+    "ibex_sha256": "cef2a314f3064310a8099d8835414d3f579749dc8b32bc1f3c36235ca931e131",
+    "laptop_sha256": "cef2a314f3064310a8099d8835414d3f579749dc8b32bc1f3c36235ca931e131",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/expansion/rep10.rs.json": "0e6f629eab3578ca557f9debe0b0d6fcbf1e8f29baae7a4feddbc6498650711c",
+   "<runs>/E1/fits/expansion/rep10.rs.psmc": "f56db9c450a6518276d92413ae197fd9b0511eb67fa6caa7f8c4956356587576"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 132.19,
+   "user_seconds": 127.774,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep01",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep01.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep01/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep01.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep01/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep01.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep01.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep01/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep01/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep01.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep01.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep01.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep01.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep01/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep01/genome.psmcfa",
+    "ibex_sha256": "7f594a3c6becc69e66b5c8a1743fdcf167e8368a7ee63914fd52c76f199855a0",
+    "laptop_sha256": "7f594a3c6becc69e66b5c8a1743fdcf167e8368a7ee63914fd52c76f199855a0",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep01.rs.json": "f19000336d09b2f34ac19540dc732c2cae0ef5447067831506a5fbe9e53bf9b1",
+   "<runs>/E1/fits/zigzag/rep01.rs.psmc": "e15a04be9e89c0d12a5dee90fdf2185f9acd83d7c8a298a6a287d4b708ee7a90"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.628,
+   "user_seconds": 128.744,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep02",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep02.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep02/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep02.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep02/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep02.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep02.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep02/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep02/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep02.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep02.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep02.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep02.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep02/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep02/genome.psmcfa",
+    "ibex_sha256": "9d643133a15973c57c39002337b168274fe101653c8d8c0230d2a90288a1be3d",
+    "laptop_sha256": "9d643133a15973c57c39002337b168274fe101653c8d8c0230d2a90288a1be3d",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep02.rs.json": "9c8b0e3d26dba864052a64383aaf0cd216cb06eb195e690ac5b5becb4a66d477",
+   "<runs>/E1/fits/zigzag/rep02.rs.psmc": "9238a4b2cef30964dbe0f3ac9e9926fbc2d85838cdffc84bc018fb0d501c8e22"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 129.336,
+   "user_seconds": 128.205,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep03",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep03.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep03/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep03.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep03/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep03.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep03.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep03/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep03/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep03.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep03.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep03.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep03.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep03/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep03/genome.psmcfa",
+    "ibex_sha256": "8f5b41a0937c9981a90d15f65d0d75d4d35304653b72a0240dddde42ea58e5d9",
+    "laptop_sha256": "8f5b41a0937c9981a90d15f65d0d75d4d35304653b72a0240dddde42ea58e5d9",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep03.rs.json": "98e34156966c022eab71ba07d1e769f70c9e649888509370ac32a3f1650b7385",
+   "<runs>/E1/fits/zigzag/rep03.rs.psmc": "f0054dd1cb23cbfb9e96ad3c79da2a3653b039322d7bb95d967eb7802da80bc5"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.291,
+   "user_seconds": 128.9,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep04",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep04.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep04/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep04.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep04/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep04.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep04.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep04/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep04/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep04.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep04.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep04.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep04.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep04/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep04/genome.psmcfa",
+    "ibex_sha256": "e98f1420af7600af35f3dbf717449acfafa384bbd8f8d9c664a5a7a07ae82d5e",
+    "laptop_sha256": "e98f1420af7600af35f3dbf717449acfafa384bbd8f8d9c664a5a7a07ae82d5e",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep04.rs.json": "b7f06e73f8cfe5619cb014a5eba53e2a3f4bd33ce10ca8523423bfc729f76c70",
+   "<runs>/E1/fits/zigzag/rep04.rs.psmc": "805c3e8fdfee1ed4c8f333b131a805d77ef91ba88c82ac49c0f96871260e1cb6"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.253,
+   "user_seconds": 128.329,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep05",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep05.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep05/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep05.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep05/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep05.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep05.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep05/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep05/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep05.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep05.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep05.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep05.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep05/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep05/genome.psmcfa",
+    "ibex_sha256": "3162272a1487f5131887032d388021d9909de049b5c1676c0b4f2e26207c8ef0",
+    "laptop_sha256": "3162272a1487f5131887032d388021d9909de049b5c1676c0b4f2e26207c8ef0",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep05.rs.json": "c5f60cbcbfd3464845ff6cf704027c6169b48035b53aca44375ea0b695497287",
+   "<runs>/E1/fits/zigzag/rep05.rs.psmc": "61f356b0e5ac514cdff945e6fac630916adbb3a52bb5589ae80bc17bb9638b8f"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.182,
+   "user_seconds": 128.825,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep06",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep06.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep06/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep06.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep06/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep06.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep06.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep06/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep06/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep06.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep06.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep06.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep06.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep06/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep06/genome.psmcfa",
+    "ibex_sha256": "d4709cbb229ec3b870d66612c88f6a7b6dcea782876f003eb64ee1502382c451",
+    "laptop_sha256": "d4709cbb229ec3b870d66612c88f6a7b6dcea782876f003eb64ee1502382c451",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep06.rs.json": "5f7ff02c6675e21b4fc52386a5c6c78f9de599ff259074c60e79da0fa67bd710",
+   "<runs>/E1/fits/zigzag/rep06.rs.psmc": "77bd35ab313cde1e2e9d85d9ca89b83837b77245e09756a430255877f81c9796"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 132.064,
+   "user_seconds": 128.04,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep07",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep07.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep07/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep07.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep07/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep07.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep07.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep07/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep07/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep07.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep07.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep07.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep07.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep07/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep07/genome.psmcfa",
+    "ibex_sha256": "5cb393aac293bfa9bac6838e9c665cf78695138338f348a561bc7f8eab4afa7d",
+    "laptop_sha256": "5cb393aac293bfa9bac6838e9c665cf78695138338f348a561bc7f8eab4afa7d",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep07.rs.json": "4f9284decb8d80b284382a6cb5a14b4163658970d52ac77209cbdca3dce6e83f",
+   "<runs>/E1/fits/zigzag/rep07.rs.psmc": "851ae398697e42adbdb86affa298384304a880bbd89cedcc31dce216106f6493"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 129.604,
+   "user_seconds": 128.477,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep08",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep08.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep08/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep08.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep08/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep08.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep08.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep08/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep08/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep08.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep08.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep08.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep08.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep08/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep08/genome.psmcfa",
+    "ibex_sha256": "1655219533dc64bacf6d5b4bffe3929415cf8700b87a3b49fa810014d72e3954",
+    "laptop_sha256": "1655219533dc64bacf6d5b4bffe3929415cf8700b87a3b49fa810014d72e3954",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep08.rs.json": "023b7e59d994b575dbd555bf28de7b3b3cf0c668c242b4a606ed98f966f012e7",
+   "<runs>/E1/fits/zigzag/rep08.rs.psmc": "d866218fe72748dc121798fa7ea107f0366148590b4edcaa5ae830c460316338"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 130.063,
+   "user_seconds": 128.614,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep09",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep09.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep09/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep09.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep09/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep09.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep09.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep09/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep09/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep09.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep09.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep09.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep09.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep09/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep09/genome.psmcfa",
+    "ibex_sha256": "ee599eb64b12768ea74fd8b77dd9e3bfeb1fad0799e0e3e641f94234904fd158",
+    "laptop_sha256": "ee599eb64b12768ea74fd8b77dd9e3bfeb1fad0799e0e3e641f94234904fd158",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep09.rs.json": "b583391665c6198e5a68f439519f9ea185f98b3c78110d111f3be2f73591cac1",
+   "<runs>/E1/fits/zigzag/rep09.rs.psmc": "6de31102114f8defdaa3067fce5491c81a7f043fd94af433387031a7cf2f8b00"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 132.209,
+   "user_seconds": 128.059,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ },
+ {
+  "job": "E1/fit-rs/zigzag/rep10",
+  "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep10.json",
+  "ibex_command": [
+   "<repo>/target/release/psmc-rs",
+   "<runs>/E1/sims/zigzag/rep10/genome.psmcfa",
+   "<runs>/E1/fits/zigzag/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<runs>/E1/fits/zigzag/rep10.rs.psmc"
+  ],
+  "command": [
+   "<xplat>/bin/psmc-rs",
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep10/genome.psmcfa",
+   "<xplat>/runs/E1/fits/zigzag/rep10.rs.json",
+   "25",
+   "--pattern",
+   "4+25*2+4+6",
+   "--t-max",
+   "15",
+   "--tr-ratio",
+   "5",
+   "--smooth-lambda",
+   "0",
+   "--mstep-iters",
+   "1000",
+   "--bin-size",
+   "100",
+   "--mu",
+   "2.5e-08",
+   "--gen-years",
+   "25",
+   "--threads",
+   "1",
+   "--no-progress",
+   "--psmc-out",
+   "<xplat>/runs/E1/fits/zigzag/rep10.rs.psmc"
+  ],
+  "substituted": [
+   [
+    "<repo>/target/release/psmc-rs",
+    "<xplat>/bin/psmc-rs"
+   ],
+   [
+    "<runs>/E1/sims/zigzag/rep10/genome.psmcfa",
+    "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep10/genome.psmcfa"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep10.rs.json",
+    "<xplat>/runs/E1/fits/zigzag/rep10.rs.json"
+   ],
+   [
+    "<runs>/E1/fits/zigzag/rep10.rs.psmc",
+    "<xplat>/runs/E1/fits/zigzag/rep10.rs.psmc"
+   ]
+  ],
+  "inputs": {
+   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep10/genome.psmcfa": {
+    "ibex_placeholder": "<runs>/E1/sims/zigzag/rep10/genome.psmcfa",
+    "ibex_sha256": "a4a5f26b9e918c2de67359a55d72a4fbc24c4fc8f601f13b7ceed78a2fb988d7",
+    "laptop_sha256": "a4a5f26b9e918c2de67359a55d72a4fbc24c4fc8f601f13b7ceed78a2fb988d7",
+    "identical": true
+   }
+  },
+  "ibex_outputs": {
+   "<runs>/E1/fits/zigzag/rep10.rs.json": "5ea3d309da50cf49a381fbd9cafdbd6284e215c346e086499f908214529184ed",
+   "<runs>/E1/fits/zigzag/rep10.rs.psmc": "3e4b0b10c7e035f56c5a46a6f06894cc262c13214a1d7e267f579917d03f9549"
+  },
+  "ibex_tool": {
+   "psmc-rs-0.2": {
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+   }
+  },
+  "ibex_settings": {
+   "inference": {
+    "bin_size": 100,
+    "mstep_iters": 1000,
+    "n_iter": 25,
+    "pattern": "4+25*2+4+6",
+    "smooth_lambda": 0.0,
+    "t_max": 15.0,
+    "tr_ratio": 5.0
+   },
+   "scaling": {
+    "gen_years": 25.0,
+    "mu": 2.5e-08
+   },
+   "threads": 1
+  },
+  "ibex_run": {
+   "host": "cn514-11-r",
+   "cores": 1,
+   "wall_seconds": 131.756,
+   "user_seconds": 128.582,
+   "start": "2026-10-07T00:31:05"
+  },
+  "threads": "1"
+ }
+]

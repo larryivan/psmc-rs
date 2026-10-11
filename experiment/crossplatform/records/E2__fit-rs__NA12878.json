@@ -1,0 +1,59 @@
+{
+ "job": "E2/fit-rs/NA12878",
+ "command": [
+  "<xplat>/bin/psmc-rs",
+  "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz",
+  "<xplat>/runs/E2/fits/NA12878.rs.json",
+  "25",
+  "--pattern",
+  "4+25*2+4+6",
+  "--t-max",
+  "15",
+  "--tr-ratio",
+  "5",
+  "--smooth-lambda",
+  "0",
+  "--mstep-iters",
+  "1000",
+  "--bin-size",
+  "100",
+  "--mu",
+  "1.25e-08",
+  "--gen-years",
+  "29",
+  "--threads",
+  "1",
+  "--no-progress",
+  "--psmc-out",
+  "<xplat>/runs/E2/fits/NA12878.rs.psmc"
+ ],
+ "ibex_record": "experiment/runs/E2/provenance/fit-rs/NA12878.json",
+ "inputs": {
+  "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35"
+ },
+ "outputs": {
+  "<xplat>/runs/E2/fits/NA12878.rs.json": "609b038c65975cd2dacbc30c6eb19e5e8eccbf0f6d4586a445e0e2ce29b89ba6",
+  "<xplat>/runs/E2/fits/NA12878.rs.psmc": "45f6479eb2f61ff53b792bf7d08bd58d7ba27c5919feae63aa0efb84d78efbcf"
+ },
+ "binary_sha256": "b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85",
+ "exit_status": 0,
+ "start": "2026-10-11T14:24:20",
+ "wall_seconds": 357.254,
+ "user_seconds": 335.223,
+ "system_seconds": 2.67,
+ "maxrss_mb": 48.9,
+ "loadavg_before": [
+  5.71,
+  5.29,
+  5.26
+ ],
+ "loadavg_after": [
+  9.99,
+  9.87,
+  7.55
+ ],
+ "nice": 19,
+ "host": "Larryivanhans-MacBook-Pro.local",
+ "machine": "arm64",
+ "platform": "macOS-27.0-arm64-arm-64bit-Mach-O"
+}

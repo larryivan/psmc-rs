@@ -1,0 +1,59 @@
+{
+ "job": "E1/fit-rs/bottleneck/rep05",
+ "command": [
+  "<xplat>/bin/psmc-rs",
+  "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep05/genome.psmcfa",
+  "<xplat>/runs/E1/fits/bottleneck/rep05.rs.json",
+  "25",
+  "--pattern",
+  "4+25*2+4+6",
+  "--t-max",
+  "15",
+  "--tr-ratio",
+  "5",
+  "--smooth-lambda",
+  "0",
+  "--mstep-iters",
+  "1000",
+  "--bin-size",
+  "100",
+  "--mu",
+  "2.5e-08",
+  "--gen-years",
+  "25",
+  "--threads",
+  "1",
+  "--no-progress",
+  "--psmc-out",
+  "<xplat>/runs/E1/fits/bottleneck/rep05.rs.psmc"
+ ],
+ "ibex_record": "experiment/runs/E1/provenance/fit-rs/bottleneck/rep05.json",
+ "inputs": {
+  "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep05/genome.psmcfa": "fd43da44c685b8247f026872b22c9a9c2fdfc601c697e71a49798f7323b99bc1"
+ },
+ "outputs": {
+  "<xplat>/runs/E1/fits/bottleneck/rep05.rs.json": "0d8506eae4fceb35d62f0bf7a80d0910446e083bc8c8813d329af839aea88c26",
+  "<xplat>/runs/E1/fits/bottleneck/rep05.rs.psmc": "b57b45e8f841244aed21ed97276e6e6c654c1d0a5a1a5b684a65a17b057151bf"
+ },
+ "binary_sha256": "b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85",
+ "exit_status": 0,
+ "start": "2026-10-11T14:28:32",
+ "wall_seconds": 60.903,
+ "user_seconds": 58.274,
+ "system_seconds": 0.397,
+ "maxrss_mb": 15.0,
+ "loadavg_before": [
+  17.66,
+  10.34,
+  7.37
+ ],
+ "loadavg_after": [
+  12.17,
+  10.19,
+  7.54
+ ],
+ "nice": 19,
+ "host": "Larryivanhans-MacBook-Pro.local",
+ "machine": "arm64",
+ "platform": "macOS-27.0-arm64-arm-64bit-Mach-O"
+}

@@ -1,0 +1,23 @@
+{
+ "genomes": 40,
+ "n_psmcfa_eq_ibex_truth": 40,
+ "n_psmcfa_eq_ibex_sim_prov": 40,
+ "n_psmcfa_eq_ibex_fit_rs_input": 40,
+ "n_psmcfa_eq_ibex_fit_c_input": 40,
+ "n_psmcfa_eq_laptop_fit_c_input": 40,
+ "n_laptop_c_output_eq_its_record": 40,
+ "n_vcf_gz_eq_ibex_truth": 40,
+ "n_vcf_gz_eq_ibex_sim_prov": 40,
+ "n_tbi_eq_ibex_sim_prov": 40,
+ "n_sim_record_key_equal": 40,
+ "n_truth_chromosomes_block_equal": 40,
+ "chromosomes": 400,
+ "n_chromosomes_het_sha_match": 400,
+ "n_chromosomes_all_counts_match": 400,
+ "NA12878": {
+  "path": "experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz",
+  "sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+  "eq_ibex_fit_rs_input": true,
+  "eq_ibex_fit_c_input": true
+ }
+}

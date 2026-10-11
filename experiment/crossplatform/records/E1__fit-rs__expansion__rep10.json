@@ -1,0 +1,59 @@
+{
+ "job": "E1/fit-rs/expansion/rep10",
+ "command": [
+  "<xplat>/bin/psmc-rs",
+  "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa",
+  "<xplat>/runs/E1/fits/expansion/rep10.rs.json",
+  "25",
+  "--pattern",
+  "4+25*2+4+6",
+  "--t-max",
+  "15",
+  "--tr-ratio",
+  "5",
+  "--smooth-lambda",
+  "0",
+  "--mstep-iters",
+  "1000",
+  "--bin-size",
+  "100",
+  "--mu",
+  "2.5e-08",
+  "--gen-years",
+  "25",
+  "--threads",
+  "1",
+  "--no-progress",
+  "--psmc-out",
+  "<xplat>/runs/E1/fits/expansion/rep10.rs.psmc"
+ ],
+ "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep10.json",
+ "inputs": {
+  "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa": "cef2a314f3064310a8099d8835414d3f579749dc8b32bc1f3c36235ca931e131"
+ },
+ "outputs": {
+  "<xplat>/runs/E1/fits/expansion/rep10.rs.json": "4eff1900fe904087608ebd9cf20cbec763d2eddb8b566171e0241c1cb457926e",
+  "<xplat>/runs/E1/fits/expansion/rep10.rs.psmc": "9c52658429646e02639b3aee3ca07715a7667160aa0541356c360f93a4e8d898"
+ },
+ "binary_sha256": "b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85",
+ "exit_status": 0,
+ "start": "2026-10-11T14:32:40",
+ "wall_seconds": 63.994,
+ "user_seconds": 58.807,
+ "system_seconds": 0.612,
+ "maxrss_mb": 13.1,
+ "loadavg_before": [
+  8.19,
+  9.24,
+  7.65
+ ],
+ "loadavg_after": [
+  9.08,
+  9.29,
+  7.78
+ ],
+ "nice": 19,
+ "host": "Larryivanhans-MacBook-Pro.local",
+ "machine": "arm64",
+ "platform": "macOS-27.0-arm64-arm-64bit-Mach-O"
+}
