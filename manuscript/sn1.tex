@@ -13,13 +13,13 @@ repository root. The pipeline itself is described in
 \texttt{experiment/\allowbreak{}slurm/\allowbreak{}README.md}.
 
 The experiments are E1 (simulated accuracy and agreement with C psmc:
-Fig 1, Table 1, Table S1, Fig S1), E2 (four real genomes: Table 1, Figs S2
-and S3), E3 (performance: Fig 2, Table 2, Fig S4), E4 (partly callable
-bins: Fig S5), E5 (bootstrap calibration: Fig S6), E6 (supplementary
-analyses: Figs S7 and S8, Table S2) and E7 (the 1000 Genomes 30x genomes:
-Fig 3, Table 1, Figs S9 and S10); FIG draws every figure. The pipeline
-names the figure files after an earlier plan of the article; section 3
-maps them to the article's figures. \texttt{experiment/\allowbreak{}scripts/\allowbreak{}},
+Fig 1, Table 1, Table S1, Fig S1), E2 (four real genomes: Fig 2, Table 1),
+E3 (performance: Fig 3, Table 2), E4 (partly callable bins: Fig S2), E5
+(bootstrap calibration: Fig S3), E6 (supplementary analyses, quoted in the
+text) and E7 (the 1000 Genomes 30x genomes: Fig 4, Table 1); FIG draws
+every figure. The pipeline names the figure files after an earlier plan of
+the article, and draws some that the article leaves out; section 3 maps
+them. \texttt{experiment/\allowbreak{}scripts/\allowbreak{}},
 \texttt{experiment/\allowbreak{}run.py}, the notebook and \texttt{experiment/\allowbreak{}runs/\allowbreak{}\{main\_\allowbreak{}text,\allowbreak{}\ real\_\allowbreak{}data,\allowbreak{}supplementary\}/\allowbreak{}} are the earlier pipeline of psmc-rs 0.1 and
 make none of the manuscript's results.
 
@@ -125,24 +125,26 @@ file
 \bottomrule\noalign{}
 \endlastfoot
 Fig 1 & \texttt{runs/\allowbreak{}E1/\allowbreak{}figures/\allowbreak{}fig2\_\allowbreak{}simulated\_\allowbreak{}accuracy} \\
-Fig 2 & \texttt{runs/\allowbreak{}E3/\allowbreak{}figures/\allowbreak{}fig4\_\allowbreak{}performance} \\
-Fig 3 & \texttt{runs/\allowbreak{}E7/\allowbreak{}figures/\allowbreak{}fig7\_\allowbreak{}1000\_\allowbreak{}genomes} \\
+Fig 2 & \texttt{runs/\allowbreak{}E2/\allowbreak{}figures/\allowbreak{}fig3\_\allowbreak{}real\_\allowbreak{}genomes} \\
+Fig 3 & \texttt{runs/\allowbreak{}E3/\allowbreak{}figures/\allowbreak{}fig4\_\allowbreak{}performance} \\
+Fig 4 & \texttt{runs/\allowbreak{}E7/\allowbreak{}figures/\allowbreak{}fig7\_\allowbreak{}1000\_\allowbreak{}genomes} \\
 Table 1 & from \texttt{E1\_\allowbreak{}rs\_\allowbreak{}vs\_\allowbreak{}c}, \texttt{E1\_\allowbreak{}replicates}, \texttt{E2\_\allowbreak{}rs\_\allowbreak{}vs\_\allowbreak{}c}, \texttt{E2\_\allowbreak{}fit\_\allowbreak{}summary}, \texttt{E7\_\allowbreak{}rs\_\allowbreak{}vs\_\allowbreak{}c} and \texttt{E7\_\allowbreak{}fits} \\
 Table 2 & \texttt{runs/\allowbreak{}E3/\allowbreak{}tables/\allowbreak{}E3\_\allowbreak{}table2.csv} \\
 Fig S1 & \texttt{runs/\allowbreak{}E1/\allowbreak{}figures/\allowbreak{}figS1\_\allowbreak{}em\_\allowbreak{}convergence} \\
-Fig S2 & \texttt{runs/\allowbreak{}E2/\allowbreak{}figures/\allowbreak{}fig3\_\allowbreak{}real\_\allowbreak{}genomes} \\
-Fig S3 & \texttt{runs/\allowbreak{}E2/\allowbreak{}figures/\allowbreak{}figS\_\allowbreak{}turtle\_\allowbreak{}patterns} \\
-Fig S4 & \texttt{runs/\allowbreak{}E3/\allowbreak{}figures/\allowbreak{}figS4\_\allowbreak{}thread\_\allowbreak{}scaling} \\
-Fig S5 & \texttt{runs/\allowbreak{}E4/\allowbreak{}figures/\allowbreak{}fig5\_\allowbreak{}input\_\allowbreak{}preparation} \\
-Fig S6 & \texttt{runs/\allowbreak{}E5/\allowbreak{}figures/\allowbreak{}fig6\_\allowbreak{}bootstrap\_\allowbreak{}calibration} \\
-Fig S7 & \texttt{runs/\allowbreak{}E6/\allowbreak{}figures/\allowbreak{}figS2\_\allowbreak{}format\_\allowbreak{}consistency} \\
-Fig S8 & \texttt{runs/\allowbreak{}E6/\allowbreak{}figures/\allowbreak{}figS3\_\allowbreak{}tmrca\_\allowbreak{}decoding} \\
-Fig S9 & \texttt{runs/\allowbreak{}E7/\allowbreak{}figures/\allowbreak{}figS5\_\allowbreak{}1000g\_\allowbreak{}populations} \\
-Fig S10 & \texttt{runs/\allowbreak{}E7/\allowbreak{}figures/\allowbreak{}figS6\_\allowbreak{}1000g\_\allowbreak{}checks} \\
+Fig S2 & \texttt{runs/\allowbreak{}E4/\allowbreak{}figures/\allowbreak{}fig5\_\allowbreak{}input\_\allowbreak{}preparation} \\
+Fig S3 & \texttt{runs/\allowbreak{}E5/\allowbreak{}figures/\allowbreak{}fig6\_\allowbreak{}bootstrap\_\allowbreak{}calibration} \\
 Table S1 & \texttt{runs/\allowbreak{}E1/\allowbreak{}tables/\allowbreak{}E1\_\allowbreak{}table1.csv} \\
-Table S2 & \texttt{runs/\allowbreak{}E6/\allowbreak{}tables/\allowbreak{}E6\_\allowbreak{}S5\_\allowbreak{}qc.csv} \\
 \end{longtable}
 }
+
+The pipeline also draws figures that the article leaves out, for the
+analyses it quotes in its text: the software's schematic
+(\texttt{runs/\allowbreak{}FIG/\allowbreak{}figures/\allowbreak{}fig1\_\allowbreak{}workflow}), the thread scaling of E3
+(\texttt{runs/\allowbreak{}E3/\allowbreak{}figures/\allowbreak{}figS4\_\allowbreak{}thread\_\allowbreak{}scaling}), E6's format consistency and TMRCA
+decoding (\texttt{runs/\allowbreak{}E6/\allowbreak{}figures/\allowbreak{}figS2\_\allowbreak{}format\_\allowbreak{}consistency},
+\texttt{figS3\_\allowbreak{}tmrca\_\allowbreak{}decoding}), E2's split-first-window check
+(\texttt{runs/\allowbreak{}E2/\allowbreak{}figures/\allowbreak{}figS\_\allowbreak{}turtle\_\allowbreak{}patterns}) and E7's populations and checks
+(\texttt{runs/\allowbreak{}E7/\allowbreak{}figures/\allowbreak{}figS5\_\allowbreak{}1000g\_\allowbreak{}populations}, \texttt{figS6\_\allowbreak{}1000g\_\allowbreak{}checks}).
 
 E6's S2 compares the fits of E1's first replicates read as psmcfa, VCF and
 multihetsep, and reads the simulated psmcfa to count the bins; S3 compares
@@ -535,7 +537,7 @@ recipe (\texttt{-N25\ -t15\ -r5\ -p\ "4+25*2+4+6"}, 100 bp bins; psmc-rs 0.1 has
 \texttt{-\/\allowbreak{}-tr-ratio} and starts from its default rho0 = theta0/5, the recipe's
 \texttt{-r5}): C psmc on its one thread, psmc-rs 0.1 and 0.2 on 1, 8 and 30
 threads, and psmc-rs 0.2 on 3000 Mb on 1, 2, 4, 8, 16 and 30 threads,
-5 repeats of each (Fig 2, Table 2, Fig S4). All 31 setups were measured,
+5 repeats of each (Fig 3, Table 2, and the pipeline's thread-scaling figure). All 31 setups were measured,
 155 timed runs in all (\texttt{E3\_\allowbreak{}table2.csv}, \texttt{status}). The numbers below are
 computed from E3's tables in \texttt{runs/\allowbreak{}E3/\allowbreak{}tables/\allowbreak{}}, named with each.
 
@@ -795,7 +797,7 @@ $PY -m experiment.pipeline status --runs-dir $RUNS --jobs    # deferred runs say
 
 The 30-thread runs need 30 usable CPUs (\texttt{measure} refuses to time a run
 on more threads than the CPUs it may use), and the spread of the repeats
-then leaves out the spread between machines. FIG draws Fig 2 and Fig S4
+then leaves out the spread between machines. FIG draws Fig 3 and the thread-scaling figure
 from the tables (section 3).
 
 \subsection{11) Release archive integrity}\label{release-archive-integrity}

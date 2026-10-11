@@ -12,13 +12,13 @@ repository root. The pipeline itself is described in
 `experiment/slurm/README.md`.
 
 The experiments are E1 (simulated accuracy and agreement with C psmc:
-Fig 1, Table 1, Table S1, Fig S1), E2 (four real genomes: Table 1, Figs S2
-and S3), E3 (performance: Fig 2, Table 2, Fig S4), E4 (partly callable
-bins: Fig S5), E5 (bootstrap calibration: Fig S6), E6 (supplementary
-analyses: Figs S7 and S8, Table S2) and E7 (the 1000 Genomes 30x genomes:
-Fig 3, Table 1, Figs S9 and S10); FIG draws every figure. The pipeline
-names the figure files after an earlier plan of the article; section 3
-maps them to the article's figures. `experiment/scripts/`,
+Fig 1, Table 1, Table S1, Fig S1), E2 (four real genomes: Fig 2, Table 1),
+E3 (performance: Fig 3, Table 2), E4 (partly callable bins: Fig S2), E5
+(bootstrap calibration: Fig S3), E6 (supplementary analyses, quoted in the
+text) and E7 (the 1000 Genomes 30x genomes: Fig 4, Table 1); FIG draws
+every figure. The pipeline names the figure files after an earlier plan of
+the article, and draws some that the article leaves out; section 3 maps
+them. `experiment/scripts/`,
 `experiment/run.py`, the notebook and `experiment/runs/{main_text,
 real_data,supplementary}/` are the earlier pipeline of psmc-rs 0.1 and
 make none of the manuscript's results.
@@ -93,22 +93,24 @@ runs (`manuscript/make_numbers.py` writes the tables' LaTeX):
 | article | file |
 | --- | --- |
 | Fig 1 | `runs/E1/figures/fig2_simulated_accuracy` |
-| Fig 2 | `runs/E3/figures/fig4_performance` |
-| Fig 3 | `runs/E7/figures/fig7_1000_genomes` |
+| Fig 2 | `runs/E2/figures/fig3_real_genomes` |
+| Fig 3 | `runs/E3/figures/fig4_performance` |
+| Fig 4 | `runs/E7/figures/fig7_1000_genomes` |
 | Table 1 | from `E1_rs_vs_c`, `E1_replicates`, `E2_rs_vs_c`, `E2_fit_summary`, `E7_rs_vs_c` and `E7_fits` |
 | Table 2 | `runs/E3/tables/E3_table2.csv` |
 | Fig S1 | `runs/E1/figures/figS1_em_convergence` |
-| Fig S2 | `runs/E2/figures/fig3_real_genomes` |
-| Fig S3 | `runs/E2/figures/figS_turtle_patterns` |
-| Fig S4 | `runs/E3/figures/figS4_thread_scaling` |
-| Fig S5 | `runs/E4/figures/fig5_input_preparation` |
-| Fig S6 | `runs/E5/figures/fig6_bootstrap_calibration` |
-| Fig S7 | `runs/E6/figures/figS2_format_consistency` |
-| Fig S8 | `runs/E6/figures/figS3_tmrca_decoding` |
-| Fig S9 | `runs/E7/figures/figS5_1000g_populations` |
-| Fig S10 | `runs/E7/figures/figS6_1000g_checks` |
+| Fig S2 | `runs/E4/figures/fig5_input_preparation` |
+| Fig S3 | `runs/E5/figures/fig6_bootstrap_calibration` |
 | Table S1 | `runs/E1/tables/E1_table1.csv` |
-| Table S2 | `runs/E6/tables/E6_S5_qc.csv` |
+
+The pipeline also draws figures that the article leaves out, for the
+analyses it quotes in its text: the software's schematic
+(`runs/FIG/figures/fig1_workflow`), the thread scaling of E3
+(`runs/E3/figures/figS4_thread_scaling`), E6's format consistency and TMRCA
+decoding (`runs/E6/figures/figS2_format_consistency`,
+`figS3_tmrca_decoding`), E2's split-first-window check
+(`runs/E2/figures/figS_turtle_patterns`) and E7's populations and checks
+(`runs/E7/figures/figS5_1000g_populations`, `figS6_1000g_checks`).
 
 E6's S2 compares the fits of E1's first replicates read as psmcfa, VCF and
 multihetsep, and reads the simulated psmcfa to count the bins; S3 compares
@@ -430,7 +432,7 @@ recipe (`-N25 -t15 -r5 -p "4+25*2+4+6"`, 100 bp bins; psmc-rs 0.1 has no
 `--tr-ratio` and starts from its default rho0 = theta0/5, the recipe's
 `-r5`): C psmc on its one thread, psmc-rs 0.1 and 0.2 on 1, 8 and 30
 threads, and psmc-rs 0.2 on 3000 Mb on 1, 2, 4, 8, 16 and 30 threads,
-5 repeats of each (Fig 2, Table 2, Fig S4). All 31 setups were measured,
+5 repeats of each (Fig 3, Table 2, and the pipeline's thread-scaling figure). All 31 setups were measured,
 155 timed runs in all (`E3_table2.csv`, `status`). The numbers below are
 computed from E3's tables in `runs/E3/tables/`, named with each.
 
@@ -634,7 +636,7 @@ $PY -m experiment.pipeline status --runs-dir $RUNS --jobs    # deferred runs say
 
 The 30-thread runs need 30 usable CPUs (`measure` refuses to time a run
 on more threads than the CPUs it may use), and the spread of the repeats
-then leaves out the spread between machines. FIG draws Fig 2 and Fig S4
+then leaves out the spread between machines. FIG draws Fig 3 and the thread-scaling figure
 from the tables (section 3).
 
 ## 11) Release archive integrity

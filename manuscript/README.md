@@ -1,11 +1,11 @@
 # Manuscript
 
-The article (`psmc-rs.tex`: three figures, two tables) and its
-supplementary information (`supplement.tex`: Figs S1–S10, Tables S1 and S2
-and Supplementary Note 1).
+The article (`psmc-rs.tex`: four figures, two tables), its supplementary
+information (`supplement.tex`: Figs S1–S3 and Table S1) and Supplementary
+Note 1 (`supplementary_note_1.tex`, from the repository's Markdown).
 
 ```bash
-make            # numbers and tables from the results, then build/psmc-rs.pdf and build/supplement.pdf
+make            # numbers and tables from the results, then the three PDFs in build/
 make check      # exit 1 if numbers.tex or a table is not what the committed results give
 ```
 
@@ -14,8 +14,8 @@ Supplementary Note 1, section 2), [tectonic](https://tectonic-typesetting.github
 and pandoc.
 
 - `make_numbers.py` writes `numbers.tex`, one `\newcommand` per number the
-  text quotes, each with its source in a comment, and Tables 1, 2, S1 and
-  S2 (`table1.tex`, `table2.tex`, `tableS1.tex`, `tableS2.tex`), from the committed tables of
+  text quotes, each with its source in a comment, and Tables 1, 2 and S1
+  (`table1.tex`, `table2.tex`, `tableS1.tex`), from the committed tables of
   `experiment/runs/*/tables`, E7's `MANIFEST.json`, the two runs of
   NA12878's bootstrap, `experiment/crossplatform` and the README's
   diagnostic of the residual difference from C psmc. The text quotes no
