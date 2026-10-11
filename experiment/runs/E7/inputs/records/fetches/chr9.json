@@ -1,0 +1,21 @@
+{
+  "bytes": 75889212857,
+  "chrom": "chr9",
+  "fetched": true,
+  "manifest_md5": "bcdd596636e32e7e0041f346169d0663",
+  "mb_per_s": 59.03,
+  "md5": "bcdd596636e32e7e0041f346169d0663",
+  "parts": 16,
+  "path": "/tmp/hany0c-e7-53443803-chr9/sources/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz",
+  "seconds": 1285.642,
+  "sha256": "dee6980a0526e4d44d170540e50b298316486ebdfd8447984568546ad3d6f327",
+  "step": "fetch",
+  "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz",
+  "where": {
+    "host": "cn504-15",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53443803",
+    "slurm_nodelist": "cn504-15",
+    "time": "2026-10-07T20:50:19"
+  }
+}

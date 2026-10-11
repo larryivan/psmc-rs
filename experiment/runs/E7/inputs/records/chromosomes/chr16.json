@@ -1,0 +1,43 @@
+{
+  "chrom": "chr16",
+  "chunks": 7,
+  "commands": {
+    "concat": "bcftools concat --no-version --naive -Oz -o <local-tmp>/chr16/samples/S.vcf.gz <local-tmp>/chr16/chunk000/batch_K/S.vcf.gz <local-tmp>/chr16/chunk001/batch_K/S.vcf.gz <local-tmp>/chr16/chunk002/batch_K/S.vcf.gz <local-tmp>/chr16/chunk003/batch_K/S.vcf.gz <local-tmp>/chr16/chunk004/batch_K/S.vcf.gz <local-tmp>/chr16/chunk005/batch_K/S.vcf.gz <local-tmp>/chr16/chunk006/batch_K/S.vcf.gz",
+    "convert": "<repo>/target/release/psmc-rs convert <local-tmp>/chr16/samples/S.vcf.gz --vcf-mode mask --vcf-mask <runs>/E7/inputs/mask/chr16.bed --vcf-negative-mask <runs>/E7/inputs/nonpass/chr16.bed.gz --bin-size 100 --psmcfa <runs>/E7/inputs/psmcfa/chr16/S.psmcfa.gz --qc-json <local-tmp>/chr16/samples/S.qc.json -q"
+  },
+  "index_records": 4080361,
+  "nonpass": 342343,
+  "nonpass_sha256": "f15779c9844ece777fbd7470fcd0968c375759aefb8618498e30d3f8329befb2",
+  "psmc-rs": {
+    "binary_sha256": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850",
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "llvm": "23.1.1",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_commit": "0c84f059a31b0a6acb6a66abd8f3c4844165ca7b",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+  },
+  "psmcfa_bytes_total": 279292529,
+  "records": 4080361,
+  "records_check": "equal",
+  "samples": 2504,
+  "seconds": 135.032,
+  "split_bytes_total": 4765661410,
+  "step": "assemble-chrom",
+  "stream_seconds": 2953.82,
+  "vcf_bytes_median": 1703200,
+  "vcf_bytes_total": 4500273997,
+  "where": {
+    "host": "cn603-14-l",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53447961",
+    "slurm_nodelist": "cn603-14-l",
+    "time": "2026-10-08T01:09:25"
+  }
+}

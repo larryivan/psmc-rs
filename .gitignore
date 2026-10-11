@@ -14,6 +14,10 @@ __pycache__/
 /experiment/runs/**/tables/*.tsv
 /experiment/runs/**/tables/*.md
 !/experiment/runs/**/inputs/.gitkeep
+# E7's data stage ran on the cluster; its manifest and records (how each
+# chromosome was read, the pilot) are the provenance of its inputs
+!/experiment/runs/E7/inputs/MANIFEST.json
+!/experiment/runs/E7/inputs/records/
 !/experiment/runs/**/shared_inputs/.gitkeep
 !/experiment/runs/**/outputs/.gitkeep
 !/experiment/runs/**/perf/.gitkeep

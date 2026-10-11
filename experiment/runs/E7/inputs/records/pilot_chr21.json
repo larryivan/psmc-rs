@@ -1,0 +1,81 @@
+{
+  "chrom": "chr21",
+  "commands": {
+    "convert": "<repo>/target/release/psmc-rs convert /dev/stdin --vcf-mode mask --vcf-sample NA18507 --vcf-mask <runs>/E7/inputs/mask/chr21.bed --bin-size 100 --psmcfa <local-tmp>/pilot_chr21/NA18507.psmcfa.gz --qc-json <local-tmp>/pilot_chr21/NA18507.qc.json -q",
+    "stream": "bcftools view --no-version --threads 4 -r chr21:1-46709983 --regions-overlap pos -Ov https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz##idx##<runs>/E7/inputs/meta/tbi/chr21.vcf.gz.tbi"
+  },
+  "identical": true,
+  "records_check": "equal",
+  "region": "chr21:1-46709983",
+  "samples": [
+    {
+      "psmcfa_bytes": 474892,
+      "psmcfa_identical": true,
+      "qc": {
+        "bins": 467100,
+        "called_bases": 27173039,
+        "called_bins": 292910,
+        "het_sites": 32610,
+        "k_bins": 29074,
+        "length_bases": 46709983,
+        "missing_bins": 174190,
+        "partial_bins": 80161,
+        "t_bins": 263836
+      },
+      "qc_fields_differing": [],
+      "sample_id": "NA18507"
+    },
+    {
+      "psmcfa_bytes": 474892,
+      "psmcfa_identical": true,
+      "qc": {
+        "bins": 467100,
+        "called_bases": 27173896,
+        "called_bins": 292921,
+        "het_sites": 30862,
+        "k_bins": 27625,
+        "length_bases": 46709983,
+        "missing_bins": 174179,
+        "partial_bins": 80062,
+        "t_bins": 265296
+      },
+      "qc_fields_differing": [],
+      "sample_id": "NA19239"
+    },
+    {
+      "psmcfa_bytes": 474892,
+      "psmcfa_identical": true,
+      "qc": {
+        "bins": 467100,
+        "called_bases": 27177215,
+        "called_bins": 292924,
+        "het_sites": 23470,
+        "k_bins": 20897,
+        "length_bases": 46709983,
+        "missing_bins": 174176,
+        "partial_bins": 79481,
+        "t_bins": 272027
+      },
+      "qc_fields_differing": [],
+      "sample_id": "NA12878"
+    }
+  ],
+  "step": "pilot",
+  "storage": {
+    "psmcfa_bytes_per_sample_genome": 2916242.474537373,
+    "scale_to_genome": 61.55,
+    "split_bytes_chrom": 2852446451,
+    "stream_seconds_chrom": 1388.129,
+    "stream_seconds_genome": 85439.40141730169,
+    "vcf_bytes_per_sample": 1086190.071485623,
+    "vcf_bytes_per_sample_genome": 66855046.99717949
+  },
+  "stream_seconds_pilot": 2835.21,
+  "where": {
+    "host": "cn605-25-l",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53449988",
+    "slurm_nodelist": "cn605-25-l",
+    "time": "2026-10-08T02:55:34"
+  }
+}

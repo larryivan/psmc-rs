@@ -1,0 +1,40 @@
+{
+  "attempts": 1,
+  "bcf_bytes": 78454438,
+  "chrom": "chr10",
+  "chunk": 8,
+  "commands": {
+    "count": "bcftools index -n <local-tmp>/chr10_chunk008.bcf",
+    "index": "bcftools index -f --csi <local-tmp>/chr10_chunk008.bcf",
+    "nonpass": "bcftools query -e 'FILTER=\"PASS\" || FILTER=\".\"' -f '%CHROM\\t%POS0\\t%POS\\n' <local-tmp>/chr10_chunk008.bcf",
+    "split": [
+      "bcftools +split -S <runs>/E7/inputs/meta/batches/batch_00.txt -i 'GT=\"het\" || GT=\"mis\"' -Oz -o <local-tmp>/chr10/chunk008/batch_00 <local-tmp>/chr10_chunk008.bcf",
+      "bcftools +split -S <runs>/E7/inputs/meta/batches/batch_01.txt -i 'GT=\"het\" || GT=\"mis\"' -Oz -o <local-tmp>/chr10/chunk008/batch_01 <local-tmp>/chr10_chunk008.bcf",
+      "bcftools +split -S <runs>/E7/inputs/meta/batches/batch_02.txt -i 'GT=\"het\" || GT=\"mis\"' -Oz -o <local-tmp>/chr10/chunk008/batch_02 <local-tmp>/chr10_chunk008.bcf",
+      "bcftools +split -S <runs>/E7/inputs/meta/batches/batch_03.txt -i 'GT=\"het\" || GT=\"mis\"' -Oz -o <local-tmp>/chr10/chunk008/batch_03 <local-tmp>/chr10_chunk008.bcf",
+      "bcftools +split -S <runs>/E7/inputs/meta/batches/batch_04.txt -i 'GT=\"het\" || GT=\"mis\"' -Oz -o <local-tmp>/chr10/chunk008/batch_04 <local-tmp>/chr10_chunk008.bcf",
+      "bcftools +split -S <runs>/E7/inputs/meta/batches/batch_05.txt -i 'GT=\"het\" || GT=\"mis\"' -Oz -o <local-tmp>/chr10/chunk008/batch_05 <local-tmp>/chr10_chunk008.bcf"
+    ],
+    "stream": "bcftools view --no-version --threads 4 -r chr10:120000001-133797422 --regions-overlap pos -S <runs>/E7/inputs/meta/stream_samples.txt -Ou <local-tmp>/sources/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr10.recalibrated_variants.vcf.gz##idx##<runs>/E7/inputs/meta/tbi/chr10.vcf.gz.tbi",
+    "strip": "bcftools annotate --no-version -x INFO,FORMAT -Ob -o <local-tmp>/chr10_chunk008.bcf"
+  },
+  "end": 133797422,
+  "nonpass": 46944,
+  "records": 650598,
+  "seconds": {
+    "split": 55.191,
+    "stream": 210.124,
+    "total": 266.707
+  },
+  "split_bytes": 816364965,
+  "split_files": 2504,
+  "start": 120000001,
+  "step": "chunk",
+  "where": {
+    "host": "cn504-15",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53444319",
+    "slurm_nodelist": "cn504-15",
+    "time": "2026-10-07T21:41:36"
+  }
+}

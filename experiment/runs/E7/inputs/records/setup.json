@@ -1,0 +1,1043 @@
+{
+  "chunks": 204,
+  "contig_lengths": {
+    "chr1": 248956422,
+    "chr10": 133797422,
+    "chr11": 135086622,
+    "chr12": 133275309,
+    "chr13": 114364328,
+    "chr14": 107043718,
+    "chr15": 101991189,
+    "chr16": 90338345,
+    "chr17": 83257441,
+    "chr18": 80373285,
+    "chr19": 58617616,
+    "chr2": 242193529,
+    "chr20": 64444167,
+    "chr21": 46709983,
+    "chr22": 50818468,
+    "chr3": 198295559,
+    "chr4": 190214555,
+    "chr5": 181538259,
+    "chr6": 170805979,
+    "chr7": 159345973,
+    "chr8": 145138636,
+    "chr9": 138394717
+  },
+  "mask_callable_bases": {
+    "chr1": 179223255,
+    "chr10": 106117204,
+    "chr11": 107222714,
+    "chr12": 106303696,
+    "chr13": 81480003,
+    "chr14": 71872046,
+    "chr15": 62445659,
+    "chr16": 57614966,
+    "chr17": 56907071,
+    "chr18": 63319119,
+    "chr19": 37260482,
+    "chr2": 196179959,
+    "chr20": 49278286,
+    "chr21": 27227894,
+    "chr22": 25242707,
+    "chr3": 163757326,
+    "chr4": 156594773,
+    "chr5": 146602962,
+    "chr6": 139446960,
+    "chr7": 121763742,
+    "chr8": 118977082,
+    "chr9": 89996204
+  },
+  "samples": {
+    "batches": 6,
+    "default": 52,
+    "processed": 2504,
+    "unrelated_in_index": 2504,
+    "vcf_columns": 3202
+  },
+  "seconds": 571.653,
+  "settings": {
+    "admixed": [
+      "ACB",
+      "ASW",
+      "CLM",
+      "MXL",
+      "PEL",
+      "PUR"
+    ],
+    "band": [
+      0.025,
+      0.975
+    ],
+    "bootstrap_replicates": 100,
+    "bootstrap_samples": [
+      "NA18507",
+      "NA19239",
+      "NA12878"
+    ],
+    "bootstrap_threads": 32,
+    "bootstrap_trunk_bins": 500000,
+    "c_psmc": true,
+    "chromosomes": [
+      "chr1",
+      "chr2",
+      "chr3",
+      "chr4",
+      "chr5",
+      "chr6",
+      "chr7",
+      "chr8",
+      "chr9",
+      "chr10",
+      "chr11",
+      "chr12",
+      "chr13",
+      "chr14",
+      "chr15",
+      "chr16",
+      "chr17",
+      "chr18",
+      "chr19",
+      "chr20",
+      "chr21",
+      "chr22"
+    ],
+    "chunk_attempts": 3,
+    "chunk_bp": 15000000,
+    "cohort": "unrelated2504",
+    "costs": {
+      "giab_gb": 2.0,
+      "giab_s": 300.0,
+      "report_gb": 4.0,
+      "report_s_base": 60.0,
+      "report_s_per_fit": 0.05,
+      "vcf_fit_gb": 0.5
+    },
+    "display_years": [
+      1000.0,
+      100000000.0,
+      400
+    ],
+    "fetch_parts": 16,
+    "figure_years": [
+      10000.0,
+      10000000.0
+    ],
+    "fit_threads": 1,
+    "giab": true,
+    "giab_bed_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.bed",
+    "giab_vcf_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+    "grid": {
+      "fixed_years": [
+        10000.0,
+        1000000.0
+      ],
+      "points": 200,
+      "quantiles": [
+        0.01,
+        0.99
+      ]
+    },
+    "index_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index",
+    "inference": {
+      "bin_size": 100,
+      "mstep_iters": 1000,
+      "n_iter": 25,
+      "pattern": "4+25*2+4+6",
+      "smooth_lambda": 0.0,
+      "t_max": 15.0,
+      "tr_ratio": 5.0
+    },
+    "input": "joint",
+    "local_source": null,
+    "manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv",
+    "mask_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed",
+    "min_good_fraction": null,
+    "mirror_url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+    "panel_manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt",
+    "panel_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.{chrom}.filtered.SNV_INDEL_SV_phased_panel.vcf.gz",
+    "ped_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt",
+    "per_population": 2,
+    "pilot_samples": [
+      "NA18507",
+      "NA19239",
+      "NA12878"
+    ],
+    "pinned": [
+      "NA18507",
+      "NA19239",
+      "NA12878"
+    ],
+    "raw_depth_genome_bp": 3100000000.0,
+    "retry_wait_seconds": 60.0,
+    "scaling": {
+      "gen_years": 29.0,
+      "mu": 1.25e-08
+    },
+    "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+    "split_batch_size": 500,
+    "split_pattern": "1+1+1+1+25*2+4+6",
+    "spread": [
+      0.1,
+      0.9
+    ],
+    "stream_threads": 4,
+    "superpopulations": [
+      "AFR",
+      "AMR",
+      "EAS",
+      "EUR",
+      "SAS"
+    ],
+    "use_mirror": true,
+    "vcf_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+    "window": null
+  },
+  "sources": {
+    "giab_bed": {
+      "bytes": 15479939,
+      "md5": "e1ea90c830f981d29a46043eb618e7bf",
+      "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/giab.bed",
+      "sha256": "dc3485e60447a3e863c34dfc063c3710ea5ed5efae50855c5197ba62538263b9",
+      "source": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.bed"
+    },
+    "giab_vcf": {
+      "bytes": 125932193,
+      "md5": "ec61d76ad725d808e3a9e1c8acec402a",
+      "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/giab.vcf.gz",
+      "sha256": "93bc4c2c696eaf13515ab058caecc064bfed704f85bac7482330ca91bc730daa",
+      "source": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz"
+    },
+    "index": {
+      "bytes": 982480,
+      "md5": "ece81413ebd85e41511cca716158a4a5",
+      "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/1000G_2504_high_coverage.sequence.index",
+      "sha256": "0ac5fdda0b60b6575b1867827f53e39d723f915b325b10bf023b2dc3d71c08f2",
+      "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index"
+    },
+    "manifest": {
+      "bytes": 25975,
+      "md5": "3834212585eeb54016df21dd85fa8b46",
+      "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/20201028_genotyped-manifest.tsv",
+      "sha256": "bf10e03a96ea0d39c406d867ccd3ddfcbf16816b06118a7d52a4977ed5576a6b",
+      "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv"
+    },
+    "mask": {
+      "bytes": 128218530,
+      "md5": "71afa596393e5215ee032c7b5d57a8e8",
+      "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/20160622.allChr.mask.bed",
+      "sha256": "c40df20a1f55dca85152985bdd52e5a27857b317c18193a24dbae860d2c5b46f",
+      "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed"
+    },
+    "ped": {
+      "bytes": 97483,
+      "md5": "bac176a443f941890ac7b51fb1cabe0d",
+      "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/20130606_g1k_3202_samples_ped_population.txt",
+      "sha256": "4e164b717433fc9bfc16e29b20e5b4659b4216185b3275322d421fe3d323c132",
+      "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt"
+    }
+  },
+  "step": "setup",
+  "tools": {
+    "bcftools": "bcftools 1.24",
+    "htslib": "Using htslib 1.24",
+    "pipeline": {
+      "code": "94ce92e6184fb6a26290d1a27f0b886ce53e34f6bf37c70975918d5cb782abcc",
+      "python": "3.13.13"
+    },
+    "psmc-rs": {
+      "binary_sha256": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850",
+      "cargo_build_rustflags": "",
+      "cargo_encoded_rustflags": "",
+      "cargo_profile_release": "",
+      "cargo_target_rustflags": "",
+      "llvm": "23.1.1",
+      "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+      "rustflags": "",
+      "source_commit": "0c84f059a31b0a6acb6a66abd8f3c4844165ca7b",
+      "source_dirty": "",
+      "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+      "target_features": "none",
+      "version": "psmc-rs 0.2.0"
+    }
+  },
+  "vcfs": {
+    "chr1": {
+      "head": {
+        "content_length": 139953589670,
+        "etag": "\"c12b823d0d4fd589a7f7f57bbb7b7092-8899\"",
+        "last_modified": "Fri, 21 Jan 2022 22:51:24 GMT",
+        "s3_md5": "468cf9df576c54764c233e79c63d1863",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr1.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 10309024,
+      "manifest": {
+        "bytes": 139953589670,
+        "md5": "468cf9df576c54764c233e79c63d1863"
+      },
+      "other_mirror": {
+        "content_length": 139953589670,
+        "etag": "\"2095e24da6-5b2e7afbad5c0\"",
+        "last_modified": "Fri, 30 Oct 2020 18:37:19 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr1.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr1.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 248996,
+        "manifest": {
+          "bytes": 248996,
+          "md5": "7fe161b79da7bb6140ce1833fc2564d6"
+        },
+        "md5": "7fe161b79da7bb6140ce1833fc2564d6",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr1.vcf.gz.tbi",
+        "sha256": "88cfd68b688f245a4d2ab5c4fcb6e9790a62191802ce0869109221ff7589bdfa",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr1.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr1.recalibrated_variants.vcf.gz"
+    },
+    "chr10": {
+      "head": {
+        "content_length": 83165260190,
+        "etag": "\"c2cfc23b29af775a762e480357c0c27c-5288\"",
+        "last_modified": "Sat, 22 Jan 2022 03:04:39 GMT",
+        "s3_md5": "690c662995da54d10973064d5d45e1b6",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr10.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 6070171,
+      "manifest": {
+        "bytes": 83165260190,
+        "md5": "690c662995da54d10973064d5d45e1b6"
+      },
+      "other_mirror": {
+        "content_length": 83165260190,
+        "etag": "\"135d09299e-5b2e0b8d5efc0\"",
+        "last_modified": "Fri, 30 Oct 2020 10:18:47 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr10.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr10.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 146173,
+        "manifest": {
+          "bytes": 146173,
+          "md5": "c6b1545f0e0ff12f0efa6101ffe9e073"
+        },
+        "md5": "c6b1545f0e0ff12f0efa6101ffe9e073",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr10.vcf.gz.tbi",
+        "sha256": "41cb4c0f8853580ff4cc10cc29a986572465c6724febe71b3b4f777a60811547",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr10.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr10.recalibrated_variants.vcf.gz"
+    },
+    "chr11": {
+      "head": {
+        "content_length": 80255094898,
+        "etag": "\"992c73ef19900817067e1978751c2a77-5103\"",
+        "last_modified": "Sat, 22 Jan 2022 06:02:16 GMT",
+        "s3_md5": "6e870bfcf14803b30ee612a1eb8e5166",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr11.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 6092780,
+      "manifest": {
+        "bytes": 80255094898,
+        "md5": "6e870bfcf14803b30ee612a1eb8e5166"
+      },
+      "other_mirror": {
+        "content_length": 80255094898,
+        "etag": "\"12af939072-5b2e126afe280\"",
+        "last_modified": "Fri, 30 Oct 2020 10:49:30 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr11.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr11.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 145473,
+        "manifest": {
+          "bytes": 145473,
+          "md5": "14036dfba7551b3b29081fb09639177b"
+        },
+        "md5": "14036dfba7551b3b29081fb09639177b",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr11.vcf.gz.tbi",
+        "sha256": "ad99d056c919c3b5831541f96dde57c54130cff61f7c632b8ccfc993155a2e50",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr11.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr11.recalibrated_variants.vcf.gz"
+    },
+    "chr12": {
+      "head": {
+        "content_length": 78951146186,
+        "etag": "\"06e2480a7ec5a0eecf63fb4f3f6b1124-5020\"",
+        "last_modified": "Sat, 22 Jan 2022 08:27:01 GMT",
+        "s3_md5": "b0c2fe7b295e2eda659e25245a03bc1e",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr12.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 5844522,
+      "manifest": {
+        "bytes": 78951146186,
+        "md5": "b0c2fe7b295e2eda659e25245a03bc1e"
+      },
+      "other_mirror": {
+        "content_length": 78951146186,
+        "etag": "\"1261dae2ca-5b2e18298f000\"",
+        "last_modified": "Fri, 30 Oct 2020 11:15:12 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr12.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr12.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 144855,
+        "manifest": {
+          "bytes": 144855,
+          "md5": "eef7ef5dab5939ec370f70fd3d7e17b6"
+        },
+        "md5": "eef7ef5dab5939ec370f70fd3d7e17b6",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr12.vcf.gz.tbi",
+        "sha256": "3a394ca381749e068ab2a997828f474b7ffec49a89f4e20aad9166e40b93be1b",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr12.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr12.recalibrated_variants.vcf.gz"
+    },
+    "chr13": {
+      "head": {
+        "content_length": 61233849434,
+        "etag": "\"208cd98690beb7845a8592e82f69d5e5-3894\"",
+        "last_modified": "Sat, 22 Jan 2022 10:48:10 GMT",
+        "s3_md5": "4a3ea401940d3e70c9c492a27a3229e7",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr13.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 4622772,
+      "manifest": {
+        "bytes": 61233849434,
+        "md5": "4a3ea401940d3e70c9c492a27a3229e7"
+      },
+      "other_mirror": {
+        "content_length": 61233849434,
+        "etag": "\"e41d2645a-5b2e266a51080\"",
+        "last_modified": "Fri, 30 Oct 2020 12:18:58 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr13.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr13.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 106599,
+        "manifest": {
+          "bytes": 106599,
+          "md5": "9a97fee3b8b1805f17b3e1b4af9bed24"
+        },
+        "md5": "9a97fee3b8b1805f17b3e1b4af9bed24",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr13.vcf.gz.tbi",
+        "sha256": "a4f726f65cb1ec2ff8fae26ee85394f06aa3780c39af040903820dcab14809af",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr13.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr13.recalibrated_variants.vcf.gz"
+    },
+    "chr14": {
+      "head": {
+        "content_length": 53653210028,
+        "etag": "\"70b829078d606b514e1b34b92f83ed29-3412\"",
+        "last_modified": "Sat, 22 Jan 2022 12:33:35 GMT",
+        "s3_md5": "027bc4e2243bc65a224eaa1409166bd9",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr14.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 3912527,
+      "manifest": {
+        "bytes": 53653210028,
+        "md5": "027bc4e2243bc65a224eaa1409166bd9"
+      },
+      "other_mirror": {
+        "content_length": 53653210028,
+        "etag": "\"c7dfb03ac-5b2e29e047ac0\"",
+        "last_modified": "Fri, 30 Oct 2020 12:34:27 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr14.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr14.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 96276,
+        "manifest": {
+          "bytes": 96276,
+          "md5": "3c7f67fb3ce77721717b08a987931281"
+        },
+        "md5": "3c7f67fb3ce77721717b08a987931281",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr14.vcf.gz.tbi",
+        "sha256": "f1b0c44a5528201cb63c17b4bc529a82dca20b978dcaeef31dc7e8cf52814efb",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr14.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr14.recalibrated_variants.vcf.gz"
+    },
+    "chr15": {
+      "head": {
+        "content_length": 50255477218,
+        "etag": "\"28481bfb0ed5d73d615684f88b4735f8-3196\"",
+        "last_modified": "Sat, 22 Jan 2022 14:44:32 GMT",
+        "s3_md5": "6d2e636f623d9a3e7b790c1c551942fe",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr15.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 3679420,
+      "manifest": {
+        "bytes": 50255477218,
+        "md5": "6d2e636f623d9a3e7b790c1c551942fe"
+      },
+      "other_mirror": {
+        "content_length": 50255477218,
+        "etag": "\"bb375b9e2-5b2e2d1935500\"",
+        "last_modified": "Fri, 30 Oct 2020 12:48:52 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr15.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr15.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 93242,
+        "manifest": {
+          "bytes": 93242,
+          "md5": "a9f092c59beab05cd3d11d0cc99fe7a3"
+        },
+        "md5": "a9f092c59beab05cd3d11d0cc99fe7a3",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr15.vcf.gz.tbi",
+        "sha256": "199d3900c8ad19900583412ce8f3cb73117d00f1e97ae53493b15f0c2b4cee6e",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr15.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr15.recalibrated_variants.vcf.gz"
+    },
+    "chr16": {
+      "head": {
+        "content_length": 56834122111,
+        "etag": "\"e95bd1d1793a0ff9de199db3df8b6f22-3614\"",
+        "last_modified": "Sat, 22 Jan 2022 17:17:23 GMT",
+        "s3_md5": "00470009f6d69741d5bee0255f31c884",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr16.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 4080361,
+      "manifest": {
+        "bytes": 56834122111,
+        "md5": "00470009f6d69741d5bee0255f31c884"
+      },
+      "other_mirror": {
+        "content_length": 56834122111,
+        "etag": "\"d3b93e17f-5b2e435e45f80\"",
+        "last_modified": "Fri, 30 Oct 2020 14:28:30 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr16.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr16.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 91007,
+        "manifest": {
+          "bytes": 91007,
+          "md5": "09c3678d59e4dcdc2c664e0178278a2d"
+        },
+        "md5": "09c3678d59e4dcdc2c664e0178278a2d",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr16.vcf.gz.tbi",
+        "sha256": "8b5984aa4c024fa3612625de3d9e10fceac72673dfbcd6da147f9ed92a2b5224",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr16.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr16.recalibrated_variants.vcf.gz"
+    },
+    "chr17": {
+      "head": {
+        "content_length": 51225359748,
+        "etag": "\"6650b3cb20a1c091dc0e7a7c12b54ff3-3257\"",
+        "last_modified": "Sat, 22 Jan 2022 20:19:06 GMT",
+        "s3_md5": "755225137476ac11d628d3198a6a1e0f",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr17.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 3611020,
+      "manifest": {
+        "bytes": 51225359748,
+        "md5": "755225137476ac11d628d3198a6a1e0f"
+      },
+      "other_mirror": {
+        "content_length": 51225359748,
+        "etag": "\"bed44f584-5b2e4e3577300\"",
+        "last_modified": "Fri, 30 Oct 2020 15:17:00 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr17.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr17.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 91947,
+        "manifest": {
+          "bytes": 91947,
+          "md5": "278ca0040085d318d4610a8783eb2c2d"
+        },
+        "md5": "278ca0040085d318d4610a8783eb2c2d",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr17.vcf.gz.tbi",
+        "sha256": "8fff2a2c5c2f6cd2bc12a07c3e45672ce6c824a8d90dcdc3b42605d7d89807fc",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr17.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr17.recalibrated_variants.vcf.gz"
+    },
+    "chr18": {
+      "head": {
+        "content_length": 46723065031,
+        "etag": "\"37f2ef4ce3ec9d22764c87a428aacaed-2971\"",
+        "last_modified": "Sat, 22 Jan 2022 22:53:47 GMT",
+        "s3_md5": "1e4e1485532eb2c4e295a90229005223",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr18.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 3572975,
+      "manifest": {
+        "bytes": 46723065031,
+        "md5": "1e4e1485532eb2c4e295a90229005223"
+      },
+      "other_mirror": {
+        "content_length": 46723065031,
+        "etag": "\"ae0e964c7-5b2e50b749d40\"",
+        "last_modified": "Fri, 30 Oct 2020 15:28:13 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr18.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr18.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 87003,
+        "manifest": {
+          "bytes": 87003,
+          "md5": "faa25b00b09aa3890c9ca7a2063a79eb"
+        },
+        "md5": "faa25b00b09aa3890c9ca7a2063a79eb",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr18.vcf.gz.tbi",
+        "sha256": "0bad8492779001e23ceb37d8c41e142b038f7d7dcbf559531b13e658feb04bce",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr18.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr18.recalibrated_variants.vcf.gz"
+    },
+    "chr19": {
+      "head": {
+        "content_length": 41164048108,
+        "etag": "\"c845df42b669edffdaa65805dfb08664-2618\"",
+        "last_modified": "Sun, 23 Jan 2022 01:08:49 GMT",
+        "s3_md5": "1ae60dd0c07029a352d9def03f91405b",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr19.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 2768792,
+      "manifest": {
+        "bytes": 41164048108,
+        "md5": "1ae60dd0c07029a352d9def03f91405b"
+      },
+      "other_mirror": {
+        "content_length": 41164048108,
+        "etag": "\"9959186ec-5b2e52d21d480\"",
+        "last_modified": "Fri, 30 Oct 2020 15:37:38 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr19.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr19.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 61824,
+        "manifest": {
+          "bytes": 61824,
+          "md5": "3e0396d2ae1213ae27b48e592544a442"
+        },
+        "md5": "3e0396d2ae1213ae27b48e592544a442",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr19.vcf.gz.tbi",
+        "sha256": "c3271695857463da1b5b088a220fd35008cfce65bbecc1d52bac458dd7d47b9b",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr19.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr19.recalibrated_variants.vcf.gz"
+    },
+    "chr2": {
+      "head": {
+        "content_length": 142566325303,
+        "etag": "\"ef51a167d7e46b323d2864f36f6c57ef-9065\"",
+        "last_modified": "Sun, 23 Jan 2022 03:31:43 GMT",
+        "s3_md5": "03e7cc0243192ff288ab24f47c1a3238",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr2.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 10607611,
+      "manifest": {
+        "bytes": 142566325303,
+        "md5": "03e7cc0243192ff288ab24f47c1a3238"
+      },
+      "other_mirror": {
+        "content_length": 142566325303,
+        "etag": "\"21319d7c37-5b2e9c92013c0\"",
+        "last_modified": "Fri, 30 Oct 2020 21:07:35 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr2.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr2.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 261118,
+        "manifest": {
+          "bytes": 261118,
+          "md5": "a7a62f0938f54436f57bbd9ae28b9bd5"
+        },
+        "md5": "a7a62f0938f54436f57bbd9ae28b9bd5",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr2.vcf.gz.tbi",
+        "sha256": "54244e55e15b618ecf1eead35f7171d6080d0688f9db2c398f3e26a141f62806",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr2.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr2.recalibrated_variants.vcf.gz"
+    },
+    "chr20": {
+      "head": {
+        "content_length": 41347545136,
+        "etag": "\"f9d38be5b475f2ecad6c59ac699d0812-2629\"",
+        "last_modified": "Sun, 23 Jan 2022 10:57:00 GMT",
+        "s3_md5": "c514b4dcdc097978aa5d759246959674",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr20.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 2958525,
+      "manifest": {
+        "bytes": 41347545136,
+        "md5": "c514b4dcdc097978aa5d759246959674"
+      },
+      "other_mirror": {
+        "content_length": 41347545136,
+        "etag": "\"9a0817830-5b2e7e9d82780\"",
+        "last_modified": "Fri, 30 Oct 2020 18:53:34 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr20.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr20.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 69305,
+        "manifest": {
+          "bytes": 69305,
+          "md5": "11ad7ff41caabf6887ca34875945d7fe"
+        },
+        "md5": "11ad7ff41caabf6887ca34875945d7fe",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr20.vcf.gz.tbi",
+        "sha256": "162ced475bcbdf3646e99a7baf09505c874f2dacd6135fec6952a4d93f8bafd6",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr20.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr20.recalibrated_variants.vcf.gz"
+    },
+    "chr21": {
+      "head": {
+        "content_length": 26084746703,
+        "etag": "\"ff2dd901500e39b9abededf0804b025b-1659\"",
+        "last_modified": "Sun, 23 Jan 2022 12:51:49 GMT",
+        "s3_md5": "7eeb7f4be64184f33301ee62cf7a20df",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 1869057,
+      "manifest": {
+        "bytes": 26084746703,
+        "md5": "7eeb7f4be64184f33301ee62cf7a20df"
+      },
+      "other_mirror": {
+        "content_length": 26084746703,
+        "etag": "\"612c5a5cf-5b2e86fe52bc0\"",
+        "last_modified": "Fri, 30 Oct 2020 19:31:03 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 41661,
+        "manifest": {
+          "bytes": 41661,
+          "md5": "dc69dac1d1f3700a4d9cce06a5e1086c"
+        },
+        "md5": "dc69dac1d1f3700a4d9cce06a5e1086c",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr21.vcf.gz.tbi",
+        "sha256": "57f49afabe1d0ed6d02e2e49041be83954301452291b6c711f38e6987cb356ac",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz"
+    },
+    "chr22": {
+      "head": {
+        "content_length": 27944653807,
+        "etag": "\"f53980672e9b495fd19d071859702d17-1777\"",
+        "last_modified": "Sun, 23 Jan 2022 13:59:18 GMT",
+        "s3_md5": "53bdd821ca7a1eed72e47d8c1881cd4e",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr22.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 1927372,
+      "manifest": {
+        "bytes": 27944653807,
+        "md5": "53bdd821ca7a1eed72e47d8c1881cd4e"
+      },
+      "other_mirror": {
+        "content_length": 27944653807,
+        "etag": "\"681a193ef-5b2e90dab2f80\"",
+        "last_modified": "Fri, 30 Oct 2020 20:15:10 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr22.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr22.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 42621,
+        "manifest": {
+          "bytes": 42621,
+          "md5": "a6885ad62a4d77ebbdad312d58bdd0fe"
+        },
+        "md5": "a6885ad62a4d77ebbdad312d58bdd0fe",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr22.vcf.gz.tbi",
+        "sha256": "9c85ec973e178019979c6c8788889cb711adaf66913d79dcb050bda568357817",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr22.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr22.recalibrated_variants.vcf.gz"
+    },
+    "chr3": {
+      "head": {
+        "content_length": 115578736305,
+        "etag": "\"bf22cdbd651b787ca792a13fed66a90a-7349\"",
+        "last_modified": "Sun, 23 Jan 2022 15:27:49 GMT",
+        "s3_md5": "a9003bb1aad8f271706248c695592d7a",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr3.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 8590970,
+      "manifest": {
+        "bytes": 115578736305,
+        "md5": "a9003bb1aad8f271706248c695592d7a"
+      },
+      "other_mirror": {
+        "content_length": 115578736305,
+        "etag": "\"1ae9078eb1-5b2ea7b1ad240\"",
+        "last_modified": "Fri, 30 Oct 2020 21:57:21 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr3.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr3.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 213251,
+        "manifest": {
+          "bytes": 213251,
+          "md5": "116aa31aa5dd9511ab29ab6b14e1a3b0"
+        },
+        "md5": "116aa31aa5dd9511ab29ab6b14e1a3b0",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr3.vcf.gz.tbi",
+        "sha256": "b1380a9e8b7edd72ad8f7282b9d8910414b93609b9a45e7ae32f67b0943e9be7",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr3.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr3.recalibrated_variants.vcf.gz"
+    },
+    "chr4": {
+      "head": {
+        "content_length": 113734260323,
+        "etag": "\"3686afbeb40b1013fe8f903075e86bd4-7232\"",
+        "last_modified": "Sun, 23 Jan 2022 20:24:49 GMT",
+        "s3_md5": "839c9af193cd13e47c49a65d6f73e8a0",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr4.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 8475619,
+      "manifest": {
+        "bytes": 113734260323,
+        "md5": "839c9af193cd13e47c49a65d6f73e8a0"
+      },
+      "other_mirror": {
+        "content_length": 113734260323,
+        "etag": "\"1a7b171663-5b2eb0b0ccc00\"",
+        "last_modified": "Fri, 30 Oct 2020 22:37:36 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr4.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr4.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 205803,
+        "manifest": {
+          "bytes": 205803,
+          "md5": "259dfa634399ee1dde928306c9d3c423"
+        },
+        "md5": "259dfa634399ee1dde928306c9d3c423",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr4.vcf.gz.tbi",
+        "sha256": "7e71702ec284eeaa0c1523eda3bdb1aaae54594ade7f0421e6f99a29f0360f67",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr4.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr4.recalibrated_variants.vcf.gz"
+    },
+    "chr5": {
+      "head": {
+        "content_length": 104932963618,
+        "etag": "\"0521c3fb67a97e0da2b7af4722f6838c-6672\"",
+        "last_modified": "Mon, 24 Jan 2022 01:33:49 GMT",
+        "s3_md5": "6ff601771b87bee1dcd708ba804dc1fc",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr5.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 7835743,
+      "manifest": {
+        "bytes": 104932963618,
+        "md5": "6ff601771b87bee1dcd708ba804dc1fc"
+      },
+      "other_mirror": {
+        "content_length": 104932963618,
+        "etag": "\"186e7df522-5b2eb708e83c0\"",
+        "last_modified": "Fri, 30 Oct 2020 23:05:59 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr5.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr5.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 194299,
+        "manifest": {
+          "bytes": 194299,
+          "md5": "dd28c0aafb4317cf187513db2c89f692"
+        },
+        "md5": "dd28c0aafb4317cf187513db2c89f692",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr5.vcf.gz.tbi",
+        "sha256": "de8a5a68051b11ec0278c56ca6d4fd9d1175f99b6f5a60cabd73c5d989e79ded",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr5.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr5.recalibrated_variants.vcf.gz"
+    },
+    "chr6": {
+      "head": {
+        "content_length": 98918615697,
+        "etag": "\"8349b277290a4fc746d34bdcf8b361e8-6290\"",
+        "last_modified": "Mon, 24 Jan 2022 09:00:27 GMT",
+        "s3_md5": "8d816d684d9012873afe1bcd880fdc2f",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr6.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 7270824,
+      "manifest": {
+        "bytes": 98918615697,
+        "md5": "8d816d684d9012873afe1bcd880fdc2f"
+      },
+      "other_mirror": {
+        "content_length": 98918615697,
+        "etag": "\"1708024a91-5b2edd00c17c0\"",
+        "last_modified": "Sat, 31 Oct 2020 01:55:51 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr6.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr6.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 184044,
+        "manifest": {
+          "bytes": 184044,
+          "md5": "e41eaf82a3d171ad21e2a3303baf36fc"
+        },
+        "md5": "e41eaf82a3d171ad21e2a3303baf36fc",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr6.vcf.gz.tbi",
+        "sha256": "39e3379b2ca83c67ae6f7772d23e8a85ce1b466a1215c69b43aee83bf7f6cb54",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr6.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr6.recalibrated_variants.vcf.gz"
+    },
+    "chr7": {
+      "head": {
+        "content_length": 97513589335,
+        "etag": "\"ed7488123f191372fe6f2bb869df1e83-6200\"",
+        "last_modified": "Mon, 24 Jan 2022 14:52:16 GMT",
+        "s3_md5": "3d72982aa8077764856731d2ee35b8c0",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr7.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 7136210,
+      "manifest": {
+        "bytes": 97513589335,
+        "md5": "3d72982aa8077764856731d2ee35b8c0"
+      },
+      "other_mirror": {
+        "content_length": 97513589335,
+        "etag": "\"16b4434a57-5b2f0763a9840\"",
+        "last_modified": "Sat, 31 Oct 2020 05:05:29 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr7.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr7.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 173003,
+        "manifest": {
+          "bytes": 173003,
+          "md5": "c5c4a93af3367d7d3dc91fc2577ba3e8"
+        },
+        "md5": "c5c4a93af3367d7d3dc91fc2577ba3e8",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr7.vcf.gz.tbi",
+        "sha256": "7202276f8b6c13237cc5d684ab058033f8fe443d82b965c18f32dba658877098",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr7.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr7.recalibrated_variants.vcf.gz"
+    },
+    "chr8": {
+      "head": {
+        "content_length": 89381178017,
+        "etag": "\"e9aa85d842e3d3c3742e5e75f01ba259-5683\"",
+        "last_modified": "Mon, 24 Jan 2022 17:36:39 GMT",
+        "s3_md5": "70fd57f00c2d581b2eab7efc576fd18e",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr8.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 6665423,
+      "manifest": {
+        "bytes": 89381178017,
+        "md5": "70fd57f00c2d581b2eab7efc576fd18e"
+      },
+      "other_mirror": {
+        "content_length": 89381178017,
+        "etag": "\"14cf888aa1-5b2f30ef09c40\"",
+        "last_modified": "Sat, 31 Oct 2020 08:11:21 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr8.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr8.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 157587,
+        "manifest": {
+          "bytes": 157587,
+          "md5": "237be22456049623bf3a8da9a63bca6e"
+        },
+        "md5": "237be22456049623bf3a8da9a63bca6e",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr8.vcf.gz.tbi",
+        "sha256": "b704360b8e44f6e0f33f5d90a10adb4c28123b3844127f338fc8d386d0b114c4",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr8.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr8.recalibrated_variants.vcf.gz"
+    },
+    "chr9": {
+      "head": {
+        "content_length": 75889212857,
+        "etag": "\"f522f2d6a682b8da2deb40884a4245f6-4825\"",
+        "last_modified": "Mon, 24 Jan 2022 23:58:47 GMT",
+        "s3_md5": "bcdd596636e32e7e0041f346169d0663",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz"
+      },
+      "index_records": 5672888,
+      "manifest": {
+        "bytes": 75889212857,
+        "md5": "bcdd596636e32e7e0041f346169d0663"
+      },
+      "other_mirror": {
+        "content_length": 75889212857,
+        "etag": "\"11ab597db9-5b2f46db69580\"",
+        "last_modified": "Sat, 31 Oct 2020 09:49:26 GMT",
+        "s3_md5": null,
+        "source": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz"
+      },
+      "problems": [],
+      "read_from": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz",
+      "tbi": {
+        "bytes": 133604,
+        "manifest": {
+          "bytes": 133604,
+          "md5": "0f57eeae4a65c63be08213161c2cafc6"
+        },
+        "md5": "0f57eeae4a65c63be08213161c2cafc6",
+        "path": "/ibex/project/c2041/hany0c/psmc-rs-e7/joint-runs/E7/inputs/meta/tbi/chr9.vcf.gz.tbi",
+        "sha256": "6247c1329f8b2826f52b6d6859bf47ff7cc2dcea97ef56a0e75b66f354cba2f6",
+        "source": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz.tbi"
+      },
+      "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr9.recalibrated_variants.vcf.gz"
+    }
+  },
+  "where": {
+    "host": "cn511-15",
+    "slurm_cpus_on_node": "4",
+    "slurm_job_id": "53441419",
+    "slurm_nodelist": "cn511-15",
+    "time": "2026-10-07T19:10:00"
+  }
+}

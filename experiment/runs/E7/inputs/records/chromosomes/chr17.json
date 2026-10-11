@@ -1,0 +1,43 @@
+{
+  "chrom": "chr17",
+  "chunks": 6,
+  "commands": {
+    "concat": "bcftools concat --no-version --naive -Oz -o <local-tmp>/chr17/samples/S.vcf.gz <local-tmp>/chr17/chunk000/batch_K/S.vcf.gz <local-tmp>/chr17/chunk001/batch_K/S.vcf.gz <local-tmp>/chr17/chunk002/batch_K/S.vcf.gz <local-tmp>/chr17/chunk003/batch_K/S.vcf.gz <local-tmp>/chr17/chunk004/batch_K/S.vcf.gz <local-tmp>/chr17/chunk005/batch_K/S.vcf.gz",
+    "convert": "<repo>/target/release/psmc-rs convert <local-tmp>/chr17/samples/S.vcf.gz --vcf-mode mask --vcf-mask <runs>/E7/inputs/mask/chr17.bed --vcf-negative-mask <runs>/E7/inputs/nonpass/chr17.bed.gz --bin-size 100 --psmcfa <runs>/E7/inputs/psmcfa/chr17/S.psmcfa.gz --qc-json <local-tmp>/chr17/samples/S.qc.json -q"
+  },
+  "index_records": 3611020,
+  "nonpass": 364994,
+  "nonpass_sha256": "b8711b949204818826b79f853ddbaf318444f46fd80e2559332f59b96b2b5b70",
+  "psmc-rs": {
+    "binary_sha256": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850",
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "llvm": "23.1.1",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_commit": "0c84f059a31b0a6acb6a66abd8f3c4844165ca7b",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+  },
+  "psmcfa_bytes_total": 289127363,
+  "records": 3611020,
+  "records_check": "equal",
+  "samples": 2504,
+  "seconds": 79.024,
+  "split_bytes_total": 5225925739,
+  "step": "assemble-chrom",
+  "stream_seconds": 1203.03,
+  "vcf_bytes_median": 1939667,
+  "vcf_bytes_total": 5004620771,
+  "where": {
+    "host": "cn511-04",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53448091",
+    "slurm_nodelist": "cn511-04",
+    "time": "2026-10-08T02:04:39"
+  }
+}

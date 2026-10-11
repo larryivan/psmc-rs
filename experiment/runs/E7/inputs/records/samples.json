@@ -1,0 +1,12 @@
+{
+  "samples": 2504,
+  "seconds": 8.81,
+  "step": "assemble-samples",
+  "where": {
+    "host": "cn511-13",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53451576",
+    "slurm_nodelist": "cn511-13",
+    "time": "2026-10-08T03:07:41"
+  }
+}

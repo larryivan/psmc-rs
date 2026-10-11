@@ -1,0 +1,43 @@
+{
+  "chrom": "chr1",
+  "chunks": 17,
+  "commands": {
+    "concat": "bcftools concat --no-version --naive -Oz -o <local-tmp>/chr1/samples/S.vcf.gz <local-tmp>/chr1/chunk000/batch_K/S.vcf.gz <local-tmp>/chr1/chunk001/batch_K/S.vcf.gz <local-tmp>/chr1/chunk002/batch_K/S.vcf.gz <local-tmp>/chr1/chunk003/batch_K/S.vcf.gz <local-tmp>/chr1/chunk004/batch_K/S.vcf.gz <local-tmp>/chr1/chunk005/batch_K/S.vcf.gz <local-tmp>/chr1/chunk006/batch_K/S.vcf.gz <local-tmp>/chr1/chunk007/batch_K/S.vcf.gz <local-tmp>/chr1/chunk008/batch_K/S.vcf.gz <local-tmp>/chr1/chunk009/batch_K/S.vcf.gz <local-tmp>/chr1/chunk010/batch_K/S.vcf.gz <local-tmp>/chr1/chunk011/batch_K/S.vcf.gz <local-tmp>/chr1/chunk012/batch_K/S.vcf.gz <local-tmp>/chr1/chunk013/batch_K/S.vcf.gz <local-tmp>/chr1/chunk014/batch_K/S.vcf.gz <local-tmp>/chr1/chunk015/batch_K/S.vcf.gz <local-tmp>/chr1/chunk016/batch_K/S.vcf.gz",
+    "convert": "<repo>/target/release/psmc-rs convert <local-tmp>/chr1/samples/S.vcf.gz --vcf-mode mask --vcf-mask <runs>/E7/inputs/mask/chr1.bed --vcf-negative-mask <runs>/E7/inputs/nonpass/chr1.bed.gz --bin-size 100 --psmcfa <runs>/E7/inputs/psmcfa/chr1/S.psmcfa.gz --qc-json <local-tmp>/chr1/samples/S.qc.json -q"
+  },
+  "index_records": 10309024,
+  "nonpass": 1232686,
+  "nonpass_sha256": "4a32673ed2b81ce389edb03ba0790b70274c0f6758c028287ec7c8970fcfdaef",
+  "psmc-rs": {
+    "binary_sha256": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850",
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "llvm": "23.1.1",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_commit": "0c84f059a31b0a6acb6a66abd8f3c4844165ca7b",
+    "source_dirty": "",
+    "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+  },
+  "psmcfa_bytes_total": 751103090,
+  "records": 10309024,
+  "records_check": "equal",
+  "samples": 2504,
+  "seconds": 158.545,
+  "split_bytes_total": 13630184492,
+  "step": "assemble-chrom",
+  "stream_seconds": 3241.407,
+  "vcf_bytes_median": 4967018,
+  "vcf_bytes_total": 12921543806,
+  "where": {
+    "host": "cn511-03",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "53441973",
+    "slurm_nodelist": "cn511-03",
+    "time": "2026-10-08T00:08:45"
+  }
+}
