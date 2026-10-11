@@ -674,9 +674,10 @@ Reproduction package (`experiment/`):
 
 ### Known issues
 
-- All psmc-rs results in `experiment/runs/` were produced with 0.1 and must
-  be regenerated with 0.2; the inference outputs behind Figures 2 and 3 are
-  not committed yet.
+- The earlier pipeline's results (`experiment/runs/main_text`,
+  `real_data` and `supplementary`) were produced with 0.1. The manuscript's
+  results are the 0.2 pipeline's, committed in `experiment/runs/E1` to `E7`
+  and `FIG`; the items below concern the earlier pipeline's files.
 - The packaged S2 table and Supplementary Figure S1 include C psmc's round
   0, whose LK is a placeholder 0, which squeezes the curves into a line;
   the regenerated table leaves it out.
