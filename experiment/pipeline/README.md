@@ -794,7 +794,8 @@ task per chromosome and the samples.
 **Fits** (the runner, once `MANIFEST.json` exists; before, E7 has no jobs
 and FIG none of its figures): every sample's psmcfa with psmc-rs
 (`fit-rs-psmcfa`); the default set's VCFs with the mask and psmc-rs's
-callable bases per bin (`fit-rs-vcf`: Fig 7's population curves), and its
+callable bases per bin (`fit-rs-vcf`: Fig S5's dark lines and Fig S6b;
+Fig 7's curves are the psmcfa fits), and its
 psmcfa with C psmc (`fit-c`); psmc-rs's bootstrap of the three samples
 (`boot-rs`, 100 replicates; its main fit must equal `fit-rs-psmcfa`'s);
 the first default sample of every population with the first time window
@@ -855,12 +856,12 @@ back.
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | CPU hours measured on Ibex | limits |
 | --- | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | 13.0 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
-| E2 | 23 | 47 | 2.1 (50 cores) | 43.8 (the earlier run, with the Papuan chromosome 1 and without the 6 split-first-window fits) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
+| E2 | 23 | 47 | 2.1 (50 cores) | 59.8 (the turtles' C psmc fits and QC from the first `prod` job, the rest from the second; Supplementary Note 1, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
 | E3 | 160 | 95 | 21 (exclusive) | 53.8 (the 155 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive nodes) | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.3 | S1-S3 wait for E1 |
-| E7 | 2,639 | 470 | 10 (50 cores) | not yet run | after its data stage; bootstraps on 32 threads |
+| E7 | 2,639 | 470 | 10 (50 cores) | 642.9 (on 94 cores: 8.2 hours with E2's re-run) | after its data stage; bootstraps on 32 threads |
 | FIG | 14 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured

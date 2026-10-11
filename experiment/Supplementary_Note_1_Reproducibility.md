@@ -12,31 +12,31 @@ repository root. The pipeline itself is described in
 `experiment/slurm/README.md`.
 
 The experiments are E1 (simulated accuracy and equivalence with C psmc:
-Fig 2, Table 1, Fig S1), E2 (four real genomes: Fig 3), E3 (performance:
-Fig 4, Table 2, Fig S4), E4 (input preparation and partly callable bins:
-Fig 5), E5 (bootstrap calibration: Fig 6), E6 (supplementary analyses:
-Figs S2 and S3, Table S5) and E7 (the 1000 Genomes 30x genomes: Fig 7,
-Figs S5 and S6); FIG draws every figure. `experiment/scripts/`,
+Fig 2, Table 1, Fig S1), E2 (four real genomes: Fig 3, Fig S7), E3
+(performance: Fig 4, Table 2, Fig S4), E4 (input preparation and partly
+callable bins: Fig 5), E5 (bootstrap calibration: Fig 6), E6
+(supplementary analyses: Figs S2 and S3, Table S1) and E7 (the 1000
+Genomes 30x genomes: Fig 7, Figs S5 and S6); FIG draws every figure. `experiment/scripts/`,
 `experiment/run.py`, the notebook and `experiment/runs/{main_text,
 real_data,supplementary}/` are the earlier pipeline of psmc-rs 0.1 and
 make none of the manuscript's results.
 
 ## 1) What the repository holds
 
-Each experiment writes `experiment/runs/<EXP>/`. The release commits
-(until it is tagged the production runs of E1 to E6 and FIG are not yet
-committed):
+Each experiment writes `experiment/runs/<EXP>/`. The repository holds the
+production runs of E1 to E7 and FIG:
 
 | item | where |
 | --- | --- |
 | real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's `MANIFEST.json` and `config.RealGenome.sha256`) | `experiment/real_data/{HLemySub1,HLhydTec1,HLpelCas1}_diploid.psmcfa`, `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (`Papuan_highlands_diploid.psmcfa`, a chromosome 1, serves the README's benchmarks, the Rust tests and the psmc-rs 0.1 scripts' Figure 3 (`experiment/scripts/run_real_data.py`); E2 does not read it) |
 | truth records of the simulated genomes (settings, seeds, software versions, per-chromosome counts and checksums, the true Ne(t)) | `runs/<EXP>/truth/` |
 | every fit: psmc-rs JSON and `.psmc`, C psmc `.psmc` | `runs/<EXP>/fits/` |
-| bootstrap runs: main fit, every replicate's JSON, `summary.json` and `summary.tsv` | `runs/E2/bootstrap/`, `runs/E5/boot/` |
+| bootstrap runs: main fit, every replicate's JSON, `summary.json` and `summary.tsv` | `runs/E2/bootstrap/`, `runs/E5/boot/`, `runs/E7/boot/` |
 | E4's masks, bins and cross-checks; QC reports | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E6}/qc/` |
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (Fig 1: `runs/FIG/`) |
-| E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs, the masks and `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file) | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000`) |
+| E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs and the masks | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000`) |
+| E7's data stage: `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot) | `runs/E7/inputs/MANIFEST.json`, `runs/E7/inputs/records/` |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
 (psmcfa, VCF, true TMRCA tracks; `runs/*/sims/`), the bootstrap
@@ -145,10 +145,10 @@ would run, and `start --only REGEX` restricts it to the matching jobs.
 
 ## 5) The runs, on a SLURM cluster
 
-The production runs of E1 to E6 were made with the scripts of
+The production runs of E1 to E7 were made with the scripts of
 `experiment/slurm/` on KAUST's Ibex cluster (E3's repeats as `e3` jobs,
-section 10), and the figures drawn on the laptop from the runs directory
-copied back. The scripts run the same pipeline in SLURM allocations;
+section 10; E7's data stage as `e7-prep`), and the figures drawn on the
+laptop from the runs directory copied back. The scripts run the same pipeline in SLURM allocations;
 site settings (account, partition, node constraints, paths, C psmc's
 flags) go in `experiment/slurm/site.env`, copied from
 `site.env.example`. Every job sources `env.sh`, which gives it
@@ -166,13 +166,34 @@ cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the producti
 ./submit.sh e7-prep                # E7's inputs from the 1000 Genomes VCFs; then prod again for E7's fits
 ```
 
-The `prod` job ran on one node with a runner budget of 62 cores and
-180 GB; its 572 jobs took 1 hour 48 minutes and 81 CPU hours: E1 13.0,
-E2 43.8 (the five bootstrap runs on 50 threads 40.3; E2 and E6's S5 then
-had the Papuan chromosome 1 in place of NA12878), E4 5.2, E5 19.1 and
-E6 0.3 (from the jobs' provenance records). Its jobs shared the node with
-one another (1-minute load averages of 5 to 72 when they started), so
-these are costs, not timings; E3 measures performance (section 10).
+The production ran in two `prod` jobs, each on one AMD EPYC 7702 node
+(128 cores). The first (SLURM job 53386770, commit 34f2b00, a runner
+budget of 62 cores and 180 GB; 1 hour 48 minutes) made E1, E4, E5, E6's
+S1 to S3 and the turtles' C psmc fits and QC. The second (53452276, commit
+d338500, 94 cores and 324 GB; 8 hours 11 minutes) made, once NA12878 had
+replaced the Papuan chromosome 1 in E2 and the turtles had their own
+scaling, the rest of E2 (NA12878's fits, bootstrap and QC, the turtles'
+psmc-rs fits and bootstraps, the six split-first-window fits), E6's S5 QC
+of NA12878 and E7's 2,637 fits and bootstraps; a short job (53467834)
+wrote the reports. From the jobs' provenance records, in CPU hours (user
+and system time):
+
+| experiment | jobs | CPU hours | made in |
+| --- | --- | --- | --- |
+| E1 | 121 | 13.0 | 53386770 (report: 53467834) |
+| E2 | 23 | 59.8 | 6 in 53386770, 16 in 53452276 (report: 53467834) |
+| E3 | 160 | 55.3 | five exclusive nodes, 53420812 to 53420816 (section 10; report: 53467842) |
+| E4 | 286 | 5.2 | 53386770 (report: 53467834) |
+| E5 | 121 | 19.1 | 53386770 (report: 53467834) |
+| E6 | 26 | 0.3 | 53386770 and 53452276 (reports: 53467834) |
+| E7 | 2,639 | 642.9 | 53452276 (GIAB comparison and report: 53467834) |
+
+The fits of each `prod` job shared their node with one another (1-minute
+load averages of 5 to 72 and of 33 to 133 when they started), so these
+are costs, not timings; E3 measures performance (section 10). E7's data
+stage ran before the second job, as SLURM jobs of `kg1000`'s steps, and
+read 1.68 TB of VCFs (each step's host and job are in
+`runs/E7/inputs/records/`, the sources and checks in `MANIFEST.json`).
 
 ## 6) Provenance
 
@@ -197,12 +218,13 @@ holds what determines the outputs:
 
 The record then adds the SHA-256 of every output and how the job ran: host,
 SLURM job, cores, wall, user and system time, peak resident memory, load
-average and the SHA-256 of the executables it ran. In the earlier production run
-(E2 then with the Papuan chromosome 1 in place of NA12878) every psmc-rs 0.2 fit was made from the same sources (the `src/` tree
-that commits 0c84f05 to 34f2b00 share), by rustc 1.99.0 without build
-flags, and the JSON of every fit and every bootstrap run's main fit
-records the HMM kernels that ran (`simd`: `avx2+fma` in all 253; section
-8).
+average and the SHA-256 of the executables it ran. Every psmc-rs 0.2 job
+of the production, E1 to E7 (3,009 records), ran a build of the same
+sources (the `src/` tree 4c0d777, `Cargo.toml` 7ff6ee3 and `Cargo.lock`
+b552a2a, which commits 0c84f05 to d338500 share, without uncommitted
+changes), made by rustc 1.99.0 without build flags, and the JSON of every
+fit and of every bootstrap run's main fit records the HMM kernels that ran
+(`simd`: `avx2+fma` in all 2,898; section 8).
 
 ## 7) The C psmc builds
 
@@ -240,7 +262,10 @@ fit of every E2 bootstrap run, on 50 threads, equals the genome's own fit
 on one thread in every parameter, log-likelihood and iteration count
 (`E2_bootstrap.csv`, `main_identical_to_fit`, largest difference 0), and
 the main fit of every E5 bootstrap run equals the genome's fit (20 of 20,
-`E5_datasets.csv`).
+`E5_datasets.csv`), as does that of each of E7's three (`E7_bootstrap.csv`).
+NA12878's bootstrap ran twice with one seed, in E2 on 50 threads and in E7
+on 32: the two runs wrote the same 103 files byte for byte
+(`runs/E2/bootstrap/NA12878/trunk500000/` and `runs/E7/boot/NA12878/`).
 
 **Run-time HMM kernels.** For models of up to 256 states the forward and
 backward steps take O(states) time per bin, from the rank-one triangles of
@@ -278,16 +303,96 @@ of the genome's heterozygous positions.
 **C psmc** is single-threaded and deterministic for one binary; how much
 two builds of it differ is part of section 9.
 
-## 9) Cross-platform comparison — PLACEHOLDER
+## 9) Cross-platform comparison
 
-> **To be written.** This section will compare the production results
-> computed on Ibex (x86-64, Linux) with the same jobs run on the laptop
-> (Apple M1 Pro, arm64, macOS): the simulated inputs and truth records,
-> psmc-rs's fits and bootstrap bands, and C psmc's fits from its two
-> builds, against the pre-registered agreement tiers, with the reference
-> used for each tier and how sensitive the result is to it. It will name
-> both platforms' CPUs, operating systems and toolchains, and the psmc-rs
-> source revision each platform built. The analysis is not final.
+The production ran on Ibex (x86-64). To measure how much its results
+depend on the platform, the 40 E1 genomes and NA12878 were fitted again
+with psmc-rs on the development laptop, with the production's commands
+(only the paths changed), and the laptop's C psmc fits of the same 40
+genomes, from an earlier laptop run, were compared with Ibex's. The
+scripts, tables and laptop fits are in `experiment/crossplatform/`, whose
+`summary.md` gives every number below.
+
+| | laptop | Ibex (production) |
+| --- | --- | --- |
+| CPU and system | Apple M1 Pro (arm64), macOS 27.0, Apple's math library | AMD EPYC 7702 (x86-64), Linux, glibc 2.34 |
+| psmc-rs | the same sources (`src/` 4c0d777, no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
+| C psmc | lh3/psmc 0.6.5-r74, the laptop's `-O1` build by Apple clang, which fuses multiply-adds (identified by its machine code; it has no build record) | gcc 11.4.1, `-O3 -march=x86-64-v3 -ffp-contract=off` (section 7) |
+
+**Inputs.** The laptop's 40 E1 genomes were byte-identical to Ibex's
+(psmcfa, VCF and index, 40 of 40; the heterozygous positions and counts of
+all 400 chromosomes), and both platforms fitted the same NA12878 file.
+
+**Outputs.** No output was byte-identical across the platforms, for either
+program (psmc-rs 0 of 41, C psmc 0 of 40), but psmc-rs agreed with itself
+far more closely than the two builds of C psmc agreed with each other
+(minimum / median / maximum over the 40 E1 fits; the last column is the
+difference between the programs on Ibex, as in E1):
+
+| | psmc-rs, laptop vs Ibex | C psmc, laptop vs Ibex | psmc-rs vs C psmc, Ibex |
+| --- | --- | --- | --- |
+| theta, relative | 1.6e-9 / 1.8e-7 / 7.6e-7 | 1.5e-7 / 5.8e-6 / 5.3e-5 | 1.2e-6 / 6.3e-5 / 3.8e-4 |
+| largest relative difference of any parameter | 5.5e-8 / 7.9e-7 / 9.6e-6 | 3.0e-5 / 1.1e-4 / 0.21 | 6.0e-5 / 2.2e-4 / 0.99 |
+| RMSE of log10 Ne over the window | 2.2e-9 / 1.2e-7 / 1.0e-6 | 3.6e-6 / 8.5e-6 / 2.4e-5 | 3.7e-6 / 2.5e-5 / 2.0e-4 |
+| largest difference of log10 Ne, any interval | 1.2e-8 / 3.1e-7 / 4.1e-6 | 1.4e-5 / 4.9e-5 / 0.10 | 1.0e-5 / 7.9e-5 / 2.0 |
+| final log-likelihood, relative | 4.6e-14 / 2.1e-12 / 2.8e-11 | 4.9e-12 / 1.7e-10 / 1.2e-9 | 1.5e-10 / 3.3e-9 / 1.3e-8 |
+
+C psmc's 0.21 and 0.10 are expansion replicate 5's first lambda, which
+runs away outside the window in both builds (without that fit, 5.4e-4 and
+2.4e-4). Replicate by replicate, psmc-rs's RMSE between the platforms was
+smaller than C psmc's between its builds in 40 of 40 (by a median factor
+of 80, at least 7.2), and smaller than the difference between the
+programs in 40 of 40 (median 196, at least 45). NA12878's two psmc-rs
+fits agreed to an RMSE of 9.1e-8 and within a relative 6.6e-7 in every
+parameter.
+
+**Where the runs part.** psmc-rs's log-likelihood at the starting point
+was bit-identical in 40 of the 41 fits (the other differed in the last
+place), as section 8 leads one to expect: the NEON and the AVX2 and FMA
+kernels fuse the same multiply-adds, and no sum changes its order with the
+vector width. The first differences appear in iterations 1 to 3. What
+still differs is the system math library (Apple's `exp` and `log` against
+glibc's), whose last-bit differences the M-step, stopping on a flat
+optimum, turns into the parameter differences above; this comparison does
+not separate the math library from other architecture-specific code. C
+psmc's builds part at the first M-step's evaluation count in every fit;
+they differ in compiler, optimization level, floating-point contraction
+and math library, which this comparison cannot separate.
+
+**Controls.** The same sources built on the laptop by Ibex's rustc 1.99.0
+wrote the same bytes as the rustc 1.97.1 build in 41 of 41 fits, and one
+laptop binary run twice wrote the same bytes (2 of 2): the differences are
+the platform's, not the compiler version's, nor noise from run to run.
+
+**Agreement tiers.** Tiers fixed on 7 October 2026, before these runs
+(`experiment/crossplatform/scripts/tiers_2026-10-07.py`), were applied
+unchanged: A, identical bytes; B, every parameter within a relative 1e-6,
+log10 Ne within 1e-6 in every interval and the final log-likelihood within
+a relative 1e-8; C, log10 Ne within 1e-3 in every interval and within a
+fiftieth of the difference between the programs (the per-model mean RMSE
+between psmc-rs and C psmc in E1); otherwise fail. psmc-rs's E1 fits were
+B in 24, C in 11 and failed in 5 of 40, and NA12878's fit was B; C psmc's
+builds failed in 40 of 40. All 16 psmc-rs fits that missed B did so on the
+parameter limit, at the most recent or the oldest free lambdas, which the
+data constrain least; the five that failed differed by 5e-7 to 4e-6 in
+log10 Ne, 17 to 36 times less than the difference between the programs
+rather than the required 50. The tier-C reference was not fixed in advance;
+the other references considered, and two deviations from the tiers, are
+reported in `experiment/crossplatform/summary.md` (section 5) and change
+none of these conclusions.
+
+**Caveats.** The laptop's C psmc build is identified by its checksum and
+machine code, not by a build record, and a laptop build without
+floating-point contraction was not run. Only E1 and NA12878 were refitted
+on the laptop; E2's turtles, the bootstraps and E3 to E7 were not.
+
+**Conclusion.** psmc-rs's results depend on the platform only in their
+last digits: across two processor architectures, operating systems and
+math libraries its curves agreed to an RMSE of at most 1.0e-6 in log10
+Ne, two orders of magnitude below the difference between psmc-rs and C
+psmc and below the difference between two builds of C psmc on these
+platforms. Byte-identical results across platforms need the same kernels
+and the same math library on both (section 8).
 
 ## 10) Performance (E3)
 
