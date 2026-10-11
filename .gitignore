@@ -64,3 +64,6 @@ __pycache__/
 
 # Site settings of the SLURM scripts (account, paths)
 /experiment/slurm/site.env
+
+# manuscript builds (make in manuscript/)
+/manuscript/build/

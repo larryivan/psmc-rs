@@ -1,0 +1,12 @@
+\begin{tabular}{lrrrrrr}
+\toprule
+& \multicolumn{2}{c}{Window (years)} & \multicolumn{2}{c}{RMSE vs truth} & \multicolumn{2}{c}{psmc-rs vs C psmc} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+Model & from & to & C psmc & psmc-rs & RMSE (median) & max $|\Delta|$ \\
+\midrule
+constant & 5,025 & 2,302,585 & 0.048 $\pm$ 0.023 & 0.048 $\pm$ 0.023 & \ensuremath{7.8\times10^{-6}} & \ensuremath{9.2\times10^{-5}} \\
+bottleneck & 10,050 & 1,322,585 & 0.291 $\pm$ 0.021 & 0.291 $\pm$ 0.021 & \ensuremath{3.9\times10^{-5}} & \ensuremath{6.6\times10^{-4}} \\
+expansion & 5,025 & 1,052,585 & 0.240 $\pm$ 0.043 & 0.240 $\pm$ 0.043 & \ensuremath{3.0\times10^{-5}} & \ensuremath{4.8\times10^{-4}} \\
+zigzag & 7,141 & 2,167,766 & 0.138 $\pm$ 0.013 & 0.138 $\pm$ 0.013 & \ensuremath{1.9\times10^{-5}} & \ensuremath{6.6\times10^{-5}} \\
+\bottomrule
+\end{tabular}
