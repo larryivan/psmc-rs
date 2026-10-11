@@ -767,9 +767,9 @@ the GRCh38 strict accessibility mask (`config.E7`; mu 1.25e-8, g 29).
 `setup` records the sources (HEAD of every VCF on EBI and its S3 mirror,
 checked against the 1000 Genomes manifest; the indexes, sequence index,
 pedigree, strict mask and GIAB HG001 truth downloaded, SHA-256 recorded),
-picks the samples (the default set: `per_population` per population, Li &
-Durbin 2011's NA18507, NA19239 and NA12878 first, the others drawn by
-seed) and cuts chr1-22 into chunks of 15 Mb. Each chunk is read once,
+picks the samples (the default set: `per_population` per population,
+NA18507 and NA19239, two of Li & Durbin 2011's genomes, and NA12878
+(GIAB's HG001) first, the others drawn by seed) and cuts chr1-22 into chunks of 15 Mb. Each chunk is read once,
 reduced to GT and FILTER and split into one het-or-missing VCF per sample
 (`bcftools +split`); every non-PASS position goes into one negative mask
 shared by all samples; then `psmc-rs convert --vcf-mode mask` writes each

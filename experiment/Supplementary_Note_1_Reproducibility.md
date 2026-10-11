@@ -228,7 +228,11 @@ fit and of every bootstrap run's main fit records the HMM kernels that ran
 
 ## 7) The C psmc builds
 
-C psmc is lh3/psmc 0.6.5-r74. `python -m experiment.pipeline tools
+C psmc is lh3/psmc 0.6.5-r74: the sources in `experiment/.tools/psmc_c`,
+from which every C psmc binary of this note was built, are identical, file
+for file, to lh3/psmc at commit 82fa2ad (2025-11-16), whose `cli.c` gives
+the version string `0.6.5-r74-dirty` that the provenance records hold.
+`python -m experiment.pipeline tools
 --build-c` builds it, `fq2psmcfa` and `splitfa` from the sources in
 `experiment/.tools/psmc_c` with `$CC` and `$PSMC_C_CFLAGS` (default: the
 Makefile's `-g -Wall -O2 -Wno-unused-function`) and records the compiler,
