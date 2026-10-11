@@ -1,6 +1,6 @@
 # Manuscript
 
-The article (`psmc-rs.tex`: four figures, two tables), its supplementary
+The article (`psmc-rs.tex`: three figures, two tables), its supplementary
 information (`supplement.tex`: Figs S1–S3 and Table S1) and Supplementary
 Note 1 (`supplementary_note_1.tex`, from the repository's Markdown).
 

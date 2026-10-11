@@ -117,6 +117,17 @@ def e1() -> None:
     put("EoneLoglikeLastRelMax", sci(((reps["rs"] - reps["c"]).abs() / reps["c"].abs()).max()),
         "E1_replicates loglike_common (the last iteration both report)")
     put("EoneLoglikeFirstRelMax", sci(r.loglike_iteration0_rel_diff.max()), "E1_rs_vs_c loglike_iteration0_rel_diff")
+    rr = table("E1", "E1_replicates").pivot_table(index=["model", "replicate"], columns="tool",
+                                                   values="rmse_log10_ne_vs_truth")
+    fold = rr.min(axis=1) / r.set_index(["model", "replicate"]).rmse_log10_ne_rs_vs_c_per_interval
+    low = fold.min()
+    mag = 10 ** math.floor(math.log10(low)) / 10
+    put("EoneFoldMin", thousands(math.floor(low / mag) * mag),
+        "E1: min over replicates of (smaller of the two errors vs truth) / rmse rs vs C, floored to 2 digits")
+    med = float(rr["rs"].median() / r.rmse_log10_ne_rs_vs_c_per_interval.median())
+    mag = 10 ** math.floor(math.log10(med))
+    put("EoneFoldMedian", thousands(round(med / mag) * mag),
+        "E1: median rs error vs truth / median rmse rs vs C, to 1 digit (Fig 1j's arrow)")
     t = table("E1", "E1_table1").set_index("model")
     for m in c.models:
         k = m.capitalize()
@@ -238,17 +249,12 @@ def e3() -> None:
     put("EthreeCWall", thousands(row("c", 1).wall_median_s), "E3_table2 c 1 thread")
     put("EthreeCMin", fix(row("c", 1).wall_median_s / 60.0, 0), "E3_table2 c 1 thread (min)")
     put("EthreeRsOneWall", thousands(row("rs02", 1).wall_median_s), "E3_table2 rs02 1 thread")
-    put("EthreeRsZeroWall", thousands(row("rs01", 1).wall_median_s), "E3_table2 rs01 1 thread")
     for th, name in ((1, "One"), (8, "Eight"), (16, "Sixteen"), (30, "Thirty")):
         put(f"EthreeSpeed{name}", fix(row("rs02", th).speedup_vs_c, 1 if th == 1 else 0), f"E3_table2 rs02 {th} speedup")
         put(f"EthreeRsWall{name}", fix(row("rs02", th).wall_median_s, 1 if th > 1 else 0), f"E3_table2 rs02 {th} wall")
-    put("EthreeRsZeroSpeedThirty", fix(row("rs01", 30).speedup_vs_c, 0), "E3_table2 rs01 30 speedup")
-    put("EthreeRsZeroRel", fix(row("rs01", 1).speedup_vs_c, 2), "E3_table2 rs01 1 speedup")
     put("EthreeCMem", thousands(row("c", 1).peak_rss_median_mb), "E3_table2 c peak MB")
     put("EthreeRsMemOne", fix(row("rs02", 1).peak_rss_median_mb, 0), "E3_table2 rs02 1 peak MB")
     put("EthreeRsMemThirty", fix(row("rs02", 30).peak_rss_median_mb, 0), "E3_table2 rs02 30 peak MB")
-    put("EthreeRsZeroMemThirty", thousands(row("rs01", 30).peak_rss_median_mb), "E3_table2 rs01 30 peak MB")
-    put("EthreeRsZeroMemOne", thousands(row("rs01", 1).peak_rss_median_mb), "E3_table2 rs01 1 peak MB")
     one = t[(t.tool == "rs02") & (t.threads == 1)]
     put("EthreeSpeedOneMin", fix(one.speedup_vs_c.min(), 1), "E3_table2 rs02 1 thread speedup, every size")
     put("EthreeSpeedOneMax", fix(one.speedup_vs_c.max(), 1), "E3_table2 rs02 1 thread speedup, every size")
@@ -268,17 +274,19 @@ def e3() -> None:
     cap = min(n / (th * math.ceil(n / th)) for th in ts.threads if th > 1)
     put("EthreeEffCap", fix(cap, 2), "whole chromosomes per thread: min over t of n / (t ceil(n / t))")
     runs = table("E3", "E3_runs")
-    put("EthreeRuns", str(len(runs)), "E3_runs rows")
-    put("EthreeCleanRuns", str(int(runs.clean.sum())), "E3_runs clean")
-    put("EthreeNodes", str(runs.hostname.nunique()), "E3_runs hostname")
-    spread = ((t.wall_max_s - t.wall_min_s) / t.wall_median_s)
-    put("EthreeSpreadMaxMost", pct(spread.sort_values().iloc[-2], 1), "E3_table2 (max-min)/median, second largest")
+    runs = runs[runs.tool.isin(["c", "rs02"])]
+    put("EthreeRuns", str(len(runs)), "E3_runs rows, C psmc and psmc-rs 0.2")
+    put("EthreeCleanRuns", str(int(runs.clean.sum())), "E3_runs clean, C psmc and psmc-rs 0.2")
+    put("EthreeNodes", str(runs.hostname.nunique()), "E3_runs hostname, C psmc and psmc-rs 0.2")
+    put("EthreeSetups", str(len(t[t.tool.isin(["c", "rs02"])])), "E3_table2 rows, C psmc and psmc-rs 0.2")
+    tt = t[t.tool.isin(["c", "rs02"])]
+    spread = ((tt.wall_max_s - tt.wall_min_s) / tt.wall_median_s)
+    put("EthreeSpreadMax", pct(spread.max(), 1), "E3_table2 (max-min)/median, C psmc and psmc-rs 0.2")
     det = table("E3", "E3_determinism")
-    for tool, name in (("rs02", "Rs"), ("c", "C"), ("rs01", "RsZero")):
+    for tool, name in (("rs02", "Rs"), ("c", "C")):
         d = det[det.tool == tool]
         put(f"EthreeDet{name}Identical", str(int(d.byte_identical.sum())), f"E3_determinism {tool}")
         put(f"EthreeDet{name}Total", str(len(d)), f"E3_determinism {tool}")
-    put("EthreeRsZeroDiffMax", sci(det[det.tool == "rs01"].max_rel_diff_params.max()), "E3_determinism rs01 max_rel_diff_params")
     env = table("E3", "E3_environment").set_index("key")["value"]
     put("EthreeCpu", str(env["machine.cpu"]).replace(" 64-Core Processor", ""), "E3_environment machine.cpu")
     put("EthreeCores", str(env["machine.cpu_count"]), "E3_environment machine.cpu_count")
@@ -610,13 +618,13 @@ def table1() -> str:
 def table2() -> str:
     t = table("E3", "E3_table2")
     sizes = sorted(P.e3.genome_sizes_mb)
-    label = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2"}
+    label = {"c": "C psmc", "rs02": "psmc-rs"}
     rows = t[t.tool.isin(label)].sort_values(["tool", "threads"])
     lines = [r"\begin{tabular}{lr" + "r" * len(sizes) + "rr}", r"\toprule",
              r"& & \multicolumn{" + str(len(sizes)) + r"}{c}{Wall time, median (s)} & \multicolumn{2}{c}{" + thousands(max(sizes)) + r" Mb} \\",
              r"\cmidrule(lr){3-" + str(2 + len(sizes)) + r"}\cmidrule(lr){" + str(3 + len(sizes)) + "-" + str(4 + len(sizes)) + "}",
              "Tool & Threads & " + " & ".join(f"{thousands(s)} Mb" for s in sizes) + r" & Speed-up & Memory (MB) \\", r"\midrule"]
-    order = [("c", 1)] + [("rs01", th) for th in (1, 8, 30)] + [("rs02", th) for th in (1, 2, 4, 8, 16, 30)]
+    order = [("c", 1)] + [("rs02", th) for th in (1, 2, 4, 8, 16, 30)]
     for tool, th in order:
         sub = rows[(rows.tool == tool) & (rows.threads == th)]
         if sub.empty:
@@ -688,9 +696,32 @@ def readme() -> None:
     put("DiagChromMb", m.group(2), "README.md Testing and C equivalence")
 
 
+def agreement() -> None:
+    """Fig 1i: every interval in its window of every genome both programs fitted, by the figure's own function."""
+    from experiment.pipeline.figures import art1_agreement as art1
+    from experiment.pipeline.figures.data import curves
+
+    def windows(df, key):
+        return {getattr(r, key): (float(r.window_lo_years), float(r.window_hi_years)) for r in df.itertuples()}
+
+    e1c = curves(table("E1", "E1_curves"), ["model", "tool", "replicate"])
+    e2c = curves(table("E2", "E2_curves"), ["sample_id", "tool"])
+    e7c = curves(table("E7", "E7_curves"), ["sample_id", "route"])
+    pairs, genomes = art1.agreement_intervals(e1c, windows(table("E1", "E1_table1"), "model"), e2c,
+                                              windows(table("E2", "E2_rs_vs_c"), "sample_id"), e7c,
+                                              windows(table("E7", "E7_rs_vs_c"), "sample_id"))
+    d = pd.Series([abs(math.log10(rs / c)) for k in pairs for c, rs in pairs[k]])
+    assert genomes == len(P.e1.models) * P.e1.replicates + int(MACROS["RealGenomes"][0]), "Fig 1i's genomes"
+    put("AgreeIntervals", thousands(len(d)), "Fig 1i: intervals in the window, every genome both tools fitted")
+    put("AgreeGenomes", str(genomes), "Fig 1i: genomes (NA12878 once)")
+    put("AgreeMedianAbs", sci(d.median()), "Fig 1i: median |log10 Ne difference| per interval")
+    put("AgreeMaxAbs", sci(d.max()), "Fig 1i: largest |log10 Ne difference| per interval")
+    put("AgreeMaxPct", pct(10 ** d.max() - 1, 2), "Fig 1i: largest relative Ne difference per interval")
+
+
 def render() -> dict:
     MACROS.clear()
-    for f in (e1, e2, e3, e4, e5, e6, e7, readme, crossplatform):
+    for f in (e1, e2, e3, e4, e5, e6, e7, agreement, readme, crossplatform):
         f()
     words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
     for name, (value, src) in list(MACROS.items()):

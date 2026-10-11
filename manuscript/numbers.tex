@@ -21,6 +21,8 @@
 \newcommand{\EoneLoglikeRelMax}{\ensuremath{3.5\times10^{-8}}}  % E1_rs_vs_c loglike_max_rel_diff (any iteration)
 \newcommand{\EoneLoglikeLastRelMax}{\ensuremath{1.3\times10^{-8}}}  % E1_replicates loglike_common (the last iteration both report)
 \newcommand{\EoneLoglikeFirstRelMax}{\ensuremath{7.0\times10^{-13}}}  % E1_rs_vs_c loglike_iteration0_rel_diff
+\newcommand{\EoneFoldMin}{1,500}  % E1: min over replicates of (smaller of the two errors vs truth) / rmse rs vs C, floored to 2 digits
+\newcommand{\EoneFoldMedian}{7,000}  % E1: median rs error vs truth / median rmse rs vs C, to 1 digit (Fig 1j's arrow)
 \newcommand{\EoneConstantTruthC}{\ensuremath{0.048}}  % E1_table1 rmse_truth_c_mean
 \newcommand{\EoneConstantTruthRs}{\ensuremath{0.048}}  % E1_table1 rmse_truth_rs_mean
 \newcommand{\EoneBottleneckTruthC}{\ensuremath{0.291}}  % E1_table1 rmse_truth_c_mean
@@ -66,7 +68,6 @@
 \newcommand{\EthreeCWall}{4,446}  % E3_table2 c 1 thread
 \newcommand{\EthreeCMin}{\ensuremath{74}}  % E3_table2 c 1 thread (min)
 \newcommand{\EthreeRsOneWall}{519}  % E3_table2 rs02 1 thread
-\newcommand{\EthreeRsZeroWall}{6,193}  % E3_table2 rs01 1 thread
 \newcommand{\EthreeSpeedOne}{\ensuremath{8.6}}  % E3_table2 rs02 1 speedup
 \newcommand{\EthreeRsWallOne}{\ensuremath{519}}  % E3_table2 rs02 1 wall
 \newcommand{\EthreeSpeedEight}{\ensuremath{63}}  % E3_table2 rs02 8 speedup
@@ -75,13 +76,9 @@
 \newcommand{\EthreeRsWallSixteen}{\ensuremath{36.0}}  % E3_table2 rs02 16 wall
 \newcommand{\EthreeSpeedThirty}{\ensuremath{243}}  % E3_table2 rs02 30 speedup
 \newcommand{\EthreeRsWallThirty}{\ensuremath{18.3}}  % E3_table2 rs02 30 wall
-\newcommand{\EthreeRsZeroSpeedThirty}{\ensuremath{14}}  % E3_table2 rs01 30 speedup
-\newcommand{\EthreeRsZeroRel}{\ensuremath{0.72}}  % E3_table2 rs01 1 speedup
 \newcommand{\EthreeCMem}{1,062}  % E3_table2 c peak MB
 \newcommand{\EthreeRsMemOne}{\ensuremath{36}}  % E3_table2 rs02 1 peak MB
 \newcommand{\EthreeRsMemThirty}{\ensuremath{148}}  % E3_table2 rs02 30 peak MB
-\newcommand{\EthreeRsZeroMemThirty}{14,959}  % E3_table2 rs01 30 peak MB
-\newcommand{\EthreeRsZeroMemOne}{2,511}  % E3_table2 rs01 1 peak MB
 \newcommand{\EthreeSpeedOneMin}{\ensuremath{8.5}}  % E3_table2 rs02 1 thread speedup, every size
 \newcommand{\EthreeSpeedOneMax}{\ensuremath{8.8}}  % E3_table2 rs02 1 thread speedup, every size
 \newcommand{\EthreeChromWall}{\ensuremath{17.3}}  % E3_table2 rs02 one 100 Mb chromosome, 1 thread
@@ -92,17 +89,15 @@
 \newcommand{\EthreeEffMin}{\ensuremath{0.90}}  % E3_thread_scaling efficiency
 \newcommand{\EthreeEffMax}{\ensuremath{0.99}}  % E3_thread_scaling efficiency
 \newcommand{\EthreeEffCap}{\ensuremath{0.94}}  % whole chromosomes per thread: min over t of n / (t ceil(n / t))
-\newcommand{\EthreeRuns}{155}  % E3_runs rows
-\newcommand{\EthreeCleanRuns}{155}  % E3_runs clean
-\newcommand{\EthreeNodes}{5}  % E3_runs hostname
-\newcommand{\EthreeSpreadMaxMost}{3.5\%}  % E3_table2 (max-min)/median, second largest
+\newcommand{\EthreeRuns}{95}  % E3_runs rows, C psmc and psmc-rs 0.2
+\newcommand{\EthreeCleanRuns}{95}  % E3_runs clean, C psmc and psmc-rs 0.2
+\newcommand{\EthreeNodes}{5}  % E3_runs hostname, C psmc and psmc-rs 0.2
+\newcommand{\EthreeSetups}{19}  % E3_table2 rows, C psmc and psmc-rs 0.2
+\newcommand{\EthreeSpreadMax}{6.0\%}  % E3_table2 (max-min)/median, C psmc and psmc-rs 0.2
 \newcommand{\EthreeDetRsIdentical}{75}  % E3_determinism rs02
 \newcommand{\EthreeDetRsTotal}{75}  % E3_determinism rs02
 \newcommand{\EthreeDetCIdentical}{20}  % E3_determinism c
 \newcommand{\EthreeDetCTotal}{20}  % E3_determinism c
-\newcommand{\EthreeDetRsZeroIdentical}{30}  % E3_determinism rs01
-\newcommand{\EthreeDetRsZeroTotal}{60}  % E3_determinism rs01
-\newcommand{\EthreeRsZeroDiffMax}{\ensuremath{2.5\times10^{-5}}}  % E3_determinism rs01 max_rel_diff_params
 \newcommand{\EthreeCpu}{AMD EPYC 7702}  % E3_environment machine.cpu
 \newcommand{\EthreeCores}{128}  % E3_environment machine.cpu_count
 \newcommand{\EfourDispThirtyFqTheta}{34.9\%}  % E4_routes dispersed30 fq2psmcfa -theta_rel (median)
@@ -257,6 +252,11 @@
 \newcommand{\EsevenVcfTb}{\ensuremath{1.68}}  % MANIFEST chromosomes read bytes (TB)
 \newcommand{\EsevenPilotChrom}{21}  % MANIFEST pilots
 \newcommand{\EsevenPilotSamples}{3}  % MANIFEST pilots samples
+\newcommand{\AgreeIntervals}{4,620}  % Fig 1i: intervals in the window, every genome both tools fitted
+\newcommand{\AgreeGenomes}{95}  % Fig 1i: genomes (NA12878 once)
+\newcommand{\AgreeMedianAbs}{\ensuremath{5.5\times10^{-6}}}  % Fig 1i: median |log10 Ne difference| per interval
+\newcommand{\AgreeMaxAbs}{\ensuremath{6.6\times10^{-4}}}  % Fig 1i: largest |log10 Ne difference| per interval
+\newcommand{\AgreeMaxPct}{0.15\%}  % Fig 1i: largest relative Ne difference per interval
 \newcommand{\DiagCurve}{\ensuremath{7.7\times10^{-5}}}  % README.md Testing and C equivalence: DiagCurve
 \newcommand{\DiagHookeJeeves}{\ensuremath{7.5\times10^{-5}}}  % README.md Testing and C equivalence: DiagHookeJeeves
 \newcommand{\DiagLastBin}{\ensuremath{6.4\times10^{-6}}}  % README.md Testing and C equivalence: DiagLastBin
@@ -291,7 +291,7 @@
 \newcommand{\EtwoSplitFitsW}{six}  % E2_split_patterns split rows (in words)
 \newcommand{\EtwoTurtlesW}{three}  % E2_fit_summary turtle genomes (in words)
 \newcommand{\EthreeRepeatsW}{five}  % config.E3.repeats (in words)
-\newcommand{\EthreeNodesW}{five}  % E3_runs hostname (in words)
+\newcommand{\EthreeNodesW}{five}  % E3_runs hostname, C psmc and psmc-rs 0.2 (in words)
 \newcommand{\EfourRepsW}{five}  % config.E4.replicates (in words)
 \newcommand{\EfiveChromsW}{six}  % config.E5.genome (in words)
 \newcommand{\EfiveFiftyTrunksW}{six}  % E5_summary trunks (in words)
