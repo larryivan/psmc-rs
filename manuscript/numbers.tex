@@ -22,7 +22,7 @@
 \newcommand{\EoneLoglikeLastRelMax}{\ensuremath{1.3\times10^{-8}}}  % E1_replicates loglike_common (the last iteration both report)
 \newcommand{\EoneLoglikeFirstRelMax}{\ensuremath{7.0\times10^{-13}}}  % E1_rs_vs_c loglike_iteration0_rel_diff
 \newcommand{\EoneFoldMin}{1,500}  % E1: min over replicates of (smaller of the two errors vs truth) / rmse rs vs C, floored to 2 digits
-\newcommand{\EoneFoldMedian}{7,000}  % E1: median rs error vs truth / median rmse rs vs C, to 1 digit (Fig 1j's arrow)
+\newcommand{\EoneFoldMedian}{7,000}  % E1: median rs error vs truth / median rmse rs vs C, to 1 digit (Fig 1e's arrow)
 \newcommand{\EoneConstantTruthC}{\ensuremath{0.048}}  % E1_table1 rmse_truth_c_mean
 \newcommand{\EoneConstantTruthRs}{\ensuremath{0.048}}  % E1_table1 rmse_truth_rs_mean
 \newcommand{\EoneBottleneckTruthC}{\ensuremath{0.291}}  % E1_table1 rmse_truth_c_mean
@@ -244,19 +244,31 @@
 \newcommand{\EsevenConvergeKy}{\ensuremath{247}}  % E7_pop_bands: superpopulation medians within 20% from here to the window's end
 \newcommand{\EsevenWindowHiMy}{\ensuremath{4.6}}  % E7_pop_bands all window_hi_years (My)
 \newcommand{\EsevenPopCutKy}{\ensuremath{150}}  % split of recent and older times for the populations' spread
-\newcommand{\EsevenPopSpreadRecentLo}{\ensuremath{0.24}}  % E7_pop_bands populations of a superpopulation, max log10 spread < 150 ky (lowest)
-\newcommand{\EsevenPopSpreadRecentHi}{\ensuremath{0.99}}  % E7_pop_bands populations of a superpopulation, max log10 spread < 150 ky (highest)
+\newcommand{\EsevenPopSpreadRecentLo}{\ensuremath{0.24}}  % E7_pop_bands populations of a superpopulation, max log10 spread in the first window (lowest)
+\newcommand{\EsevenPopSpreadRecentHi}{\ensuremath{0.99}}  % E7_pop_bands populations of a superpopulation, max log10 spread in the first window (highest)
+\newcommand{\EsevenPopSpreadMidLo}{\ensuremath{0.19}}  % E7_pop_bands populations of a superpopulation, max log10 spread after the first window, < 150 ky (lowest)
+\newcommand{\EsevenPopSpreadMidHi}{\ensuremath{0.24}}  % E7_pop_bands populations of a superpopulation, max log10 spread after the first window, < 150 ky (highest)
 \newcommand{\EsevenPopSpreadOldMax}{\ensuremath{0.11}}  % E7_pop_bands populations of a superpopulation, max log10 spread >= 150 ky
 \newcommand{\EsevenRecords}{123,574,606}  % MANIFEST chromosomes records
 \newcommand{\EsevenNonpass}{11,256,876}  % MANIFEST chromosomes nonpass
 \newcommand{\EsevenVcfTb}{\ensuremath{1.68}}  % MANIFEST chromosomes read bytes (TB)
 \newcommand{\EsevenPilotChrom}{21}  % MANIFEST pilots
 \newcommand{\EsevenPilotSamples}{3}  % MANIFEST pilots samples
-\newcommand{\AgreeIntervals}{4,620}  % Fig 1i: intervals in the window, every genome both tools fitted
-\newcommand{\AgreeGenomes}{95}  % Fig 1i: genomes (NA12878 once)
-\newcommand{\AgreeMedianAbs}{\ensuremath{5.5\times10^{-6}}}  % Fig 1i: median |log10 Ne difference| per interval
-\newcommand{\AgreeMaxAbs}{\ensuremath{6.6\times10^{-4}}}  % Fig 1i: largest |log10 Ne difference| per interval
-\newcommand{\AgreeMaxPct}{0.15\%}  % Fig 1i: largest relative Ne difference per interval
+\newcommand{\AgreeIntervals}{4,620}  % Results, every genome both tools fitted: intervals in the window, every genome both tools fitted
+\newcommand{\AgreeGenomes}{95}  % Results, every genome both tools fitted: genomes (NA12878 once)
+\newcommand{\AgreeMedianAbs}{\ensuremath{5.5\times10^{-6}}}  % Results, every genome both tools fitted: median |log10 Ne difference| per interval
+\newcommand{\AgreeMaxAbs}{\ensuremath{6.6\times10^{-4}}}  % Results, every genome both tools fitted: largest |log10 Ne difference| per interval
+\newcommand{\AgreeMaxPct}{0.15\%}  % Results, every genome both tools fitted: largest relative Ne difference per interval
+\newcommand{\EoneSoneRatioMin}{84}  % Fig S1 arrows: smallest ratio, floored to 2 digits
+\newcommand{\EoneSoneRatioMax}{290}  % Fig S1 arrows: largest ratio, floored to 2 digits
+\newcommand{\EoneSoneGains}{1,920}  % Fig S1: gains drawn (genomes x programs x iterations)
+\newcommand{\EoneSoneGainLastMin}{\ensuremath{0.43}}  % Fig S1: smallest gain in the last iteration
+\newcommand{\EoneSoneGainLastMax}{\ensuremath{5.9}}  % Fig S1: largest gain in the last iteration
+\newcommand{\EoneSoneLastIter}{24}  % Fig S1: last iteration both programs report
+\newcommand{\EoneSoneFirstAbsMax}{\ensuremath{4.9\times10^{-7}}}  % E1_traces: largest |LL_rs - LL_c| before the first iteration
+\newcommand{\EoneSoneRsHigher}{23}  % E1_traces: genomes whose psmc-rs log-likelihood is higher at the last common iteration
+\newcommand{\EoneSoneThetaMax}{\ensuremath{3.9\times10^{-4}}}  % E1_traces: largest relative theta difference
+\newcommand{\EoneSoneRhoMax}{\ensuremath{3.4\times10^{-4}}}  % E1_traces: largest relative rho difference
 \newcommand{\DiagCurve}{\ensuremath{7.7\times10^{-5}}}  % README.md Testing and C equivalence: DiagCurve
 \newcommand{\DiagHookeJeeves}{\ensuremath{7.5\times10^{-5}}}  % README.md Testing and C equivalence: DiagHookeJeeves
 \newcommand{\DiagLastBin}{\ensuremath{6.4\times10^{-6}}}  % README.md Testing and C equivalence: DiagLastBin

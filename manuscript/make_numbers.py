@@ -127,7 +127,7 @@ def e1() -> None:
     med = float(rr["rs"].median() / r.rmse_log10_ne_rs_vs_c_per_interval.median())
     mag = 10 ** math.floor(math.log10(med))
     put("EoneFoldMedian", thousands(round(med / mag) * mag),
-        "E1: median rs error vs truth / median rmse rs vs C, to 1 digit (Fig 1j's arrow)")
+        "E1: median rs error vs truth / median rmse rs vs C, to 1 digit (Fig 1e's arrow)")
     t = table("E1", "E1_table1").set_index("model")
     for m in c.models:
         k = m.capitalize()
@@ -530,15 +530,27 @@ def e7() -> None:
     cut = 1.5e5
     put("EsevenPopCutKy", fix(cut / 1e3, 0), "split of recent and older times for the populations' spread")
     pop = pb[pb.group_kind == "population"]
-    recent, older = [], []
+    # Where PSMC's first time window (intervals 0-3, one free lambda) ends: per population, the median over its
+    # genomes of the start of interval 4; per superpopulation, the latest of its populations'.
+    cur = table("E7", "E7_curves")
+    c4 = cur[(cur.route == "rs-psmcfa") & (cur.interval == 4)][["sample_id", "years"]]
+    c4 = c4.merge(table("E7", "E7_samples")[["sample_id", "population"]], on="sample_id")
+    first_end = c4.groupby("population").years.median()
+    first, mid, older = [], [], []
     for _, gp in pop.groupby("superpopulation"):
         w = gp.pivot(index="years", columns="group", values="ne_median")
         w = w[(w.index >= lo) & (w.index <= hi)]
         spread_p = (w.max(axis=1) / w.min(axis=1)).apply(math.log10)
-        recent.append(spread_p[spread_p.index < cut].max())
+        t1 = float(first_end[list(w.columns)].max())
+        assert t1 < cut, "the first window ends before the cut"
+        first.append(spread_p[spread_p.index <= t1].max())
+        mid.append(spread_p[(spread_p.index > t1) & (spread_p.index < cut)].max())
         older.append(spread_p[spread_p.index >= cut].max())
-    put("EsevenPopSpreadRecentLo", fix(min(recent), 2), "E7_pop_bands populations of a superpopulation, max log10 spread < 150 ky (lowest)")
-    put("EsevenPopSpreadRecentHi", fix(max(recent), 2), "E7_pop_bands populations of a superpopulation, max log10 spread < 150 ky (highest)")
+    assert all(f > m for f, m in zip(first, mid)), "the text says the populations differ most in the first window"
+    put("EsevenPopSpreadRecentLo", fix(min(first), 2), "E7_pop_bands populations of a superpopulation, max log10 spread in the first window (lowest)")
+    put("EsevenPopSpreadRecentHi", fix(max(first), 2), "E7_pop_bands populations of a superpopulation, max log10 spread in the first window (highest)")
+    put("EsevenPopSpreadMidLo", fix(min(mid), 2), "E7_pop_bands populations of a superpopulation, max log10 spread after the first window, < 150 ky (lowest)")
+    put("EsevenPopSpreadMidHi", fix(max(mid), 2), "E7_pop_bands populations of a superpopulation, max log10 spread after the first window, < 150 ky (highest)")
     put("EsevenPopSpreadOldMax", fix(max(older), 2), "E7_pop_bands populations of a superpopulation, max log10 spread >= 150 ky")
     # the data stage (MANIFEST.json)
     import json
@@ -696,8 +708,41 @@ def readme() -> None:
     put("DiagChromMb", m.group(2), "README.md Testing and C equivalence")
 
 
+def sig2(x: float) -> str:
+    """Two significant figures, plain digits: 0.43, 5.9, 84."""
+    return rf"\ensuremath{{{float(f'{float(x):.2g}'):g}}}"
+
+
+def em_traces() -> None:
+    """Fig S1: the EM iterations of both programs, by the figure's own computation (figs1.series)."""
+    from experiment.pipeline.figures import figs1
+
+    tr = table("E1", "E1_traces")
+    s = figs1.series(tr)
+    ratios = [d["arrow"]["ratio"] for d in s.values() if d["arrow"]]
+    put("EoneSoneRatioMin", thousands(figs1.ratio_floor(min(ratios))), "Fig S1 arrows: smallest ratio, floored to 2 digits")
+    put("EoneSoneRatioMax", thousands(figs1.ratio_floor(max(ratios))), "Fig S1 arrows: largest ratio, floored to 2 digits")
+    gains = [g for d in s.values() for pair in d["gains"] for g in pair]
+    put("EoneSoneGains", thousands(sum(len(g) for g in gains)), "Fig S1: gains drawn (genomes x programs x iterations)")
+    last = [float(g.iloc[-1]) for g in gains]
+    put("EoneSoneGainLastMin", sig2(min(last)), "Fig S1: smallest gain in the last iteration")
+    put("EoneSoneGainLastMax", sig2(max(last)), "Fig S1: largest gain in the last iteration")
+    put("EoneSoneLastIter", str(max(d["N"] for d in s.values())), "Fig S1: last iteration both programs report")
+    w = tr.pivot_table(index=["model", "replicate", "iteration"], columns="tool", values=["loglike", "theta", "rho"])
+    first = w.xs(0, level="iteration")
+    put("EoneSoneFirstAbsMax", sci((first["loglike"]["rs"] - first["loglike"]["c"]).abs().max()),
+        "E1_traces: largest |LL_rs - LL_c| before the first iteration")
+    ll = w["loglike"].dropna()
+    at_last = ll.groupby(level=["model", "replicate"]).tail(1)
+    put("EoneSoneRsHigher", str(int((at_last["rs"] > at_last["c"]).sum())),
+        "E1_traces: genomes whose psmc-rs log-likelihood is higher at the last common iteration")
+    for col, name in (("theta", "Theta"), ("rho", "Rho")):
+        x = w[col].dropna()
+        put(f"EoneSone{name}Max", sci((x["rs"] / x["c"] - 1).abs().max()), f"E1_traces: largest relative {col} difference")
+
+
 def agreement() -> None:
-    """Fig 1i: every interval in its window of every genome both programs fitted, by the figure's own function."""
+    """Results: every interval in its window of every genome both programs fitted, by Fig 1's own function."""
     from experiment.pipeline.figures import art1_agreement as art1
     from experiment.pipeline.figures.data import curves
 
@@ -711,17 +756,17 @@ def agreement() -> None:
                                               windows(table("E2", "E2_rs_vs_c"), "sample_id"), e7c,
                                               windows(table("E7", "E7_rs_vs_c"), "sample_id"))
     d = pd.Series([abs(math.log10(rs / c)) for k in pairs for c, rs in pairs[k]])
-    assert genomes == len(P.e1.models) * P.e1.replicates + int(MACROS["RealGenomes"][0]), "Fig 1i's genomes"
-    put("AgreeIntervals", thousands(len(d)), "Fig 1i: intervals in the window, every genome both tools fitted")
-    put("AgreeGenomes", str(genomes), "Fig 1i: genomes (NA12878 once)")
-    put("AgreeMedianAbs", sci(d.median()), "Fig 1i: median |log10 Ne difference| per interval")
-    put("AgreeMaxAbs", sci(d.max()), "Fig 1i: largest |log10 Ne difference| per interval")
-    put("AgreeMaxPct", pct(10 ** d.max() - 1, 2), "Fig 1i: largest relative Ne difference per interval")
+    assert genomes == len(P.e1.models) * P.e1.replicates + int(MACROS["RealGenomes"][0]), "the agreement's genomes"
+    put("AgreeIntervals", thousands(len(d)), "Results, every genome both tools fitted: intervals in the window, every genome both tools fitted")
+    put("AgreeGenomes", str(genomes), "Results, every genome both tools fitted: genomes (NA12878 once)")
+    put("AgreeMedianAbs", sci(d.median()), "Results, every genome both tools fitted: median |log10 Ne difference| per interval")
+    put("AgreeMaxAbs", sci(d.max()), "Results, every genome both tools fitted: largest |log10 Ne difference| per interval")
+    put("AgreeMaxPct", pct(10 ** d.max() - 1, 2), "Results, every genome both tools fitted: largest relative Ne difference per interval")
 
 
 def render() -> dict:
     MACROS.clear()
-    for f in (e1, e2, e3, e4, e5, e6, e7, agreement, readme, crossplatform):
+    for f in (e1, e2, e3, e4, e5, e6, e7, agreement, em_traces, readme, crossplatform):
         f()
     words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
     for name, (value, src) in list(MACROS.items()):
