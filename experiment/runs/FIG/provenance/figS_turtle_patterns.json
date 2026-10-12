@@ -1,5 +1,5 @@
 {
-  "digest": "59c7d870ba23d8001da2f1654b616784657ec7b6f1c8625b730779efa53050e2",
+  "digest": "e0e3b360fa97ed5e3ff01039dc5a897f1c560eed2550808ebad9971ede376e6d",
   "key": {
     "command": [
       "<python>",
@@ -167,7 +167,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "1b4f116dba9cc2215b85506c3fc36fb9f9795eb9f8967d0d27e7e7a950bf8021",
+        "code": "3bdd98e770066d9f12023e49cf8420c942dde02c8c101980a8cc5c0cff6ef658",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -176,14 +176,14 @@
     }
   },
   "outputs": {
-    "<runs>/E2/figures/figS_turtle_patterns.pdf": "b757dc06fd6f2d811b0e2e9cf96ceea6b383fc6f0c9e3e3f9285381f65afc309",
-    "<runs>/E2/figures/figS_turtle_patterns.png": "bde7e0ce9cb090b836637cea6b22fd92738e37ddef3a86c3c044d851763ef0fc",
-    "<runs>/E2/figures/figS_turtle_patterns.svg": "28c27a73d5e2c526348cad227ca09e1564ceb116b2da5c8041f493c9d3456cba"
+    "<runs>/E2/figures/figS_turtle_patterns.pdf": "52e934c6ae6e9cab5bcad8deea5daaf14d24e6d49fadacfe2c43470b7894813c",
+    "<runs>/E2/figures/figS_turtle_patterns.png": "c3c504ef81cdf40e0503ed7883fc8ac164e83f30d05bb7035e8954e28fdaad75",
+    "<runs>/E2/figures/figS_turtle_patterns.svg": "22b88a72ecf81d5f59e00df9bd435b4af246975e00d7cb2773739c60ce70c65a"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-11T20:31:43",
+    "end": "2026-10-12T19:08:39",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -191,22 +191,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      4.07,
-      4.22,
-      3.43
+      5.85,
+      4.19,
+      3.67
     ],
     "loadavg_before": [
-      4.07,
-      4.22,
-      3.43
+      5.85,
+      4.19,
+      3.67
     ],
-    "maxrss_main_mb": 165.9,
+    "maxrss_main_mb": 161.2,
     "mem_gb": 1.0,
-    "peak_rss_mb": 165.9,
-    "peak_rss_tree_sampled_mb": 164.8,
-    "start": "2026-10-11T20:31:41",
-    "system_seconds": 0.122,
-    "user_seconds": 1.663,
-    "wall_seconds": 1.864
+    "peak_rss_mb": 161.2,
+    "peak_rss_tree_sampled_mb": 160.5,
+    "start": "2026-10-12T19:08:37",
+    "system_seconds": 0.172,
+    "user_seconds": 1.723,
+    "wall_seconds": 2.149
   }
 }

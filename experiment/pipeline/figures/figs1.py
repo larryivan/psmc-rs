@@ -1,121 +1,304 @@
-"""Fig S1 (E1): EM convergence of C psmc and psmc-rs (0.2) on the same genomes.
+"""Supplement Fig S1 (E1): C psmc and psmc-rs climb the same likelihood at every EM iteration.
 
-One column per model; every replicate is a line. Iteration i counts
-completed EM iterations: C psmc's LK of round i + 1 and psmc-rs's
-``loglike[i]`` are both the log-likelihood after i iterations. C psmc
-prints none after its last one, so the log-likelihoods of both tools are
-drawn up to the last iteration both give (psmc-rs's after the last
-iteration is in its JSON).
+One row of panels, one per simulated model of E1, in config.MODEL_ORDER
+(Constant, Bottleneck, Expansion, Zigzag), every genome (replicate) of the
+model in each. All panels share one log axis of log-likelihood differences:
 
-* a-d: log-likelihood gained since the start, LL(i) - LL(0), for both tools
-  (C psmc wider, underneath);
-* e-h: psmc-rs's log-likelihood minus C psmc's after the same iteration
-  (log-likelihood units; iteration 0 evaluates the same starting model);
-* i-l: theta per bin of psmc-rs relative to C psmc's after each iteration,
-  in percent. C psmc prints theta to 6 decimals, so its theta is known to
-  +-0.5e-6 only: the grey band is that rounding, relative to C psmc's
-  smallest theta of the model at each iteration, and the steps of the
-  lines are its quanta (about 0.004% for the expansion model, whose theta
-  is smallest).
+* the upper bundle is the log-likelihood gained in iteration i,
+  LL(i) - LL(i - 1), one line per genome and program, drawn by the underlay
+  rule: C psmc a wide pale-orange underlay, psmc-rs a thin blue line on top
+  (the psmc-rs lines read as one blue ribbon with an orange rim). A gain
+  can only be drawn on a log axis if it is positive, so the bundle drawn at
+  all is the claim that the log-likelihood never decreased; a gain that is
+  not positive raises :class:`ValueError` instead of vanishing from the axis;
+* the grey line is the largest difference between the two programs'
+  log-likelihoods after iteration i, max over the genomes of
+  |LL_rs(i) - LL_c(i)| (a difference of exactly 0, possible at C psmc's six
+  printed decimals, is left out of the line);
+* a double arrow, just right of the iteration where the two come closest
+  (the smallest gain of any genome in that iteration over the grey line's
+  value), is labelled with that ratio floored to two significant figures
+  (``84×``): at every iteration the programs differed at least that many
+  times less than the iteration gained.
+
+y is shared (tick labels and its label on panel a only), and so is x, with
+one label under the row; the key (C psmc, psmc-rs) is one line at the top.
+The y hairlines are at the labelled decades inside the axes only (one at the
+top limit would read as a rule under the titles, and the bottom one would
+lie under the spine), and they span the data only: from the y axis to where
+the lines' ink ends, just right of the last iteration, so the column of the
+arrows is free of grid and no hairline runs into an arrowhead.
+
+Panel a names the bundle (just above it) and the grey line (just below it)
+in place, both names starting at iteration 1; the key names the programs.
+Iteration i counts completed EM iterations: C psmc's LK of round i + 1 and
+psmc-rs's ``loglike[i]`` are both the log-likelihood after i iterations.
+C psmc prints none after its last iteration, so both programs are drawn up
+to the last iteration both give. Iteration 0 (the same starting model in
+both, agreeing to C psmc's printed precision), the sign of the difference
+and theta and rho are left to the caption.
+
+:func:`series`, :func:`ratio_floor` and :func:`ratio_label` compute what
+the panels draw. They are public so that the manuscript's numbers
+(make_numbers.py) can be computed with them too, and the caption's bound
+(the smallest :func:`ratio_floor` of the arrows' ratios) cannot drift from
+the arrows'.
 """
 
 from __future__ import annotations
 
-from typing import List
+import math
+from typing import Dict, List
 
 from . import style
 from .data import Source
 from .fig2 import MODEL_LABEL, model_order
 
-C_LW, RS_LW = 1.6, 0.6
-C_THETA_DECIMALS = 6  # C psmc prints theta with "%.6lf"
-ROUNDING = "#deddd5"  # the band of C psmc's rounding of theta (i-l)
+WIDTH_MM, HEIGHT_MM = style.WIDTH_MM["double"], 52.0
+# Between columns: the y axis is shared (tick labels on the first panel
+# only), but each panel's letter sits in the gutter left of its title, so the
+# gutter is wider than style.GUTTER_SHARED_MM (3 mm would leave a letter
+# touching the panel to its left) and narrower than style.GUTTER_MM.
+GUTTER_MM = 5.0
+# Right of the last iteration, in mm (whatever the number of iterations): room
+# for the arrow, the arrow's offset from its iteration and its label's gap.
+X_PAD_MM = 2.4
+ARROW_DX_MM = 1.4
+LABEL_DX_MM = 0.9
+# The arrow's ends stop 1.2 pt short of the two lines' values: the upper tip level with the lower edge of
+# the 2.4 pt underlay (half of 2.4 pt below the lowest gain), the lower one just clear of the grey line.
+ARROW_SHRINK_PT = 1.2
+LABEL_X = 1.0  # panel a: both names start at the first iteration, one left edge
+GAIN_LABEL_RISE = 1.6  # panel a: the bundle's name, this factor above its highest point under the name
+# Panel a: the grey line's name, this factor below its lowest point under the name: its top about 1 mm under
+# the line, near enough to read as its name and still clear of the 10^-2 hairline the line runs along.
+GAP_LABEL_DROP = 2.0
+LABEL_DECADES = 0.6  # the height of a 6 pt label on the y axis, in decades, with room to spare
 
 
-def _symmetric(ax, values, floor: float) -> None:
+def ratio_floor(r: float) -> float:
+    """``r`` floored to two significant figures: 84.3 is 84, 298.9 is 290, 8.47 is 8.4.
+
+    Floored, never rounded, so the number is a bound ("at least 84 times").
+    """
+    if not (r > 0 and math.isfinite(r)):
+        raise ValueError(f"no ratio label for {r!r}")
+    mag = 10.0 ** (math.floor(math.log10(r)) - 1)
+    return round(math.floor(r / mag * (1.0 + 1e-12)) * mag, 12)
+
+
+def ratio_label(r: float) -> str:
+    """:func:`ratio_floor` of ``r`` as a fold, the arrow's label: 84.3 is '84×', 298.9 '290×', 8.47 '8.4×'."""
+    return style.fmt_num(ratio_floor(r)) + style.TIMES
+
+
+def series(df) -> Dict[str, Dict]:
+    """What each model's panel draws, from E1_traces (models in no particular order).
+
+    Per model: ``it`` (iterations 1..N, an index), ``N``, ``gains`` (one
+    ``(gain_c, gain_rs)`` pair of Series per genome), ``gmin`` and ``gmax``
+    (the smallest and largest gain of any genome and either program, per
+    iteration), ``env`` (the largest |LL_rs - LL_c| over the genomes per
+    iteration, NaN where it is 0), ``reps`` (the genomes drawn) and ``arrow``
+    (``k``, the iteration where gmin / env is lowest, ``ratio`` and ``label``;
+    None when no difference is positive). A genome lacking either program is
+    left out; a model without any genome with both is absent.
+    """
+    import numpy as np
+    import pandas as pd
+
+    df = df.sort_values(["model", "replicate", "tool", "iteration"])
+    out: Dict[str, Dict] = {}
+    for m, sub in df.groupby("model", sort=False):
+        gains: List = []
+        gc_cols, gr_cols, gap_cols, reps = {}, {}, {}, []
+        for rep, rsub in sub.groupby("replicate"):
+            by = {t: s.set_index("iteration")["loglike"].astype(float) for t, s in rsub.groupby("tool")}
+            if "c" not in by or "rs" not in by:
+                continue
+            # Only the iterations both programs give a log-likelihood after (C psmc prints none after its last).
+            common = by["c"].dropna().index.intersection(by["rs"].dropna().index).sort_values()
+            if len(common) < 2:
+                continue
+            pair = []
+            for tool in ("c", "rs"):
+                g = by[tool].loc[common].diff().iloc[1:]  # the gain of each iteration after the first given
+                bad = g[~(g > 0)]
+                if len(bad):  # a log axis would silently drop it
+                    raise ValueError(f"log-likelihood fell: {m} replicate {rep} {tool} iteration {int(bad.index[0])}")
+                pair.append(g)
+            gains.append(tuple(pair))
+            gc_cols[rep], gr_cols[rep] = pair
+            gap_cols[rep] = (by["rs"].loc[common] - by["c"].loc[common]).abs().iloc[1:]
+            reps.append(rep)
+        if not gains:
+            continue
+        gc, gr, gaps = (pd.DataFrame(c).sort_index() for c in (gc_cols, gr_cols, gap_cols))
+        it = gc.index
+        gmin = np.minimum(gc.min(axis=1), gr.min(axis=1))
+        gmax = np.maximum(gc.max(axis=1), gr.max(axis=1))
+        env = gaps.max(axis=1).reindex(it)
+        env = env.where(env > 0)
+        arrow = None
+        ratio = gmin / env
+        if ratio.notna().any():
+            k = ratio.idxmin()
+            arrow = {"k": int(k), "ratio": float(ratio.loc[k]), "label": ratio_label(float(ratio.loc[k]))}
+        out[m] = {"it": it, "N": int(it.max()), "gains": gains, "gmin": gmin, "gmax": gmax, "env": env,
+                  "reps": reps, "arrow": arrow}
+    return out
+
+
+def _pow10(v: float, _pos=None) -> str:
+    return r"$10^{%s}$" % f"{round(math.log10(v))}".replace("-", style.MINUS)
+
+
+def _even_decades(lo: float, hi: float):
+    """The even decades enclosing ``lo``-``hi`` (1e-4 to 1e4 for 0.003-4,767)."""
+    dlo = 2 * math.floor(math.log10(lo) / 2)
+    dhi = 2 * math.ceil(math.log10(hi) / 2)
+    return dlo, max(dhi, dlo + 2)
+
+
+def _name_in_place(ax, text: str, values, *, above: bool, x_bound: float, ylim) -> None:
+    """Name a line of panel a beside it, from iteration :data:`LABEL_X` on: ``above`` or below ``values``.
+
+    The name's height follows the line under the whole name (the highest
+    of ``values`` under it, or the lowest), so it clears the line from its
+    first letter to its last. A name that would run past ``x_bound`` (the
+    arrow's label column, or the axes' right edge) when only a few
+    iterations are drawn ends exactly there instead (``ha='right'``). Its
+    width is measured at the figure's current dpi, which :func:`draw` sets
+    to the PNG's: at matplotlib's default 100 dpi plain text measures about
+    10% short.
+    """
     import numpy as np
 
-    v = np.asarray([x for x in values if np.isfinite(x)], dtype=float)
-    lim = max(float(np.max(np.abs(v))) if v.size else 0.0, floor) * 1.15
-    ax.set_ylim(-lim, lim)
+    vals = values.dropna()
+    if vals.empty:
+        return
+    t = style.direct_label(ax, LABEL_X, float(vals.iloc[0]), text, va="bottom" if above else "top")
+    bb = t.get_window_extent(ax.figure.canvas.get_renderer())
+    inv = ax.transData.inverted()
+    width = inv.transform((bb.x1, bb.y0))[0] - inv.transform((bb.x0, bb.y0))[0]
+    x0 = LABEL_X
+    if x0 + width > x_bound:
+        x0 = x_bound - width
+        t.set_horizontalalignment("right")
+        t.set_x(x_bound)
+    under = vals[(vals.index >= math.floor(x0)) & (vals.index <= math.ceil(x0 + width))]
+    if under.empty:
+        under = vals
+    room = 10.0 ** LABEL_DECADES
+    lo, hi = ylim
+    if above:
+        t.set_y(min(GAIN_LABEL_RISE * float(np.max(under.values)), hi / room))
+    else:
+        y = float(np.min(under.values)) / GAP_LABEL_DROP
+        if y / room >= lo:
+            t.set_y(y)
+        else:  # no room under the line: above it
+            t.set_y(float(np.max(under.values)) * GAP_LABEL_DROP)
+            t.set_verticalalignment("bottom")
 
 
 def draw(src: Source):
     import numpy as np
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter, NullLocator
 
-    df = src.table("E1_traces").sort_values(["model", "replicate", "tool", "iteration"])
-    models = model_order(df["model"].unique())
-    n = len(models)
-    n_iter = int(df["iteration"].max())
-    fig = style.figure("double", 118)
-    gs = style.grid(fig, 3, n, left_mm=15.0, top_mm=9.0, bottom_mm=9.0, wspace_mm=8.0, hspace_mm=5.5)
-    rows: List[List] = [[fig.add_subplot(gs[r, j]) for j in range(n)] for r in range(3)]
-    for r in (1, 2):
-        for j in range(n):
-            rows[r][j].sharex(rows[0][j])
+    per = series(src.table("E1_traces"))
+    models = model_order(per.keys())
+    n = max(len(models), 1)
+    fig = style.figure(WIDTH_MM, HEIGHT_MM)
+    # Lay out at the PNG's dpi: the placements below (the names in panel a, the x label, the letters) are
+    # measured from text extents, and at matplotlib's default 100 dpi plain text measures ~10% short.
+    # Everything is placed in figure or data coordinates, so the figure's own dpi is restored at the end.
+    dpi0 = fig.get_dpi()
+    fig.set_dpi(style.PNG_DPI)
+    top, bottom = style.TOP_LEGEND_MM, style.BOTTOM_MM
+    pw = (WIDTH_MM - style.LEFT_MM - style.RIGHT_MM - (n - 1) * GUTTER_MM) / n
+    axes = [style.axes_mm(fig, style.LEFT_MM + j * (pw + GUTTER_MM), top, pw, HEIGHT_MM - top - bottom)
+            for j in range(n)]
 
-    lims = {"ll": [], "theta": []}
-    for j, m in enumerate(models):
-        sub = df[df.model == m]
-        ax_g, ax_l, ax_t = rows[0][j], rows[1][j], rows[2][j]
-        lims["gain"] = []
-        for rep, rsub in sub.groupby("replicate"):
-            by = {t: s.set_index("iteration") for t, s in rsub.groupby("tool")}
-            if "c" not in by or "rs" not in by:
-                continue
-            # Both tools over the iterations both give a log-likelihood for (C psmc prints none after its last).
-            common = by["c"]["loglike"].dropna().index.intersection(by["rs"]["loglike"].dropna().index)
-            for tool, ent, lw, z in (("c", style.C_PSMC, C_LW, 2), ("rs", style.RS02, RS_LW, 3)):
-                ll = by[tool]["loglike"].loc[common]
-                gain = ll - ll.loc[0]
-                ax_g.plot(gain.index, gain.values, color=ent.color, linewidth=lw, zorder=z)
-                lims["gain"] += list(gain.values)
-            d = by["rs"]["loglike"].loc[common] - by["c"]["loglike"].loc[common]
-            ax_l.plot(common, d.values, color=style.BLUE, linewidth=style.LW_THIN + 0.2, marker="o", markersize=1.2,
-                      zorder=3)
-            lims["ll"] += list(d.values)
-            th = by["rs"]["theta"] / by["c"]["theta"] - 1.0
-            th = th.dropna()
-            ax_t.plot(th.index, 100.0 * th.values, color=style.BLUE, linewidth=style.LW_THIN + 0.2, marker="o",
-                      markersize=1.2, zorder=3)
-            lims["theta"] += list(100.0 * th.values)
-        # The rounding of C psmc's printed theta, relative to its smallest theta at each iteration.
-        theta_c = sub[sub.tool == "c"].groupby("iteration")["theta"].min()
-        half = 100.0 * 0.5 * 10.0 ** -C_THETA_DECIMALS / theta_c
-        ax_t.fill_between(half.index, -half.values, half.values, color=ROUNDING, linewidth=0, zorder=1)
-        lims["theta"] += list(half.values)
-        style.note(ax_g, 0.97, 0.05, MODEL_LABEL.get(m, m), ha="right", va="bottom", color=style.INK)
-        # The gain depends on the model: each panel of the first row has its own scale.
-        v = np.asarray(lims["gain"], dtype=float)
-        if v.size:
-            ax_g.set_ylim(min(0.0, float(np.nanmin(v))) * 1.05, max(float(np.nanmax(v)), 1e-9) * 1.1)
-        for ax in (ax_l, ax_t):
-            style.ref_line(ax, y=0.0)
-    for j in range(n):
-        for r, key in enumerate(("gain", "ll", "theta")):
-            ax = rows[r][j]
-            ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
-            ax.set_xlim(-0.5, n_iter + 0.5)
-            if r:
-                _symmetric(ax, lims[key], 1e-6)
-            if j and r:
-                ax.tick_params(labelleft=False)
-            if r < 2:
-                ax.tick_params(labelbottom=False)
-            else:
-                ax.set_xlabel("EM iteration")
-    rows[0][0].set_ylabel("Log-likelihood gain,\nLL(i) − LL(0)")
-    rows[1][0].set_ylabel("Log-likelihood,\npsmc-rs − C psmc")
-    rows[2][0].set_ylabel("θ per bin, psmc-rs\nrelative to C psmc (%)")
-    fig.align_ylabels([row[0] for row in rows])
-    from matplotlib.patches import Patch
+    # One y axis for all panels: even decades around every gain and every positive difference.
+    lows = [float(p["gmin"].min()) for p in per.values()] + \
+           [float(np.nanmin(p["env"].values)) for p in per.values() if p["env"].notna().any()]
+    highs = [float(p["gmax"].max()) for p in per.values()]
+    dlo, dhi = _even_decades(min(lows), max(highs)) if lows else (-2, 2)
+    # One x axis: iterations 0 to the last, then X_PAD_MM for the arrows (24 iterations: 0-25.6).
+    n_it = max((p["N"] for p in per.values()), default=1)
+    x_max = n_it / (1.0 - X_PAD_MM / pw)
+    per_mm = x_max / pw  # iterations per mm
+    step = 6 if n_it >= 12 else max(1, math.ceil(n_it / 4))
 
-    handles = [style.handle(style.C_PSMC, linewidth=C_LW),
-               style.handle(style.Entity("psmc-rs", style.BLUE, "-", "o"), linewidth=RS_LW),
-               style.handle(style.Entity("psmc-rs − C psmc (one replicate)", style.BLUE, "-", "o"),
-                        kind="both", linewidth=style.LW_THIN + 0.2, markersize=1.6),
-               Patch(facecolor=ROUNDING, linewidth=0,
-                     label=f"Rounding of C psmc's printed θ ({C_THETA_DECIMALS} decimals; i\u2013l)")]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
-    style.panel_letters(fig, [ax for row in rows for ax in row], align_cols=True)
+    line = {"solid_joinstyle": "round"}  # round joins: no miter spikes where the 2.4 pt underlay bends sharply
+    # Round caps on the underlays only: ten 2.4 pt butt ends cut across lines of different slopes leave a
+    # notched edge and pale tabs at i = 1; round ones close the rim around the blue ribbon's ends (0.42 mm
+    # past the first and last iteration, clear of the arrow).
+    under = dict(line, solid_capstyle="round")
+    label_x = {}  # per model: where names in the panel must end, left of the arrow (or the axes' edge)
+    for ax, m in zip(axes, models):
+        p = per[m]
+        # The underlay rule: every C psmc line pale and wide beneath, every psmc-rs line thin on top.
+        for gc, _ in p["gains"]:
+            ax.plot(gc.index, gc.values, **style.underlay_kw(style.C_PSMC.color, share=style.C_PSMC.halo, **under))
+        for _, gr in p["gains"]:
+            ax.plot(gr.index, gr.values, **style.overlay_kw(style.RS02.color, linewidth=style.LW_THIN, **line))
+        # The difference between the programs in INK2, its colour in every figure of the set.
+        ax.plot(p["it"], p["env"].values, color=style.INK2, linewidth=style.LW_DATA, solid_capstyle="butt",
+                zorder=style.Z_DATA + 1, **line)
+        a = p["arrow"]
+        label_x[m] = x_max
+        if a is not None:
+            k = a["k"]
+            lo, hi = float(p["env"].loc[k]), float(p["gmin"].loc[k])
+            x = k + ARROW_DX_MM * per_mm
+            ax.annotate("", xy=(x, hi), xytext=(x, lo),
+                        arrowprops=dict(style.ARROW_PROPS, shrinkA=ARROW_SHRINK_PT, shrinkB=ARROW_SHRINK_PT))
+            left = k / per_mm > 8.0  # the label left of the arrow where it fits inside the axes
+            dx = LABEL_DX_MM * per_mm
+            style.direct_label(ax, x - dx if left else x + dx, math.sqrt(lo * hi), a["label"],
+                               ha="right" if left else "left", zorder=style.Z_TEXT)
+            label_x[m] = x - dx  # names never cross the arrow
+        style.panel_title(ax, MODEL_LABEL.get(m, m))
+
+    # The y hairlines: at the labelled decades strictly inside the axes, from the y axis to where the lines'
+    # ink ends (the underlay's round cap, half its width right of the last iteration), so they never reach the
+    # arrow column. Drawn as one collection, where value_grid's gridlines would span the whole axes.
+    cap = style.UNDERLAY_LW / 2.0 / style.PT_PER_MM * per_mm
+    hairlines = [10.0 ** e for e in range(dlo + 2, dhi, 2)]
+    for j, ax in enumerate(axes):
+        ax.set_yscale("log")
+        ax.set_ylim(10.0 ** dlo, 10.0 ** dhi)
+        ax.yaxis.set_major_locator(FixedLocator([10.0 ** e for e in range(dlo, dhi + 1, 2)]))
+        ax.yaxis.set_major_formatter(FuncFormatter(_pow10))
+        ax.yaxis.set_minor_locator(FixedLocator([10.0 ** e for e in range(dlo + 1, dhi, 2)]))
+        ax.yaxis.set_minor_formatter(NullFormatter())
+        ax.set_xlim(0.0, x_max)
+        ax.xaxis.set_major_locator(FixedLocator(list(range(0, n_it + 1, step))))
+        ax.xaxis.set_minor_locator(NullLocator())
+        if hairlines:
+            end = (per[models[j]]["N"] if j < len(models) else n_it) + cap
+            ax.hlines(hairlines, 0.0, end, colors=style.GRID, linewidths=style.LW_HAIR, capstyle="butt",
+                      zorder=0.5)
+        if j:
+            ax.tick_params(axis="y", which="both", labelleft=False)
+    axes[0].set_ylabel("Log-likelihood difference")
+
+    # Panel a names its two bundles in place, both from iteration 1: the gains just above the bundle, the
+    # grey line just below it (above it where that would leave the axes).
+    if models:
+        p, ax = per[models[0]], axes[0]
+        ylim = (10.0 ** dlo, 10.0 ** dhi)
+        bound = label_x[models[0]]
+        _name_in_place(ax, r"Gain in iteration $\mathit{i}$", p["gmax"], above=True, x_bound=bound, ylim=ylim)
+        _name_in_place(ax, "Largest gap between programs", p["env"], above=False, x_bound=bound, ylim=ylim)
+
+    style.row_xlabel(fig, axes, r"EM iteration, $\mathit{i}$")
+    # The key's psmc-rs line is LW_DATA, not the 0.5 pt drawn: ten coinciding 0.5 pt lines read as one line
+    # at least that wide (and it matches Fig 1's psmc-rs key). Labels are literal: the names of the programs.
+    handles = [style.handle(style.C_PSMC, kind="underlay"), style.handle(style.RS02)]
+    style.top_legend(fig, handles, ["C psmc", "psmc-rs"], ax=axes[0])
+    style.panel_letters(fig, axes)
+    fig.set_dpi(dpi0)
     return fig

@@ -1,247 +1,608 @@
-"""Fig 5 (E4): partly callable bins bias PSMC, and psmc-rs's per-bin model removes most of the bias.
+"""Supplement Fig S2 (E4): partly callable bins bias PSMC; psmc-rs's per-bin weighting removes most of the bias.
 
-Routes (colour, marker): psmc-rs on the VCF with its callable mask, each
-called bin weighted by the callable bases it holds (``--bin-callable auto``,
-psmc-rs's default; blue); the same bins with every called bin taken as full
-(``--bin-callable ignore``, dark blue, dashed), which is what fq2psmcfa and
-C psmc do: the classic consensus FASTA -> fq2psmcfa route has the same bins
-(asserted bin for bin) and the same fit (asserted, every fitted value) and
-is not drawn separately; multihetsep (``psmc-rs convert --multihetsep``,
-read back with its uncalled sites placed at the start of each interval and
-every called bin taken as full, ``--bin-callable auto``; yellow) and the
-VCF read without its mask (pink). Masks: no missing data, and 10% or 30% of positions
-uncallable in clustered (mean 20 kb) or dispersed (mean 20 bp) runs.
+One row of two panels, 183 x 60 mm, in the paper's two colours. There is
+no legend: every series is named in place, in its own text colour.
 
-fq2psmcfa's rule calls a bin missing only when more than 90% of its bases
-are uncallable, so a dispersed mask leaves almost every bin called with
-only about (1 - f) of its bases. Taken as full, they make theta per bin,
-and every time and size with it, low by somewhat more than the share of
-bases missing from the called bins (about 1.2 times it in E4: theta -12%
-with 10% and -35% with 30% dispersed missing); weighted by their callable
-bases they are not. Clustered missing data empty whole bins, which
-both models drop. multihetsep does not say which sites of an interval are
-uncalled; psmc-rs places them at the start of each interval, which turns
-dispersed missing data into runs of N bins after heterozygous sites and
-biases theta low, less so with clustered missing data. Without its mask a VCF
-counts every uncallable site as homozygous.
+Blue is psmc-rs's default: psmc-rs on the VCF with its callable mask,
+each called bin weighted by the callable bases it holds (``--bin-callable
+auto``, route ``mask_auto``). Orange is C psmc's input and model: the bins
+fq2psmcfa makes from the genome's consensus FASTA. fq2psmcfa keeps a bin
+unless more than 90% of its bases are uncallable, and every called bin is
+taken as full (route ``fq2psmcfa``, fitted by psmc-rs, which fits such
+input as C psmc does). These bins equal the VCF's bins read with
+``--bin-callable ignore`` (``mask_ignore``), bin for bin and in every
+fitted value, so only one of the two is drawn: ``fq2psmcfa``, or
+``mask_ignore`` when a table has no ``fq2psmcfa`` rows. Where both exist,
+:func:`full_route` checks that they agree. multihetsep and the VCF read
+without its mask are not drawn; the caption gives their numbers.
 
-* a: theta per bin against the complete-data fit of the same genome, as a
-  change in percent (every replicate, and the mean);
-* b: RMSE of log10 Ne against the truth on the informative window;
-* c: RMSE of log10 Ne against the complete-data fit of the same genome,
-  exact over log time on the informative window;
-* d: the curves of one replicate with the dispersed 30% mask, its
-  complete-data fit (grey) and the truth;
-* e, f: bias over time, mean over replicates of log10(Ne / true Ne), with
-  the largest clustered and dispersed masks; grey: the complete data.
+When missing data are dispersed in short runs, almost every bin stays
+called but holds only part of its bases. Taken as full, those bins make
+theta per bin low, and every size and time with it, since both scale
+with theta. Weighted by their callable bases, they do not. Clustered runs
+empty whole bins, which both models drop.
 
-In d-f every called bin taken as full (dark blue, dashed) is drawn above
-the other routes: with dispersed missing data its curve lies on the VCF
-read without its mask (pink), and with clustered missing data on psmc-rs's
-default (blue), which would otherwise hide it. The limits of e and f are
-those of the data, shared by both panels.
+* a: one genome with the example mask (``config.FIGURES.e4_example_mask``,
+  dispersed 30%), drawn over the fit of the same genome without missing
+  data (wide grey underlay, ``nomissing``/``mask_auto``). Blue (1 pt) is
+  weighted bins and orange (0.75 pt) is bins taken as full. The genome is
+  the replicate whose weighted fit has the median RMSE of log10 Ne
+  against its complete-data fit (:func:`example_replicate`); the title
+  counts the genomes. Every curve is a PSMC step curve clipped to the
+  model's informative window, on log axes of N_e and years ago, both in
+  thousands. A last interval that the window's end cuts to a sliver
+  (under :data:`MIN_LAST_MM` wide) is not drawn (:func:`_trim_sliver`),
+  and all three curves end together, where the first of them ends
+  (:func:`_common_steps`). The arrow (the house annotation arrow, one
+  head) starts on the complete-data curve at :data:`SHIFT_AT_YEARS` and
+  points along the multiplication of both its time and its N_e by
+  r = theta with full bins / theta without missing data, for this genome.
+  r is printed beside the arrow, which stops where it meets the orange
+  curve (:func:`_arrow_tip`; the scaling is close, not exact).
+* b: theta relative to the fit of the same genome without missing data,
+  in percent, against the share of positions uncallable. Two facets share
+  one y axis: clustered runs on the left and dispersed runs on the right,
+  each headed by its mean run length. Large white-edged circles are the
+  medians over the replicates, joined by lines. Each route's median sits
+  :data:`DODGE` beside its x, blue left and orange right (0.73 mm, under
+  a median's width), so that both show in the clustered facet, where the
+  two routes agree. The small pale dots are the replicates, all of them,
+  :data:`JITTER` apart around their median in replicate order
+  (:func:`_jitter`), beneath the lines and medians: those nearest the
+  median tuck partly under it. In the clustered facet the orange line
+  would run under the blue one, and a segment that lies within a blue
+  line's width of it all along is not drawn (:func:`_under`): only its
+  fringe showed. The control (0%) is the complete-data fit itself, 0 for
+  every replicate, so both lines start from one point there, undodged.
+  The x limits leave every mark :data:`X_PAD_MM` inside them
+  (:func:`_x_limits`).
 
-Everything comes from ``E4_routes``, ``E4_curves`` and ``E4_bias``.
+Labels are placed from the data (:func:`_place`). Each label sits
+:data:`CLEAR_MM` above or below the marks it names (the arrow included),
+measured over its own width as it prints (and that clearance past each
+end), and stays inside its axes.
+
+Everything comes from ``E4_routes`` (theta, and the RMSE that picks the
+example) and ``E4_curves``. Mask structures, missing fractions and run
+lengths come from the profile's ``E4.masks``. A mask, route or replicate
+missing from the tables is left out.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+import math
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import config
 from . import style
-from .data import Source, curves, decades, informative_window, truth_xy
+from .data import Source, curves, decades, fmt_bp, informative_window
 
-DRAWN = ("mask_auto", "mask_ignore", "multihetsep", "nomask")  # fq2psmcfa fits as mask_ignore (asserted)
-COMPLETE = config.E4_CONTROL_MASK  # the no-missing control
-COMPLETE_ROUTE = "mask_auto"  # the complete-data fit
-BOLD = "mask_auto"  # the route the figure is about
-MARKED = ("multihetsep", "nomask")  # light colours carry their marker along the line too
-REFERENCE_LW = 2.0  # the complete data, grey, under the routes
-# Stacking of the routes' lines in d-f: every called bin taken as full (dashed) on top, as it coincides
-# with the VCF without its mask (dispersed masks) or with the default (clustered masks).
-LINE_Z = {"nomask": 3.0, "multihetsep": 3.1, "fq2psmcfa": 3.2, "mask_auto": 3.3, "mask_ignore": 3.4}
-MASK_TITLE = "Uncallable positions in the mask"
+WEIGHTED = "mask_auto"  # psmc-rs's default: each called bin weighted by its callable bases
+FULL = "fq2psmcfa"  # every called bin taken as full: C psmc's input and model
+FULL_FALLBACK = "mask_ignore"  # the same bins and fit, from the VCF (drawn when FULL has no rows)
+DRAWN = (WEIGHTED, FULL)
+COMPLETE = config.E4_CONTROL_MASK  # the no-missing control; its WEIGHTED fit is the complete-data fit
+STRUCTURES = ("clustered", "dispersed")  # b's facets, left to right
 
+# Layout in mm from the figure's top-left corner, with the house margins.
+W_MM, H_MM = style.WIDTH_MM["double"], 60.0
+AXES_H_MM = H_MM - style.TOP_MM - style.BOTTOM_MM
+AX_A = (style.LEFT_MM, style.TOP_MM, 76.0, AXES_H_MM)  # aspect 1.58 (style.NE_ASPECT)
+# The 16 mm between a and b holds b's y tick labels, its y label and the letter b.
+B_X_MM = AX_A[0] + AX_A[2] + 16.0
+FACET_W_MM = (W_MM - style.RIGHT_MM - B_X_MM - style.GUTTER_SHARED_MM) / 2.0
+AX_B = tuple((B_X_MM + k * (FACET_W_MM + style.GUTTER_SHARED_MM), style.TOP_MM, FACET_W_MM, AXES_H_MM)
+             for k in range(len(STRUCTURES)))
 
-def masks_of(routes, cfg: config.E4) -> List[Tuple[str, str, float]]:
-    """``(mask, structure, missing fraction)``: the control, then clustered and dispersed by fraction."""
-    specs = {m.name: (m.structure, m.missing_fraction) for m in cfg.masks}
-    present = list(dict.fromkeys(routes["mask"]))
-    items = [(m, *specs.get(m, ("none", 0.0))) for m in present]
-    order = {"none": 0, "clustered": 1, "dispersed": 2}
-    return sorted(items, key=lambda x: (order.get(x[1], 3), x[2], x[0]))
+YLIM_A = (500.0, 1e5)  # a's N_e axis spans at least this (more if a curve needs it)
+SHIFT_AT_YEARS = 4.0e5  # the arrow's tail, on the curves' flat stretch from 200 to 800 ky
+# a's label anchors, times a's left x limit ("No missing data" starts CLEAR_MM inside the left spine).
+LABEL_X_A = {"complete": 1.0, "weighted": 2.6, "full": 10.0}
+MIN_LAST_MM = 0.5  # a: a last interval the window cuts narrower than this is not drawn (it reads as a hook)
+CLEAR_MM = 1.0  # a label's clearance from the edge of the marks it names
+ARROW_CLEAR_MM = 1.5  # and from a's arrow, so that the arrow points at the curve, not at the label below it
+EDGE_MM = 1.0  # a label's least distance from its axes' right and top edges
+# Labels are measured at this resolution: Agg's hinted metrics at the
+# default 100 dpi make a 6 pt label about 7% narrower than it prints.
+PLACE_DPI = 600
 
+# b, in percentage points (1 pp is about 1.05 mm across a facet). Each
+# route's median sits DODGE beside its x, blue left and orange right, so
+# that both show in the clustered facet, where the routes agree; 0.7 pp is
+# 0.73 mm, less than a median's diameter, so every median reads at its tick.
+DODGE = 0.7
+# The replicates sit in replicate order around their median, JITTER apart
+# (x + dx + (i - (n - 1) / 2) JITTER), under it and the lines: those nearest
+# the median tuck partly under its white-edged circle.
+JITTER = 0.35
+X_PAD_MM = 0.5  # b's least room between a mark's outer edge and the facet's x limits
+MEDIAN_EDGE_PT = 0.5  # the white edge of b's medians, which keeps them apart from lines, dots and each other
+# b's replicate dots are style.REPLICATE_MS (1.6 pt), beside a 3 pt median.
+# At style.REPLICATE_ALPHA (0.35) a dot that small fades into the white, so
+# they take their colour at 55%, still clearly paler than the median.
+REPLICATE_SHARE = 0.55
 
-def routes_of(routes) -> List[str]:
-    present = set(routes["route"])
-    return [r for r in DRAWN if r in present]
-
-
-def mask_label(structure: str, fraction: float) -> str:
-    return "no missing data" if structure == "none" else f"{structure} {100 * fraction:.0f}%"
-
-
-def mask_axis(ax, masks) -> None:
-    """Masks on x: the missing fraction under each group, the structure under its group."""
-    from matplotlib.transforms import blended_transform_factory
-
-    ax.set_xlim(-0.55, len(masks) - 0.45)
-    ax.set_xticks(range(len(masks)))
-    ax.set_xticklabels(["none" if s == "none" else f"{100 * f:.0f}%" for _, s, f in masks], fontsize=style.TICK_PT)
-    ax.tick_params(axis="x", length=0)
-    ax.text(0.5, -0.235, MASK_TITLE, ha="center", va="top", fontsize=style.TEXT_PT, color=style.INK,
-            transform=ax.transAxes)
-    for i in range(1, len(masks)):
-        ax.axvline(i - 0.5, color=style.GRID, linewidth=style.LW_GRID, zorder=0)
-    trans = blended_transform_factory(ax.transData, ax.transAxes)
-    groups: Dict[str, List[int]] = {}
-    for i, (_, s, _) in enumerate(masks):
-        if s != "none":
-            groups.setdefault(s, []).append(i)
-    for s, idx in groups.items():
-        lo, hi = min(idx) - 0.4, max(idx) + 0.4
-        ax.plot([lo, hi], [-0.13, -0.13], color=style.MUTED, linewidth=style.LW_GRID, transform=trans, clip_on=False)
-        ax.text((lo + hi) / 2, -0.15, s, ha="center", va="top", fontsize=style.TEXT_PT, color=style.INK2,
-                transform=trans)
+# Series names are set in the series' text colour (the house exception for
+# figures without a legend), the same darker step for both routes as in Fig 2.
+TEXT_COLOR = {WEIGHTED: style.BLUE_TEXT, FULL: style.ORANGE_TEXT}
+B_NAMES = {WEIGHTED: "Weighted bins", FULL: "Bins taken as full"}  # a's labels, without the parentheses
+NUMBER_WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
 
 
-def dot_panel(ax, routes, column: str, scale: float, masks, route_names) -> None:
-    """One value per replicate by mask (groups) and route (offsets), with the means."""
+# ---------------------------------------------------------------------------
+# Choices from the tables
+# ---------------------------------------------------------------------------
+
+
+def full_route(routes) -> str:
+    """The route drawn as bins taken as full: ``fq2psmcfa``, else ``mask_ignore``.
+
+    The two fit the same bins, so where both have rows their theta must
+    agree for every mask and replicate; if they do not, raises ValueError.
+    """
     import numpy as np
 
-    width = 0.8 / len(route_names)
-    for gi, route in enumerate(route_names):
-        ent = style.ROUTES[route]
-        for i, (mask, _, _) in enumerate(masks):
-            v = routes[(routes["mask"] == mask) & (routes.route == route)][column].to_numpy(dtype=float) * scale
-            v = v[np.isfinite(v)]
-            if not v.size:
-                continue
-            x0 = i + (gi - (len(route_names) - 1) / 2) * width
-            jitter = (np.arange(v.size) - (v.size - 1) / 2) * (0.5 * width / max(v.size, 2))
-            ax.plot(x0 + jitter, v, **ent.points(markersize=2.4, zorder=4))
-            m = float(np.mean(v))
-            ax.plot([x0 - 0.42 * width, x0 + 0.42 * width], [m, m], color=style.INK, linewidth=style.LW, zorder=5)
-    mask_axis(ax, masks)
-    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    have = set(routes["route"])
+    if FULL not in have:
+        return FULL_FALLBACK
+    if FULL_FALLBACK in have:
+        cols = ["mask", "replicate", "theta_rel_complete"]
+        both = routes[routes.route == FULL][cols].merge(routes[routes.route == FULL_FALLBACK][cols],
+                                                        on=["mask", "replicate"], suffixes=("_fq", "_ignore"))
+        if not np.allclose(both["theta_rel_complete_fq"].to_numpy(float),
+                           both["theta_rel_complete_ignore"].to_numpy(float), rtol=0.0, atol=1e-12, equal_nan=True):
+            raise ValueError(f"{FULL} and {FULL_FALLBACK} fit the same bins, but their theta differ")
+    return FULL
 
 
-def route_line(ax, x, y, route: str, xlim: Tuple[float, float], n_marks: int = 6, **kw) -> None:
-    """A route's line; the routes in light colours also get their marker at a few log-spaced times."""
+def example_mask(cfg: config.E4, routes) -> Optional[str]:
+    """a's mask: ``config.FIGURES.e4_example_mask``, else the most-missing dispersed mask, else the last mask."""
+    present = set(routes["mask"])
+    masks = [m for m in cfg.masks if m.name in present]
+    if not masks:
+        return None
+    if config.FIGURES.e4_example_mask in {m.name for m in masks}:
+        return config.FIGURES.e4_example_mask
+    dispersed = [m for m in masks if m.structure == "dispersed"]
+    if dispersed:
+        return max(dispersed, key=lambda m: m.missing_fraction).name
+    return masks[-1].name
+
+
+def example_replicate(routes, mask: str) -> Optional[int]:
+    """The replicate whose weighted fit with ``mask`` has the median RMSE against its complete-data fit.
+
+    The fits are sorted by (RMSE, replicate); an even count takes the lower median.
+    """
+    sub = routes[(routes["mask"] == mask) & (routes.route == WEIGHTED)]
+    sub = sub.sort_values(["rmse_log10_ne_vs_complete", "replicate"])
+    if sub.empty:
+        return None
+    return int(sub["replicate"].iloc[(len(sub) - 1) // 2])
+
+
+def facet_masks(cfg: config.E4, structure: str) -> List[Tuple[str, float]]:
+    """``(mask, percent uncallable)`` in one facet of b: the control, then the structure's masks by fraction."""
+    own = sorted(((m.name, 100.0 * m.missing_fraction) for m in cfg.masks if m.structure == structure),
+                 key=lambda t: (t[1], t[0]))
+    return [(COMPLETE, 0.0)] + own if own else []
+
+
+def _theta_change(routes, mask: str, route: str):
+    """100 x theta_rel_complete for ``mask`` and ``route``, by replicate (finite values only)."""
     import numpy as np
 
-    ent = style.ROUTES[route]
-    style_kw = {"color": ent.color, "linestyle": ent.linestyle, "linewidth": style.LW, "zorder": LINE_Z[route]}
-    style_kw.update(kw)
-    ax.plot(x, y, **style_kw)
-    if route not in MARKED:
+    sub = routes[(routes["mask"] == mask) & (routes.route == route)].sort_values("replicate")
+    v = 100.0 * sub["theta_rel_complete"].to_numpy(dtype=float)
+    return v[np.isfinite(v)]
+
+
+def _count(n: int) -> str:
+    """``n`` in words up to nine, in figures above."""
+    return NUMBER_WORDS[n] if 0 <= n < len(NUMBER_WORDS) else f"{n:,}"
+
+
+# ---------------------------------------------------------------------------
+# Labels placed from the data
+# ---------------------------------------------------------------------------
+
+
+def _px(fig, mm: float) -> float:
+    """``mm`` in display pixels."""
+    return mm * style.MM * fig.dpi
+
+
+def _envelope(ax, marks, x0: float, x1: float, upper: bool) -> Optional[float]:
+    """The top (``upper``) or bottom edge, in display y, of ``marks`` between data x ``x0`` and ``x1``.
+
+    ``marks`` are ``(kind, xs, ys, width_pt)``. The kind is ``"steps"`` (a
+    steps-post curve: ``ys[k]`` from ``xs[k]`` to ``xs[k + 1]``),
+    ``"line"`` (a polyline) or ``"points"``. ``width_pt`` is the line
+    width, or the marker diameter for points.
+    """
+    import numpy as np
+
+    edge = None
+    for kind, xs, ys, width in marks:
+        xs, ys = np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
+        if not xs.size:
+            continue
+        if kind == "steps":
+            ends = np.append(xs[1:], xs[-1])
+            ys = ys[(ends >= x0) & (xs <= x1)]
+        elif kind == "line" and x1 >= xs.min() and x0 <= xs.max():
+            t = np.linspace(max(x0, xs.min()), min(x1, xs.max()), 64)
+            ys = np.concatenate([np.interp(t, xs, ys), ys[(xs >= x0) & (xs <= x1)]])
+        else:
+            ys = ys[(xs >= x0) & (xs <= x1)]
+        ys = ys[np.isfinite(ys)]
+        if not ys.size:
+            continue
+        disp = ax.transData.transform(np.column_stack([np.full(ys.size, x0), ys]))[:, 1]
+        half = width / 2.0 * ax.figure.dpi / 72.0
+        e = float(disp.max() + half) if upper else float(disp.min() - half)
+        edge = e if edge is None else (max(edge, e) if upper else min(edge, e))
+    return edge
+
+
+def _place(ax, text: str, x: float, marks, *, above: bool, ha: str, color: str, size: float = style.LABEL_PT,
+           clear_mm: float = CLEAR_MM, avoid: Sequence = ()):
+    """A label anchored at data x ``x``, ``clear_mm`` above (or below) ``marks`` over its width.
+
+    The width counts ``clear_mm`` past each end, so a mark just beyond an
+    end stays clear as well.
+
+    A label that would cross the axes' right edge moves left until it ends
+    :data:`EDGE_MM` inside it, and one that would overlap a label of
+    ``avoid`` moves on past it; one that would leave the axes at the top or
+    bottom is held inside, even if it then touches a mark. Extents are
+    measured at the figure's resolution, which :func:`draw` raises to
+    :data:`PLACE_DPI` while it places labels.
+    """
+    fig = ax.figure
+    renderer = fig.canvas.get_renderer()
+    box = ax.get_window_extent(renderer)
+    probe = fig.text(0.0, 0.0, text, fontsize=size)
+    ext = probe.get_window_extent(renderer)
+    probe.remove()
+    X = float(ax.transData.transform((x, ax.get_ylim()[0]))[0])
+    left = {"left": 0.0, "center": 0.5, "right": 1.0}[ha] * ext.width
+    X -= max(0.0, X - left + ext.width - (box.x1 - _px(fig, EDGE_MM)))  # inside the right edge
+    X += max(0.0, box.x0 + _px(fig, clear_mm) - (X - left))  # clear of the left spine
+    inv = ax.transData.inverted()
+    # Over its width and its clearance beyond each end, so that a mark just past an end stays clear too.
+    x0, x1 = (float(inv.transform((p, 0.0))[0]) for p in (X - left - _px(fig, clear_mm),
+                                                           X - left + ext.width + _px(fig, clear_mm)))
+    edge = _envelope(ax, marks, x0, x1, upper=above)
+    if edge is None:
+        Y = (box.y0 + box.y1) / 2.0
+    else:
+        Y = edge + _px(fig, clear_mm) if above else edge - _px(fig, clear_mm)
+    for other in avoid:
+        bb = other.get_window_extent(renderer)
+        lo_y, hi_y = (Y, Y + ext.height) if above else (Y - ext.height, Y)
+        if bb.x0 < X - left + ext.width and X - left < bb.x1 and bb.y0 < hi_y and lo_y < bb.y1:
+            Y = bb.y1 + _px(fig, 0.5) if above else bb.y0 - _px(fig, 0.5)
+    if above:
+        Y = min(max(Y, box.y0 + _px(fig, 0.5)), box.y1 - _px(fig, EDGE_MM) - ext.height)
+    else:
+        Y = max(min(Y, box.y1 - _px(fig, EDGE_MM)), box.y0 + _px(fig, 0.5) + ext.height)
+    xd, yd = inv.transform((X, Y))
+    return style.direct_label(ax, float(xd), float(yd), text, ha=ha, va="bottom" if above else "top",
+                              color=color, size=size, zorder=style.Z_TEXT)
+
+
+# ---------------------------------------------------------------------------
+# Panels
+# ---------------------------------------------------------------------------
+
+
+def _trim_sliver(x, y, mm_per_decade: float):
+    """A clipped step curve (:func:`style.step_xy`) without a last interval narrower than :data:`MIN_LAST_MM`.
+
+    The window's end can cut the last PSMC interval to a sliver, which
+    draws as a riser with a stub: a hook, not a level. The curve then ends
+    where that interval starts.
+    """
+    import numpy as np
+
+    if len(x) < 3 or math.log10(x[-1] / x[-2]) * mm_per_decade >= MIN_LAST_MM:
+        return x, y
+    return x[:-1], np.append(y[:-2], y[-3])
+
+
+def _common_steps(curves: Dict[str, object], window: Tuple[float, float], mm_per_decade: float) -> Dict[str, Tuple]:
+    """Each curve's step coordinates, clipped to ``window`` and ended together.
+
+    Every curve ends where the first of them ends once its last sliver is
+    trimmed (:func:`_trim_sliver`), so that no curve runs on alone past the
+    others; the cut is repeated until no curve is left with a sliver.
+    """
+    if not curves:
+        return {}
+    end = window[1]
+    while True:
+        steps = {role: _trim_sliver(*style.step_xy(c.years, c.ne, (window[0], end)), mm_per_decade)
+                 for role, c in curves.items()}
+        first = min(float(x[-1]) for x, _ in steps.values())
+        if not first < end:
+            return steps
+        end = first
+
+
+def _head_overhang_pt(arrow: Dict) -> float:
+    """How far past its path's end the tip of a ``-|>`` head inks, in points.
+
+    The head's edge is ``linewidth`` wide with matplotlib's round join (the
+    default of an arrow patch), so its ink reaches half the width past the tip.
+    """
+    return arrow["linewidth"] / 2.0
+
+
+def _arrow_tip(ax, p0, p1, curve, curve_lw: float, head_overhang_pt: float):
+    """Where an arrow from data ``p0`` towards ``p1`` should end: its tip's ink on the top edge of ``curve``.
+
+    ``curve`` is a steps-post ``(x, y)``. The tip ends where the arrow first
+    meets the curve's top edge, moved back by ``head_overhang_pt`` (how far
+    the head's ink passes its path's end); ``p1`` if the arrow never meets
+    the curve before it.
+    """
+    import numpy as np
+
+    to = ax.transData
+    a, b = to.transform(p0), to.transform(p1)
+    s = np.linspace(0.0, 1.0, 801)
+    pts = a + s[:, None] * (b - a)
+    xd = ax.transData.inverted().transform(pts)[:, 0]
+    cx, cy = (np.asarray(v, dtype=float) for v in curve)
+    k = np.clip(np.searchsorted(cx, xd, side="right") - 1, 0, len(cy) - 1)
+    top = to.transform(np.column_stack([xd, cy[k]]))[:, 1] + curve_lw / 2.0 * ax.figure.dpi / 72.0
+    hit = np.flatnonzero(pts[:, 1] <= top)
+    if not hit.size:
+        return tuple(p1)
+    back = head_overhang_pt * ax.figure.dpi / 72.0 / float(np.hypot(*(b - a)))
+    end = a + max(0.0, s[hit[0]] - back) * (b - a)
+    return tuple(float(v) for v in ax.transData.inverted().transform(end))
+
+
+def curve_panel(ax, routes, fits, cfg: config.E4, full: str) -> None:
+    """a: one genome's fits with the example mask, over its fit without missing data."""
+    import numpy as np
+
+    window = informative_window(cfg.model, cfg.grid, cfg.scaling.gen_years)
+    xlim = decades(*window)
+    mask = example_mask(cfg, routes)
+    rep = example_replicate(routes, mask) if mask is not None else None
+    mm_per_decade = AX_A[2] / math.log10(xlim[1] / xlim[0])
+
+    # role -> the step curve's x and y, clipped to the window; all three end together.
+    keys = (("complete", (rep, COMPLETE, WEIGHTED)), ("full", (rep, mask, full)), ("weighted", (rep, mask, WEIGHTED)))
+    steps = _common_steps({role: fits[key] for role, key in keys if key in fits}, window, mm_per_decade)
+    ys = np.concatenate([y for _, y in steps.values()]) if steps else np.array(YLIM_A)
+    lo, hi = decades(float(ys.min()) / 1.3, float(ys.max()) * 1.3)
+    style.years_axis(ax, xlim)
+    style.ne_axis(ax, (min(YLIM_A[0], lo), max(YLIM_A[1], hi)))
+
+    kw = {"complete": style.underlay_kw(style.UNDERLAY_GREY, share=1.0),  # the reference, wide and pale
+          "full": style.overlay_kw(style.ROUTES[FULL].color),
+          "weighted": style.overlay_kw(style.ROUTES[WEIGHTED].color, linewidth=style.LW_EMPH,
+                                       zorder=style.Z_DATA + 0.5)}
+    for role in ("complete", "full", "weighted"):
+        if role in steps:
+            style.step_line(ax, *steps[role], **kw[role])
+    if not steps:
         return
-    shift = (MARKED.index(route) + 0.5) / (len(MARKED) * (n_marks + 1))
-    span = np.log10(xlim[1] / xlim[0])
-    xm = xlim[0] * 10 ** (span * (np.arange(1, n_marks + 1) / (n_marks + 1) + shift))
-    idx = np.clip(np.searchsorted(np.asarray(x), xm, side="right") - 1, 0, len(y) - 1)
-    ax.plot(xm, np.asarray(y)[idx], **ent.points(markersize=2.8, zorder=5))
+
+    spec = next(m for m in cfg.masks if m.name == mask)
+    n = int(((routes["mask"] == mask) & (routes.route == WEIGHTED)).sum())
+    count = f"one of {_count(n)} genomes" if n > 1 else "one genome"
+    style.panel_title(ax, f"{spec.structure.capitalize()}, {100 * spec.missing_fraction:.0f}% uncallable ({count})")
+
+    marks = [("steps", x, y, kw[role]["linewidth"]) for role, (x, y) in steps.items()]
+
+    # The shift: theta with full bins over theta without missing data scales N_e and time alike.
+    row = routes[(routes["mask"] == mask) & (routes.route == full) & (routes.replicate == rep)]
+    r = 1.0 + float(row["theta_rel_complete"].iloc[0]) if len(row) else math.nan
+    t0 = SHIFT_AT_YEARS
+    shift = None
+    if "complete" in steps and "full" in steps and 0.0 < r < 1.0 and xlim[0] < r * t0 and t0 < window[1]:
+        c0 = float(fits[(rep, COMPLETE, WEIGHTED)].at(np.array([t0]))[0])
+        # The house annotation arrow, one-headed. It points along (t0, c0) -> (r t0, r c0) and stops where
+        # it meets the orange curve, its tip's ink on the line's top edge (the scaling is not exact).
+        arrow = dict(style.ARROW_PROPS, arrowstyle="-|>", shrinkA=1.5)
+        tip = _arrow_tip(ax, (t0, c0), (r * t0, r * c0), steps["full"], kw["full"]["linewidth"],
+                         _head_overhang_pt(arrow))
+        ax.annotate("", xy=tip, xytext=(t0, c0), arrowprops=arrow, zorder=style.Z_TEXT)
+        # The mark's width keeps labels ARROW_CLEAR_MM from the arrow.
+        shift = ("line", [tip[0], t0], [tip[1], c0], 2.0 * (ARROW_CLEAR_MM - CLEAR_MM) * style.PT_PER_MM)
+        marks.append(shift)
+
+    if "complete" in steps:
+        _place(ax, "No missing data", LABEL_X_A["complete"] * xlim[0], marks, above=True, ha="left",
+               color=style.INK2, size=style.NOTE_PT)
+    if "weighted" in steps:
+        _place(ax, style.ROUTES[WEIGHTED].label, LABEL_X_A["weighted"] * xlim[0], marks, above=True, ha="left",
+               color=TEXT_COLOR[WEIGHTED])
+    if "full" in steps:
+        # Named for what it is: fq2psmcfa's bins, or (with no such rows) the same bins read from the VCF.
+        _place(ax, style.ROUTES[full].label, LABEL_X_A["full"] * xlim[0], marks, above=False, ha="left",
+               color=TEXT_COLOR[FULL])
+    if shift is not None:
+        _place(ax, f"{style.TIMES}{r:.2f}", 1.04 * t0, marks, above=True, ha="left", color=style.INK)
+
+
+def _under(ax, xs, ys, xb, yb, width_pt: float) -> List[bool]:
+    """For each segment of the polyline ``(xs, ys)``: whether it runs within ``width_pt`` of ``(xb, yb)``.
+
+    Distances are vertical, in display units, at points along the segment;
+    beyond its ends ``(xb, yb)`` is taken as level.
+    """
+    import numpy as np
+
+    if len(xb) < 2:
+        return [False] * max(0, len(xs) - 1)
+    tol = width_pt * ax.figure.dpi / 72.0
+    out = []
+    for i in range(len(xs) - 1):
+        t = np.linspace(xs[i], xs[i + 1], 33)
+        a = ax.transData.transform(np.column_stack([t, np.interp(t, (xs[i], xs[i + 1]), (ys[i], ys[i + 1]))]))
+        b = ax.transData.transform(np.column_stack([t, np.interp(t, xb, yb)]))
+        out.append(bool(np.all(np.abs(a[:, 1] - b[:, 1]) < tol)))
+    return out
+
+
+def _jitter(n: int):
+    """Offsets of ``n`` replicates from their median's x, in percentage points: :data:`JITTER` apart, centred."""
+    import numpy as np
+
+    return (np.arange(n) - (n - 1) / 2.0) * JITTER
+
+
+def _x_limits(facets: Sequence, xmax: float) -> Tuple[float, float]:
+    """b's x limits: (-0.1, 1.1) x ``xmax``, widened if a mark would come within :data:`X_PAD_MM` of either.
+
+    Marks are the dodged medians (the control's at x itself) with their white
+    edge, and the replicate dots around them; ``facets`` holds, per facet,
+    ``(mask, x, number of replicates)``.
+    """
+    lo, hi = -0.1 * xmax, 1.1 * xmax
+    r_med = (style.MEDIAN_MS + MEDIAN_EDGE_PT) / 2.0 / style.PT_PER_MM  # mm
+    r_dot = style.REPLICATE_MS / 2.0 / style.PT_PER_MM
+    for _ in range(3):  # the room in pp depends on the limits; this settles at once
+        pp = (hi - lo) / FACET_W_MM  # pp per mm
+        left, right = lo, hi
+        for points in facets:
+            for mask, x, n in points:
+                if mask == COMPLETE:
+                    left, right = min(left, x - (r_med + X_PAD_MM) * pp), max(right, x + (r_med + X_PAD_MM) * pp)
+                    continue
+                reach = max(r_med * pp, float(_jitter(n).max()) + r_dot * pp) + X_PAD_MM * pp
+                left, right = min(left, x - DODGE - reach), max(right, x + DODGE + reach)
+        lo, hi = min(-0.1 * xmax, left), max(1.1 * xmax, right)
+    return lo, hi
+
+
+def dose_panel(axes: Sequence, routes, cfg: config.E4, full: str) -> None:
+    """b: the change in theta against the share uncallable, one facet per structure, on one y axis."""
+    import numpy as np
+    from matplotlib.ticker import FixedLocator, MultipleLocator
+
+    facets = [facet_masks(cfg, s) for s in STRUCTURES]
+    series: Dict[Tuple[int, str], List] = {}  # (facet, route) -> [(mask, x, theta change by replicate)]
+    values = [0.0]
+    for k, masks in enumerate(facets):
+        for route in (full, WEIGHTED):
+            pts = [(mask, x, _theta_change(routes, mask, route)) for mask, x in masks]
+            series[(k, route)] = [(mask, x, v) for mask, x, v in pts if v.size]
+            values += [float(a) for _, _, v in series[(k, route)] for a in v]
+    lo = min(-40.0, 10.0 * math.floor((min(values) - 3.0) / 10.0))
+    hi = 4.0 if max(values) <= 1.0 else 10.0 * math.ceil((max(values) + 3.0) / 10.0)
+    xmax = 10.0 * math.ceil(max([x for masks in facets for _, x in masks] + [30.0]) / 10.0 - 1e-9)
+    right = xmax + 1.0  # where b's labels end
+    counts = [[(mask, x, max([v.size for route in (full, WEIGHTED) for m, _, v in series[(k, route)] if m == mask]
+                             + [0])) for mask, x in masks] for k, masks in enumerate(facets)]
+    xlim = _x_limits([[c for c in points if c[2]] for points in counts], xmax)
+    shown = [k for k, masks in enumerate(facets) if masks]
+    first, last = (shown[0], shown[-1]) if shown else (None, None)  # y axis and zero line's name; routes' names
+    # route -> (line width, z of its line, its replicates, its medians). The pale replicates lie beneath
+    # (orange under blue), then the lines, then the medians, orange first and blue over it. The orange
+    # medians lie over the blue line, which runs past them where the routes agree; their white edge
+    # keeps them apart from it.
+    look = {full: (style.LW_DATA, style.Z_DATA, style.Z_UNDERLAY, style.Z_DATA + 0.6),
+            WEIGHTED: (style.LW_EMPH, style.Z_DATA + 0.5, style.Z_UNDERLAY + 0.1, style.Z_DATA + 0.7)}
+
+    for k, (ax, masks) in enumerate(zip(axes, facets)):
+        if not masks:
+            ax.set_axis_off()
+            continue
+        ax.set_xlim(*xlim)
+        ax.set_ylim(lo, hi)
+        ax.xaxis.set_major_locator(FixedLocator(np.arange(0.0, xmax + 1e-9, 10.0)))
+        ax.yaxis.set_major_locator(MultipleLocator(10.0 if hi - lo <= 60.0 else 20.0))
+        for axis in (ax.xaxis, ax.yaxis):
+            axis.set_major_formatter(style.plain_formatter())
+        style.value_grid(ax, "y")
+        style.ref_line(ax, y=0.0, zorder=style.Z_BAND)
+        if k == first:
+            ax.set_ylabel(f"Change in {style.THETA} (%)")
+        else:
+            ax.tick_params(labelleft=False)
+        run = next(m.mean_run_bp for m in cfg.masks if m.structure == STRUCTURES[k])
+        style.panel_title(ax, f"{STRUCTURES[k].capitalize()} ({fmt_bp(run)} runs)")
+
+        # Each route's medians, dodged; the control is the complete-data fit itself, where both lines start.
+        lines: Dict[str, Tuple] = {}
+        for route, dx in ((full, DODGE), (WEIGHTED, -DODGE)):
+            pts = series[(k, route)]
+            if pts:
+                lines[route] = ([x + (0.0 if mask == COMPLETE else dx) for mask, x, _ in pts],
+                                [float(np.median(v)) for _, _, v in pts], pts)
+
+        marks: Dict[str, List] = {}
+        for route, (xs, med, pts) in lines.items():
+            lw, z_line, z_dots, z_med = look[route]
+            color = style.ROUTES[FULL if route == full else route].color
+            # The orange line where it would run under the blue one is left out: its fringe is all that showed.
+            hidden = (_under(ax, xs, med, *lines[WEIGHTED][:2], style.LW_EMPH)
+                      if route == full and WEIGHTED in lines else [False] * (len(xs) - 1))
+            px, py, marks[route] = [xs[0]], [med[0]], []
+            for i, gone in enumerate(hidden):
+                if gone:
+                    px.append(math.nan)
+                    py.append(math.nan)
+                else:
+                    marks[route].append(("line", xs[i:i + 2], med[i:i + 2], lw))
+                px.append(xs[i + 1])
+                py.append(med[i + 1])
+            ax.plot(px, py, color=color, linewidth=lw, solid_capstyle="round", zorder=z_line)
+            mx, my = [], []
+            for x, m, (mask, _, v) in zip(xs, med, pts):
+                mx.append(x)
+                my.append(m)
+                if mask == COMPLETE:  # the complete-data fit itself: 0 for every replicate, all under the median
+                    continue
+                jit = x + _jitter(v.size)
+                ax.plot(jit, v, linestyle="none", marker="o", markersize=style.REPLICATE_MS, markeredgewidth=0.0,
+                        color=style.tint(color, REPLICATE_SHARE), zorder=z_dots, clip_on=False)
+                marks[route].append(("points", jit, v, style.REPLICATE_MS))
+            ax.plot(mx, my, linestyle="none", marker="o", markersize=style.MEDIAN_MS, markeredgewidth=MEDIAN_EDGE_PT,
+                    markeredgecolor=style.SURFACE, color=color, zorder=z_med, clip_on=False)
+            marks[route].append(("points", mx, my, style.MEDIAN_MS))
+
+        if k == first:  # the zero line's name, above it and the data at the right of the first facet
+            zero = [("line", list(xlim), [0.0, 0.0], style.LW_THIN)]
+            _place(ax, "No missing data", right, zero + [m for ms in marks.values() for m in ms], above=True,
+                   ha="right", color=style.INK2, size=style.NOTE_PT)
+        if k == last:  # each route's name under its last median and replicates, both right-aligned
+            names: List = []
+            for route, key in ((WEIGHTED, WEIGHTED), (full, FULL)):
+                if route in marks:
+                    names.append(_place(ax, B_NAMES[key], right, marks[route], above=False, ha="right",
+                                        color=TEXT_COLOR[key], avoid=names))
 
 
 def draw(src: Source):
-    import numpy as np
-
     cfg = src.profile.e4
-    figs = config.FIGURES
-    g = cfg.scaling.gen_years
     routes = src.table("E4_routes")
     fits = curves(src.table("E4_curves"), ["replicate", "mask", "route"])
-    bias = src.table("E4_bias")
-    masks = masks_of(routes, cfg)
-    route_names = routes_of(routes)
-    xlim = figs.sim_years
-    window = informative_window(cfg.model, cfg.grid, g)
+    full = full_route(routes)
 
-    fig = style.figure("double", 126)
-    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=2.5, top_mm=12.0, bottom_mm=9.0, wspace_mm=13.0,
-                    hspace_mm=18.0, height_ratios=[1.0, 1.1])
-    ax_t, ax_r, ax_b = (fig.add_subplot(gs[0, i]) for i in range(3))
-    ax_c, ax_e, ax_f = (fig.add_subplot(gs[1, i]) for i in range(3))
-
-    dot_panel(ax_t, routes, "theta_rel_complete", 100.0, masks, route_names)
-    style.ref_line(ax_t, y=0.0)
-    ax_t.set_ylabel("θ, change from the complete data (%)")
-    dot_panel(ax_r, routes, "rmse_log10_ne_vs_truth", 1.0, masks, route_names)
-    ax_r.set_ylim(bottom=0.0)
-    ax_r.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs the truth")
-    dot_panel(ax_b, routes, "rmse_log10_ne_vs_complete", 1.0, masks, route_names)
-    ax_b.set_ylim(bottom=0.0)
-    ax_b.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$ vs complete data")
-
-    # d: one replicate, one mask, with its complete-data fit.
-    rep, mask = figs.e4_example_replicate, figs.e4_example_mask
-    if not any(k[1] == mask for k in fits):
-        mask = masks[-1][0]
-    specs = {m: (s, f) for m, s, f in masks}
-    style.shade_outside(ax_c, window, xlim)
-    vals: List[float] = []
-    grid = np.logspace(np.log10(window[0]), np.log10(window[1]), 200)
-    complete = fits.get((rep, COMPLETE, COMPLETE_ROUTE))
-    if complete is not None:
-        x, y = style.step_xy(complete.years, complete.ne, xlim)
-        ax_c.plot(x, y, color=style.MUTED, linewidth=REFERENCE_LW, drawstyle="steps-post", zorder=2,
-                  solid_capstyle="butt")
-        vals += list(complete.at(grid))
-    for route in route_names:
-        c = fits.get((rep, mask, route))
-        if c is None:
-            continue
-        x, y = style.step_xy(c.years, c.ne, xlim)
-        route_line(ax_c, x, y, route, xlim, drawstyle="steps-post",
-                   linewidth=style.LW_BOLD if route == BOLD else style.LW)
-        vals += list(c.at(grid))
-    tx, ty = truth_xy(cfg.model, g, xlim)
-    ax_c.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=6)
-    vals += [float(ty.min()), float(ty.max())]
-    style.years_axis(ax_c, xlim)
-    style.ne_axis(ax_c, decades(min(vals) / 1.3, max(vals) * 1.3))
-    style.note(ax_c, 0.97, 0.97, f"{mask_label(*specs.get(mask, ('none', 0.0)))},\nreplicate {rep}",
-               ha="right", va="top")
-
-    # e, f: mean bias against the truth over time, with the complete data for reference.
-    bias_masks = [m for m in figs.e4_bias_masks if m in specs][:2]
-    reference = bias[(bias["mask"] == COMPLETE) & (bias.route == COMPLETE_ROUTE)].sort_values("years")
-    drawn = [bias[(bias["mask"] == m) & bias.route.isin(route_names)]["log10_bias_mean"] for m in bias_masks]
-    values = np.concatenate([v.to_numpy(dtype=float) for v in drawn + [reference["log10_bias_mean"]]] + [[0.0]])
-    values = values[np.isfinite(values)]
-    lo, hi = float(values.min()), float(values.max())
-    pad = 0.08 * max(hi - lo, 0.1)
-    ylim = (lo - pad, hi + pad)
-    for ax, m in zip((ax_e, ax_f), bias_masks):
-        if not reference.empty:
-            ax.plot(reference["years"], reference["log10_bias_mean"], color=style.MUTED, linewidth=REFERENCE_LW,
-                    zorder=2, solid_capstyle="butt", drawstyle="steps-post")
-        for route in route_names:
-            sub = bias[(bias["mask"] == m) & (bias.route == route)].sort_values("years")
-            if sub.empty:
-                continue
-            route_line(ax, sub["years"].to_numpy(), sub["log10_bias_mean"].to_numpy(), route,
-                       (float(sub["years"].min()), float(sub["years"].max())), drawstyle="steps-post",
-                       linewidth=style.LW_BOLD if route == BOLD else style.LW)
-        style.ref_line(ax, y=0.0)
-        style.years_axis(ax, (window[0] / 1.15, window[1] * 1.15))
-        ax.set_ylim(*ylim)
-        ax.set_ylabel("Bias, mean log$_{10}$($N_\\mathrm{e}$ / true $N_\\mathrm{e}$)")
-        n = int(bias[bias["mask"] == m]["replicates"].max())
-        style.note(ax, 0.97, 0.03, f"{mask_label(*specs[m])},\nmean of {n} replicate{'s' if n > 1 else ''}",
-                   ha="right", va="bottom")
-    for ax in (ax_e, ax_f)[len(bias_masks):]:
-        ax.set_axis_off()
-
-    from matplotlib.lines import Line2D
-
-    handles = [style.handle(style.ROUTES[r], kind="both", linewidth=style.LW) for r in route_names]
-    handles.append(style.handle(style.TRUTH, linewidth=style.LW))
-    handles.append(Line2D([], [], color=style.MUTED, linewidth=REFERENCE_LW, label="Complete-data fit (d-f)"))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=3)
-    style.panel_letters(fig, [ax_t, ax_r, ax_b, ax_c, ax_e, ax_f], align_cols=True)
+    fig = style.figure(W_MM, H_MM)
+    dpi = fig.dpi
+    fig.set_dpi(PLACE_DPI)  # labels are placed by their extents as they print
+    try:
+        ax_a = style.axes_mm(fig, *AX_A)
+        axes_b = [style.axes_mm(fig, *box) for box in AX_B]
+        curve_panel(ax_a, routes, fits, cfg, full)
+        dose_panel(axes_b, routes, cfg, full)
+        shown = [ax for ax in axes_b if ax.axison]
+        if shown:
+            style.row_xlabel(fig, shown, "Positions uncallable (%)")
+        # a at the figure's left edge, b at the left edge of its ink (its y label), both on the titles' baseline.
+        style.panel_letters(fig, [ax_a] + shown[:1])
+    finally:
+        fig.set_dpi(dpi)
     return fig
 
 
-__all__ = ["DRAWN", "draw", "mask_label", "masks_of", "routes_of"]
+__all__ = ["DRAWN", "draw", "example_mask", "example_replicate", "facet_masks", "full_route"]

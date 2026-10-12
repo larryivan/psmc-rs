@@ -58,13 +58,15 @@ class FigureSpec:
 
 
 FIGURES: Tuple[FigureSpec, ...] = (
-    # The article's Figs 1 and 2 (Supplementary Note 1, section 3, maps every article figure to its file).
+    # The article's Figs 1 and 2 (Supplementary Note 1, section 3, maps every article figure to its file); its
+    # Fig 3 is fig7_1000_genomes, and the supplement's Figs S1-S3 are figS1_em_convergence,
+    # fig5_input_preparation and fig6_bootstrap_calibration.
     FigureSpec("art1_agreement", "art1_agreement", "FIG",
                ("E1_curves", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E2_curves", "E2_bands", "E2_rs_vs_c",
-                "E7_curves", "E7_rs_vs_c"),
+                "E7_rs_vs_c"),
                "psmc-rs reproduces C psmc, on simulated and on real genomes"),
-    FigureSpec("art2_performance", "art2_performance", "E3", ("E3_table2",),
-               "psmc-rs is fast and lean: run time, speed-up over C psmc and memory"),
+    FigureSpec("art2_performance", "art2_performance", "E3", ("E3_table2", "E7_fits"),
+               "psmc-rs is fast and lean: run time, speed-up over C psmc and memory, and the 1000 Genomes fits"),
     FigureSpec("fig1_workflow", "fig1", "FIG", (), "From reads to a PSMC history with psmc-rs"),
     FigureSpec("fig2_simulated_accuracy", "fig2", "E1",
                ("E1_curves", "E1_truth", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E1_mstep"),
@@ -74,13 +76,13 @@ FIGURES: Tuple[FigureSpec, ...] = (
                "Four real genomes: C psmc, psmc-rs 0.2 and its bootstrap"),
     FigureSpec("fig4_performance", "fig4", "E3", ("E3_table2", "E3_runs"),
                "Run time and memory against genome size, and the speed-up over C psmc"),
-    FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves", "E4_bias"),
+    FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves"),
                "Partly callable bins bias PSMC; weighting each bin by its callable bases removes most of the bias"),
     FigureSpec("fig6_bootstrap_calibration", "fig6", "E5",
                ("E5_summary", "E5_sampling", "E5_bands", "E5_sd_ratio", "E5_coverage"),
                "Calibration of the bootstrap"),
     FigureSpec("figS1_em_convergence", "figs1", "E1", ("E1_traces",),
-               "EM convergence of C psmc and psmc-rs 0.2"),
+               "The EM iterations of C psmc and psmc-rs"),
     FigureSpec("figS2_format_consistency", "figs2", "E6", ("E6_S2_curves", "E6_S2_bins", "E6_S2_fits"),
                "One genome read as psmcfa, VCF and multihetsep"),
     FigureSpec("figS3_tmrca_decoding", "figs3", "E6",
@@ -88,7 +90,7 @@ FIGURES: Tuple[FigureSpec, ...] = (
                "Posterior TMRCA against the true TMRCA"),
     FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_thread_scaling", "E3_table2", "E3_runs", "E3_determinism"),
                "Thread scaling and determinism of psmc-rs 0.2"),
-    # Not yet numbered among the supplementary figures (S5 and S6 are planned for E7).
+    # fig7_1000_genomes is the article's Fig 3; the other E7 figures are not yet numbered (S5 and S6 are planned).
     FigureSpec("fig7_1000_genomes", "fig7", "E7", ("E7_pop_bands",),
                "1000 Genomes: the superpopulations compared, and their populations"),
     FigureSpec("figS5_1000g_populations", "figs5", "E7", ("E7_pop_bands", "E7_samples"),

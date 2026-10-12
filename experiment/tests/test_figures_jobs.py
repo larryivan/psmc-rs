@@ -92,7 +92,15 @@ class Jobs(unittest.TestCase):
 
     @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
     def test_report_draws_what_it_can(self):
+        from experiment.pipeline import figures
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
         shutil.copytree(tiny_runs.runs_dir() / "E3" / "tables", self.runs / "E3" / "tables")
+        # The article's Fig 2 also reads E7's fits (its panel c): with E3's tables alone it waits for them.
+        fits = SCHEMAS["E7_fits"]
+        self.assertEqual(figures.missing_tables(figures.spec("art2_performance"), self.runs), [fits.path(self.runs)])
+        fits.path(self.runs).parent.mkdir(parents=True)
+        shutil.copy(fits.path(tiny_runs.runs_dir()), fits.path(self.runs))
         ctx = Context(config.TINY, self.runs, log=lambda _msg: None)
         written = fig.report(ctx)
         self.assertEqual(set(written), {"art2_performance", "fig1_workflow", "fig4_performance", "figS4_thread_scaling"})

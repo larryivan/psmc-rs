@@ -20,6 +20,9 @@ import tiny_runs  # noqa: E402
 from experiment.pipeline import config  # noqa: E402
 
 DPI = 40  # enough to exercise the PNG writer; the figures are drawn at 600 dpi
+# The figures of the paper: the article's Figs 1-3 and the supplement's Figs S1-S3, in that order.
+ARTICLE_FIGURES = ("art1_agreement", "art2_performance", "fig7_1000_genomes", "figS1_em_convergence",
+                   "fig5_input_preparation", "fig6_bootstrap_calibration")
 
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
@@ -66,6 +69,8 @@ class Draw(unittest.TestCase):
         self.assertEqual(figures.spec("fig1").sources, ())
         self.assertEqual(figures.spec("figS4").sources, ("E3",))
         self.assertEqual(figures.spec("fig5").sources, ("E4",))
+        # The article's Fig 2 times the 1000 Genomes fits too (its panel c), so E7's tables redraw it.
+        self.assertEqual(figures.spec("art2").sources, ("E3", "E7"))
         with self.assertRaises(KeyError):
             figures.spec("fig9")
 
@@ -79,10 +84,36 @@ class Draw(unittest.TestCase):
     def test_drawing_twice_gives_the_same_bytes(self):
         from experiment.pipeline import figures
 
-        fs = figures.spec("fig5")
-        a = [p.read_bytes() for p in figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / "a")]
-        b = [p.read_bytes() for p in figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / "b")]
-        self.assertEqual(a, b)
+        for name in ARTICLE_FIGURES:
+            with self.subTest(figure=name):
+                fs = figures.spec(name)
+                a = [p.read_bytes() for p in figures.render(fs, self.runs, config.TINY, dpi=DPI,
+                                                            out_dir=self.out / "a" / name)]
+                b = [p.read_bytes() for p in figures.render(fs, self.runs, config.TINY, dpi=DPI,
+                                                            out_dir=self.out / "b" / name)]
+                self.assertEqual(a, b)
+
+    def test_the_article_figures_never_show_psmc_rs_01(self):
+        from matplotlib.colors import to_hex
+        from matplotlib.text import Text
+
+        from experiment.pipeline import figures
+        from experiment.pipeline.figures import style
+
+        for name in ARTICLE_FIGURES:
+            fs = figures.spec(name)
+            with self.subTest(figure=name):
+                self.assertNotIn("psmc-rs 0.", fs.title)
+                fig = self._draw(fs.module)
+                for t in fig.findobj(Text):
+                    self.assertNotIn("psmc-rs 0.", t.get_text())
+                    self.assertNotIn("rs01", t.get_text())
+                colours = set()
+                for ax in fig.axes:
+                    colours |= {to_hex(ln.get_color()) for ln in ax.lines}
+                    for c in ax.collections:
+                        colours |= {to_hex(v) for v in list(c.get_facecolors()) + list(c.get_edgecolors())}
+                self.assertNotIn(style.RS01.color, colours)  # psmc-rs 0.1's aqua
 
     def test_cli_lists_and_skips_figures_without_tables(self):
         from experiment.pipeline.figures.__main__ import main
@@ -151,12 +182,29 @@ class Draw(unittest.TestCase):
     def test_panel_letters_line_up_in_columns(self):
         from experiment.pipeline.figures import style
 
-        for module in ("fig2", "fig5", "fig6", "figs1", "figs2", "figs3", "figs_turtle"):
+        # Letters anchored at the same x within this many mm. Fig 7 (the article's Fig 3) aligns the letters of a
+        # column by their ink, so b's and e's anchors differ by 0.10 mm and c's and f's by 0.06 mm.
+        tolerance = {"fig7": 0.2}
+        for module in ("fig2", "fig5", "fig6", "fig7", "figs1", "figs2", "figs3", "figs_turtle"):
             with self.subTest(figure=module):
                 fig = self._draw(module)
+                fig.canvas.draw()
+                mm = fig.dpi / 25.4  # pixels per mm
+                tol = tolerance.get(module, 0.005) * mm
                 letters = [t for t in fig.texts if t.get_fontsize() == style.PANEL_PT and t.get_fontweight() == "bold"]
-                columns = {round(ax.get_position(original=True).x0, 3) for ax in fig.axes if ax.axison}
-                self.assertEqual(len({round(t.get_position()[0], 4) for t in letters}), len(columns))
+                boxes = [ax.get_window_extent() for ax in fig.axes if ax.axison]
+                columns = {}  # the left edge of the panel each letter names: its letters' x
+                for t in letters:
+                    x, y = t.get_transform().transform(t.get_position())
+                    # A letter names the first panel right of it in the row of panels just below it (a panel
+                    # whose letter it shares, as Fig 5 b's second facet, names none).
+                    top = max(b.y1 for b in boxes if b.y1 <= y + 0.5)
+                    panel = min((b for b in boxes if abs(b.y1 - top) < 0.5 and b.x0 >= x - 0.5), key=lambda b: b.x0)
+                    columns.setdefault(round(panel.x0 / mm, 2), []).append(x)
+                for xs in columns.values():  # the letters of a column line up
+                    self.assertLessEqual(max(xs) - min(xs), tol, [round(v / mm, 2) for v in xs])
+                firsts = sorted(xs[0] for xs in columns.values())  # and each column has its own
+                self.assertTrue(all(b - a > tol for a, b in zip(firsts, firsts[1:])), firsts)
 
     def test_fig3_notes_lie_inside_their_panels_and_have_no_box(self):
         fig = self._draw("fig3")
@@ -286,59 +334,135 @@ class Draw(unittest.TestCase):
         self.assertEqual("Bootstrap 95% band" in labels, not fine)
         self.assertEqual(any(label.endswith(" Mb blocks") for label in labels), fine)
 
-    def test_fig5_draws_every_called_bin_taken_as_full_above_the_vcf_without_its_mask(self):
+    def test_fig5_draws_the_weighted_bins_above_the_bins_taken_as_full(self):
+        from matplotlib.colors import to_hex
+
         from experiment.pipeline.figures import style
 
         fig = self._draw("fig5")
-        for ax in fig.axes[3:6]:  # d, e, f
-            z = {}
-            for ln in ax.lines:
-                if ln.get_linestyle() != "None" and ln.get_color() in (style.BLUE_650, style.MAGENTA):
-                    z.setdefault(ln.get_color(), set()).add(ln.get_zorder())
-            if len(z) == 2:
-                self.assertGreater(min(z[style.BLUE_650]), max(z[style.MAGENTA]))
+        self.assertEqual(len(fig.axes), 3)  # a, and b's two facets
+        # Only the two routes of the paper's colours are drawn: never the dark blue of the same bins read from
+        # the VCF, multihetsep's ochre, the raspberry of a VCF without its mask, or psmc-rs 0.1's aqua.
+        absent = {style.ROUTES[r].color for r in ("mask_ignore", "multihetsep", "nomask")} | {style.RS01.color}
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        for i, ax in enumerate(fig.axes):
+            with self.subTest(axes=i):
+                z = {}
+                for ln in ax.lines:
+                    self.assertIn(ln.get_linestyle(), ("-", "None"))  # colour alone carries a route: no dashes
+                    colour = to_hex(ln.get_color())
+                    self.assertNotIn(colour, absent)
+                    z.setdefault(colour, []).append(ln.get_zorder())
+                    if i and ln.get_marker() not in ("None", "", None):  # b's marks lie inside their facet
+                        box, ext = ax.get_window_extent(renderer), ln.get_window_extent(renderer)
+                        self.assertGreaterEqual(ext.x0, box.x0 - 0.5)
+                        self.assertLessEqual(ext.x1, box.x1 + 0.5)
+                # psmc-rs's default (blue) above the bins taken as full (orange): lines and medians alike.
+                self.assertGreater(max(z[style.BLUE]), max(z[style.ORANGE]))
 
-    def test_fig6_legend_names_every_element_and_the_projected_truth(self):
+    def test_fig5_names_the_bins_taken_as_full_for_what_they_are(self):
         import pandas as pd
 
+        from experiment.pipeline.figures import fig5, style
         from experiment.pipeline.figures.schemas import SCHEMAS
 
-        # E5's report writes the coverage of the pattern-projected truth, which e draws.
-        fig = self._draw("fig6")
-        labels = self._labels(fig)
-        for want in ("True sampling SD and its 95% interval (b, c)", "Share whose band covers the fits' mean (d)",
-                     "Clopper-Pearson 95% interval of the thick",
-                     "Interquartile range over the genomes (c)", "Nominal 95% (d, e)", "window coverage of the true",
-                     "or the projected truth (e)", " Mb blocks ("):
-            self.assertTrue(any(want in label for label in labels), want)
-        self.assertFalse(any("trunk" in label or label.startswith("Its ") for label in labels))
-        summary = pd.read_csv(SCHEMAS["E5_summary"].path(self.runs))
-        for row in summary[summary.window == "informative"].itertuples():
-            pct = f"projected truth {100 * row.coverage_projected_mean:.0f}%"
-            self.assertTrue(any(pct in label for label in labels), pct)
-        # d: per block size the true Ne and the fits' mean; e: the projected truth; both the nominal line.
-        trunks = pd.read_csv(SCHEMAS["E5_coverage"].path(self.runs))["trunk_bins"].nunique()
-        ax_d, ax_e = fig.axes[3], fig.axes[4]
-        self.assertEqual((len(ax_d.lines), len(ax_e.lines)), (2 * trunks + 1, trunks + 1))
-        for ax in (ax_d, ax_e):
-            self.assertTrue(all(ln.get_marker() in ("None", "", None) for ln in ax.lines))
-            self.assertEqual(len(ax.collections), 1)  # the Clopper-Pearson interval of the default blocks
+        def texts(fig):
+            return [t.get_text() for ax in fig.axes for t in ax.texts]
 
-    def test_figs1_ends_both_tools_where_c_psmc_stops_and_shows_its_rounding(self):
+        # fq2psmcfa's bins, C psmc's input and model; without its rows, the same bins read from the VCF.
+        routes = pd.read_csv(SCHEMAS["E4_routes"].path(self.runs))
+        self.assertIn(fig5.FULL, set(routes.route))
+        a = texts(self._draw("fig5"))
+        self.assertIn(style.ROUTES["fq2psmcfa"].label, a)
+        self.assertIn(style.ROUTES["mask_auto"].label, a)
+        with tempfile.TemporaryDirectory() as d:
+            runs = Path(d)
+            shutil.copytree(self.runs / "E4" / "tables", runs / "E4" / "tables")
+            for key in ("E4_routes", "E4_curves"):
+                path = SCHEMAS[key].path(runs)
+                t = pd.read_csv(path)
+                t[t.route != fig5.FULL].to_csv(path, index=False)
+            b = texts(self._draw("fig5", runs))
+        self.assertIn(style.ROUTES["mask_ignore"].label, b)
+        self.assertFalse(any("fq2psmcfa" in t for t in b))
+
+    def test_fig6_draws_one_row_of_three_panels_from_e5s_numbers(self):
         import pandas as pd
+        from matplotlib.colors import to_hex
+        from matplotlib.text import Text
 
+        from experiment.pipeline.figures import style
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        def table(key):
+            return pd.read_csv(SCHEMAS[key].path(self.runs))
+
+        summary, sampling, bands = table("E5_summary"), table("E5_sampling"), table("E5_bands")
+        rows = summary[(summary.window == "informative") & summary.trunk_bins.isin(set(bands.trunk_bins))]
+        arms = len(rows)
+        self.assertGreater(arms, 0)
+        fig = self._draw("fig6")
+        texts = [t.get_text() for t in fig.findobj(Text)]
+        self.assertEqual((len(fig.axes), fig.legends), (3, []))  # no figure legend
+        ax_a, ax_b, ax_c = fig.axes
+        # a: the truth, one genome's fit, its band and the independent fits' range, as PSMC steps at the grid's
+        # times; the band is the panel's only fill.
+        labels = [t.get_text() for t in ax_a.get_legend().get_texts()]
+        self.assertEqual(len(labels), 4)
+        fits = int(sampling.fits.iloc[0])
+        self.assertEqual((labels[0], labels[-1]), ("Truth", f"95% range of {fits} independent fits"))
+        self.assertEqual(len(ax_a.collections), 1)
+        self.assertTrue(all(ln.get_drawstyle() == "steps-mid" for ln in ax_a.lines))
+        # b: each block count's median SD ratio, in the key.
+        keys = [t.get_text() for t in ax_b.get_legend().get_texts()]
+        self.assertEqual(len(keys), arms)
+        for row in rows.itertuples():
+            self.assertTrue(any(f"{int(row.trunks)} blocks" in k and f"{row.sd_ratio_median:.2f}×" in k for k in keys),
+                            (row.trunks, keys))
+        # c: per block count a strip of genomes and a mean bar, for the fits' mean and for the truth.
+        bars = [ln for ln in ax_c.lines if len(ln.get_ydata()) == 2 and ln.get_ydata()[0] == ln.get_ydata()[1]
+                and ln.get_marker() in ("None", "", None) and to_hex(ln.get_color()) == style.INK]
+        want = sorted(100.0 * v for v in list(rows.coverage_of_fit_mean_mean) + list(rows.coverage_mean))
+        got = sorted(float(ln.get_ydata()[0]) for ln in bars)
+        self.assertEqual(len(got), 2 * arms)
+        for g, w in zip(got, want):
+            self.assertAlmostEqual(g, w, delta=1e-9)
+        dots = [ln for ln in ax_c.lines if ln.get_marker() == "o"]
+        self.assertEqual(len(dots), 2 * arms)
+        per_arm = bands.groupby("trunk_bins").dataset.nunique()
+        self.assertEqual(sorted(len(ln.get_xdata()) for ln in dots),
+                         sorted(int(per_arm[t]) for t in rows.trunk_bins for _ in range(2)))
+        self.assertIn("Nominal 95%", [t.get_text() for t in ax_c.texts])
+        self.assertFalse(any(t == "Median ratio" or "↑" in t for t in texts))
+
+    def test_figs1_ends_both_tools_where_c_psmc_stops(self):
+        import pandas as pd
+        from matplotlib.collections import LineCollection
+        from matplotlib.text import Text
+
+        from experiment.pipeline.figures import figs1
+        from experiment.pipeline.figures.fig2 import model_order
         from experiment.pipeline.figures.schemas import SCHEMAS
 
         traces = pd.read_csv(SCHEMAS["E1_traces"].path(self.runs))
         last_c = int(traces[(traces.tool == "c") & traces.loglike.notna()]["iteration"].max())
         fig = self._draw("figs1")
-        n = traces["model"].nunique()
-        for ax in fig.axes[:n]:
+        shown = [ax for ax in fig.axes if ax.axison]
+        per = figs1.series(traces)
+        models = model_order(per.keys())
+        self.assertEqual(len(shown), traces["model"].nunique())  # one panel per model
+        for ax, m in zip(shown, models):
             for ln in ax.lines:
                 self.assertLessEqual(max(ln.get_xdata()), last_c)
-        self.assertTrue(any("Rounding of C psmc's printed" in label for label in self._labels(fig)))
-        for ax in fig.axes[2 * n:3 * n]:
-            self.assertEqual(len(ax.collections), 1)  # the rounding band
+                self.assertIn(ln.get_marker(), ("None", "", None))  # continuous lines carry no markers
+            # No band: the y hairlines are the only collection.
+            self.assertLessEqual(len(ax.collections), 1)
+            self.assertTrue(all(type(c) is LineCollection for c in ax.collections))
+            if per[m]["arrow"] is not None:  # the arrow's ratio, floored: a bound
+                self.assertIn(per[m]["arrow"]["label"], [t.get_text() for t in ax.texts])
+        self.assertEqual(self._labels(fig), ["C psmc", "psmc-rs"])
+        self.assertFalse(any("Rounding" in t.get_text() or "psmc-rs 0." in t.get_text() for t in fig.findobj(Text)))
 
     def test_figs3_draws_coverage_by_posterior_mean_decile_when_given(self):
         import pandas as pd

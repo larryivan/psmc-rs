@@ -1,5 +1,5 @@
 {
-  "digest": "05bfcd7823a75cc622fb9fe0b94d50ce23522269cbbf3e34742650556e530681",
+  "digest": "e163da149dd26738e775d6bc5f90b0c0185009e629a53129245b63e2e533b174",
   "key": {
     "command": [
       "<python>",
@@ -13,7 +13,8 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E3/tables/E3_table2.csv": "3145f49259b923e653048d5701590283dcb240ee21f15f5546edeae2b9f0decc"
+      "<runs>/E3/tables/E3_table2.csv": "3145f49259b923e653048d5701590283dcb240ee21f15f5546edeae2b9f0decc",
+      "<runs>/E7/tables/E7_fits.csv": "804c8bc0f3de803eaf26c918661a4294523eeb7572914140f5162088a77e4193"
     },
     "job": "FIG/art2_performance",
     "seeds": {},
@@ -110,6 +111,143 @@
             "rss_sample_seconds": 0.5,
             "settle_seconds": 10.0
           }
+        },
+        "E7": {
+          "admixed": [
+            "ACB",
+            "ASW",
+            "CLM",
+            "MXL",
+            "PEL",
+            "PUR"
+          ],
+          "band": [
+            0.025,
+            0.975
+          ],
+          "bootstrap_replicates": 100,
+          "bootstrap_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "bootstrap_threads": 32,
+          "bootstrap_trunk_bins": 500000,
+          "c_psmc": true,
+          "chromosomes": [
+            "chr1",
+            "chr2",
+            "chr3",
+            "chr4",
+            "chr5",
+            "chr6",
+            "chr7",
+            "chr8",
+            "chr9",
+            "chr10",
+            "chr11",
+            "chr12",
+            "chr13",
+            "chr14",
+            "chr15",
+            "chr16",
+            "chr17",
+            "chr18",
+            "chr19",
+            "chr20",
+            "chr21",
+            "chr22"
+          ],
+          "chunk_attempts": 3,
+          "chunk_bp": 15000000,
+          "cohort": "unrelated2504",
+          "costs": {
+            "giab_gb": 2.0,
+            "giab_s": 300.0,
+            "report_gb": 4.0,
+            "report_s_base": 60.0,
+            "report_s_per_fit": 0.05,
+            "vcf_fit_gb": 0.5
+          },
+          "display_years": [
+            1000.0,
+            100000000.0,
+            400
+          ],
+          "fetch_parts": 16,
+          "figure_years": [
+            10000.0,
+            10000000.0
+          ],
+          "fit_threads": 1,
+          "giab": true,
+          "giab_bed_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.bed",
+          "giab_vcf_url": "https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/HG001_GRCh38_1_22_v4.2.1_benchmark.vcf.gz",
+          "grid": {
+            "fixed_years": [
+              10000.0,
+              1000000.0
+            ],
+            "points": 200,
+            "quantiles": [
+              0.01,
+              0.99
+            ]
+          },
+          "index_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/1000G_2504_high_coverage.sequence.index",
+          "inference": {
+            "bin_size": 100,
+            "mstep_iters": 1000,
+            "n_iter": 25,
+            "pattern": "4+25*2+4+6",
+            "smooth_lambda": 0.0,
+            "t_max": 15.0,
+            "tr_ratio": 5.0
+          },
+          "input": "joint",
+          "local_source": null,
+          "manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv",
+          "mask_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/working/20160622_genome_mask_GRCh38/StrictMask/20160622.allChr.mask.bed",
+          "min_good_fraction": null,
+          "mirror_url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "panel_manifest_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt",
+          "panel_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.{chrom}.filtered.SNV_INDEL_SV_phased_panel.vcf.gz",
+          "ped_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt",
+          "per_population": 2,
+          "pilot_samples": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "pinned": [
+            "NA18507",
+            "NA19239",
+            "NA12878"
+          ],
+          "raw_depth_genome_bp": 3100000000.0,
+          "retry_wait_seconds": 60.0,
+          "scaling": {
+            "gen_years": 29.0,
+            "mu": 1.25e-08
+          },
+          "scaling_source": "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. 2020 (Science 367:eaay5012) and Cousins, Scally & Durbin 2025 (Nat Genet 57:856)",
+          "split_batch_size": 500,
+          "split_pattern": "1+1+1+1+25*2+4+6",
+          "spread": [
+            0.1,
+            0.9
+          ],
+          "stream_threads": 4,
+          "superpopulations": [
+            "AFR",
+            "AMR",
+            "EAS",
+            "EUR",
+            "SAS"
+          ],
+          "use_mirror": true,
+          "vcf_url": "https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_{chrom}.recalibrated_variants.vcf.gz",
+          "window": null
         }
       },
       "figure": "art2_performance",
@@ -135,7 +273,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "4e2ac0091ce6698e6903d3f985a3527821849ad4605bd328819b87fb85111708",
+        "code": "44d48ee72de88ddf599338846a1c37eda099fd20087147af8df5b1213866c5b5",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -144,14 +282,14 @@
     }
   },
   "outputs": {
-    "<runs>/E3/figures/art2_performance.pdf": "f0c763feaa7f8a6baf1a0de97856aa4d637f1a74ae798ab4760518200539a704",
-    "<runs>/E3/figures/art2_performance.png": "d14f062297ec0009fec3adc26cc8c8c965acb0a987187f14ef67a80495531dc7",
-    "<runs>/E3/figures/art2_performance.svg": "400f1888eda80479a6605d541e2b8f81d2e5ce472db5505cc790a2fece15d44f"
+    "<runs>/E3/figures/art2_performance.pdf": "9acc7be5595a92cadf8ab957760dce061a95020c74ab2dce8966476c93b0d4d1",
+    "<runs>/E3/figures/art2_performance.png": "37c94b3df228f496caf933bd84459adbb2d64cf7f20b8c878bbf3df9d6ae0a4e",
+    "<runs>/E3/figures/art2_performance.svg": "d84bc8de9eaada5cf0194f374ec55e6f4c1fd611226465a035444a0bcc2a95d0"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-11T20:31:38",
+    "end": "2026-10-12T19:08:34",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -159,22 +297,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      2.43,
-      3.9,
-      3.31
+      1.92,
+      3.4,
+      3.39
     ],
     "loadavg_before": [
-      2.43,
-      3.9,
-      3.31
+      1.92,
+      3.4,
+      3.39
     ],
-    "maxrss_main_mb": 154.1,
+    "maxrss_main_mb": 146.1,
     "mem_gb": 1.0,
-    "peak_rss_mb": 154.1,
-    "peak_rss_tree_sampled_mb": 153.2,
-    "start": "2026-10-11T20:31:37",
-    "system_seconds": 0.133,
-    "user_seconds": 1.183,
-    "wall_seconds": 1.503
+    "peak_rss_mb": 146.1,
+    "peak_rss_tree_sampled_mb": 145.8,
+    "start": "2026-10-12T19:08:31",
+    "system_seconds": 0.217,
+    "user_seconds": 1.562,
+    "wall_seconds": 2.695
   }
 }

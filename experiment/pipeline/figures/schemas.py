@@ -58,7 +58,7 @@ def _add(key: str, experiment: str, rows: str, columns: Dict[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# E1: simulated accuracy and equivalence (Fig 2, Fig S1)
+# E1: simulated accuracy and equivalence (Fig 2, Fig S1; the article's Fig 1)
 # ---------------------------------------------------------------------------
 
 _add("E1_curves", "E1", "model, replicate, tool and interval", {
@@ -209,7 +209,7 @@ _add("E3_determinism", "E3", "run, against its tool's reference at the same size
 })
 
 # ---------------------------------------------------------------------------
-# E4: input preparation (Fig 5)
+# E4: input preparation (Fig 5; the supplement's Fig S2)
 # ---------------------------------------------------------------------------
 
 _add("E4_routes", "E4", "mask, route and replicate", {
@@ -227,16 +227,9 @@ _add("E4_curves", "E4", "mask, route, replicate and interval", {
     "replicate": "replicate",
     **CURVE_COLUMNS,
 })
-_add("E4_bias", "E4", "mask, route and time of the informative window", {
-    "mask": "mask",
-    "route": "route",
-    "years": "years ago",
-    "replicates": "replicates",
-    "log10_bias_mean": "mean over replicates of log10(fitted Ne / true Ne)",
-})
 
 # ---------------------------------------------------------------------------
-# E5: bootstrap calibration (Fig 6)
+# E5: bootstrap calibration (Fig 6; the supplement's Fig S3)
 # ---------------------------------------------------------------------------
 
 _add("E5_summary", "E5", "trunk size and window", {
@@ -244,9 +237,12 @@ _add("E5_summary", "E5", "trunk size and window", {
     "trunk_mb": "trunk size (Mb)",
     "trunks": "trunks per genome",
     "window": "informative or fixed",
+    "sd_ratio_median": "median over the window's times of the median (over the genomes) bootstrap SD / true SD",
     "coverage_mean": "pointwise coverage averaged over the window",
     "coverage_mean_ci_lo": "its 2.5% bound from resampling the bootstrapped genomes",
     "coverage_mean_ci_hi": "its 97.5% bound",
+    "coverage_of_fit_mean_mean": "pointwise share of the genomes whose band holds the fits' geometric mean, "
+                                 "averaged over the window",
     "coverage_projected_mean": "pointwise coverage of each genome's pattern-projected truth, averaged over the window",
     "coverage_projected_mean_ci_lo": "its 2.5% bound from resampling the bootstrapped genomes",
     "coverage_projected_mean_ci_hi": "its 97.5% bound",
@@ -256,6 +252,7 @@ _add("E5_sampling", "E5", "time of the informative window", {
     "years": "years ago",
     "true_ne": "true Ne",
     "fits": "independent genomes fitted",
+    "mean_log10_ne": "mean of the fits' log10 Ne (10 ** it: their geometric mean)",
     "lo_ne": "2.5% quantile of the fits' Ne",
     "hi_ne": "97.5% quantile of the fits' Ne",
 })
@@ -267,6 +264,7 @@ _add("E5_bands", "E5", "bootstrapped genome, trunk size and time", {
     "fit_ne": "the genome's fitted Ne",
     "boot_lo_ne": "2.5% quantile of its bootstrap replicates",
     "boot_hi_ne": "97.5% quantile",
+    "covers_truth": "1 when the band (boot_lo_ne to boot_hi_ne, bounds included) holds the true Ne, else 0",
     "projected_ne": "the true Ne projected onto the free-lambda spans of the genome's fit (metrics.projected_truth)",
 })
 _add("E5_sd_ratio", "E5", "trunk size and time", {
@@ -350,7 +348,7 @@ _add("E6_S3_summary", "E6", "set of bins (all, heterozygous, homozygous)", {
 
 
 # ---------------------------------------------------------------------------
-# E7: 1000 Genomes (Fig 7, Figs S5 and S6)
+# E7: 1000 Genomes (Fig 7, the article's Fig 3; Figs S5 and S6; the article's Fig 2 c)
 # ---------------------------------------------------------------------------
 
 _E7_WHO = {
@@ -418,6 +416,8 @@ _add("E7_fits", "E7", "sample and route", {
     "sample_id": "sample",
     "route": "rs-psmcfa, rs-vcf, c or rs-split",
     "n0": "N0 of the fit (Ne = lambda N0)",
+    "threads": "threads of the fit (1 for C psmc)",
+    "wall_seconds": "wall time of the fit, on one core of a node shared with other fits",
 })
 _add("E7_curves", "E7", "sample, route and interval", {
     "sample_id": "sample",

@@ -1,65 +1,108 @@
-"""The article's Fig 2: psmc-rs is fast and lean (E3).
+"""The article's Fig 2: psmc-rs is fast and lean (E3, E7).
 
-Every run fits the recipe's EM iterations (25 in production) to a
-constant-model genome made of 100 Mb chromosomes (1, 3, 10 and 30 of them at
-100, 300, 1,000 and 3,000 Mb), alone on the machine. Points are the medians
-of the repeats (five in production, within 6% of one another:
-``wall_min_s`` and ``wall_max_s``), from ``E3_table2``; psmc-rs is 0.2
-(``rs02``) with its default settings, C psmc is single-threaded. E3's runs
-of psmc-rs 0.1 (``rs01``) are not drawn (``fig4_performance`` draws them).
+One row of three panels that follow one rule: cost on the y axis, C psmc in
+orange high in the panel, psmc-rs in blue low. a and c show the advantage
+as a double arrow with a bold fold label ("8.6× faster"; 7 pt bold, 3 pt
+from its arrow, on two lines in c's narrow gap between the columns); b
+shows it as the empty height on a linear axis from zero. There is no
+legend: each program is named once per panel beside its data, in a text
+colour darker than its mark (:data:`.style.ORANGE_TEXT`,
+:data:`.style.BLUE_TEXT`), as one line of name and value ("C psmc  74 min"),
+and no grid: every number the text cites is printed on the data, to the
+precision that reproduces the printed folds (74 min over 8.65 min and over
+18.3 s give 8.6× and 243×; 104.3 min over 12.1 min, the text's medians,
+give 8.6×).
 
-* a: wall time against genome size: C psmc and psmc-rs on each of the
-  thread counts E3 times every size at (``config.E3.rs02_threads``: 1, 8
-  and 30), darker with more threads, each line's time on the largest genome
-  at its end. psmc-rs runs the forward-backward pass of each sequence on one
-  thread, in parallel across sequences, so threads beyond the number of
-  chromosomes add nothing: on the 100 Mb genome, one chromosome, the
-  psmc-rs points coincide.
-* b: speed-up over C psmc on the thread-scaling genome (3,000 Mb, 30
-  chromosomes) against threads (``config.E3.thread_scaling_threads``), the
-  ratio of the medians; the dotted line is perfect scaling, the one-thread
-  speed-up times the threads.
-* c: peak memory (resident set size of the process tree) on the largest
-  genome: C psmc, and psmc-rs on the threads of a.
+* a, b (E3, ``E3_table2``): the thread-scaling genome
+  (``config.E3.thread_scaling_size_mb``: 3,000 Mb, 30 chromosomes of 100
+  Mb in production), fitted for the recipe's EM iterations, each run alone
+  on its machine; points are the medians of the repeats. The x axis is
+  psmc-rs's threads (``config.E3.thread_scaling_threads``: 1, 2, 4, 8, 16
+  and 30), shared by a and b, which have the same width so that their
+  thread ticks line up. psmc-rs is 0.2 (``rs02``) with its default
+  settings, circles on a 1 pt line; C psmc is single-threaded, so it is its
+  one measurement (a square at one thread) drawn flat across the thread
+  counts. E3's runs of psmc-rs 0.1 (``rs01``) are not drawn.
+
+  * a: wall time (log scale). Two arrows give the speed-up over C psmc
+    (``speedup_vs_c``) on one thread (per-core efficiency, 8.6×) and on
+    the most threads (243× on 30; drawn when they are at least four times
+    the fewest, so that the two labels have room), with C psmc's time and
+    psmc-rs's on one thread and on the most threads printed beside them
+    (the thread axis runs far enough past the most threads for that last
+    value to end inside it). The upper limit puts C psmc's line at the
+    same height of the axes as in b, so that the two orange lines of these
+    small multiples align.
+    psmc-rs fits each sequence on one thread, in parallel across
+    sequences, so the speed-up on many threads needs as many sequences of
+    similar length (for the caption to say).
+  * b: peak memory, the resident set size of the process tree (linear
+    scale from zero): C psmc's, and psmc-rs's at one thread and at the most
+    threads printed above their points; psmc-rs's rises with threads
+    because each thread holds its own sequence. No arrow.
+
+* c (E7, ``E7_fits``): the 1000 Genomes cohort, each genome fitted on one
+  core of a node shared with other fits: wall time per genome of C psmc
+  (route ``c``, the default genomes; squares) and of psmc-rs (route
+  ``rs-psmcfa``, every genome; circles), jittered within their column in a
+  fixed order (sorted by sample, a seeded generator), with ink bars at the
+  medians (as wide as the jitter, so that the narrow psmc-rs band shows
+  around its bar rather than as a fringe of it), n under each name (on the
+  baseline of a's and b's x labels), each median printed by its cloud and
+  an arrow between the medians giving their ratio. The y axis runs a
+  tenth past its top tick, so that the tick clears the title row as a's
+  and b's do. The absolute times are not comparable with a's (a shared
+  node), the ratio is. Without ``E7_fits`` (or its ``wall_seconds``) a and
+  b take the row alone; the figure's spec must list ``E7_fits`` for the
+  pipeline to redraw it when the cohort changes.
+
+C psmc's or psmc-rs's marks, labels and arrows are left out where their
+rows are missing (the small profiles time fewer threads and genomes).
 """
 
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 from . import style
 from .data import Source
 
-H_MM = 62.0
-TOP_MM, BOTTOM_MM = 7.0, 11.5
-A_X_MM, A_W_MM = 13.0, 60.0  # a's axes; each line's time at its end, to the right
-B_X_MM, B_W_MM = 101.0, 36.0
-C_X_MM, C_W_MM = 151.0, 29.0
-THREAD_RAMP = (style.BLUE, "#1c5cab", "#0d366b")  # steps 500, 700 and 900 of the blue ramp: more threads, darker
-TIME_TICKS = (1.0, 10.0, 60.0, 600.0, 3600.0, 36000.0)
-
-
-def thread_colors(threads: Sequence[int]) -> Dict[int, str]:
-    """psmc-rs's colour at each thread count: its blue at one thread, darker with more (by log threads)."""
-    from matplotlib.colors import LinearSegmentedColormap, to_hex
-
-    cmap = LinearSegmentedColormap.from_list("threads", THREAD_RAMP)
-    hi = max(threads)
-    return {t: to_hex(cmap(0.0 if hi <= 1 else math.log(t) / math.log(hi))) for t in threads}
+H_MM = 55.0
+C_W_MM = 32.0  # panel c, two categories; a and b share the rest of the row equally
+TIME_TICKS = (0.01, 0.1, 1.0, 10.0, 60.0, 600.0, 3600.0, 36000.0)  # 10 s, 1 min, 10 min, 1 h
+ROUTE_C, ROUTE_RS = "c", "rs-psmcfa"  # E7_fits routes: C psmc, and psmc-rs on the psmcfa (every genome)
+COHORT_MS = 1.7  # psmc-rs's 2,504 cohort dots: a band about 1 mm tall, which shows around its median bar
+COHORT_EDGE_LW = 0.25  # white rim between c's overlapping squares, as in Fig 1 e (EDGE_LW)
+COHORT_BAR_HALF = style.STRIP_JITTER  # c's median bars span the clouds' centres, not past them (house: STRIP_BAR_HALF)
+COHORT_HEAD = 1.1  # c's y axis runs this far past its top tick, clear of the title row
+A_HI_FALLBACK = 1.62  # a's upper limit over C psmc's time when b has no C psmc line to match
+A_ROOM = 1.3  # ...and at least this much, room above C psmc's line for its name
+SHRINK_PT = 2.6  # a's arrow heads stop this far from the line or the marker they point at
+FOLD_DX_PT = 3.0  # a fold label's edge from its arrow, in a and c
+THREAD_ROOM = 1.6  # the thread axis ends this far past the most threads: room for the last value in a
+SEED = 7  # the jitter of c's points
 
 
 def fmt_time(seconds: float) -> str:
-    """A run time as people say it: 18 s, 8.7 min, 74 min, 2.5 h."""
+    """A run time as people say it: 0.35 s, 18.3 s, 8.65 min, 74 min, 2.5 h.
+
+    Seconds keep one decimal (as the text's macros do) and minutes below ten keep three figures, so
+    that C psmc's time over psmc-rs's printed beside it gives the printed fold (74 min / 18.3 s = 243×,
+    where 18 s would give 247×; 74 min / 8.65 min = 8.6×, where 8.7 min would give 8.5×).
+    """
+    if seconds < 1:
+        return f"{seconds:.2g} s"
     if seconds < 100:
-        return f"{seconds:.0f} s"
+        return f"{seconds:.1f} s"
     minutes = seconds / 60.0
     if minutes < 100:
-        return f"{minutes:.1f} min" if minutes < 10 else f"{minutes:.0f} min"
+        return f"{minutes:.3g} min" if minutes < 10 else f"{minutes:.0f} min"
     return f"{minutes / 60.0:.1f} h"
 
 
 def fmt_tick(seconds: float) -> str:
+    """A time tick: 10 s, 1 min, 10 min, 1 h."""
     for unit, size in (("h", 3600.0), ("min", 60.0)):
         if seconds >= size * 0.999:
             return f"{seconds / size:g} {unit}"
@@ -67,148 +110,300 @@ def fmt_tick(seconds: float) -> str:
 
 
 def fmt_fold(x: float) -> str:
-    return f"{x:.1f}×" if x < 10 else f"{x:,.0f}×"
+    """A fold change: 8.6×, 17×, 243×, 7,000×."""
+    return f"{x:.1f}{style.TIMES}" if x < 10 else f"{x:,.0f}{style.TIMES}"
 
 
-def axes_mm(fig, x: float, w: float):
+def _fmt_value(v: float) -> str:
+    """A value printed on the data: 1,062, 36, 0.29."""
+    return f"{v:,.0f}" if v >= 10 else f"{v:.2g}"
+
+
+def _fmt_median(v: float) -> str:
+    """A median of c, with one decimal as the text's macros print them (104.3, 12.1); three figures below 10."""
+    return f"{v:,.1f}" if v >= 10 else f"{v:.3g}"
+
+
+def _lab(ax, s: str, xy, dx: float, dy: float, *, ha: str = "left", va: str = "bottom", color: str = style.INK,
+         size: float = style.LABEL_PT, **kw):
+    """Text ``dx``, ``dy`` points from the data point ``xy``."""
+    return ax.annotate(s, xy=xy, xytext=(dx, dy), textcoords="offset points", ha=ha, va=va, fontsize=size,
+                       color=color, annotation_clip=False, zorder=style.Z_TEXT, **kw)
+
+
+def _fold_label(ax, s: str, xy, side: int, **kw):
+    """A fold change, the figure's message: 7 pt bold ink FOLD_DX_PT right (``side`` +1) or left (-1) of its
+    arrow."""
+    return _lab(ax, s, xy, FOLD_DX_PT * side, 0, ha="left" if side > 0 else "right", va="center",
+                size=style.TEXT_PT, fontweight="bold", **kw)
+
+
+def _gap_arrow(ax, p_from, p_to, shrink: float = 0.0) -> None:
+    """A double arrow between two levels, its heads ``shrink`` points short of them."""
+    props = dict(style.ARROW_PROPS, shrinkA=shrink, shrinkB=shrink)
+    ax.annotate("", xy=p_to, xytext=p_from, arrowprops=props, annotation_clip=False, zorder=style.Z_TEXT)
+
+
+def _programs(ax, th: Sequence[float], ys: Sequence[float], c_y: Optional[float]) -> None:
+    """C psmc flat at ``c_y`` with its one measurement (a square at the fewest threads); psmc-rs's line of circles."""
+    if c_y is not None:
+        x0, x1 = (th[0], th[-1]) if len(th) else (1.0, 1.0)
+        ax.plot([x0, x1], [c_y, c_y], color=style.ORANGE, linewidth=style.LW_DATA, zorder=style.Z_UNDERLAY)
+        ax.plot([x0], [c_y], **style.C_PSMC.points(label=None, zorder=style.Z_TRUTH, clip_on=False))
+    if len(th):
+        ax.plot(th, ys, color=style.BLUE, linewidth=style.LW_EMPH, zorder=style.Z_DATA)
+        ax.plot(th, ys, **style.RS02.points(label=None, zorder=style.Z_TRUTH, clip_on=False))
+
+
+def _thread_axis(ax, th: Sequence[float]) -> None:
+    """psmc-rs's threads on a log axis, ticked at the measured counts only."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+
+    ax.set_xscale("log")
+    ax.xaxis.set_major_locator(FixedLocator(list(th)))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:g}"))
+    ax.xaxis.set_minor_locator(NullLocator())
+    lo, hi = (min(th), max(th)) if len(th) else (1.0, 1.0)
+    ax.set_xlim(lo / 1.19, hi * THREAD_ROOM)  # room right of the last point for a's value
+    ax.set_xlabel("psmc-rs threads")
+
+
+def _linear_ticks(top: float, most: int = 3) -> Tuple[float, List[float]]:
+    """The fewest-digit 1-2-5 step giving at most ``most`` ticks from zero to ``top``, and those ticks."""
+    k = math.floor(math.log10(top)) - 1 if top > 0 else 0
+    while True:
+        for m in (1.0, 2.0, 5.0):
+            step = m * 10.0 ** k
+            n = int(math.floor(top / step + 1e-9)) + 1
+            if n <= most:
+                return step, [i * step for i in range(n)]
+        k += 1
+
+
+def _panel_time(ax, th, wall, sp, c_wall: Optional[float], c_frac: Optional[float] = None) -> None:
+    """a: wall time against threads, with the speed-up over C psmc on the fewest and the most threads.
+
+    ``c_frac`` is the height of b's C psmc line as a fraction of b's axes: a's upper limit puts C psmc's
+    time at the same height, so that the two orange lines align across the row.
+    """
+    from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+
+    _thread_axis(ax, th)
+    ax.set_yscale("log")
+    values = [v for v in list(wall) + ([c_wall] if c_wall is not None else []) if math.isfinite(v) and v > 0]
+    if values:
+        floor = min(values) / 1.6
+        lows = [t for t in TIME_TICKS if t <= floor]
+        lo = lows[-1] if lows else 10.0 ** math.floor(math.log10(floor))
+        top = max(values)
+        hi = top * A_HI_FALLBACK  # room above C psmc's line for its name
+        if c_wall is not None and c_wall >= top and c_frac is not None and 0.5 < c_frac < 0.97:
+            hi = max(lo * (c_wall / lo) ** (1.0 / c_frac), c_wall * A_ROOM)
+        ax.set_ylim(lo, hi)
+        ax.yaxis.set_major_locator(FixedLocator([t for t in TIME_TICKS if lo <= t <= hi]))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: fmt_tick(v)))
+    ax.yaxis.set_minor_locator(NullLocator())
+    ax.set_ylabel("Wall time")
+    _programs(ax, th, wall, c_wall)
+    if c_wall is not None and len(th):
+        # The speed-up on one thread and on the most; the second only where the two labels have room.
+        ends = [(0, 1)] + ([(len(th) - 1, -1)] if len(th) > 1 and th[-1] / th[0] >= 4 else [])
+        for i, side in ends:
+            _gap_arrow(ax, (th[i], c_wall), (th[i], wall[i]), SHRINK_PT)
+            _fold_label(ax, f"{fmt_fold(sp[i])} faster", (th[i], math.sqrt(c_wall * wall[i])), side)
+    if c_wall is not None:
+        _lab(ax, f"C psmc  {fmt_time(c_wall)}", (th[0] if len(th) else 1.0, c_wall), -1.5, 2.5,
+             color=style.ORANGE_TEXT)
+    if len(th):
+        _lab(ax, f"psmc-rs  {fmt_time(wall[0])}", (th[0], wall[0]), 3.5, 1.2, color=style.BLUE_TEXT)
+    if len(th) > 1:
+        _lab(ax, fmt_time(wall[-1]), (th[-1], wall[-1]), 3.5, 0, va="center", color=style.BLUE_TEXT)
+
+
+def _memory_limits(mem, c_mem: Optional[float]) -> Tuple[float, List[float], float]:
+    """b's y axis: its tick step, its ticks and its upper limit (the lower is zero)."""
+    values = [v for v in list(mem) + ([c_mem] if c_mem is not None else []) if math.isfinite(v) and v > 0]
+    top = max(values) * 1.13 if values else 1.0  # room above the highest line for its name
+    step, ticks = _linear_ticks(top)
+    q = step / 5.0
+    return step, ticks, max(q * round(top / q), max(values or [0]) * 1.08)
+
+
+def _panel_memory(ax, th, mem, c_mem: Optional[float]) -> None:
+    """b: peak memory against threads, on a linear axis from zero."""
+    from matplotlib.ticker import FixedLocator, FuncFormatter
+
+    _thread_axis(ax, th)
+    step, ticks, top = _memory_limits(mem, c_mem)
+    ax.set_ylim(0, top)
+    ax.yaxis.set_major_locator(FixedLocator(ticks))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:,.0f}" if step >= 1 else f"{v:g}"))
+    ax.set_ylabel("Peak memory (MB)")
+    _programs(ax, th, mem, c_mem)
+    if c_mem is not None:
+        _lab(ax, f"C psmc  {_fmt_value(c_mem)} MB", (th[0] if len(th) else 1.0, c_mem), -1.5, 2.5,
+             color=style.ORANGE_TEXT)
+    if len(th):  # left-aligned under C psmc's name, as in a
+        _lab(ax, f"psmc-rs  {_fmt_value(mem[0])} MB", (th[0], mem[0]), -1.5, 3.5, color=style.BLUE_TEXT)
+    if len(th) > 1:
+        _lab(ax, f"{_fmt_value(mem[-1])} MB", (th[-1], mem[-1]), 0, 3.5, ha="center", color=style.BLUE_TEXT)
+
+
+def _cohort(src: Source):
+    """Panel c's wall times in seconds, sorted by sample: (C psmc's, psmc-rs's), or None without them.
+
+    Only one-thread fits count (all of them in E7): the panel compares the programs core for core.
+    """
+    if not src.has("E7_fits"):
+        return None
+    f = src.table("E7_fits")
+    if "wall_seconds" not in f.columns:
+        return None
+    f = f[f.wall_seconds.notna() & (f.wall_seconds > 0)]
+    if "threads" in f.columns:
+        f = f[f.threads == 1]
+    out = tuple(f[f.route == r].sort_values("sample_id").wall_seconds.to_numpy(dtype=float)
+                for r in (ROUTE_C, ROUTE_RS))
+    return out if any(len(v) for v in out) else None
+
+
+def _panel_cohort(ax, c_s, rs_s) -> None:
+    """c: wall time per genome over the 1000 Genomes cohort, C psmc against psmc-rs, with the ratio of medians."""
+    import matplotlib as mpl
+    import numpy as np
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator
+
+    longest = max(float(np.max(v)) for v in (c_s, rs_s) if len(v))
+    scale, unit = (60.0, "min") if longest >= 120 else (1.0, "s")
+    cm, rm = c_s / scale, rs_s / scale
+    rng = np.random.default_rng(SEED)
+    jr = rng.uniform(-style.STRIP_JITTER, style.STRIP_JITTER, rm.size)  # psmc-rs first, then C psmc
+    jc = rng.uniform(-style.STRIP_JITTER, style.STRIP_JITTER, cm.size)
+    xc, xr = 0.0, 1.0
+    if rm.size:
+        ax.scatter(xr + jr, rm, s=COHORT_MS ** 2, marker=style.RS02.marker, c=style.BLUE, linewidths=0,
+                   zorder=style.Z_UNDERLAY)
+    if cm.size:  # white hairline edges keep the overlapping squares apart
+        ax.scatter(xc + jc, cm, s=style.STRIP_MS ** 2, marker=style.C_PSMC.marker, c=style.ORANGE,
+                   edgecolors=style.SURFACE, linewidths=COHORT_EDGE_LW, zorder=style.Z_UNDERLAY)
+    medians = {}
+    for x, v in ((xc, cm), (xr, rm)):
+        if v.size:
+            medians[x] = float(np.median(v))
+            ax.plot([x - COHORT_BAR_HALF, x + COHORT_BAR_HALF], [medians[x]] * 2, color=style.INK,
+                    linewidth=style.LW_DATA, solid_capstyle="butt", zorder=style.Z_DATA)
+    ax.set_xlim(-0.55, 1.55)
+    ax.set_xticks([])
+    # Each program's name on the baseline of a's and b's tick labels, and n under it on the baseline of
+    # their x labels, so that the row ends on one line (two-line tick labels would set "C psmc" lower than
+    # "psmc-rs", whose first line has no capital). matplotlib sets a line of text at least as tall as "lp":
+    # a tick label's top is the tick's length and pad below the spine, an x label's top labelpad below the
+    # tick labels' bottom.
+    renderer = ax.figure.canvas.get_renderer()
+
+    def lp(size: float) -> Tuple[float, float]:
+        _w, h, d = renderer.get_text_width_height_descent("lp", FontProperties(size=size), ismath=False)
+        return h * 72.0 / ax.figure.dpi, d * 72.0 / ax.figure.dpi
+
+    (h_tick, d_tick), (h_lab, d_lab) = lp(style.TICK_PT), lp(ax.xaxis.label.get_fontsize())
+    tick_top = mpl.rcParams["xtick.major.size"] + mpl.rcParams["xtick.major.pad"]
+    drops = (tick_top + h_tick - d_tick, tick_top + h_tick + mpl.rcParams["axes.labelpad"] + h_lab - d_lab)
+    for x, name, v in ((xc, "C psmc", cm), (xr, "psmc-rs", rm)):
+        if v.size:
+            for s, drop in zip((name, f"({v.size:,})"), drops):
+                ax.annotate(s, xy=(x, 0), xycoords=ax.get_xaxis_transform(), xytext=(0, -drop),
+                            textcoords="offset points", ha="center", va="baseline", fontsize=style.TICK_PT,
+                            color=style.INK, annotation_clip=False)
+    ticks = MaxNLocator(nbins=4, steps=[1, 1.5, 3, 5, 10]).tick_values(0, longest / scale)
+    ticks = [t for t in ticks if t >= 0]
+    ax.set_ylim(0, ticks[-1] * COHORT_HEAD)  # the top tick's label clear of the title, as in a and b
+    ax.yaxis.set_major_locator(FixedLocator(ticks))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:g}"))
+    ax.set_ylabel(f"Wall time per genome ({unit})")
+    if cm.size:
+        _lab(ax, f"{_fmt_median(medians[xc])} {unit}", (xc, float(cm.min())), 0, -3.0, ha="center", va="top",
+             color=style.ORANGE_TEXT)
+    if rm.size:
+        _lab(ax, f"{_fmt_median(medians[xr])} {unit}", (xr, float(rm.max())), 0, 3.0, ha="center", va="bottom",
+             color=style.BLUE_TEXT)
+    if cm.size and rm.size:
+        mc, mr = medians[xc], medians[xr]
+        _gap_arrow(ax, (0.5, mc), (0.5, mr))
+        # Set as in a, on two lines so that it stays in the gap between the arrow and psmc-rs's column.
+        _fold_label(ax, f"{fmt_fold(mc / mr)}\nfaster", (0.5, (mc + mr) / 2.0), +1, linespacing=1.0)
+
+
+def _place(fig, axes: Sequence, widths: Sequence[Optional[float]]) -> None:
+    """Lay the row out: first spine at LEFT_MM (or further right, so that the first panel's ink starts no
+    further left than the letters, LETTER_X_MM), GUTTER_MM of white between one panel's ink and the next's,
+    the last axes ending RIGHT_MM from the edge; panels of width None share what is left equally."""
     fw, fh = fig.get_figwidth() / style.MM, fig.get_figheight() / style.MM
-    return fig.add_axes((x / fw, BOTTOM_MM / fh, w / fw, (fh - TOP_MM - BOTTOM_MM) / fh))
-
-
-def _plural(t: int) -> str:
-    return f"{t} thread" + ("s" if t != 1 else "")
+    y0 = style.BOTTOM_MM / fh
+    h = (fh - style.TOP_MM - style.BOTTOM_MM) / fh
+    for _ in range(3):  # labels anchored to the data move a little with the widths
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        ext = []  # ink left of the left spine, right of the right one (mm)
+        for ax in axes:
+            box, ink = ax.get_position(), ax.get_tightbbox(renderer)
+            ext.append((box.x0 * fw - ink.x0 / fig.dpi / style.MM,
+                        max(0.0, ink.x1 / fig.dpi / style.MM - box.x1 * fw)))
+        x = max(style.LEFT_MM, style.LETTER_X_MM + ext[0][0])
+        fixed = sum(w for w in widths if w is not None)
+        free = (fw - x - style.RIGHT_MM - fixed - ext[-1][1] - sum(r for _, r in ext[:-1])
+                - sum(left for left, _ in ext[1:]) - style.GUTTER_MM * (len(axes) - 1))
+        share = free / max(1, sum(w is None for w in widths))
+        for i, (ax, w) in enumerate(zip(axes, widths)):
+            if i:
+                x += ext[i - 1][1] + style.GUTTER_MM + ext[i][0]
+            w = share if w is None else w
+            ax.set_position((x / fw, y0, w / fw, h))
+            x += w
 
 
 def draw(src: Source):
-    from matplotlib.lines import Line2D
-    from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
+    import numpy as np
 
     cfg = src.profile.e3
+    size = cfg.thread_scaling_size_mb
     t2 = src.table("E3_table2")
-    c = t2[(t2.tool == "c") & t2.wall_median_s.notna()].sort_values("size_mb")
-    rs = t2[(t2.tool == "rs02") & t2.wall_median_s.notna()]
-    threads_a = [t for t in cfg.rs02_threads if not rs[rs.threads == t].empty]
-    scaling = rs[(rs.size_mb == cfg.thread_scaling_size_mb) & rs.speedup_vs_c.notna()].sort_values("threads")
-    colors = thread_colors(sorted(set(threads_a) | {int(t) for t in scaling.threads}) or [1])
-    sizes = sorted(int(s) for s in t2.size_mb.unique())
-    big = max(sizes)
+    t2 = t2[(t2.size_mb == size) & t2.wall_median_s.notna()]
+    c_rows = t2[t2.tool == "c"]
+    rs = t2[t2.tool == "rs02"].sort_values("threads")  # psmc-rs 0.2; never rs01
+    c_row = c_rows.iloc[0] if not c_rows.empty else None
+    c_wall = float(c_row.wall_median_s) if c_row is not None else None
+    c_mem = float(c_row.peak_rss_median_mb) if c_row is not None else None
+    th = rs.threads.to_numpy(dtype=float)
+    wall = rs.wall_median_s.to_numpy(dtype=float)
+    mem = rs.peak_rss_median_mb.to_numpy(dtype=float)
+    sp = rs.speedup_vs_c.to_numpy(dtype=float)
+    if c_wall is not None:
+        sp = np.where(np.isfinite(sp), sp, c_wall / wall)
+    rows = c_rows if c_row is not None else rs
+    n_chrom = int(rows.chromosomes.iloc[0]) if not rows.empty else 0
+    title = f"Simulated genome, {n_chrom} {style.TIMES} {size / n_chrom:g} Mb" if n_chrom else (
+        f"Simulated genome, {size:,} Mb")
+    cohort = _cohort(src)
 
     fig = style.figure("double", H_MM)
-    ax_a = axes_mm(fig, A_X_MM, A_W_MM)
-    ax_b = axes_mm(fig, B_X_MM, B_W_MM)
-    ax_c = axes_mm(fig, C_X_MM, C_W_MM)
-
-    # a: wall time against genome size.
-    lines = [("C psmc", c, style.ORANGE, "s")]
-    lines += [(f"psmc-rs, {_plural(t)}", rs[rs.threads == t].sort_values("size_mb"), colors[t], "o")
-              for t in threads_a]
-    handles = []
-    for name, d, color, marker in lines:
-        if d.empty:
-            continue
-        ax_a.plot(d.size_mb, d.wall_median_s, color=color, linewidth=style.LW, marker=marker, markersize=3.6,
-                  markeredgewidth=0, zorder=3)
-        last = d.iloc[-1]
-        ax_a.annotate(fmt_time(float(last.wall_median_s)), xy=(float(last.size_mb), float(last.wall_median_s)),
-                      xytext=(5, 0), textcoords="offset points", ha="left", va="center", fontsize=style.TEXT_PT,
-                      color=style.INK, annotation_clip=False)
-        handles.append(Line2D([], [], color=color, linewidth=style.LW, marker=marker, markersize=3.6,
-                              markeredgewidth=0, label=name))
-    ax_a.set_xscale("log")
-    ax_a.xaxis.set_major_locator(FixedLocator(sizes))
-    ax_a.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:,.0f}"))
-    ax_a.xaxis.set_minor_locator(NullLocator())
-    ax_a.set_xlim(min(sizes) / 1.4, max(sizes) * 1.4)
-    ax_a.set_xlabel(f"Genome size (Mb), in chromosomes of {cfg.chromosome_length / 1e6:g} Mb")
-    walls = list(t2.loc[t2.tool.isin(["c", "rs02"]), "wall_median_s"].dropna())
-    lo = 10 ** math.floor(math.log10(min(walls) / 1.3))
-    hi = max(walls) * 3.0  # room for the legend above the lines
-    ax_a.set_yscale("log")
-    ax_a.yaxis.set_major_locator(FixedLocator([t for t in TIME_TICKS if lo <= t <= hi]))
-    ax_a.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: fmt_tick(v)))
-    ax_a.yaxis.set_minor_locator(NullLocator())
-    ax_a.set_ylim(lo, hi)
-    ax_a.set_ylabel(f"Wall time, {cfg.inference.n_iter} EM iterations")
-    ax_a.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
-    style.legend(ax_a, handles, loc="upper left", bbox_to_anchor=(0.0, 1.02), handlelength=1.6,
-                 labelspacing=0.35, borderaxespad=0.0)
-
-    # b: speed-up over C psmc against threads, on the thread-scaling genome.
-    if not scaling.empty:
-        th = [int(t) for t in scaling.threads]
-        sp = [float(v) for v in scaling.speedup_vs_c]
-        x_lo, x_hi = 0.75, max(th) * 1.35
-        s1 = sp[th.index(1)] if 1 in th else sp[0] / th[0]
-        ax_b.plot([x_lo, x_hi], [s1 * x_lo, s1 * x_hi], color=style.MUTED, linewidth=style.LW_REF,
-                  linestyle=style.DOT, zorder=1)
-        ax_b.plot(th, sp, color=style.BLUE, linewidth=style.LW, zorder=2)
-        ax_b.scatter(th, sp, s=16, c=[colors[t] for t in th], linewidths=0, zorder=3)
-        for t, v in zip(th, sp):
-            ax_b.annotate(fmt_fold(v), xy=(t, v), xytext=(3, -3), textcoords="offset points", ha="left", va="top",
-                          fontsize=style.TICK_PT, color=style.INK)
-        ax_b.set_xscale("log")
-        ax_b.xaxis.set_major_locator(FixedLocator(th))
-        ax_b.xaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:g}"))
-        ax_b.xaxis.set_minor_locator(NullLocator())
-        ax_b.set_xlim(x_lo, x_hi)
-        y_lo = min(sp) / 2.0
-        y_hi = max(s1 * x_hi, max(sp)) * 1.4
-        ax_b.set_yscale("log")
-        ax_b.set_ylim(y_lo, y_hi)
-        ax_b.yaxis.set_major_locator(FixedLocator([v for v in (1, 3, 10, 30, 100, 300, 1000, 3000)
-                                                   if y_lo <= v <= y_hi]))
-        ax_b.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:g}×"))
-        ax_b.yaxis.set_minor_locator(NullLocator())
-        ax_b.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
-        # the perfect-scaling line's name, along it
-        xa, xb = 1.6, 3.2
-        p0, p1 = ax_b.transData.transform([(xa, s1 * xa), (xb, s1 * xb)])
-        angle = math.degrees(math.atan2(p1[1] - p0[1], p1[0] - p0[0]))
-        xm = math.sqrt(xa * xb)
-        ax_b.annotate("perfect scaling", xy=(xm, s1 * xm), xytext=(-2, 3), textcoords="offset points",
-                      rotation=angle, rotation_mode="anchor", ha="center", va="bottom", fontsize=style.TICK_PT,
-                      color=style.INK2)
-        size = float(scaling.size_mb.iloc[0])
-        n_chrom = int(scaling.chromosomes.iloc[0])
-        style.note(ax_b, 0.03, 0.98, f"{size:,.0f} Mb, {n_chrom} chromosome{'s' if n_chrom != 1 else ''}",
-                   size=style.TICK_PT)
-    ax_b.set_xlabel("Threads")
-    ax_b.set_ylabel("Speed-up over C psmc")
-
-    # c: peak memory on the largest genome.
-    bars: List = []
-    c_big = c[c.size_mb == big]
-    if not c_big.empty:
-        bars.append(("C psmc", float(c_big.peak_rss_median_mb.iloc[0]), style.ORANGE))
-    for t in threads_a:
-        r = rs[(rs.threads == t) & (rs.size_mb == big)]
-        if not r.empty:
-            bars.append((f"{t}", float(r.peak_rss_median_mb.iloc[0]), colors[t]))
-    xs = [0.0] + [1.25 + i for i in range(len(bars) - 1)]
-    for x, (_, v, color) in zip(xs, bars):
-        ax_c.bar(x, v, width=0.72, color=color, linewidth=0, zorder=3)
-        ax_c.annotate(f"{v:,.0f}", xy=(x, v), xytext=(0, 2), textcoords="offset points", ha="center",
-                      va="bottom", fontsize=style.TICK_PT, color=style.INK)
-    ax_c.set_xticks(xs)
-    ax_c.set_xticklabels([b[0] for b in bars])
-    ax_c.tick_params(axis="x", length=0)
-    ax_c.set_xlim(-0.6, xs[-1] + 0.6 if xs else 1.0)
-    top = max([b[1] for b in bars] or [1.0])
-    ax_c.set_ylim(0, top * 1.15)
-    step = 10 ** math.floor(math.log10(top))
-    step *= 5 if top / step >= 5 else (0.5 if top / step < 2 else 1)  # two to four labelled ticks
-    ax_c.yaxis.set_major_locator(FixedLocator([k * step for k in range(int(top * 1.15 // step) + 1)]))
-    ax_c.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:,.0f}"))
-    ax_c.set_ylabel("Peak memory (MB)")
-    style.note(ax_c, 0.97, 0.98, f"{big:,} Mb", ha="right", size=style.TICK_PT)
-    ax_c.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
-    if len(xs) > 1:  # "psmc-rs, threads" under psmc-rs's bars only
-        x_mid = (xs[1] + xs[-1] - ax_c.get_xlim()[0] * 2) / 2.0 / (ax_c.get_xlim()[1] - ax_c.get_xlim()[0])
-        below_pt = style.TICK_PT + 2 * 1.8 + 1.0
-        ax_c.set_xlabel("psmc-rs, threads")
-        ax_c.xaxis.set_label_coords(x_mid, -below_pt / 72.0 / (ax_c.get_position().height * fig.get_figheight()))
-    style.panel_letters(fig, [ax_a, ax_b, ax_c])
+    ax_a = fig.add_axes((0.1, 0.2, 0.2, 0.6))
+    ax_b = fig.add_axes((0.4, 0.2, 0.2, 0.6))
+    axes, widths = [ax_a, ax_b], [None, None]
+    c_frac = c_mem / _memory_limits(mem, c_mem)[2] if c_mem is not None and math.isfinite(c_mem) else None
+    _panel_time(ax_a, th, wall, sp, c_wall, c_frac)
+    _panel_memory(ax_b, th, mem, c_mem)
+    style.panel_title(ax_a, title)
+    style.panel_title(ax_b, title)  # the same genome: small multiples
+    if cohort is not None:
+        ax_c = fig.add_axes((0.8, 0.2, 0.15, 0.6))
+        _panel_cohort(ax_c, *cohort)
+        style.panel_title(ax_c, "1000 Genomes")
+        axes.append(ax_c)
+        widths.append(C_W_MM)
+    _place(fig, axes, widths)
+    style.panel_letters(fig, axes)
     return fig
 
 
-__all__ = ["draw", "fmt_time", "thread_colors"]
+__all__ = ["draw", "fmt_fold", "fmt_time"]

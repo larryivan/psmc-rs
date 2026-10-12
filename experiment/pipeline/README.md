@@ -702,17 +702,14 @@ on the run).
 | `E5_seeds.csv` | every seed |
 
 **Figure 6** (`figures/fig6_bootstrap_calibration.{pdf,svg,png}`, drawn by
-`FIG` from the tables, see `figures/README.md`; the figure calls the
-trunks blocks, as Fig 3 does): a, genome 1's fit and its bootstrap bands
-at both trunk sizes over the true Ne and the 95% range of the 50 fits; b,
-the true sampling SD and the bootstrap SDs; c, the SD ratio by time
-(median and IQR over the 10 genomes; grey: where a bootstrap with the true
-SD would fall given the true SD's own sampling error); d, the pointwise
-coverage of the true Ne (thick, with its Clopper-Pearson interval for 50
-Mb trunks) and of the fits' mean (thin) against the nominal 95%; e, the
-pointwise coverage of each genome's pattern-projected truth (with its
-interval for 50 Mb trunks); the legend gives each trunk size's window
-coverage of the three.
+`FIG` from the tables, see `figures/README.md`; the supplement's Fig S3): a,
+one bootstrapped genome's fit and bootstrap 95% band (5 Mb blocks) over the
+true Ne and the 95% range of the 50 independent fits; b, the bootstrap SD
+(median over the 10 genomes) against the true SD, one dot per time of the
+window, for both block sizes, with the band where a calibrated bootstrap
+would fall; c, per genome, the share of the window's times at which its band
+holds the fits' mean and the truth, for both block sizes, against the
+nominal 95%.
 
 Layout of `experiment/runs/E5/`: `sims/` (genomes; not committed),
 `truth/`, `fits/bottleneck/repNN.rs.json`, `boot/trunk<B>/repNN.rs.json` (the
