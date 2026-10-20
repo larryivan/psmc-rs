@@ -162,11 +162,28 @@ class StageError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+def _under_inputs(*parts: str) -> property:
+    return property(lambda self: self.inputs.joinpath(*parts))
+
+
 @dataclass(frozen=True)
 class Layout:
-    """Where E7's data stage reads and writes (``root`` is ``<runs>/E7``)."""
+    """Where E7's data stage reads and writes (``root`` is ``<runs>/E7``; see the module documentation)."""
 
     root: Path
+
+    samples = _under_inputs("samples.tsv")
+    chunks = _under_inputs("chunks.tsv")
+    stream_samples = _under_inputs("meta", "stream_samples.txt")
+    giab_vcf = _under_inputs("meta", "giab.vcf.gz")
+    giab_bed = _under_inputs("meta", "giab.bed")
+    mask_all = _under_inputs("mask", "callable.bed")
+    nonpass_all = _under_inputs("nonpass", "nonpass.bed.gz")
+    qc_samples = _under_inputs("qc", "samples.tsv")
+    records = _under_inputs("records")
+    record_setup = _under_inputs("records", "setup.json")
+    record_samples = _under_inputs("records", "samples.json")
+    manifest = _under_inputs("MANIFEST.json")
 
     @property
     def inputs(self) -> Path:
@@ -174,18 +191,6 @@ class Layout:
 
     def meta(self, name: str) -> Path:
         return self.inputs / "meta" / name
-
-    @property
-    def samples(self) -> Path:
-        return self.inputs / "samples.tsv"
-
-    @property
-    def chunks(self) -> Path:
-        return self.inputs / "chunks.tsv"
-
-    @property
-    def stream_samples(self) -> Path:
-        return self.meta("stream_samples.txt")
 
     def batch(self, k: int) -> Path:
         return self.meta("batches") / f"batch_{k:02d}.txt"
@@ -196,16 +201,8 @@ class Layout:
     def mask(self, chrom: str) -> Path:
         return self.inputs / "mask" / f"{chrom}.bed"
 
-    @property
-    def mask_all(self) -> Path:
-        return self.inputs / "mask" / "callable.bed"
-
     def nonpass(self, chrom: str) -> Path:
         return self.inputs / "nonpass" / f"{chrom}.bed.gz"
-
-    @property
-    def nonpass_all(self) -> Path:
-        return self.inputs / "nonpass" / "nonpass.bed.gz"
 
     def psmcfa_chrom(self, chrom: str, sample: str) -> Path:
         return self.inputs / "psmcfa" / chrom / f"{sample}.psmcfa.gz"
@@ -222,18 +219,6 @@ class Layout:
     def qc_chrom(self, chrom: str) -> Path:
         return self.inputs / "qc" / f"{chrom}.tsv"
 
-    @property
-    def qc_samples(self) -> Path:
-        return self.inputs / "qc" / "samples.tsv"
-
-    @property
-    def records(self) -> Path:
-        return self.inputs / "records"
-
-    @property
-    def record_setup(self) -> Path:
-        return self.records / "setup.json"
-
     def record_chunk(self, chrom: str, i: int) -> Path:
         return self.records / "chunks" / f"{chrom}_{i:03d}.json"
 
@@ -245,22 +230,6 @@ class Layout:
 
     def record_pilot(self, chrom: str) -> Path:
         return self.records / f"pilot_{chrom}.json"
-
-    @property
-    def record_samples(self) -> Path:
-        return self.records / "samples.json"
-
-    @property
-    def manifest(self) -> Path:
-        return self.inputs / "MANIFEST.json"
-
-    @property
-    def giab_vcf(self) -> Path:
-        return self.meta("giab.vcf.gz")
-
-    @property
-    def giab_bed(self) -> Path:
-        return self.meta("giab.bed")
 
 
 def layout(runs_dir: Path) -> Layout:
@@ -629,8 +598,7 @@ def contig_lengths(header: str) -> Dict[str, int]:
 
 
 def header_samples(header: str) -> List[str]:
-    last = [line for line in header.splitlines() if line.startswith("#CHROM")]
-    return last[0].split("\t")[9:] if last else []
+    return next((line.split("\t")[9:] for line in header.splitlines() if line.startswith("#CHROM")), [])
 
 
 def plan_chunks(cfg: config.E7, lengths: Dict[str, int]) -> List[Chunk]:
