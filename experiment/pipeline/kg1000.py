@@ -14,7 +14,7 @@ with the checksums of their inputs in their provenance records.
 Steps (``python -m experiment.pipeline.kg1000 STEP --profile P --runs-dir R``):
 
 ``setup``
-    (Done already with the same settings: skipped.) The sources: HEAD of every VCF (Content-Length, ETag, Last-Modified, and
+    The sources: HEAD of every VCF (Content-Length, ETag, Last-Modified, and
     S3's MD5 attribute) on both mirrors, checked against the 1000 Genomes
     manifest (sizes, MD5s); the indexes (.tbi, MD5 checked), the sequence
     index, the pedigree, the strict mask and GIAB's HG001 truth downloaded
@@ -27,7 +27,8 @@ Steps (``python -m experiment.pipeline.kg1000 STEP --profile P --runs-dir R``):
     ``seed("E7", population, 0, "select/<sample>")``. The mask: the strict
     mask's rows of the chromosomes (cut to ``window`` if any), one BED per
     chromosome and their union. The chunks: every chromosome (its length from
-    the VCF's ``##contig``) cut into regions of ``chunk_bp``.
+    the VCF's ``##contig``) cut into regions of ``chunk_bp``. Skipped when
+    done already with the same settings.
 ``chunk CHROM I``
     One region, streamed once::
 
@@ -1826,11 +1827,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
-    profile = config.get_profile(args.profile)
-    cfg = profile.e7
-    if getattr(args, "input", None):
+    cfg = config.get_profile(args.profile).e7
+    if args.input:
         cfg = config.replace(cfg, input=args.input)
-    if getattr(args, "local_source", None):
+    if args.local_source:
         cfg = config.replace(cfg, local_source=str(args.local_source.expanduser().resolve()))
     runs = (args.runs_dir or paths.default_runs_dir(args.profile)).resolve()
     lay = layout(runs)
@@ -1876,8 +1876,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "Chunk", "Dirs", "Layout", "Sample", "StageError", "assemble_chrom", "assemble_samples", "check", "chrom_local",
-    "chunk", "fetch_chrom", "fetch_ranges",
-    "contig_lengths", "head", "layout", "make_fixture", "parse_manifest", "pilot", "plan_chunks", "read_chunks",
-    "read_index", "read_ped", "read_samples", "run_all", "select_samples", "setup", "source_problems", "stream_path",
-    "temp_dirs", "vcf_url", "write_manifest",
+    "chunk", "contig_lengths", "fetch_chrom", "fetch_ranges", "head", "layout", "make_fixture", "parse_manifest",
+    "pilot", "plan_chunks", "read_chunks", "read_index", "read_ped", "read_samples", "run_all", "select_samples",
+    "setup", "source_problems", "stream_path", "temp_dirs", "vcf_url", "write_manifest",
 ]
