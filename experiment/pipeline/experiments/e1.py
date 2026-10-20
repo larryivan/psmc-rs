@@ -250,7 +250,7 @@ def jobs(ctx: Context) -> List[Job]:
 
 
 # ---------------------------------------------------------------------------
-# Tables (the helpers from write_csv to run_fields serve E2 and the others too)
+# Tables (write_csv serves every experiment; read_fits to run_fields serve E2 too)
 # ---------------------------------------------------------------------------
 
 
@@ -263,7 +263,8 @@ def _num(x) -> str:
 
 
 def write_csv(path: Path, rows: Sequence[Dict], fields: Optional[Sequence[str]] = None) -> None:
-    """Write ``rows`` atomically, with the columns ``fields`` (default: the first row's keys); None is empty."""
+    """Write ``rows`` atomically with the columns ``fields`` (default: the first row's keys): None as an empty
+    cell, a float by its repr."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = list(fields or (rows[0].keys() if rows else []))
     tmp = path.with_name(path.name + ".partial")
@@ -291,7 +292,8 @@ def loglikes(c: results.PsmcFile, rs_params: Dict) -> Dict[str, Dict[int, float]
 
 
 def loglike_diffs(ll: Dict[str, Dict[int, float]], n_iter: int) -> Dict:
-    """psmc-rs's log-likelihoods against C psmc's: after ``n_iter - 1`` iterations, the largest relative, the first."""
+    """psmc-rs's log-likelihoods against C psmc's: the difference after ``n_iter - 1`` iterations (C psmc never
+    evaluates its final model), the largest relative difference, and that of the first iteration."""
     common = sorted(i for i in set(ll["c"]) & set(ll["rs"]) if ll["c"][i])
     rel = {i: abs(ll["rs"][i] - ll["c"][i]) / abs(ll["c"][i]) for i in common}
     return {
