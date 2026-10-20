@@ -577,36 +577,41 @@ def simulate_schedule(
     """Expected finish time (seconds from now) of each job in ``todo``.
 
     ``running`` maps running job ids to their expected remaining seconds.
-    Jobs not in ``todo`` or ``running`` count as done. Uses :func:`pick`.
+    Jobs not in ``todo`` or ``running`` count as done. Uses :func:`pick`,
+    whose choice does not depend on the order of the ready jobs.
     """
     todo_set = set(todo)
     now = 0.0
-    slots: List[Slot] = []
-    finish: Dict[str, float] = {}
-    for jid, rem in running.items():
-        job = graph.jobs[jid]
-        slots.append(Slot(job, now - (job.est_seconds - rem)))
-    pending = [jid for jid in graph.order if jid in todo_set and jid not in running]
+    slots = [Slot(graph.jobs[jid], now - (graph.jobs[jid].est_seconds - rem)) for jid, rem in running.items()]
+    pending = dict.fromkeys(jid for jid in graph.order if jid in todo_set and jid not in running)
     finished = {jid for jid in graph.jobs if jid not in todo_set and jid not in running}
+    waiting = {jid: sum(d not in finished for d in graph.deps[jid]) for jid in pending}  # on unfinished dependencies
+
+    def runnable(jid: str) -> bool:
+        return waiting[jid] == 0 and fits_budget(graph.jobs[jid], budget) is None
+
+    ready = {jid: graph.jobs[jid] for jid in pending if runnable(jid)}
+    finish: Dict[str, float] = {}
     guard = 0
     while pending or slots:
         guard += 1
         if guard > 100000:
             break
-        ready = [graph.jobs[j] for j in pending if all(d in finished for d in graph.deps[j]) and fits_budget(graph.jobs[j], budget) is None]
-        for j in pick(ready, slots, budget, graph.priority, now):
+        for j in pick(list(ready.values()), slots, budget, graph.priority, now):
             slots.append(Slot(j, now))
-            pending.remove(j.id)
+            del pending[j.id], ready[j.id]
         if not slots:
-            for j in pending:
-                finish[j] = math.inf
+            finish.update(dict.fromkeys(pending, math.inf))
             break
-        nxt = min(slots, key=lambda s: s.started + s.job.est_seconds)
-        now = max(now, nxt.started + nxt.job.est_seconds)
+        now = max(now, min(s.started + s.job.est_seconds for s in slots))
         for s in [s for s in slots if s.started + s.job.est_seconds <= now + 1e-9]:
             slots.remove(s)
-            finished.add(s.job.id)
             finish[s.job.id] = now
+            for d in graph.dependents[s.job.id]:
+                if d in pending:
+                    waiting[d] -= 1
+                    if runnable(d):
+                        ready[d] = graph.jobs[d]
     return finish
 
 
