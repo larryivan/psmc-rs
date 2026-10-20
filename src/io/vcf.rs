@@ -392,6 +392,34 @@ fn parse_mask_file(path: &Path) -> Result<MaskFile> {
     MaskFile::union_from(std::slice::from_ref(&path.to_path_buf()))
 }
 
+/// The sorted, merged positions of one chromosome outside the callable set
+/// ([`MaskEngine::uncallable_for_chrom`]), visited in non-decreasing order.
+#[derive(Debug, Default)]
+pub(crate) struct Uncallable {
+    xs: Vec<Interval>,
+    /// First interval that can still reach the positions visited.
+    next: usize,
+}
+
+impl Uncallable {
+    pub(crate) fn new(xs: Vec<Interval>) -> Self {
+        Self { xs, next: 0 }
+    }
+
+    /// The first interval that ends at or after `pos`, if any.
+    fn seek(&mut self, pos: u64) -> Option<Interval> {
+        while self.xs.get(self.next).is_some_and(|&(_, e)| e < pos) {
+            self.next += 1;
+        }
+        self.xs.get(self.next).copied()
+    }
+
+    /// Whether `pos` is callable.
+    pub(crate) fn is_callable(&mut self, pos: u64) -> bool {
+        !self.seek(pos).is_some_and(|(s, _)| s <= pos)
+    }
+}
+
 /// Which positive masks have rows for a chromosome ([`MaskEngine::coverage`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MaskCoverage {
@@ -1023,10 +1051,7 @@ struct Pending {
 struct ChromBuilder {
     name: Vec<u8>,
     binner: Binner,
-    /// Sorted, merged positions outside the callable set.
-    uncallable: Vec<Interval>,
-    /// First entry of `uncallable` that can still reach `cursor` or beyond.
-    next_unc: usize,
+    uncallable: Uncallable,
     cursor: u64,
     /// Positions up to here are missing because of an earlier REF span or
     /// gVCF block.
@@ -1060,8 +1085,7 @@ impl ChromBuilder {
         Self {
             name: name.to_vec(),
             binner: Binner::new(opts.bin_size),
-            uncallable,
-            next_unc: 0,
+            uncallable: Uncallable::new(uncallable),
             cursor: 1,
             miss_until: 0,
             covered_until: 0,
@@ -1085,21 +1109,6 @@ impl ChromBuilder {
     fn called(&mut self, n: u64) {
         self.binner.add_called(n);
         self.het.called(n);
-    }
-
-    /// Whether `pos` is callable. Calls must come with non-decreasing `pos`.
-    fn is_callable(&mut self, pos: u64) -> bool {
-        while self
-            .uncallable
-            .get(self.next_unc)
-            .is_some_and(|&(_, e)| e < pos)
-        {
-            self.next_unc += 1;
-        }
-        !self
-            .uncallable
-            .get(self.next_unc)
-            .is_some_and(|&(start, _)| start <= pos)
     }
 
     /// Emit the positions `cursor..=to`, none of which has a record.
@@ -1138,15 +1147,8 @@ impl ChromBuilder {
     /// their own, as the masks say: called where callable, else missing.
     fn fill_mask(&mut self, mut a: u64, to: u64, s: &mut VcfSummary) {
         while a <= to {
-            while self
-                .uncallable
-                .get(self.next_unc)
-                .is_some_and(|&(_, e)| e < a)
-            {
-                self.next_unc += 1;
-            }
-            match self.uncallable.get(self.next_unc) {
-                Some(&(us, ue)) if us <= to => {
+            match self.uncallable.seek(a) {
+                Some((us, ue)) if us <= to => {
                     if us > a {
                         self.called(us - a);
                         a = us;
@@ -1168,7 +1170,7 @@ impl ChromBuilder {
             return;
         };
         debug_assert_eq!(self.cursor, p.pos);
-        let callable = self.is_callable(p.pos);
+        let callable = self.uncallable.is_callable(p.pos);
         if !callable {
             s.records_outside_mask += p.n_records;
         }

@@ -97,7 +97,7 @@ use crate::io::common::{
 };
 pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
 use crate::io::vcf::{
-    Interval, MAX_POS, MaskCoverage, MaskEngine, list_names, outside_mask_hint,
+    MAX_POS, MaskCoverage, MaskEngine, Uncallable, list_names, outside_mask_hint,
     outside_some_masks_hint,
 };
 
@@ -766,8 +766,7 @@ struct Chrom {
     last_window: Option<(u64, u64)>,
     /// Whether a record has been read, i.e. `last_pos` is a real position.
     started: bool,
-    uncallable: Vec<Interval>,
-    next_unc: usize,
+    uncallable: Uncallable,
     binner: Binner,
     good: u64,
     het_bases: u64,
@@ -776,7 +775,7 @@ struct Chrom {
 }
 
 impl Chrom {
-    fn new(name: &str, bin_size: usize, uncallable: Vec<Interval>, collect_het: bool) -> Self {
+    fn new(name: &str, bin_size: usize, uncallable: Uncallable, collect_het: bool) -> Self {
         Self {
             name: name.to_string(),
             len: 0,
@@ -788,7 +787,6 @@ impl Chrom {
             last_window: None,
             started: false,
             uncallable,
-            next_unc: 0,
             binner: Binner::new(bin_size),
             good: 0,
             het_bases: 0,
@@ -854,21 +852,6 @@ impl Chrom {
         }
     }
 
-    /// Whether 1-based `pos` is callable; `pos` must not decrease.
-    fn is_callable(&mut self, pos: u64) -> bool {
-        while self
-            .uncallable
-            .get(self.next_unc)
-            .is_some_and(|&(_, e)| e < pos)
-        {
-            self.next_unc += 1;
-        }
-        !self
-            .uncallable
-            .get(self.next_unc)
-            .is_some_and(|&(s, _)| s <= pos)
-    }
-
     /// Bin every pending base with a string index below `limit`.
     fn commit(&mut self, limit: u64) {
         while self.committed < limit {
@@ -883,7 +866,7 @@ impl Chrom {
             }
             let pos = self.committed + 1;
             self.committed += take;
-            if base.is_called() && !self.uncallable.is_empty() && !self.is_callable(pos) {
+            if base.is_called() && !self.uncallable.is_callable(pos) {
                 base = Base::Lost(LossReason::OutsideMask);
             }
             match base {
@@ -1154,9 +1137,9 @@ pub(crate) fn read_consensus_from(
                 if let (true, Some(list)) = (first_block, outside) {
                     list.push(name.to_string());
                 }
-                masks.uncallable_for_chrom(name)
+                Uncallable::new(masks.uncallable_for_chrom(name))
             } else {
-                Vec::new()
+                Uncallable::default()
             };
             cur = Some(Chrom::new(
                 name,
