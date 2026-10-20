@@ -449,47 +449,20 @@ fn from_unconstrained_dual<T: Real>(p: &[Dual<T>], bounds: &[Bounds]) -> Result<
     Ok(out)
 }
 
+/// The λ of each state of `model`'s layout ([`PsmcModel::map_lam`]).
 pub(super) fn expand_lam_dual<T: Real>(
+    model: &PsmcModel,
     lam_grouped: &[Dual<T>],
-    spec: Option<&[(usize, usize)]>,
-    n_steps: usize,
 ) -> Result<Vec<Dual<T>>> {
-    match spec {
-        None => {
-            if lam_grouped.len() != n_steps + 1 {
-                bail!("lam length mismatch for ungrouped params");
-            }
-            Ok(lam_grouped.to_vec())
-        }
-        Some(spec) => {
-            let expected = spec.iter().map(|(nr, _)| nr).sum::<usize>();
-            if lam_grouped.len() != expected {
-                bail!(
-                    "lam length {} does not match grouped params {}",
-                    lam_grouped.len(),
-                    expected
-                );
-            }
-            let mut lam = Vec::with_capacity(n_steps + 1);
-            let mut counter = 0usize;
-            for (nr, gl) in spec.iter().cloned() {
-                for _ in 0..nr {
-                    for _ in 0..gl {
-                        lam.push(lam_grouped[counter].clone());
-                    }
-                    counter += 1;
-                }
-            }
-            if lam.len() != n_steps + 1 {
-                bail!(
-                    "expanded dual lam length {} != n_steps+1 {}",
-                    lam.len(),
-                    n_steps + 1
-                );
-            }
-            Ok(lam)
-        }
+    let n_free = model.n_free_params() - 3;
+    if lam_grouped.len() != n_free {
+        bail!("{} λ for {n_free} free ones", lam_grouped.len());
     }
+    Ok(model
+        .par_map()
+        .into_iter()
+        .map(|i| lam_grouped[i].clone())
+        .collect())
 }
 
 /// The result of [`compute_params_dual`]: the transition and emission
@@ -725,7 +698,7 @@ pub(super) fn eval_dual_in<T: Real>(
     let rho = &constrained[1];
     let t_max = &constrained[2];
     let lam_grouped = &constrained[3..];
-    let lam_full = expand_lam_dual(lam_grouped, base_model.pattern_spec(), base_model.n_steps)?;
+    let lam_full = expand_lam_dual(base_model, lam_grouped)?;
 
     let params = compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
     let q = q_function_stats_dual(&params, stats)?;

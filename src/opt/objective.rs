@@ -54,11 +54,7 @@ use anyhow::{Result, bail, ensure};
 
 use super::Bounds;
 use crate::hmm::SufficientStats;
-use crate::model::{PsmcModel, T_INF};
-
-/// C psmc's `alpha` (`-l`) of the time grid, as in `compute_params_dual` and
-/// [`PsmcModel::compute_t`].
-const GRID_ALPHA: f64 = 0.1;
+use crate::model::{GRID_ALPHA, PsmcModel, T_INF};
 
 /// The guard added to each probability before its logarithm is taken.
 const LN_GUARD: f64 = 1e-300;
@@ -247,20 +243,7 @@ impl<'a> Objective<'a> {
     ) -> Result<Self> {
         let n = model.n_steps;
         let states = n + 1;
-        let group: Vec<usize> = match model.pattern_spec() {
-            None => (0..states).collect(),
-            Some(spec) => {
-                let mut group = Vec::with_capacity(states);
-                let mut free = 0;
-                for &(repeats, length) in spec {
-                    for _ in 0..repeats {
-                        group.extend(std::iter::repeat_n(free, length));
-                        free += 1;
-                    }
-                }
-                group
-            }
-        };
+        let group = model.par_map();
         let n_free = group.last().map_or(0, |g| g + 1);
         ensure!(
             group.len() == states,

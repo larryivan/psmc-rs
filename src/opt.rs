@@ -471,7 +471,7 @@ mod tests {
         let vars: Vec<Dual> = (0..n_vars)
             .map(|i| Dual::variable(params[i], n_vars, i))
             .collect();
-        let lam_full = expand_lam_dual(&vars[3..], model.pattern_spec(), n).unwrap();
+        let lam_full = expand_lam_dual(model, &vars[3..]).unwrap();
         let dual = compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
         let (a, em) = (dual.p_kl, dual.em);
         let same = |x: f64, y: f64| x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan());
@@ -773,7 +773,7 @@ mod tests {
     fn log_survival_to_t_max(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> f64 {
         let mut at_x = model.clone();
         unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
-        let t = at_x.compute_t(0.1);
+        let t = at_x.compute_t(crate::model::GRID_ALPHA);
         let lam = at_x.map_lam(&at_x.lam).unwrap();
         (0..at_x.n_steps).map(|k| (t[k + 1] - t[k]) / lam[k]).sum()
     }

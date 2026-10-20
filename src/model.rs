@@ -10,6 +10,9 @@ use crate::io::{BinCounts, CallableBases};
 /// [`PsmcModel::avg_t`]), and `t_max` must stay below it.
 pub const T_INF: f64 = 1000.0;
 
+/// C psmc's `alpha` (`-l`, 0.1) of the time grid ([`PsmcModel::compute_t`]).
+pub(crate) const GRID_ALPHA: f64 = 0.1;
+
 /// The largest number of hidden states (`n_steps + 1`) a model may have.
 ///
 /// C psmc's default pattern `4+5*3+4`, which the CLI also uses by default,
@@ -60,44 +63,39 @@ impl PsmcModel {
         mu: f64,
         pattern: Option<String>,
     ) -> Result<Self> {
-        let pattern_spec = match pattern.as_deref() {
-            Some(p) => Some(parse_pattern(p)?),
-            None => None,
+        let pattern_spec = pattern.as_deref().map(parse_pattern).transpose()?;
+        let n_steps = match &pattern_spec {
+            None => n_steps,
+            Some(spec) => {
+                let n_states = n_states_of_spec(spec);
+                if n_states < 2 {
+                    bail!("pattern implies {n_states} state(s); at least 2 are needed");
+                }
+                // Compatibility shim: callers used to pass the state count here.
+                if n_steps != n_states - 1 && n_steps != n_states {
+                    bail!(
+                        "pattern implies n_steps={} (legacy state-count={n_states}), but \
+                         n_steps={n_steps} was provided",
+                        n_states - 1
+                    );
+                }
+                n_states - 1
+            }
         };
-        let mut n_steps_eff = n_steps;
-        if let Some(spec) = &pattern_spec {
-            let n_states_from_pattern = n_states_of_spec(spec);
-            if n_states_from_pattern < 2 {
-                bail!("pattern implies {n_states_from_pattern} state(s); at least 2 are needed");
-            }
-            let n_steps_from_pattern = n_states_from_pattern - 1;
-            if n_steps == n_states_from_pattern {
-                // Compatibility shim: previous Rust/Python style often passed state-count here.
-                n_steps_eff = n_steps_from_pattern;
-            } else if n_steps != n_steps_from_pattern {
-                bail!(
-                    "pattern implies n_steps={} (legacy state-count={}), but n_steps={} was provided",
-                    n_steps_from_pattern,
-                    n_states_from_pattern,
-                    n_steps
-                );
-            }
-        }
-        if n_steps_eff == 0 {
+        if n_steps == 0 {
             bail!("n_steps must be at least 1 (the model needs at least 2 states)");
         }
-        if n_steps_eff >= MAX_STATES {
+        if n_steps >= MAX_STATES {
             bail!(
-                "n_steps must be at most {} (at most {MAX_STATES} states), got {n_steps_eff}",
+                "n_steps must be at most {} (at most {MAX_STATES} states), got {n_steps}",
                 MAX_STATES - 1
             );
         }
         check_t_max(t_max)?;
-        let n_free = n_free_params(n_steps_eff, pattern_spec.as_deref());
-        let lam = vec![1.0; n_free - 3];
-        let n_states = n_steps_eff + 1;
+        let lam = vec![1.0; n_free_params(n_steps, pattern_spec.as_deref()) - 3];
+        let n_states = n_steps + 1;
         let mut model = Self {
-            n_steps: n_steps_eff,
+            n_steps,
             mu,
             pattern,
             pattern_spec,
@@ -153,7 +151,7 @@ impl PsmcModel {
     /// the pattern does not allow.
     pub fn ne_curve(&self, bin_size: f64, gen_years: f64) -> Result<Vec<[f64; 2]>> {
         let n0 = self.checked_n0(bin_size, gen_years)?;
-        let t = self.compute_t(0.1);
+        let t = self.compute_t(GRID_ALPHA);
         let lam = self.map_lam(&self.lam)?;
         Ok((0..=self.n_steps)
             .map(|k| [t[k] * 2.0 * n0 * gen_years, lam[k] * n0])
@@ -212,46 +210,40 @@ impl PsmcModel {
     /// Expand per-group λ (as stored in `lam`) to one value per state.
     /// Errors unless the result has `n_steps + 1` values.
     pub fn map_lam(&self, lam_grouped: &[f64]) -> Result<Vec<f64>> {
-        match &self.pattern_spec {
-            None => {
-                if lam_grouped.len() != self.n_steps + 1 {
-                    bail!(
-                        "lam length {} does not match n_steps+1 {}",
-                        lam_grouped.len(),
-                        self.n_steps + 1
-                    );
-                }
-                Ok(lam_grouped.to_vec())
-            }
-            Some(spec) => {
-                let expected = spec.iter().map(|(nr, _)| nr).sum::<usize>();
-                if lam_grouped.len() != expected {
-                    bail!(
-                        "lam length {} does not match grouped parameters {}",
-                        lam_grouped.len(),
-                        expected
-                    );
-                }
-                let mut lam = Vec::with_capacity(self.n_steps + 1);
-                let mut counter = 0usize;
-                for (nr, gl) in spec.iter().cloned() {
-                    for _ in 0..nr {
-                        for _ in 0..gl {
-                            lam.push(lam_grouped[counter]);
-                        }
-                        counter += 1;
-                    }
-                }
-                if lam.len() != self.n_steps + 1 {
-                    bail!(
-                        "expanded lam length {} does not match n_steps+1 {}",
-                        lam.len(),
-                        self.n_steps + 1
-                    );
-                }
-                Ok(lam)
-            }
+        let expected = self.n_free_params() - 3;
+        if lam_grouped.len() != expected {
+            let what = match self.pattern_spec {
+                Some(_) => "grouped parameters",
+                None => "n_steps+1",
+            };
+            bail!(
+                "lam length {} does not match {what} {expected}",
+                lam_grouped.len()
+            );
         }
+        let lam: Vec<f64> = self.par_map().into_iter().map(|i| lam_grouped[i]).collect();
+        if lam.len() != self.n_steps + 1 {
+            bail!(
+                "expanded lam length {} does not match n_steps+1 {}",
+                lam.len(),
+                self.n_steps + 1
+            );
+        }
+        Ok(lam)
+    }
+
+    /// The free λ of each state, as an index into `lam` (C psmc's
+    /// `par_map`): one per state without a pattern, else by the pattern's
+    /// groups.
+    pub(crate) fn par_map(&self) -> Vec<usize> {
+        let Some(spec) = &self.pattern_spec else {
+            return (0..=self.n_steps).collect();
+        };
+        spec.iter()
+            .flat_map(|&(repeats, length)| std::iter::repeat_n(length, repeats))
+            .enumerate()
+            .flat_map(|(free, length)| std::iter::repeat_n(free, length))
+            .collect()
     }
 
     /// Recompute the time grid `t` and the HMM parameters (`sigma`, `p_kl`,
@@ -272,20 +264,18 @@ impl PsmcModel {
         let n = self.n_steps;
 
         let mut beta = vec![0.0f64; n + 1];
-        let mut q_aux = vec![0.0f64; n];
-        let mut q = vec![f64::NAN; n + 1];
-        let mut e = Array2::zeros((3, n + 1));
-        let mut p_kl = Array2::zeros((n + 1, n + 1));
-
-        beta[0] = 0.0;
         for k in 1..=n {
             beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
         }
+        let q_aux: Vec<f64> = (0..n)
+            .map(|m| (alpha[m] - alpha[m + 1]) * (beta[m] - lam[m] / alpha[m]) + tau[m])
+            .collect();
 
-        for m in 0..n {
-            q_aux[m] = (alpha[m] - alpha[m + 1]) * (beta[m] - lam[m] / alpha[m]) + tau[m];
-        }
-
+        // Row k of the transition matrix is tmp3 q (plus 1 - tmp3 on the
+        // diagonal).
+        let mut q = vec![f64::NAN; n + 1];
+        let mut e = Array2::zeros((3, n + 1));
+        let mut p_kl = Array2::zeros((n + 1, n + 1));
         for k in 0..=n {
             let ak1 = alpha[k] - alpha[k + 1];
             let lak = lam[k];
@@ -382,21 +372,10 @@ impl PsmcModel {
     /// cannot disagree. Names follow the C code.
     fn coalescent(&self) -> Result<Coalescent> {
         check_t_max(self.t_max)?;
-        let t = self.compute_t(0.1);
+        let t = self.compute_t(GRID_ALPHA);
         let n = self.n_steps;
         let lam = self.map_lam(&self.lam)?;
-        if lam.len() != n + 1 {
-            bail!(
-                "expanded lam length {} does not match n_steps+1 {}",
-                lam.len(),
-                n + 1
-            );
-        }
-
-        let mut tau = vec![0.0f64; n + 1];
-        for k in 0..=n {
-            tau[k] = t[k + 1] - t[k];
-        }
+        let tau: Vec<f64> = (0..=n).map(|k| t[k + 1] - t[k]).collect();
 
         let mut alpha = vec![0.0f64; n + 2];
         alpha[0] = 1.0;
@@ -663,11 +642,11 @@ struct Coalescent {
 /// non-missing bins. See [`initial_theta_with_callable`] for bins with
 /// callable bases.
 pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
-    let (n_het, n_observed) = rows
-        .iter()
-        .map(|row| theta_counts(row))
-        .fold((0, 0), |(k, l), (rk, rl)| (k + rk, l + rl));
-    theta_from_counts(n_het, n_observed)
+    let mut counts = ThetaCounts::new(None);
+    for row in rows {
+        counts.add(&ThetaCounts::of(row));
+    }
+    counts.theta0()
 }
 
 /// Initial per-bin θ0 of bins with the callable bases `callable` (row for
@@ -723,10 +702,9 @@ impl ThetaCounts {
     /// The counts of `bins` without callable bases: C psmc counts every
     /// symbol other than `N` (2) as called.
     pub fn of(bins: &[u8]) -> Self {
-        let (het, called) = theta_counts(bins);
         Self {
-            het: het as u64,
-            called: called as u64,
+            het: bins.iter().filter(|&&v| v == 1).count() as u64,
+            called: bins.iter().filter(|&&v| v != 2).count() as u64,
             called_by_count: Vec::new(),
         }
     }
@@ -806,7 +784,13 @@ impl ThetaCounts {
     /// Errors when no bin is called or every called bin is heterozygous, as
     /// C psmc's θ0 does.
     pub fn theta0(&self) -> Result<f64> {
-        let plain = theta_from_counts(self.het as usize, self.called as usize)?;
+        if self.called == 0 {
+            bail!("no observed (non-N) sites found in input");
+        }
+        if self.het == self.called {
+            bail!("every observed bin is heterozygous; cannot initialise theta");
+        }
+        let plain = -(1.0 - self.het as f64 / self.called as f64).ln();
         let s = self.called_by_count.len().saturating_sub(1);
         // (share of callable bases, called bins) for each count present.
         let present: Vec<(f64, f64)> = self
@@ -846,33 +830,6 @@ impl ThetaCounts {
     }
 }
 
-/// The counts [`initial_theta`] takes from `bins`: heterozygous (`K`) bins
-/// and non-missing bins.
-pub(crate) fn theta_counts(bins: &[u8]) -> (usize, usize) {
-    let mut n_het = 0usize;
-    let mut n_observed = 0usize;
-    for &v in bins {
-        if v == 1 {
-            n_het += 1;
-        }
-        if v != 2 {
-            n_observed += 1;
-        }
-    }
-    (n_het, n_observed)
-}
-
-/// [`initial_theta`] from its counts ([`theta_counts`]).
-pub(crate) fn theta_from_counts(n_het: usize, n_observed: usize) -> Result<f64> {
-    if n_observed == 0 {
-        bail!("no observed (non-N) sites found in input");
-    }
-    if n_het == n_observed {
-        bail!("every observed bin is heterozygous; cannot initialise theta");
-    }
-    Ok(-(1.0 - n_het as f64 / n_observed as f64).ln())
-}
-
 /// `n_steps` (C psmc's `n`) implied by a `--pattern` such as `"4+25*2+4+6"`:
 /// the pattern lists `n_steps + 1` atomic intervals, so this is their count
 /// minus one. Errors on a malformed pattern or one with fewer than 2 or more
@@ -910,21 +867,16 @@ fn parse_pattern(pattern: &str) -> Result<Vec<(usize, usize)>> {
         if part.is_empty() {
             continue;
         }
-        if let Some((a, b)) = part.split_once('*') {
-            let nr: usize = a.trim().parse()?;
-            let gl: usize = b.trim().parse()?;
-            if nr == 0 || gl == 0 {
-                bail!("pattern values must be > 0");
-            }
-            out.push((nr, gl));
-        } else {
-            // C behavior: token "L" means one free parameter repeated L times.
-            let gl: usize = part.parse()?;
-            if gl == 0 {
-                bail!("pattern values must be > 0");
-            }
-            out.push((1, gl));
+        // "R*L" is R free parameters of L intervals each; as in C, a lone
+        // "L" is one free parameter of L intervals.
+        let (nr, gl): (usize, usize) = match part.split_once('*') {
+            Some((a, b)) => (a.trim().parse()?, b.trim().parse()?),
+            None => (1, part.parse()?),
+        };
+        if nr == 0 || gl == 0 {
+            bail!("pattern values must be > 0");
         }
+        out.push((nr, gl));
     }
     if out.is_empty() {
         bail!("pattern is empty");
@@ -950,7 +902,7 @@ mod tests {
     /// `C_pi` from its definition, written independently of `coalescent`:
     /// the integral of the survival function `exp(-int_0^t ds / lambda(s))`.
     fn c_pi_direct(model: &PsmcModel) -> f64 {
-        let t = model.compute_t(0.1);
+        let t = model.compute_t(GRID_ALPHA);
         let lam = model.map_lam(&model.lam).unwrap();
         let mut survival = 1.0;
         let mut sum = 0.0;
