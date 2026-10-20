@@ -97,9 +97,6 @@ MIN_LAST_MM = 0.5  # a: a last interval the window cuts narrower than this is no
 CLEAR_MM = 1.0  # a label's clearance from the edge of the marks it names
 ARROW_CLEAR_MM = 1.5  # and from a's arrow, so that the arrow points at the curve, not at the label below it
 EDGE_MM = 1.0  # a label's least distance from its axes' right and top edges
-# Labels are measured at this resolution: Agg's hinted metrics at the
-# default 100 dpi make a 6 pt label about 7% narrower than it prints.
-PLACE_DPI = 600
 
 # b, in percentage points (1 pp is about 1.05 mm across a facet). Each
 # route's median sits DODGE beside its x, blue left and orange right, so
@@ -255,7 +252,7 @@ def _place(ax, text: str, x: float, marks, *, above: bool, ha: str, color: str, 
     would overlap a label of ``avoid`` moves on past it; one that would
     leave the axes at the top or bottom is held inside, even if it then
     touches a mark. Extents are measured at the figure's resolution, which
-    :func:`draw` raises to :data:`PLACE_DPI` while it places labels.
+    :func:`draw` raises to the PNG's while it places labels.
     """
     fig = ax.figure
     renderer = fig.canvas.get_renderer()
@@ -585,19 +582,19 @@ def draw(src: Source):
 
     fig = style.figure(W_MM, H_MM)
     dpi = fig.dpi
-    fig.set_dpi(PLACE_DPI)  # labels are placed by their extents as they print
-    try:
-        ax_a = style.axes_mm(fig, *AX_A)
-        axes_b = [style.axes_mm(fig, *box) for box in AX_B]
-        curve_panel(ax_a, routes, fits, cfg, full)
-        dose_panel(axes_b, routes, cfg, full)
-        shown = [ax for ax in axes_b if ax.axison]
-        if shown:
-            style.row_xlabel(fig, shown, "Positions uncallable (%)")
-        # a at the figure's left edge, b at the left edge of its ink (its y label), both on the titles' baseline.
-        style.panel_letters(fig, [ax_a] + shown[:1])
-    finally:
-        fig.set_dpi(dpi)
+    # Labels are placed by their extents as they print: at the default 100 dpi, Agg's hinted metrics make a
+    # 6 pt label about 7% narrower.
+    fig.set_dpi(style.PNG_DPI)
+    ax_a = style.axes_mm(fig, *AX_A)
+    axes_b = [style.axes_mm(fig, *box) for box in AX_B]
+    curve_panel(ax_a, routes, fits, cfg, full)
+    dose_panel(axes_b, routes, cfg, full)
+    shown = [ax for ax in axes_b if ax.axison]
+    if shown:
+        style.row_xlabel(fig, shown, "Positions uncallable (%)")
+    # a at the figure's left edge, b at the left edge of its ink (its y label), both on the titles' baseline.
+    style.panel_letters(fig, [ax_a] + shown[:1])
+    fig.set_dpi(dpi)
     return fig
 
 
