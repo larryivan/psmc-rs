@@ -128,7 +128,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -274,11 +273,15 @@ class Dirs:
     shared: Path
     local: Path
 
-    def chunk(self, chrom: str, i: int) -> Path:
-        return self.shared / chrom / f"chunk{i:03d}"
-
     def chrom(self, chrom: str) -> Path:
         return self.shared / chrom
+
+    def chunk(self, chrom: str, i: int) -> Path:
+        return self.chrom(chrom) / f"chunk{i:03d}"
+
+    def samples(self, chrom: str) -> Path:
+        """Where the chromosome's assembly concatenates and converts each sample's split files."""
+        return self.chrom(chrom) / "samples"
 
 
 def temp_dirs(lay: Layout, tmp_dir: Optional[Path] = None, local_tmp_dir: Optional[Path] = None) -> Dirs:
@@ -690,9 +693,9 @@ def write_masks(cfg: config.E7, lay: Layout, bed: Path) -> Dict[str, int]:
 # ---------------------------------------------------------------------------
 
 
-def run(cmd: Sequence[str], **kw) -> subprocess.CompletedProcess:
+def run(cmd: Sequence[str]) -> subprocess.CompletedProcess:
     """Run ``cmd``; raise :class:`StageError` with its stderr when it fails."""
-    res = subprocess.run([str(c) for c in cmd], capture_output=True, text=True, **kw)
+    res = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
     if res.returncode != 0:
         raise StageError(f"{' '.join(str(c) for c in cmd)} failed (exit {res.returncode}): {res.stderr.strip()[-2000:]}")
     return res
@@ -763,60 +766,31 @@ def setup(cfg: config.E7, lay: Layout, force: bool = False, log=print) -> Dict:
     if not split_plugin_ok():
         raise StageError("bcftools +split is not available (bcftools plugin -l; set BCFTOOLS_PLUGINS)")
     lay.inputs.mkdir(parents=True, exist_ok=True)
-    sources: Dict[str, Dict] = {}
-    log(f"[setup] manifest {manifest_url(cfg)}")
-    sources["manifest"] = fetch(resolve(cfg, lay, manifest_url(cfg)), lay.meta(basename(manifest_url(cfg))))
+    sources = fetch_files(cfg, lay, log)
     manifest = parse_manifest(lay.meta(basename(manifest_url(cfg))).read_text())
-    for key, url in (("index", cfg.index_url), ("ped", cfg.ped_url), ("mask", cfg.mask_url)):
-        log(f"[setup] {key} {url}")
-        sources[key] = fetch(resolve(cfg, lay, url), lay.meta(basename(url)))
-    if cfg.giab:
-        for key, url, dest in (("giab_vcf", cfg.giab_vcf_url, lay.giab_vcf), ("giab_bed", cfg.giab_bed_url, lay.giab_bed)):
-            log(f"[setup] {key} {url}")
-            sources[key] = fetch(resolve(cfg, lay, url), dest)
     vcfs: Dict[str, Dict] = {}
-    header_text = ""
+    header = ""
     for chrom in cfg.chromosomes:
-        url = vcf_url(cfg, chrom)
-        name = basename(url)
-        entry = {"url": url, "read_from": resolve(cfg, lay, url), "manifest": manifest.get(name)}
-        entry["head"] = head(resolve(cfg, lay, url))
-        if cfg.input == "joint" and cfg.local_source is None:
-            other = cfg.vcf_url if cfg.use_mirror else cfg.mirror_url
-            entry["other_mirror"] = head(other.format(chrom=chrom))
-        tbi = fetch(resolve(cfg, lay, url) + ".tbi", lay.tbi(chrom))
-        entry["tbi"] = {**tbi, "manifest": manifest.get(name + ".tbi")}
-        entry["problems"] = source_problems(entry, local=cfg.local_source is not None)
-        if entry["problems"]:
-            raise StageError(f"{name}: " + "; ".join(entry["problems"]))
-        entry["index_records"] = index_records(lay, chrom)
-        h = run(["bcftools", "view", "-h", stream_path(cfg, lay, chrom)]).stdout
-        if not header_text:
-            header_text = h
-        elif header_samples(h) != header_samples(header_text):
-            raise StageError(f"{name}: its samples differ from those of {cfg.chromosomes[0]}'s VCF")
+        entry, h = check_vcf(cfg, lay, chrom, manifest)
+        if not header:
+            header = h
+        elif header_samples(h) != header_samples(header):
+            raise StageError(f"{basename(entry['url'])}: its samples differ from those of {cfg.chromosomes[0]}'s VCF")
         vcfs[chrom] = entry
         log(f"[setup] {chrom}: {entry['head']['content_length']:,} bytes, {entry['index_records']:,} records")
-    in_header = set(header_samples(header_text))
+    in_header = set(header_samples(header))
     index = read_index(lay.meta(basename(cfg.index_url)).read_text())
     ped, parents = read_ped(lay.meta(basename(cfg.ped_url)).read_text())
     samples = select_samples(cfg, index, ped, parents)
     absent = [s.sample_id for s in samples if s.sample_id not in in_header]
     if absent:
         raise StageError(f"{len(absent)} samples are not in the VCF: {absent[:5]}")
-    write_tsv(lay.samples, [s.row() for s in samples], SAMPLE_COLUMNS)
-    names = [s.sample_id for s in samples]
-    write_atomic(lay.stream_samples, "".join(f"{s}\n" for s in names).encode())
-    batches = [names[i:i + cfg.split_batch_size] for i in range(0, len(names), cfg.split_batch_size)]
-    if lay.batch(0).parent.exists():
-        shutil.rmtree(lay.batch(0).parent)
-    for k, b in enumerate(batches):
-        write_atomic(lay.batch(k), "".join(f"{s}\n" for s in b).encode())
+    batches = write_samples(cfg, lay, samples)
     mask_bases = write_masks(cfg, lay, lay.meta(basename(cfg.mask_url)))
-    chunks = plan_chunks(cfg, contig_lengths(header_text))
+    lengths = contig_lengths(header)
+    chunks = plan_chunks(cfg, lengths)
     write_tsv(lay.chunks, [{"chrom": c.chrom, "chunk": c.index, "start": c.start, "end": c.end} for c in chunks],
               ("chrom", "chunk", "start", "end"))
-    lengths = contig_lengths(header_text)
     record = {
         "step": "setup",
         "settings": asdict(cfg),
@@ -825,8 +799,7 @@ def setup(cfg: config.E7, lay: Layout, force: bool = False, log=print) -> Dict:
         "contig_lengths": {c: lengths[c] for c in cfg.chromosomes},
         "mask_callable_bases": mask_bases,
         "samples": {"unrelated_in_index": len(index), "processed": len(samples),
-                    "default": sum(s.default for s in samples), "batches": len(batches),
-                    "vcf_columns": len(in_header)},
+                    "default": sum(s.default for s in samples), "batches": batches, "vcf_columns": len(in_header)},
         "chunks": len(chunks),
         "tools": {**bcftools_version(), "psmc-rs": rs_identity(),
                   "pipeline": provenance.python_identity(["kg1000.py", "config.py"])},
@@ -834,9 +807,51 @@ def setup(cfg: config.E7, lay: Layout, force: bool = False, log=print) -> Dict:
         "where": where(),
     }
     write_json(lay.record_setup, record)
-    log(f"[setup] {len(samples)} samples ({record['samples']['default']} default) in {len(batches)} batches, "
+    log(f"[setup] {len(samples)} samples ({record['samples']['default']} default) in {batches} batches, "
         f"{len(chunks)} chunks")
     return record
+
+
+def fetch_files(cfg: config.E7, lay: Layout, log=print) -> Dict[str, Dict]:
+    """The manifest, sequence index, pedigree, strict mask (and GIAB's truth) into ``meta/``: their digests."""
+    files = [(key, url, lay.meta(basename(url))) for key, url in (
+        ("manifest", manifest_url(cfg)), ("index", cfg.index_url), ("ped", cfg.ped_url), ("mask", cfg.mask_url))]
+    if cfg.giab:
+        files += [("giab_vcf", cfg.giab_vcf_url, lay.giab_vcf), ("giab_bed", cfg.giab_bed_url, lay.giab_bed)]
+    sources = {}
+    for key, url, dest in files:
+        log(f"[setup] {key} {url}")
+        sources[key] = fetch(resolve(cfg, lay, url), dest)
+    return sources
+
+
+def check_vcf(cfg: config.E7, lay: Layout, chrom: str, manifest: Dict[str, Dict]) -> Tuple[Dict, str]:
+    """A chromosome's VCF checked against the manifest (its index downloaded): its ``setup.json`` entry, its header."""
+    url = vcf_url(cfg, chrom)
+    name, source = basename(url), resolve(cfg, lay, url)
+    entry = {"url": url, "read_from": source, "manifest": manifest.get(name), "head": head(source)}
+    if cfg.input == "joint" and cfg.local_source is None:
+        other = cfg.vcf_url if cfg.use_mirror else cfg.mirror_url
+        entry["other_mirror"] = head(other.format(chrom=chrom))
+    entry["tbi"] = {**fetch(source + ".tbi", lay.tbi(chrom)), "manifest": manifest.get(name + ".tbi")}
+    entry["problems"] = source_problems(entry, local=cfg.local_source is not None)
+    if entry["problems"]:
+        raise StageError(f"{name}: " + "; ".join(entry["problems"]))
+    entry["index_records"] = index_records(lay, chrom)
+    return entry, run(["bcftools", "view", "-h", stream_path(cfg, lay, chrom)]).stdout
+
+
+def write_samples(cfg: config.E7, lay: Layout, samples: Sequence[Sample]) -> int:
+    """``samples.tsv``, the stream's sample list and the ``+split`` batches of it; returns the number of batches."""
+    write_tsv(lay.samples, [s.row() for s in samples], SAMPLE_COLUMNS)
+    names = [s.sample_id for s in samples]
+    write_atomic(lay.stream_samples, "".join(f"{s}\n" for s in names).encode())
+    if lay.batch(0).parent.exists():
+        shutil.rmtree(lay.batch(0).parent)
+    batches = [names[i:i + cfg.split_batch_size] for i in range(0, len(names), cfg.split_batch_size)]
+    for k, b in enumerate(batches):
+        write_atomic(lay.batch(k), "".join(f"{s}\n" for s in b).encode())
+    return len(batches)
 
 
 def source_problems(entry: Dict, local: bool) -> List[str]:
@@ -916,43 +931,23 @@ def stream_once(cmds: Dict, log_path: Path) -> None:
         raise StageError(f"the stream failed (bcftools view exit {rc_view}, annotate exit {rc_strip}; see {log_path})")
 
 
-def chunk(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, i: int, force: bool = False, log=print) -> Dict:
-    """Stream one chunk and split it (see the module documentation); returns its record."""
-    plan = {c.index: c for c in chunks_of(lay, chrom)}
-    if i not in plan:
-        raise StageError(f"{chrom} has chunks 0..{max(plan)}, not {i}")
-    ch = plan[i]
-    rec_path = lay.record_chunk(chrom, i)
-    if rec_path.exists() and not force:
-        if (dirs.chunk(chrom, i) / "DONE").exists() or lay.record_chrom(chrom).exists():
-            log(f"[chunk] {ch.region}: done")
-            return read_json(rec_path)
-    nb = n_batches(lay)
-    cmds = chunk_commands(cfg, lay, dirs, ch, nb)
-    out: Path = cmds["out"]
-    bcf: Path = cmds["bcf"]
-    if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
-    dirs.local.mkdir(parents=True, exist_ok=True)
-    log_path = out / "stderr.log"
-    t0 = time.time()
-    attempts = 0
-    while True:
-        attempts += 1
+def stream_chunk(cfg: config.E7, cmds: Dict, region: str, log=print) -> int:
+    """The chunk's stream into its BCF, tried up to ``chunk_attempts`` times; returns the attempts made."""
+    for attempts in range(1, max(cfg.chunk_attempts, 1) + 1):
         try:
-            stream_once(cmds, log_path)
-            break
+            stream_once(cmds, cmds["out"] / "stderr.log")
+            return attempts
         except StageError as exc:
-            bcf.unlink(missing_ok=True)
+            cmds["bcf"].unlink(missing_ok=True)
             if attempts >= cfg.chunk_attempts:
-                raise StageError(f"{ch.region}: {exc} (after {attempts} attempts)") from None
-            log(f"[chunk] {ch.region}: {exc}; again in {cfg.retry_wait_seconds:g} s")
+                raise StageError(f"{region}: {exc} (after {attempts} attempts)") from None
+            log(f"[chunk] {region}: {exc}; again in {cfg.retry_wait_seconds:g} s")
             time.sleep(cfg.retry_wait_seconds)
-    t_stream = time.time() - t0
-    run(cmds["index"])
-    records = int(run(cmds["count"]).stdout.split()[0])
-    t1 = time.time()
+
+
+def split_chunk(cmds: Dict, region: str) -> str:
+    """Every batch's ``+split`` at once, and meanwhile the non-PASS positions (returned, and gzipped to the chunk)."""
+    out = cmds["out"]
     logs = [open(out / f"split_{k:02d}.log", "w") for k in range(len(cmds["split"]))]
     try:
         procs = [subprocess.Popen(c, stdout=subprocess.DEVNULL, stderr=f) for c, f in zip(cmds["split"], logs)]
@@ -963,7 +958,34 @@ def chunk(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, i: int, force: bo
         for f in logs:
             f.close()
     if failed:
-        raise StageError(f"{ch.region}: bcftools +split failed for batch(es) {failed} (see {out})")
+        raise StageError(f"{region}: bcftools +split failed for batch(es) {failed} (see {out})")
+    return nonpass
+
+
+def chunk(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, i: int, force: bool = False, log=print) -> Dict:
+    """Stream one chunk and split it (see the module documentation); returns its record."""
+    plan = {c.index: c for c in chunks_of(lay, chrom)}
+    if i not in plan:
+        raise StageError(f"{chrom} has chunks 0..{max(plan)}, not {i}")
+    ch = plan[i]
+    rec_path = lay.record_chunk(chrom, i)
+    done = (dirs.chunk(chrom, i) / "DONE").exists() or lay.record_chrom(chrom).exists()
+    if rec_path.exists() and not force and done:
+        log(f"[chunk] {ch.region}: done")
+        return read_json(rec_path)
+    cmds = chunk_commands(cfg, lay, dirs, ch, n_batches(lay))
+    out, bcf = cmds["out"], cmds["bcf"]
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    dirs.local.mkdir(parents=True, exist_ok=True)
+    t0 = time.time()
+    attempts = stream_chunk(cfg, cmds, ch.region, log)
+    t_stream = time.time() - t0
+    run(cmds["index"])
+    records = int(run(cmds["count"]).stdout.split()[0])
+    t1 = time.time()
+    nonpass = split_chunk(cmds, ch.region)
     t_split = time.time() - t1
     bcf_bytes = bcf.stat().st_size
     bcf.unlink()
@@ -982,9 +1004,8 @@ def chunk(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, i: int, force: bo
         "bcf_bytes": bcf_bytes,
         "split_files": len(files),
         "split_bytes": sum(f.stat().st_size for f in files),
-        "commands": {k: portable_cmd(v, lay, dirs) for k, v in cmds.items() if k in ("stream", "strip", "index", "count",
-                                                                                   "nonpass")}
-                    | {"split": [portable_cmd(c, lay, dirs) for c in cmds["split"]]},
+        "commands": {**{k: portable_cmd(cmds[k], lay, dirs) for k in ("stream", "strip", "index", "count", "nonpass")},
+                     "split": [portable_cmd(c, lay, dirs) for c in cmds["split"]]},
         "where": where(),
     }
     write_json(rec_path, rec)
@@ -999,7 +1020,7 @@ def chunk(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, i: int, force: bo
 # ---------------------------------------------------------------------------
 
 
-def convert_command(cfg: config.E7, vcf: Path, mask: Path, nonpass: Path, psmcfa: Path, qc: Path,
+def convert_command(cfg: config.E7, vcf: Path, mask: Path, nonpass: Optional[Path], psmcfa: Path, qc: Path,
                     sample: Optional[str] = None) -> List[str]:
     """``psmc-rs convert`` of one sample's VCF (or of the joint stream with ``--vcf-sample``)."""
     cmd = [str(rs_binary()), "convert", str(vcf), "--vcf-mode", "mask"]
@@ -1029,27 +1050,25 @@ def concat_command(out: Path, parts: Sequence[Path]) -> List[str]:
     return ["bcftools", "concat", "--no-version", "--naive", "-Oz", "-o", str(out), *[str(p) for p in parts]]
 
 
-def assemble_sample_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, sample, chunks: Sequence[Chunk],
-                          batch_of: Dict[str, int]) -> Dict:
-    work = dirs.chrom(chrom) / "samples"
-    vcf = work / f"{sample.sample_id}.vcf.gz"
-    qc_path = work / f"{sample.sample_id}.qc.json"
-    parts = [dirs.chunk(chrom, c.index) / f"batch_{batch_of[sample.sample_id]:02d}" / f"{sample.sample_id}.vcf.gz"
-             for c in chunks]
+def assemble_sample_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, sample: Sample, chunks: Sequence[Chunk],
+                          batch: int) -> Dict:
+    """One sample's split files of the chromosome concatenated and converted: its row of ``qc/<chrom>.tsv``."""
+    sid = sample.sample_id
+    vcf, qc_path = dirs.samples(chrom) / f"{sid}.vcf.gz", dirs.samples(chrom) / f"{sid}.qc.json"
+    parts = [dirs.chunk(chrom, c.index) / f"batch_{batch:02d}" / f"{sid}.vcf.gz" for c in chunks]
     missing = [p for p in parts if not p.exists()]
     if missing:
-        raise StageError(f"{sample.sample_id}: no split file {missing[0]}")
+        raise StageError(f"{sid}: no split file {missing[0]}")
     run(concat_command(vcf, parts))
-    psmcfa = lay.psmcfa_chrom(chrom, sample.sample_id)
+    psmcfa = lay.psmcfa_chrom(chrom, sid)
     psmcfa.parent.mkdir(parents=True, exist_ok=True)
     tmp = psmcfa.with_name(psmcfa.name.replace(".psmcfa.gz", ".partial.psmcfa.gz"))
     run(convert_command(cfg, vcf, lay.mask(chrom), lay.nonpass(chrom), tmp, qc_path))
     os.replace(tmp, psmcfa)
-    row = {"sample_id": sample.sample_id, "chrom": chrom, **qc_numbers(read_json(qc_path)),
-           "vcf_bytes": vcf.stat().st_size, "psmcfa_bytes": psmcfa.stat().st_size,
-           "psmcfa_sha256": provenance.sha256_file(psmcfa)}
+    row = {"sample_id": sid, "chrom": chrom, **qc_numbers(read_json(qc_path)), "vcf_bytes": vcf.stat().st_size,
+           "psmcfa_bytes": psmcfa.stat().st_size, "psmcfa_sha256": provenance.sha256_file(psmcfa)}
     if sample.default:
-        dest = lay.vcf_chrom(chrom, sample.sample_id)
+        dest = lay.vcf_chrom(chrom, sid)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(vcf), dest)
     else:
@@ -1076,16 +1095,12 @@ def assemble_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, jobs: in
     if expected is not None and records != expected:
         raise StageError(f"{chrom}: the chunks hold {records:,} records, the index {expected:,}: a stream ended early; "
                          f"run its chunks again (chunk --force)")
-    np_data = b"".join((dirs.chunk(chrom, c.index) / "nonpass.bed.gz").read_bytes() for c in chunks)
-    write_atomic(lay.nonpass(chrom), np_data)
-    samples = read_samples(lay.samples)
-    batch_of = {}
-    for k in range(n_batches(lay)):
-        for s in lay.batch(k).read_text().split():
-            batch_of[s] = k
-    (dirs.chrom(chrom) / "samples").mkdir(parents=True, exist_ok=True)
+    concat_files([dirs.chunk(chrom, c.index) / "nonpass.bed.gz" for c in chunks], lay.nonpass(chrom))
+    batch_of = {s: k for k in range(n_batches(lay)) for s in lay.batch(k).read_text().split()}
+    dirs.samples(chrom).mkdir(parents=True, exist_ok=True)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(jobs, 1)) as pool:
-        rows = list(pool.map(lambda s: assemble_sample_chrom(cfg, lay, dirs, chrom, s, chunks, batch_of), samples))
+        rows = list(pool.map(lambda s: assemble_sample_chrom(cfg, lay, dirs, chrom, s, chunks, batch_of[s.sample_id]),
+                             read_samples(lay.samples)))
     write_tsv(lay.qc_chrom(chrom), rows, QC_COLUMNS)
     vcf_bytes = sorted(r["vcf_bytes"] for r in rows)
     rec = {
@@ -1105,12 +1120,12 @@ def assemble_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, jobs: in
         "stream_seconds": sum(r["seconds"]["stream"] for r in recs),
         "seconds": round(time.time() - t0, 3),
         "commands": {
-            "concat": portable_cmd(concat_command(dirs.chrom(chrom) / "samples" / "S.vcf.gz",
+            "concat": portable_cmd(concat_command(dirs.samples(chrom) / "S.vcf.gz",
                                                   [dirs.chunk(chrom, c.index) / "batch_K" / "S.vcf.gz" for c in chunks]),
                                    lay, dirs),
-            "convert": portable_cmd(convert_command(cfg, dirs.chrom(chrom) / "samples" / "S.vcf.gz", lay.mask(chrom),
+            "convert": portable_cmd(convert_command(cfg, dirs.samples(chrom) / "S.vcf.gz", lay.mask(chrom),
                                                     lay.nonpass(chrom), lay.psmcfa_chrom(chrom, "S"),
-                                                    dirs.chrom(chrom) / "samples" / "S.qc.json"), lay, dirs),
+                                                    dirs.samples(chrom) / "S.qc.json"), lay, dirs),
         },
         "psmc-rs": rs_identity(),
         "where": where(),
@@ -1149,47 +1164,19 @@ def pilot(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, samples: Optional
     converts = {s: convert_command(cfg, Path("/dev/stdin"), lay.mask(chrom), None, work / f"{s}.psmcfa.gz",
                                    work / f"{s}.qc.json", sample=s) for s in wanted}
     t0 = time.time()
-    with open(work / "stderr.log", "w") as err:
-        src = subprocess.Popen(stream, stdout=subprocess.PIPE, stderr=err)
-        sinks = {s: subprocess.Popen(c, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
-                 for s, c in converts.items()}
-        broken = set()
-        for block in iter(lambda: src.stdout.read(1 << 20), b""):
-            for s, p in sinks.items():
-                if s in broken:
-                    continue
-                try:
-                    p.stdin.write(block)
-                except BrokenPipeError:
-                    broken.add(s)
-        for p in sinks.values():
-            try:
-                p.stdin.close()
-            except BrokenPipeError:
-                pass
-        src.stdout.close()
-        rc = {s: p.wait() for s, p in sinks.items()}
-        rc_src = src.wait()
-    if rc_src != 0 or any(rc.values()):
-        raise StageError(f"the pilot's stream or conversion failed (bcftools {rc_src}, psmc-rs {rc}; see {work})")
+    tee(stream, converts, work)
     stream_s = time.time() - t0
+    qc_rows = {r["sample_id"]: r for r in read_tsv(lay.qc_chrom(chrom))}
     rows = []
     for s in wanted:
         mine = gzip.decompress(lay.psmcfa_chrom(chrom, s).read_bytes())
         ref = gzip.decompress((work / f"{s}.psmcfa.gz").read_bytes())
-        qc_ref = read_json(work / f"{s}.qc.json")
-        qc_row = next(r for r in read_tsv(lay.qc_chrom(chrom)) if r["sample_id"] == s)
-        ref_numbers = qc_numbers(qc_ref)
-        differ = [k for k, v in ref_numbers.items() if str(v) != qc_row[k]]
+        ref_numbers = qc_numbers(read_json(work / f"{s}.qc.json"))
+        differ = [k for k, v in ref_numbers.items() if str(v) != qc_rows[s][k]]
         rows.append({"sample_id": s, "psmcfa_identical": mine == ref, "psmcfa_bytes": len(mine),
                      "qc_fields_differing": differ, "qc": ref_numbers})
     chrom_rec = read_json(lay.record_chrom(chrom))
-    setup_rec = read_json(lay.record_setup)
-    lengths = setup_rec["contig_lengths"]
-    span = chunks[-1].end - chunks[0].start + 1
-    genome = sum(lengths.values()) if cfg.window is None else span * len(cfg.chromosomes)
-    scale = genome / span
-    n = max(chrom_rec["samples"], 1)
+    st, scale = storage(cfg, lay, chrom_rec, chunks[-1].end - chunks[0].start + 1)
     rec = {
         "step": "pilot",
         "chrom": chrom,
@@ -1198,15 +1185,7 @@ def pilot(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, samples: Optional
         "identical": all(r["psmcfa_identical"] and not r["qc_fields_differing"] for r in rows),
         "records_check": chrom_rec["records_check"],
         "stream_seconds_pilot": round(stream_s, 3),
-        "storage": {
-            "scale_to_genome": round(scale, 3),
-            "vcf_bytes_per_sample": chrom_rec["vcf_bytes_total"] / n,
-            "vcf_bytes_per_sample_genome": chrom_rec["vcf_bytes_total"] / n * scale,
-            "psmcfa_bytes_per_sample_genome": chrom_rec["psmcfa_bytes_total"] / n * scale,
-            "split_bytes_chrom": chrom_rec["split_bytes_total"],
-            "stream_seconds_chrom": chrom_rec["stream_seconds"],
-            "stream_seconds_genome": chrom_rec["stream_seconds"] * scale,
-        },
+        "storage": st,
         "commands": {"stream": portable_cmd(stream, lay, dirs),
                      "convert": portable_cmd(converts[wanted[0]], lay, dirs)},
         "where": where(),
@@ -1216,7 +1195,6 @@ def pilot(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, samples: Optional
     for r in rows:
         log(f"[pilot] {chrom} {r['sample_id']}: psmcfa {'identical' if r['psmcfa_identical'] else 'DIFFERS'}, QC "
             + ("equal" if not r["qc_fields_differing"] else f"differs in {', '.join(r['qc_fields_differing'])}"))
-    st = rec["storage"]
     log(f"[pilot] per sample: {st['vcf_bytes_per_sample'] / 1e6:.2f} MB of het/missing VCF on {chrom} "
         f"(genome {st['vcf_bytes_per_sample_genome'] / 1e6:.1f} MB), "
         f"psmcfa.gz {st['psmcfa_bytes_per_sample_genome'] / 1e6:.2f} MB "
@@ -1225,6 +1203,47 @@ def pilot(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, samples: Optional
         raise StageError(f"pilot {chrom}: the split route differs from psmc-rs convert --vcf-sample "
                          f"(see {lay.record_pilot(chrom)})")
     return rec
+
+
+def tee(stream: Sequence[str], sinks: Dict[str, Sequence[str]], work: Path) -> None:
+    """``stream``'s output fed to every command of ``sinks`` at once (stderr: ``work/stderr.log``); raise if any fails."""
+    with open(work / "stderr.log", "w") as err:
+        src = subprocess.Popen(stream, stdout=subprocess.PIPE, stderr=err)
+        procs = {s: subprocess.Popen(c, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
+                 for s, c in sinks.items()}
+        broken = set()
+        for block in iter(lambda: src.stdout.read(1 << 20), b""):
+            for s, p in procs.items():
+                if s not in broken:
+                    try:
+                        p.stdin.write(block)
+                    except BrokenPipeError:
+                        broken.add(s)
+        for p in procs.values():
+            with contextlib.suppress(BrokenPipeError):
+                p.stdin.close()
+        src.stdout.close()
+        rc = {s: p.wait() for s, p in procs.items()}
+        rc_src = src.wait()
+    if rc_src != 0 or any(rc.values()):
+        raise StageError(f"the pilot's stream or conversion failed (bcftools {rc_src}, psmc-rs {rc}; see {work})")
+
+
+def storage(cfg: config.E7, lay: Layout, chrom_rec: Dict, span: int) -> Tuple[Dict[str, float], float]:
+    """A chromosome's bytes per sample and stream time (``span`` bases of it) extrapolated to the genome; the factor."""
+    lengths = read_json(lay.record_setup)["contig_lengths"]
+    genome = sum(lengths.values()) if cfg.window is None else span * len(cfg.chromosomes)
+    scale = genome / span
+    n = max(chrom_rec["samples"], 1)
+    return {
+        "scale_to_genome": round(scale, 3),
+        "vcf_bytes_per_sample": chrom_rec["vcf_bytes_total"] / n,
+        "vcf_bytes_per_sample_genome": chrom_rec["vcf_bytes_total"] / n * scale,
+        "psmcfa_bytes_per_sample_genome": chrom_rec["psmcfa_bytes_total"] / n * scale,
+        "split_bytes_chrom": chrom_rec["split_bytes_total"],
+        "stream_seconds_chrom": chrom_rec["stream_seconds"],
+        "stream_seconds_genome": chrom_rec["stream_seconds"] * scale,
+    }, scale
 
 
 # ---------------------------------------------------------------------------
@@ -1242,21 +1261,20 @@ def assemble_samples(cfg: config.E7, lay: Layout, jobs: int = 1, prune: bool = F
     by_chrom = {c: {r["sample_id"]: r for r in read_tsv(lay.qc_chrom(c))} for c in cfg.chromosomes}
 
     def one(s: Sample) -> Dict:
-        parts = [lay.psmcfa_chrom(c, s.sample_id) for c in cfg.chromosomes]
+        sid = s.sample_id
+        parts = [lay.psmcfa_chrom(c, sid) for c in cfg.chromosomes]
         for c, p in zip(cfg.chromosomes, parts):
-            if not p.exists() or provenance.sha256_file(p) != by_chrom[c][s.sample_id]["psmcfa_sha256"]:
+            if not p.exists() or provenance.sha256_file(p) != by_chrom[c][sid]["psmcfa_sha256"]:
                 raise StageError(f"{p} is missing or not the file assemble-chrom made")
-        concat_files(parts, lay.psmcfa(s.sample_id))
-        out = {"sample_id": s.sample_id, "psmcfa_sha256": provenance.sha256_file(lay.psmcfa(s.sample_id)),
-               "psmcfa_bytes": lay.psmcfa(s.sample_id).stat().st_size}
+        concat_files(parts, lay.psmcfa(sid))
+        out = {"sample_id": sid, "psmcfa_sha256": provenance.sha256_file(lay.psmcfa(sid)),
+               **{col: sum(int(by_chrom[c][sid][col]) for c in cfg.chromosomes) for col in QC_SUMMED}}
         if s.default:
-            vcf = lay.vcf(s.sample_id)
+            vcf = lay.vcf(sid)
             tmp = vcf.with_name(vcf.name.replace(".vcf.gz", ".partial.vcf.gz"))
-            run(concat_command(tmp, [lay.vcf_chrom(c, s.sample_id) for c in cfg.chromosomes]))
+            run(concat_command(tmp, [lay.vcf_chrom(c, sid) for c in cfg.chromosomes]))
             os.replace(tmp, vcf)
             out.update(vcf_sha256=provenance.sha256_file(vcf), vcf_bytes_kept=vcf.stat().st_size)
-        for col in QC_SUMMED:
-            out[col] = sum(int(by_chrom[c][s.sample_id][col]) for c in cfg.chromosomes)
         return out
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(jobs, 1)) as pool:
@@ -1291,7 +1309,7 @@ def write_manifest(cfg: config.E7, lay: Layout, rows: Sequence[Dict]) -> Dict:
     setup_rec = read_json(lay.record_setup)
     chunks = [read_json(lay.record_chunk(c.chrom, c.index)) for c in read_chunks(lay)]
     chroms = {c: read_json(lay.record_chrom(c)) for c in cfg.chromosomes}
-    pilots = {p.stem.split("_", 1)[1]: read_json(p) for p in sorted((lay.inputs / "records").glob("pilot_*.json"))}
+    pilots = {p.stem.split("_", 1)[1]: read_json(p) for p in sorted(lay.records.glob("pilot_*.json"))}
     outputs: Dict[str, Dict] = {}
 
     def add(path: Path, sha: Optional[str] = None) -> None:
@@ -1306,7 +1324,6 @@ def write_manifest(cfg: config.E7, lay: Layout, rows: Sequence[Dict]) -> Dict:
         add(lay.psmcfa(r["sample_id"]), r["psmcfa_sha256"])
         if r.get("vcf_sha256"):
             add(lay.vcf(r["sample_id"]), r["vcf_sha256"])
-    sources = dict(setup_rec["sources"])
     manifest = {
         "manifest": MANIFEST_ID,
         "written": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -1317,14 +1334,14 @@ def write_manifest(cfg: config.E7, lay: Layout, rows: Sequence[Dict]) -> Dict:
         "settings": setup_rec["settings"],
         "sources": {
             "vcfs": {c: {k: v for k, v in e.items() if k != "read_from"} for c, e in setup_rec["vcfs"].items()},
-            "files": {k: {kk: vv for kk, vv in v.items() if kk != "path"} for k, v in sources.items()},
+            "files": {k: {kk: vv for kk, vv in v.items() if kk != "path"} for k, v in setup_rec["sources"].items()},
         },
         "tools": setup_rec["tools"],
         "commands": {
             "chunk": chunks[0]["commands"] if chunks else {},
             "assemble_chrom": next(iter(chroms.values()))["commands"] if chroms else {},
             "assemble_samples": {
-                "psmcfa": "cat psmcfa/" + "/S.psmcfa.gz psmcfa/".join(cfg.chromosomes) + "/S.psmcfa.gz > psmcfa/S.psmcfa.gz",
+                "psmcfa": "cat " + " ".join(f"psmcfa/{c}/S.psmcfa.gz" for c in cfg.chromosomes) + " > psmcfa/S.psmcfa.gz",
                 "vcf": portable_cmd(concat_command(Path("vcf/S.vcf.gz"),
                                                    [Path(f"vcf/{c}/S.vcf.gz") for c in cfg.chromosomes]), lay),
             },
@@ -1389,7 +1406,7 @@ def _fetch_range(url: str, part: Path, start: int, end: int, attempts: int, wait
                 if r.status != 206:
                     raise StageError(f"{url}: the server ignored the range (HTTP {r.status})")
                 shutil.copyfileobj(r, out, 1 << 20)
-        except (urllib.error.URLError, http.client.HTTPException, OSError) as exc:  # IncompleteRead too
+        except (OSError, http.client.HTTPException) as exc:  # URLError and IncompleteRead too
             last = exc
             time.sleep(wait)
     have = part.stat().st_size if part.exists() else 0
@@ -1423,11 +1440,10 @@ def fetch_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, parts: Opti
         return {"step": "fetch", "chrom": chrom, "path": source, "fetched": False}
     size = int(entry["head"]["content_length"])
     dest = local_vcf(cfg, dirs, chrom)
+    parts = parts or cfg.fetch_parts
     t0 = time.time()
-    if dest.exists() and dest.stat().st_size == size:
-        digests = file_digests(dest)
-        fetched = False
-    else:
+    fetched = not (dest.exists() and dest.stat().st_size == size)
+    if fetched:
         dest.parent.mkdir(parents=True, exist_ok=True)
         have = sum(p.stat().st_size for p in dest.parent.glob(dest.name + ".part*"))  # a resumed download
         need = int(size * FETCH_ROOM) - have
@@ -1435,10 +1451,10 @@ def fetch_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, parts: Opti
         if free < need:
             raise StageError(f"{chrom}: {free / 1e9:.1f} GB free in {dest.parent}, the download and its chunks "
                              f"need {need / 1e9:.1f} GB (--local-tmp-dir)")
-        n = parts or cfg.fetch_parts
-        log(f"[fetch] {chrom}: {size / 1e9:.1f} GB from {source} in {n} ranges")
-        digests = fetch_ranges(source, dest, size, n, cfg.chunk_attempts * 10, cfg.retry_wait_seconds)
-        fetched = True
+        log(f"[fetch] {chrom}: {size / 1e9:.1f} GB from {source} in {parts} ranges")
+        digests = fetch_ranges(source, dest, size, parts, cfg.chunk_attempts * 10, cfg.retry_wait_seconds)
+    else:
+        digests = file_digests(dest)
     problems = []
     if digests["bytes"] != size:
         problems.append(f"{digests['bytes']} bytes, not {size}")
@@ -1449,7 +1465,7 @@ def fetch_chrom(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, parts: Opti
         raise StageError(f"{chrom}: the download is wrong ({'; '.join(problems)}); deleted, fetch it again")
     seconds = time.time() - t0
     rec = {"step": "fetch", "chrom": chrom, "url": source, "path": str(dest), "fetched": fetched, **digests,
-           "manifest_md5": man.get("md5"), "parts": parts or cfg.fetch_parts, "seconds": round(seconds, 3),
+           "manifest_md5": man.get("md5"), "parts": parts, "seconds": round(seconds, 3),
            "mb_per_s": round(size / seconds / 1e6, 2) if fetched and seconds > 0 else None, "where": where()}
     write_json(lay.record_fetch(chrom), rec)
     speed = f", {rec['mb_per_s']} MB/s" if fetched else ""
@@ -1464,10 +1480,8 @@ def chrom_local(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, jobs: int =
         log(f"[chrom] {chrom}: done")
         return read_json(lay.record_chrom(chrom))
     fetch_chrom(cfg, lay, dirs, chrom, parts=parts, log=log)
-    plan = chunks_of(lay, chrom)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(chunk_jobs, 1)) as pool:
-        for f in [pool.submit(chunk, cfg, lay, dirs, chrom, c.index, False, log) for c in plan]:
-            f.result()
+        list(pool.map(lambda c: chunk(cfg, lay, dirs, chrom, c.index, log=log), chunks_of(lay, chrom)))
     rec = assemble_chrom(cfg, lay, dirs, chrom, jobs=jobs, log=log)
     if not keep_source:
         local_vcf(cfg, dirs, chrom).unlink(missing_ok=True)
@@ -1487,7 +1501,7 @@ def probe(url: str, nbytes: int, timeout: float = 600.0) -> Dict:
         with _request(url, headers={"Range": f"bytes=0-{nbytes - 1}"}, timeout=timeout) as r:
             for block in iter(lambda: r.read(1 << 20), b""):
                 got += len(block)
-    except (urllib.error.URLError, OSError) as exc:
+    except OSError as exc:  # URLError too
         return {"url": url, "error": str(exc), "bytes": got}
     dt = time.time() - t0
     return {"url": url, "bytes": got, "seconds": round(dt, 3), "mb_per_s": round(got / dt / 1e6, 2) if dt else None}
