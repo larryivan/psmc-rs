@@ -25,7 +25,7 @@ manuscript places them at 100%, never scaled).
 * **Notation.** One spelling per quantity, matching the article: italic
   variables through :data:`NE`, :data:`LOGNE` and :data:`THETA`; U+2212
   for every minus (:data:`MINUS`), U+00D7 for times and fold changes
-  written ``8.6×`` (:data:`TIMES`), U+2013 for ranges (:data:`ENDASH`);
+  written ``8.6×`` (:data:`TIMES`), U+2013 for ranges;
   units in the axis label, never in tick labels.
 * **Log axes.** Sizes and times are plain numbers in thousands
   (:func:`ne_axis`, :func:`years_axis`, :func:`thousands_axis`): ticks 1,
@@ -63,7 +63,7 @@ manuscript places them at 100%, never scaled).
   the orange underlay and makes legend keys that differ from the fill):
   :data:`RS_BAND` for psmc-rs's band (:func:`band_kw`), :data:`FILL` for a
   neutral one, at most one filled band per panel; a second interval is
-  drawn as :data:`LW_HAIR` edges in its line's colour (:func:`edge_kw`).
+  drawn as :data:`LW_HAIR` edges in its line's colour.
   The legend key of a band is the plotted fill itself.
 * **Grids.** None on N_e(t) or other time-series panels (every helper's
   default). :data:`GRID` hairlines on the value axis only where values are
@@ -167,7 +167,6 @@ LOGNE = r"$\log_{10}\,\mathit{N}_\mathrm{e}$"
 THETA = r"$\mathit{\theta}$"
 MINUS = "−"
 TIMES = "×"
-ENDASH = "–"
 NE_LABEL = NE + " (thousands)"  # every N_e(t) size axis (ne_axis)
 YEARS_LABEL = "Thousands of years ago"  # every N_e(t) time axis (years_axis)
 
@@ -302,8 +301,8 @@ BLUE_RAMP = ("#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "
              "#1c5cab", "#184f95", "#104281", "#0d366b")
 OCHRE = "#b07800"  # multihetsep (3.8:1 on white)
 RASPBERRY = "#c94f80"  # a VCF read without its mask (4.3:1)
-# Former slots, pipeline-only: psmc-rs 0.1's aqua and the pale yellow and pink.
-AQUA, YELLOW, MAGENTA = "#1baf7a", "#eda100", "#e87ba4"
+# Pipeline-only: psmc-rs 0.1's aqua (RS01) and the yellow of figs3.py.
+AQUA, YELLOW = "#1baf7a", "#eda100"
 
 # Text colours of entities named in place (darker steps of the mark colours).
 ORANGE_TEXT = "#c4501f"  # C psmc (4.65:1 on white; the mark is 3.2:1)
@@ -314,9 +313,6 @@ C_PSMC = Entity("C psmc", ORANGE, "-", "s", halo=C_HALO_SHARE)
 TRUTH = Entity("Truth", INK, DASH, "none")
 # psmc-rs 0.1: pipeline-only (fig4.py and figs4.py); no article figure may use it.
 RS01 = Entity("psmc-rs 0.1", AQUA, "-", "D")
-
-# Tools by the keys the tables use.
-TOOLS: Dict[str, Entity] = {"rs": RS02, "rs02": RS02, "c": C_PSMC, "rs01": RS01}
 
 # Supplement Fig S2 (fig5.py, E4): routes from a VCF and a callable mask to
 # psmc-rs. psmc-rs's default, its callable-length model on the VCF with its
@@ -351,10 +347,8 @@ SUPERPOP_TEXT: Dict[str, str] = {"AFR": "#a36e09", "AMR": "#00865d", "EAS": "#4a
                                  "SAS": "#a0522d"}
 
 # Supplement Fig S3 (fig6.py, E5): bootstrap block sizes, two steps of the
-# blue ramp (the figure orders its arms). Variants are never dashed:
-# TRUNK_STYLES, both solid, is kept only while fig6.py still reads it.
+# blue ramp (the figure orders its arms); variants are never dashed.
 TRUNK_COLORS = (BLUE, BLUE_RAMP[3])
-TRUNK_STYLES = ("-", "-")
 
 
 def tint(color: str, share: float = REPLICATE_ALPHA) -> str:
@@ -433,17 +427,8 @@ def band_kw(color: str = BLUE, share: float = BAND_SHARE, **kw) -> Dict:
     return out
 
 
-def edge_kw(color: str, **kw) -> Dict:
-    """``ax.plot`` arguments of the edges of a second interval in one panel (hairlines in its line colour)."""
-    out = {"color": color, "linewidth": LW_HAIR, "linestyle": "-", "zorder": Z_BAND + 0.1}
-    out.update(kw)
-    return out
-
-
-def step_line(ax, years: Sequence[float], ne: Sequence[float], window: Optional[Tuple[float, float]] = None, **kw):
-    """Draw a PSMC step curve (every N_e(t) curve, summaries included), clipped to ``window`` if given."""
-    if window is not None:
-        years, ne = step_xy(years, ne, window)
+def step_line(ax, years: Sequence[float], ne: Sequence[float], **kw):
+    """Draw a PSMC step curve (every N_e(t) curve, summaries included)."""
     style = {"drawstyle": "steps-post", "solid_capstyle": "butt", "solid_joinstyle": "miter"}
     style.update(kw)
     return ax.plot(years, ne, **style)
@@ -635,13 +620,9 @@ def fig_text(fig, x_mm: float, y_mm: float, text: str, **kw):
     return fig.text(x_mm / fw, 1.0 - y_mm / fh, text, **opts)
 
 
-def ink_left_mm(ax, renderer=None) -> float:
+def ink_left_mm(ax, renderer) -> float:
     """The left edge of everything ``ax`` draws (tick labels, axis label), in mm from the figure's left edge."""
-    fig = ax.figure
-    if renderer is None:
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-    return ax.get_tightbbox(renderer).x0 / fig.dpi / MM
+    return ax.get_tightbbox(renderer).x0 / ax.figure.dpi / MM
 
 
 # ---------------------------------------------------------------------------
@@ -687,7 +668,7 @@ def narrow_log_span(lo: float, hi: float) -> bool:
     return math.log10(hi / lo) < SPAN_125 or powers < 2
 
 
-def log_ticks(numticks: int = 12):
+def _log_ticks():
     """A major locator of a plain-number log axis: decades, or 1, 2 and 5 where :func:`narrow_log_span`."""
     import numpy as np
     from matplotlib.ticker import LogLocator
@@ -698,7 +679,7 @@ def log_ticks(numticks: int = 12):
             self.set_params(subs=np.array(subs))
             return super().tick_values(vmin, vmax)
 
-    return _HouseLogLocator(base=10.0, numticks=numticks)
+    return _HouseLogLocator(base=10.0, numticks=12)
 
 
 def log_axis(ax, which: str = "x", grid: bool = False, *, fmt: str = "pow10",
@@ -719,7 +700,7 @@ def log_axis(ax, which: str = "x", grid: bool = False, *, fmt: str = "pow10",
         axis.set_major_locator(LogLocator(base=10.0, numticks=12))
         axis.set_major_formatter(LogFormatterMathtext(base=10.0))
     elif fmt in ("thousands", "plain"):
-        axis.set_major_locator(log_ticks())
+        axis.set_major_locator(_log_ticks())
         axis.set_major_formatter(thousands_formatter() if fmt == "thousands" else plain_formatter())
     else:
         raise ValueError(f"unknown log-axis format {fmt!r}")
@@ -731,21 +712,21 @@ def log_axis(ax, which: str = "x", grid: bool = False, *, fmt: str = "pow10",
         ax.grid(True, which="major", axis=which, color=GRID, linewidth=LW_HAIR)
 
 
-def thousands_axis(ax, which: str = "x", lim: Optional[Tuple[float, float]] = None, grid: bool = False) -> None:
+def thousands_axis(ax, which: str = "x", lim: Optional[Tuple[float, float]] = None) -> None:
     """A log axis of a quantity in thousands (N_e, years ago): ticks 1, 10, 100, 1,000."""
-    log_axis(ax, which, grid=grid, fmt="thousands", lim=lim)
+    log_axis(ax, which, fmt="thousands", lim=lim)
 
 
-def years_axis(ax, lim: Tuple[float, float], label: Union[bool, str] = True, grid: bool = False) -> None:
+def years_axis(ax, lim: Tuple[float, float], label: bool = True) -> None:
     """The time axis of an N_e(t) panel: years ago, log scale, labelled in thousands (:data:`YEARS_LABEL`)."""
-    thousands_axis(ax, "x", lim, grid=grid)
+    thousands_axis(ax, "x", lim)
     if label:
-        ax.set_xlabel(label if isinstance(label, str) else YEARS_LABEL)
+        ax.set_xlabel(YEARS_LABEL)
 
 
-def ne_axis(ax, lim: Tuple[float, float], label: Optional[str] = NE_LABEL, grid: bool = False) -> None:
+def ne_axis(ax, lim: Tuple[float, float], label: Optional[str] = NE_LABEL) -> None:
     """The size axis of an N_e(t) panel: log scale, labelled in thousands (:data:`NE_LABEL`)."""
-    thousands_axis(ax, "y", lim, grid=grid)
+    thousands_axis(ax, "y", lim)
     if label:
         ax.set_ylabel(label)
 
@@ -756,7 +737,7 @@ def value_grid(ax, which: str = "y") -> None:
     ax.set_axisbelow(True)
 
 
-def row_xlabel(fig, axes: Sequence, text: str = YEARS_LABEL, **kw):
+def row_xlabel(fig, axes: Sequence, text: str = YEARS_LABEL):
     """One x label centred under a row of panels, where a panel's own x label would sit."""
     import matplotlib as mpl
 
@@ -770,9 +751,7 @@ def row_xlabel(fig, axes: Sequence, text: str = YEARS_LABEL, **kw):
                 bottoms.append(inv.transform(t.get_window_extent(renderer).get_points())[0][1])
     pad = mpl.rcParams["axes.labelpad"] / 72.0 / fig.get_figheight()
     x0, x1 = min(ax.get_position().x0 for ax in axes), max(ax.get_position().x1 for ax in axes)
-    opts = {"fontsize": TEXT_PT, "color": INK, "ha": "center", "va": "top"}
-    opts.update(kw)
-    return fig.text((x0 + x1) / 2.0, min(bottoms) - pad, text, **opts)
+    return fig.text((x0 + x1) / 2.0, min(bottoms) - pad, text, fontsize=TEXT_PT, color=INK, ha="center", va="top")
 
 
 def shade_outside(ax, window: Tuple[float, float], lim: Tuple[float, float]) -> None:
@@ -784,14 +763,9 @@ def shade_outside(ax, window: Tuple[float, float], lim: Tuple[float, float]) -> 
         ax.axvspan(hi, lim[1], color=FILL, linewidth=0, zorder=0)
 
 
-def ref_line(ax, y: Optional[float] = None, x: Optional[float] = None, **kw) -> None:
-    """A thin reference line (zero difference, ratio one, nominal coverage): 0.5 pt :data:`REF`."""
-    style = {"color": REF, "linewidth": LW_THIN, "linestyle": "-", "zorder": Z_REF}
-    style.update(kw)
-    if y is not None:
-        ax.axhline(y, **style)
-    if x is not None:
-        ax.axvline(x, **style)
+def ref_line(ax, y: float, **kw) -> None:
+    """A horizontal reference line (zero difference, ratio one, nominal coverage): 0.5 pt :data:`REF`."""
+    ax.axhline(y, **{"color": REF, "linewidth": LW_THIN, "linestyle": "-", "zorder": Z_REF, **kw})
 
 
 def note(ax, x: float, y: float, text: str, *, ha: str = "left", va: str = "top", color: str = INK2,
@@ -802,10 +776,9 @@ def note(ax, x: float, y: float, text: str, *, ha: str = "left", va: str = "top"
 
 
 def direct_label(ax, x: float, y: float, text: str, *, ha: str = "left", va: str = "center", color: str = INK,
-                 size: float = LABEL_PT, transform=None, **kw):
-    """A number or name printed on the data: 6 pt ink, in data coordinates by default."""
-    return ax.text(x, y, text, ha=ha, va=va, color=color, fontsize=size,
-                   transform=transform if transform is not None else ax.transData, **kw)
+                 size: float = LABEL_PT, **kw):
+    """A number or name printed on the data: 6 pt ink, in data coordinates."""
+    return ax.text(x, y, text, ha=ha, va=va, color=color, fontsize=size, **kw)
 
 
 # ---------------------------------------------------------------------------
@@ -893,71 +866,66 @@ def panel_letter(fig, x_mm: float, baseline_mm: float, letter: str, **kw):
     return fig_text(fig, x_mm, baseline_mm, letter, **opts)
 
 
-def panel_letters(fig, axes: Sequence, letters: Optional[Sequence[str]] = None, *,
-                  first_x_mm: Optional[float] = LETTER_X_MM, rise_mm: float = TITLE_RISE_MM,
-                  align_rows: bool = True, align_cols: bool = True) -> List:
+def panel_letters(fig, axes: Sequence, letters: Optional[Sequence[str]] = None, *, align_cols: bool = True) -> List:
     """Bold lowercase letters at the top left of each panel, on its title's baseline.
 
-    Each letter's baseline is ``rise_mm`` above its axes' top (the highest
-    top of its row: axes sharing a top edge share a baseline), the baseline
-    :func:`panel_title` gives titles. The leftmost panel of each row has its
-    letter at ``first_x_mm`` from the figure's left edge, so every figure's
-    first letters line up; any other letter sits at the left edge of its
-    panel's ink (tick labels, axis label) and, where the panel has a title,
-    at least :data:`LETTER_TITLE_GAP_MM` left of it. With ``align_cols``,
-    letters of panels sharing a left edge (of their grid cells, before a
-    fixed aspect shrinks them) share the leftmost of their positions.
-    ``first_x_mm=None`` places first-column letters at their ink too.
+    Each letter's baseline is :data:`TITLE_RISE_MM` above its axes' top (the
+    highest top of its row: axes sharing a top edge share a baseline), the
+    baseline :func:`panel_title` gives titles. The leftmost panel of each row
+    has its letter at :data:`LETTER_X_MM` from the figure's left edge, so
+    every figure's first letters line up; any other letter sits at the left
+    edge of its panel's ink (tick labels, axis label) and, where the panel has
+    a title, at least :data:`LETTER_TITLE_GAP_MM` left of it. With
+    ``align_cols``, letters of panels sharing a left edge (of their grid
+    cells, before a fixed aspect shrinks them) share the leftmost of their
+    positions.
     """
     letters = list(letters or string.ascii_lowercase[: len(axes)])
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
     fw, fh = _fig_mm(fig)
-    rise = rise_mm / fh
-    gap = LETTER_TITLE_GAP_MM / fw
+
+    def row(ax):
+        return round(ax.get_position().y1, 3)
 
     def left(ax):
         return ax.get_position(original=True).x0
 
-    row_of = {id(ax): round(ax.get_position().y1, 3) if align_rows else id(ax) for ax in axes}
-    rows: Dict = {}
+    rows: Dict[float, List] = {}
     for ax in axes:
-        rows.setdefault(row_of[id(ax)], []).append(ax)
+        rows.setdefault(row(ax), []).append(ax)
     first = set()
-    if first_x_mm is not None:
-        for row in rows.values():
-            x_min = min(left(ax) for ax in row)
-            first |= {id(ax) for ax in row if (left(ax) - x_min) * fw < 0.5}
+    for same_row in rows.values():
+        x_min = min(left(ax) for ax in same_row)
+        first |= {ax for ax in same_row if (left(ax) - x_min) * fw < 0.5}
 
     texts = []
-    xs: Dict[int, float] = {}
+    xs = {}  # each letter's left edge, in figure coordinates
     for ax, letter in zip(axes, letters):
-        top = max(a.get_position().y1 for a in rows[row_of[id(ax)]])
-        t = fig.text(0.0, top + rise, letter, fontsize=PANEL_PT, fontweight="bold", ha="left", va="baseline",
-                     color=INK)
+        top = max(a.get_position().y1 for a in rows[row(ax)])
+        t = fig.text(0.0, top + TITLE_RISE_MM / fh, letter, fontsize=PANEL_PT, fontweight="bold", ha="left",
+                     va="baseline", color=INK)
         texts.append(t)
-        if id(ax) in first:
-            xs[id(ax)] = first_x_mm / fw
+        if ax in first:
+            xs[ax] = LETTER_X_MM / fw
             continue
         (x0, _), _ = inv.transform(ax.get_tightbbox(renderer).get_points())
-        title = getattr(ax, "_left_title", None) if ax.get_title("left") else None  # set by panel_title
-        if title is not None:
+        if ax.get_title("left"):  # set by panel_title: keep the letter clear of it
             (a0, _), (a1, _) = inv.transform(t.get_window_extent(renderer).get_points())
-            (title_x0, _), _ = inv.transform(title.get_window_extent(renderer).get_points())
-            x0 = min(x0, title_x0 - gap - (a1 - a0))
-        xs[id(ax)] = x0
+            (title_x0, _), _ = inv.transform(ax._left_title.get_window_extent(renderer).get_points())
+            x0 = min(x0, title_x0 - LETTER_TITLE_GAP_MM / fw - (a1 - a0))
+        xs[ax] = x0
     if align_cols:
-        cols: Dict = {}
-        for ax in axes:
-            if id(ax) not in first:
-                key = round(left(ax), 3)
-                cols[key] = min(cols.get(key, xs[id(ax)]), xs[id(ax)])
-        for ax in axes:
-            if id(ax) not in first:
-                xs[id(ax)] = cols[round(left(ax), 3)]
+        others = [ax for ax in axes if ax not in first]
+        cols: Dict[float, float] = {}
+        for ax in others:
+            key = round(left(ax), 3)
+            cols[key] = min(cols.get(key, xs[ax]), xs[ax])
+        for ax in others:
+            xs[ax] = cols[round(left(ax), 3)]
     for ax, t in zip(axes, texts):
-        t.set_x(xs[id(ax)])
+        t.set_x(xs[ax])
     return texts
 
 
@@ -995,8 +963,8 @@ _SVG_SIZE = re.compile(r"font-size:\s*([0-9.]+)px|font:\s*(?:[a-z-]+\s+)*([0-9.]
 _SVG_TEXT = re.compile(r"<(?:text|tspan)\b[^>]*?style=\"([^\"]*)\"[^>]*>([^<]*)")
 
 
-def small_text(svg: Union[str, Path], min_pt: float = MIN_TEXT_PT) -> List[Tuple[float, str]]:
-    """``(size, text)`` of every piece of text in a written SVG smaller than ``min_pt``.
+def small_text(svg: Union[str, Path]) -> List[Tuple[float, str]]:
+    """``(size, text)`` of every piece of text in a written SVG smaller than :data:`MIN_TEXT_PT`.
 
     The SVG's user units are points (matplotlib writes its width in pt), and
     with ``svg.fonttype = none`` every text element keeps its size.
@@ -1006,7 +974,7 @@ def small_text(svg: Union[str, Path], min_pt: float = MIN_TEXT_PT) -> List[Tuple
         m = _SVG_SIZE.search(style_attr)
         if m:
             size = float(m.group(1) or m.group(2))
-            if size < min_pt - 1e-6:
+            if size < MIN_TEXT_PT - 1e-6:
                 out.append((size, text))
     return out
 

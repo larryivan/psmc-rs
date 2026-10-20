@@ -70,8 +70,6 @@ class Style(unittest.TestCase):
         self.assertEqual(style.TRUTH.linestyle, style.DASH)
         self.assertEqual(style.C_HALO, "#f6bba4")
         self.assertEqual(style.RS_BAND, "#dde9f8")
-        self.assertIs(style.TOOLS["rs"], style.RS02)
-        self.assertIs(style.TOOLS["c"], style.C_PSMC)
         # Routes and formats reuse the same colour for the same thing.
         self.assertEqual(style.ROUTES["multihetsep"].color, style.FORMATS["multihetsep"].color)
         # psmc-rs's default (the callable-length model) is psmc-rs's blue; every called bin taken
