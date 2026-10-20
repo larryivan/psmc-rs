@@ -650,34 +650,32 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
         c_setup = Setup("c", u.size_mb, 1)
         rs01_setup = Setup("rs01", u.size_mb, u.threads)
         med = medians.get(u)
-        out.append(
-            {
-                "tool": u.tool,
-                "tool_label": TOOL_LABELS[u.tool],
-                "threads": u.threads,
-                "size_mb": u.size_mb,
-                "chromosomes": genome_for(cfg, u.size_mb).n_chromosomes,
-                "status": status,
-                "note": note,
-                "est_peak_gb": round(p.est_gb, 3),
-                "repeats": len(rs),
-                "repeats_measured": measured.get(u, 0),
-                "wall_median_s": med,
-                "wall_min_s": min(walls) if walls else None,
-                "wall_max_s": max(walls) if walls else None,
-                "cpu_median_s": _median(r["cpu_seconds"] for r in rs),
-                "seconds_per_iteration_median": med / cfg.inference.n_iter if med is not None else None,
-                "peak_rss_median_mb": rss.get(u),
-                "peak_rss_max_mb": max((r["peak_rss_mb"] for r in rs), default=None),
-                "speedup_vs_c": _ratio(medians.get(c_setup), med) if u.tool != "c" else None,
-                "speedup_vs_rs01_same_threads": _ratio(medians.get(rs01_setup), med) if u.tool in RS02 else None,
-                "mstep_iters": inference_of(cfg, u.tool).mstep_iters if u.tool != "c" else None,
-                "c_rss_over_rss": _ratio(rss.get(c_setup), rss.get(u)) if u.tool != "c" else None,
-                "all_quiet": all(bool(r["quiet_before"]) for r in rs) if rs else None,
-                "max_other_cpu_share": max((r["other_cpu_share_during"] or 0.0 for r in rs), default=None),
-                "outputs_identical": len({r["output_sha256"] for r in rs}) == 1 if rs else None,
-            }
-        )
+        out.append({
+            "tool": u.tool,
+            "tool_label": TOOL_LABELS[u.tool],
+            "threads": u.threads,
+            "size_mb": u.size_mb,
+            "chromosomes": genome_for(cfg, u.size_mb).n_chromosomes,
+            "status": status,
+            "note": note,
+            "est_peak_gb": round(p.est_gb, 3),
+            "repeats": len(rs),
+            "repeats_measured": measured.get(u, 0),
+            "wall_median_s": med,
+            "wall_min_s": min(walls) if walls else None,
+            "wall_max_s": max(walls) if walls else None,
+            "cpu_median_s": _median(r["cpu_seconds"] for r in rs),
+            "seconds_per_iteration_median": med / cfg.inference.n_iter if med is not None else None,
+            "peak_rss_median_mb": rss.get(u),
+            "peak_rss_max_mb": max((r["peak_rss_mb"] for r in rs), default=None),
+            "speedup_vs_c": _ratio(medians.get(c_setup), med) if u.tool != "c" else None,
+            "speedup_vs_rs01_same_threads": _ratio(medians.get(rs01_setup), med) if u.tool in RS02 else None,
+            "mstep_iters": inference_of(cfg, u.tool).mstep_iters if u.tool != "c" else None,
+            "c_rss_over_rss": _ratio(rss.get(c_setup), rss.get(u)) if u.tool != "c" else None,
+            "all_quiet": all(bool(r["quiet_before"]) for r in rs) if rs else None,
+            "max_other_cpu_share": max((r["other_cpu_share_during"] or 0.0 for r in rs), default=None),
+            "outputs_identical": len({r["output_sha256"] for r in rs}) == 1 if rs else None,
+        })
     return out
 
 
@@ -696,24 +694,22 @@ def scaling_rows(cfg: config.E3, rows: Dict[Run, Dict], outputs: Dict[Run, Outpu
         med = _median(r["wall_seconds"] for r in rs)
         speedup = _ratio(base, med)
         mine = [o for run, o in outputs.items() if run.setup == Setup("rs02", size, t)]
-        out.append(
-            {
-                "tool": "rs02",
-                "size_mb": size,
-                "threads": t,
-                "repeats": len(rs),
-                "wall_median_s": med,
-                "wall_min_s": min((r["wall_seconds"] for r in rs), default=None),
-                "wall_max_s": max((r["wall_seconds"] for r in rs), default=None),
-                "speedup": speedup,
-                "efficiency": speedup * base_t / t if speedup is not None else None,
-                "cpu_median_s": _median(r["cpu_seconds"] for r in rs),
-                "peak_rss_median_mb": _median(r["peak_rss_mb"] for r in rs),
-                "all_quiet": all(bool(r["quiet_before"]) for r in rs) if rs else None,
-                "json_identical_to_reference": (all(o.sha256 == ref.sha256 for o in mine) if (mine and ref) else None),
-                "reference": f"{base_t} thread(s), repeat 1",
-            }
-        )
+        out.append({
+            "tool": "rs02",
+            "size_mb": size,
+            "threads": t,
+            "repeats": len(rs),
+            "wall_median_s": med,
+            "wall_min_s": min((r["wall_seconds"] for r in rs), default=None),
+            "wall_max_s": max((r["wall_seconds"] for r in rs), default=None),
+            "speedup": speedup,
+            "efficiency": speedup * base_t / t if speedup is not None else None,
+            "cpu_median_s": _median(r["cpu_seconds"] for r in rs),
+            "peak_rss_median_mb": _median(r["peak_rss_mb"] for r in rs),
+            "all_quiet": all(bool(r["quiet_before"]) for r in rs) if rs else None,
+            "json_identical_to_reference": (all(o.sha256 == ref.sha256 for o in mine) if (mine and ref) else None),
+            "reference": f"{base_t} thread(s), repeat 1",
+        })
     return out
 
 
@@ -731,20 +727,18 @@ def determinism_rows(outputs: Dict[Run, Output]) -> List[Dict]:
             o = outputs[run]
             ll = (abs(o.loglike - ref.loglike) / abs(ref.loglike)
                   if o.loglike is not None and ref.loglike else None)
-            out.append(
-                {
-                    "tool": tool,
-                    "size_mb": size,
-                    "threads": run.setup.threads,
-                    "repeat": run.repeat,
-                    "reference_threads": ref_run.setup.threads,
-                    "reference_repeat": ref_run.repeat,
-                    "byte_identical": o.sha256 == ref.sha256,
-                    "max_rel_diff_params": max_rel_diff(o, ref),
-                    "loglike_rel_diff": ll,
-                    "sha256": o.sha256,
-                }
-            )
+            out.append({
+                "tool": tool,
+                "size_mb": size,
+                "threads": run.setup.threads,
+                "repeat": run.repeat,
+                "reference_threads": ref_run.setup.threads,
+                "reference_repeat": ref_run.repeat,
+                "byte_identical": o.sha256 == ref.sha256,
+                "max_rel_diff_params": max_rel_diff(o, ref),
+                "loglike_rel_diff": ll,
+                "sha256": o.sha256,
+            })
     return out
 
 
@@ -918,11 +912,9 @@ def report(ctx: Context) -> Dict[str, Path]:
         "environment": environment_rows(cfg, lay, rows, timings, tools.read_c_build()),
         "seeds": seed_rows(truths),
     }
-    written = {}
     for key, table in tables.items():
         write_csv(lay.table(key), table)
-        written[key] = lay.table(key)
-    return written
+    return {key: lay.table(key) for key in tables}
 
 
 __all__ = [
