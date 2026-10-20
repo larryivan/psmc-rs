@@ -177,21 +177,19 @@ impl InputSummary {
 
 /// Write `params` as pretty-printed JSON.
 pub fn save_params(path: &Path, params: &PsmcParamsFile) -> Result<()> {
-    let file = File::create(path).with_context(|| format!("failed to create {:?}", path))?;
+    let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
     let mut writer = BufWriter::new(file);
     serde_json::to_writer_pretty(&mut writer, params)
-        .with_context(|| format!("failed to write {:?}", path))?;
+        .with_context(|| format!("failed to write {path:?}"))?;
     writer
         .flush()
-        .with_context(|| format!("failed to write {:?}", path))?;
+        .with_context(|| format!("failed to write {path:?}"))?;
     Ok(())
 }
 
 /// Read a file written by [`save_params`] (by any psmc-rs version).
 pub fn load_params(path: &Path) -> Result<PsmcParamsFile> {
-    let file = File::open(path).with_context(|| format!("failed to open {:?}", path))?;
-    let reader = BufReader::new(file);
-    let params =
-        serde_json::from_reader(reader).with_context(|| format!("failed to parse {:?}", path))?;
-    Ok(params)
+    let file = File::open(path).with_context(|| format!("failed to open {path:?}"))?;
+    serde_json::from_reader(BufReader::new(file))
+        .with_context(|| format!("failed to parse {path:?}"))
 }

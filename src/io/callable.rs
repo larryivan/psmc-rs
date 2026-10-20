@@ -453,12 +453,14 @@ impl Dense {
 
     /// Add `n` bins of `c` bases.
     fn push_run(&mut self, c: u16, n: usize) {
-        let len = self.len();
-        match self {
-            Dense::Narrow(counts) => counts.resize(len + n, 0),
-            Dense::Wide(counts) => counts.resize(len + n, 0),
+        if !is_narrow(c) {
+            self.widen();
         }
-        self.fill(len..len + n, c);
+        match self {
+            // Lossless: `c` fits in a byte.
+            Dense::Narrow(counts) => counts.extend(std::iter::repeat_n(c as u8, n)),
+            Dense::Wide(counts) => counts.extend(std::iter::repeat_n(c, n)),
+        }
     }
 
     /// The same counts, narrow when they all fit in a byte, without spare
