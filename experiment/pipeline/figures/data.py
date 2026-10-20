@@ -72,7 +72,7 @@ def curves(df, keys: Sequence[str]) -> Dict[Tuple, Curve]:
     return out
 
 
-def time_grid(lim: Tuple[float, float], points: int = 600):
+def time_grid(lim: Tuple[float, float], points: int):
     """``points`` log-spaced times spanning ``lim``."""
     return metrics.log_grid(lim[0], lim[1], points)
 
@@ -94,6 +94,7 @@ def quantiles(cs: Iterable[Curve], grid, qs: Sequence[float]):
 
 
 def median(cs: Iterable[Curve], grid):
+    """Pointwise geometric median of Ne over the curves."""
     return quantiles(cs, grid, [0.5])[0]
 
 
@@ -102,17 +103,6 @@ def log10_ratio(a: Curve, b: Curve, grid):
     import numpy as np
 
     return np.log10(a.at(grid)) - np.log10(b.at(grid))
-
-
-def curve_span(cs: Iterable[Curve]) -> Tuple[float, float]:
-    """The first positive and the last interval start over the curves (the fitted time range)."""
-    firsts, lasts = [], []
-    for c in cs:
-        pos = [y for y in c.years if y > 0]
-        if pos:
-            firsts.append(pos[0])
-            lasts.append(pos[-1])
-    return (min(firsts), max(lasts)) if firsts else (1e3, 1e7)
 
 
 NICE_STEPS = (1.0, 2.0, 5.0)  # the round limits of a log axis within a decade
@@ -132,10 +122,9 @@ def decades(lo: float, hi: float) -> Tuple[float, float]:
 def _round_out(x: float, down: bool) -> float:
     e = math.floor(math.log10(x))
     # Values at (or a rounding error from) a power of ten stay there.
-    if math.isclose(x, 10.0 ** e, rel_tol=1e-9):
-        return 10.0 ** e
-    if math.isclose(x, 10.0 ** (e + 1), rel_tol=1e-9):
-        return 10.0 ** (e + 1)
+    for power in (10.0 ** e, 10.0 ** (e + 1)):
+        if math.isclose(x, power, rel_tol=1e-9):
+            return power
     decade = 10.0 ** e if down else 10.0 ** (e + 1)
     if abs(math.log10(decade / x)) <= SNAP_DECADES + 1e-12:
         return decade
@@ -150,6 +139,7 @@ def _round_out(x: float, down: bool) -> float:
 
 
 def model_epochs(model: str) -> List[demography.Epoch]:
+    """The epochs of ``model`` (:data:`..config.MODELS`)."""
     return demography.epochs(config.MODELS[model])
 
 
@@ -158,12 +148,12 @@ def truth_at(model: str, years, gen_years: float):
     return metrics.truth_on_grid(model_epochs(model), years, gen_years)
 
 
-def truth_xy(model: str, gen_years: float, lim: Tuple[float, float], per_decade: int = 120):
+def truth_xy(model: str, gen_years: float, lim: Tuple[float, float]):
     """Coordinates of the true Ne(t) within ``lim`` (years) for a plain line plot.
 
     Constant epochs are drawn from their exact start to their exact end (the
-    joins are vertical steps); epochs of exponential change are sampled
-    ``per_decade`` times per decade of time.
+    joins are vertical steps); epochs of exponential change are sampled 120
+    times per decade of time.
     """
     import numpy as np
 
@@ -178,7 +168,7 @@ def truth_xy(model: str, gen_years: float, lim: Tuple[float, float], per_decade:
         if e.growth_rate == 0:
             t = np.array([a, b])
         else:
-            n = max(int(per_decade * math.log10(b / a)), 2)
+            n = max(int(120 * math.log10(b / a)), 2)
             t = np.logspace(math.log10(a), math.log10(b), n)
         xs.extend(t)
         ys.extend(e.size_at(float(x) / gen_years) for x in t)
@@ -190,14 +180,14 @@ def informative_window(model: str, grid: config.TimeGrid, gen_years: float) -> T
     return metrics.informative_window(model_epochs(model), grid.quantiles, gen_years)
 
 
-def check_truth_table(df, gen_years: float, rtol: float = 1e-9) -> None:
-    """Check that a truth table (model, years, ne) agrees with :func:`truth_at`."""
+def check_truth_table(df, gen_years: float) -> None:
+    """Check that a truth table (model, years, ne) agrees with :func:`truth_at` (to a relative 1e-9)."""
     import numpy as np
 
     for model, sub in df.groupby("model"):
         want = truth_at(str(model), sub["years"].to_numpy(), gen_years)
         got = sub["ne"].to_numpy(dtype=float)
-        if not np.allclose(got, want, rtol=rtol, atol=0.0):
+        if not np.allclose(got, want, rtol=1e-9, atol=0.0):
             raise ValueError(f"truth table of {model} disagrees with config.MODELS (max rel diff "
                              f"{float(np.max(np.abs(got / want - 1))):.3g})")
 
@@ -211,21 +201,20 @@ def fmt_bp(bp: float) -> str:
     return f"{bp:.0f} bp"
 
 
-def fmt_sig(x: Optional[float], digits: int = 2) -> str:
-    """``x`` with ``digits`` significant figures, as 1.2e-3 written 1.2 × 10⁻³."""
+def fmt_sig(x: Optional[float]) -> str:
+    """``x`` with two significant figures, as 1.2e-3 written 1.2 × 10⁻³."""
     if x is None or (isinstance(x, float) and math.isnan(x)):
         return "n/a"
     if x == 0:
         return "0"
     exp = int(math.floor(math.log10(abs(x))))
     if -2 <= exp <= 3:
-        return f"{x:.{max(digits - 1 - exp, 0)}f}"
-    mant = x / 10**exp
-    return rf"{mant:.{digits - 1}f}$\times$10$^{{{exp}}}$"
+        return f"{x:.{max(1 - exp, 0)}f}"
+    return rf"{x / 10**exp:.1f}$\times$10$^{{{exp}}}$"
 
 
 __all__ = [
-    "MissingTable", "SchemaError", "Source", "check_truth_table", "curve_span", "curves", "decades", "fmt_bp",
-    "fmt_sig", "informative_window", "log10_ratio", "median", "model_epochs", "on_grid", "quantiles", "read",
-    "time_grid", "truth_at", "truth_xy",
+    "MissingTable", "SchemaError", "Source", "check_truth_table", "curves", "decades", "fmt_bp", "fmt_sig",
+    "informative_window", "log10_ratio", "median", "model_epochs", "on_grid", "quantiles", "read", "time_grid",
+    "truth_at", "truth_xy",
 ]
