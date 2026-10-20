@@ -12,18 +12,16 @@ from __future__ import annotations
 
 import atexit
 import functools
-import importlib.util
+import os
 import shutil
-import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+import fixtures  # also puts the repository on sys.path
 
-from experiment.pipeline import config, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, jobs_for  # noqa: E402
+from experiment.pipeline import config, runner, tools
+from experiment.pipeline.experiments import Context, jobs_for
 
 EXPERIMENTS = ("E1", "E2", "E3", "E4", "E5", "E6", "E7")
 MODULES = ("msprime", "psutil", "numpy", "pandas", "scipy", "matplotlib")
@@ -31,7 +29,7 @@ MODULES = ("msprime", "psutil", "numpy", "pandas", "scipy", "matplotlib")
 
 def missing() -> str:
     """What the tiny runs lack on this machine ('' when everything is there)."""
-    absent = [m for m in MODULES if importlib.util.find_spec(m) is None]
+    absent = [m for m in MODULES if not fixtures.has_modules(m)]
     try:
         tools.c_psmc()
         tools.psmc_rs_01(build=False)
@@ -70,13 +68,19 @@ def runs_dir() -> Path:
     e7_data(tmp)
     ctx = Context(config.TINY, tmp, log=lambda msg: None)
     graph = runner.Graph(jobs_for(ctx, EXPERIMENTS), tmp)
-    daemon = runner.Daemon(graph, tmp, config.Budget(cores=4, mem_gb=8), runner.Logger(tmp), {"profile": "tiny"})
-    if daemon.run() != 0:
-        bad = [(jid, daemon.reason.get(jid, "")) for jid, s in daemon.state.items() if s in (runner.FAILED, runner.BLOCKED)]
+    # Every core: what the jobs write does not depend on how many run at once.
+    budget = config.Budget(cores=max(4, os.cpu_count() or 1), mem_gb=8)
+    daemon = runner.Daemon(graph, tmp, budget, runner.Logger(tmp), {"profile": "tiny"})
+    # The runner looks for finished jobs every 0.25 s; most tiny jobs take less, and E3's timed runs
+    # follow one another, so a shorter interval saves a third of the runs' time.
+    with mock.patch.object(runner, "POLL_SECONDS", 0.05):
+        status = daemon.run()
+    if status != 0:
         logs = []
-        for jid, why in bad:
-            p = graph.jobs[jid].log_path(tmp)
-            logs.append(f"{jid}: {why}\n" + (p.read_text()[-2000:] if p.exists() else ""))
+        for jid, state in daemon.state.items():
+            if state in (runner.FAILED, runner.BLOCKED):
+                p = graph.jobs[jid].log_path(tmp)
+                logs.append(f"{jid}: {daemon.reason.get(jid, '')}\n" + (p.read_text()[-2000:] if p.exists() else ""))
         raise RuntimeError("the tiny runs failed:\n" + "\n".join(logs))
     return tmp
 

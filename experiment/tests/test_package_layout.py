@@ -2,36 +2,22 @@
 
 from __future__ import annotations
 
-import csv
 import json
-import shutil
-import subprocess
+import os
+import sys
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import ROOT, assert_ignore_rules, in_git_work_tree, read_csv  # noqa: E402
+
 RUNS = ROOT / "experiment" / "runs"
-
-
-def in_git_work_tree() -> bool:
-    if shutil.which("git") is None:
-        return False
-    res = subprocess.run(
-        ["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True
-    )
-    return res.returncode == 0 and res.stdout.strip() == "true"
-
-
-def ignored(rel_path: str) -> bool:
-    # --no-index: judge by the ignore rules alone, whether or not the file exists.
-    res = subprocess.run(["git", "check-ignore", "-q", "--no-index", rel_path], cwd=ROOT)
-    return res.returncode == 0
 
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class IgnoreRules(unittest.TestCase):
-    def test_small_inference_outputs_are_tracked(self):
-        for p in (
+    def test_small_inference_outputs_are_tracked_and_large_regenerable_artefacts_ignored(self):
+        assert_ignore_rules(self, kept=(
             "experiment/runs/main_text/outputs/constant.rust.main.json",
             "experiment/runs/main_text/outputs/constant.c.main.psmc",
             "experiment/runs/real_data/outputs/HomoSapiens.rust.json",
@@ -42,11 +28,7 @@ class IgnoreRules(unittest.TestCase):
             "experiment/runs/supplementary/s2_em/outputs/zigzag.c.trace.psmc",
             "experiment/runs/main_text/outputs/.gitkeep",
             "experiment/runs/supplementary/tables/S2_em_convergence_trace.csv",
-        ):
-            self.assertFalse(ignored(p), f"{p} must not be ignored")
-
-    def test_large_regenerable_artefacts_stay_ignored(self):
-        for p in (
+        ), ignored=(
             "experiment/runs/main_text/inputs/constant.psmcfa",
             "experiment/runs/supplementary/shared_inputs/constant.500000000bp.psmcfa",
             "experiment/runs/supplementary/s5_format/inputs/zigzag.500000000bp.vcf",
@@ -59,8 +41,7 @@ class IgnoreRules(unittest.TestCase):
             "experiment/runs/main_text/logs/commands.jsonl",
             "experiment/runs/supplementary/diagnostic_figures/S2_em_convergence.png",
             "experiment/runs/supplementary/tables/S2_em_convergence_trace.tsv",
-        ):
-            self.assertTrue(ignored(p), f"{p} should be ignored")
+        ))
 
     def test_output_directories_exist_in_a_clone(self):
         for d in ("main_text", "real_data"):
@@ -70,12 +51,8 @@ class IgnoreRules(unittest.TestCase):
 class PackagedTables(unittest.TestCase):
     FIT = RUNS / "real_data" / "tables" / "real_data_rust_vs_c_fit_summary.csv"
 
-    def rows(self, path: Path):
-        with path.open(newline="", encoding="utf-8") as f:
-            return list(csv.DictReader(f))
-
     def test_fit_summary_paths_are_repository_relative(self):
-        for r in self.rows(self.FIT):
+        for r in read_csv(self.FIT):
             for col in ("rust_json", "c_psmc"):
                 self.assertFalse(Path(r[col]).is_absolute(), f"{r['sample_id']} {col}: {r[col]}")
                 self.assertTrue(r[col].startswith("experiment/runs/real_data/outputs/"), r[col])
@@ -93,7 +70,7 @@ class PackagedTables(unittest.TestCase):
             headers = [ln.strip() for ln in f if ln.startswith(">")]
         self.assertEqual(headers, [">chr1"])
         for name in ("real_data_rust_vs_c_fit_summary.csv", "figure_3_empirical_rmse_rs_vs_c.csv"):
-            species = {r["sample_id"]: r["species"] for r in self.rows(RUNS / "real_data" / "tables" / name)}
+            species = {r["sample_id"]: r["species"] for r in read_csv(RUNS / "real_data" / "tables" / name)}
             self.assertIn("chr1", species["HomoSapiens"], name)
         nb = json.loads((ROOT / "experiment/notebooks/all_plots_precomputed.ipynb").read_text(encoding="utf-8"))
         src = "".join("".join(c["source"]) for c in nb["cells"])
@@ -103,13 +80,12 @@ class PackagedTables(unittest.TestCase):
 class Documentation(unittest.TestCase):
     def test_no_machine_specific_paths_in_docs_or_entry_points(self):
         exp = ROOT / "experiment"
-        # Hidden directories (.venv, .tools with its psmc-rs 0.1 checkout,
-        # smoke runs) are local and ignored by git.
-        files = [
-            f
-            for f in exp.rglob("*.md")
-            if not any(part.startswith(".") for part in f.relative_to(exp).parts)
-        ] + [exp / "run.py", exp / "requirements.txt"]
+        files = [exp / "run.py", exp / "requirements.txt"]
+        for d, subdirs, names in os.walk(exp):
+            # Hidden directories (.venv, .tools with its psmc-rs 0.1 checkout,
+            # smoke runs) are local and ignored by git.
+            subdirs[:] = [s for s in subdirs if not s.startswith(".")]
+            files += [Path(d) / n for n in names if n.endswith(".md") and not n.startswith(".")]
         for f in files:
             text = f.read_text(encoding="utf-8")
             for needle in ("/Users/", "/home/", "miniforge"):
