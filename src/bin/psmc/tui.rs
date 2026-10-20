@@ -16,8 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
-use std::thread;
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use psmc_rs::hmm::Cancelled;
@@ -33,6 +32,7 @@ use view::render_ui;
 
 const MAX_LOG_LINES: usize = 3_000;
 
+// The fields of the form, in the order of [`App::new`].
 const FIELD_INPUT: usize = 0;
 const FIELD_OUTPUT: usize = 1;
 const FIELD_N_ITER: usize = 2;
@@ -44,13 +44,13 @@ const FIELD_BIN_SIZE: usize = 7;
 const FIELD_MU: usize = 8;
 const FIELD_SMOOTH_LAMBDA: usize = 9;
 
-#[derive(Clone)]
 struct FormField {
     label: &'static str,
     value: String,
     hint: &'static str,
 }
 
+/// The pages, in the order of their tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TuiPage {
     Setup,
@@ -58,6 +58,8 @@ enum TuiPage {
     Result,
 }
 
+/// Every stage, in the order of [`Stage`]'s variants, so that `stage as
+/// usize` indexes [`App::stages`].
 const STAGE_ORDER: [Stage; 5] = [
     Stage::Io,
     Stage::EForward,
@@ -65,16 +67,6 @@ const STAGE_ORDER: [Stage; 5] = [
     Stage::MStep,
     Stage::Bootstrap,
 ];
-
-fn stage_idx(stage: Stage) -> usize {
-    match stage {
-        Stage::Io => 0,
-        Stage::EForward => 1,
-        Stage::EBackward => 2,
-        Stage::MStep => 3,
-        Stage::Bootstrap => 4,
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 struct StageSnapshot {
@@ -107,34 +99,111 @@ struct RunningTask {
     stop: Arc<AtomicBool>,
 }
 
+/// What the file picker picks.
 #[derive(Debug, Clone, Copy)]
 enum PickerMode {
-    InputPath,
+    /// An input file of this format.
+    Input(FormatArg),
+    /// The directory of the output.
     OutputDir,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PickerEntryKind {
-    CurrentDir,
-    ParentDir,
-    Dir,
-    File,
 }
 
 #[derive(Debug, Clone)]
 struct PickerEntry {
     label: String,
     path: PathBuf,
-    kind: PickerEntryKind,
+    is_file: bool,
 }
 
 #[derive(Debug, Clone)]
 struct FilePicker {
     mode: PickerMode,
-    input_format: Option<FormatArg>,
     cwd: PathBuf,
     entries: Vec<PickerEntry>,
     selected: usize,
+}
+
+impl FilePicker {
+    fn open(mode: PickerMode, cwd: PathBuf) -> Result<Self> {
+        let mut picker = Self {
+            mode,
+            cwd,
+            entries: Vec::new(),
+            selected: 0,
+        };
+        picker.refresh()?;
+        Ok(picker)
+    }
+
+    /// Go to `dir` and list it.
+    fn enter(&mut self, dir: PathBuf) -> Result<()> {
+        self.cwd = dir;
+        self.refresh()
+    }
+
+    /// List the current directory: itself, its parent, its directories and,
+    /// when picking an input, its input files of the format.
+    fn refresh(&mut self) -> Result<()> {
+        let mut dirs = Vec::new();
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&self.cwd)
+            .with_context(|| format!("failed to read directory {}", self.cwd.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                dirs.push(PickerEntry {
+                    label: format!("{name}/"),
+                    path,
+                    is_file: false,
+                });
+            } else if let PickerMode::Input(format) = self.mode
+                && path.is_file()
+                && is_supported_input_file(&path, format)
+            {
+                files.push(PickerEntry {
+                    label: name,
+                    path,
+                    is_file: true,
+                });
+            }
+        }
+        dirs.sort_by_key(|e| e.label.to_ascii_lowercase());
+        files.sort_by_key(|e| e.label.to_ascii_lowercase());
+        let dir_entry = |label: &str, path: &Path| PickerEntry {
+            label: label.to_string(),
+            path: path.to_path_buf(),
+            is_file: false,
+        };
+        let here = dir_entry("[use this directory]", &self.cwd);
+        let up = self.cwd.parent().map(|parent| dir_entry("../", parent));
+        self.entries = [here]
+            .into_iter()
+            .chain(up)
+            .chain(dirs)
+            .chain(files)
+            .collect();
+        self.selected = self.selected.min(self.entries.len().saturating_sub(1));
+        Ok(())
+    }
+
+    fn selected_entry(&self) -> Option<&PickerEntry> {
+        self.entries.get(self.selected)
+    }
+
+    fn select_prev(&mut self) {
+        self.selected = match self.selected {
+            0 => self.entries.len().saturating_sub(1),
+            i => i - 1,
+        };
+    }
+
+    fn select_next(&mut self) {
+        if !self.entries.is_empty() {
+            self.selected = (self.selected + 1) % self.entries.len();
+        }
+    }
 }
 
 struct App {
@@ -149,92 +218,70 @@ struct App {
     autoscroll: bool,
     manual_scroll: u16,
     running: Option<RunningTask>,
-    stages: Vec<StageSnapshot>,
+    stages: [StageSnapshot; STAGE_ORDER.len()],
     result: Option<Finished>,
     picker: Option<FilePicker>,
 }
 
 impl App {
+    /// The form filled from `cli`, the command line that opened the TUI.
     fn new(self_bin: PathBuf, cli: &InferArgs) -> Self {
-        let mut fields = vec![
-            FormField {
-                label: "Input",
-                value: String::new(),
-                hint: "Input file (.psmcfa/.mhs/.multihetsep/.vcf/.gz)",
-            },
-            FormField {
-                label: "Output",
-                value: "out.json".to_string(),
-                hint: "Output JSON path",
-            },
-            FormField {
-                label: "N iter",
-                value: "25".to_string(),
-                hint: "EM iterations (C psmc -N)",
-            },
-            FormField {
-                label: "Pattern",
-                value: String::new(),
-                hint: "PSMC pattern (empty: C psmc's 4+5*3+4)",
-            },
-            FormField {
-                label: "Gen years",
-                value: "25".to_string(),
-                hint: "Years per generation, for the time axis",
-            },
-            FormField {
-                label: "Threads",
-                value: String::new(),
-                hint: "Worker threads (empty: one per core)",
-            },
-            FormField {
-                label: "Input fmt",
-                value: "auto".to_string(),
-                hint: "auto, psmcfa, mhs or vcf (Space cycles)",
-            },
-            FormField {
-                label: "Bin size",
-                value: "100".to_string(),
-                hint: "Bases per bin: binning of mhs/vcf, scaling of every format",
-            },
-            FormField {
-                label: "Mu",
-                value: "2.5e-8".to_string(),
-                hint: "Mutation rate",
-            },
-            FormField {
-                label: "Smooth",
-                value: "0".to_string(),
-                hint: "Smoothness penalty on log lambda (0: C psmc's objective)",
-            },
-        ];
-
-        if let Some(v) = &cli.input_file {
-            fields[FIELD_INPUT].value = v.display().to_string();
-        }
-        if let Some(v) = &cli.output_file {
-            fields[FIELD_OUTPUT].value = v.display().to_string();
-        }
-        if let Some(v) = cli.n_iter {
-            fields[FIELD_N_ITER].value = v.to_string();
-        }
-        if let Some(v) = &cli.pattern {
-            fields[FIELD_PATTERN].value = v.clone();
-        }
-        fields[FIELD_GEN_YEARS].value = cli.gen_years.to_string();
-        if let Some(v) = cli.threads {
-            fields[FIELD_THREADS].value = v.to_string();
-        }
-        fields[FIELD_INPUT_FORMAT].value = cli.input.input_format.name().to_string();
-        fields[FIELD_BIN_SIZE].value = cli.input.bin_size.to_string();
-        fields[FIELD_MU].value = cli.mu.to_string();
-        fields[FIELD_SMOOTH_LAMBDA].value = cli.smooth_lambda.to_string();
-
+        let path = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
+        let fields = [
+            (
+                "Input",
+                path(&cli.input_file).unwrap_or_default(),
+                "Input file (.psmcfa/.mhs/.multihetsep/.vcf/.gz)",
+            ),
+            (
+                "Output",
+                path(&cli.output_file).unwrap_or_else(|| "out.json".to_string()),
+                "Output JSON path",
+            ),
+            (
+                "N iter",
+                cli.n_iter
+                    .map_or_else(|| "25".to_string(), |n| n.to_string()),
+                "EM iterations (C psmc -N)",
+            ),
+            (
+                "Pattern",
+                cli.pattern.clone().unwrap_or_default(),
+                "PSMC pattern (empty: C psmc's 4+5*3+4)",
+            ),
+            (
+                "Gen years",
+                cli.gen_years.to_string(),
+                "Years per generation, for the time axis",
+            ),
+            (
+                "Threads",
+                cli.threads.map(|n| n.to_string()).unwrap_or_default(),
+                "Worker threads (empty: one per core)",
+            ),
+            (
+                "Input fmt",
+                cli.input.input_format.name().to_string(),
+                "auto, psmcfa, mhs or vcf (Space cycles)",
+            ),
+            (
+                "Bin size",
+                cli.input.bin_size.to_string(),
+                "Bases per bin: binning of mhs/vcf, scaling of every format",
+            ),
+            ("Mu", cli.mu.to_string(), "Mutation rate"),
+            (
+                "Smooth",
+                cli.smooth_lambda.to_string(),
+                "Smoothness penalty on log lambda (0: C psmc's objective)",
+            ),
+        ]
+        .map(|(label, value, hint)| FormField { label, value, hint });
         Self {
             self_bin,
             base_cli: cli.clone(),
             page: TuiPage::Setup,
-            fields,
+            fields: fields.into(),
             selected: 0,
             logs: VecDeque::new(),
             status: "Idle".to_string(),
@@ -242,7 +289,7 @@ impl App {
             autoscroll: true,
             manual_scroll: 0,
             running: None,
-            stages: vec![StageSnapshot::default(); STAGE_ORDER.len()],
+            stages: Default::default(),
             result: None,
             picker: None,
         }
@@ -250,14 +297,6 @@ impl App {
 
     fn field_value(&self, idx: usize) -> &str {
         &self.fields[idx].value
-    }
-
-    fn field_value_mut(&mut self, idx: usize) -> &mut String {
-        &mut self.fields[idx].value
-    }
-
-    fn selected_field_mut(&mut self) -> &mut String {
-        self.field_value_mut(self.selected)
     }
 
     fn append_log(&mut self, line: impl Into<String>) {
@@ -280,11 +319,7 @@ impl App {
     }
 
     fn prev_field(&mut self) {
-        if self.selected == 0 {
-            self.selected = self.fields.len() - 1;
-        } else {
-            self.selected -= 1;
-        }
+        self.selected = (self.selected + self.fields.len() - 1) % self.fields.len();
     }
 
     fn toggle_input_format(&mut self) {
@@ -311,16 +346,9 @@ impl App {
         }
     }
 
-    fn reset_stages(&mut self) {
-        for s in &mut self.stages {
-            *s = StageSnapshot::default();
-        }
-    }
-
     fn update_stage(&mut self, stage: Stage, done: u64, total: u64, iter: Option<(usize, usize)>) {
         let now = Instant::now();
-        let idx = stage_idx(stage);
-        let snap = &mut self.stages[idx];
+        let snap = &mut self.stages[stage as usize];
         let reset = snap.started_at.is_none()
             || done < snap.done
             || total != snap.total
@@ -334,39 +362,28 @@ impl App {
         snap.updated_at = Some(now);
     }
 
-    fn close_picker(&mut self) {
-        self.picker = None;
-    }
-
-    fn open_picker(&mut self, mode: PickerMode) -> Result<()> {
-        let input_format = parse_input_format_field(self.field_value(FIELD_INPUT_FORMAT))?;
-        let start = match mode {
-            PickerMode::InputPath => infer_picker_dir(self.field_value(FIELD_INPUT)),
-            PickerMode::OutputDir => infer_picker_dir(self.field_value(FIELD_OUTPUT)),
+    /// Open the file picker for `field`: an input file of the format field's
+    /// format for [`FIELD_INPUT`], the output's directory for
+    /// [`FIELD_OUTPUT`]. It starts in the field's directory.
+    fn open_picker(&mut self, field: usize) -> Result<()> {
+        let format = parse_input_format_field(self.field_value(FIELD_INPUT_FORMAT))?;
+        let mode = match field {
+            FIELD_INPUT => PickerMode::Input(format),
+            _ => PickerMode::OutputDir,
         };
-        let mut picker = FilePicker {
-            mode,
-            input_format: if matches!(mode, PickerMode::InputPath) {
-                Some(input_format)
-            } else {
-                None
-            },
-            cwd: start,
-            entries: Vec::new(),
-            selected: 0,
-        };
-        refresh_picker_entries(&mut picker)?;
-        self.picker = Some(picker);
+        let start = infer_picker_dir(self.field_value(field));
+        self.picker = Some(FilePicker::open(mode, start)?);
         Ok(())
     }
 }
 
-fn parse_non_empty_str(name: &str, v: &str) -> Result<String> {
+/// The trimmed value of the field `name`, which must not be empty.
+fn required<'a>(name: &str, v: &'a str) -> Result<&'a str> {
     let s = v.trim();
     if s.is_empty() {
         bail!("{name} is required");
     }
-    Ok(s.to_string())
+    Ok(s)
 }
 
 fn parse_optional_usize(name: &str, v: &str) -> Result<Option<usize>> {
@@ -374,29 +391,23 @@ fn parse_optional_usize(name: &str, v: &str) -> Result<Option<usize>> {
     if s.is_empty() {
         return Ok(None);
     }
-    let n = s
-        .parse::<usize>()
-        .map_err(|_| anyhow!("{name} must be an integer"))?;
-    if n == 0 {
-        bail!("{name} must be >= 1");
+    match s.parse::<usize>() {
+        Ok(0) => bail!("{name} must be >= 1"),
+        Ok(n) => Ok(Some(n)),
+        Err(_) => bail!("{name} must be an integer"),
     }
-    Ok(Some(n))
 }
 
-fn parse_required_f64(name: &str, v: &str) -> Result<f64> {
-    let s = parse_non_empty_str(name, v)?;
-    let n = s
-        .parse::<f64>()
-        .map_err(|_| anyhow!("{name} must be a floating-point number"))?;
-    if !n.is_finite() || n <= 0.0 {
-        bail!("{name} must be > 0");
+fn parse_positive_f64(name: &str, v: &str) -> Result<f64> {
+    match required(name, v)?.parse::<f64>() {
+        Ok(n) if n.is_finite() && n > 0.0 => Ok(n),
+        Ok(_) => bail!("{name} must be > 0"),
+        Err(_) => bail!("{name} must be a floating-point number"),
     }
-    Ok(n)
 }
 
 fn parse_non_negative_f64(name: &str, v: &str) -> Result<f64> {
-    let s = parse_non_empty_str(name, v)?;
-    match s.parse::<f64>() {
+    match required(name, v)?.parse::<f64>() {
         Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
         Ok(_) => bail!("{name} must be 0 or more"),
         Err(_) => bail!("{name} must be a number"),
@@ -408,21 +419,22 @@ fn parse_input_format_field(v: &str) -> Result<FormatArg> {
         .map_err(|_| anyhow!("Input fmt must be auto, psmcfa, mhs or vcf"))
 }
 
+/// The run the form describes: its fields over the other settings of the
+/// command line that opened the TUI.
 fn build_cli_from_form(app: &App) -> Result<InferArgs> {
-    let input = parse_non_empty_str("Input", app.field_value(FIELD_INPUT))?;
-    let output = parse_non_empty_str("Output", app.field_value(FIELD_OUTPUT))?;
-    let n_iter = parse_non_empty_str("N iter", app.field_value(FIELD_N_ITER))?
+    let field = |idx| app.field_value(idx);
+    let input = required("Input", field(FIELD_INPUT))?;
+    let output = required("Output", field(FIELD_OUTPUT))?;
+    let n_iter = required("N iter", field(FIELD_N_ITER))?
         .parse::<usize>()
         .map_err(|_| anyhow!("N iter must be a whole number"))?;
-    let mu = parse_required_f64("Mu", app.field_value(FIELD_MU))?;
-    let gen_years = parse_required_f64("Gen years", app.field_value(FIELD_GEN_YEARS))?;
-    let smooth = parse_non_negative_f64("Smooth", app.field_value(FIELD_SMOOTH_LAMBDA))?;
-    let input_format = parse_input_format_field(app.field_value(FIELD_INPUT_FORMAT))?;
-
-    let pattern = app.field_value(FIELD_PATTERN).trim();
-    let threads = parse_optional_usize("Threads", app.field_value(FIELD_THREADS))?;
-    let bin_size =
-        parse_optional_usize("Bin size", app.field_value(FIELD_BIN_SIZE))?.unwrap_or(100);
+    let mu = parse_positive_f64("Mu", field(FIELD_MU))?;
+    let gen_years = parse_positive_f64("Gen years", field(FIELD_GEN_YEARS))?;
+    let smooth = parse_non_negative_f64("Smooth", field(FIELD_SMOOTH_LAMBDA))?;
+    let input_format = parse_input_format_field(field(FIELD_INPUT_FORMAT))?;
+    let pattern = field(FIELD_PATTERN).trim();
+    let threads = parse_optional_usize("Threads", field(FIELD_THREADS))?;
+    let bin_size = parse_optional_usize("Bin size", field(FIELD_BIN_SIZE))?.unwrap_or(100);
 
     let mut cli = app.base_cli.clone();
     cli.tui = false;
@@ -430,11 +442,7 @@ fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     cli.output_file = Some(PathBuf::from(output));
     cli.n_iter = Some(n_iter);
     cli.input.input_format = input_format;
-    cli.pattern = if pattern.is_empty() {
-        None
-    } else {
-        Some(pattern.to_string())
-    };
+    cli.pattern = (!pattern.is_empty()).then(|| pattern.to_string());
     cli.threads = threads;
     cli.input.bin_size = bin_size;
     cli.mu = mu;
@@ -444,162 +452,75 @@ fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     Ok(cli)
 }
 
+/// Where the picker for a field holding `raw_path` starts: that directory,
+/// the directory of that file (or of a new file in an existing directory),
+/// or the current directory.
 fn infer_picker_dir(raw_path: &str) -> PathBuf {
-    let trimmed = raw_path.trim();
-    if trimmed.is_empty() {
-        return std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    }
-    let p = PathBuf::from(trimmed);
-    if p.is_dir() {
-        return p;
-    }
-    if p.is_file() {
-        return p
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
-    }
-    if let Some(parent) = p.parent()
-        && parent.exists()
-    {
-        return parent.to_path_buf();
+    let p = Path::new(raw_path.trim());
+    if !p.as_os_str().is_empty() {
+        if p.is_dir() {
+            return p.to_path_buf();
+        }
+        if p.is_file() {
+            return p
+                .parent()
+                .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        }
+        if let Some(parent) = p.parent()
+            && parent.exists()
+        {
+            return parent.to_path_buf();
+        }
     }
     std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
-fn refresh_picker_entries(picker: &mut FilePicker) -> Result<()> {
-    let mut dirs = Vec::<PickerEntry>::new();
-    let mut files = Vec::<PickerEntry>::new();
-    for entry in fs::read_dir(&picker.cwd)
-        .with_context(|| format!("failed to read directory {}", picker.cwd.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        if path.is_dir() {
-            dirs.push(PickerEntry {
-                label: format!("{name}/"),
-                path,
-                kind: PickerEntryKind::Dir,
-            });
-        } else if path.is_file() {
-            match picker.mode {
-                PickerMode::InputPath => {
-                    let fmt = picker.input_format.unwrap_or(FormatArg::Auto);
-                    if is_supported_input_file(&path, fmt) {
-                        files.push(PickerEntry {
-                            label: name,
-                            path,
-                            kind: PickerEntryKind::File,
-                        });
-                    }
-                }
-                PickerMode::OutputDir => {}
-            }
-        }
-    }
-    dirs.sort_by_key(|e| e.label.to_ascii_lowercase());
-    files.sort_by_key(|e| e.label.to_ascii_lowercase());
-
-    let mut entries = Vec::<PickerEntry>::new();
-    entries.push(PickerEntry {
-        label: "[use this directory]".to_string(),
-        path: picker.cwd.clone(),
-        kind: PickerEntryKind::CurrentDir,
-    });
-    if let Some(parent) = picker.cwd.parent() {
-        entries.push(PickerEntry {
-            label: "../".to_string(),
-            path: parent.to_path_buf(),
-            kind: PickerEntryKind::ParentDir,
-        });
-    }
-    entries.extend(dirs);
-    if matches!(picker.mode, PickerMode::InputPath) {
-        entries.extend(files);
-    }
-    picker.entries = entries;
-    picker.selected = picker.selected.min(picker.entries.len().saturating_sub(1));
-    Ok(())
-}
-
+/// Enter in the picker: take the selected input file, or the selected
+/// directory for the output; an input needs a file, so a directory opens.
 fn apply_picker_selection(app: &mut App) -> Result<()> {
     let Some(picker) = app.picker.as_mut() else {
         return Ok(());
     };
-    if picker.entries.is_empty() {
-        return Ok(());
-    }
-    let selected = picker.entries[picker.selected].clone();
-    match selected.kind {
-        PickerEntryKind::File => match picker.mode {
-            PickerMode::InputPath => {
-                let target = selected.path;
-                app.fields[FIELD_INPUT].value = target.display().to_string();
-                app.close_picker();
-                Ok(())
-            }
-            PickerMode::OutputDir => Ok(()),
-        },
-        PickerEntryKind::CurrentDir | PickerEntryKind::Dir | PickerEntryKind::ParentDir => {
-            match picker.mode {
-                PickerMode::InputPath => {
-                    // Input requires selecting a file, not a directory.
-                    picker.cwd = selected.path;
-                    refresh_picker_entries(picker)?;
-                    Ok(())
-                }
-                PickerMode::OutputDir => {
-                    let target = selected.path;
-                    let current = PathBuf::from(app.field_value(FIELD_OUTPUT));
-                    let fname = current
-                        .file_name()
-                        .map(|v| v.to_os_string())
-                        .unwrap_or_else(|| "out.json".into());
-                    app.fields[FIELD_OUTPUT].value = target.join(fname).display().to_string();
-                    app.close_picker();
-                    Ok(())
-                }
-            }
-        }
-    }
-}
-
-fn browse_picker_dir(app: &mut App) -> Result<()> {
-    let Some(picker) = app.picker.as_mut() else {
+    let Some(entry) = picker.selected_entry().cloned() else {
         return Ok(());
     };
-    if picker.entries.is_empty() {
-        return Ok(());
-    }
-    let selected = picker.entries[picker.selected].clone();
-    let next = match selected.kind {
-        PickerEntryKind::ParentDir | PickerEntryKind::Dir | PickerEntryKind::CurrentDir => {
-            Some(selected.path)
+    match (picker.mode, entry.is_file) {
+        (PickerMode::Input(_), true) => {
+            app.fields[FIELD_INPUT].value = entry.path.display().to_string();
+            app.picker = None;
         }
-        PickerEntryKind::File => None,
-    };
-    if let Some(path) = next {
-        picker.cwd = path;
-        refresh_picker_entries(picker)?;
+        (PickerMode::Input(_), false) => picker.enter(entry.path)?,
+        (PickerMode::OutputDir, true) => {}
+        (PickerMode::OutputDir, false) => {
+            let output = &mut app.fields[FIELD_OUTPUT].value;
+            let name = Path::new(output.as_str())
+                .file_name()
+                .map(|v| v.to_os_string())
+                .unwrap_or_else(|| "out.json".into());
+            *output = entry.path.join(name).display().to_string();
+            app.picker = None;
+        }
     }
     Ok(())
 }
 
+/// The command line of `cli`, as the TUI shows it.
+fn command_line(self_bin: &Path, cli: &InferArgs) -> String {
+    format!("{} {}", self_bin.display(), cli.to_args().join(" "))
+}
+
 fn preview_cmdline(app: &App) -> String {
     match build_cli_from_form(app) {
-        Ok(cli) => format!("{} {}", app.self_bin.display(), cli.to_args().join(" ")),
+        Ok(cli) => command_line(&app.self_bin, &cli),
         Err(e) => format!("Invalid config: {e}"),
     }
 }
 
 fn poll_runner(app: &mut App) {
-    let mut events = Vec::<RunnerEvent>::new();
-    if let Some(task) = app.running.as_mut() {
-        while let Ok(ev) = task.rx.try_recv() {
-            events.push(ev);
-        }
-    }
+    let Some(task) = &app.running else {
+        return;
+    };
+    let events: Vec<RunnerEvent> = task.rx.try_iter().collect();
     let mut done = false;
     for ev in events {
         match ev {
@@ -635,7 +556,7 @@ fn handle_pipeline_event(app: &mut App, ev: Event) {
         Event::Warning(line) => app.append_log(format!("Warning: {line}")),
         Event::Qc { text, .. } => {
             for line in text.lines() {
-                app.append_log(line.to_string());
+                app.append_log(line);
             }
         }
         Event::Iteration { iter, total } => app.append_log(format!("EM iteration {iter}/{total}")),
@@ -653,9 +574,8 @@ fn start_run(app: &mut App) -> Result<()> {
         return Ok(());
     }
     let cli = build_cli_from_form(app)?;
-    let cmdline = format!("{} {}", app.self_bin.display(), cli.to_args().join(" "));
-    app.append_log(format!("$ {cmdline}"));
-    app.reset_stages();
+    app.append_log(format!("$ {}", command_line(&app.self_bin, &cli)));
+    app.stages = Default::default();
     app.result = None;
     app.page = TuiPage::Run;
     app.status = "Running".to_string();
@@ -663,7 +583,6 @@ fn start_run(app: &mut App) -> Result<()> {
     let (tx, rx) = mpsc::channel::<RunnerEvent>();
     let stop = Arc::new(AtomicBool::new(false));
     let stop_worker = Arc::clone(&stop);
-
     let handle = thread::spawn(move || {
         let started = Instant::now();
         let sink = |ev: Event| {
@@ -679,24 +598,49 @@ fn start_run(app: &mut App) -> Result<()> {
         };
         let _ = tx.send(outcome);
     });
-
     app.running = Some(RunningTask { rx, handle, stop });
     Ok(())
 }
 
 fn stop_run(app: &mut App) {
-    if let Some(task) = app.running.as_mut() {
+    if let Some(task) = &app.running {
         task.stop.store(true, Ordering::Relaxed);
         app.status = "Stopping...".to_string();
         app.append_log("Stop requested.");
     }
 }
 
+/// A key while the file picker is open.
+fn handle_picker_key(app: &mut App, code: KeyCode) -> Result<()> {
+    let Some(picker) = app.picker.as_mut() else {
+        return Ok(());
+    };
+    match code {
+        KeyCode::Esc | KeyCode::Char('q') => app.picker = None,
+        KeyCode::Up => picker.select_prev(),
+        KeyCode::Down => picker.select_next(),
+        KeyCode::Enter => apply_picker_selection(app)?,
+        KeyCode::Right => {
+            if let Some(entry) = picker.selected_entry().filter(|e| !e.is_file) {
+                picker.enter(entry.path.clone())?;
+            }
+        }
+        KeyCode::Backspace | KeyCode::Left => {
+            if let Some(parent) = picker.cwd.parent().map(Path::to_path_buf) {
+                picker.enter(parent)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     if key.kind != KeyEventKind::Press {
         return Ok(());
     }
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    if ctrl && key.code == KeyCode::Char('c') {
         if app.running.is_some() {
             stop_run(app);
         } else {
@@ -704,43 +648,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         }
         return Ok(());
     }
-
     if app.picker.is_some() {
-        match key.code {
-            KeyCode::Esc | KeyCode::Char('q') => app.close_picker(),
-            KeyCode::Up => {
-                if let Some(picker) = app.picker.as_mut() {
-                    if picker.selected == 0 {
-                        picker.selected = picker.entries.len().saturating_sub(1);
-                    } else {
-                        picker.selected -= 1;
-                    }
-                }
-            }
-            KeyCode::Down => {
-                if let Some(picker) = app.picker.as_mut()
-                    && !picker.entries.is_empty()
-                {
-                    picker.selected = (picker.selected + 1) % picker.entries.len();
-                }
-            }
-            KeyCode::Enter => {
-                apply_picker_selection(app)?;
-            }
-            KeyCode::Right => {
-                browse_picker_dir(app)?;
-            }
-            KeyCode::Backspace | KeyCode::Left => {
-                if let Some(picker) = app.picker.as_mut()
-                    && let Some(parent) = picker.cwd.parent()
-                {
-                    picker.cwd = parent.to_path_buf();
-                    refresh_picker_entries(picker)?;
-                }
-            }
-            _ => {}
-        }
-        return Ok(());
+        return handle_picker_key(app, key.code);
     }
 
     // While the form can be edited, it takes every printable character
@@ -749,8 +658,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     let editing = app.page == TuiPage::Setup && app.running.is_none();
     // Ctrl or Alt makes a command; both together is AltGr on Windows, which
     // types characters such as '@'.
-    let plain =
-        key.modifiers.contains(KeyModifiers::CONTROL) == key.modifiers.contains(KeyModifiers::ALT);
+    let plain = ctrl == key.modifiers.contains(KeyModifiers::ALT);
     if editing
         && plain
         && let KeyCode::Char(c) = key.code
@@ -758,7 +666,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         if c == ' ' && app.selected == FIELD_INPUT_FORMAT {
             app.toggle_input_format();
         } else {
-            app.selected_field_mut().push(c);
+            app.fields[app.selected].value.push(c);
         }
         return Ok(());
     }
@@ -775,47 +683,25 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::F(2) => app.page = TuiPage::Run,
         KeyCode::F(3) => app.page = TuiPage::Result,
         KeyCode::Char('x') => stop_run(app),
-        KeyCode::F(5) | KeyCode::Enter | KeyCode::Char('r') => {
-            if app.running.is_none() {
-                start_run(app)?;
-            }
-        }
+        KeyCode::F(5) | KeyCode::Enter | KeyCode::Char('r') => start_run(app)?,
         KeyCode::PageUp => app.scroll_up(),
         KeyCode::PageDown => app.scroll_down(),
         KeyCode::End => {
             app.autoscroll = true;
             app.manual_scroll = 0;
         }
-        KeyCode::Tab | KeyCode::Down => {
-            if app.page == TuiPage::Setup && app.running.is_none() {
-                app.next_field();
-            } else {
-                app.scroll_down();
-            }
-        }
-        KeyCode::BackTab | KeyCode::Up => {
-            if app.page == TuiPage::Setup && app.running.is_none() {
-                app.prev_field();
-            } else {
-                app.scroll_up();
-            }
-        }
-        KeyCode::Char('l') if key.modifiers.contains(KeyModifiers::CONTROL) => app.clear_logs(),
-        KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.page == TuiPage::Setup && app.running.is_none() {
-                app.open_picker(PickerMode::InputPath)?;
-            }
-        }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            if app.page == TuiPage::Setup && app.running.is_none() {
-                app.open_picker(PickerMode::OutputDir)?;
-            }
-        }
+        KeyCode::Tab | KeyCode::Down if editing => app.next_field(),
+        KeyCode::Tab | KeyCode::Down => app.scroll_down(),
+        KeyCode::BackTab | KeyCode::Up if editing => app.prev_field(),
+        KeyCode::BackTab | KeyCode::Up => app.scroll_up(),
+        KeyCode::Char('l') if ctrl => app.clear_logs(),
+        KeyCode::Char('o') if ctrl && editing => app.open_picker(FIELD_INPUT)?,
+        KeyCode::Char('d') if ctrl && editing => app.open_picker(FIELD_OUTPUT)?,
         KeyCode::Left | KeyCode::Right if editing && app.selected == FIELD_INPUT_FORMAT => {
             app.toggle_input_format();
         }
         KeyCode::Backspace if editing => {
-            app.selected_field_mut().pop();
+            app.fields[app.selected].value.pop();
         }
         _ => {}
     }
@@ -1094,7 +980,7 @@ mod tests {
                 "EM iteration 2/9"
             ]
         );
-        let snap = &a.stages[stage_idx(Stage::EForward)];
+        let snap = &a.stages[Stage::EForward as usize];
         assert_eq!((snap.done, snap.total, snap.iter), (40, 100, Some((2, 9))));
     }
 
