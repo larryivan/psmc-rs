@@ -41,15 +41,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from . import style
 from .data import Source
 
-DASHED = (0, (3.0, 1.5))
-DASH_DOT = (0, (3.0, 1.2, 1.0, 1.2))
-DOTTED = (0, (1.0, 1.2))
-# A tool's thread counts, fewest first: one line style each (more counts than
-# styles reuse the last).
-THREAD_LINESTYLES = ("-", DASHED, DASH_DOT, DOTTED)
+# A tool's thread counts, fewest first: solid, dashed, dash-dotted, dotted (more counts reuse the last).
+THREAD_LINESTYLES = ("-", (0, (3.0, 1.5)), (0, (3.0, 1.2, 1.0, 1.2)), (0, (1.0, 1.2)))
 TOOL_ENTITY = {"c": style.C_PSMC, "rs01": style.RS01, "rs02": style.RS02,
-               "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}
-TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
+               "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}  # legend order
+TIME_TICKS = [1, 10, 60, 600, 3600, 36000]
+MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]
 
 
 def tool_threads(cfg) -> Dict[str, Tuple[int, ...]]:
@@ -63,17 +60,12 @@ def series(table2, threads: Optional[Dict[str, Sequence[int]]] = None) -> List[T
 
     With ``threads`` (:func:`tool_threads`), only a tool's thread counts
     there. The fewest threads of a tool are drawn solid with filled markers,
-    more threads with open markers and the next styles of
-    :data:`THREAD_LINESTYLES` (dashed, then dash-dotted, then dotted).
+    more threads with open markers and the next :data:`THREAD_LINESTYLES`.
     """
     out = []
-    for tool in TOOL_ORDER:
+    for tool, base in TOOL_ENTITY.items():
         sub = table2[table2.tool == tool]
-        if sub.empty:
-            continue
-        base = TOOL_ENTITY[tool]
-        counts = sorted(int(t) for t in sub["threads"].unique()
-                        if threads is None or int(t) in threads.get(tool, ()))
+        counts = sorted(int(t) for t in sub["threads"].unique() if threads is None or int(t) in threads.get(tool, ()))
         for i, t in enumerate(counts):
             label = base.label if tool == "c" else f"{base.label}, {t} thread{'s' if t > 1 else ''}"
             linestyle = THREAD_LINESTYLES[min(i, len(THREAD_LINESTYLES) - 1)]
@@ -81,7 +73,8 @@ def series(table2, threads: Optional[Dict[str, Sequence[int]]] = None) -> List[T
     return out
 
 
-def _formatter(fn):
+def formatter(fn):
+    """Tick labels ``fn(v)``, none at zero or below."""
     from matplotlib.ticker import FuncFormatter
 
     return FuncFormatter(lambda v, _pos: fn(v) if v > 0 else "")
@@ -98,53 +91,63 @@ def fmt_mib(v: float) -> str:
     return f"{v / 1024:g} GB" if v >= 1024 * 0.999 else f"{v:g} MB"
 
 
-TIME_TICKS = [1, 10, 60, 600, 3600, 36000]
-MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]
-
-
 def log_ticks(ax, lo: float, hi: float, ticks: List[float], fmt) -> None:
-    """A log y axis from ``lo`` to ``hi`` labelled at the ``ticks`` inside it."""
-    from matplotlib.ticker import FixedLocator, LogLocator, NullFormatter
+    """A log y axis from ``lo`` to ``hi`` labelled ``fmt`` at the ``ticks`` inside it."""
+    from matplotlib.ticker import FixedLocator
 
-    ax.set_yscale("log")
+    style.log_axis(ax, "y", fmt="plain", lim=(lo, hi))
     ax.yaxis.set_major_locator(FixedLocator([t for t in ticks if lo <= t <= hi]))
-    ax.yaxis.set_major_formatter(_formatter(fmt))
-    ax.yaxis.set_minor_locator(LogLocator(base=10.0, subs=tuple(range(2, 10)), numticks=12))
-    ax.yaxis.set_minor_formatter(NullFormatter())
-    ax.set_ylim(lo, hi)
+    ax.yaxis.set_major_formatter(formatter(fmt))
 
 
-def size_axis(ax, sizes, chromosomes: Optional[Dict[int, int]] = None) -> None:
-    """The genome-size axis; with ``chromosomes`` (size -> count), each size's count on a second line."""
+def decade_span(values) -> Tuple[float, float]:
+    """The powers of ten around the positive ``values`` padded by 1.3."""
+    v = [float(x) for x in values if x == x and x > 0]
+    return 10 ** math.floor(math.log10(min(v) / 1.3)), 10 ** math.ceil(math.log10(max(v) * 1.3))
+
+
+def fixed_log_xaxis(ax, ticks: Sequence[float], fmt, pad: float, label: str, base: int = 10) -> None:
+    """A log x axis labelled ``fmt`` at ``ticks`` alone (no minor ticks), ``pad`` times wider on each side."""
     from matplotlib.ticker import FixedLocator, NullLocator
 
-    ax.set_xscale("log")
-    ax.xaxis.set_major_locator(FixedLocator(sorted(sizes)))
-    if chromosomes:
-        ax.xaxis.set_major_formatter(_formatter(lambda v: f"{v:,.0f}\n{chromosomes[int(round(v))]} chr."))
-    else:
-        ax.xaxis.set_major_formatter(_formatter(lambda v: f"{v:,.0f}"))
+    ax.set_xscale("log", base=base)
+    ax.xaxis.set_major_locator(FixedLocator(list(ticks)))
+    ax.xaxis.set_major_formatter(formatter(fmt))
     ax.xaxis.set_minor_locator(NullLocator())
-    ax.set_xlim(min(sizes) / 1.35, max(sizes) * 1.35)
-    ax.set_xlabel("Genome size (Mb)")
+    ax.set_xlim(min(ticks) / pad, max(ticks) * pad)
+    ax.set_xlabel(label)
 
 
-def decade_span(values, pad: float = 1.3) -> Tuple[float, float]:
-    v = [float(x) for x in values if x == x and x > 0]
-    return 10 ** math.floor(math.log10(min(v) / pad)), 10 ** math.ceil(math.log10(max(v) * pad))
+def size_axis(ax, sizes, chromosomes: Dict[int, int]) -> None:
+    """The genome-size axis, each size's chromosome count on a second line."""
+    fixed_log_xaxis(ax, sorted(sizes), lambda v: f"{v:,.0f}\n{chromosomes[int(round(v))]} chr.", 1.35,
+                    "Genome size (Mb)")
 
 
-def draw_metric(ax, table2, runs, median_col: str, run_col: str,
-                threads: Optional[Dict[str, Sequence[int]]] = None) -> List[str]:
+def chromosome_counts(table2) -> Dict[int, int]:
+    """Genome size (Mb) -> its number of chromosomes, from Table 2."""
+    out = {}
+    for size, n in table2.groupby("size_mb")["chromosomes"].unique().items():
+        if len(n) != 1:
+            raise ValueError(f"E3_table2 gives {size} Mb more than one chromosome count: {sorted(n)}")
+        out[int(size)] = int(n[0])
+    return out
+
+
+def medians(ax, x, y, ent: style.Entity, markersize: float = 3.4, points_z: float = 4) -> None:
+    """A series' medians: its line (zorder 3) and its markers."""
+    ax.plot(x, y, color=ent.color, linestyle=ent.linestyle, linewidth=style.LW_DATA, zorder=3)
+    ax.plot(x, y, **ent.points(markersize=markersize, zorder=points_z))
+
+
+def draw_metric(ax, table2, runs, median_col: str, run_col: str, threads: Dict[str, Sequence[int]]) -> List[str]:
     """One metric against genome size: medians (lines, markers), clean repeats (dots); returns notes on setups not run."""
     notes = []
     for tool, t, ent in series(table2, threads):
         rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")
         ok = rows[rows[median_col].notna()]
         if not ok.empty:
-            ax.plot(ok["size_mb"], ok[median_col], color=ent.color, linestyle=ent.linestyle, linewidth=style.LW_DATA,
-                    zorder=3)
-            ax.plot(ok["size_mb"], ok[median_col], **ent.points(markersize=3.4, zorder=4))
+            medians(ax, ok["size_mb"], ok[median_col], ent)
         reps = runs[(runs.tool == tool) & (runs.threads == t) & (runs["clean"].astype(str) == "True")]
         ax.plot(reps["size_mb"], reps[run_col], linestyle="none", marker=".", markersize=1.5, color=ent.color,
                 zorder=2)
@@ -152,8 +155,36 @@ def draw_metric(ax, table2, runs, median_col: str, run_col: str,
         if not skipped.empty:
             sizes = ", ".join(f"{int(s):,}" for s in skipped["size_mb"])
             notes.append(f"{ent.label}: not run at {sizes} Mb ({str(skipped['note'].iloc[0]).split(';')[0]})")
-    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+    style.value_grid(ax)
     return notes
+
+
+def speedup_panel(ax, table2, sizes, threads: Dict[str, Sequence[int]], chromosomes: Dict[int, int]) -> None:
+    """Median wall time of C psmc over each tool's, by genome size."""
+    from matplotlib.ticker import FixedLocator, NullLocator
+
+    hi, lo = 1.0, 1.0
+    for tool, t, ent in series(table2, threads):
+        if tool == "c":
+            continue
+        rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")
+        rows = rows[rows["speedup_vs_c"].notna()]
+        if rows.empty:
+            continue
+        medians(ax, rows["size_mb"], rows["speedup_vs_c"], ent)
+        hi = max(hi, float(rows["speedup_vs_c"].max()))
+        lo = min(lo, float(rows["speedup_vs_c"].min()))
+    style.ref_line(ax, y=1.0)
+    size_axis(ax, sizes, chromosomes)
+    ax.set_yscale("log", base=2)
+    top = 2 ** math.ceil(math.log2(hi * 1.2))
+    bottom = min(0.5, 2 ** math.floor(math.log2(lo / 1.2)))
+    ax.yaxis.set_major_locator(FixedLocator([2.0**k for k in range(int(math.log2(bottom)), int(math.log2(top)) + 1)]))
+    ax.yaxis.set_major_formatter(formatter(lambda v: f"{v:g}×"))
+    ax.yaxis.set_minor_locator(NullLocator())
+    ax.set_ylim(bottom, top)
+    ax.set_ylabel("Speed-up over C psmc")
+    style.value_grid(ax)
 
 
 def draw(src: Source):
@@ -166,21 +197,16 @@ def draw(src: Source):
     sizes = sorted(int(s) for s in table2["size_mb"].unique())
     chromosomes = chromosome_counts(table2)
     threads = tool_threads(src.profile.e3)
-
-    notes = draw_metric(ax_t, table2, runs, "wall_median_s", "wall_seconds", threads)
-    size_axis(ax_t, sizes, chromosomes)
-    log_ticks(ax_t, *decade_span(list(table2["wall_median_s"].dropna()) + list(runs["wall_seconds"])), TIME_TICKS,
-              fmt_seconds)
-    ax_t.set_ylabel(f"Wall time, {src.profile.e3.inference.n_iter} EM iterations")
-    if notes:
-        style.note(ax_t, 0.02, 0.98, "\n".join(notes), ha="left", va="top")
-
-    draw_metric(ax_m, table2, runs, "peak_rss_median_mb", "peak_rss_mb", threads)
-    size_axis(ax_m, sizes, chromosomes)
-    log_ticks(ax_m, *decade_span(list(table2["peak_rss_median_mb"].dropna()) + list(runs["peak_rss_mb"])), MEM_TICKS,
-              fmt_mib)
-    ax_m.set_ylabel("Peak memory (RSS)")
-
+    for ax, median_col, run_col, ticks, fmt, label in (
+            (ax_t, "wall_median_s", "wall_seconds", TIME_TICKS, fmt_seconds,
+             f"Wall time, {src.profile.e3.inference.n_iter} EM iterations"),
+            (ax_m, "peak_rss_median_mb", "peak_rss_mb", MEM_TICKS, fmt_mib, "Peak memory (RSS)")):
+        notes = draw_metric(ax, table2, runs, median_col, run_col, threads)
+        size_axis(ax, sizes, chromosomes)
+        log_ticks(ax, *decade_span(list(table2[median_col].dropna()) + list(runs[run_col])), ticks, fmt)
+        ax.set_ylabel(label)
+        if notes and ax is ax_t:  # the same setups in both panels: named once
+            style.note(ax, 0.02, 0.98, "\n".join(notes), ha="left", va="top")
     speedup_panel(ax_s, table2, sizes, threads, chromosomes)
 
     handles = [style.handle(ent, kind="both") for _, _, ent in series(table2, threads)]
@@ -189,49 +215,5 @@ def draw(src: Source):
     return fig
 
 
-def chromosome_counts(table2) -> Dict[int, int]:
-    """Genome size (Mb) -> its number of chromosomes, from Table 2."""
-    counts = table2.groupby("size_mb")["chromosomes"].unique()
-    out = {}
-    for size, n in counts.items():
-        if len(n) != 1:
-            raise ValueError(f"E3_table2 gives {size} Mb more than one chromosome count: {sorted(n)}")
-        out[int(size)] = int(n[0])
-    return out
-
-
-def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]] = None,
-                  chromosomes: Optional[Dict[int, int]] = None) -> None:
-    """Median wall time of C psmc over each tool's, by genome size."""
-    import numpy as np
-
-    hi, lo = 1.0, 1.0
-    for tool, t, ent in series(table2, threads):
-        if tool == "c":
-            continue
-        rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")
-        rows = rows[rows["speedup_vs_c"].notna()]
-        if rows.empty:
-            continue
-        ax.plot(rows["size_mb"], rows["speedup_vs_c"], color=ent.color, linestyle=ent.linestyle,
-                linewidth=style.LW_DATA, zorder=3)
-        ax.plot(rows["size_mb"], rows["speedup_vs_c"], **ent.points(markersize=3.4, zorder=4))
-        hi = max(hi, float(np.nanmax(rows["speedup_vs_c"])))
-        lo = min(lo, float(np.nanmin(rows["speedup_vs_c"])))
-    style.ref_line(ax, y=1.0)
-    size_axis(ax, sizes, chromosomes)
-    ax.set_yscale("log", base=2)
-    from matplotlib.ticker import FixedLocator, NullLocator
-
-    top = 2 ** math.ceil(math.log2(hi * 1.2))
-    bottom = min(0.5, 2 ** math.floor(math.log2(lo / 1.2)))
-    ax.yaxis.set_major_locator(FixedLocator([2.0**k for k in range(int(math.log2(bottom)), int(math.log2(top)) + 1)]))
-    ax.yaxis.set_major_formatter(_formatter(lambda v: f"{v:g}×"))
-    ax.yaxis.set_minor_locator(NullLocator())
-    ax.set_ylim(bottom, top)
-    ax.set_ylabel("Speed-up over C psmc")
-    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
-
-
-__all__ = ["chromosome_counts", "draw", "fmt_mib", "fmt_seconds", "log_ticks", "series", "size_axis",
-           "tool_threads"]
+__all__ = ["chromosome_counts", "draw", "fixed_log_xaxis", "fmt_mib", "fmt_seconds", "formatter", "log_ticks",
+           "medians", "series", "size_axis", "tool_threads"]

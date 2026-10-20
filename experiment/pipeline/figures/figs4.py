@@ -6,11 +6,11 @@ iterations, E3's clean runs), on 1 to 30 threads:
 * a: wall time against threads: every repeat (dots) and the median (line),
   with ideal scaling from the fewest threads (dotted). The M-step runs on
   one thread but converges in a few ms per EM iteration, so the E-step's
-  sequences set the speed-up. psmc-rs works on
-  one sequence per thread, so the ideal is that of whole sequences per
-  thread (:func:`ceiling_speedup`: 30 sequences on 8 threads take 4 rounds,
-  a speed-up of 7.5), and its floor, marked, is the time of one chromosome:
-  threads beyond the 30 sequences add nothing.
+  sequences set the speed-up. psmc-rs works on one sequence per thread, so
+  the ideal is that of whole sequences per thread (:func:`ceiling_speedup`:
+  30 sequences on 8 threads take 4 rounds, a speed-up of 7.5), and its
+  floor, marked, is the time of one chromosome: threads beyond the 30
+  sequences add nothing.
 * b: parallel efficiency, speed-up / threads, of the medians, and the
   ideal's (dotted): 1 where the threads divide the sequences, below where
   they do not (94% on 4, 8 and 16 threads). Every point is labelled but
@@ -36,19 +36,18 @@ from __future__ import annotations
 from typing import List, Tuple
 
 from . import style
-from .data import Source
-from .fig4 import MEM_TICKS, TIME_TICKS, TOOL_ENTITY, _formatter, decade_span, fmt_mib, fmt_seconds, log_ticks
+from .data import Source, fmt_sig
+from .fig4 import (MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xaxis, fmt_mib, fmt_seconds, formatter,
+                   log_ticks, medians)
+
+TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
+TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
+NBSP = " "  # keeps a number on the line of its unit when a footnote wraps
+MS = 3.2  # the medians' markers
 
 
 def thread_axis(ax, t) -> None:
-    from matplotlib.ticker import FixedLocator, NullLocator
-
-    ax.set_xscale("log", base=2)
-    ax.xaxis.set_major_locator(FixedLocator(list(t)))
-    ax.xaxis.set_major_formatter(_formatter(lambda v: f"{v:g}"))
-    ax.xaxis.set_minor_locator(NullLocator())
-    ax.set_xlim(min(t) / 1.3, max(t) * 1.3)
-    ax.set_xlabel("Threads")
+    fixed_log_xaxis(ax, t, lambda v: f"{v:g}", 1.3, "Threads", base=2)
 
 
 def ceiling_speedup(threads, sequences: int):
@@ -61,6 +60,11 @@ def ceiling_speedup(threads, sequences: int):
     import numpy as np
 
     return sequences / np.ceil(sequences / np.asarray(threads, dtype=float))
+
+
+def _repeats(ax, reps, col: str) -> None:
+    """Every clean repeat of psmc-rs 0.2, as dots."""
+    ax.plot(reps["threads"], reps[col], linestyle="none", marker=".", markersize=2.0, color=style.BLUE, zorder=4)
 
 
 def draw(src: Source):
@@ -95,26 +99,22 @@ def draw(src: Source):
     ax_t.annotate(f"one {chrom_mb:g} Mb chromosome:\nno gain beyond {n_seq} threads", (t[0], floor), xytext=(0, -3),
                   textcoords="offset points", ha="left", va="top", fontsize=style.TICK_PT, color=style.REF,
                   linespacing=1.1)
-    ax_t.plot(t, wall, color=style.BLUE, linewidth=style.LW_DATA, zorder=3)
-    ax_t.plot(reps["threads"], reps["wall_seconds"], linestyle="none", marker=".", markersize=2.0, color=style.BLUE,
-              zorder=4)
-    ax_t.plot(t, wall, **style.RS02.points(markersize=3.2, zorder=3))
+    medians(ax_t, t, wall, style.RS02, MS, points_z=3)
+    _repeats(ax_t, reps, "wall_seconds")
     walls = list(reps["wall_seconds"]) + list(wall) + list(ideal) + [floor / 2.5]  # room for the floor's label
     if not default.empty:
-        ax_t.plot(default["threads"], default["wall_median_s"], color=dent.color, linewidth=style.LW_DATA, zorder=3)
-        ax_t.plot(default["threads"], default["wall_median_s"], **dent.points(markersize=3.2, zorder=4))
+        medians(ax_t, default["threads"], default["wall_median_s"], dent, MS)
         walls += list(default["wall_median_s"])
     thread_axis(ax_t, t)
     log_ticks(ax_t, *decade_span(walls), TIME_TICKS, fmt_seconds)
     ax_t.set_ylabel(f"Wall time, {size:,} Mb")
-    ax_t.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+    style.value_grid(ax_t)
 
     eff = scaling["efficiency"].to_numpy(dtype=float)
     ax_e.plot(t, ceiling * t[0] / t, color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, zorder=1)
     ax_e.annotate("ideal", (t[-1], ceiling[-1] * t[0] / t[-1]), xytext=(0, 1), textcoords="offset points",
                   ha="center", va="bottom", fontsize=style.TICK_PT, color=style.REF)
-    ax_e.plot(t, eff, color=style.BLUE, linewidth=style.LW_DATA, zorder=3)
-    ax_e.plot(t, eff, **style.RS02.points(markersize=3.2, zorder=4))
+    medians(ax_e, t, eff, style.RS02, MS)
     # The fewest threads are 100% by construction (the gridline and tick say so); a
     # label there would sit on the y axis.
     for x, e in zip(t[1:], eff[1:]):
@@ -123,24 +123,20 @@ def draw(src: Source):
     if len(default) > 1:
         d = default["wall_median_s"].to_numpy(dtype=float)
         dt = default["threads"].to_numpy(dtype=float)
-        deff = d[0] * dt[0] / d / dt
-        ax_e.plot(dt, deff, color=dent.color, linewidth=style.LW_DATA, zorder=3)
-        ax_e.plot(dt, deff, **dent.points(markersize=3.2, zorder=4))
+        medians(ax_e, dt, d[0] * dt[0] / d / dt, dent, MS)
     thread_axis(ax_e, t)
     ax_e.set_ylim(0.0, 1.1)
     ax_e.set_ylabel("Parallel efficiency")
-    ax_e.yaxis.set_major_formatter(_formatter(lambda v: f"{100 * v:.0f}%"))
-    ax_e.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+    ax_e.yaxis.set_major_formatter(formatter(lambda v: f"{100 * v:.0f}%"))
+    style.value_grid(ax_e)
 
     rss = scaling["peak_rss_median_mb"].to_numpy(dtype=float)
-    ax_m.plot(t, rss, color=style.BLUE, linewidth=style.LW_DATA, zorder=3)
-    ax_m.plot(reps["threads"], reps["peak_rss_mb"], linestyle="none", marker=".", markersize=2.0, color=style.BLUE,
-              zorder=4)
-    ax_m.plot(t, rss, **style.RS02.points(markersize=3.2, zorder=3))
+    medians(ax_m, t, rss, style.RS02, MS, points_z=3)
+    _repeats(ax_m, reps, "peak_rss_mb")
     thread_axis(ax_m, t)
     log_ticks(ax_m, *decade_span(list(reps["peak_rss_mb"]) + list(rss)), MEM_TICKS, fmt_mib)
     ax_m.set_ylabel("Peak memory (RSS)")
-    ax_m.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+    style.value_grid(ax_m)
 
     # Panel d has no y axis: it takes most of the gap before it, which a-c keep for their y labels.
     pos = ax_d.get_position()
@@ -148,18 +144,11 @@ def draw(src: Source):
     ax_d.set_position((pos.x0 - shift, pos.y0, pos.width + shift, pos.height))
     determinism_panel(ax_d, det)
     handles = [style.handle(style.RS02, kind="both", linewidth=style.LW_DATA, label="psmc-rs 0.2")]
-    if not default.empty:  # timed only when E3.default_mstep_iters sets a cap
+    if not default.empty:
         handles.append(style.handle(dent, kind="both", linewidth=style.LW_DATA))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
     style.panel_letters(fig, [ax_t, ax_e, ax_m, ax_d])
     return fig
-
-
-TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
-TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
-
-
-NBSP = "\u00a0"  # keeps a number on the line of its unit when a footnote wraps
 
 
 def _threads_text(threads) -> str:
@@ -185,8 +174,6 @@ def output_differences(det) -> List[Tuple[int, str]]:
     at every such size, the sentence names the thread counts on each side;
     ``outputs`` is the tool's most distinct outputs at one size.
     """
-    from .data import fmt_sig
-
     out = []
     all_sizes = det["size_mb"].unique()
     for tool in [k for k in TOOL_LABELS if k in set(det["tool"])]:
