@@ -1206,7 +1206,7 @@ def pilot(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, samples: Optional
 
 
 def tee(stream: Sequence[str], sinks: Dict[str, Sequence[str]], work: Path) -> None:
-    """``stream``'s output fed to every command of ``sinks`` at once (stderr: ``work/stderr.log``); raise if any fails."""
+    """``stream``'s output fed to every command of ``sinks`` at once (stderr to ``work``); raise if any fails."""
     with open(work / "stderr.log", "w") as err:
         src = subprocess.Popen(stream, stdout=subprocess.PIPE, stderr=err)
         procs = {s: subprocess.Popen(c, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=err)
@@ -1564,13 +1564,17 @@ FIXTURE_PEOPLE = (
 FIXTURE_CONTIGS = (("chr21", 400_000), ("chr22", 300_000))
 FIXTURE_EXTRA_CONTIG = ("chrX", 500_000)  # in the header and the mask, never streamed
 FIXTURE_NONPASS = "VQSRTrancheSNP99.80to100.00"
+FIXTURE_INDEX_COLUMNS = (
+    "ENA_FILE_PATH", "MD5SUM", "RUN_ID", "STUDY_ID", "STUDY_NAME", "CENTER_NAME", "SUBMISSION_ID", "SUBMISSION_DATE",
+    "SAMPLE_ID", "SAMPLE_NAME", "POPULATION", "EXPERIMENT_ID", "INSTRUMENT_PLATFORM", "INSTRUMENT_MODEL",
+    "LIBRARY_NAME", "RUN_NAME", "INSERT_SIZE", "LIBRARY_LAYOUT", "PAIRED_FASTQ", "READ_COUNT", "BASE_COUNT",
+    "ANALYSIS_GROUP",
+)  # the 22 columns of the real sequence index
 
 
-def _bgzip_index(text: str, dest: Path) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _bgzip(text: str, dest: Path) -> None:
     with open(dest, "wb") as out:
         subprocess.run(["bgzip", "-c"], input=text.encode(), stdout=out, check=True)
-    run(["tabix", "-f", "-p", "vcf", str(dest)])
 
 
 def make_fixture(cfg: config.E7, dest: Path, log=print) -> Dict[str, Path]:
@@ -1588,7 +1592,6 @@ def make_fixture(cfg: config.E7, dest: Path, log=print) -> Dict[str, Path]:
     manifest (sizes and MD5s) and a GIAB-like truth for NA12878 with two of
     its heterozygous sites left out and three added.
     """
-    import msprime
     import numpy as np
 
     dest = Path(dest)
@@ -1607,123 +1610,24 @@ def make_fixture(cfg: config.E7, dest: Path, log=print) -> Dict[str, Path]:
               "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Depth\">\n"
               "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype quality\">\n"
               + contig_lines + "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t" + "\t".join(names) + "\n")
+    files: Dict[str, Path] = {}
     truth_hets: Dict[str, List[Tuple[int, str, str]]] = {}
     homref: Dict[str, List[Tuple[int, str]]] = {}
-    files: Dict[str, Path] = {}
-    i12878 = names.index("NA12878")
     for chrom, length in FIXTURE_CONTIGS:
-        ts = msprime.sim_ancestry(samples=len(names), population_size=10_000, sequence_length=length,
-                                  recombination_rate=1e-8, random_seed=config.seed(NAME, "fixture", 0, f"ancestry/{chrom}"))
-        mts = msprime.sim_mutations(ts, rate=4e-8, random_seed=config.seed(NAME, "fixture", 0, f"mutations/{chrom}"))
-        ref = rng.choice(list("ACGT"), size=length + 10)
-        sites = []
-        for var in mts.variants():
-            pos = int(var.site.position) + 1
-            if pos + 4 > length:
-                continue
-            ref[pos - 1] = var.alleles[0]
-            sites.append((pos, var.alleles, var.genotypes.reshape(-1, 2)))
-        lines = []
-        truth_hets[chrom], homref[chrom] = [], []
-        last_end = 0
-        for j, (pos, alleles, gts) in enumerate(sites):
-            if pos <= last_end:
-                continue
-            nxt = sites[j + 1][0] if j + 1 < len(sites) else length
-            used = sorted({int(a) for g in gts for a in g})
-            alts = [alleles[a] for a in used if a != 0]
-            if not alts:
-                continue
-            code = {0: "0", **{a: str(k + 1) for k, a in enumerate(a for a in used if a != 0)}}
-            g12878 = gts[i12878]
-            if g12878[0] != g12878[1]:
-                truth_hets[chrom].append((pos, alleles[0], ",".join(alleles[int(a)] for a in g12878 if int(a) != 0)))
-            elif g12878[0] == 0:
-                homref[chrom].append((pos, alleles[0]))
-            r = alleles[0]
-            alt = ",".join(alts)
-            if len(alts) == 1 and nxt > pos + 4 and rng.random() < 0.03:
-                if rng.random() < 0.5:
-                    r = "".join(ref[pos - 1:pos + 2])
-                    alt = ref[pos - 1]
-                else:
-                    alt = r + "AT"
-            filt = FIXTURE_NONPASS if rng.random() < 0.04 else "PASS"
-            if j == len(sites) // 2:
-                filt = "."
-            fields = []
-            ac = 0
-            for g in gts:
-                a, b = code[int(g[0])], code[int(g[1])]
-                ac += (a != "0") + (b != "0")
-                gt = "./." if rng.random() < 0.01 else f"{a}/{b}"
-                dp = int(rng.integers(20, 50))
-                fields.append(f"{gt}:{dp // 2},{dp - dp // 2}:{dp}:{int(rng.integers(10, 99))}")
-            qual = f"{rng.uniform(30, 5000):.2f}"
-            lines.append(f"{chrom}\t{pos}\t.\t{r}\t{alt}\t{qual}\t{filt}\tAC={ac};AN={2 * len(names)};DP=900\t"
-                         "GT:AD:DP:GQ\t" + "\t".join(fields) + "\n")
-            last_end = pos + len(r) - 1
-        name = basename(vcf_url(cfg, chrom))
-        _bgzip_index(header + "".join(lines), dest / name)
-        files[chrom] = dest / name
+        lines, truth_hets[chrom], homref[chrom] = _fixture_records(chrom, length, rng)
+        files[chrom] = dest / basename(vcf_url(cfg, chrom))
+        _bgzip(header + "".join(lines), files[chrom])
+        run(["tabix", "-f", "-p", "vcf", str(files[chrom])])
         log(f"[fixture] {chrom}: {len(lines)} records")
-    # The strict mask: callable stretches of ~3 kb between ~1 kb gaps, with
-    # short gaps inside (partly callable bins), and rows of chrX.
-    mask_lines = []
-    for chrom, length in (*FIXTURE_CONTIGS, FIXTURE_EXTRA_CONTIG):
-        pos = int(rng.integers(0, 2_000))
-        while pos < length:
-            end = min(pos + int(rng.geometric(1 / 3_000)), length)
-            cut = pos
-            while cut < end:
-                piece = min(cut + int(rng.geometric(1 / 400)), end)
-                mask_lines.append(f"{chrom}\t{cut}\t{piece}\tstrict\n")
-                cut = piece + int(rng.integers(1, 8))
-            pos = end + int(rng.geometric(1 / 1_000))
-    write_atomic(dest / basename(cfg.mask_url), "".join(mask_lines).encode())
-    # Sequence index (22 columns, as the real one) and pedigree.
-    cols = ["ENA_FILE_PATH", "MD5SUM", "RUN_ID", "STUDY_ID", "STUDY_NAME", "CENTER_NAME", "SUBMISSION_ID",
-            "SUBMISSION_DATE", "SAMPLE_ID", "SAMPLE_NAME", "POPULATION", "EXPERIMENT_ID", "INSTRUMENT_PLATFORM",
-            "INSTRUMENT_MODEL", "LIBRARY_NAME", "RUN_NAME", "INSERT_SIZE", "LIBRARY_LAYOUT", "PAIRED_FASTQ",
-            "READ_COUNT", "BASE_COUNT", "ANALYSIS_GROUP"]
-    idx = ["##FileDate=20190503\n", "##SAMPLE_NAME=Sample name\n", "#" + "\t".join(cols) + "\n"]
-    for k, (s, pop, *_rest, unrelated) in enumerate(FIXTURE_PEOPLE):
-        if not unrelated:
-            continue
-        runs = 2 if s == "HG00097" else 1
-        for r in range(runs):
-            row = [""] * len(cols)
-            row[0] = f"ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR000/ERR{k:04d}{r}/{s}.final.cram"
-            row[9] = s + (" " if s == "NA19648" else "")  # one name with a trailing blank, as in the real index
-            row[10] = pop
-            row[20] = str(int(1.1e11 + 1e9 * k) // runs)
-            row[21] = "high_cov"
-            idx.append("\t".join(row) + "\n")
-    write_atomic(dest / basename(cfg.index_url), "".join(idx).encode())
+    write_atomic(dest / basename(cfg.mask_url), _fixture_mask(rng).encode())
+    write_atomic(dest / basename(cfg.index_url), _fixture_index().encode())
     ped = ["FamilyID SampleID FatherID MotherID Sex Population Superpopulation\n"]
     ped += [f"{s} {s} {f} {m} {sex} {pop} {sup}\n" for s, pop, sup, sex, f, m, _u in FIXTURE_PEOPLE]
     write_atomic(dest / basename(cfg.ped_url), "".join(ped).encode())
-    # GIAB-like truth for NA12878: its heterozygous sites, two left out, three added; confident everywhere but a gap.
-    truth = ["##fileformat=VCFv4.2\n", contig_lines, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n",
-             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG001\n"]
-    bed = []
-    for chrom, length in FIXTURE_CONTIGS:
-        hets = list(truth_hets[chrom])
-        drop = {hets[5][0], hets[-5][0]} if len(hets) > 10 else set()
-        add = homref[chrom][10:13]
-        recs = [(p, r, a) for p, r, a in hets if p not in drop]
-        recs += [(p, r, "A" if r != "A" else "C") for p, r in add]
-        for p, r, a in sorted(recs):
-            gt = "1/2" if "," in a else "0|1"
-            truth.append(f"{chrom}\t{p}\t.\t{r}\t{a}\t50\tPASS\t.\tGT\t{gt}\n")
-        gap = length // 2
-        bed += [f"{chrom}\t0\t{gap}\n", f"{chrom}\t{gap + 20_000}\t{length}\n"]
-    giab = basename(cfg.giab_vcf_url)
-    with open(dest / giab, "wb") as out:
-        subprocess.run(["bgzip", "-c"], input="".join(truth).encode(), stdout=out, check=True)
-    write_atomic(dest / basename(cfg.giab_bed_url), "".join(bed).encode())
-    # The manifest: name, size and MD5 of every VCF and index.
-    man = []
+    truth, bed = _fixture_truth(contig_lines, truth_hets, homref)
+    _bgzip(truth, dest / basename(cfg.giab_vcf_url))
+    write_atomic(dest / basename(cfg.giab_bed_url), bed.encode())
+    man = []  # name, size and MD5 of every VCF and index
     for chrom, _n in FIXTURE_CONTIGS:
         for p in (files[chrom], Path(str(files[chrom]) + ".tbi")):
             d = file_digests(p)
@@ -1731,6 +1635,126 @@ def make_fixture(cfg: config.E7, dest: Path, log=print) -> Dict[str, Path]:
     write_atomic(dest / basename(manifest_url(cfg)), "".join(man).encode())
     log(f"[fixture] {dest}: {len(names)} genomes, {sum(n for _c, n in FIXTURE_CONTIGS):,} bp")
     return files
+
+
+def _fixture_records(chrom: str, length: int, rng) -> Tuple[List[str], List[Tuple[int, str, str]],
+                                                           List[Tuple[int, str]]]:
+    """A chromosome's records of the fixture's joint VCF, and NA12878's heterozygous and hom-ref sites in them.
+
+    The genomes are simulated, then perturbed with ``rng``: a reference base at
+    every position, indels, FILTER, missing genotypes and the FORMAT fields.
+    """
+    import msprime
+
+    names = [p[0] for p in FIXTURE_PEOPLE]
+    i12878 = names.index("NA12878")
+    ts = msprime.sim_ancestry(samples=len(names), population_size=10_000, sequence_length=length,
+                              recombination_rate=1e-8, random_seed=config.seed(NAME, "fixture", 0, f"ancestry/{chrom}"))
+    mts = msprime.sim_mutations(ts, rate=4e-8, random_seed=config.seed(NAME, "fixture", 0, f"mutations/{chrom}"))
+    ref = rng.choice(list("ACGT"), size=length + 10)
+    sites = []
+    for var in mts.variants():
+        pos = int(var.site.position) + 1
+        if pos + 4 > length:
+            continue
+        ref[pos - 1] = var.alleles[0]
+        sites.append((pos, var.alleles, var.genotypes.reshape(-1, 2)))
+    lines: List[str] = []
+    hets: List[Tuple[int, str, str]] = []
+    homref: List[Tuple[int, str]] = []
+    last_end = 0
+    for j, (pos, alleles, gts) in enumerate(sites):
+        if pos <= last_end:
+            continue
+        nxt = sites[j + 1][0] if j + 1 < len(sites) else length
+        used = sorted({int(a) for g in gts for a in g})
+        alts = [alleles[a] for a in used if a != 0]
+        if not alts:
+            continue
+        code = {0: "0", **{a: str(k + 1) for k, a in enumerate(a for a in used if a != 0)}}
+        g12878 = gts[i12878]
+        if g12878[0] != g12878[1]:
+            hets.append((pos, alleles[0], ",".join(alleles[int(a)] for a in g12878 if int(a) != 0)))
+        elif g12878[0] == 0:
+            homref.append((pos, alleles[0]))
+        r = alleles[0]
+        alt = ",".join(alts)
+        if len(alts) == 1 and nxt > pos + 4 and rng.random() < 0.03:
+            if rng.random() < 0.5:
+                r = "".join(ref[pos - 1:pos + 2])
+                alt = ref[pos - 1]
+            else:
+                alt = r + "AT"
+        filt = FIXTURE_NONPASS if rng.random() < 0.04 else "PASS"
+        if j == len(sites) // 2:
+            filt = "."
+        fields = []
+        ac = 0
+        for g in gts:
+            a, b = code[int(g[0])], code[int(g[1])]
+            ac += (a != "0") + (b != "0")
+            gt = "./." if rng.random() < 0.01 else f"{a}/{b}"
+            dp = int(rng.integers(20, 50))
+            fields.append(f"{gt}:{dp // 2},{dp - dp // 2}:{dp}:{int(rng.integers(10, 99))}")
+        qual = f"{rng.uniform(30, 5000):.2f}"
+        lines.append(f"{chrom}\t{pos}\t.\t{r}\t{alt}\t{qual}\t{filt}\tAC={ac};AN={2 * len(names)};DP=900\t"
+                     "GT:AD:DP:GQ\t" + "\t".join(fields) + "\n")
+        last_end = pos + len(r) - 1
+    return lines, hets, homref
+
+
+def _fixture_mask(rng) -> str:
+    """The strict mask: callable stretches of ~3 kb between ~1 kb gaps, short gaps inside (partly callable bins)."""
+    lines = []
+    for chrom, length in (*FIXTURE_CONTIGS, FIXTURE_EXTRA_CONTIG):
+        pos = int(rng.integers(0, 2_000))
+        while pos < length:
+            end = min(pos + int(rng.geometric(1 / 3_000)), length)
+            cut = pos
+            while cut < end:
+                piece = min(cut + int(rng.geometric(1 / 400)), end)
+                lines.append(f"{chrom}\t{cut}\t{piece}\tstrict\n")
+                cut = piece + int(rng.integers(1, 8))
+            pos = end + int(rng.geometric(1 / 1_000))
+    return "".join(lines)
+
+
+def _fixture_index() -> str:
+    """The sequence index: the unrelated samples, HG00097 with two runs, NA19648's name with a trailing blank."""
+    lines = ["##FileDate=20190503\n", "##SAMPLE_NAME=Sample name\n", "#" + "\t".join(FIXTURE_INDEX_COLUMNS) + "\n"]
+    for k, (s, pop, *_rest, unrelated) in enumerate(FIXTURE_PEOPLE):
+        if not unrelated:
+            continue
+        runs = 2 if s == "HG00097" else 1
+        for r in range(runs):
+            row = [""] * len(FIXTURE_INDEX_COLUMNS)
+            row[0] = f"ftp://ftp.sra.ebi.ac.uk/vol1/run/ERR000/ERR{k:04d}{r}/{s}.final.cram"
+            row[9] = s + (" " if s == "NA19648" else "")  # as in the real index
+            row[10] = pop
+            row[20] = str(int(1.1e11 + 1e9 * k) // runs)
+            row[21] = "high_cov"
+            lines.append("\t".join(row) + "\n")
+    return "".join(lines)
+
+
+def _fixture_truth(contig_lines: str, hets: Dict[str, List[Tuple[int, str, str]]],
+                   homref: Dict[str, List[Tuple[int, str]]]) -> Tuple[str, str]:
+    """A GIAB-like truth for NA12878 (its heterozygous sites, two left out, three added) and its confident regions
+    (everywhere but a gap): the VCF's text and the BED's."""
+    truth = ["##fileformat=VCFv4.2\n", contig_lines, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n",
+             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tHG001\n"]
+    bed = []
+    for chrom, length in FIXTURE_CONTIGS:
+        sites = hets[chrom]
+        drop = {sites[5][0], sites[-5][0]} if len(sites) > 10 else set()
+        recs = [(p, r, a) for p, r, a in sites if p not in drop]
+        recs += [(p, r, "A" if r != "A" else "C") for p, r in homref[chrom][10:13]]
+        for p, r, a in sorted(recs):
+            gt = "1/2" if "," in a else "0|1"
+            truth.append(f"{chrom}\t{p}\t.\t{r}\t{a}\t50\tPASS\t.\tGT\t{gt}\n")
+        gap = length // 2
+        bed += [f"{chrom}\t0\t{gap}\n", f"{chrom}\t{gap + 20_000}\t{length}\n"]
+    return "".join(truth), "".join(bed)
 
 
 # ---------------------------------------------------------------------------
