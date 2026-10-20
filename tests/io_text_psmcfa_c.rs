@@ -110,10 +110,14 @@ fn header_only_first_record_is_an_empty_record() {
 #[test]
 fn truncated_fastq_quality_errors_where_c_stops_silently() {
     // C psmc reports n_seqs:1, sum_L:2, sum_n:1 and n_seqs:0 here: kseq returns
-    // -2 and psmc quietly analyses only the records read so far.
-    for input in [&b">s\nTK\n>t\nTTKT\n+\nII\n"[..], &b">s\nTK+"[..]] {
-        let err = parse_psmcfa(input).expect_err("expected an error");
-        assert!(format!("{err:#}").contains("FASTQ"), "{err:#}");
+    // -2 and psmc quietly analyses only the records read so far. The error
+    // names the record.
+    for (input, record) in [
+        (&b">s\nTK\n>t\nTTKT\n+\nII\n"[..], "'t'"),
+        (b">s\nTK+", "'s'"),
+    ] {
+        let msg = format!("{:#}", parse_psmcfa(input).unwrap_err());
+        assert!(msg.contains(record) && msg.contains("FASTQ"), "{msg}");
     }
 }
 

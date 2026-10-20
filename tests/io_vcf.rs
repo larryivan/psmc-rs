@@ -1,227 +1,199 @@
+//! The mask-mode VCF reader: one sample's genotypes, callable masks,
+//! `##contig` lengths, gVCF blocks, and the summary of what it read.
+
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::mhs::read_mhs;
-use psmc_rs::io::vcf::{VcfOptions, read_vcf, read_vcf_with};
+use psmc_rs::io::vcf::{VcfOptions, VcfRead, read_vcf, read_vcf_with};
+use std::fmt::Write as _;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
 
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
+const COLUMNS: &str = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1";
 
-/// A path no other test of this process uses: tests run in parallel, and
-/// the clock alone is too coarse to tell them apart.
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
-}
-
-#[test]
-fn read_vcf_single_sample_matches_expected_bins() {
-    let vcf = unique_temp_path("vcf_single", "vcf");
-    let content = "\
-##fileformat=VCFv4.2
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1
-chr1\t20\t.\tA\tC\t.\tPASS\t.\tGT\t0/1
-chr1\t24\t.\tA\tC\t.\tPASS\t.\tGT\t1/0
-";
-    fs::write(&vcf, content).expect("failed to write VCF");
-
-    let obs = read_vcf(&vcf, None, 4, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.row_starts, vec![true]);
-    assert_eq!(obs.rows, vec![vec![0, 0, 0, 0, 1, 1]]);
-
-    let _ = fs::remove_file(vcf);
-}
-
-#[test]
-fn read_vcf_multi_sample_requires_explicit_sample() {
-    let vcf = unique_temp_path("vcf_multi", "vcf");
-    let content = "\
-##fileformat=VCFv4.2
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2
-chr1\t20\t.\tA\tC\t.\tPASS\t.\tGT\t0/0\t0/1
-";
-    fs::write(&vcf, content).expect("failed to write VCF");
-
-    let err = read_vcf(&vcf, None, 4, None, &[], &[]).expect_err("expected sample selection error");
-    let msg = format!("{err:#}");
-    assert!(
-        msg.contains("please specify --vcf-sample"),
-        "unexpected error message: {msg}"
-    );
-
-    let obs = read_vcf(&vcf, None, 4, Some("s2"), &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.row_starts, vec![true]);
-    assert_eq!(obs.rows, vec![vec![0, 0, 0, 0, 1]]);
-
-    let _ = fs::remove_file(vcf);
-}
-
-#[test]
-fn read_vcf_masks_follow_multihetsep_called_semantics() {
-    let vcf = unique_temp_path("vcf_masked", "vcf");
-    let mask = unique_temp_path("vcf_mask", "bed");
-    let neg = unique_temp_path("vcf_neg", "bed");
-    let mhs = unique_temp_path("vcf_equiv", "mhs");
-
-    let vcf_content = "\
-##fileformat=VCFv4.2
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1
-chr1\t1\t.\tA\tC\t.\tPASS\t.\tGT\t0/1
-chr1\t100\t.\tG\tT\t.\tPASS\t.\tGT\t1/0
-";
-    fs::write(&vcf, vcf_content).expect("failed to write VCF");
-    // Callable baseline interval: [1,101] in 1-based coordinates.
-    fs::write(&mask, "chr1\t0\t101\n").expect("failed to write mask");
-    // Remove [2,99], leaving position 1 and 100 callable.
-    fs::write(&neg, "chr1\t1\t99\n").expect("failed to write negative mask");
-
-    let mhs_content = "\
-chr1 1 1 AC
-chr1 100 1 GT
-";
-    fs::write(&mhs, mhs_content).expect("failed to write mhs");
-
-    let from_vcf = read_vcf(
-        &vcf,
-        None,
-        100,
-        None,
-        std::slice::from_ref(&mask),
-        std::slice::from_ref(&neg),
-    )
-    .expect("failed to parse masked VCF");
-    let from_mhs = read_mhs(&mhs, None, 100).expect("failed to parse mhs");
-
-    assert_eq!(from_vcf.row_starts, from_mhs.row_starts);
-    assert_eq!(from_vcf.rows, from_mhs.rows);
-    assert_eq!(from_vcf.rows, vec![vec![2]]);
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(mask);
-    let _ = fs::remove_file(neg);
-    let _ = fs::remove_file(mhs);
-}
-
-#[test]
-fn read_vcf_does_not_treat_duplicate_alt_indices_as_heterozygous() {
-    let vcf = unique_temp_path("vcf_dup_alt", "vcf");
-    let content = "\
-##fileformat=VCFv4.2
-#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1
-chr1\t10\t.\tA\tC,C\t.\tPASS\t.\tGT\t1/2
-chr1\t20\t.\tA\tG\t.\tPASS\t.\tGT\t0/1
-";
-    fs::write(&vcf, content).expect("failed to write VCF");
-
-    let obs = read_vcf(&vcf, None, 10, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.row_starts, vec![true]);
-    // POS 10 has duplicated ALT and should be homozygous in final allele space.
-    // Only POS 20 contributes a K in bin#2.
-    assert_eq!(obs.rows, vec![vec![0, 1]]);
-
-    let _ = fs::remove_file(vcf);
-}
-
-const HEADER: &str =
-    "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
-
-/// Write a single-sample VCF whose records are given as
-/// `chrom pos ref alt filter gt`, whitespace separated.
-fn write_vcf(prefix: &str, records: &[&str]) -> PathBuf {
-    write_vcf_with_meta(prefix, &[], records)
-}
-
-/// [`write_vcf`] with extra `##` meta lines, such as `##contig`.
-fn write_vcf_with_meta(prefix: &str, meta: &[&str], records: &[&str]) -> PathBuf {
-    let mut text = String::from("##fileformat=VCFv4.2\n");
-    for m in meta {
-        text.push_str(m);
-        text.push('\n');
-    }
-    text.push_str(HEADER.trim_start_matches("##fileformat=VCFv4.2\n"));
-    for r in records {
-        let c: Vec<&str> = r.split_whitespace().collect();
-        assert_eq!(c.len(), 6, "bad test record {r:?}");
-        text.push_str(&format!(
-            "{}\t{}\t.\t{}\t{}\t50\t{}\t.\tGT\t{}\n",
-            c[0], c[1], c[2], c[3], c[4], c[5]
-        ));
-    }
-    write_text(prefix, "vcf", &text)
-}
-
-fn write_text(prefix: &str, ext: &str, text: &str) -> PathBuf {
-    let path = unique_temp_path(prefix, ext);
-    fs::write(&path, text).expect("failed to write file");
+/// `text` written to `name` in `dir`.
+fn write(dir: &TempDir, name: &str, text: &str) -> PathBuf {
+    let path = dir.path(name);
+    fs::write(&path, text).unwrap();
     path
 }
 
+/// A one-sample VCF `name` in `dir`: the `##` lines `meta`, then `records`
+/// given as `chrom pos ref alt filter gt`, or as `chrom pos ref alt filter
+/// info format sample`, separated by spaces.
+fn write_vcf(dir: &TempDir, name: &str, meta: &[&str], records: &[&str]) -> PathBuf {
+    let mut text = String::from("##fileformat=VCFv4.2\n");
+    for m in meta {
+        writeln!(text, "{m}").unwrap();
+    }
+    writeln!(text, "{COLUMNS}").unwrap();
+    for r in records {
+        let c: Vec<&str> = r.split_whitespace().collect();
+        let (info, format, sample) = match c[..] {
+            [.., gt] if c.len() == 6 => (".", "GT", gt),
+            [.., info, format, sample] if c.len() == 8 => (info, format, sample),
+            _ => panic!("bad test record {r:?}"),
+        };
+        let [chrom, pos, reference, alt, filter] = [c[0], c[1], c[2], c[3], c[4]];
+        writeln!(
+            text,
+            "{chrom}\t{pos}\t.\t{reference}\t{alt}\t50\t{filter}\t{info}\t{format}\t{sample}"
+        )
+        .unwrap();
+    }
+    write(dir, name, &text)
+}
+
+fn opts(bin_size: usize) -> VcfOptions {
+    VcfOptions {
+        bin_size,
+        ..VcfOptions::default()
+    }
+}
+
+fn read(vcf: &Path, opts: &VcfOptions) -> VcfRead {
+    read_vcf_with(vcf, opts).unwrap_or_else(|e| panic!("{e:#}"))
+}
+
+/// The message of the error reading `vcf` with `opts`.
+fn error(vcf: &Path, opts: &VcfOptions) -> String {
+    format!("{:#}", read_vcf_with(vcf, opts).unwrap_err())
+}
+
 #[test]
-fn read_vcf_places_missing_sites_at_their_own_positions() {
+fn heterozygous_genotypes_are_k_bins() {
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(
+        &dir,
+        "calls.vcf",
+        &[],
+        &["chr1 20 A C PASS 0/1", "chr1 24 A C PASS 1/0"],
+    );
+    let obs = read_vcf(&vcf, None, 4, None, &[], &[]).unwrap();
+    assert_eq!(obs.row_starts, [true]);
+    assert_eq!(obs.rows, [[0, 0, 0, 0, 1, 1]]);
+}
+
+#[test]
+fn a_vcf_of_several_samples_needs_the_sample_named() {
+    let dir = TempDir::new("io_vcf");
+    let vcf = write(
+        &dir,
+        "two.vcf",
+        &format!(
+            "##fileformat=VCFv4.2\n{COLUMNS}\ts2\nchr1\t20\t.\tA\tC\t.\tPASS\t.\tGT\t0/0\t0/1\n"
+        ),
+    );
+    let err = read_vcf(&vcf, None, 4, None, &[], &[]).unwrap_err();
+    assert!(
+        format!("{err:#}").contains("please specify --vcf-sample"),
+        "{err:#}"
+    );
+    let obs = read_vcf(&vcf, None, 4, Some("s2"), &[], &[]).unwrap();
+    assert_eq!(obs.row_starts, [true]);
+    assert_eq!(obs.rows, [[0, 0, 0, 0, 1]]);
+}
+
+#[test]
+fn masks_follow_multihetsep_called_semantics() {
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(
+        &dir,
+        "calls.vcf",
+        &[],
+        &["chr1 1 A C PASS 0/1", "chr1 100 G T PASS 1/0"],
+    );
+    // Callable: [1, 101] (1-based) less [2, 99], which leaves positions 1
+    // and 100 of the sequence.
+    let mask = write(&dir, "mask.bed", "chr1\t0\t101\n");
+    let neg = write(&dir, "neg.bed", "chr1\t1\t99\n");
+    let mhs = write(&dir, "calls.mhs", "chr1 1 1 AC\nchr1 100 1 GT\n");
+    let from_vcf = read_vcf(&vcf, None, 100, None, &[mask], &[neg]).unwrap();
+    let from_mhs = read_mhs(&mhs, None, 100).unwrap();
+    assert_eq!(from_vcf.row_starts, from_mhs.row_starts);
+    assert_eq!(from_vcf.rows, from_mhs.rows);
+    assert_eq!(from_vcf.rows, [[2]]);
+}
+
+#[test]
+fn duplicate_alt_alleles_are_not_heterozygous() {
+    // ALT C,C with GT 1/2 is homozygous C; only POS 20 makes a K bin.
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(
+        &dir,
+        "calls.vcf",
+        &[],
+        &["chr1 10 A C,C PASS 1/2", "chr1 20 A G PASS 0/1"],
+    );
+    let obs = read_vcf(&vcf, None, 10, None, &[], &[]).unwrap();
+    assert_eq!(obs.row_starts, [true]);
+    assert_eq!(obs.rows, [[0, 1]]);
+}
+
+#[test]
+fn missing_sites_stay_at_their_own_positions() {
     // 30 bases in bins of 10, het SNP at 30, and the even positions 2..=20
     // excluded: five missing bases in each of the first two bins, so both are
     // T. Packing the ten missing bases at the start of the interval (the old
     // multihetsep-style conversion) turned the first bin into N.
-    let vcf = write_vcf("vcf_placement", &["chr1 30 A C PASS 0/1"]);
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(&dir, "calls.vcf", &[], &["chr1 30 A C PASS 0/1"]);
     let neg_rows: String = (1..=10)
         .map(|i| format!("chr1\t{}\t{}\n", 2 * i - 1, 2 * i))
         .collect();
-    let neg = write_text("vcf_placement_neg", "bed", &neg_rows);
+    let neg = write(&dir, "neg.bed", &neg_rows);
+    let obs = read_vcf(&vcf, None, 10, None, &[], &[neg]).unwrap();
+    assert_eq!(obs.rows, [[0, 0, 1]]);
+}
 
-    let obs = read_vcf(&vcf, None, 10, None, &[], std::slice::from_ref(&neg))
-        .expect("failed to parse VCF");
-    assert_eq!(obs.rows, vec![vec![0, 0, 1]]);
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(neg);
+/// The rows of one-base bins of a VCF of `records`.
+fn one_base_bins(records: &[&str]) -> Vec<Vec<u8>> {
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(&dir, "calls.vcf", &[], records);
+    read_vcf(&vcf, None, 1, None, &[], &[]).unwrap().rows
 }
 
 #[test]
-fn read_vcf_combines_records_at_the_same_position() {
+fn records_at_one_position_combine() {
     // Split multiallelic sites (bcftools norm -m-) put several records at one
     // POS. They combine with precedence missing > het SNP > homozygous.
-    let vcf = write_vcf(
-        "vcf_same_pos",
-        &[
-            "chr1 2 A C PASS 0/1",
-            "chr1 2 A AT PASS 0/0",
-            "chr1 4 G T PASS 0/1",
-            "chr1 4 G T PASS ./.",
-            "chr1 6 C CA PASS 0/0",
-            "chr1 6 C G PASS 1|0",
-        ],
-    );
-    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.rows, vec![vec![0, 1, 0, 2, 0, 1]]);
-    let _ = fs::remove_file(vcf);
+    let rows = one_base_bins(&[
+        "chr1 2 A C PASS 0/1",
+        "chr1 2 A AT PASS 0/0",
+        "chr1 4 G T PASS 0/1",
+        "chr1 4 G T PASS ./.",
+        "chr1 6 C CA PASS 0/0",
+        "chr1 6 C G PASS 1|0",
+    ]);
+    assert_eq!(rows, [[0, 1, 0, 2, 0, 1]]);
 }
 
 #[test]
-fn read_vcf_missing_genotype_is_a_missing_site() {
+fn a_missing_genotype_is_a_missing_site() {
     // A missing or partial genotype says nothing about the sample at that
     // position. It makes only POS missing, even for a longer REF: 7 and 8
     // are positions without a record, so called homozygous.
-    let vcf = write_vcf(
-        "vcf_missing_gt",
-        &[
-            "chr1 2 A C PASS ./1",
-            "chr1 3 A C PASS ./.",
-            "chr1 4 A C PASS .",
-            "chr1 5 A C PASS 0/1",
-            "chr1 6 AGT A PASS .|.",
-            "chr1 9 A C PASS 1/0",
-        ],
-    );
-    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.rows, vec![vec![0, 2, 2, 2, 1, 2, 0, 0, 1]]);
-    let _ = fs::remove_file(vcf);
+    let rows = one_base_bins(&[
+        "chr1 2 A C PASS ./1",
+        "chr1 3 A C PASS ./.",
+        "chr1 4 A C PASS .",
+        "chr1 5 A C PASS 0/1",
+        "chr1 6 AGT A PASS .|.",
+        "chr1 9 A C PASS 1/0",
+    ]);
+    assert_eq!(rows, [[0, 2, 2, 2, 1, 2, 0, 0, 1]]);
 }
 
 #[test]
-fn read_vcf_het_non_snp_is_missing_not_heterozygous() {
+fn a_heterozygous_non_snp_is_missing_not_heterozygous() {
     // PSMC models point mutations: a heterozygous indel, spanning deletion or
     // symbolic allele is not a het SNP, and its REF bases are unreliable.
+    let dir = TempDir::new("io_vcf");
     let vcf = write_vcf(
-        "vcf_het_indel",
+        &dir,
+        "calls.vcf",
+        &[],
         &[
             "chr1 2 A AT PASS 0/1",
             "chr1 4 ACG A PASS 0|1",
@@ -231,28 +203,24 @@ fn read_vcf_het_non_snp_is_missing_not_heterozygous() {
             "chr1 11 A AT PASS 1/1",
         ],
     );
-    let read = read_vcf_with(
-        &vcf,
-        &VcfOptions {
-            bin_size: 1,
-            ..VcfOptions::default()
-        },
-    )
-    .expect("failed to parse VCF");
-    assert_eq!(read.obs.rows, vec![vec![0, 2, 0, 2, 2, 2, 0, 2, 2, 1, 0]]);
-    assert_eq!(read.summary.het_non_snp_records, 4);
-    assert_eq!(read.summary.het_snp_records, 1);
-    assert_eq!(read.summary.hom_calls, 1);
-
-    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
+    let read = read(&vcf, &opts(1));
+    assert_eq!(read.obs.rows, [[0, 2, 0, 2, 2, 2, 0, 2, 2, 1, 0]]);
+    let s = &read.summary;
+    assert_eq!(
+        (s.het_non_snp_records, s.het_snp_records, s.hom_calls),
+        (4, 1, 1)
+    );
+    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).unwrap();
     assert_eq!(obs.rows, read.obs.rows);
-    let _ = fs::remove_file(vcf);
 }
 
 #[test]
-fn read_vcf_filtered_records_are_missing_unless_kept() {
+fn filtered_records_are_missing_unless_kept() {
+    let dir = TempDir::new("io_vcf");
     let vcf = write_vcf(
-        "vcf_filtered",
+        &dir,
+        "calls.vcf",
+        &[],
         &[
             "chr1 3 A C LowQual 0/1",
             "chr1 5 A C PASS 0/1",
@@ -261,75 +229,61 @@ fn read_vcf_filtered_records_are_missing_unless_kept() {
         ],
     );
     // A filtered record makes only its POS missing, whatever its REF length.
-    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).expect("failed to parse VCF");
-    assert_eq!(obs.rows, vec![vec![0, 0, 2, 0, 1, 2, 0, 0, 1]]);
-
-    let kept = read_vcf_with(
+    let obs = read_vcf(&vcf, None, 1, None, &[], &[]).unwrap();
+    assert_eq!(obs.rows, [[0, 0, 2, 0, 1, 2, 0, 0, 1]]);
+    let kept = read(
         &vcf,
         &VcfOptions {
-            bin_size: 1,
             keep_filtered: true,
-            ..VcfOptions::default()
+            ..opts(1)
         },
-    )
-    .expect("failed to parse VCF");
-    assert_eq!(kept.obs.rows, vec![vec![0, 0, 1, 0, 1, 0, 0, 0, 1]]);
-    assert_eq!(kept.summary.filtered_records, 2);
-    assert_eq!(kept.summary.het_snp_records, 3);
-    assert_eq!(kept.summary.hom_calls, 1);
-
-    let dropped = read_vcf_with(
-        &vcf,
-        &VcfOptions {
-            bin_size: 1,
-            ..VcfOptions::default()
-        },
-    )
-    .expect("failed to parse VCF");
-    assert_eq!(dropped.summary.filtered_records, 2);
-    assert_eq!(dropped.summary.het_snp_records, 2);
-    assert_eq!(dropped.summary.hom_calls, 0);
-    let _ = fs::remove_file(vcf);
+    );
+    assert_eq!(kept.obs.rows, [[0, 0, 1, 0, 1, 0, 0, 0, 1]]);
+    let s = &kept.summary;
+    assert_eq!(
+        (s.filtered_records, s.het_snp_records, s.hom_calls),
+        (2, 3, 1)
+    );
+    let s = read(&vcf, &opts(1)).summary;
+    assert_eq!(
+        (s.filtered_records, s.het_snp_records, s.hom_calls),
+        (2, 2, 0)
+    );
 }
 
 #[test]
-fn read_vcf_unusable_long_record_does_not_hide_calls_inside_its_ref() {
+fn an_unusable_long_record_does_not_hide_calls_inside_its_ref() {
     // All-sites VCF: every position has a PASS record. A filtered deletion at
     // 5 and a no-call deletion at 12 cover PASS calls (a het SNP at 9 and at
     // 14). Those records carry no call, so only their own POS is missing and
     // the PASS calls stand. A heterozygous deletion at 16 is a real call of
     // an indel: its whole REF span is missing, including the het SNP at 18.
     let mut records: Vec<String> = (1..=20).map(|p| format!("chr1 {p} A . PASS 0/0")).collect();
-    records[4] = "chr1 5 ACGTACGTAC A LowQual 0/0".to_string();
-    records[8] = "chr1 9 A C PASS 0/1".to_string();
-    records[11] = "chr1 12 ACGTA A PASS ./.".to_string();
-    records[13] = "chr1 14 A G PASS 1|0".to_string();
-    records[15] = "chr1 16 ACGT A PASS 0/1".to_string();
-    records[17] = "chr1 18 A T PASS 0/1".to_string();
-    records[19] = "chr1 20 A C PASS 0/1".to_string();
+    for (pos, record) in [
+        (5, "ACGTACGTAC A LowQual 0/0"),
+        (9, "A C PASS 0/1"),
+        (12, "ACGTA A PASS ./."),
+        (14, "A G PASS 1|0"),
+        (16, "ACGT A PASS 0/1"),
+        (18, "A T PASS 0/1"),
+        (20, "A C PASS 0/1"),
+    ] {
+        records[pos - 1] = format!("chr1 {pos} {record}");
+    }
     let records: Vec<&str> = records.iter().map(String::as_str).collect();
-    let vcf = write_vcf("vcf_all_sites_span", &records);
-
-    let read = read_vcf_with(
-        &vcf,
-        &VcfOptions {
-            bin_size: 1,
-            ..VcfOptions::default()
-        },
-    )
-    .expect("failed to parse VCF");
+    let dir = TempDir::new("io_vcf");
+    let read = read(&write_vcf(&dir, "calls.vcf", &[], &records), &opts(1));
     let bins: String = read.obs.rows[0]
         .iter()
         .map(|&b| b"TKN"[b as usize] as char)
         .collect();
     assert_eq!(bins, "TTTTNTTTKTTNTKTNNNNK");
-    assert_eq!(read.summary.het_snps, 3);
-    assert_eq!(read.summary.missing_sites, 6);
-    let _ = fs::remove_file(vcf);
+    assert_eq!((read.summary.het_snps, read.summary.missing_sites), (3, 6));
 }
 
 #[test]
-fn read_vcf_extends_sequences_to_the_contig_length() {
+fn sequences_extend_to_the_contig_length() {
+    let dir = TempDir::new("io_vcf");
     let meta = [
         "##contig=<ID=chr1,length=40>",
         "##contig=<ID=chr2,assembly=\"test, v1\",length=7>",
@@ -341,93 +295,73 @@ fn read_vcf_extends_sequences_to_the_contig_length() {
         "chr2 2 A C PASS 0/1",
         "chr3 4 A C PASS 0/1",
     ];
-    let vcf = write_vcf_with_meta("vcf_contig", &meta, &records);
+    let vcf = write_vcf(&dir, "calls.vcf", &meta, &records);
     // Callable: chr1 1-12, all of chr2 and chr3.
-    let mask = write_text(
-        "vcf_contig_bed",
-        "bed",
+    let mask = write(
+        &dir,
+        "mask.bed",
         "chr1\t0\t12\nchr2\t0\t100\nchr3\t0\t100\n",
     );
 
     // chr1 runs to 40: bins 1-10 K, 11-20 T (8 missing), 21-30 and 31-40 N.
     // chr3 has no length and ends at its last record; chrM has no records.
-    let obs = read_vcf(&vcf, None, 10, None, std::slice::from_ref(&mask), &[])
-        .expect("failed to parse VCF");
+    let obs = read_vcf(&vcf, None, 10, None, std::slice::from_ref(&mask), &[]).unwrap();
     assert_eq!(obs.rows, vec![vec![1, 0, 2, 2], vec![1], vec![1]]);
-
     let opts = VcfOptions {
-        bin_size: 10,
-        masks: vec![mask.clone()],
-        ..VcfOptions::default()
+        masks: vec![mask],
+        ..opts(10)
     };
-    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
-    assert_eq!(read.summary.contig_lengths_used, vec!["chr1", "chr2"]);
-    assert_eq!(read.summary.sites, 40 + 7 + 4);
-    assert_eq!(read.summary.missing_sites, 28);
+    let s = read(&vcf, &opts).summary;
+    assert_eq!(s.contig_lengths_used, ["chr1", "chr2"]);
+    assert_eq!((s.sites, s.missing_sites), (40 + 7 + 4, 28));
 
     // Ending at the last record instead.
-    let opts = VcfOptions {
-        to_contig_end: false,
-        ..opts
-    };
-    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
-    assert_eq!(read.obs.rows, vec![vec![1], vec![1], vec![1]]);
+    let read = read(
+        &vcf,
+        &VcfOptions {
+            to_contig_end: false,
+            ..opts
+        },
+    );
+    assert_eq!(read.obs.rows, [[1], [1], [1]]);
     assert!(read.summary.contig_lengths_used.is_empty());
     assert_eq!(read.summary.sites, 3 + 2 + 4);
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(mask);
 }
 
 #[test]
-fn read_vcf_rejects_a_record_beyond_the_contig_length() {
-    let vcf = write_vcf_with_meta(
-        "vcf_beyond_contig",
+fn a_record_beyond_the_contig_length_is_an_error() {
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(
+        &dir,
+        "calls.vcf",
         &["##contig=<ID=chr1,length=10>"],
         &["chr1 5 A C PASS 0/1", "chr1 11 A C PASS 0/1"],
     );
-    let err = read_vcf(&vcf, None, 5, None, &[], &[]).expect_err("POS 11 > length 10");
-    let msg = format!("{err:#}");
-    assert!(
-        msg.contains("beyond the ##contig length 10"),
-        "unexpected error: {msg}"
-    );
-
-    let opts = VcfOptions {
-        bin_size: 5,
+    let msg = error(&vcf, &opts(5));
+    assert!(msg.contains("beyond the ##contig length 10"), "{msg}");
+    // Lengths are ignored when not extending to them.
+    let short = VcfOptions {
         to_contig_end: false,
-        ..VcfOptions::default()
+        ..opts(5)
     };
-    let read = read_vcf_with(&vcf, &opts).expect("lengths are ignored when not extending");
-    assert_eq!(read.obs.rows, vec![vec![1, 0, 1]]);
-    let _ = fs::remove_file(vcf);
+    assert_eq!(read(&vcf, &short).obs.rows, [[1, 0, 1]]);
 }
 
 #[test]
-fn read_vcf_rejects_implausible_contig_lengths_and_positions() {
+fn implausible_contig_lengths_and_positions_are_errors() {
     // 2^36 (68.7 Gb) is the limit. The huge bin size keeps the accepted cases
     // (and the code before the limit, which let these lengths through) quick.
-    let opts = VcfOptions {
-        bin_size: 1 << 30,
-        ..VcfOptions::default()
-    };
+    let dir = TempDir::new("io_vcf");
+    let opts = opts(1 << 30);
     let record = ["chr1 100 A C PASS 0/1"];
     let with_length = |len: &str| {
         let meta = format!("##contig=<ID=chr1,length={len}>");
-        write_vcf_with_meta("vcf_contig_cap", &[meta.as_str()], &record)
+        write_vcf(&dir, "calls.vcf", &[meta.as_str()], &record)
     };
 
-    let at_limit = with_length("68719476736");
-    let read = read_vcf_with(&at_limit, &opts).expect("2^36 is accepted");
-    assert_eq!(
-        read.obs.rows,
-        vec![{
-            let mut row = vec![0; 64];
-            row[0] = 1;
-            row
-        }]
-    );
-
+    let mut row = vec![0; 64];
+    row[0] = 1;
+    assert_eq!(read(&with_length("68719476736"), &opts).obs.rows, [row]);
     for (len, shown) in [
         ("68719476737", "(68719476737)"),
         (
@@ -436,22 +370,19 @@ fn read_vcf_rejects_implausible_contig_lengths_and_positions() {
         ),
     ] {
         let vcf = with_length(len);
-        let err = read_vcf_with(&vcf, &opts).expect_err("length above 2^36");
-        let msg = format!("{err:#}");
+        let msg = error(&vcf, &opts);
         assert!(
             msg.contains("##contig length of 'chr1'")
                 && msg.contains(shown)
                 && msg.contains("supported maximum"),
-            "{len}: unexpected error: {msg}"
+            "{len}: {msg}"
         );
         // Not extending to the contig end ignores the length.
         let short = VcfOptions {
             to_contig_end: false,
             ..opts.clone()
         };
-        let read = read_vcf_with(&vcf, &short).expect("length not used");
-        assert_eq!(read.obs.rows, vec![vec![1]]);
-        let _ = fs::remove_file(vcf);
+        assert_eq!(read(&vcf, &short).obs.rows, [[1]]);
     }
 
     // The case that used to run until memory ran out: 2^60 at the default
@@ -461,67 +392,65 @@ fn read_vcf_rejects_implausible_contig_lengths_and_positions() {
         "##contig=<ID=chr2,length=1152921504606846976>",
         "##contig=<ID=chr3,length=50>",
     ];
-    let vcf = write_vcf_with_meta("vcf_contig_huge", &meta, &["chr3 10 A C PASS 0/1"]);
-    let read = read_vcf(&vcf, None, 10, None, &[], &[]).expect("chr1 and chr2 have no records");
-    assert_eq!(read.rows, vec![vec![1, 0, 0, 0, 0]]);
-    let huge = write_vcf_with_meta("vcf_contig_huge2", &meta, &record);
-    let err = read_vcf(&huge, None, 100, None, &[], &[]).expect_err("2^60 is rejected");
+    let vcf3 = write_vcf(&dir, "chr3.vcf", &meta, &["chr3 10 A C PASS 0/1"]);
+    let obs = read_vcf(&vcf3, None, 10, None, &[], &[]).unwrap();
+    assert_eq!(obs.rows, [[1, 0, 0, 0, 0]]);
+    let huge = write_vcf(&dir, "huge.vcf", &meta, &record);
+    let err = read_vcf(&huge, None, 100, None, &[], &[]).unwrap_err();
     assert!(format!("{err:#}").contains("supported maximum"), "{err:#}");
 
-    let far = write_vcf("vcf_pos_cap", &["chr1 68719476737 A C PASS 0/1"]);
-    let err = read_vcf_with(&far, &opts).expect_err("POS above 2^36");
-    let msg = format!("{err:#}");
+    let far = write_vcf(&dir, "far.vcf", &[], &["chr1 68719476737 A C PASS 0/1"]);
+    let msg = error(&far, &opts);
     assert!(
         msg.contains("POS 68719476737 is beyond the supported maximum"),
-        "unexpected error: {msg}"
+        "{msg}"
     );
+}
 
-    for p in [at_limit, vcf, huge, far] {
-        let _ = fs::remove_file(p);
+#[test]
+fn records_out_of_order_are_errors() {
+    let dir = TempDir::new("io_vcf");
+    for (records, parts) in [
+        (
+            &["chr1 20 A C PASS 0/1", "chr1 10 A C PASS 0/1"][..],
+            &["must be sorted"][..],
+        ),
+        (
+            &[
+                "chr1 20 A C PASS 0/1",
+                "chr2 10 A C PASS 0/1",
+                "chr1 30 A C PASS 0/1",
+            ],
+            &["appears again", "chr1"],
+        ),
+    ] {
+        let msg = error(&write_vcf(&dir, "calls.vcf", &[], records), &opts(10));
+        assert!(parts.iter().all(|p| msg.contains(p)), "{msg}");
     }
 }
 
 #[test]
-fn read_vcf_rejects_unsorted_positions() {
-    let vcf = write_vcf(
-        "vcf_unsorted",
-        &["chr1 20 A C PASS 0/1", "chr1 10 A C PASS 0/1"],
-    );
-    let err = read_vcf(&vcf, None, 10, None, &[], &[]).expect_err("unsorted POS must fail");
-    let msg = format!("{err:#}");
-    assert!(msg.contains("must be sorted"), "unexpected error: {msg}");
-    let _ = fs::remove_file(vcf);
-}
-
-#[test]
-fn read_vcf_rejects_a_chromosome_that_reappears() {
-    let vcf = write_vcf(
-        "vcf_reappear",
-        &[
-            "chr1 20 A C PASS 0/1",
-            "chr2 10 A C PASS 0/1",
-            "chr1 30 A C PASS 0/1",
-        ],
-    );
-    let err = read_vcf(&vcf, None, 10, None, &[], &[]).expect_err("chr1 twice must fail");
-    let msg = format!("{err:#}");
-    assert!(
-        msg.contains("appears again") && msg.contains("chr1"),
-        "unexpected error: {msg}"
-    );
-    let _ = fs::remove_file(vcf);
-}
-
-#[test]
-fn read_vcf_without_positive_mask_counts_gaps_as_called_and_warns() {
+fn without_a_positive_mask_gaps_count_as_called_with_a_warning() {
     // Like generate_multihetsep without --mask: everything between records is
     // a called homozygous site. That is kept, but reported, because a
     // variants-only VCF then has no missing data at all.
+    let dir = TempDir::new("io_vcf");
     let vcf = write_vcf(
-        "vcf_no_mask",
+        &dir,
+        "calls.vcf",
+        &[],
         &["chr1 100 A C PASS 0/1", "chr1 2000100 A C PASS 0/1"],
     );
-    let read = read_vcf_with(&vcf, &VcfOptions::default()).expect("failed to parse VCF");
+    let read_with = |masks| {
+        read(
+            &vcf,
+            &VcfOptions {
+                masks,
+                ..VcfOptions::default()
+            },
+        )
+    };
+    let read = read_with(vec![]);
     let row = &read.obs.rows[0];
     assert_eq!(row.len(), 20_001);
     assert_eq!(row.iter().filter(|&&b| b == 0).count(), 19_999);
@@ -532,89 +461,54 @@ fn read_vcf_without_positive_mask_counts_gaps_as_called_and_warns() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("--vcf-mask"), "{warnings:?}");
 
-    let mask = write_text("vcf_no_mask_bed", "bed", "chr1\t0\t2000100\n");
-    let opts = VcfOptions {
-        masks: vec![mask.clone()],
-        ..VcfOptions::default()
-    };
-    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
+    let read = read_with(vec![write(&dir, "mask.bed", "chr1\t0\t2000100\n")]);
     assert!(read.summary.positive_mask);
     assert!(read.summary.warnings().is_empty());
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(mask);
 }
 
 #[test]
-fn read_vcf_reports_chromosomes_the_mask_does_not_mention() {
+fn chromosomes_the_mask_does_not_mention_are_reported() {
     // A mask written with Ensembl names for a UCSC-named VCF.
-    let mask = write_text("vcf_name_mismatch_bed", "bed", "1\t0\t1000\n");
+    let dir = TempDir::new("io_vcf");
     let opts = VcfOptions {
-        bin_size: 10,
-        masks: vec![mask.clone()],
-        ..VcfOptions::default()
+        masks: vec![write(&dir, "mask.bed", "1\t0\t1000\n")],
+        ..opts(10)
     };
-    let vcf = write_vcf(
-        "vcf_name_mismatch",
+    let ucsc = write_vcf(
+        &dir,
+        "ucsc.vcf",
+        &[],
         &["chr1 10 A C PASS 0/1", "chr1 20 A C PASS 0/1"],
     );
-    let err = read_vcf_with(&vcf, &opts).expect_err("no callable het SNP must fail");
-    let msg = format!("{err:#}");
+    let msg = error(&ucsc, &opts);
     assert!(
         msg.contains("no heterozygous SNP") && msg.contains("(chr1)"),
-        "unexpected error: {msg}"
+        "{msg}"
     );
 
     let mixed = write_vcf(
-        "vcf_name_mismatch2",
+        &dir,
+        "mixed.vcf",
+        &[],
         &["1 20 A C PASS 0/1", "chrX 10 A C PASS 0/1"],
     );
-    let read = read_vcf_with(&mixed, &opts).expect("failed to parse VCF");
+    let read = read(&mixed, &opts);
     assert_eq!(read.summary.records_outside_mask, 1);
-    assert_eq!(read.summary.chroms_outside_mask, vec!["chrX".to_string()]);
+    assert_eq!(read.summary.chroms_outside_mask, ["chrX"]);
     let warnings = read.summary.warnings();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("chrX"), "{warnings:?}");
     assert_eq!(read.obs.rows, vec![vec![0, 1], vec![2]]);
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(mixed);
-    let _ = fs::remove_file(mask);
-}
-
-/// A VCF with the given `##contig` lines and tab-separated records whose
-/// columns are given space-separated (ID, QUAL filled in).
-fn write_gvcf(prefix: &str, contigs: &str, records: &[&str]) -> PathBuf {
-    let mut text = format!("##fileformat=VCFv4.2\n{contigs}");
-    text.push_str(HEADER.trim_start_matches("##fileformat=VCFv4.2\n"));
-    for r in records {
-        let c: Vec<&str> = r.split_whitespace().collect();
-        assert_eq!(c.len(), 8, "bad test record {r:?}");
-        text.push_str(&format!(
-            "{}\t{}\t.\t{}\t{}\t0\t{}\t{}\t{}\t{}\n",
-            c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]
-        ));
-    }
-    write_text(prefix, "vcf", &text)
 }
 
 #[test]
-fn read_vcf_gvcf_blocks_without_a_call_are_missing_over_their_span() {
-    let mask = write_text("gvcf_mask", "bed", "chr1\t0\t100\n");
-    let contig = "##contig=<ID=chr1,length=100>\n";
-    let records = |no_call: &'static str| {
-        [
-            "chr1 1 A <*> . END=20 GT:GQ:MIN_DP 0/0:50:30",
-            no_call,
-            "chr1 61 A G,<*> PASS . GT:GQ:MIN_DP 0/1:40:30",
-            "chr1 62 A <*> . END=100 GT:GQ:MIN_DP 0/0:50:30",
-        ]
-    };
+fn gvcf_blocks_without_a_call_are_missing_over_their_span() {
+    let dir = TempDir::new("io_vcf");
     let opts = VcfOptions {
-        bin_size: 10,
-        masks: vec![mask.clone()],
-        ..VcfOptions::default()
+        masks: vec![write(&dir, "mask.bed", "chr1\t0\t100\n")],
+        ..opts(10)
     };
+    let missing_40 = [0, 0, 2, 2, 2, 2, 1, 0, 0, 0];
     // A DeepVariant no-call block over 21..=60, and the same block
     // filtered (missing unless filtered records are kept) or written with
     // GATK's <NON_REF>.
@@ -622,76 +516,76 @@ fn read_vcf_gvcf_blocks_without_a_call_are_missing_over_their_span() {
         (
             "chr1 21 A <*> . END=60 GT:GQ:MIN_DP ./.:0:0",
             false,
-            vec![0, 0, 2, 2, 2, 2, 1, 0, 0, 0],
+            missing_40,
             40,
         ),
         (
             "chr1 21 A <NON_REF> . END=60 GT:GQ:MIN_DP ./.:0:0",
             false,
-            vec![0, 0, 2, 2, 2, 2, 1, 0, 0, 0],
+            missing_40,
             40,
         ),
         (
             "chr1 21 A <*> LowGQ END=60 GT:GQ:MIN_DP 0/0:2:1",
             false,
-            vec![0, 0, 2, 2, 2, 2, 1, 0, 0, 0],
+            missing_40,
             40,
         ),
         (
             "chr1 21 A <*> LowGQ END=60 GT:GQ:MIN_DP 0/0:2:1",
             true,
-            vec![0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
             0,
         ),
     ] {
-        let vcf = write_gvcf("gvcf_blocks", contig, &records(no_call));
-        let read = read_vcf_with(
-            &vcf,
-            &VcfOptions {
-                keep_filtered,
-                ..opts.clone()
-            },
-        )
-        .unwrap();
-        assert_eq!(read.obs.rows, vec![bins], "{no_call}");
-        assert_eq!(read.summary.missing_sites, missing, "{no_call}");
-        assert_eq!(read.summary.gvcf_blocks, 3);
-        assert_eq!(read.summary.gvcf_unusable_blocks, u64::from(missing > 0));
-        let warnings = read.summary.warnings();
+        let records = [
+            "chr1 1 A <*> . END=20 GT:GQ:MIN_DP 0/0:50:30",
+            no_call,
+            "chr1 61 A G,<*> PASS . GT:GQ:MIN_DP 0/1:40:30",
+            "chr1 62 A <*> . END=100 GT:GQ:MIN_DP 0/0:50:30",
+        ];
+        let meta = ["##contig=<ID=chr1,length=100>"];
+        let opts = VcfOptions {
+            keep_filtered,
+            ..opts.clone()
+        };
+        let read = read(&write_vcf(&dir, "calls.vcf", &meta, &records), &opts);
+        assert_eq!(read.obs.rows, [bins], "{no_call}");
+        let s = &read.summary;
+        assert_eq!(s.missing_sites, missing, "{no_call}");
+        assert_eq!(s.gvcf_blocks, 3);
+        assert_eq!(s.gvcf_unusable_blocks, u64::from(missing > 0));
+        let warnings = s.warnings();
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(
             warnings[0].contains("gVCF") && warnings[0].contains("bcftools view -v snps,indels"),
             "{warnings:?}"
         );
-        let _ = fs::remove_file(vcf);
     }
-    let _ = fs::remove_file(mask);
 }
 
 #[test]
-fn read_vcf_gvcf_block_ends_are_clamped_and_end_sequences() {
+fn gvcf_block_ends_are_clamped_and_end_sequences() {
+    let dir = TempDir::new("io_vcf");
     let records = ["chr1 1 A G PASS . GT 0/1", "chr1 2 A <*> . END=35 GT 0/0"];
-    // Without a ##contig length the sequence ends at the last block's END.
-    let vcf = write_gvcf("gvcf_end", "", &records);
-    let opts = VcfOptions {
-        bin_size: 10,
-        ..VcfOptions::default()
-    };
-    let read = read_vcf_with(&vcf, &opts).unwrap();
-    assert_eq!(read.obs.rows, vec![vec![1, 0, 0, 0]]);
-    assert_eq!(read.summary.sites, 35);
-    // An END beyond the ##contig length stops there.
-    let short = write_gvcf("gvcf_end", "##contig=<ID=chr1,length=30>\n", &records);
-    let read = read_vcf_with(&short, &opts).unwrap();
-    assert_eq!(read.obs.rows, vec![vec![1, 0, 0]]);
-    assert_eq!(read.summary.sites, 30);
+    // Without a ##contig length the sequence ends at the last block's END;
+    // an END beyond the ##contig length stops there.
+    for (meta, bins, sites) in [
+        (&[][..], &[1, 0, 0, 0][..], 35),
+        (&["##contig=<ID=chr1,length=30>"], &[1, 0, 0], 30),
+    ] {
+        let read = read(&write_vcf(&dir, "calls.vcf", meta, &records), &opts(10));
+        assert_eq!(read.obs.rows, [bins.to_vec()]);
+        assert_eq!(read.summary.sites, sites);
+    }
 
     // Not blocks: an END before POS, and END on a structural variant or
     // another non-reference allele, which describes the variant rather
     // than a run of positions with one call.
-    let other = write_gvcf(
-        "gvcf_not_blocks",
-        "##contig=<ID=chr1,length=40>\n",
+    let other = write_vcf(
+        &dir,
+        "other.vcf",
+        &["##contig=<ID=chr1,length=40>"],
         &[
             "chr1 1 A G PASS . GT 0/1",
             "chr1 10 A <*> . END=5 GT ./.",
@@ -699,13 +593,9 @@ fn read_vcf_gvcf_block_ends_are_clamped_and_end_sequences() {
             "chr1 25 A C,<*> PASS END=35 GT ./.",
         ],
     );
-    let read = read_vcf_with(&other, &opts).unwrap();
-    assert_eq!(read.summary.missing_sites, 3);
-    assert_eq!(read.summary.gvcf_blocks, 0);
-    assert!(read.summary.warnings().iter().all(|w| !w.contains("gVCF")));
-    for p in [vcf, short, other] {
-        let _ = fs::remove_file(p);
-    }
+    let s = read(&other, &opts(10)).summary;
+    assert_eq!((s.missing_sites, s.gvcf_blocks), (3, 0));
+    assert!(s.warnings().iter().all(|w| !w.contains("gVCF")));
 }
 
 /// Read as a gVCF, a position that no record covers, by its POS, its REF
@@ -713,10 +603,12 @@ fn read_vcf_gvcf_block_ends_are_clamped_and_end_sequences() {
 /// records, and after the last one up to the ##contig length. Otherwise
 /// such positions are called, as in any VCF, and the gVCF warning says so.
 #[test]
-fn read_vcf_as_a_gvcf_makes_uncovered_positions_missing() {
-    let vcf = write_gvcf(
-        "gvcf_uncovered",
-        "##contig=<ID=chr1,length=60>\n",
+fn reading_as_a_gvcf_makes_uncovered_positions_missing() {
+    let dir = TempDir::new("io_vcf");
+    let vcf = write_vcf(
+        &dir,
+        "calls.vcf",
+        &["##contig=<ID=chr1,length=60>"],
         &[
             // 1..=4 uncovered.
             "chr1 5 A <*> . END=20 GT 0/0",
@@ -728,37 +620,29 @@ fn read_vcf_as_a_gvcf_makes_uncovered_positions_missing() {
             "chr1 31 A . . END=40 GT 0/0",
         ],
     );
-    let opts = VcfOptions {
-        bin_size: 10,
-        ..VcfOptions::default()
+    let missing = |s: &psmc_rs::io::vcf::VcfSummary| (s.missing_sites, s.uncovered_sites);
+    let read_as = |gvcf, masks| {
+        let opts = VcfOptions {
+            gvcf,
+            masks,
+            ..opts(10)
+        };
+        read(&vcf, &opts).summary
     };
-    let read = read_vcf_with(&vcf, &opts).unwrap();
-    assert_eq!(
-        (read.summary.missing_sites, read.summary.uncovered_sites),
-        (0, 0)
-    );
-    let warnings = read.summary.warnings();
+    let s = read_as(false, vec![]);
+    assert_eq!(missing(&s), (0, 0));
+    let warnings = s.warnings();
     assert!(
         warnings.iter().any(|w| w.contains("is a gVCF")
             && w.contains("positions that no record or block covers count as called")),
         "{warnings:?}"
     );
 
-    let read = read_vcf_with(
-        &vcf,
-        &VcfOptions {
-            gvcf: true,
-            ..opts.clone()
-        },
-    )
-    .unwrap();
-    assert!(read.summary.read_as_gvcf);
-    assert_eq!(
-        (read.summary.missing_sites, read.summary.uncovered_sites),
-        (29, 29)
-    );
-    assert_eq!(read.summary.het_snps, 1);
-    let warnings = read.summary.warnings();
+    let s = read_as(true, vec![]);
+    assert!(s.read_as_gvcf);
+    assert_eq!(missing(&s), (29, 29));
+    assert_eq!(s.het_snps, 1);
+    let warnings = s.warnings();
     assert!(
         warnings.iter().any(|w| w.contains("is a gVCF")
             && w.contains("so are the positions that no record or block covers (29 here")),
@@ -766,43 +650,28 @@ fn read_vcf_as_a_gvcf_makes_uncovered_positions_missing() {
     );
     // Uncovered positions are missing also where a mask would call them,
     // and a position the mask leaves out is not counted twice.
-    let mask = write_text("gvcf_uncovered_mask", "bed", "chr1\t0\t50\n");
-    let read = read_vcf_with(
-        &vcf,
-        &VcfOptions {
-            gvcf: true,
-            masks: vec![mask.clone()],
-            ..opts
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        (read.summary.missing_sites, read.summary.uncovered_sites),
-        (29, 29)
-    );
-    for p in [vcf, mask] {
-        let _ = fs::remove_file(p);
-    }
+    let s = read_as(true, vec![write(&dir, "mask.bed", "chr1\t0\t50\n")]);
+    assert_eq!(missing(&s), (29, 29));
 }
 
 #[test]
-fn read_vcf_says_separate_per_chromosome_masks_are_intersected() {
+fn separate_per_chromosome_masks_are_said_to_be_intersected() {
     // One mask per chromosome, each given as its own --vcf-mask: every
     // chromosome is in one mask and missing from the others.
-    let masks: Vec<PathBuf> = ["chr1", "chr2"]
-        .iter()
-        .map(|c| write_text("vcf_per_chrom_mask", "bed", &format!("{c}\t0\t1000\n")))
-        .collect();
-    let vcf = write_vcf(
-        "vcf_per_chrom_masks",
+    let dir = TempDir::new("io_vcf");
+    let mask = |c: &str| write(&dir, &format!("{c}.bed"), &format!("{c}\t0\t1000\n"));
+    let (chr1, chr2) = (mask("chr1"), mask("chr2"));
+    let vcf2 = write_vcf(
+        &dir,
+        "two.vcf",
+        &[],
         &["chr1 10 A C PASS 0/1", "chr2 20 A C PASS 0/1"],
     );
-    let opts = VcfOptions {
-        bin_size: 10,
-        masks: masks.clone(),
-        ..VcfOptions::default()
+    let with_masks = |masks: &[&PathBuf]| VcfOptions {
+        masks: masks.iter().map(|&m| m.clone()).collect(),
+        ..opts(10)
     };
-    let err = format!("{:#}", read_vcf_with(&vcf, &opts).unwrap_err());
+    let err = error(&vcf2, &with_masks(&[&chr1, &chr2]));
     assert!(
         err.contains("(chr1, chr2) have intervals in some of the callable masks")
             && err.contains("intersected")
@@ -812,90 +681,72 @@ fn read_vcf_says_separate_per_chromosome_masks_are_intersected() {
     assert!(!err.contains("'chr1' vs '1'"), "{err}");
 
     // With a third mask that covers both, and a chromosome no mask has.
-    let both = write_text(
-        "vcf_per_chrom_mask",
-        "bed",
-        "chr1\t0\t1000\nchr2\t0\t1000\n",
-    );
+    let both = write(&dir, "both.bed", "chr1\t0\t1000\nchr2\t0\t1000\n");
     let vcf3 = write_vcf(
-        "vcf_per_chrom_masks3",
+        &dir,
+        "three.vcf",
+        &[],
         &[
             "chr1 10 A C PASS 0/1",
             "chr2 20 A C PASS 0/1",
             "chrX 5 A C PASS 0/1",
         ],
     );
-    let opts = VcfOptions {
-        bin_size: 10,
-        masks: vec![masks[0].clone(), both.clone()],
-        ..VcfOptions::default()
-    };
-    let read = read_vcf_with(&vcf3, &opts).unwrap();
-    assert_eq!(read.summary.chroms_outside_some_masks, ["chr2"]);
-    assert_eq!(read.summary.chroms_outside_mask, ["chrX"]);
-    let warnings = read.summary.warnings();
+    let s = read(&vcf3, &with_masks(&[&chr1, &both])).summary;
+    assert_eq!(s.chroms_outside_some_masks, ["chr2"]);
+    assert_eq!(s.chroms_outside_mask, ["chrX"]);
+    let warnings = s.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     assert!(warnings[0].contains("(chrX)") && warnings[0].contains("'chr1' vs '1'"));
     assert!(warnings[1].contains("(chr2)") && warnings[1].contains("intersected"));
-
-    for p in masks.iter().chain([&both, &vcf, &vcf3]) {
-        let _ = fs::remove_file(p);
-    }
 }
 
 #[test]
-fn read_vcf_no_het_snp_error_points_at_filtered_records() {
+fn the_no_het_snp_error_points_at_filtered_records() {
     // A pipeline that puts a non-PASS label on every record: the het SNPs are
     // there, but all of them are filtered. The error must say so rather than
     // claim the VCF has no heterozygous SNP records.
+    let dir = TempDir::new("io_vcf");
     let vcf = write_vcf(
-        "vcf_all_filtered",
+        &dir,
+        "filtered.vcf",
+        &[],
         &[
             "chr1 5 A C LowQual 0/1",
             "chr1 7 A G PASS 0/0",
             "chr1 9 A C LowQual 0/1",
         ],
     );
-    let opts = VcfOptions {
-        bin_size: 1,
-        ..VcfOptions::default()
-    };
-    let err = read_vcf_with(&vcf, &opts).expect_err("every het SNP is filtered");
-    let msg = format!("{err:#}");
+    let msg = error(&vcf, &opts(1));
     assert!(
         msg.contains("no heterozygous SNP")
             && msg.contains("2 records have a FILTER other than PASS")
             && msg.contains("--vcf-keep-filtered"),
-        "unexpected error: {msg}"
+        "{msg}"
     );
-
-    let kept = read_vcf_with(
-        &vcf,
-        &VcfOptions {
-            keep_filtered: true,
-            ..opts
-        },
-    )
-    .expect("filtered het SNPs are used when kept");
-    assert_eq!(kept.summary.het_snps, 2);
+    let kept = VcfOptions {
+        keep_filtered: true,
+        ..opts(1)
+    };
+    assert_eq!(read(&vcf, &kept).summary.het_snps, 2);
 
     // Without filtered records the hint stays out of the message.
-    let unfiltered = write_vcf("vcf_no_het", &["chr1 5 A C PASS 0/0"]);
-    let err = read_vcf(&unfiltered, None, 1, None, &[], &[]).expect_err("no het SNP");
+    let unfiltered = write_vcf(&dir, "unfiltered.vcf", &[], &["chr1 5 A C PASS 0/0"]);
+    let err = read_vcf(&unfiltered, None, 1, None, &[], &[]).unwrap_err();
     let msg = format!("{err:#}");
     assert!(
         msg.contains("no heterozygous SNP") && !msg.contains("FILTER"),
-        "unexpected error: {msg}"
+        "{msg}"
     );
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(unfiltered);
 }
 
 #[test]
-fn read_vcf_summary_counts_records_by_kind() {
+fn the_summary_counts_records_by_kind() {
+    let dir = TempDir::new("io_vcf");
     let vcf = write_vcf(
-        "vcf_summary",
+        &dir,
+        "calls.vcf",
+        &[],
         &[
             "chr1 1 A C PASS 0/1",
             "chr1 1 A AT PASS 0/0",
@@ -906,75 +757,68 @@ fn read_vcf_summary_counts_records_by_kind() {
             "chr2 2 A G PASS 0/1",
         ],
     );
-    let neg = write_text("vcf_summary_neg", "bed", "chr1\t6\t7\n");
     let opts = VcfOptions {
-        bin_size: 2,
-        negative_masks: vec![neg.clone()],
-        ..VcfOptions::default()
+        negative_masks: vec![write(&dir, "neg.bed", "chr1\t6\t7\n")],
+        ..opts(2)
     };
-    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
+    let read = read(&vcf, &opts);
     let s = &read.summary;
-    assert_eq!(s.records, 7);
-    assert_eq!(s.het_snp_records, 3);
+    assert_eq!((s.records, s.het_snp_records), (7, 3));
     // POS 7 is excluded by the negative mask.
-    assert_eq!(s.het_snps, 2);
-    assert_eq!(s.records_outside_mask, 1);
-    assert_eq!(s.hom_calls, 3);
-    assert_eq!(s.missing_genotypes, 1);
+    assert_eq!((s.het_snps, s.records_outside_mask), (2, 1));
+    assert_eq!((s.hom_calls, s.missing_genotypes), (3, 1));
     assert_eq!(s.multi_record_positions, 1);
-    assert_eq!(s.sequences, 2);
-    assert_eq!(s.bins, 4 + 1);
-    assert_eq!(s.sites, 7 + 2);
-    assert_eq!(s.missing_sites, 2);
+    assert_eq!((s.sequences, s.bins), (2, 4 + 1));
+    assert_eq!((s.sites, s.missing_sites), (7 + 2, 2));
     assert!(!s.positive_mask);
     // chr1 is K T T N T T N, chr2 is T K.
     assert_eq!(read.obs.rows, vec![vec![1, 0, 0, 0], vec![1]]);
-
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(neg);
 }
 
 #[test]
-fn read_vcf_summary_reports_the_sample_depth() {
+fn the_summary_reports_the_sample_depth() {
     // One sample: FORMAT/DP, else INFO/DP; a DP of '.' is no depth.
-    let vcf = write_text(
-        "vcf_depth",
-        "vcf",
-        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
-         c\t1\t.\tA\tC\t.\tPASS\tDP=99\tGT:DP\t0/1:10\n\
-         c\t2\t.\tA\t.\t.\tPASS\t.\tGT:DP\t0/0:20\n\
-         c\t3\t.\tA\t.\t.\tPASS\tDP=5\tGT:DP\t0/0:.\n\
-         c\t4\t.\tA\tG\t.\tq10\tMQ=3;DP=7\tGT\t0/1\n\
-         c\t5\t.\tA\t.\t.\tPASS\tDP4=1,2,3,4\tGT\t0/0\n",
+    let dir = TempDir::new("io_vcf");
+    let one = write(
+        &dir,
+        "one.vcf",
+        &format!(
+            "##fileformat=VCFv4.2\n{COLUMNS}\n\
+             c\t1\t.\tA\tC\t.\tPASS\tDP=99\tGT:DP\t0/1:10\n\
+             c\t2\t.\tA\t.\t.\tPASS\t.\tGT:DP\t0/0:20\n\
+             c\t3\t.\tA\t.\t.\tPASS\tDP=5\tGT:DP\t0/0:.\n\
+             c\t4\t.\tA\tG\t.\tq10\tMQ=3;DP=7\tGT\t0/1\n\
+             c\t5\t.\tA\t.\t.\tPASS\tDP4=1,2,3,4\tGT\t0/0\n"
+        ),
     );
-    let read = read_vcf_with(&vcf, &VcfOptions::default()).expect("failed to parse VCF");
-    let d = &read.summary.depth;
+    let s = read(&one, &VcfOptions::default()).summary;
+    let d = &s.depth;
     assert_eq!((d.records, d.records_without_dp), (3, 2));
-    assert_eq!(read.summary.depth_from_info, 1);
+    assert_eq!(s.depth_from_info, 1);
     assert_eq!((d.mean, d.median), (37.0 / 3.0, 10.0));
     assert_eq!(d.histogram.len(), 1001);
     let counted: Vec<usize> = (0..d.histogram.len())
         .filter(|&i| d.histogram[i] > 0)
         .collect();
     assert_eq!(counted, [7, 10, 20]);
-    let _ = fs::remove_file(vcf);
 
     // Several samples: the selected sample's FORMAT/DP only, since INFO/DP
     // sums over all of them.
-    let vcf = write_text(
-        "vcf_depth_multi",
-        "vcf",
-        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\ts2\n\
-         c\t1\t.\tA\tC\t.\tPASS\tDP=130\tGT:DP\t0/0:100\t0/1:30\n\
-         c\t2\t.\tA\t.\t.\tPASS\tDP=50\tGT\t0/0\t0/0\n",
+    let two = write(
+        &dir,
+        "two.vcf",
+        &format!(
+            "##fileformat=VCFv4.2\n{COLUMNS}\ts2\n\
+             c\t1\t.\tA\tC\t.\tPASS\tDP=130\tGT:DP\t0/0:100\t0/1:30\n\
+             c\t2\t.\tA\t.\t.\tPASS\tDP=50\tGT\t0/0\t0/0\n"
+        ),
     );
     let opts = VcfOptions {
         sample: Some("s2".to_string()),
         ..VcfOptions::default()
     };
-    let read = read_vcf_with(&vcf, &opts).expect("failed to parse VCF");
-    let d = &read.summary.depth;
+    let s = read(&two, &opts).summary;
+    let d = &s.depth;
     assert_eq!((d.records, d.records_without_dp, d.mean), (1, 1, 30.0));
-    assert_eq!(read.summary.depth_from_info, 0);
-    let _ = fs::remove_file(vcf);
+    assert_eq!(s.depth_from_info, 0);
 }
