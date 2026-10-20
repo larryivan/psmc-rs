@@ -34,8 +34,9 @@ use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
 use crate::cli::{BinCallableArg, InferArgs, InputArgs, model_layout, usage_bail};
 use crate::dataset::{
-    callable_summary, counts_source, describe, ensure_usable, fit_uses_counts, ignored_options,
-    layout_model, load_input, loader_warnings, qc_report, resolve_input_path, thousands, totals,
+    callable_summary, counted, counts_source, describe, ensure_usable, fit_uses_counts,
+    ignored_options, layout_model, load_input, loader_warnings, qc_report, resolve_input_path,
+    thousands, totals,
 };
 use crate::output::{
     BOOTSTRAP_SUMMARY_FILES, FitRecord, check_destinations, is_stdout, save_fit,
@@ -188,9 +189,12 @@ impl BootstrapPlan {
         let trunks = bootstrap_trunk_count(&seqs.bins, self.trunk_size)
             .context("--bootstrap-block-size is too large for this input")?;
         sink(Event::Info(format!(
-            "Bootstrap: {} replicates of {} EM iterations, resampling {trunks} trunks of {} \
-             bins (seed {})",
-            self.replicates, self.em_iters, self.trunk_size, self.seed
+            "Bootstrap: {} of {}, resampling {} of {} bins (seed {})",
+            counted(self.replicates, "replicate", "replicates"),
+            counted(self.em_iters, "EM iteration", "EM iterations"),
+            counted(trunks, "trunk", "trunks"),
+            thousands(self.trunk_size as u64),
+            self.seed
         )));
         if let Some(path) = &cli.init_params {
             sink(Event::Warning(format!(
@@ -208,7 +212,7 @@ impl BootstrapPlan {
                 "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
                  differ only in which of them they draw and the bands are coarse; a \
                  smaller --bootstrap-block-size gives more trunks",
-                self.trunk_size
+                thousands(self.trunk_size as u64)
             )));
         }
         Ok((seqs, trunks))
@@ -379,11 +383,11 @@ fn infer(
     let (theta0, rho0) = (model.theta, model.rho);
     let tr_ratio = theta0 / rho0;
     sink(Event::Info(format!(
-        "Model: pattern {}, {} intervals, {} free lambdas; start theta0 {theta0:.6}, rho0 \
-         {rho0:.6} (theta0/rho0 {}), t_max {}",
+        "Model: pattern {}, {} intervals, {}; start theta0 {theta0:.6}, rho0 {rho0:.6} \
+         (theta0/rho0 {}), t_max {}",
         model.pattern.as_deref().unwrap_or("none"),
         model.n_steps + 1,
-        model.lam.len(),
+        counted(model.lam.len(), "free lambda", "free lambdas"),
         tr_ratio,
         model.t_max
     )));
@@ -786,10 +790,10 @@ fn psmc_plot_command(cli: &InferArgs, n_iter: usize, files: &str) -> String {
 fn replicate_plot_warning(cli: &InferArgs, n_iter: usize, plan: &BootstrapPlan) -> String {
     let replicates = plan.dir.join("replicate_*.psmc");
     format!(
-        "the bootstrap replicates ran {} EM iterations and the main fit {n_iter}; psmc_plot.pl \
-         -n takes the same round of every run it reads, so do not plot the replicates in one \
-         file with the main fit's .psmc output, but on their own: {}",
-        plan.em_iters,
+        "the bootstrap replicates ran {} and the main fit {n_iter}; psmc_plot.pl -n takes the \
+         same round of every run it reads, so do not plot the replicates in one file with the \
+         main fit's .psmc output, but on their own: {}",
+        counted(plan.em_iters, "EM iteration", "EM iterations"),
         psmc_plot_command(cli, plan.em_iters, &replicates.display().to_string())
     )
 }
@@ -1255,9 +1259,9 @@ fn remove_earlier_bootstrap(dir: &Path, replicates: usize) -> Result<Option<Stri
     };
     Ok(Some(format!(
         "{} held {which} of an earlier bootstrap, beyond this run's {replicates}; their {} \
-         files were removed so that the directory holds only this run's replicates",
+         removed so that the directory holds only this run's replicates",
         dir.display(),
-        stale.len()
+        counted(stale.len(), "file was", "files were")
     )))
 }
 

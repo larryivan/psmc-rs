@@ -184,10 +184,8 @@ fn qc_json_on_stdout_is_the_only_stdout() {
     let qc: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
     assert_eq!(qc["n_sequences"], 1);
     assert!(
-        o.stderr.contains(&format!(
-            "psmcfa: {} (1 sequences, 300 bins)",
-            out.display()
-        )),
+        o.stderr
+            .contains(&format!("psmcfa: {} (1 sequence, 300 bins)", out.display())),
         "{}",
         o.stderr
     );

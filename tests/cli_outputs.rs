@@ -397,7 +397,7 @@ fn bootstrap_writes_replicates_and_summary() {
     .stderr;
     // 3 sequences of 3 trunks: few enough for a warning.
     assert!(
-        stderr.contains("warning: the input forms only 9 bootstrap trunks of 1000 bins"),
+        stderr.contains("warning: the input forms only 9 bootstrap trunks of 1,000 bins"),
         "{stderr}"
     );
     let boot = dir.path("fit.bootstrap");

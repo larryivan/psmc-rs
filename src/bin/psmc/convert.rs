@@ -12,7 +12,7 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{BinCallableArg, ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
 use crate::dataset::{
-    callable_summary, counts_source, default_start, load_input, percent, qc_report,
+    callable_summary, counted, counts_source, default_start, load_input, percent, qc_report,
 };
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir};
 use crate::run::{Event, announce_input, report_qc};
@@ -94,10 +94,10 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         }
         write_psmcfa(path, &data)?;
         sink(Event::Output(format!(
-            "psmcfa: {} ({} sequences, {} bins)",
+            "psmcfa: {} ({}, {})",
             path.display(),
-            data.seqs.len(),
-            data.n_bins()
+            counted(data.seqs.len(), "sequence", "sequences"),
+            counted(data.n_bins(), "bin", "bins")
         )));
     }
     if want_sites
@@ -127,9 +127,13 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         };
         write_multihetsep(path, &data, &opts)?;
         sink(Event::Output(format!(
-            "multihetsep: {} ({} heterozygous sites)",
+            "multihetsep: {} ({})",
             path.display(),
-            het_sites(&data, sequence)
+            counted(
+                het_sites(&data, sequence),
+                "heterozygous site",
+                "heterozygous sites"
+            )
         )));
     }
     Ok(ExitCode::SUCCESS)
