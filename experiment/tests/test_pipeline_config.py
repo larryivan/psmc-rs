@@ -9,9 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import read_csv  # noqa: E402
 
 from experiment.pipeline import config, paths  # noqa: E402
 
@@ -98,20 +97,6 @@ class Design(unittest.TestCase):
         self.assertEqual((human.scaling, human.scaling_source), (p.e7.scaling, p.e7.scaling_source))  # as E7 scales it
         for g in p.e2.genomes:
             self.assertTrue((paths.REAL_DATA / g.file).exists(), g.file)
-
-    def test_na12878_is_e7s_psmcfa(self):
-        # The pin is E7's record of the file, not only the committed file's own hash: once E7's tables are
-        # committed, E7_inputs.csv gives the SHA-256 of the psmcfa its data stage wrote for NA12878.
-        import csv
-
-        p = config.PRODUCTION
-        table = paths.RUNS / "E7" / "tables" / "E7_inputs.csv"
-        if not table.exists():
-            self.skipTest("E7's tables are not committed yet")
-        with open(table, newline="") as f:
-            row = next(r for r in csv.DictReader(f) if r["sample_id"] == "NA12878")
-        human = next(g for g in config.PRODUCTION.e2.genomes if g.sample_id == "NA12878")
-        self.assertEqual(row["psmcfa_sha256"], human.sha256)
         for g in p.e2.genomes[:3]:
             # The mean of nine Chrysemys picta trios (Bergeron et al. 2023), not the crocodilian 7.9e-9.
             self.assertEqual((g.scaling.mu, g.scaling.gen_years), (4.6e-9, 15.0))
@@ -136,6 +121,16 @@ class Design(unittest.TestCase):
         self.assertEqual((p.e5.truth_replicates, p.e5.bootstrap_datasets, p.e5.bootstrap_replicates), (50, 10, 50))
         self.assertEqual(p.e5.trunk_bins, (500_000, 50_000))
         self.assertEqual(p.e5.genome.length, 300_000_000)
+
+    def test_na12878_is_e7s_psmcfa(self):
+        # The pin is E7's record of the file, not only the committed file's own hash: once E7's tables are
+        # committed, E7_inputs.csv gives the SHA-256 of the psmcfa its data stage wrote for NA12878.
+        table = paths.RUNS / "E7" / "tables" / "E7_inputs.csv"
+        if not table.exists():
+            self.skipTest("E7's tables are not committed yet")
+        row = next(r for r in read_csv(table) if r["sample_id"] == "NA12878")
+        human = next(g for g in config.PRODUCTION.e2.genomes if g.sample_id == "NA12878")
+        self.assertEqual(row["psmcfa_sha256"], human.sha256)
 
     def test_profiles(self):
         self.assertEqual(config.get_profile("production"), config.PRODUCTION)
