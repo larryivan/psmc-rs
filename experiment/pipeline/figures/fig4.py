@@ -142,7 +142,7 @@ def medians(ax, x, y, ent: style.Entity, markersize: float = 3.4, points_z: floa
 
 
 def draw_metric(ax, table2, runs, median_col: str, run_col: str, threads: Dict[str, Sequence[int]]) -> List[str]:
-    """One metric against genome size: medians (lines, markers), clean repeats (dots); returns notes on setups not run."""
+    """One metric against genome size: medians (lines, markers) and clean repeats (dots); notes on setups not run."""
     notes = []
     for tool, t, ent in series(table2, threads):
         rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")

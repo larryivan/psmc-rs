@@ -143,9 +143,9 @@ def draw(src: Source):
     shift = TABLE_SHIFT_MM / (fig.get_figwidth() / style.MM)
     ax_d.set_position((pos.x0 - shift, pos.y0, pos.width + shift, pos.height))
     determinism_panel(ax_d, det)
-    handles = [style.handle(style.RS02, kind="both", linewidth=style.LW_DATA, label="psmc-rs 0.2")]
+    handles = [style.handle(style.RS02, kind="both", label="psmc-rs 0.2")]
     if not default.empty:
-        handles.append(style.handle(dent, kind="both", linewidth=style.LW_DATA))
+        handles.append(style.handle(dent, kind="both"))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
     style.panel_letters(fig, [ax_t, ax_e, ax_m, ax_d])
     return fig
