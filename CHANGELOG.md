@@ -582,6 +582,11 @@ Reproduction package (`experiment/`):
 
 ### Performance
 
+- Reading inputs is leaner: one sequence builder serves the VCF, consensus
+  and multihetsep readers, inputs are read through 128 KiB buffers, and
+  multihetsep rows no longer allocate. Reading one sample from a VCF of
+  2,000 samples and reading a multihetsep file take about 20% less CPU;
+  every output is unchanged, bit for bit.
 - The E-step's forward and backward steps work in O(states) per bin instead
   of O(states²) for PSMC transition matrices of up to 256 states (their
   triangles are rank one, which Harris et al. 2014 used to decode
