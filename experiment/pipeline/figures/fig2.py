@@ -142,8 +142,7 @@ def draw(src: Source):
                        size=style.TEXT_PT, linespacing=1.2, zorder=6,
                        bbox={"facecolor": style.SURFACE, "edgecolor": "none", "pad": 0.5})
         style.years_axis(ax, xlim)
-        style.log_axis(ax, "y", grid=True)
-        ax.set_ylim(*dlim)
+        style.log_axis(ax, "y", grid=True, lim=dlim)
         if j == 0:
             ax.set_ylabel("|log$_{10}$ ratio| per interval,\npsmc-rs vs C")
         else:
@@ -207,10 +206,9 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep) -> None:
                 style.note(ax, x0 + 0.4 * width, float(v.max()) * 1.8, f"mean {fmt_sig(mean)}\nmedian {fmt_sig(med)}",
                            ha="right", va="bottom", transform=ax.transData, size=style.TEXT_PT, linespacing=1.15)
         handles.append(style.handle(ent, kind="points", label=label))
-    style.log_axis(ax, "y", grid=True)
     lo = min(lows) if lows else 1e-6
     hi = max(highs) if highs else 1.0
-    ax.set_ylim(*decades(lo / 1.5, hi * 1.5))
+    style.log_axis(ax, "y", grid=True, lim=decades(lo / 1.5, hi * 1.5))
     ax.set_xlim(-0.6, len(models) - 0.4)
     ax.set_xticks(range(len(models)))
     ax.set_xticklabels([MODEL_LABEL.get(m, m) for m in models], fontsize=style.TEXT_PT, color=style.INK)

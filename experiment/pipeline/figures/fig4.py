@@ -65,7 +65,8 @@ def series(table2, threads: Optional[Dict[str, Sequence[int]]] = None) -> List[T
     out = []
     for tool, base in TOOL_ENTITY.items():
         sub = table2[table2.tool == tool]
-        counts = sorted(int(t) for t in sub["threads"].unique() if threads is None or int(t) in threads.get(tool, ()))
+        counts = sorted(int(t) for t in sub["threads"].unique()
+                        if threads is None or int(t) in threads.get(tool, ()))
         for i, t in enumerate(counts):
             label = base.label if tool == "c" else f"{base.label}, {t} thread{'s' if t > 1 else ''}"
             linestyle = THREAD_LINESTYLES[min(i, len(THREAD_LINESTYLES) - 1)]
@@ -206,7 +207,7 @@ def draw(src: Source):
         log_ticks(ax, *decade_span(list(table2[median_col].dropna()) + list(runs[run_col])), ticks, fmt)
         ax.set_ylabel(label)
         if notes and ax is ax_t:  # the same setups in both panels: named once
-            style.note(ax, 0.02, 0.98, "\n".join(notes), ha="left", va="top")
+            style.note(ax, 0.02, 0.98, "\n".join(notes))
     speedup_panel(ax_s, table2, sizes, threads, chromosomes)
 
     handles = [style.handle(ent, kind="both") for _, _, ent in series(table2, threads)]

@@ -109,8 +109,7 @@ def draw(src: Source):
             axd.plot(x, y, drawstyle="steps-post", color=FORMATS[i].color, linewidth=style.LW_DATA, zorder=3)
         style.note(axd, 0.03, 0.97, notes[m], linespacing=1.2)
         style.years_axis(axd, xlim)
-        style.log_axis(axd, "y", grid=True)
-        axd.set_ylim(*dlim)
+        style.log_axis(axd, "y", grid=True, lim=dlim)
         if j == 0:
             axd.set_ylabel("|log$_{10}$ ratio| per\ninterval to psmcfa fit")
         else:
