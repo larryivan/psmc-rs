@@ -93,10 +93,8 @@ def draw(src: Source):
     mid = [fig.add_subplot(gs[1, j], sharex=top[j]) for j in range(n)]
     bottom = fig.add_subplot(gs[2, : max(n - 1, 1)])
 
-    # Per replicate: C psmc's curve and |log10(Ne_rs,k / Ne_c,k)| of each of its intervals.
     diffs: Dict[str, List] = {}
-    for j, m in enumerate(models):
-        ax = top[j]
+    for j, (ax, m) in enumerate(zip(top, models)):
         style.shade_outside(ax, windows[m], xlim)
         for tool, ent in (("c", style.C_PSMC), ("rs", style.RS02)):
             for c in of(m, tool):
@@ -115,7 +113,31 @@ def draw(src: Source):
         diffs[m] = [(r, fits[(m, "c", r)], metrics.interval_diff(c, fits[(m, "c", r)], windows[m]))
                     for (mm, t, r), c in fits.items() if mm == m and t == "rs" and (m, "c", r) in fits]
 
-    # The axis covers the differences of the intervals inside the windows.
+    _differences_row(mid, models, diffs, windows, xlim)
+    _rmse_panel(bottom, models, reps, pairs, src.table("E1_mstep") if src.has("E1_mstep") else None)
+    handles = [
+        style.handle(style.TRUTH),
+        style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
+        style.handle(style.RS02, linewidth=RS_MEDIAN_LW, label="psmc-rs 0.2, median"),
+        # The replicates' tint, keyed thicker than the 0.5 pt lines so that it shows.
+        style.handle(style.C_PSMC, linewidth=style.LW_DATA, color=style.tint(style.C_PSMC.color),
+                     label="C psmc, one replicate"),
+        style.handle(style.RS02, linewidth=style.LW_DATA, color=style.tint(style.RS02.color),
+                     label="psmc-rs 0.2, one replicate"),
+    ]
+    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
+                 columnspacing=1.0)
+    style.panel_letters(fig, [*top, *mid, bottom])
+    return fig
+
+
+def _differences_row(axes, models: List[str], diffs: Dict[str, List], windows, xlim) -> None:
+    """e-h: |log10(Ne_rs,k / Ne_c,k)| per interval, on an axis covering the intervals inside the windows.
+
+    ``diffs`` holds, per model, ``(replicate, C psmc's curve, its interval_diff)`` of every replicate.
+    """
+    import numpy as np
+
     inside = np.abs(np.concatenate([d.log10_ratio for ds in diffs.values() for _, _, d in ds]))
     hi = float(inside.max())
     positive = inside[inside > 0]
@@ -124,8 +146,7 @@ def draw(src: Source):
     off_scale = {m: [(r, d) for r, _, d in ds if d.max_abs_any > dlim[1]] for m, ds in diffs.items()}
     if any(off_scale.values()):  # a decade of headroom for the note
         dlim = (dlim[0], dlim[1] * 10.0)
-    for j, m in enumerate(models):
-        ax = mid[j]
+    for j, (ax, m) in enumerate(zip(axes, models)):
         style.shade_outside(ax, windows[m], xlim)
         for _, c, d in diffs[m]:
             x, y = style.step_xy(c.years, np.abs(d.all_log10_ratio), xlim)
@@ -148,25 +169,9 @@ def draw(src: Source):
         else:
             ax.tick_params(labelleft=False)
 
-    _rmse_panel(bottom, models, reps, pairs, src.table("E1_mstep") if src.has("E1_mstep") else None)
-    handles = [
-        style.handle(style.TRUTH),
-        style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
-        style.handle(style.RS02, linewidth=RS_MEDIAN_LW, label="psmc-rs 0.2, median"),
-        # The replicates' tint, keyed thicker than the 0.5 pt lines so that it shows.
-        style.handle(style.C_PSMC, linewidth=style.LW_DATA, color=style.tint(style.C_PSMC.color),
-                     label="C psmc, one replicate"),
-        style.handle(style.RS02, linewidth=style.LW_DATA, color=style.tint(style.RS02.color),
-                     label="psmc-rs 0.2, one replicate"),
-    ]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
-                 columnspacing=1.0)
-    style.panel_letters(fig, [*top, *mid, bottom])
-    return fig
-
 
 def _rmse_panel(ax, models: List[str], reps, pairs, mstep) -> None:
-    """RMSE of log10 Ne per replicate: C and psmc-rs against the truth, psmc-rs against C (and a capped M-step fit)."""
+    """i: RMSE of log10 Ne per replicate: each tool against the truth, psmc-rs against C (and a capped M-step fit)."""
     import numpy as np
 
     groups = [
