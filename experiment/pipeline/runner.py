@@ -850,8 +850,7 @@ class Daemon:
             job = self.graph.jobs[jid]
             if deps == BLOCKED:
                 self.state[jid] = BLOCKED
-                bad = [d for d in self.graph.deps[jid] if self.state[d] in (FAILED, BLOCKED)]
-                self.reason[jid] = f"needs {bad[0]}"
+                self.reason[jid] = "needs " + next(d for d in self.graph.deps[jid] if self.state[d] in (FAILED, BLOCKED))
                 continue
             if deps != DONE:
                 continue
@@ -874,31 +873,22 @@ class Daemon:
             self.reason[jid] = why
 
     def write_state(self) -> None:
-        running = {
-            jid: {
-                "pid": ex.proc.pid if ex.proc else None,
-                "start": ex.started,
-                "cores": ex.job.cores,
-                "mem_gb": ex.job.mem_gb,
-                "est_seconds": ex.job.est_seconds,
-            }
-            for jid, ex in self.running.items()
-        }
-        provenance.write_json_atomic(
-            runner_dir(self.runs_dir) / "state.json",
-            {
-                **self.meta,
-                "pid": os.getpid(),
-                "updated": time.time(),
-                "draining": self.drain.is_set(),
-                "halted": self.halted,
-                "running": running,
-                "failed": {j: self.reason.get(j, "") for j, s in self.state.items() if s == FAILED},
-                "deferred": {j: {"until": t, "times": self.deferrals.get(j, 0), "why": self.reason.get(j, "")}
-                             for j, t in self.not_before.items()},
-                "blocked": {j: self.reason.get(j, "") for j, s in self.state.items() if s == BLOCKED},
-            },
-        )
+        """``<runs>/_runner/state.json``: how the runner was started, and its jobs that are not pending."""
+        running = {jid: {"pid": ex.proc.pid if ex.proc else None, "start": ex.started, "cores": ex.job.cores,
+                         "mem_gb": ex.job.mem_gb, "est_seconds": ex.job.est_seconds}
+                   for jid, ex in self.running.items()}
+        provenance.write_json_atomic(runner_dir(self.runs_dir) / "state.json", {
+            **self.meta,
+            "pid": os.getpid(),
+            "updated": time.time(),
+            "draining": self.drain.is_set(),
+            "halted": self.halted,
+            "running": running,
+            "failed": {j: self.reason.get(j, "") for j, s in self.state.items() if s == FAILED},
+            "deferred": {j: {"until": t, "times": self.deferrals.get(j, 0), "why": self.reason.get(j, "")}
+                         for j, t in self.not_before.items()},
+            "blocked": {j: self.reason.get(j, "") for j, s in self.state.items() if s == BLOCKED},
+        })
 
     # -- execution -----------------------------------------------------------
     def launch(self, job: Job) -> None:
