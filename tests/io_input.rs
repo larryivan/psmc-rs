@@ -1,68 +1,51 @@
 //! The unified loader: format and VCF mode detection, the fq2psmcfa output
 //! filter, per-sequence information and heterozygous sites.
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::input::{
-    DropReason, HetSite, InputFormat, InputOptions, MODE_DETECTION_RECORDS, SeqFilter,
+    Dataset, DropReason, HetSite, InputFormat, InputOptions, MODE_DETECTION_RECORDS, SeqFilter,
     SourceSummary, VcfDetails, VcfInputSummary, VcfMode, detect_vcf_mode, load,
 };
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::io::vcf::read_vcf;
+use psmc_rs::io::vcf::{VcfSummary, read_vcf};
+use psmc_rs::io::write::write_psmcfa_to;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-/// A path no other test of this process uses (tests run in parallel, and the
-/// clock alone is too coarse to tell them apart).
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
-}
-
-/// A temporary file removed on drop.
-struct TempFile(PathBuf);
-
-impl TempFile {
-    fn new(prefix: &str, ext: &str, content: &str) -> Self {
-        let path = unique_temp_path(prefix, ext);
-        fs::write(&path, content).expect("failed to write temp file");
-        Self(path)
-    }
-}
-
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
+use std::path::{Path, PathBuf};
 
 const HEADER: &str =
     "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
+
+/// `content` written to `name` in `dir`.
+fn write(dir: &TempDir, name: &str, content: impl AsRef<[u8]>) -> PathBuf {
+    let path = dir.path(name);
+    fs::write(&path, content).unwrap();
+    path
+}
 
 /// An all-sites VCF as `bcftools call -c` writes it, with a heterozygous
 /// SNP every `het_every` positions.
 fn call_c_vcf(chrom: &str, len: u64, het_every: u64, depth: u64) -> String {
     let mut out = String::from(HEADER);
     for pos in 1..=len {
-        if pos % het_every == 0 {
-            writeln!(
-                out,
-                "{chrom}\t{pos}\t.\tA\tG\t50\t.\tDP={depth};MQ=50;AF1=0.5;FQ=40\tGT\t0/1"
-            )
-            .unwrap();
+        let (alt, af1, fq, gt) = if pos % het_every == 0 {
+            ("G", "0.5", "40", "0/1")
         } else {
-            writeln!(
-                out,
-                "{chrom}\t{pos}\t.\tA\t.\t50\t.\tDP={depth};MQ=50;AF1=0;FQ=-60\tGT\t0/0"
-            )
-            .unwrap();
-        }
+            (".", "0", "-60", "0/0")
+        };
+        writeln!(
+            out,
+            "{chrom}\t{pos}\t.\tA\t{alt}\t50\t.\tDP={depth};MQ=50;AF1={af1};FQ={fq}\tGT\t{gt}"
+        )
+        .unwrap();
     }
     out
 }
 
+/// A VCF read in `mode`.
 fn vcf_opts(mode: VcfMode) -> InputOptions {
     InputOptions {
         format: Some(InputFormat::Vcf),
@@ -71,20 +54,64 @@ fn vcf_opts(mode: VcfMode) -> InputOptions {
     }
 }
 
+/// [`vcf_opts`] without the output filter.
+fn unfiltered(mode: VcfMode) -> InputOptions {
+    InputOptions {
+        filter: SeqFilter::DISABLED,
+        ..vcf_opts(mode)
+    }
+}
+
+/// The defaults, with bins of `bin_size` and without the output filter.
+fn binned(bin_size: usize) -> InputOptions {
+    InputOptions {
+        bin_size,
+        filter: SeqFilter::DISABLED,
+        ..InputOptions::default()
+    }
+}
+
+/// The message of the error loading `path` with `opts`.
+fn error(path: &Path, opts: &InputOptions) -> String {
+    format!("{:#}", load(path, opts).unwrap_err())
+}
+
+fn vcf_summary(data: &Dataset) -> &VcfInputSummary {
+    let SourceSummary::Vcf(v) = &data.source else {
+        panic!("not read as a VCF: {:?}", data.source)
+    };
+    v
+}
+
+fn mask_summary(data: &Dataset) -> &VcfSummary {
+    let VcfDetails::Mask(m) = &vcf_summary(data).details else {
+        panic!("not read in mask mode")
+    };
+    m
+}
+
 #[test]
 fn formats_are_recognised_from_the_content() {
-    let vcf = TempFile::new("sniff", "txt", &call_c_vcf("c", 3, 2, 10));
-    let psmcfa = TempFile::new("sniff", "txt", "\n>chr1\nTTKN\n");
-    let mhs = TempFile::new("sniff", "txt", "chr1\t10\t10\tAC\n");
-    let empty = TempFile::new("sniff", "txt", "\n\n");
-    assert_eq!(InputFormat::sniff(&vcf.0).unwrap(), InputFormat::Vcf);
-    assert_eq!(InputFormat::sniff(&psmcfa.0).unwrap(), InputFormat::Psmcfa);
-    assert_eq!(InputFormat::sniff(&mhs.0).unwrap(), InputFormat::Mhs);
-    assert!(InputFormat::sniff(&empty.0).is_err());
+    let dir = TempDir::new("io_input");
+    let psmcfa = write(&dir, "psmcfa.txt", "\n>chr1\nTTKN\n");
+    for (path, format) in [
+        (
+            write(&dir, "vcf.txt", call_c_vcf("c", 3, 2, 10)),
+            InputFormat::Vcf,
+        ),
+        (psmcfa.clone(), InputFormat::Psmcfa),
+        (
+            write(&dir, "mhs.txt", "chr1\t10\t10\tAC\n"),
+            InputFormat::Mhs,
+        ),
+    ] {
+        assert_eq!(InputFormat::sniff(&path).unwrap(), format);
+    }
+    assert!(InputFormat::sniff(&write(&dir, "empty.txt", "\n\n")).is_err());
 
-    let data = load(&psmcfa.0, &InputOptions::default()).unwrap();
+    let data = load(&psmcfa, &InputOptions::default()).unwrap();
     assert_eq!(data.source.format(), InputFormat::Psmcfa);
-    assert_eq!(data.obs.rows, vec![vec![0, 0, 1, 2]]);
+    assert_eq!(data.obs.rows, [[0, 0, 1, 2]]);
 }
 
 #[test]
@@ -99,74 +126,55 @@ fn bcf_input_is_refused_with_a_conversion_hint() {
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     std::io::Write::write_all(&mut gz, &bcf).unwrap();
     let gz = gz.finish().unwrap();
+    let dir = TempDir::new("io_input");
     for (bytes, format) in [
         (&bcf, None),
         (&gz, None),
         (&gz, Some(InputFormat::Vcf)),
         (&gz, Some(InputFormat::Mhs)),
     ] {
-        let path = unique_temp_path("bcf_input", "bcf");
-        fs::write(&path, bytes).unwrap();
-        let err = load(
-            &path,
-            &InputOptions {
-                format,
-                ..InputOptions::default()
-            },
-        )
-        .unwrap_err();
-        let msg = format!("{err:#}");
+        let opts = InputOptions {
+            format,
+            ..InputOptions::default()
+        };
+        let msg = error(&write(&dir, "in.bcf", bytes), &opts);
         assert!(
             msg.contains("is a BCF file") && msg.contains("bcftools view -Oz"),
             "{format:?}: {msg}"
         );
-        let _ = fs::remove_file(path);
     }
 }
 
 #[test]
 fn a_utf8_byte_order_mark_is_skipped() {
     const BOM: &str = "\u{feff}";
-    let psmcfa = TempFile::new("bom", "psmcfa", &format!("{BOM}>chr1\nTTKN\n"));
-    let data = load(&psmcfa.0, &InputOptions::default()).unwrap();
+    let dir = TempDir::new("io_input");
+    let psmcfa = write(&dir, "in.psmcfa", format!("{BOM}>chr1\nTTKN\n"));
+    let data = load(&psmcfa, &InputOptions::default()).unwrap();
     assert_eq!(data.source.format(), InputFormat::Psmcfa);
     assert_eq!(data.seqs[0].name, "chr1");
-    assert_eq!(data.obs.rows, vec![vec![0, 0, 1, 2]]);
+    assert_eq!(data.obs.rows, [[0, 0, 1, 2]]);
 
-    let mhs = TempFile::new("bom", "mhs", &format!("{BOM}chr1\t10\t10\tAC\n"));
-    let data = load(
-        &mhs.0,
-        &InputOptions {
-            bin_size: 5,
-            filter: SeqFilter::DISABLED,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
+    let mhs = write(&dir, "in.mhs", format!("{BOM}chr1\t10\t10\tAC\n"));
+    let data = load(&mhs, &binned(5)).unwrap();
     assert_eq!(data.source.format(), InputFormat::Mhs);
     assert_eq!(data.seqs[0].name, "chr1");
 
-    let vcf = TempFile::new(
-        "bom",
-        "vcf",
-        &format!("{BOM}{}", call_c_vcf("c", 30, 3, 20)),
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        format!("{BOM}{}", call_c_vcf("c", 30, 3, 20)),
     );
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            filter: SeqFilter::DISABLED,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
+    let data = load(&vcf, &binned(100)).unwrap();
     assert_eq!(data.source.format(), InputFormat::Vcf);
     assert_eq!(data.seqs[0].het_sites, Some(10));
 }
 
 #[test]
 fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
-    let text = TempFile::new("guess", "txt", "Some notes, not data\n");
-    let err = format!("{:#}", load(&text.0, &InputOptions::default()).unwrap_err());
+    let dir = TempDir::new("io_input");
+    let notes = write(&dir, "notes.txt", "Some notes, not data\n");
+    let err = error(&notes, &InputOptions::default());
     assert!(
         err.contains("failed to read multihetsep")
             && err.contains("recognised from the first line"),
@@ -176,15 +184,12 @@ fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
         format: Some(InputFormat::Mhs),
         ..InputOptions::default()
     };
-    let err = format!("{:#}", load(&text.0, &forced).unwrap_err());
+    let err = error(&notes, &forced);
     assert!(!err.contains("recognised from the first line"), "{err}");
-    let guessed = |name: &str, text: &str| {
-        let file = TempFile::new(name, "txt", text);
-        format!("{:#}", load(&file.0, &InputOptions::default()).unwrap_err())
-    };
+    let guessed = |text: &str| error(&write(&dir, "in.txt", text), &InputOptions::default());
     // The note names the option, and comes with a row that lacks columns
     // anywhere in the file.
-    let err = guessed("guess_short", "chr1\t100\t50\tAC\nchr1 200\n");
+    let err = guessed("chr1\t100\t50\tAC\nchr1 200\n");
     assert!(
         err.contains("recognised from the first line") && err.contains("give --input-format"),
         "{err}"
@@ -192,19 +197,14 @@ fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
     assert!(err.contains("row 2: missing nr_called"), "{err}");
     // An error in a later row of a file that started as multihetsep is
     // that file's error, without the note.
-    for (name, text, error) in [
+    for (text, error) in [
         (
-            "guess_again",
             "chr1\t100\t50\tAC\nchr2\t90\t10\tAC\nchr1\t300\t100\tAG\n",
             "chromosome 'chr1' appears again",
         ),
-        (
-            "guess_order",
-            "chr1\t100\t50\tAC\nchr1\t90\t10\tAC\n",
-            "pos must increase",
-        ),
+        ("chr1\t100\t50\tAC\nchr1\t90\t10\tAC\n", "pos must increase"),
     ] {
-        let err = guessed(name, text);
+        let err = guessed(text);
         assert!(err.contains(error), "{err}");
         assert!(!err.contains("recognised from the first line"), "{err}");
     }
@@ -212,23 +212,17 @@ fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
 
 #[test]
 fn vcf_headers_need_not_start_with_fileformat() {
+    let dir = TempDir::new("io_input");
     let body = call_c_vcf("c", 40, 4, 20);
     let records: String = body.lines().skip(2).map(|l| format!("{l}\n")).collect();
     let chrom_line = HEADER.lines().nth(1).unwrap();
-    let opts = InputOptions {
-        bin_size: 10,
-        filter: SeqFilter::DISABLED,
-        ..InputOptions::default()
+    let opts = binned(10);
+    let as_vcf = InputOptions {
+        format: Some(InputFormat::Vcf),
+        ..opts.clone()
     };
-    let expected = load(
-        &TempFile::new("sniff_ref", "vcf", &body).0,
-        &InputOptions {
-            format: Some(InputFormat::Vcf),
-            ..opts.clone()
-        },
-    )
-    .unwrap();
-    assert_eq!(expected.obs.rows, vec![vec![1; 4]]);
+    let expected = load(&write(&dir, "ref.vcf", &body), &as_vcf).unwrap();
+    assert_eq!(expected.obs.rows, [vec![1; 4]]);
     // vcf2fq skips every '#' line and needs no header at all.
     for text in [
         format!("##contig=<ID=c,length=4000>\n{chrom_line}\n{records}"),
@@ -237,37 +231,41 @@ fn vcf_headers_need_not_start_with_fileformat() {
         format!("# a comment\n{chrom_line}\n{records}"),
         records.clone(),
     ] {
-        let vcf = TempFile::new("sniff_vcf", "vcf", &text);
+        let vcf = write(&dir, "in.vcf", &text);
         assert_eq!(
-            InputFormat::sniff(&vcf.0).unwrap(),
+            InputFormat::sniff(&vcf).unwrap(),
             InputFormat::Vcf,
             "{text}"
         );
-        let data = load(&vcf.0, &opts).unwrap();
-        let SourceSummary::Vcf(v) = &data.source else {
-            panic!("not read as a VCF: {text}")
-        };
-        assert_eq!(v.mode.mode, VcfMode::Consensus);
+        let data = load(&vcf, &opts).unwrap();
+        assert_eq!(vcf_summary(&data).mode.mode, VcfMode::Consensus, "{text}");
         assert_eq!(data.obs.rows, expected.obs.rows);
     }
 
     // Comment lines before multihetsep or psmcfa content are skipped.
-    let mhs = TempFile::new("sniff_mhs", "txt", "# made by hand\nchr1\t10\t10\tAC\n");
-    let psmcfa = TempFile::new("sniff_psmcfa", "txt", "# made by hand\n>chr1\nTTKN\n");
-    let comments = TempFile::new("sniff_comments", "txt", "# nothing else\n\n");
-    assert_eq!(InputFormat::sniff(&mhs.0).unwrap(), InputFormat::Mhs);
-    assert_eq!(InputFormat::sniff(&psmcfa.0).unwrap(), InputFormat::Psmcfa);
-    assert_eq!(InputFormat::sniff(&comments.0).unwrap(), InputFormat::Mhs);
-    let data = load(&mhs.0, &opts).unwrap();
-    assert_eq!(data.source.format(), InputFormat::Mhs);
+    let mhs = write(&dir, "mhs.txt", "# made by hand\nchr1\t10\t10\tAC\n");
+    for (path, format) in [
+        (mhs.clone(), InputFormat::Mhs),
+        (
+            write(&dir, "psmcfa.txt", "# made by hand\n>chr1\nTTKN\n"),
+            InputFormat::Psmcfa,
+        ),
+        (
+            write(&dir, "comments.txt", "# nothing else\n\n"),
+            InputFormat::Mhs,
+        ),
+    ] {
+        assert_eq!(InputFormat::sniff(&path).unwrap(), format);
+    }
+    assert_eq!(load(&mhs, &opts).unwrap().source.format(), InputFormat::Mhs);
 }
 
 #[test]
 fn auto_mode_reads_call_c_output_as_consensus() {
-    let vcf = TempFile::new("mode_c", "vcf", &call_c_vcf("c", 200, 10, 20));
-    let choice = detect_vcf_mode(&vcf.0).unwrap();
-    assert_eq!(choice.mode, VcfMode::Consensus);
-    assert!(!choice.forced);
+    let dir = TempDir::new("io_input");
+    let vcf = write(&dir, "in.vcf", call_c_vcf("c", 200, 10, 20));
+    let choice = detect_vcf_mode(&vcf).unwrap();
+    assert_eq!((choice.mode, choice.forced), (VcfMode::Consensus, false));
     assert_eq!(
         (choice.inspected, choice.alt_dot, choice.alt_dot_with_fq),
         (200, 180, 180)
@@ -278,31 +276,25 @@ fn auto_mode_reads_call_c_output_as_consensus() {
         choice.reason
     );
 
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            bin_size: 10,
-            filter: SeqFilter::DISABLED,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
+    let data = load(&vcf, &binned(10)).unwrap();
+    let v = vcf_summary(&data);
     assert_eq!(v.mode.mode, VcfMode::Consensus);
     assert!(matches!(v.details, VcfDetails::Consensus(_)));
-    assert_eq!(data.obs.rows, vec![vec![1; 20]]);
+    assert_eq!(data.obs.rows, [vec![1; 20]]);
 }
 
 #[test]
 fn auto_mode_reads_variants_only_vcfs_with_masks() {
-    let text = format!(
-        "{HEADER}c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\nc\t9\t.\tA\t.\t50\tPASS\tFQ=-3\tGT\t0/0\n\
-         c\t12\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
+    let dir = TempDir::new("io_input");
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        format!(
+            "{HEADER}c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\nc\t9\t.\tA\t.\t50\tPASS\tFQ=-3\tGT\t0/0\n\
+             c\t12\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
+        ),
     );
-    let vcf = TempFile::new("mode_m", "vcf", &text);
-    let choice = detect_vcf_mode(&vcf.0).unwrap();
+    let choice = detect_vcf_mode(&vcf).unwrap();
     assert_eq!(choice.mode, VcfMode::Mask);
     assert_eq!((choice.inspected, choice.alt_dot), (3, 1));
     assert!(
@@ -311,25 +303,11 @@ fn auto_mode_reads_variants_only_vcfs_with_masks() {
         choice.reason
     );
 
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            bin_size: 4,
-            filter: SeqFilter::DISABLED,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
+    let data = load(&vcf, &binned(4)).unwrap();
     // Identical to the existing mask-mode reader.
-    let expected = read_vcf(&vcf.0, None, 4, None, &[], &[]).unwrap();
+    let expected = read_vcf(&vcf, None, 4, None, &[], &[]).unwrap();
     assert_eq!(data.obs.rows, expected.rows);
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    let VcfDetails::Mask(m) = &v.details else {
-        panic!("not mask mode")
-    };
-    assert_eq!(m.het_snps, 1);
+    assert_eq!(mask_summary(&data).het_snps, 1);
     // Without a mask, the mask-mode warning is passed on.
     assert!(data.warnings()[0].contains("no callable mask"));
 }
@@ -338,14 +316,18 @@ fn auto_mode_reads_variants_only_vcfs_with_masks() {
 fn auto_mode_names_a_gvcf_as_such() {
     // DeepVariant: reference and no-call blocks with END, and variants
     // with a symbolic <*> allele.
-    let text = format!(
-        "{HEADER}c\t1\t.\tA\t<*>\t0\t.\tEND=40\tGT:GQ\t0/0:50\n\
-         c\t41\t.\tA\tC,<*>\t50\tPASS\t.\tGT:GQ\t0/1:40\n\
-         c\t42\t.\tA\t<*>\t0\t.\tEND=80\tGT:GQ\t./.:0\n\
-         c\t81\t.\tA\t<*>\t0\t.\tEND=100\tGT:GQ\t0/0:50\n"
+    let dir = TempDir::new("io_input");
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        format!(
+            "{HEADER}c\t1\t.\tA\t<*>\t0\t.\tEND=40\tGT:GQ\t0/0:50\n\
+             c\t41\t.\tA\tC,<*>\t50\tPASS\t.\tGT:GQ\t0/1:40\n\
+             c\t42\t.\tA\t<*>\t0\t.\tEND=80\tGT:GQ\t./.:0\n\
+             c\t81\t.\tA\t<*>\t0\t.\tEND=100\tGT:GQ\t0/0:50\n"
+        ),
     );
-    let vcf = TempFile::new("mode_gvcf", "vcf", &text);
-    let choice = detect_vcf_mode(&vcf.0).unwrap();
+    let choice = detect_vcf_mode(&vcf).unwrap();
     assert_eq!((choice.mode, choice.gvcf_blocks), (VcfMode::Mask, 3));
     assert!(
         choice.reason.contains(
@@ -354,15 +336,7 @@ fn auto_mode_names_a_gvcf_as_such() {
         "{}",
         choice.reason
     );
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            bin_size: 10,
-            filter: SeqFilter::DISABLED,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
+    let data = load(&vcf, &binned(10)).unwrap();
     assert_eq!(data.seqs[0].called, Some(61));
     assert!(data.warnings().iter().any(|w| w.contains("is a gVCF")));
 }
@@ -373,43 +347,34 @@ fn auto_mode_names_a_gvcf_as_such() {
 /// covers are missing even where the callable mask allows them.
 #[test]
 fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
-    let text = "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
-                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
-                chr1\t1\t.\tG\t.\t.\t.\tEND=298;MIN_DP=1\tGT:DP\t0/0:1\n\
-                chr1\t299\t.\tA\tG\t50\t.\tDP=5\tGT:DP\t0/1:5\n\
-                chr1\t600\t.\tA\t.\t.\t.\tEND=899;MIN_DP=1\tGT:DP\t0/0:1\n";
-    let vcf = TempFile::new("bcftools_gvcf", "vcf", text);
-    let mask = TempFile::new("bcftools_gvcf_mask", "bed", "chr1\t0\t1000\n");
-    let choice = detect_vcf_mode(&vcf.0).unwrap();
+    let dir = TempDir::new("io_input");
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
+         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+         chr1\t1\t.\tG\t.\t.\t.\tEND=298;MIN_DP=1\tGT:DP\t0/0:1\n\
+         chr1\t299\t.\tA\tG\t50\t.\tDP=5\tGT:DP\t0/1:5\n\
+         chr1\t600\t.\tA\t.\t.\t.\tEND=899;MIN_DP=1\tGT:DP\t0/0:1\n",
+    );
+    let mask = write(&dir, "mask.bed", "chr1\t0\t1000\n");
+    let choice = detect_vcf_mode(&vcf).unwrap();
     assert_eq!(
         (choice.mode, choice.gvcf_blocks, choice.alt_dot),
         (VcfMode::Mask, 2, 2)
     );
     assert!(choice.reason.contains("as in a gVCF"), "{}", choice.reason);
     for mode in [VcfMode::Auto, VcfMode::Mask] {
-        let data = load(
-            &vcf.0,
-            &InputOptions {
-                bin_size: 10,
-                masks: vec![mask.0.clone()],
-                filter: SeqFilter::DISABLED,
-                ..vcf_opts(mode)
-            },
-        )
-        .unwrap();
-        // 300..=599 and 900..=1000 have no record.
-        assert_eq!(
-            (data.seqs[0].extent, data.seqs[0].called),
-            (Some(1000), Some(599)),
-            "{mode:?}"
-        );
-        let SourceSummary::Vcf(VcfInputSummary {
-            details: VcfDetails::Mask(m),
-            ..
-        }) = &data.source
-        else {
-            panic!("not mask mode")
+        let opts = InputOptions {
+            bin_size: 10,
+            masks: vec![mask.clone()],
+            ..unfiltered(mode)
         };
+        let data = load(&vcf, &opts).unwrap();
+        // 300..=599 and 900..=1000 have no record.
+        let s = &data.seqs[0];
+        assert_eq!((s.extent, s.called), (Some(1000), Some(599)), "{mode:?}");
+        let m = mask_summary(&data);
         assert_eq!((m.uncovered_sites, m.missing_sites), (401, 401), "{mode:?}");
         let warnings = data.warnings();
         assert!(
@@ -420,16 +385,11 @@ fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
     }
     // Without a mask, the gVCF warning stands alone: the generic one would
     // say that positions without a record are called, which is not so here.
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            bin_size: 10,
-            filter: SeqFilter::DISABLED,
-            ..vcf_opts(VcfMode::Auto)
-        },
-    )
-    .unwrap();
-    let warnings = data.warnings();
+    let opts = InputOptions {
+        bin_size: 10,
+        ..unfiltered(VcfMode::Auto)
+    };
+    let warnings = load(&vcf, &opts).unwrap().warnings();
     assert!(
         warnings.iter().any(|w| w.contains("is a gVCF")),
         "{warnings:?}"
@@ -449,20 +409,15 @@ fn an_all_sites_vcf_without_fq_is_an_error_with_guidance() {
     for pos in 1..=100 {
         writeln!(text, "c\t{pos}\t.\tA\t.\t50\t.\tDP=10;MQ=50\tGT\t0/0").unwrap();
     }
-    let vcf = TempFile::new("mode_nofq", "vcf", &text);
-    let err = detect_vcf_mode(&vcf.0).unwrap_err();
-    let msg = format!("{err:#}");
-    assert!(msg.contains("all-sites VCF"), "{msg}");
-    assert!(msg.contains("bcftools call -c"), "{msg}");
-    assert!(msg.contains("callable mask"), "{msg}");
-    assert!(load(&vcf.0, &vcf_opts(VcfMode::Auto)).is_err());
-
+    let dir = TempDir::new("io_input");
+    let vcf = write(&dir, "in.vcf", &text);
+    let msg = format!("{:#}", detect_vcf_mode(&vcf).unwrap_err());
+    for part in ["all-sites VCF", "bcftools call -c", "callable mask"] {
+        assert!(msg.contains(part), "{msg}");
+    }
+    assert!(load(&vcf, &vcf_opts(VcfMode::Auto)).is_err());
     // Forcing mask mode reads the genotypes.
-    let opts = InputOptions {
-        filter: SeqFilter::DISABLED,
-        ..vcf_opts(VcfMode::Mask)
-    };
-    let data = load(&vcf.0, &opts).unwrap();
+    let data = load(&vcf, &unfiltered(VcfMode::Mask)).unwrap();
     assert_eq!(data.seqs[0].called, Some(100));
 }
 
@@ -487,7 +442,8 @@ fn mode_detection_thresholds() {
         }
         s
     };
-    let detect = |text: &str| detect_vcf_mode(&TempFile::new("mode_t", "vcf", text).0);
+    let dir = TempDir::new("io_input");
+    let detect = |text: &str| detect_vcf_mode(&write(&dir, "in.vcf", text));
     // Exactly 50% ALT '.' with exactly 90% FQ: consensus.
     let choice = detect(&build(10, 9, 10, "DP=5")).unwrap();
     assert_eq!(choice.mode, VcfMode::Consensus);
@@ -537,8 +493,9 @@ fn dense_call_c_vcfs_with_alt_alleles_at_reference_sites_are_consensus() {
             })
             .collect::<String>()
     };
+    let dir = TempDir::new("io_input");
     let detect = |records: String| {
-        detect_vcf_mode(&TempFile::new("mode_a", "vcf", &format!("{HEADER}{records}")).0).unwrap()
+        detect_vcf_mode(&write(&dir, "in.vcf", format!("{HEADER}{records}"))).unwrap()
     };
 
     let choice = detect(build("c", 1, 300, 1, 0));
@@ -571,29 +528,19 @@ fn dense_call_c_vcfs_with_alt_alleles_at_reference_sites_are_consensus() {
     let choice = detect(build("a", 1_000_001, 150, 1, 0) + &build("b", 1, 150, 1, 0));
     assert_eq!((choice.mode, choice.span), (VcfMode::Consensus, 300));
     // A variants-only `call -cv` VCF carries FQ too, but is sparse.
-    let choice = detect(build("c", 1, 300, 500, 0));
-    assert_eq!(choice.mode, VcfMode::Mask);
+    assert_eq!(detect(build("c", 1, 300, 500, 0)).mode, VcfMode::Mask);
 }
 
 #[test]
 fn forced_modes_are_reported() {
-    let vcf = TempFile::new("forced", "vcf", &call_c_vcf("c", 50, 5, 20));
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            filter: SeqFilter::DISABLED,
-            ..vcf_opts(VcfMode::Mask)
-        },
-    )
-    .unwrap();
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    assert_eq!(v.mode.mode, VcfMode::Mask);
-    assert!(v.mode.forced);
+    let dir = TempDir::new("io_input");
+    let vcf = write(&dir, "in.vcf", call_c_vcf("c", 50, 5, 20));
+    let data = load(&vcf, &unfiltered(VcfMode::Mask)).unwrap();
+    let mode = &vcf_summary(&data).mode;
+    assert_eq!((mode.mode, mode.forced), (VcfMode::Mask, true));
     // Mask mode inspects the first records for gVCF blocks.
-    assert_eq!((v.mode.inspected, v.mode.gvcf_blocks), (50, 0));
-    assert!(v.mode.reason.contains("requested"));
+    assert_eq!((mode.inspected, mode.gvcf_blocks), (50, 0));
+    assert!(mode.reason.contains("requested"));
 
     // Consensus mode reads INFO only, but a sample the header lacks is
     // still an error.
@@ -601,8 +548,8 @@ fn forced_modes_are_reported() {
         sample: Some("nobody".to_string()),
         ..vcf_opts(VcfMode::Consensus)
     };
-    let err = load(&vcf.0, &opts).unwrap_err();
-    assert!(format!("{err:#}").contains("'nobody' not found"), "{err:#}");
+    let err = error(&vcf, &opts);
+    assert!(err.contains("'nobody' not found"), "{err}");
 }
 
 #[test]
@@ -616,9 +563,11 @@ fn consensus_mode_refuses_a_vcf_with_several_samples() {
             l => format!("{l}\t0/0\n"),
         })
         .collect();
-    let vcf = TempFile::new("two_samples", "vcf", &two);
+    let dir = TempDir::new("io_input");
+    let vcf = write(&dir, "two.vcf", &two);
+    let sample = |name: &str| Some(name.to_string());
     let refused = |opts: &InputOptions| {
-        let msg = format!("{:#}", load(&vcf.0, opts).unwrap_err());
+        let msg = error(&vcf, opts);
         assert!(
             msg.contains("2 samples (s1, s2)")
                 && msg.contains("pooled")
@@ -631,73 +580,47 @@ fn consensus_mode_refuses_a_vcf_with_several_samples() {
     refused(&InputOptions::default());
     refused(&vcf_opts(VcfMode::Consensus));
     let msg = refused(&InputOptions {
-        sample: Some("s2".to_string()),
+        sample: sample("s2"),
         ..InputOptions::default()
     });
     assert!(msg.contains("cannot read sample 's2' alone"), "{msg}");
     // A name the header lacks is still reported as such.
-    let err = load(
-        &vcf.0,
-        &InputOptions {
-            sample: Some("nobody".to_string()),
-            ..InputOptions::default()
-        },
-    )
-    .unwrap_err();
-    assert!(format!("{err:#}").contains("'nobody' not found"), "{err:#}");
+    let opts = InputOptions {
+        sample: sample("nobody"),
+        ..InputOptions::default()
+    };
+    let err = error(&vcf, &opts);
+    assert!(err.contains("'nobody' not found"), "{err}");
 
     // Mask mode reads the genotypes of the sample asked for.
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            sample: Some("s2".to_string()),
-            filter: SeqFilter::DISABLED,
-            ..vcf_opts(VcfMode::Mask)
-        },
-    )
-    .unwrap();
-    assert_eq!(data.het_bins(), 0);
+    let opts = InputOptions {
+        sample: sample("s2"),
+        ..unfiltered(VcfMode::Mask)
+    };
+    assert_eq!(load(&vcf, &opts).unwrap().het_bins(), 0);
     // So does consensus mode for a one-sample VCF named on the command line.
-    let one = TempFile::new("one_sample", "vcf", &call_c_vcf("c", 50, 5, 20));
-    let data = load(
-        &one.0,
-        &InputOptions {
-            sample: Some("s1".to_string()),
-            filter: SeqFilter::DISABLED,
-            bin_size: 5,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(data.het_bins(), 10);
+    let one = write(&dir, "one.vcf", call_c_vcf("c", 50, 5, 20));
+    let opts = InputOptions {
+        sample: sample("s1"),
+        ..binned(5)
+    };
+    assert_eq!(load(&one, &opts).unwrap().het_bins(), 10);
 }
 
 #[test]
 fn the_output_filter_follows_fq2psmcfa() {
     let f = SeqFilter::default();
     assert_eq!((f.min_good_bases, f.min_good_fraction), (10_000, 0.2));
+    let dropped = |few_good_bases, low_good_fraction| {
+        Some(DropReason::Filter {
+            few_good_bases,
+            low_good_fraction,
+        })
+    };
     assert_eq!(f.verdict(10_000, 50_000), None);
-    assert_eq!(
-        f.verdict(9_999, 20_000),
-        Some(DropReason::Filter {
-            few_good_bases: true,
-            low_good_fraction: false
-        })
-    );
-    assert_eq!(
-        f.verdict(10_000, 50_001),
-        Some(DropReason::Filter {
-            few_good_bases: false,
-            low_good_fraction: true
-        })
-    );
-    assert_eq!(
-        f.verdict(10, 1_000_000),
-        Some(DropReason::Filter {
-            few_good_bases: true,
-            low_good_fraction: true
-        })
-    );
+    assert_eq!(f.verdict(9_999, 20_000), dropped(true, false));
+    assert_eq!(f.verdict(10_000, 50_001), dropped(false, true));
+    assert_eq!(f.verdict(10, 1_000_000), dropped(true, true));
     assert_eq!(SeqFilter::DISABLED.verdict(0, 1), None);
     let only_fraction = SeqFilter {
         min_good_bases: 0,
@@ -712,12 +635,13 @@ fn the_output_filter_applies_to_every_vcf_mode() {
     // c1: 20,000 bases, all called. c2: 5,000 called bases only.
     let mut text = call_c_vcf("c1", 20_000, 100, 20);
     text.push_str(&call_c_vcf("c2", 5_000, 100, 20).replace(HEADER, ""));
-    let vcf = TempFile::new("filter_vcf", "vcf", &text);
+    let dir = TempDir::new("io_input");
+    let vcf = write(&dir, "in.vcf", &text);
     for mode in [VcfMode::Consensus, VcfMode::Mask] {
-        let data = load(&vcf.0, &vcf_opts(mode)).unwrap();
+        let data = load(&vcf, &vcf_opts(mode)).unwrap();
         let names: Vec<_> = data.seqs.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["c1"], "{mode:?}");
-        assert_eq!(data.dropped.len(), 1);
+        assert_eq!((data.dropped.len(), data.obs.rows.len()), (1, 1));
         let d = &data.dropped[0];
         assert_eq!(
             (d.name.as_str(), d.extent, d.good),
@@ -730,7 +654,6 @@ fn the_output_filter_applies_to_every_vcf_mode() {
                 low_good_fraction: false
             }
         );
-        assert_eq!(data.obs.rows.len(), 1);
         let w = data.warnings();
         assert!(
             w.iter()
@@ -738,14 +661,7 @@ fn the_output_filter_applies_to_every_vcf_mode() {
             "{w:?}"
         );
         // Disabled, both are kept.
-        let all = load(
-            &vcf.0,
-            &InputOptions {
-                filter: SeqFilter::DISABLED,
-                ..vcf_opts(mode)
-            },
-        )
-        .unwrap();
+        let all = load(&vcf, &unfiltered(mode)).unwrap();
         assert_eq!(all.seqs.len(), 2);
         assert!(all.dropped.is_empty());
     }
@@ -755,36 +671,37 @@ fn the_output_filter_applies_to_every_vcf_mode() {
 fn mask_mode_good_bases_are_the_callable_sites() {
     // A 30,000 bp contig: the good bases are the callable positions, and
     // the sequence extends to the ##contig length.
-    let text = "##fileformat=VCFv4.2\n##contig=<ID=c,length=30000>\n\
-                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
-                c\t100\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n";
-    let vcf = TempFile::new("filter_mask", "vcf", text);
+    let dir = TempDir::new("io_input");
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        "##fileformat=VCFv4.2\n##contig=<ID=c,length=30000>\n\
+         #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
+         c\t100\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n",
+    );
     // 10,000 callable positions: enough, and a third of the sequence.
-    let mask = TempFile::new("filter_mask", "bed", "c\t0\t10000\n");
     let opts = InputOptions {
-        masks: vec![mask.0.clone()],
+        masks: vec![write(&dir, "third.bed", "c\t0\t10000\n")],
         ..vcf_opts(VcfMode::Mask)
     };
-    let data = load(&vcf.0, &opts).unwrap();
+    let data = load(&vcf, &opts).unwrap();
     assert_eq!(data.seqs.len(), 1);
     let s = &data.seqs[0];
     assert_eq!(
-        (s.extent, s.called, s.het_sites),
-        (Some(30_000), Some(10_000), Some(1))
+        (s.extent, s.called, s.het_sites, s.n_bins),
+        (Some(30_000), Some(10_000), Some(1), 300)
     );
-    assert_eq!(s.n_bins, 300);
 
     // 5,999 callable positions: just under a fifth.
-    let mask = TempFile::new("filter_mask", "bed", "c\t0\t5999\n");
     let opts = InputOptions {
-        masks: vec![mask.0.clone()],
+        masks: vec![write(&dir, "fifth.bed", "c\t0\t5999\n")],
         filter: SeqFilter {
             min_good_bases: 0,
             ..SeqFilter::default()
         },
         ..vcf_opts(VcfMode::Mask)
     };
-    let data = load(&vcf.0, &opts).unwrap();
+    let data = load(&vcf, &opts).unwrap();
     assert!(data.seqs.is_empty());
     assert_eq!(
         data.dropped[0].reason,
@@ -795,8 +712,7 @@ fn mask_mode_good_bases_are_the_callable_sites() {
     );
     // Nothing left: the loader succeeds, ensure_usable explains.
     assert!(data.obs.rows.is_empty());
-    let err = data.ensure_usable().unwrap_err();
-    let msg = format!("{err:#}");
+    let msg = format!("{:#}", data.ensure_usable().unwrap_err());
     assert!(
         msg.contains("no sequence of the vcf input is left"),
         "{msg}"
@@ -806,9 +722,12 @@ fn mask_mode_good_bases_are_the_callable_sites() {
 
 #[test]
 fn multihetsep_input_is_filtered_and_described() {
-    let text = "A\t20000\t19000\tAC\nA\t20010\t10\tAA,CC\nA\t20020\t10\tAC,CA\n\
-                B\t100\t50\tAC\n";
-    let mhs = TempFile::new("filter_mhs", "mhs", text);
+    let dir = TempDir::new("io_input");
+    let two = write(
+        &dir,
+        "two.mhs",
+        "A\t20000\t19000\tAC\nA\t20010\t10\tAA,CC\nA\t20020\t10\tAC,CA\nB\t100\t50\tAC\n",
+    );
     let opts = InputOptions {
         format: Some(InputFormat::Mhs),
         bin_size: 10,
@@ -816,19 +735,21 @@ fn multihetsep_input_is_filtered_and_described() {
         collect_het_sites: true,
         ..InputOptions::default()
     };
-    let err = load(&mhs.0, &opts).unwrap_err();
-    assert!(format!("{err:#}").contains("haplotypes"), "{err:#}");
+    let err = error(&two, &opts);
+    assert!(err.contains("haplotypes"), "{err}");
 
     // Four haplotypes; the pair (0, 1) is heterozygous, homozygous, then
     // heterozygous on A.
-    let text = "A\t20000\t19000\tACAC\nA\t20010\t10\tAACC\nA\t20030\t10\tCAAA\n\
-                B\t100\t50\tACAA\n";
-    let mhs = TempFile::new("filter_mhs", "mhs", text);
+    let four = write(
+        &dir,
+        "four.mhs",
+        "A\t20000\t19000\tACAC\nA\t20010\t10\tAACC\nA\t20030\t10\tCAAA\nB\t100\t50\tACAA\n",
+    );
     let opts = InputOptions {
         mhs_pair: (0, 1),
         ..opts
     };
-    let data = load(&mhs.0, &opts).unwrap();
+    let data = load(&four, &opts).unwrap();
     let SourceSummary::Mhs(m) = &data.source else {
         panic!("not an mhs summary")
     };
@@ -842,47 +763,42 @@ fn multihetsep_input_is_filtered_and_described() {
     );
     assert_eq!(data.dropped[0].name, "B");
     // Same bins as the multihetsep reader for the kept sequence.
-    let all = read_mhs(&mhs.0, None, 10).unwrap();
-    assert_eq!(data.obs.rows[0], all.rows[0]);
+    assert_eq!(data.obs.rows[0], read_mhs(&four, None, 10).unwrap().rows[0]);
     // nr_called counts the called sites since the previous heterozygous row.
-    let sites = data.het_sites.as_ref().unwrap();
+    let site = |pos, nr_called, alleles| HetSite {
+        seq: 0,
+        pos,
+        nr_called,
+        alleles,
+    };
     assert_eq!(
-        sites,
-        &vec![
-            HetSite {
-                seq: 0,
-                pos: 20_000,
-                nr_called: 19_000,
-                alleles: *b"AC"
-            },
-            HetSite {
-                seq: 0,
-                pos: 20_030,
-                nr_called: 20,
-                alleles: *b"CA"
-            },
-        ]
+        data.het_sites.unwrap(),
+        [site(20_000, 19_000, *b"AC"), site(20_030, 20, *b"CA")]
     );
 }
 
 #[test]
 fn mask_mode_het_sites_carry_alleles_in_gt_order() {
-    let text = format!(
-        "{HEADER}\
-         c\t3\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n\
-         c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t1|0\n\
-         c\t7\t.\tA\tC,G\t50\tPASS\t.\tGT\t1/2\n\
-         c\t9\t.\tA\tC\t50\tPASS\t.\tGT\t1/1\n\
-         c\t10\t.\tA\tAT\t50\tPASS\t.\tGT\t0/1\n\
-         c\t12\t.\tA\tC\t50\tPASS\t.\tGT\t1/0\n\
-         d\t2\t.\tG\tT\t50\tPASS\t.\tGT\t0|1\n\
-         e\t4\t.\tG\tT\t50\tPASS\t.\tGT\t0|1\n"
+    let dir = TempDir::new("io_input");
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        format!(
+            "{HEADER}\
+             c\t3\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n\
+             c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t1|0\n\
+             c\t7\t.\tA\tC,G\t50\tPASS\t.\tGT\t1/2\n\
+             c\t9\t.\tA\tC\t50\tPASS\t.\tGT\t1/1\n\
+             c\t10\t.\tA\tAT\t50\tPASS\t.\tGT\t0/1\n\
+             c\t12\t.\tA\tC\t50\tPASS\t.\tGT\t1/0\n\
+             d\t2\t.\tG\tT\t50\tPASS\t.\tGT\t0|1\n\
+             e\t4\t.\tG\tT\t50\tPASS\t.\tGT\t0|1\n"
+        ),
     );
-    let vcf = TempFile::new("het_mask", "vcf", &text);
     // Position 6 of c is not callable.
-    let mask = TempFile::new("het_mask", "bed", "c\t0\t5\nc\t6\t20\nd\t0\t1\ne\t0\t10\n");
+    let mask = write(&dir, "mask.bed", "c\t0\t5\nc\t6\t20\nd\t0\t1\ne\t0\t10\n");
     let opts = InputOptions {
-        masks: vec![mask.0.clone()],
+        masks: vec![mask],
         collect_het_sites: true,
         filter: SeqFilter {
             min_good_bases: 2,
@@ -890,35 +806,25 @@ fn mask_mode_het_sites_carry_alleles_in_gt_order() {
         },
         ..vcf_opts(VcfMode::Mask)
     };
-    let data = load(&vcf.0, &opts).unwrap();
+    let data = load(&vcf, &opts).unwrap();
     // d has one callable position and is dropped; e becomes sequence 1.
     let names: Vec<_> = data.seqs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, ["c", "e"]);
     let got: Vec<_> = data
         .het_sites
+        .as_ref()
         .unwrap()
         .iter()
-        .map(|h| {
-            (
-                h.seq,
-                h.pos,
-                h.nr_called,
-                String::from_utf8(h.alleles.to_vec()).unwrap(),
-            )
-        })
+        .map(|h| (h.seq, h.pos, h.nr_called, &h.alleles))
         .collect();
     let want = [
-        (0, 3, 3, "AC"),
-        (0, 5, 2, "CA"),
-        (0, 7, 1, "CG"),
+        (0, 3, 3, b"AC"),
+        (0, 5, 2, b"CA"),
+        (0, 7, 1, b"CG"),
         // 8, 9 (hom-alt), 11, 12; the het indel at 10 is missing.
-        (0, 12, 4, "CA"),
-        (1, 4, 4, "GT"),
+        (0, 12, 4, b"CA"),
+        (1, 4, 4, b"GT"),
     ];
-    let want: Vec<_> = want
-        .iter()
-        .map(|&(s, p, n, a)| (s, p, n, a.to_string()))
-        .collect();
     assert_eq!(got, want);
     let c = &data.seqs[0];
     assert_eq!(
@@ -929,41 +835,35 @@ fn mask_mode_het_sites_carry_alleles_in_gt_order() {
 
 #[test]
 fn het_sites_are_only_collected_on_request_and_not_for_psmcfa() {
-    let vcf = TempFile::new("het_req", "vcf", &call_c_vcf("c", 30, 7, 20));
-    let opts = InputOptions {
-        filter: SeqFilter::DISABLED,
-        ..vcf_opts(VcfMode::Auto)
-    };
-    assert!(load(&vcf.0, &opts).unwrap().het_sites.is_none());
-    let opts = InputOptions {
+    let dir = TempDir::new("io_input");
+    let vcf = write(&dir, "in.vcf", call_c_vcf("c", 30, 7, 20));
+    let opts = unfiltered(VcfMode::Auto);
+    assert!(load(&vcf, &opts).unwrap().het_sites.is_none());
+    let collect = InputOptions {
         collect_het_sites: true,
         ..opts
     };
-    let sites = load(&vcf.0, &opts).unwrap().het_sites.unwrap();
+    let sites = load(&vcf, &collect).unwrap().het_sites.unwrap();
     let pos: Vec<_> = sites.iter().map(|h| (h.pos, h.nr_called)).collect();
-    assert_eq!(pos, vec![(7, 7), (14, 7), (21, 7), (28, 7)]);
+    assert_eq!(pos, [(7, 7), (14, 7), (21, 7), (28, 7)]);
     assert!(sites.iter().all(|h| h.alleles == *b"AG"));
 
-    let psmcfa = TempFile::new("het_req", "psmcfa", ">a\nTKT\n");
-    let data = load(
-        &psmcfa.0,
-        &InputOptions {
-            collect_het_sites: true,
-            ..InputOptions::default()
-        },
-    )
-    .unwrap();
-    assert!(data.het_sites.is_none());
+    let psmcfa = write(&dir, "in.psmcfa", ">a\nTKT\n");
+    let collect = InputOptions {
+        collect_het_sites: true,
+        ..InputOptions::default()
+    };
+    assert!(load(&psmcfa, &collect).unwrap().het_sites.is_none());
 }
 
 #[test]
 fn psmcfa_input_is_not_filtered() {
-    let psmcfa = TempFile::new("psmcfa_in", "psmcfa", ">a\nTKN\n>empty\n>b\nNNNNK\n");
-    let data = load(&psmcfa.0, &InputOptions::default()).unwrap();
+    let dir = TempDir::new("io_input");
+    let psmcfa = write(&dir, "in.psmcfa", ">a\nTKN\n>empty\n>b\nNNNNK\n");
+    let data = load(&psmcfa, &InputOptions::default()).unwrap();
     let names: Vec<_> = data.seqs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
-    assert_eq!(data.seqs[1].n_bins, 5);
-    assert_eq!(data.seqs[1].extent, None);
+    assert_eq!((data.seqs[1].n_bins, data.seqs[1].extent), (5, None));
     assert_eq!(data.dropped.len(), 1);
     assert_eq!(data.dropped[0].reason, DropReason::Empty);
     assert!(data.filter.is_none());
@@ -980,7 +880,7 @@ fn psmcfa_input_is_not_filtered() {
         ),
         (3, 1, 8, 3, 2)
     );
-    assert_eq!(data.obs.rows, read_psmcfa(&psmcfa.0, None).unwrap().rows);
+    assert_eq!(data.obs.rows, read_psmcfa(&psmcfa, None).unwrap().rows);
     data.ensure_usable().unwrap();
     assert_eq!((p.fastq_records, p.base_letters), (0, 0));
     assert!(data.warnings().is_empty(), "{:?}", data.warnings());
@@ -988,9 +888,9 @@ fn psmcfa_input_is_not_filtered() {
 
 #[test]
 fn a_per_base_consensus_given_as_psmcfa_is_pointed_out() {
+    let dir = TempDir::new("io_input");
     let psmcfa_of = |text: &str| {
-        let file = TempFile::new("per_base", "psmcfa", text);
-        let data = load(&file.0, &InputOptions::default()).unwrap();
+        let data = load(&write(&dir, "in.psmcfa", text), &InputOptions::default()).unwrap();
         let SourceSummary::Psmcfa(p) = data.source.clone() else {
             panic!("not a psmcfa summary")
         };
@@ -1001,7 +901,7 @@ fn a_per_base_consensus_given_as_psmcfa_is_pointed_out() {
     let (data, p) = psmcfa_of("@chr1\nnnaaggTTCACRcga\n+\n!!!!!!IIIIII!!!\n");
     assert_eq!(
         data.obs.rows,
-        vec![vec![2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]]
+        [[2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]]
     );
     assert_eq!((p.fastq_records, p.base_letters), (1, 13));
     assert!(p.looks_like_per_base_consensus());
@@ -1024,61 +924,48 @@ fn a_per_base_consensus_given_as_psmcfa_is_pointed_out() {
 
 #[test]
 fn batching_keeps_whole_sequences_available() {
-    let psmcfa = TempFile::new("batch", "psmcfa", ">a\nTKNTKNT\n>b\nKK\n");
-    let data = load(
-        &psmcfa.0,
-        &InputOptions {
-            batch_size: Some(3),
+    let dir = TempDir::new("io_input");
+    let psmcfa = write(&dir, "in.psmcfa", ">a\nTKNTKNT\n>b\nKK\n");
+    let batched = |batch_size| {
+        let opts = InputOptions {
+            batch_size: Some(batch_size),
             ..InputOptions::default()
-        },
-    )
-    .unwrap();
+        };
+        load(&psmcfa, &opts)
+    };
+    let data = batched(3).unwrap();
     assert_eq!(data.obs.rows.len(), 4);
-    assert_eq!(data.obs.row_starts, vec![true, false, false, true]);
+    assert_eq!(data.obs.row_starts, [true, false, false, true]);
     let seqs = data.sequences();
     assert_eq!(seqs[0].1.as_ref(), &[0, 1, 2, 0, 1, 2, 0]);
     assert_eq!(seqs[1].1.as_ref(), &[1, 1]);
     assert_eq!((data.n_bins(), data.het_bins()), (9, 4));
-
-    let err = load(
-        &psmcfa.0,
-        &InputOptions {
-            batch_size: Some(0),
-            ..InputOptions::default()
-        },
-    )
-    .unwrap_err();
-    assert!(format!("{err:#}").contains("batch_size"));
+    let err = batched(0).unwrap_err();
+    assert!(format!("{err:#}").contains("batch_size"), "{err:#}");
 }
 
 #[test]
 fn input_without_heterozygous_bins_loads_but_is_not_usable() {
-    let psmcfa = TempFile::new("nohet", "psmcfa", ">a\nTTNT\n");
-    let data = load(&psmcfa.0, &InputOptions::default()).unwrap();
+    let dir = TempDir::new("io_input");
+    let psmcfa = write(&dir, "in.psmcfa", ">a\nTTNT\n");
+    let data = load(&psmcfa, &InputOptions::default()).unwrap();
     assert!(
         data.warnings()
             .iter()
             .any(|w| w.contains("no bin is heterozygous"))
     );
-    let err = data.ensure_usable().unwrap_err();
-    assert!(format!("{err:#}").contains("heterozygous"), "{err:#}");
+    let msg = format!("{:#}", data.ensure_usable().unwrap_err());
+    assert!(msg.contains("heterozygous"), "{msg}");
 
     // Mask mode keeps the reader's detailed message.
-    let text = format!("{HEADER}c\t5\t.\tA\tC\t50\tq10\t.\tGT\t0/1\n");
-    let vcf = TempFile::new("nohet", "vcf", &text);
-    let data = load(
-        &vcf.0,
-        &InputOptions {
-            filter: SeqFilter::DISABLED,
-            ..vcf_opts(VcfMode::Mask)
-        },
-    )
-    .unwrap();
-    let err = data.ensure_usable().unwrap_err();
-    assert!(
-        format!("{err:#}").contains("FILTER other than PASS"),
-        "{err:#}"
+    let vcf = write(
+        &dir,
+        "in.vcf",
+        format!("{HEADER}c\t5\t.\tA\tC\t50\tq10\t.\tGT\t0/1\n"),
     );
+    let data = load(&vcf, &unfiltered(VcfMode::Mask)).unwrap();
+    let msg = format!("{:#}", data.ensure_usable().unwrap_err());
+    assert!(msg.contains("FILTER other than PASS"), "{msg}");
 }
 
 /// `call_c_vcf` with `name` (raw bytes) as the chromosome.
@@ -1101,33 +988,28 @@ fn vcf_bytes_with_chrom(name: &[u8]) -> Vec<u8> {
 fn chromosome_names_must_be_utf8() {
     // Latin-1 'chré': a lossy conversion would make it 'chr\u{FFFD}', the
     // name of every other such chromosome too.
-    let path = unique_temp_path("latin1", "vcf");
-    fs::write(&path, vcf_bytes_with_chrom(b"chr\xe9")).unwrap();
-    let vcf = TempFile(path);
+    let dir = TempDir::new("io_input");
+    let latin1 = write(&dir, "latin1.vcf", vcf_bytes_with_chrom(b"chr\xe9"));
     for mode in [VcfMode::Auto, VcfMode::Consensus, VcfMode::Mask] {
-        let err = load(&vcf.0, &vcf_opts(mode)).unwrap_err();
-        let msg = format!("{err:#}");
+        let msg = error(&latin1, &vcf_opts(mode));
         assert!(
             msg.contains("chromosome name 'chr\\xe9' is not valid UTF-8"),
             "{mode:?}: {msg}"
         );
     }
-    assert!(read_vcf(&vcf.0, None, 10, None, &[], &[]).is_err());
+    assert!(read_vcf(&latin1, None, 10, None, &[], &[]).is_err());
 
     // UTF-8 names are kept byte for byte, as vcf2fq and fq2psmcfa keep them.
-    let path = unique_temp_path("utf8", "vcf");
-    fs::write(&path, vcf_bytes_with_chrom("chré".as_bytes())).unwrap();
-    let vcf = TempFile(path);
+    let utf8 = write(&dir, "utf8.vcf", vcf_bytes_with_chrom("chré".as_bytes()));
     for mode in [VcfMode::Consensus, VcfMode::Mask] {
         let opts = InputOptions {
             bin_size: 5,
-            filter: SeqFilter::DISABLED,
-            ..vcf_opts(mode)
+            ..unfiltered(mode)
         };
-        let data = load(&vcf.0, &opts).unwrap();
+        let data = load(&utf8, &opts).unwrap();
         assert_eq!(data.seqs[0].name, "chré");
         let mut out = Vec::new();
-        psmc_rs::io::write::write_psmcfa_to(
+        write_psmcfa_to(
             &mut out,
             [(data.seqs[0].name.as_str(), data.obs.rows[0].as_slice())],
         )

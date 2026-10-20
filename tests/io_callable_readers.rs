@@ -5,6 +5,9 @@
 //! reader's counts are checked bin for bin against a per-base reference in
 //! `tests/io_vcf_exact.rs`.
 
+mod common;
+
+use common::{TempDir, fixture};
 use psmc_rs::io::common::Binner;
 use psmc_rs::io::input::{Dataset, InputFormat, InputOptions, SeqFilter, VcfMode, load};
 use psmc_rs::io::mhs::{MhsOptions, read_mhs_with};
@@ -15,32 +18,23 @@ use psmc_rs::io::{MAX_COUNTED_BIN_SIZE, Observations};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A temporary file removed on drop; tests run in parallel, so each gets a
-/// name of its own.
-struct TempFile(PathBuf);
-
-impl TempFile {
-    fn new(prefix: &str, ext: &str, content: &str) -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()));
-        fs::write(&path, content).expect("failed to write temp file");
-        Self(path)
-    }
+/// `content` written to `name` in `dir`.
+fn write(dir: &TempDir, name: &str, content: &str) -> PathBuf {
+    let path = dir.path(name);
+    fs::write(&path, content).unwrap();
+    path
 }
 
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+/// Mask-mode VCF input with the callable `mask`, every sequence kept.
+fn masked(mask: &Path) -> InputOptions {
+    InputOptions {
+        format: Some(InputFormat::Vcf),
+        vcf_mode: VcfMode::Mask,
+        masks: vec![mask.to_path_buf()],
+        filter: SeqFilter::DISABLED,
+        ..InputOptions::default()
     }
-}
-
-fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/data")
-        .join(name)
 }
 
 /// SplitMix64: deterministic and dependency-free.
@@ -142,13 +136,13 @@ fn the_binner_bins_larger_bins_without_counting_them() {
 
 /// Write multihetsep rows and read them for the pair (0, 1).
 fn read_mhs_text(text: &str, bin_size: usize, batch_size: Option<usize>) -> Observations {
-    let file = TempFile::new("callable_mhs", "multihetsep", text);
+    let dir = TempDir::new("io_callable_readers");
     let opts = MhsOptions {
         bin_size,
         batch_size,
         pair: (0, 1),
     };
-    read_mhs_with(&file.0, &opts).unwrap()
+    read_mhs_with(&write(&dir, "in.multihetsep", text), &opts).unwrap()
 }
 
 #[test]
@@ -220,8 +214,8 @@ fn multihetsep_counts_follow_the_placement_of_uncalled_sites() {
 
 /// A one-sample VCF of two chromosomes with `##contig` lengths, and a
 /// callable mask that leaves out sites 401-420 and 991-1050 of chr1 and
-/// 301-333 of chr2.
-fn small_vcf() -> (TempFile, TempFile) {
+/// 301-333 of chr2, written to `dir`.
+fn small_vcf(dir: &TempDir) -> (PathBuf, PathBuf) {
     let vcf = "##fileformat=VCFv4.2\n\
                ##contig=<ID=chr1,length=1050>\n\
                ##contig=<ID=chr2,length=333>\n\
@@ -231,10 +225,7 @@ fn small_vcf() -> (TempFile, TempFile) {
                chr1\t777\t.\tA\tG\t50\tPASS\t.\tGT\t./.\n\
                chr2\t100\t.\tC\tT\t50\tPASS\t.\tGT\t0/1\n";
     let mask = "chr1\t0\t400\nchr1\t420\t990\nchr2\t0\t300\n";
-    (
-        TempFile::new("callable_small", "vcf", vcf),
-        TempFile::new("callable_small_mask", "bed", mask),
-    )
+    (write(dir, "small.vcf", vcf), write(dir, "small.bed", mask))
 }
 
 /// Every kept sequence's counts sum to its called positions plus the
@@ -253,16 +244,13 @@ fn check_sums(data: &Dataset, bin_size: usize, ctx: &str) {
 
 #[test]
 fn vcf_input_loads_with_its_callable_bases() {
-    let (vcf, mask) = small_vcf();
+    let dir = TempDir::new("io_callable_readers");
+    let (vcf, mask) = small_vcf(&dir);
     let opts = |batch_size| InputOptions {
-        format: Some(InputFormat::Vcf),
-        vcf_mode: VcfMode::Mask,
-        masks: vec![mask.0.clone()],
         batch_size,
-        filter: SeqFilter::DISABLED,
-        ..InputOptions::default()
+        ..masked(&mask)
     };
-    let whole = load(&vcf.0, &opts(None)).unwrap();
+    let whole = load(&vcf, &opts(None)).unwrap();
     let c = whole.sequence_callable().unwrap();
     // chr1: the heterozygous bins 1-100 and 401-500 (20 sites masked), the
     // missing genotype at 777, sites 991-1000 and the last bin, 1001-1050,
@@ -275,7 +263,7 @@ fn vcf_input_loads_with_its_callable_bases() {
     check_sums(&whole, 100, "whole");
 
     for batch in [1, 3, 10] {
-        let batched = load(&vcf.0, &opts(Some(batch))).unwrap();
+        let batched = load(&vcf, &opts(Some(batch))).unwrap();
         assert_eq!(batched.sequence_callable(), whole.sequence_callable());
         assert!(
             batched
@@ -292,9 +280,9 @@ fn vcf_input_loads_with_its_callable_bases() {
 
     // read_vcf_with gives the same counts.
     let read = read_vcf_with(
-        &vcf.0,
+        &vcf,
         &VcfOptions {
-            masks: vec![mask.0.clone()],
+            masks: vec![mask],
             ..VcfOptions::default()
         },
     )
@@ -342,14 +330,13 @@ fn every_reader_but_psmcfa_reports_callable_bases() {
 
 #[test]
 fn counts_are_kept_when_every_sequence_is_dropped() {
-    let (vcf, mask) = small_vcf();
+    let dir = TempDir::new("io_callable_readers");
+    let (vcf, mask) = small_vcf(&dir);
     let opts = InputOptions {
-        format: Some(InputFormat::Vcf),
-        vcf_mode: VcfMode::Mask,
-        masks: vec![mask.0.clone()],
-        ..InputOptions::default()
+        filter: SeqFilter::default(),
+        ..masked(&mask)
     };
-    let data = load(&vcf.0, &opts).unwrap();
+    let data = load(&vcf, &opts).unwrap();
     assert!(data.obs.rows.is_empty() && data.seqs.is_empty());
     let c = data.obs.callable.as_ref().unwrap();
     assert_eq!((c.bin_size(), c.rows().len()), (100, 0));
@@ -358,16 +345,14 @@ fn counts_are_kept_when_every_sequence_is_dropped() {
 
 #[test]
 fn bins_too_large_to_count_load_as_before_without_counts() {
-    let (vcf, mask) = small_vcf();
+    let dir = TempDir::new("io_callable_readers");
+    let (vcf, mask) = small_vcf(&dir);
     let vcf_opts = |vcf_mode, bin_size| InputOptions {
-        format: Some(InputFormat::Vcf),
         vcf_mode,
         bin_size,
-        masks: vec![mask.0.clone()],
-        filter: SeqFilter::DISABLED,
-        ..InputOptions::default()
+        ..masked(&mask)
     };
-    let mhs = TempFile::new("callable_big_mhs", "multihetsep", "chr1\t20\t1\tAC\n");
+    let mhs = write(&dir, "big.multihetsep", "chr1\t20\t1\tAC\n");
     let mut sizes = vec![MAX_COUNTED_BIN_SIZE + 1, 1 << 30];
     if cfg!(target_pointer_width = "64") {
         // Beyond 32 bits too.
@@ -378,7 +363,7 @@ fn bins_too_large_to_count_load_as_before_without_counts() {
         // 1050 positions of chr1 are missing, far from 90% of a bin).
         for mode in [VcfMode::Mask, VcfMode::Consensus, VcfMode::Auto] {
             let ctx = format!("s {s}, {mode:?}");
-            let data = load(&vcf.0, &vcf_opts(mode, s)).unwrap_or_else(|e| panic!("{ctx}: {e:#}"));
+            let data = load(&vcf, &vcf_opts(mode, s)).unwrap_or_else(|e| panic!("{ctx}: {e:#}"));
             assert_eq!(data.seqs.len(), 2, "{ctx}");
             assert!(data.obs.rows.iter().all(|r| r.len() == 1), "{ctx}");
             if mode == VcfMode::Mask {
@@ -388,10 +373,10 @@ fn bins_too_large_to_count_load_as_before_without_counts() {
             assert!(data.sequence_callable().is_none(), "{ctx}");
         }
         let read = read_vcf_with(
-            &vcf.0,
+            &vcf,
             &VcfOptions {
                 bin_size: s,
-                masks: vec![mask.0.clone()],
+                masks: vec![mask.clone()],
                 ..VcfOptions::default()
             },
         )
@@ -405,20 +390,20 @@ fn bins_too_large_to_count_load_as_before_without_counts() {
             filter: SeqFilter::DISABLED,
             ..InputOptions::default()
         };
-        let data = load(&mhs.0, &mhs_opts).unwrap();
+        let data = load(&mhs, &mhs_opts).unwrap();
         assert_eq!(data.obs.rows, [[1]], "s {s}");
         assert!(data.obs.callable.is_none(), "s {s}");
         let opts = MhsOptions {
             bin_size: s,
             ..MhsOptions::default()
         };
-        let obs = read_mhs_with(&mhs.0, &opts).unwrap();
+        let obs = read_mhs_with(&mhs, &opts).unwrap();
         assert_eq!(obs.rows, [[1]], "s {s}");
         assert!(obs.callable.is_none(), "s {s}");
     }
 
     // The largest counted bin size has counts.
-    let data = load(&vcf.0, &vcf_opts(VcfMode::Mask, MAX_COUNTED_BIN_SIZE)).unwrap();
+    let data = load(&vcf, &vcf_opts(VcfMode::Mask, MAX_COUNTED_BIN_SIZE)).unwrap();
     check_sums(&data, MAX_COUNTED_BIN_SIZE, "largest counted bins");
 
     // psmcfa input is already binned: its bin size only scales the results.
@@ -432,8 +417,8 @@ fn bins_too_large_to_count_load_as_before_without_counts() {
 
 /// A one-sample VCF of one chromosome of `len` positions with a
 /// heterozygous SNP every 1000 positions, and a callable mask of the
-/// intervals `callable` (0-based, half-open).
-fn masked_vcf(len: u64, callable: &[(u64, u64)]) -> (TempFile, TempFile) {
+/// intervals `callable` (0-based, half-open), written to `dir`.
+fn masked_vcf(dir: &TempDir, len: u64, callable: &[(u64, u64)]) -> (PathBuf, PathBuf) {
     let mut vcf = format!(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1,length={len}>\n\
          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n"
@@ -446,8 +431,8 @@ fn masked_vcf(len: u64, callable: &[(u64, u64)]) -> (TempFile, TempFile) {
         writeln!(bed, "chr1\t{start}\t{end}").unwrap();
     }
     (
-        TempFile::new("callable_memory", "vcf", &vcf),
-        TempFile::new("callable_memory_mask", "bed", &bed),
+        write(dir, "memory.vcf", &vcf),
+        write(dir, "memory.bed", &bed),
     )
 }
 
@@ -456,17 +441,14 @@ fn counts_take_no_memory_for_full_bins_and_little_for_runs_of_missing_data() {
     // 1 Mb in bins of 100: 10,000 bins.
     let len = 1_000_000;
     let n_bins = 10_000;
+    let dir = TempDir::new("io_callable_readers");
     let load_masked = |callable: &[(u64, u64)], batch_size| {
-        let (vcf, mask) = masked_vcf(len, callable);
+        let (vcf, mask) = masked_vcf(&dir, len, callable);
         let opts = InputOptions {
-            format: Some(InputFormat::Vcf),
-            vcf_mode: VcfMode::Mask,
-            masks: vec![mask.0.clone()],
             batch_size,
-            filter: SeqFilter::DISABLED,
-            ..InputOptions::default()
+            ..masked(&mask)
         };
-        load(&vcf.0, &opts).unwrap()
+        load(&vcf, &opts).unwrap()
     };
     // The bytes the counts of the bins take, besides one struct per row.
     let counts_bytes = |data: &Dataset| {
@@ -515,25 +497,22 @@ fn counts_take_no_memory_for_full_bins_and_little_for_runs_of_missing_data() {
 
 #[test]
 fn psmcfa_written_from_counted_input_holds_the_same_bins() {
-    let (vcf, mask) = small_vcf();
+    let dir = TempDir::new("io_callable_readers");
+    let (vcf, mask) = small_vcf(&dir);
     let opts = InputOptions {
-        format: Some(InputFormat::Vcf),
-        vcf_mode: VcfMode::Mask,
-        masks: vec![mask.0.clone()],
         batch_size: Some(4),
-        filter: SeqFilter::DISABLED,
-        ..InputOptions::default()
+        ..masked(&mask)
     };
-    let data = load(&vcf.0, &opts).unwrap();
+    let data = load(&vcf, &opts).unwrap();
     assert!(data.obs.callable.is_some());
     let mut without = data.clone();
     without.obs.callable = None;
-    let out = TempFile::new("callable_written", "psmcfa", "");
-    write_psmcfa(&out.0, &data).unwrap();
-    let with_counts = fs::read(&out.0).unwrap();
-    write_psmcfa(&out.0, &without).unwrap();
-    assert_eq!(with_counts, fs::read(&out.0).unwrap());
-    let back = read_psmcfa(&out.0, Some(4)).unwrap();
+    let out = dir.path("out.psmcfa");
+    write_psmcfa(&out, &data).unwrap();
+    let with_counts = fs::read(&out).unwrap();
+    write_psmcfa(&out, &without).unwrap();
+    assert_eq!(with_counts, fs::read(&out).unwrap());
+    let back = read_psmcfa(&out, Some(4)).unwrap();
     assert_eq!(back.rows, data.obs.rows);
     assert!(back.callable.is_none());
 }
