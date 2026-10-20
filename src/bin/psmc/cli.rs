@@ -437,6 +437,89 @@ impl InputArgs {
         }
     }
 
+    /// The flags given a value other than their default, as they are spelt
+    /// on the command line, with the inputs they apply to and their values
+    /// (none for a switch, one per use for a repeated flag).
+    fn given(&self) -> Vec<(&'static str, AppliesTo, Vec<String>)> {
+        use AppliesTo::*;
+        fn unless<T: PartialEq + fmt::Display>(value: T, default: T) -> Option<Vec<String>> {
+            (value != default).then(|| vec![value.to_string()])
+        }
+        let paths = |paths: &[PathBuf]| {
+            let shown = paths.iter().map(|p| p.display().to_string());
+            (!paths.is_empty()).then(|| shown.collect())
+        };
+        let depth = match self.depth {
+            DepthThresholds::Fixed { min, max } => Some(vec![format!("{min}:{max}")]),
+            DepthThresholds::Auto => None,
+        };
+        let (i, j) = self.mhs_pair;
+        let pair = (self.mhs_pair != DEFAULT_MHS_PAIR).then(|| vec![format!("{i},{j}")]);
+        let format = self.input_format.name();
+        let vcf_mode = self.vcf_mode.mode().name();
+        [
+            (
+                "--input-format",
+                Every,
+                unless(format, FormatArg::Auto.name()),
+            ),
+            ("--bin-size", Every, unless(self.bin_size, DEFAULT_BIN_SIZE)),
+            (
+                "--batch-size",
+                Every,
+                self.batch_size.map(|n| vec![n.to_string()]),
+            ),
+            (
+                "--vcf-sample",
+                Vcf,
+                self.vcf_sample.clone().map(|s| vec![s]),
+            ),
+            ("--vcf-mode", Vcf, unless(vcf_mode, VcfMode::Auto.name())),
+            ("--vcf-mask", Vcf, paths(&self.vcf_mask)),
+            ("--vcf-negative-mask", Vcf, paths(&self.vcf_negative_mask)),
+            (
+                "--vcf-keep-filtered",
+                VcfMask,
+                self.vcf_keep_filtered.then(Vec::new),
+            ),
+            (
+                "--vcf-no-contig-end",
+                VcfMask,
+                self.vcf_no_contig_end.then(Vec::new),
+            ),
+            ("--depth", VcfConsensus, depth),
+            (
+                "--min-mapq",
+                VcfConsensus,
+                unless(self.min_mapq, DEFAULT_MIN_MAPQ),
+            ),
+            (
+                "--indel-window",
+                VcfConsensus,
+                unless(self.indel_window, DEFAULT_INDEL_WINDOW),
+            ),
+            (
+                "--min-qual",
+                VcfConsensus,
+                unless(self.min_qual, DEFAULT_MIN_QUAL),
+            ),
+            ("--mhs-pair", Mhs, pair),
+            (
+                "--min-good-bases",
+                Filtered,
+                unless(self.min_good_bases, DEFAULT_MIN_GOOD_BASES),
+            ),
+            (
+                "--min-good-fraction",
+                Filtered,
+                unless(self.min_good_fraction, DEFAULT_MIN_GOOD_FRACTION),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(flag, applies, values)| Some((flag, applies, values?)))
+        .collect()
+    }
+
     /// The flags given a value other than their default that do not apply
     /// to input of `format` (read in `vcf_mode`, for VCF), as they are
     /// spelt on the command line. `--vcf-sample` is not among them in
@@ -446,49 +529,11 @@ impl InputArgs {
         format: InputFormat,
         vcf_mode: Option<VcfMode>,
     ) -> Vec<&'static str> {
-        let vcf = format == InputFormat::Vcf;
-        let consensus = vcf && vcf_mode == Some(VcfMode::Consensus);
-        let mask = vcf && vcf_mode == Some(VcfMode::Mask);
-        let seq_filter = format != InputFormat::Psmcfa;
-        [
-            ("--vcf-sample", self.vcf_sample.is_some(), vcf),
-            ("--vcf-mode", self.vcf_mode != VcfModeArg::Auto, vcf),
-            ("--vcf-mask", !self.vcf_mask.is_empty(), vcf),
-            (
-                "--vcf-negative-mask",
-                !self.vcf_negative_mask.is_empty(),
-                vcf,
-            ),
-            ("--vcf-keep-filtered", self.vcf_keep_filtered, mask),
-            ("--vcf-no-contig-end", self.vcf_no_contig_end, mask),
-            ("--depth", self.depth != DepthThresholds::Auto, consensus),
-            ("--min-mapq", self.min_mapq != DEFAULT_MIN_MAPQ, consensus),
-            (
-                "--indel-window",
-                self.indel_window != DEFAULT_INDEL_WINDOW,
-                consensus,
-            ),
-            ("--min-qual", self.min_qual != DEFAULT_MIN_QUAL, consensus),
-            (
-                "--mhs-pair",
-                self.mhs_pair != DEFAULT_MHS_PAIR,
-                format == InputFormat::Mhs,
-            ),
-            (
-                "--min-good-bases",
-                self.min_good_bases != DEFAULT_MIN_GOOD_BASES,
-                seq_filter,
-            ),
-            (
-                "--min-good-fraction",
-                self.min_good_fraction != DEFAULT_MIN_GOOD_FRACTION,
-                seq_filter,
-            ),
-        ]
-        .into_iter()
-        .filter(|&(_, given, applies)| given && !applies)
-        .map(|(flag, ..)| flag)
-        .collect()
+        self.given()
+            .into_iter()
+            .filter(|&(_, applies, _)| !applies.to(format, vcf_mode))
+            .map(|(flag, ..)| flag)
+            .collect()
     }
 
     /// Whether `--vcf-sample` is given for input of `format` (read in
@@ -497,51 +542,36 @@ impl InputArgs {
     /// needs a one-sample VCF; the name must be that sample's, but it
     /// selects nothing.
     pub fn sample_only_checked(&self, format: InputFormat, vcf_mode: Option<VcfMode>) -> bool {
-        format == InputFormat::Vcf
-            && vcf_mode == Some(VcfMode::Consensus)
-            && self.vcf_sample.is_some()
+        AppliesTo::VcfConsensus.to(format, vcf_mode) && self.vcf_sample.is_some()
     }
+}
 
-    /// Add the arguments that give these options; defaults are left out.
-    fn push_args(&self, args: &mut ArgList) {
-        let pair = (self.mhs_pair != DEFAULT_MHS_PAIR)
-            .then(|| format!("{},{}", self.mhs_pair.0, self.mhs_pair.1));
-        let depth = match self.depth {
-            DepthThresholds::Fixed { min, max } => Some(format!("{min}:{max}")),
-            DepthThresholds::Auto => None,
-        };
-        let input_format = self.input_format.name();
-        args.unless("--input-format", input_format, FormatArg::Auto.name())
-            .unless("--bin-size", self.bin_size, DEFAULT_BIN_SIZE)
-            .each("--batch-size", self.batch_size)
-            .each("--mhs-pair", pair)
-            .each("--vcf-sample", &self.vcf_sample)
-            .unless(
-                "--vcf-mode",
-                self.vcf_mode.mode().name(),
-                VcfMode::Auto.name(),
-            )
-            .each("--vcf-mask", self.vcf_mask.iter().map(|p| p.display()))
-            .each(
-                "--vcf-negative-mask",
-                self.vcf_negative_mask.iter().map(|p| p.display()),
-            )
-            .each("--depth", depth)
-            .unless("--min-mapq", self.min_mapq, DEFAULT_MIN_MAPQ)
-            .unless("--indel-window", self.indel_window, DEFAULT_INDEL_WINDOW)
-            .unless("--min-qual", self.min_qual, DEFAULT_MIN_QUAL)
-            .unless(
-                "--min-good-bases",
-                self.min_good_bases,
-                DEFAULT_MIN_GOOD_BASES,
-            )
-            .unless(
-                "--min-good-fraction",
-                self.min_good_fraction,
-                DEFAULT_MIN_GOOD_FRACTION,
-            )
-            .switch("--vcf-keep-filtered", self.vcf_keep_filtered)
-            .switch("--vcf-no-contig-end", self.vcf_no_contig_end);
+/// The inputs an input flag applies to.
+#[derive(Clone, Copy)]
+enum AppliesTo {
+    Every,
+    Vcf,
+    VcfMask,
+    VcfConsensus,
+    Mhs,
+    /// The inputs that go through fq2psmcfa's sequence filter: all but
+    /// psmcfa.
+    Filtered,
+}
+
+impl AppliesTo {
+    /// Whether the flag applies to input of `format`, read in `vcf_mode`
+    /// for VCF.
+    fn to(self, format: InputFormat, vcf_mode: Option<VcfMode>) -> bool {
+        let vcf = format == InputFormat::Vcf;
+        match self {
+            AppliesTo::Every => true,
+            AppliesTo::Vcf => vcf,
+            AppliesTo::VcfMask => vcf && vcf_mode == Some(VcfMode::Mask),
+            AppliesTo::VcfConsensus => vcf && vcf_mode == Some(VcfMode::Consensus),
+            AppliesTo::Mhs => format == InputFormat::Mhs,
+            AppliesTo::Filtered => format != InputFormat::Psmcfa,
+        }
     }
 }
 
@@ -576,6 +606,18 @@ impl ArgList {
     fn switch(&mut self, flag: &str, on: bool) -> &mut Self {
         if on {
             self.0.push(flag.to_string());
+        }
+        self
+    }
+
+    /// The input flags of `input` given values other than their defaults.
+    fn input(&mut self, input: &InputArgs) -> &mut Self {
+        for (flag, _, values) in input.given() {
+            if values.is_empty() {
+                self.switch(flag, true);
+            } else {
+                self.each(flag, values);
+            }
         }
         self
     }
@@ -980,8 +1022,8 @@ impl InferArgs {
             self.n_iter.map(|n| n.to_string()),
         ];
         let mut args = ArgList(positional.into_iter().flatten().collect());
-        self.input.push_args(&mut args);
-        args.each("--pattern", &self.pattern)
+        args.input(&self.input)
+            .each("--pattern", &self.pattern)
             .each("--n-steps", self.n_steps)
             .unless("--t-max", self.t_max, DEFAULT_T_MAX)
             .unless("--tr-ratio", self.tr_ratio, DEFAULT_TR_RATIO)
@@ -1099,11 +1141,7 @@ mod tests {
         );
         assert_eq!(o.filter, SeqFilter::DISABLED);
 
-        let to_args = |a: &InputArgs| {
-            let mut args = ArgList::default();
-            a.push_args(&mut args);
-            args.0
-        };
+        let to_args = |a: &InputArgs| ArgList::default().input(a).0.clone();
         assert_eq!(input(&to_args(&a).join(" ")), a);
         assert_eq!(to_args(&input("")), Vec::<String>::new());
     }
