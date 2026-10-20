@@ -84,7 +84,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import write_csv
+from .e1 import rep, write_csv
 
 NAME = "E5"
 TABLES = {
@@ -100,10 +100,6 @@ TABLES = {
 WINDOWS = ("informative", "fixed")
 SUMMARY_CHECK_RTOL = 1e-9  # recomputed band vs psmc-rs's summary.json (full precision)
 MAIN_FIT_KEYS = ("theta", "rho", "t_max", "lam", "loglike")
-
-
-def rep(r: int) -> str:
-    return f"rep{r:02d}"
 
 
 def trunk_dir(trunk_bins: int) -> str:
@@ -160,7 +156,6 @@ class Layout:
         return self.root / "tables" / TABLES[key]
 
 
-
 def job_name(kind: str, model: str, r: int, trunk_bins: Optional[int] = None) -> str:
     """``sim/<model>/repNN``, ``fit/<model>/repNN`` or ``boot-trunk<B>/<model>/repNN``."""
     k = f"{kind}-{trunk_dir(trunk_bins)}" if trunk_bins is not None else kind
@@ -191,15 +186,14 @@ def jobs(ctx: Context) -> List[Job]:
     if cfg.bootstrap_datasets > cfg.truth_replicates:
         raise ValueError("E5: bootstrap_datasets must not exceed truth_replicates")
     genome_mb = cfg.genome.length / 1e6
-    inference = asdict(cfg.inference)
-    scaling = asdict(cfg.scaling)
+    inference, scaling = asdict(cfg.inference), asdict(cfg.scaling)
     sim_tools = {
         "pipeline": provenance.python_identity(
             ["simulate.py", "demography.py"], ["msprime", "tskit", "numpy", "stdpopsim"]
         ),
     }
-    rs_tool = ctx.rs02()
-    rs_ident = {rs_tool.name: rs_tool.identity}
+    rs = ctx.rs02()
+    rs_ident = {rs.name: rs.identity}
     out: List[Job] = []
     for r in range(1, cfg.truth_replicates + 1):
         psmcfa = lay.psmcfa(r)
@@ -227,9 +221,7 @@ def jobs(ctx: Context) -> List[Job]:
         out.append(
             Job(
                 id=f"{NAME}/{job_name('fit', model, r)}",
-                command=tools.rs02_fit(
-                    rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.fit_json(r), threads=cfg.rs_threads
-                ),
+                command=tools.rs02_fit(rs, cfg.inference, cfg.scaling, psmcfa, lay.fit_json(r), threads=cfg.rs_threads),
                 inputs=[psmcfa],
                 outputs=[lay.fit_json(r)],
                 cores=cfg.rs_threads,
@@ -244,17 +236,13 @@ def jobs(ctx: Context) -> List[Job]:
             continue
         for trunk in cfg.trunk_bins:
             seed = bootstrap_seed(cfg, r, trunk)
-            boot = {
-                "replicates": cfg.bootstrap_replicates,
-                "trunk_bins": trunk,
-                "seed": seed,
-                "iterations": cfg.inference.n_iter,
-            }
+            boot = {"replicates": cfg.bootstrap_replicates, "trunk_bins": trunk, "seed": seed,
+                    "iterations": cfg.inference.n_iter}
             out.append(
                 Job(
                     id=f"{NAME}/{job_name('boot', model, r, trunk)}",
                     command=tools.rs02_fit(
-                        rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.boot_json(r, trunk),
+                        rs, cfg.inference, cfg.scaling, psmcfa, lay.boot_json(r, trunk),
                         threads=cfg.bootstrap_threads,
                         extra=[
                             "--bootstrap", str(cfg.bootstrap_replicates),
@@ -271,41 +259,45 @@ def jobs(ctx: Context) -> List[Job]:
                     cores=cfg.bootstrap_threads,
                     mem_gb=round(costs.rs02_gb * cfg.bootstrap_threads, 2),
                     est_seconds=bootstrap_seconds(costs, cfg, genome_mb),
-                    settings={
-                        "inference": inference, "scaling": scaling, "threads": cfg.bootstrap_threads, "bootstrap": boot,
-                    },
+                    settings={"inference": inference, "scaling": scaling, "threads": cfg.bootstrap_threads,
+                              "bootstrap": boot},
                     tools=rs_ident,
                     seeds={"bootstrap": seed},
                     description=f"psmc-rs 0.2 bootstrap of {model} genome {r}, trunks of {trunk} bins",
                 )
             )
-    report_inputs: List[Path] = []
+    out.append(report_job(ctx, lay))
+    return out
+
+
+def report_inputs(cfg: config.E5, lay: Layout) -> List[Path]:
+    """Every file the tables are made from."""
+    files: List[Path] = []
     for r in range(1, cfg.truth_replicates + 1):
-        report_inputs += [lay.truth(r), lay.fit_json(r), lay.record(job_name("fit", model, r))]
+        files += [lay.truth(r), lay.fit_json(r), lay.record(job_name("fit", cfg.model, r))]
         if r <= cfg.bootstrap_datasets:
             for trunk in cfg.trunk_bins:
-                report_inputs += [
-                    lay.boot_json(r, trunk), lay.boot_summary(r, trunk),
-                    lay.record(job_name("boot", model, r, trunk)),
-                ]
-    tables = [lay.table(k) for k in TABLES]
-    out.append(
-        Job(
-            id=f"{NAME}/report",
-            command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
-            inputs=report_inputs,
-            outputs=tables,
-            mem_gb=costs.report_gb,
-            est_seconds=costs.report_s,
-            settings={"e5": asdict(cfg)},
-            tools={"pipeline": provenance.python_identity(
-                ["experiments/e5.py", "experiments/e1.py", "results.py", "metrics.py", "demography.py"],
-                ["numpy", "scipy"],
-            )},
-            description="E5 tables",
-        )
+                files += [lay.boot_json(r, trunk), lay.boot_summary(r, trunk),
+                          lay.record(job_name("boot", cfg.model, r, trunk))]
+    return files
+
+
+def report_job(ctx: Context, lay: Layout) -> Job:
+    cfg, costs = ctx.profile.e5, ctx.profile.costs
+    return Job(
+        id=f"{NAME}/report",
+        command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
+        inputs=report_inputs(cfg, lay),
+        outputs=[lay.table(k) for k in TABLES],
+        mem_gb=costs.report_gb,
+        est_seconds=costs.report_s,
+        settings={"e5": asdict(cfg)},
+        tools={"pipeline": provenance.python_identity(
+            ["experiments/e5.py", "experiments/e1.py", "results.py", "metrics.py", "demography.py"],
+            ["numpy", "scipy"],
+        )},
+        description="E5 tables",
     )
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -347,8 +339,6 @@ class GenomeFit:
 class Bootstrap:
     """One bootstrap run: its main fit, psmc-rs's summary and the replicates' curves."""
 
-    dataset: int
-    trunk_bins: int
     main: Dict
     summary: Dict
     numbers: List[int]  # replicate numbers (from 1) that were fitted
@@ -416,7 +406,7 @@ def load_bootstrap(lay: Layout, cfg: config.E5, r: int, trunk: int, truth: Dict)
         params = results.read_rs_json(lay.replicate_json(r, trunk, i))
         curves.append(results.fit_from_rs(params).curve(sc.mu, sc.gen_years, cfg.inference.bin_size))
     run = _run_info(lay.record(job_name("boot", cfg.model, r, trunk)))
-    return Bootstrap(r, trunk, main, summary, numbers, curves, run)
+    return Bootstrap(main, summary, numbers, curves, run)
 
 
 # ---------------------------------------------------------------------------
@@ -600,10 +590,6 @@ def main_fit_difference(main: Dict, own: Dict) -> float:
 # ---------------------------------------------------------------------------
 
 
-def _f(x) -> Optional[float]:
-    return None if x is None else float(x)
-
-
 def window_grids(epochs: Sequence[demography.Epoch], cfg: config.E5) -> Dict[str, object]:
     g = cfg.scaling.gen_years
     return {"informative": metrics.model_grid(epochs, cfg.grid, g), "fixed": metrics.fixed_grid(cfg.grid)}
@@ -617,19 +603,15 @@ def analyse(genomes: List[GenomeFit], boots: Dict[Tuple[int, int], Bootstrap], c
     truth_ne = metrics.truth_on_grid(epochs, grid, sc.gen_years)
     fits_ne = np.array([gn.curve.at(grid) for gn in genomes])
     projected_ne = np.array([
-        metrics.projected_truth(genomes[d - 1].fit, epochs, sc.mu, sc.gen_years, cfg.inference.bin_size).at(grid)
-        for d in range(1, cfg.bootstrap_datasets + 1)
+        metrics.projected_truth(gn.fit, epochs, sc.mu, sc.gen_years, cfg.inference.bin_size).at(grid)
+        for gn in genomes[:cfg.bootstrap_datasets]
     ])
     sampling = sampling_stats(fits_ne, truth_ne, cfg.band)
-    by_trunk: Dict[int, Dict] = {}
-    bands: Dict[Tuple[int, int], Dict] = {}
-    for trunk in cfg.trunk_bins:
-        stats = []
-        for d in range(1, cfg.bootstrap_datasets + 1):
-            b = boots[(d, trunk)]
-            bands[(d, trunk)] = band_stats(np.array([c.at(grid) for c in b.curves]), cfg.band)
-            stats.append(bands[(d, trunk)])
-        by_trunk[trunk] = calibration(stats, sampling, truth_ne, projected_ne)
+    datasets = range(1, cfg.bootstrap_datasets + 1)
+    bands = {(d, trunk): band_stats(np.array([c.at(grid) for c in boots[(d, trunk)].curves]), cfg.band)
+             for trunk in cfg.trunk_bins for d in datasets}
+    by_trunk = {trunk: calibration([bands[(d, trunk)] for d in datasets], sampling, truth_ne, projected_ne)
+                for trunk in cfg.trunk_bins}
     return {"grid": grid, "truth_ne": truth_ne, "fits_ne": fits_ne, "projected_ne": projected_ne,
             "sampling": sampling, "bands": bands, "calibration": by_trunk}
 
@@ -841,6 +823,7 @@ def fit_rows(cfg: config.E5, genomes: List[GenomeFit], epochs, grids: Dict) -> L
         projected = metrics.projected_truth(fit, epochs, sc.mu, g, cfg.inference.bin_size)
         gaps = [(ch.get("longest_het_gap_bp") or 0, ch["name"]) for ch in gn.truth["chromosomes"]]
         gap, gap_chrom = max(gaps) if gaps else (None, None)
+        loglikes = results.rs_loglikes(gn.params)
         rows.append(
             {
                 "replicate": gn.replicate,
@@ -852,8 +835,8 @@ def fit_rows(cfg: config.E5, genomes: List[GenomeFit], epochs, grids: Dict) -> L
                 "theta": fit.theta,
                 "rho": fit.rho,
                 "t_max": fit.t_max,
-                "n0": fit.n0(cfg.scaling.mu, cfg.inference.bin_size),
-                "loglike_final": _f((results.rs_loglikes(gn.params) or [None])[-1]),
+                "n0": fit.n0(sc.mu, cfg.inference.bin_size),
+                "loglike_final": loglikes[-1] if loglikes else None,
                 "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(gn.curve, epochs, grids["informative"], g),
                 "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(gn.curve, epochs, grids["fixed"], g),
                 "rmse_log10_ne_vs_projected_truth": metrics.rmse_vs_projected_truth(
@@ -929,11 +912,9 @@ def report(ctx: Context) -> Dict[str, Path]:
         if not row["main_fit_equals_fit"]:
             ctx.log(f"[E5] note: the main fit of bootstrap {rep(row['dataset'])} trunk{row['trunk_bins']} "
                     f"differs from the genome's own fit by {row['main_fit_max_abs_diff']:.3g}")
-    written = {}
     for key in TABLES:
         write_csv(lay.table(key), tables[key])
-        written[key] = lay.table(key)
-    return written
+    return {key: lay.table(key) for key in TABLES}
 
 
 __all__ = [
