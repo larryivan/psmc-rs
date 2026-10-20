@@ -60,14 +60,14 @@ import argparse
 import json
 import math
 import sys
-from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context, e1
+from .e1 import rep
 
 NAME = "E6"
 PARTS = ("s1", "s2", "s3", "s5")
@@ -85,10 +85,6 @@ TABLES: Dict[str, Dict[str, str]] = {
 S2_FORMATS = {"vcf": ["--input-format", "vcf", "--vcf-mode", "mask"], "multihetsep": ["--input-format", "mhs"]}
 REPORT_MODULES = ["experiments/e6.py", "experiments/e6_analysis.py", "experiments/e1.py", "results.py",
                   "metrics.py", "demography.py", "simulate.py"]
-
-
-def rep(r: int) -> str:
-    return f"rep{r:02d}"
 
 
 class CheckFailed(RuntimeError):
@@ -146,23 +142,18 @@ class Layout:
         return [self.table(part, k) for k in TABLES[part]]
 
 
-
 def job_id(*parts) -> str:
     return "/".join([NAME, *[str(p) for p in parts]])
 
 
-def e6_command(ctx: Context, action: str, part: str) -> List[str]:
-    """The command of one of E6's Python steps (the ``report`` of a part)."""
-    return [paths.python(), "-m", "experiment.pipeline.experiments.e6", action, "--part", part, *ctx.profile_args()]
-
-
 def _report_job(ctx: Context, part: str, inputs: Sequence[Path], settings: Dict, est: float, mem: float, what: str) -> Job:
-    lay = Layout(ctx.exp_dir(NAME))
+    """The report job of a part: ``python -m experiment.pipeline.experiments.e6 report --part PART``."""
     return Job(
         id=job_id(part, "report"),
-        command=e6_command(ctx, "report", part),
+        command=[paths.python(), "-m", "experiment.pipeline.experiments.e6", "report", "--part", part,
+                 *ctx.profile_args()],
         inputs=list(inputs),
-        outputs=lay.tables(part),
+        outputs=Layout(ctx.exp_dir(NAME)).tables(part),
         mem_gb=mem,
         est_seconds=est,
         settings=settings,
@@ -300,7 +291,7 @@ def s3_jobs(ctx: Context) -> List[Job]:
     inf, sc = e1cfg.inference, e1cfg.scaling
     truth, track, post, decode = e1lay.truth(model, r), lay.s3_true_track(model, r), lay.s3_posterior(model, r), lay.s3_decode(model, r)
     sim_tools = provenance.python_identity(["simulate.py", "demography.py"], ["msprime", "tskit", "numpy"])
-    jobs = [
+    out = [
         Job(
             id=job_id("s3", "truth", model, rep(r)),
             command=ctx.pipeline_cmd(
@@ -348,12 +339,12 @@ def s3_jobs(ctx: Context) -> List[Job]:
             "tmrca_model", "tmrca_replicate", "tmrca_interval", "tmrca_example_track_bp", "tmrca_example_chrom",
             "tmrca_example_start_bp", "tmrca_calibration_classes", "tmrca_density_cells")},
     }
-    jobs.append(_report_job(
+    out.append(_report_job(
         ctx, "s3", s3_inputs(ctx), settings,
         costs.tmrca_report_s_base + costs.tmrca_report_s_per_mb * genome_mb, costs.tmrca_report_gb,
         "S3 tables: TMRCA decoding",
     ))
-    return jobs
+    return out
 
 
 def s5_jobs(ctx: Context) -> List[Job]:
@@ -383,10 +374,7 @@ def s5_jobs(ctx: Context) -> List[Job]:
 
 
 def jobs(ctx: Context) -> List[Job]:
-    out: List[Job] = []
-    for part, make in (("s1", s1_jobs), ("s2", s2_jobs), ("s3", s3_jobs), ("s5", s5_jobs)):
-        out += make(ctx)
-    return out
+    return [job for make in (s1_jobs, s2_jobs, s3_jobs, s5_jobs) for job in make(ctx)]
 
 
 # ---------------------------------------------------------------------------
@@ -409,11 +397,9 @@ def significant(rows: List[Dict], digits: int = 6) -> List[Dict]:
 
 
 def _write(lay: Layout, part: str, tables: Dict[str, List[Dict]]) -> Dict[str, Path]:
-    written = {}
     for key, rows in tables.items():
         e1.write_csv(lay.table(part, key), rows)
-        written[f"{part}/{key}"] = lay.table(part, key)
-    return written
+    return {f"{part}/{key}": lay.table(part, key) for key in tables}
 
 
 def report_s1(ctx: Context) -> Dict[str, Path]:
@@ -425,16 +411,15 @@ def report_s1(ctx: Context) -> Dict[str, Path]:
     n = e1cfg.inference.n_iter
     _require(s1_inputs(ctx))
     traces: List[Dict] = []
-    for model in e1cfg.models:
-        for r in range(1, e1cfg.replicates + 1):
-            rp = e1.load_replicate(e1lay, e1cfg, model, r, with_default=False)
-            traces += A.trace_rows(model, r, rp.c, rp.rs_params, rp.rs, n)
     summary, agreement = [], []
     for model in e1cfg.models:
-        mine = [t for t in traces if t["model"] == model]
-        for tool in A.TOOLS:
-            summary.append(A.convergence_summary(model, tool, mine, n, cfg.convergence_within_loglike,
-                                                 cfg.loglike_decrease_tolerance))
+        mine: List[Dict] = []
+        for r in range(1, e1cfg.replicates + 1):
+            rp = e1.load_replicate(e1lay, e1cfg, model, r, with_default=False)
+            mine += A.trace_rows(model, r, rp.c, rp.rs_params, rp.rs, n)
+        traces += mine
+        summary += [A.convergence_summary(model, tool, mine, n, cfg.convergence_within_loglike,
+                                          cfg.loglike_decrease_tolerance) for tool in A.TOOLS]
         agreement.append(A.agreement_summary(model, mine, n))
     return _write(Layout(ctx.exp_dir(NAME)), "s1", {"traces": traces, "summary": summary, "agreement": agreement})
 
@@ -443,30 +428,24 @@ def report_s2(ctx: Context) -> Dict[str, Path]:
     """S2 tables; fails after writing them when the formats disagree beyond the multihetsep tail."""
     from . import e6_analysis as A
 
-    import numpy as np
-
     cfg, e1cfg = ctx.profile.e6, ctx.profile.e1
     lay, e1lay = Layout(ctx.exp_dir(NAME)), e1.Layout(ctx.exp_dir(e1.NAME))
     sc, inf = e1cfg.scaling, e1cfg.inference
     r = cfg.format_replicate
     _require(s2_inputs(ctx))
     bins_rows, fit_rows, curves = [], [], []
-    lo, hi, npts = config.TRUTH_TABLE_YEARS
-    dense = np.logspace(np.log10(lo), np.log10(hi), npts)
+    dense = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
     for model in e1cfg.models:
         ref = A.read_psmcfa(e1lay.psmcfa(model, r))
         bins_rows += A.compare_bins(model, "vcf", ref, A.read_psmcfa(lay.s2_vcf_psmcfa(model, r)))
         bins_rows += A.compare_bins(model, "multihetsep", ref, A.read_psmcfa(lay.s2_mhs_psmcfa(model, r)))
-        fits = OrderedDict([("psmcfa", A.FormatFit("psmcfa", results.read_rs_json(e1lay.rs_json(model, r))))])
-        for fmt in ("vcf", "multihetsep"):
-            fits[fmt] = A.FormatFit(fmt, results.read_rs_json(lay.s2_fit(model, r, fmt)))
+        fits = {"psmcfa": A.FormatFit("psmcfa", results.read_rs_json(e1lay.rs_json(model, r))),
+                **{fmt: A.FormatFit(fmt, results.read_rs_json(lay.s2_fit(model, r, fmt))) for fmt in ("vcf", "multihetsep")}}
         truth = json.loads(e1lay.truth(model, r).read_text())
         epochs = demography.epochs_from_record(truth["truth"])
         window = metrics.model_grid(epochs, e1cfg.grid, sc.gen_years)
-        rows = A.fit_rows(model, fits, epochs, window, sc.mu, sc.gen_years, inf.bin_size)
-        for row in rows:
-            row["replicate"] = r
-        fit_rows += rows
+        fit_rows += [{**row, "replicate": r}
+                     for row in A.fit_rows(model, fits, epochs, window, sc.mu, sc.gen_years, inf.bin_size)]
         for fmt, ff in fits.items():
             curves += A.curve_rows(model, fmt, ff.fit, sc.mu, sc.gen_years, inf.bin_size)
         curves += A.truth_rows(model, epochs, dense, sc.gen_years)
@@ -511,7 +490,6 @@ def report_s3(ctx: Context) -> Dict[str, Path]:
     same_ll = decoded.get("final_loglike") == fitted.get("final_loglike")
     left_edges = results.fit_from_rs(decoded).curve(sc.mu, sc.gen_years, bin_size).years
     track = simulate.read_tmrca_track(lay.s3_true_track(model, r))
-    names = [ch["name"] for ch in truth["chromosomes"]]
     truths = [A.bin_tmrca(track[ch["name"]], int(ch["length"]), bin_size) for ch in truth["chromosomes"]]
     posterior = pd.read_csv(
         lay.s3_posterior(model, r), sep="\t", usecols=list(A.POSTERIOR_COLUMNS),
@@ -520,21 +498,16 @@ def report_s3(ctx: Context) -> Dict[str, Path]:
     d = A.align(posterior, truths, left_edges, sc.gen_years)
     del posterior
     mismatches = A.state_mismatches(d)
-    summary = []
-    for label, mask in (("all", None), ("heterozygous (K)", d.obs == "K"), ("homozygous (T)", d.obs == "T")):
-        row = {"model": model, "replicate": r, **A.tmrca_summary(d, label, mask)}
-        row.update(state_index_mismatches=mismatches, decoded_model_is_e1_fit=same_model,
-                   decoded_loglike=decoded.get("final_loglike"), decoded_loglike_is_e1_final=same_ll)
-        summary.append(row)
+    summary = [
+        {"model": model, "replicate": r, **A.tmrca_summary(d, label, mask), "state_index_mismatches": mismatches,
+         "decoded_model_is_e1_fit": same_model, "decoded_loglike": decoded.get("final_loglike"),
+         "decoded_loglike_is_e1_final": same_ll}
+        for label, mask in (("all", None), ("heterozygous (K)", d.obs == "K"), ("homozygous (T)", d.obs == "T"))
+    ]
     calibration = [{"model": model, "replicate": r, **row}
                    for by in ("true", "posterior_mean") for row in A.calibration_rows(d, by, cfg.tmrca_calibration_classes)]
     density = A.density_rows(d, cfg.tmrca_density_cells)
-    chrom = cfg.tmrca_example_chrom if cfg.tmrca_example_chrom in names else names[0]
-    k = names.index(chrom)
-    length = int(truth["chromosomes"][k]["length"])
-    start = min(cfg.tmrca_example_start_bp, max(length - cfg.tmrca_example_track_bp, 0)) // bin_size
-    n_bins = (min(cfg.tmrca_example_track_bp, length) + bin_size - 1) // bin_size
-    track_rows = A.track_rows(d, k, chrom, start, n_bins, bin_size)
+    track_rows = A.track_rows(d, *example_track(cfg, truth["chromosomes"], bin_size), bin_size)
     written = _write(lay, "s3", {"summary": summary, "calibration": calibration, "density": significant(density),
                                  "track": significant(track_rows)})
     problems = []
@@ -545,6 +518,17 @@ def report_s3(ctx: Context) -> Dict[str, Path]:
     if problems:
         raise CheckFailed("S3: " + "; ".join(problems))
     return written
+
+
+def example_track(cfg: config.E6, chromosomes: Sequence[Dict], bin_size: int) -> Tuple[int, str, int, int]:
+    """S3's example track: sequence index and name, first bin and bins (the configured window, within the chromosome)."""
+    names = [ch["name"] for ch in chromosomes]
+    chrom = cfg.tmrca_example_chrom if cfg.tmrca_example_chrom in names else names[0]
+    k = names.index(chrom)
+    length = int(chromosomes[k]["length"])
+    start = min(cfg.tmrca_example_start_bp, max(length - cfg.tmrca_example_track_bp, 0)) // bin_size
+    n_bins = (min(cfg.tmrca_example_track_bp, length) + bin_size - 1) // bin_size
+    return k, chrom, start, n_bins
 
 
 def report_s5(ctx: Context) -> Dict[str, Path]:
