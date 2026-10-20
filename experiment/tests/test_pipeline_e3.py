@@ -13,8 +13,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
-from fixtures import (C_REF, ROOT, assert_ignore_rules, c_ref_json, fake_ctx, fake_tools, in_git_work_tree,  # noqa: E402
-                      option, read_csv)
+from fixtures import (C_REF, ROOT, assert_ignore_rules, c_ref_json, fake_ctx, fake_tools,  # noqa: E402
+                      in_git_work_tree, option, read_csv)
 
 from experiment.pipeline import config, provenance, runner  # noqa: E402
 from experiment.pipeline.experiments import Context, e3  # noqa: E402

@@ -163,8 +163,9 @@ class Jobs(unittest.TestCase):
         # The command is the one E7 builds, but for the input's and outputs' paths and the threads.
         lay, trunk = e2.Layout(self.runs / "E2"), p.e7.bootstrap_trunk_bins
         self.assertEqual(boot.command, tools.rs02_fit(
-            fake_tools("rs02")["rs02"], p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file, lay.boot_main("NA12878", trunk),
-            threads=p.e2.rs_threads, extra=e7.bootstrap_args(p.e7, "NA12878", lay.boot_dir("NA12878", trunk)),
+            fake_tools("rs02")["rs02"], p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file,
+            lay.boot_main("NA12878", trunk), threads=p.e2.rs_threads,
+            extra=e7.bootstrap_args(p.e7, "NA12878", lay.boot_dir("NA12878", trunk)),
         ))
         # One bootstrap: none on fine trunks, whose seed would be E2's own.
         self.assertEqual([j.id for j in self.jobs if j.id.startswith("E2/boot-rs/") and j.id.endswith("/NA12878")],

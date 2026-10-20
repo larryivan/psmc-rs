@@ -18,7 +18,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -83,9 +83,10 @@ def _c_ref():
 
 def c_ref_json(lam_scale: float = 1.0, **fields) -> dict:
     """psmc-rs's JSON of C psmc's reference fit (its last round), the lambdas times ``lam_scale``, and ``fields``."""
-    pa = _c_ref().last().pa
-    return {"theta": pa["theta"], "rho": pa["rho"], "t_max": pa["t_max"], "n_steps": 63, "pattern": "4+25*2+4+6",
-            "lam": [x * lam_scale for x in pa["lambdas"]], **fields}
+    ref = _c_ref()
+    pa = ref.last().pa
+    return {"theta": pa["theta"], "rho": pa["rho"], "t_max": pa["t_max"], "n_steps": ref.header["n"],
+            "pattern": ref.header["pattern"], "lam": [x * lam_scale for x in pa["lambdas"]], **fields}
 
 
 def c_ref_loglikes(final: float = -25000.0) -> List[float]:
@@ -106,22 +107,16 @@ def _repo_path(path) -> str:
     return Path(path).relative_to(ROOT).as_posix() if Path(path).is_absolute() else str(path)
 
 
-def git_ignored(paths: Iterable[str]) -> Set[str]:
-    """Those of ``paths`` (repository-relative) that git's ignore rules ignore.
-
-    ``--no-index``: by the rules alone, whether or not a file exists or is tracked.
-    """
-    res = subprocess.run(["git", "check-ignore", "--no-index", "--stdin", "-z"], input="\0".join(paths),
-                         cwd=ROOT, capture_output=True, text=True)
-    if res.returncode not in (0, 1):  # 1: none is ignored
-        raise RuntimeError(f"git check-ignore failed: {res.stderr}")
-    return set(res.stdout.split("\0")) - {""}
-
-
 def assert_ignore_rules(test, kept: Iterable = (), ignored: Iterable = ()) -> None:
-    """Git keeps every path of ``kept`` and ignores every one of ``ignored`` (repository-relative or absolute)."""
+    """Git keeps every path of ``kept`` and ignores every one of ``ignored`` (repository-relative or absolute).
+
+    One ``git check-ignore --no-index`` for all: by the rules alone, whether or not a file exists or is tracked.
+    """
     kept, ignored = [_repo_path(p) for p in kept], [_repo_path(p) for p in ignored]
-    hit = git_ignored(kept + ignored)
+    res = subprocess.run(["git", "check-ignore", "--no-index", "--stdin", "-z"], input="\0".join(kept + ignored),
+                         cwd=ROOT, capture_output=True, text=True)
+    test.assertIn(res.returncode, (0, 1), res.stderr)  # 1: none is ignored
+    hit = set(res.stdout.split("\0"))
     with test.subTest("kept"):
         test.assertEqual([p for p in kept if p in hit], [], "ignored, but git must keep them")
     with test.subTest("ignored"):

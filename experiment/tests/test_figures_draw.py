@@ -58,7 +58,8 @@ class Draw(unittest.TestCase):
         from experiment.pipeline import figures
 
         if fs.name not in self.written:
-            self.written[fs.name] = figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / fs.experiment)
+            self.written[fs.name] = figures.render(fs, self.runs, config.TINY, dpi=DPI,
+                                                   out_dir=self.out / fs.experiment)
         return self.written[fs.name]
 
     def _table(self, key: str):

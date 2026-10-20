@@ -13,7 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
-from fixtures import C_REF, c_ref_json, c_ref_loglikes, fake_ctx, fake_tools, has_modules, option, read_csv  # noqa: E402
+from fixtures import (C_REF, c_ref_json, c_ref_loglikes, fake_ctx, fake_tools, has_modules, option,  # noqa: E402
+                      read_csv)
 
 from experiment.pipeline import config, demography, runner  # noqa: E402
 from experiment.pipeline.experiments import Context, e1  # noqa: E402
