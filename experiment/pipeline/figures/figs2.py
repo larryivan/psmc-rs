@@ -95,9 +95,9 @@ def draw(src: Source):
             ent = FORMATS[i]
             x, y = style.step_xy(c.years, c.ne, xlim)
             ax.plot(x, y, drawstyle="steps-post", color=ent.color, linestyle=ent.linestyle,
-                    linewidth=FORMAT_LW.get(i, style.LW), zorder=FORMAT_Z.get(i, 3))
+                    linewidth=FORMAT_LW.get(i, style.LW_DATA), zorder=FORMAT_Z.get(i, 3))
         tx, ty = truth_xy(m, g, xlim)
-        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=5)
+        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW_DATA, zorder=5)
         style.years_axis(ax, xlim, label=False)
         style.ne_axis(ax, ylim, label=style.NE_LABEL if j == 0 else None)
         ax.tick_params(labelbottom=False)
@@ -108,7 +108,7 @@ def draw(src: Source):
             if d is None or np.all(d == 0):
                 continue
             x, y = style.step_xy(fits[(m, "psmcfa")].years, np.maximum(d, dlim[0]), xlim)
-            axd.plot(x, y, drawstyle="steps-post", color=FORMATS[i].color, linewidth=style.LW, zorder=3)
+            axd.plot(x, y, drawstyle="steps-post", color=FORMATS[i].color, linewidth=style.LW_DATA, zorder=3)
         style.note(axd, 0.03, 0.97, notes[m], ha="left", va="top", linespacing=1.2)
         style.years_axis(axd, xlim)
         style.log_axis(axd, "y", grid=True)
@@ -119,8 +119,8 @@ def draw(src: Source):
             axd.tick_params(labelleft=False)
             ax.tick_params(labelleft=False)
 
-    handles = [style.handle(FORMATS[i], linewidth=FORMAT_LW.get(i, style.LW)) for i in inputs]
-    handles.append(style.handle(style.TRUTH, linewidth=style.LW))
+    handles = [style.handle(FORMATS[i], linewidth=FORMAT_LW.get(i, style.LW_DATA)) for i in inputs]
+    handles.append(style.handle(style.TRUTH, linewidth=style.LW_DATA))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
     style.panel_letters(fig, [*top, *bottom], align_cols=True)
     return fig

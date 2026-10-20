@@ -75,7 +75,7 @@ def draw(src):
         if not d.empty:
             style.shade_outside(ax, (float(d.window_lo_years.iloc[0]), float(d.window_hi_years.iloc[0])), xlim)
             ax.fill_between(d.years, d.ne_lo, d.ne_hi, color=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0, zorder=2)
-            ax.plot(d.years, d.ne_median, color=style.BLUE, linewidth=style.LW, zorder=4)
+            ax.plot(d.years, d.ne_median, color=style.BLUE, linewidth=style.LW_DATA, zorder=4)
         if not v.empty:
             ax.plot(v.years, v.ne_median, color=style.BLUE_650, linewidth=style.LW_THIN, zorder=5)
         row, col = divmod(k, NCOLS)
@@ -85,7 +85,7 @@ def draw(src):
         inner = [10.0 ** e for e in range(math.ceil(math.log10(xlim[0]) + 1e-9), math.floor(math.log10(xlim[1]) - 1e-9) + 1)
                  if xlim[0] < 10.0 ** e < xlim[1]]
         ax.set_xticks(inner)
-        style.ne_axis(ax, ylim, label=style.NE_LABEL_SHORT if col == 0 else None)
+        style.ne_axis(ax, ylim, label=style.NE_LABEL if col == 0 else None)
         if col:
             ax.tick_params(labelleft=False)
         if not last_row:
@@ -98,11 +98,12 @@ def draw(src):
     lo_q, hi_q = cfg.spread
     vcf_n = {int(n) for n in pops[pops.route == "rs-vcf"].n}
     handles = [
-        Line2D([], [], color=style.BLUE, linewidth=style.LW, label="Median of the population's genomes (psmcfa fits)"),
+        Line2D([], [], color=style.BLUE, linewidth=style.LW_DATA,
+               label="Median of the population's genomes (psmcfa fits)"),
         Patch(facecolor=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0,
               label=f"{lo_q:.0%}-{hi_q:.0%} of its genomes"),
         Line2D([], [], color=style.BLUE_650, linewidth=style.LW_THIN, label=vcf_label(vcf_n)),
-        Patch(facecolor=style.NEUTRAL, linewidth=0, label="Outside the comparison window"),
+        Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"),
     ]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=2, columnspacing=1.5,
                  handlelength=2.2)

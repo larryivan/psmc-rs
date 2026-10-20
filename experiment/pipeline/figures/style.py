@@ -121,10 +121,9 @@ manuscript places them at 100%, never scaled).
   colour is the key.
 
   psmc-rs 0.1 (:data:`RS01`, :data:`AQUA`), band alpha
-  (:data:`BAND_ALPHA`), outside-window shading (:func:`shade_outside`) and
-  the former names kept beside the house constants serve the pipeline-only
-  modules (fig1-fig4, figs2-figs6 and figs_turtle, which are not in the
-  paper); no article figure uses them.
+  (:data:`BAND_ALPHA`) and outside-window shading (:func:`shade_outside`)
+  serve the pipeline-only modules (fig1-fig4, figs2-figs6 and figs_turtle,
+  which are not in the paper); no article figure uses them.
 
 Export (:func:`save`) writes ``<name>.pdf``, ``.svg`` and a 600-dpi ``.png``
 without creation dates, so drawing the same tables twice gives the same
@@ -171,7 +170,6 @@ TIMES = "×"
 ENDASH = "–"
 NE_LABEL = NE + " (thousands)"  # every N_e(t) size axis (ne_axis)
 YEARS_LABEL = "Thousands of years ago"  # every N_e(t) time axis (years_axis)
-NE_LABEL_SHORT = NE_LABEL  # former short label; an N_e axis is always labelled in thousands
 
 # ---------------------------------------------------------------------------
 # Line weights: four weights and one underlay width
@@ -182,14 +180,6 @@ LW_THIN = 0.5  # axes, reference lines, replicate and context curves
 LW_DATA = 0.75  # every data line, the truth included
 LW_EMPH = 1.0  # at most one emphasised summary per panel
 UNDERLAY_LW = 2.4  # the pale underlay of a reference curve (the underlay rule)
-LW_UNDERLAY = UNDERLAY_LW
-
-# Former names, kept for the pipeline-only figures (they now take the house weights).
-LW = LW_DATA
-LW_BOLD = LW_EMPH
-LW_AXIS = LW_THIN
-LW_GRID = LW_HAIR
-LW_REF = LW_THIN
 
 # Drawing order: bands under references under context under the underlay
 # under the data under the truth under text.
@@ -218,10 +208,6 @@ GRID = "#e6e6e6"  # hairline grid, where values are read off
 # FILL to stay visible at 2.4 pt beside coloured lines.
 UNDERLAY_GREY = "#d9d9d9"
 
-# Former names (pipeline-only figures): the reference grey and the neutral band.
-MUTED = REF
-NEUTRAL = FILL
-
 # ---------------------------------------------------------------------------
 # Dashes, bands, markers
 # ---------------------------------------------------------------------------
@@ -237,9 +223,8 @@ BAND_ALPHA = 0.18  # former alpha of bands, pipeline-only figures; article figur
 
 MARKER_MS = 3.0  # markers of a line-and-marker plot (e.g. timings)
 STRIP_MS = 2.4  # points of a strip plot
-MEDIAN_MS = MARKER_MS  # a median marker over its replicates
-# Replicates behind a median marker: below the closed set (3.0, 2.4) because
-# replicates sit behind a median marker and must read as subordinate.
+# Replicates behind a median marker (MARKER_MS): below the closed set (3.0, 2.4)
+# because they must read as subordinate.
 REPLICATE_MS = 1.6
 STRIP_JITTER = 0.15  # vertical (or horizontal) jitter of a strip, in categories
 STRIP_BAR_HALF = 0.3  # half-length of a strip's summary bar, in categories
@@ -749,9 +734,6 @@ def log_axis(ax, which: str = "x", grid: bool = False, *, fmt: str = "pow10",
 def thousands_axis(ax, which: str = "x", lim: Optional[Tuple[float, float]] = None, grid: bool = False) -> None:
     """A log axis of a quantity in thousands (N_e, years ago): ticks 1, 10, 100, 1,000."""
     log_axis(ax, which, grid=grid, fmt="thousands", lim=lim)
-
-
-thousands_log_axis = thousands_axis
 
 
 def years_axis(ax, lim: Tuple[float, float], label: Union[bool, str] = True, grid: bool = False) -> None:

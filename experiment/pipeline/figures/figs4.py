@@ -87,33 +87,33 @@ def draw(src: Source):
                     width_ratios=[1.0, 1.0, 1.0, 1.3])
     ax_t, ax_e, ax_m, ax_d = (fig.add_subplot(gs[0, i]) for i in range(4))
 
-    ax_t.plot(t, ideal, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
+    ax_t.plot(t, ideal, color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, zorder=1)
     at = len(t) - 2 if len(t) > 2 else len(t) - 1  # clear of the floor's label
     ax_t.annotate("ideal", (t[at], ideal[at]), xytext=(0, -4), textcoords="offset points",
-                  ha="center", va="top", fontsize=style.TICK_PT, color=style.MUTED)
+                  ha="center", va="top", fontsize=style.TICK_PT, color=style.REF)
     style.ref_line(ax_t, y=floor, linestyle=style.DASH)
     ax_t.annotate(f"one {chrom_mb:g} Mb chromosome:\nno gain beyond {n_seq} threads", (t[0], floor), xytext=(0, -3),
-                  textcoords="offset points", ha="left", va="top", fontsize=style.TICK_PT, color=style.MUTED,
+                  textcoords="offset points", ha="left", va="top", fontsize=style.TICK_PT, color=style.REF,
                   linespacing=1.1)
-    ax_t.plot(t, wall, color=style.BLUE, linewidth=style.LW, zorder=3)
+    ax_t.plot(t, wall, color=style.BLUE, linewidth=style.LW_DATA, zorder=3)
     ax_t.plot(reps["threads"], reps["wall_seconds"], linestyle="none", marker=".", markersize=2.0, color=style.BLUE,
               zorder=4)
     ax_t.plot(t, wall, **style.RS02.points(markersize=3.2, zorder=3))
     walls = list(reps["wall_seconds"]) + list(wall) + list(ideal) + [floor / 2.5]  # room for the floor's label
     if not default.empty:
-        ax_t.plot(default["threads"], default["wall_median_s"], color=dent.color, linewidth=style.LW, zorder=3)
+        ax_t.plot(default["threads"], default["wall_median_s"], color=dent.color, linewidth=style.LW_DATA, zorder=3)
         ax_t.plot(default["threads"], default["wall_median_s"], **dent.points(markersize=3.2, zorder=4))
         walls += list(default["wall_median_s"])
     thread_axis(ax_t, t)
     log_ticks(ax_t, *decade_span(walls), TIME_TICKS, fmt_seconds)
     ax_t.set_ylabel(f"Wall time, {size:,} Mb")
-    ax_t.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    ax_t.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
 
     eff = scaling["efficiency"].to_numpy(dtype=float)
-    ax_e.plot(t, ceiling * t[0] / t, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
+    ax_e.plot(t, ceiling * t[0] / t, color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, zorder=1)
     ax_e.annotate("ideal", (t[-1], ceiling[-1] * t[0] / t[-1]), xytext=(0, 1), textcoords="offset points",
-                  ha="center", va="bottom", fontsize=style.TICK_PT, color=style.MUTED)
-    ax_e.plot(t, eff, color=style.BLUE, linewidth=style.LW, zorder=3)
+                  ha="center", va="bottom", fontsize=style.TICK_PT, color=style.REF)
+    ax_e.plot(t, eff, color=style.BLUE, linewidth=style.LW_DATA, zorder=3)
     ax_e.plot(t, eff, **style.RS02.points(markersize=3.2, zorder=4))
     # The fewest threads are 100% by construction (the gridline and tick say so); a
     # label there would sit on the y axis.
@@ -124,32 +124,32 @@ def draw(src: Source):
         d = default["wall_median_s"].to_numpy(dtype=float)
         dt = default["threads"].to_numpy(dtype=float)
         deff = d[0] * dt[0] / d / dt
-        ax_e.plot(dt, deff, color=dent.color, linewidth=style.LW, zorder=3)
+        ax_e.plot(dt, deff, color=dent.color, linewidth=style.LW_DATA, zorder=3)
         ax_e.plot(dt, deff, **dent.points(markersize=3.2, zorder=4))
     thread_axis(ax_e, t)
     ax_e.set_ylim(0.0, 1.1)
     ax_e.set_ylabel("Parallel efficiency")
     ax_e.yaxis.set_major_formatter(_formatter(lambda v: f"{100 * v:.0f}%"))
-    ax_e.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    ax_e.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
 
     rss = scaling["peak_rss_median_mb"].to_numpy(dtype=float)
-    ax_m.plot(t, rss, color=style.BLUE, linewidth=style.LW, zorder=3)
+    ax_m.plot(t, rss, color=style.BLUE, linewidth=style.LW_DATA, zorder=3)
     ax_m.plot(reps["threads"], reps["peak_rss_mb"], linestyle="none", marker=".", markersize=2.0, color=style.BLUE,
               zorder=4)
     ax_m.plot(t, rss, **style.RS02.points(markersize=3.2, zorder=3))
     thread_axis(ax_m, t)
     log_ticks(ax_m, *decade_span(list(reps["peak_rss_mb"]) + list(rss)), MEM_TICKS, fmt_mib)
     ax_m.set_ylabel("Peak memory (RSS)")
-    ax_m.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    ax_m.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
 
     # Panel d has no y axis: it takes most of the gap before it, which a-c keep for their y labels.
     pos = ax_d.get_position()
     shift = TABLE_SHIFT_MM / (fig.get_figwidth() / style.MM)
     ax_d.set_position((pos.x0 - shift, pos.y0, pos.width + shift, pos.height))
     determinism_panel(ax_d, det)
-    handles = [style.handle(style.RS02, kind="both", linewidth=style.LW, label="psmc-rs 0.2")]
+    handles = [style.handle(style.RS02, kind="both", linewidth=style.LW_DATA, label="psmc-rs 0.2")]
     if not default.empty:  # timed only when E3.default_mstep_iters sets a cap
-        handles.append(style.handle(dent, kind="both", linewidth=style.LW))
+        handles.append(style.handle(dent, kind="both", linewidth=style.LW_DATA))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
     style.panel_letters(fig, [ax_t, ax_e, ax_m, ax_d])
     return fig
@@ -239,7 +239,7 @@ def determinism_panel(ax, det) -> None:
     y = 0.80
     for (x, ha), head in zip(cols, ("Tool (threads)", "Runs", "Outputs")):
         style.note(ax, x, y, head, ha=ha, va="baseline", color=style.INK2)
-    ax.plot([0.0, cols[-1][0]], [y - 0.045, y - 0.045], color=style.GRID, linewidth=style.LW_GRID,
+    ax.plot([0.0, cols[-1][0]], [y - 0.045, y - 0.045], color=style.GRID, linewidth=style.LW_HAIR,
             transform=ax.transAxes, clip_on=False)
     for tool in [k for k in TOOL_LABELS if k in set(det["tool"])]:
         sub = det[det.tool == tool]

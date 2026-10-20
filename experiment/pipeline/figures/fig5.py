@@ -466,7 +466,7 @@ def _x_limits(facets: Sequence, xmax: float) -> Tuple[float, float]:
     ``(mask, x, number of replicates)``.
     """
     lo, hi = -0.1 * xmax, 1.1 * xmax
-    r_med = (style.MEDIAN_MS + MEDIAN_EDGE_PT) / 2.0 / style.PT_PER_MM  # mm
+    r_med = (style.MARKER_MS + MEDIAN_EDGE_PT) / 2.0 / style.PT_PER_MM  # mm
     r_dot = style.REPLICATE_MS / 2.0 / style.PT_PER_MM
     for _ in range(3):  # the room in pp depends on the limits; this settles at once
         pp = (hi - lo) / FACET_W_MM  # pp per mm
@@ -565,9 +565,9 @@ def dose_panel(axes: Sequence, routes, cfg: config.E4, full: str) -> None:
                 ax.plot(jit, v, linestyle="none", marker="o", markersize=style.REPLICATE_MS, markeredgewidth=0.0,
                         color=style.tint(color, REPLICATE_SHARE), zorder=z_dots, clip_on=False)
                 marks[route].append(("points", jit, v, style.REPLICATE_MS))
-            ax.plot(mx, my, linestyle="none", marker="o", markersize=style.MEDIAN_MS, markeredgewidth=MEDIAN_EDGE_PT,
+            ax.plot(mx, my, linestyle="none", marker="o", markersize=style.MARKER_MS, markeredgewidth=MEDIAN_EDGE_PT,
                     markeredgecolor=style.SURFACE, color=color, zorder=z_med, clip_on=False)
-            marks[route].append(("points", mx, my, style.MEDIAN_MS))
+            marks[route].append(("points", mx, my, style.MARKER_MS))
 
         if k == first:  # the zero line's name, above it and the data at the right of the first facet
             zero = [("line", list(xlim), [0.0, 0.0], style.LW_THIN)]

@@ -96,7 +96,7 @@ def _strip(ax, groups: Sequence[str], values: Dict[str, Sequence[float]], size: 
         ax.scatter(i + np.asarray(jitter(len(v))), v, s=size, color=style.INK2, alpha=alpha, linewidths=0,
                    zorder=3, rasterized=len(v) > 200)
         ax.plot([i - STRIP_WIDTH - 0.06, i + STRIP_WIDTH + 0.06], [np.median(v)] * 2, color=style.INK,
-                linewidth=style.LW_BOLD, solid_capstyle="butt", zorder=4)
+                linewidth=style.LW_EMPH, solid_capstyle="butt", zorder=4)
     ax.set_xlim(-0.6, len(groups) - 0.4)
     ax.set_xticks(range(len(groups)))
     ax.tick_params(axis="x", length=0)
@@ -133,7 +133,7 @@ def draw(src):
     a.set_xticklabels(ticks)
     a.set_ylabel("Heterozygous SNVs per callable kb")
     a.set_xlabel("ρ: Spearman's, with raw depth")
-    a.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    a.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
 
     # b: the VCF route's theta over the psmcfa route's, by superpopulation.
     _strip(b, sups, {s: 100.0 * shift[shift.superpopulation == s].theta_rel_vcf_vs_psmcfa for s in sups}, size=7.0,
@@ -145,7 +145,7 @@ def draw(src):
                max(top, 0.0) * 1.12 + 0.2)
     b.set_ylabel(r"$\theta_\mathrm{VCF}$ / $\theta_\mathrm{psmcfa}$ $-$ 1 (%)")
     b.set_xlabel(f"Superpopulation ({len(shift)} genomes)")
-    b.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    b.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
     if not shift.empty:
         lo, hi = 100.0 * shift.missing_share_of_called_bins.min(), 100.0 * shift.missing_share_of_called_bins.max()
         share = f"{lo:.1f}%" if round(lo, 1) == round(hi, 1) else f"{lo:.1f}-{hi:.1f}%"
@@ -161,15 +161,15 @@ def draw(src):
         hi = float(max(x.max(), y.max(), *rob))
         pad = 0.08 * max(hi - lo, 0.1)
         lim = (lo - pad, hi + 2.0 * pad)
-        c.plot(lim, lim, color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, zorder=1)
+        c.plot(lim, lim, color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, zorder=1)
         for r in split.itertuples():
             top = min(float(r.log10_first_vs_next_split_hi), lim[1])
-            c.vlines(r.log10_first_vs_next_default, r.log10_first_vs_next_split_lo, top, color=style.MUTED,
+            c.vlines(r.log10_first_vs_next_default, r.log10_first_vs_next_split_lo, top, color=style.REF,
                      linewidth=style.LW_THIN, zorder=2)
             if r.log10_first_vs_next_split_hi > lim[1]:  # the range runs past the top
                 c.annotate("", xy=(r.log10_first_vs_next_default, lim[1]),
                            xytext=(r.log10_first_vs_next_default, lim[1] - 0.06 * (lim[1] - lim[0])),
-                           arrowprops={"arrowstyle": "-|>,head_length=0.35,head_width=0.18", "color": style.MUTED,
+                           arrowprops={"arrowstyle": "-|>,head_length=0.35,head_width=0.18", "color": style.REF,
                                        "linewidth": style.LW_THIN, "shrinkA": 0.0, "shrinkB": 0.0}, zorder=2)
         for sup, m in zip(sups, SUP_MARKERS):
             dd = split[split.superpopulation == sup]
@@ -221,7 +221,7 @@ def draw(src):
         d.set_position([pos.x0 + need, pos.y0, pos.width - need, pos.height])
     d.set_xlim(0.0, max(minutes or [1.0]) * 1.02)
     d.set_xlabel("Time per fit (min): median wall time on one thread; bootstrap: core time per fit")
-    d.grid(True, which="major", axis="x", color=style.GRID, linewidth=style.LW_GRID)
+    d.grid(True, which="major", axis="x", color=style.GRID, linewidth=style.LW_HAIR)
     span = d.get_xlim()[1]
     for yy, m, text in zip(ypos, minutes, notes):
         inside = m > 0.6 * span
@@ -238,8 +238,8 @@ def draw(src):
                markerfacecolor=style.INK2, label=r"An interval at psmc-rs's bound ($\lambda$ = 10$^4$)"),
         Line2D([], [], linestyle="none", marker="x", markersize=3.4, markeredgewidth=0.7, color=style.INK,
                label="Mean of the other intervals"),
-        Line2D([], [], color=style.MUTED, linewidth=style.LW_THIN, label="Range of the four split intervals"),
-        Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT, label="No change (diagonal)"),
+        Line2D([], [], color=style.REF, linewidth=style.LW_THIN, label="Range of the four split intervals"),
+        Line2D([], [], color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, label="No change (diagonal)"),
     ]
     style.legend(f, handles, loc="upper left", bbox_to_anchor=(0.0, 1.04), title="c: superpopulation and keys",
                  handlelength=1.6, alignment="left")

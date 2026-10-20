@@ -107,7 +107,7 @@ def draw(src: Source):
         for tool, ent, lw, z in (("c", style.C_PSMC, C_MEDIAN_LW, 4), ("rs", style.RS02, RS_MEDIAN_LW, 5)):
             ax.plot(grid, median(of(m, tool), grid), drawstyle="steps-post", color=ent.color, linewidth=lw, zorder=z)
         tx, ty = truth_xy(m, g, xlim)
-        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW, zorder=6)
+        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW_DATA, zorder=6)
         style.years_axis(ax, xlim, label=False)
         style.ne_axis(ax, ylim, label=style.NE_LABEL if j == 0 else None)
         if j:
@@ -154,13 +154,13 @@ def draw(src: Source):
 
     _rmse_panel(bottom, models, reps, pairs, src.table("E1_mstep") if src.has("E1_mstep") else None)
     handles = [
-        style.handle(style.TRUTH, linewidth=style.LW),
+        style.handle(style.TRUTH, linewidth=style.LW_DATA),
         style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
         style.handle(style.RS02, linewidth=RS_MEDIAN_LW, label="psmc-rs 0.2, median"),
         # The replicates' tint, keyed thicker than the 0.5 pt lines so that it shows.
-        style.handle(style.C_PSMC, linewidth=style.LW, color=style.tint(style.C_PSMC.color),
+        style.handle(style.C_PSMC, linewidth=style.LW_DATA, color=style.tint(style.C_PSMC.color),
                      label="C psmc, one replicate"),
-        style.handle(style.RS02, linewidth=style.LW, color=style.tint(style.RS02.color),
+        style.handle(style.RS02, linewidth=style.LW_DATA, color=style.tint(style.RS02.color),
                      label="psmc-rs 0.2, one replicate"),
     ]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
@@ -202,7 +202,7 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
             ax.plot(x0 + jitter, v, **ent.points(markersize=2.6, alpha=0.85, label=label))
             mean, med = float(np.mean(v)), float(np.median(v))
             for y, ls in ((mean, "-"), (med, MEDIAN_STYLE)):
-                ax.plot([x0 - 0.4 * width, x0 + 0.4 * width], [y, y], color=style.INK, linewidth=style.LW,
+                ax.plot([x0 - 0.4 * width, x0 + 0.4 * width], [y, y], color=style.INK, linewidth=style.LW_DATA,
                         linestyle=ls, zorder=5)
             if gi >= 2:
                 # Above the group, ending at its lines' right end: the groups to the
@@ -219,6 +219,6 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
     ax.set_xticklabels([MODEL_LABEL.get(m, m) for m in models], fontsize=style.TEXT_PT, color=style.INK)
     ax.tick_params(axis="x", length=0)
     ax.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$")
-    handles.append(style.handle(style.Entity("Mean", style.INK), linewidth=style.LW))
-    handles.append(style.handle(style.Entity("Median", style.INK, MEDIAN_STYLE), linewidth=style.LW))
+    handles.append(style.handle(style.Entity("Mean", style.INK), linewidth=style.LW_DATA))
+    handles.append(style.handle(style.Entity("Median", style.INK, MEDIAN_STYLE), linewidth=style.LW_DATA))
     style.legend(ax, handles, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=1, handlelength=1.2)

@@ -142,7 +142,7 @@ def draw_metric(ax, table2, runs, median_col: str, run_col: str,
         rows = table2[(table2.tool == tool) & (table2.threads == t)].sort_values("size_mb")
         ok = rows[rows[median_col].notna()]
         if not ok.empty:
-            ax.plot(ok["size_mb"], ok[median_col], color=ent.color, linestyle=ent.linestyle, linewidth=style.LW,
+            ax.plot(ok["size_mb"], ok[median_col], color=ent.color, linestyle=ent.linestyle, linewidth=style.LW_DATA,
                     zorder=3)
             ax.plot(ok["size_mb"], ok[median_col], **ent.points(markersize=3.4, zorder=4))
         reps = runs[(runs.tool == tool) & (runs.threads == t) & (runs["clean"].astype(str) == "True")]
@@ -152,7 +152,7 @@ def draw_metric(ax, table2, runs, median_col: str, run_col: str,
         if not skipped.empty:
             sizes = ", ".join(f"{int(s):,}" for s in skipped["size_mb"])
             notes.append(f"{ent.label}: not run at {sizes} Mb ({str(skipped['note'].iloc[0]).split(';')[0]})")
-    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
     return notes
 
 
@@ -213,8 +213,8 @@ def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]]
         rows = rows[rows["speedup_vs_c"].notna()]
         if rows.empty:
             continue
-        ax.plot(rows["size_mb"], rows["speedup_vs_c"], color=ent.color, linestyle=ent.linestyle, linewidth=style.LW,
-                zorder=3)
+        ax.plot(rows["size_mb"], rows["speedup_vs_c"], color=ent.color, linestyle=ent.linestyle,
+                linewidth=style.LW_DATA, zorder=3)
         ax.plot(rows["size_mb"], rows["speedup_vs_c"], **ent.points(markersize=3.4, zorder=4))
         hi = max(hi, float(np.nanmax(rows["speedup_vs_c"])))
         lo = min(lo, float(np.nanmin(rows["speedup_vs_c"])))
@@ -230,7 +230,7 @@ def speedup_panel(ax, table2, sizes, threads: Optional[Dict[str, Sequence[int]]]
     ax.yaxis.set_minor_locator(NullLocator())
     ax.set_ylim(bottom, top)
     ax.set_ylabel("Speed-up over C psmc")
-    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    ax.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
 
 
 __all__ = ["chromosome_counts", "draw", "fmt_mib", "fmt_seconds", "log_ticks", "series", "size_axis",

@@ -84,16 +84,16 @@ def draw(src: Source):
     ylim = decades(lo, hi)
     het = track[track["obs"] == "K"]
     ax_a.plot(het["start_bp"] / 1e6, np.full(len(het), ylim[0] * 1.3), linestyle="none", marker="|", markersize=3,
-              markeredgewidth=0.4, color=style.MUTED, zorder=1)
+              markeredgewidth=0.4, color=style.REF, zorder=1)
     style.log_axis(ax_a, "y", grid=True)
     ax_a.set_ylim(*ylim)
     ax_a.set_xlim(mb[0], mb[-1])
     ax_a.set_xlabel(f"Position on {track['sequence'].iloc[0]} (Mb)")
     ax_a.set_ylabel("TMRCA (years)")
-    handles = [Line2D([], [], color=style.INK, linewidth=style.LW, label="True TMRCA"),
-               Line2D([], [], color=style.BLUE, linewidth=style.LW, label="Posterior mean"),
+    handles = [Line2D([], [], color=style.INK, linewidth=style.LW_DATA, label="True TMRCA"),
+               Line2D([], [], color=style.BLUE, linewidth=style.LW_DATA, label="Posterior mean"),
                Patch(facecolor=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0, label="95% posterior interval"),
-               Line2D([], [], color=style.MUTED, linestyle="none", marker="|", markersize=4, markeredgewidth=0.6,
+               Line2D([], [], color=style.REF, linestyle="none", marker="|", markersize=4, markeredgewidth=0.6,
                       label="Heterozygous bin")]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
 
@@ -107,7 +107,7 @@ def draw(src: Source):
     mesh = ax_b.pcolormesh(10**edges_x, 10**edges_y, counts, cmap=style.blue_cmap(),
                            norm=LogNorm(vmin=1.0, vmax=float(np.nanmax(counts))), shading="flat", rasterized=True)
     lims = (10 ** min(edges_x[0], edges_y[0]), 10 ** max(edges_x[-1], edges_y[-1]))
-    ax_b.plot(lims, lims, color=style.INK, linewidth=style.LW_REF, linestyle=style.DASH, zorder=3)
+    ax_b.plot(lims, lims, color=style.INK, linewidth=style.LW_THIN, linestyle=style.DASH, zorder=3)
     style.log_axis(ax_b, "x")
     style.log_axis(ax_b, "y")
     ax_b.set_xlim(*lims)
@@ -121,8 +121,8 @@ def draw(src: Source):
     style.note(ax_b, 0.97, 0.03, "right and top edge cells also\nhold the bins beyond the axes", ha="right", va="bottom")
     cax = ax_b.inset_axes([1.04, 0.0, 0.05, 1.0])
     cb = fig.colorbar(mesh, cax=cax)
-    cb.outline.set_linewidth(style.LW_GRID)
-    cb.ax.tick_params(labelsize=style.TICK_PT, width=style.LW_GRID, length=2.0)
+    cb.outline.set_linewidth(style.LW_HAIR)
+    cb.ax.tick_params(labelsize=style.TICK_PT, width=style.LW_HAIR, length=2.0)
     cb.set_label("Bins per cell", fontsize=style.TEXT_PT, labelpad=2.0)
 
     # c: calibration of the 95% interval by decile of the true TMRCA and, if given, of the posterior mean.
@@ -134,9 +134,9 @@ def draw(src: Source):
         calib = calib_all[calib_all["by"] == by].sort_values("class")
         k = calib["class"].to_numpy()
         z = 4 - i  # the true deciles on top
-        ax_c.plot(k, calib["coverage95_states"], color=color, linewidth=style.LW, zorder=z, marker="o",
+        ax_c.plot(k, calib["coverage95_states"], color=color, linewidth=style.LW_DATA, zorder=z, marker="o",
                   markersize=3.0, markeredgewidth=0.6)
-        ax_c.plot(k, calib["coverage95_point"], color=color, linewidth=style.LW, linestyle=POINT_DASH, zorder=z,
+        ax_c.plot(k, calib["coverage95_point"], color=color, linewidth=style.LW_DATA, linestyle=POINT_DASH, zorder=z,
                   marker="s", markersize=3.0, markeredgewidth=0.6, markerfacecolor=style.SURFACE)
         low = min(low, float(calib["coverage95_point"].min()), float(calib["coverage95_states"].min()))
     ax_c.set_xticks(k)
@@ -146,21 +146,21 @@ def draw(src: Source):
 
     ax_c.yaxis.set_major_locator(MultipleLocator(0.05))
     ax_c.yaxis.set_major_formatter(_percent())
-    ax_c.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_GRID)
+    ax_c.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
     ax_c.set_xlabel("Decile of the TMRCA (1 = youngest)")
     ax_c.set_ylabel("Coverage of the 95% interval")
     states, point = "States from the 2.5% to the 97.5% quantile", "Quantiles' state average times"
     if overall is not None:
         states += f" (all bins: {100 * float(overall.coverage95_states):.1f}%)"
         point += f" (all bins: {100 * float(overall.coverage95_point):.1f}%)"
-    handles = [Line2D([], [], color=style.INK2, linewidth=style.LW, marker="o", markersize=3.0),
-               Line2D([], [], color=style.INK2, linewidth=style.LW, linestyle=POINT_DASH, marker="s",
+    handles = [Line2D([], [], color=style.INK2, linewidth=style.LW_DATA, marker="o", markersize=3.0),
+               Line2D([], [], color=style.INK2, linewidth=style.LW_DATA, linestyle=POINT_DASH, marker="s",
                       markersize=3.0, markerfacecolor=style.SURFACE)]
     labels = [states, point]
     for _, color, what in groups:
-        handles.append(Line2D([], [], color=color, linewidth=style.LW_BOLD + 0.5))
+        handles.append(Line2D([], [], color=color, linewidth=style.LW_EMPH + 0.5))
         labels.append(f"By {what}")
-    handles.append(Line2D([], [], color=style.MUTED, linewidth=style.LW_REF, linestyle=style.DOT))
+    handles.append(Line2D([], [], color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT))
     labels.append("Nominal 95%")
     style.legend(ax_c, handles, labels, loc="lower left")
     style.panel_letters(fig, [ax_a, ax_b, ax_c], align_cols=True)

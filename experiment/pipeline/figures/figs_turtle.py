@@ -119,7 +119,7 @@ def draw(src: Source):
     handles = [Line2D([], [], color=e.color, linestyle=e.linestyle,
                       linewidth=DEFAULT_LW if k == "default" else SPLIT_LW, label=e.label)
                for k, e in ents.items()]
-    handles.append(Patch(facecolor=style.NEUTRAL, linewidth=0, label="Outside the comparison window"))
+    handles.append(Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
                  columnspacing=1.0, handlelength=2.6)
     style.panel_letters(fig, axes)

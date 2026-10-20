@@ -28,7 +28,7 @@ from . import style
 from .data import Source
 
 W, H = 183.0, 86.0  # mm
-EDGE = style.MUTED
+EDGE = style.REF
 RS_FILL = "#e6f0fc"  # lighter than step 100 of the blue ramp, behind psmc-rs's boxes
 RS_EDGE = style.BLUE
 Box = Tuple[float, float, float, float]

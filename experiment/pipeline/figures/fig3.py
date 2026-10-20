@@ -228,7 +228,7 @@ def draw(src: Source):
         fine_mb = float(boots[boots["default_trunks"].astype(str) == "False"]["trunk_mb"].iloc[0])
         handles.append(Line2D([], [], color=style.BLUE_650, linewidth=FINE_LW, linestyle=FINE_STYLE,
                               label=f"Bootstrap 95% band, {fine_mb:g} Mb blocks"))
-    handles.append(Patch(facecolor=style.NEUTRAL, linewidth=0, label="Outside the comparison window"))
+    handles.append(Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
                  columnspacing=1.0, handlelength=2.0)
     style.panel_letters(fig, axes)
