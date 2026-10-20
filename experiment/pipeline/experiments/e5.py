@@ -84,7 +84,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import rep, write_csv
+from .e1 import rep, run_record, write_csv
 
 NAME = "E5"
 TABLES = {
@@ -351,13 +351,6 @@ class Bootstrap:
     run: Dict
 
 
-def _run_info(path: Path) -> Dict:
-    try:
-        return json.loads(Path(path).read_text()).get("run", {})
-    except (OSError, ValueError):
-        return {}
-
-
 def check_input(params: Dict, truth: Dict, what: str) -> None:
     """Raise unless the fit read the genome of the truth record (bins and heterozygous bins)."""
     bins = sum(ch["bins"] for ch in truth["chromosomes"])
@@ -379,7 +372,7 @@ def load_genome(lay: Layout, cfg: config.E5, r: int) -> GenomeFit:
     fit = results.fit_from_rs(params)
     sc = cfg.scaling
     curve = fit.curve(sc.mu, sc.gen_years, cfg.inference.bin_size)
-    return GenomeFit(r, truth, params, fit, curve, _run_info(lay.record(job_name("fit", cfg.model, r))))
+    return GenomeFit(r, truth, params, fit, curve, run_record(lay.record(job_name("fit", cfg.model, r))))
 
 
 def load_bootstrap(lay: Layout, cfg: config.E5, r: int, trunk: int, truth: Dict) -> Bootstrap:
@@ -410,7 +403,7 @@ def load_bootstrap(lay: Layout, cfg: config.E5, r: int, trunk: int, truth: Dict)
     for i in numbers:
         params = results.read_rs_json(lay.replicate_json(r, trunk, i))
         curves.append(results.fit_from_rs(params).curve(sc.mu, sc.gen_years, cfg.inference.bin_size))
-    run = _run_info(lay.record(job_name("boot", cfg.model, r, trunk)))
+    run = run_record(lay.record(job_name("boot", cfg.model, r, trunk)))
     return Bootstrap(main, summary, numbers, curves, run)
 
 

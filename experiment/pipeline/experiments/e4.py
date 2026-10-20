@@ -127,7 +127,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import rep, write_csv
+from .e1 import rep, run_record, write_csv
 
 NAME = "E4"
 ROUTES = ("mask_auto", "mask_ignore", "fq2psmcfa", "multihetsep", "nomask")
@@ -599,11 +599,8 @@ def load_fits(cfg: config.E4, lay: Layout, r: int, mask: str, bins: Dict) -> Dic
         check_fit_input(params, counts, where)
         check_fit_mode(params, route, where)
         fit = results.fit_from_rs(params)
-        try:
-            run = _read(lay.fit_record(mask, route, r)).get("run", {})
-        except (OSError, ValueError):
-            run = {}
-        out[route] = RouteFit(mask, route, r, params, fit, fit.curve(sc.mu, sc.gen_years, cfg.inference.bin_size), run)
+        out[route] = RouteFit(mask, route, r, params, fit, fit.curve(sc.mu, sc.gen_years, cfg.inference.bin_size),
+                              run_record(lay.fit_record(mask, route, r)))
     return out
 
 
