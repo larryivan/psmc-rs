@@ -373,25 +373,36 @@ mod tests {
         }
     }
 
+    /// The model of `n_steps` and `pattern` with θ, ρ and t_max as given and
+    /// its free λ drawn by `lam`, in order; `param_recalculate` has run.
+    fn model_with(
+        n_steps: usize,
+        pattern: Option<&str>,
+        [theta, rho, t_max]: [f64; 3],
+        lam: impl FnMut() -> f64,
+    ) -> PsmcModel {
+        let pattern = pattern.map(str::to_string);
+        let mut model = PsmcModel::new(t_max, n_steps, theta, rho, 2.5e-8, pattern).unwrap();
+        model.lam.fill_with(lam);
+        model.param_recalculate().unwrap();
+        model
+    }
+
+    /// Sets the last λ of `model` to a draw from 900 to 1e6, beyond
+    /// `T_INF - t_max`, and recomputes its HMM.
+    fn make_last_huge(rng: &mut Rng, model: &mut PsmcModel) {
+        *model.lam.last_mut().unwrap() = rng.log_uniform(900.0, 1e6);
+        model.param_recalculate().unwrap();
+    }
+
     /// A model with random θ, ρ, t_max and λ; `param_recalculate` has run.
     fn random_model(rng: &mut Rng, n_steps: usize, pattern: Option<&str>) -> PsmcModel {
         let theta = rng.log_uniform(1e-4, 0.05);
         let rho = theta * rng.log_uniform(0.05, 2.0);
         let t_max = 5.0 + 30.0 * rng.next();
-        let mut model = PsmcModel::new(
-            t_max,
-            n_steps,
-            theta,
-            rho,
-            2.5e-8,
-            pattern.map(str::to_string),
-        )
-        .unwrap();
-        for lam in model.lam.iter_mut() {
-            *lam = rng.log_uniform(0.05, 20.0);
-        }
-        model.param_recalculate().unwrap();
-        model
+        model_with(n_steps, pattern, [theta, rho, t_max], || {
+            rng.log_uniform(0.05, 20.0)
+        })
     }
 
     const LAYOUTS: [(usize, Option<&str>); 3] =
@@ -411,22 +422,12 @@ mod tests {
         let theta = rng.log_uniform(1e-5, 1.0);
         let rho = rng.log_uniform(1e-6, 5.0);
         let t_max = rng.log_uniform(1.0, 200.0);
-        let mut model = PsmcModel::new(
-            t_max,
-            n_steps,
-            theta,
-            rho,
-            2.5e-8,
-            pattern.map(str::to_string),
-        )
-        .unwrap();
-        for lam in model.lam.iter_mut() {
-            *lam = rng.log_uniform(1e-3, 1e3);
-        }
+        let mut model = model_with(n_steps, pattern, [theta, rho, t_max], || {
+            rng.log_uniform(1e-3, 1e3)
+        });
         if huge_last {
-            *model.lam.last_mut().unwrap() = rng.log_uniform(900.0, 1e6);
+            make_last_huge(rng, &mut model);
         }
-        model.param_recalculate().unwrap();
         model
     }
 
@@ -675,22 +676,12 @@ mod tests {
             let theta = rng.log_uniform(1e-4, 1.0);
             let rho = rng.log_uniform(0.02, 1.0);
             let t_max = rng.log_uniform(2.0, 100.0);
-            let mut model = PsmcModel::new(
-                t_max,
-                n_steps,
-                theta,
-                rho,
-                2.5e-8,
-                pattern.map(str::to_string),
-            )
-            .unwrap();
-            for lam in model.lam.iter_mut() {
-                *lam = rng.log_uniform(0.1, 10.0);
-            }
+            let mut model = model_with(n_steps, pattern, [theta, rho, t_max], || {
+                rng.log_uniform(0.1, 10.0)
+            });
             if huge_last {
-                *model.lam.last_mut().unwrap() = rng.log_uniform(900.0, 1e6);
+                make_last_huge(rng, &mut model);
             }
-            model.param_recalculate().unwrap();
             if model.check_transitions().is_ok()
                 && fallback_states(&model).iter().any(|&k| k < n_steps)
             {
