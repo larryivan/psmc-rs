@@ -3,21 +3,18 @@
 from __future__ import annotations
 
 import gzip
-import importlib.util
-import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import has_modules, quiet  # noqa: E402
 
 from experiment.pipeline import config  # noqa: E402
 
-HAS_NUMPY = importlib.util.find_spec("numpy") is not None
+HAS_NUMPY = has_modules("numpy")
 
 if HAS_NUMPY:
     import numpy as np
@@ -35,11 +32,6 @@ VCF_TEXT = (
     "chr1\t901\t.\tT\tA,G\t.\tPASS\t.\tGT\t1|2\n"
     "chr2\t17\t.\tA\tG\t.\tPASS\t.\tGT\t0|1\n"
 )
-
-
-def write_text_vcf(path: Path) -> Path:
-    path.write_text(VCF_TEXT)
-    return path
 
 
 @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
@@ -98,9 +90,9 @@ class Masks(unittest.TestCase):
 @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
 class VcfAndConsensus(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.vcf = ip.read_vcf(write_text_vcf(Path(self._tmp.name) / "x.vcf"))
+        path = Path(self.enterContext(tempfile.TemporaryDirectory())) / "x.vcf"
+        path.write_text(VCF_TEXT)
+        self.vcf = ip.read_vcf(path)
         # chr1: callable [0, 100) and [400, 1000); chr2 entirely callable
         self.mask = {"chr1": ip.Intervals(np.array([0, 400]), np.array([100, 1000])),
                      "chr2": ip.Intervals(np.array([0]), np.array([250]))}
@@ -176,23 +168,12 @@ class Bins(unittest.TestCase):
             (d / "b.psmcfa").write_text(">c\nTTKT\n")
             out = d / "bins.json"
             argv = ["bins", "--exact", str(d / "a.psmcfa"), "--route", f"fq2psmcfa={d / 'b.psmcfa'}", "--out", str(out)]
-            with redirect():
+            with quiet():
                 self.assertEqual(ip.main(argv), 0)
                 self.assertEqual(ip.main(argv + ["--assert-identical", "fq2psmcfa"]), 1)
             rec = json.loads(out.read_text())
             self.assertFalse(rec["assertions_passed"])
             self.assertEqual(rec["routes"]["fq2psmcfa"]["totals"]["confusion"]["N_T"], 1)
-
-
-class redirect:
-    """Silence a step's prints in the tests."""
-
-    def __enter__(self):
-        self._out, self._err = sys.stdout, sys.stderr
-        sys.stdout, sys.stderr = io.StringIO(), io.StringIO()
-
-    def __exit__(self, *exc):
-        sys.stdout, sys.stderr = self._out, self._err
 
 
 if __name__ == "__main__":

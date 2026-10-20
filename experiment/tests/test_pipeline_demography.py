@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-import importlib.util
 import math
 import sys
 import unittest
 import warnings
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import has_modules  # noqa: E402
 
 from experiment.pipeline import config, demography  # noqa: E402
 
-HAS_MSPRIME = importlib.util.find_spec("msprime") is not None
-HAS_STDPOPSIM = importlib.util.find_spec("stdpopsim") is not None
+HAS_MSPRIME = has_modules("msprime")
+if HAS_MSPRIME:
+    import numpy as np  # msprime's own dependency
 
 
 class ClosedForm(unittest.TestCase):
@@ -72,8 +71,6 @@ class AgainstMsprime(unittest.TestCase):
             self.assertLess(res["max_rel_diff"], 1e-9)
 
     def test_hazard_integrates_msprimes_sizes(self):
-        import numpy as np
-
         for name in config.MODEL_ORDER:
             model = config.MODELS[name]
             eps = demography.epochs(model)
@@ -87,8 +84,6 @@ class AgainstMsprime(unittest.TestCase):
                 self.assertAlmostEqual(numeric / exact, 1.0, delta=1e-3, msg=f"{name} {horizon}")
 
     def test_coalescence_probability_close_to_msprime(self):
-        import numpy as np
-
         times = np.linspace(0.0, 2e5, 2001)
         for name in ("bottleneck", "zigzag"):
             model = config.MODELS[name]
@@ -103,7 +98,7 @@ class AgainstMsprime(unittest.TestCase):
             mine = np.array([1 - demography.coalescence_cdf(eps, t) for t in times[idx]])
             self.assertLess(float(np.max(np.abs(mine - p_not[idx]))), 5e-3, name)
 
-    @unittest.skipUnless(HAS_STDPOPSIM, "stdpopsim not installed")
+    @unittest.skipUnless(has_modules("stdpopsim"), "stdpopsim not installed")
     def test_zigzag_equals_stdpopsim(self):
         res = demography.check_zigzag_against_stdpopsim()
         self.assertEqual(res["epochs"], 7)

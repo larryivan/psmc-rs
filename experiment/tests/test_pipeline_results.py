@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import math
 import sys
@@ -10,14 +9,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import C_REF, has_modules  # noqa: E402
 
 from experiment.pipeline import results  # noqa: E402
-
-C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
-HAS_NUMPY = importlib.util.find_spec("numpy") is not None
 
 
 class Patterns(unittest.TestCase):
@@ -95,7 +90,7 @@ class RsJson(unittest.TestCase):
             p.write_text(json.dumps(self.params()))
             self.assertEqual(results.fit_from_rs(results.read_rs_json(p)), fit)
 
-    @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
+    @unittest.skipUnless(has_modules("numpy"), "numpy not installed")
     def test_curve_scaling(self):
         fit = results.fit_from_rs(self.params())
         curve = fit.curve(mu=2.5e-8, gen_years=25, bin_size=100)

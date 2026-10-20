@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import importlib.util
 import math
 import sys
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import has_modules  # noqa: E402
 
-from experiment.pipeline import config, demography, metrics  # noqa: E402
+from experiment.pipeline import config, demography, metrics, results  # noqa: E402
 from experiment.pipeline.results import Curve  # noqa: E402
 
+HAS_NUMPY = has_modules("numpy")
 
-@unittest.skipUnless(importlib.util.find_spec("numpy") is not None, "numpy not installed")
+
+@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
 class Metrics(unittest.TestCase):
     def test_log_grid(self):
         g = metrics.log_grid(1e3, 1e6, 4)
@@ -60,7 +60,7 @@ class Metrics(unittest.TestCase):
         self.assertAlmostEqual(g[-1], 1e6)
 
 
-@unittest.skipUnless(importlib.util.find_spec("numpy") is not None, "numpy not installed")
+@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
 class ProjectedTruth(unittest.TestCase):
     def test_a_constant_size_projects_onto_itself(self):
         eps = demography.epochs(config.CONSTANT)
@@ -78,8 +78,6 @@ class ProjectedTruth(unittest.TestCase):
         self.assertAlmostEqual(metrics.projected_ne(eps, 0.0, t), n1, delta=1e-6 * n1)
 
     def test_free_spans_follow_the_pattern(self):
-        from experiment.pipeline import results
-
         fit = results.Fit(theta=0.01, rho=0.002, t_max=15.0, n=63, lambdas=(1.0,) * 64, pattern="4+25*2+4+6")
         spans = metrics.free_spans(fit)
         self.assertEqual(len(spans), 28)
@@ -88,8 +86,6 @@ class ProjectedTruth(unittest.TestCase):
         self.assertEqual(metrics.free_spans(no_pattern), [(0, 1), (1, 2), (2, 3), (3, 4)])
 
     def test_projected_truth_of_a_fit(self):
-        from experiment.pipeline import results
-
         eps = demography.epochs(config.BOTTLENECK)
         mu, g = config.SIMULATION_SCALING.mu, config.SIMULATION_SCALING.gen_years
         theta = 4 * 20_000 * mu * 100  # N0 of the fit equals the model's N0
@@ -105,7 +101,7 @@ class ProjectedTruth(unittest.TestCase):
         self.assertEqual(metrics.rmse_vs_projected_truth(proj, proj, grid), 0.0)
 
 
-@unittest.skipUnless(importlib.util.find_spec("numpy") is not None, "numpy not installed")
+@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
 class IntervalDiff(unittest.TestCase):
     """Two fits of the same pattern compared interval by interval."""
 

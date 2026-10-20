@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gzip
-import importlib.util
 import json
 import shutil
 import subprocess
@@ -12,13 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import ROOT, has_modules  # noqa: E402
 
 from experiment.pipeline import config, simulate  # noqa: E402
 
-HAS_MSPRIME = importlib.util.find_spec("msprime") is not None
 HAS_HTSLIB = shutil.which("bgzip") is not None and shutil.which("tabix") is not None
 PSMC_RS = ROOT / "target" / "release" / "psmc-rs"
 
@@ -42,22 +39,17 @@ class Layout(unittest.TestCase):
         self.assertEqual(simulate.longest_hetfree_bins([], 1050, 100), 11)
 
 
-@unittest.skipUnless(HAS_MSPRIME, "msprime not installed")
+@unittest.skipUnless(has_modules("msprime"), "msprime not installed")
 class SimulatedGenome(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls._tmp = tempfile.TemporaryDirectory()
-        cls.tmp = Path(cls._tmp.name)
+        cls.tmp = Path(cls.enterClassContext(tempfile.TemporaryDirectory()))
         cls.genome = config.Genome(n_chromosomes=2, chromosome_length=200_000)
         cls.rec = simulate.simulate_genome(
             "TEST", config.BOTTLENECK, 1, cls.genome, config.SIMULATION, cls.tmp / "sim", cls.tmp / "truth.json",
             write_vcf=HAS_HTSLIB, tmrca_path=cls.tmp / "tmrca.tsv.gz", log=lambda m: None,
         )
         cls.psmcfa = (cls.tmp / "sim" / simulate.PSMCFA_NAME).read_text()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls._tmp.cleanup()
 
     def records(self):
         out, name = {}, None
