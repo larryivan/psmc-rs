@@ -64,7 +64,7 @@ use crate::io::common::{
 use crate::io::consensus::utf8_chrom;
 use crate::io::{CallableBases, Observations, Sequences};
 
-pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
+type Interval = (u64, u64); // inclusive [start, end], 1-based
 
 /// Largest accepted POS and `##contig` length: 2^36, about 68.7 Gb, several
 /// times longer than any known chromosome. The work and memory of a sequence
@@ -370,7 +370,7 @@ impl MaskFile {
 
 /// The sorted, merged positions of one chromosome outside the callable set
 /// ([`MaskEngine::uncallable_for_chrom`]), visited in non-decreasing order.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Uncallable {
     xs: Vec<Interval>,
     /// First interval that can still reach the positions visited.
@@ -378,10 +378,6 @@ pub(crate) struct Uncallable {
 }
 
 impl Uncallable {
-    pub(crate) fn new(xs: Vec<Interval>) -> Self {
-        Self { xs, next: 0 }
-    }
-
     /// The first interval that ends at or after `pos`, if any.
     fn seek(&mut self, pos: u64) -> Option<Interval> {
         while self.xs.get(self.next).is_some_and(|&(_, e)| e < pos) {
@@ -394,18 +390,6 @@ impl Uncallable {
     pub(crate) fn is_callable(&mut self, pos: u64) -> bool {
         !self.seek(pos).is_some_and(|(s, _)| s <= pos)
     }
-}
-
-/// Which positive masks have rows for a chromosome ([`MaskEngine::coverage`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MaskCoverage {
-    /// Every positive mask (or there is none).
-    Every,
-    /// Some positive masks, not all: the intersection of the masks is empty
-    /// there, as when per-chromosome masks are given as separate masks.
-    SomeMasks,
-    /// No positive mask: usually a naming mismatch (`chr1` against `1`).
-    NoMask,
 }
 
 /// The warning for VCF chromosomes that no positive mask has a row for.
@@ -470,27 +454,40 @@ impl MaskEngine {
         !self.positives.is_empty()
     }
 
-    /// How many of the positive masks have a row that applies to `chrom`.
-    /// Unless all of them do, the whole chromosome is uncallable.
-    pub(crate) fn coverage(&self, chrom: &str) -> MaskCoverage {
+    /// Unless every positive mask has a row that applies to `chrom`, the
+    /// whole chromosome is uncallable: add it to `no_mask` when none has
+    /// (usually a naming mismatch, `chr1` against `1`), or to `some_masks`
+    /// when some have (the masks are intersected, as when per-chromosome
+    /// masks are given as separate masks).
+    pub(crate) fn note_coverage(
+        &self,
+        chrom: &str,
+        no_mask: &mut Vec<String>,
+        some_masks: &mut Vec<String>,
+    ) {
         let with_rows = self
             .positives
             .iter()
             .filter(|m| !m.global.is_empty() || m.by_chrom.contains_key(chrom))
             .count();
         if with_rows == self.positives.len() {
-            MaskCoverage::Every
-        } else if with_rows == 0 {
-            MaskCoverage::NoMask
-        } else {
-            MaskCoverage::SomeMasks
+            return;
+        }
+        let list = if with_rows == 0 { no_mask } else { some_masks };
+        list.push(chrom.to_string());
+    }
+
+    /// The positions of `chrom` that are outside the callable set. Only
+    /// this list is built: the masks' own intervals are not copied unless
+    /// several of them have to be combined.
+    pub(crate) fn uncallable_for_chrom(&self, chrom: &str) -> Uncallable {
+        Uncallable {
+            xs: self.uncallable_intervals(chrom),
+            next: 0,
         }
     }
 
-    /// Sorted, merged positions of `chrom` that are outside the callable set.
-    /// Only this list is built: the masks' own intervals are not copied
-    /// unless several of them have to be combined.
-    pub(crate) fn uncallable_for_chrom(&self, chrom: &str) -> Vec<Interval> {
+    fn uncallable_intervals(&self, chrom: &str) -> Vec<Interval> {
         let neg = self.negatives.intervals_for_chrom(chrom);
         let Some((first, rest)) = self.positives.split_first() else {
             return neg.into_owned();
@@ -1051,7 +1048,7 @@ struct ChromBuilder {
 impl ChromBuilder {
     fn new(
         name: &[u8],
-        uncallable: Vec<Interval>,
+        uncallable: Uncallable,
         contig_len: Option<u64>,
         opts: &VcfOptions,
         collect_het: bool,
@@ -1059,7 +1056,7 @@ impl ChromBuilder {
         Self {
             name: name.to_vec(),
             seq: SeqBuilder::new(opts.bin_size, collect_het),
-            uncallable: Uncallable::new(uncallable),
+            uncallable,
             cursor: 1,
             miss_until: 0,
             covered_until: 0,
@@ -1433,11 +1430,11 @@ fn start_chrom(
     summary: &mut VcfSummary,
 ) -> Result<ChromBuilder> {
     let name = utf8_chrom(chrom, row_no)?;
-    match masks.coverage(name) {
-        MaskCoverage::Every => {}
-        MaskCoverage::SomeMasks => summary.chroms_outside_some_masks.push(name.to_string()),
-        MaskCoverage::NoMask => summary.chroms_outside_mask.push(name.to_string()),
-    }
+    masks.note_coverage(
+        name,
+        &mut summary.chroms_outside_mask,
+        &mut summary.chroms_outside_some_masks,
+    );
     if let Some(len) = contig_len {
         if len > MAX_POS {
             let len = if len == u64::MAX {

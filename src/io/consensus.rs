@@ -98,7 +98,7 @@ use crate::io::common::{
 };
 pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
 use crate::io::vcf::{
-    MAX_POS, MaskCoverage, MaskEngine, Uncallable, list_names, outside_mask_hint,
+    MAX_POS, MaskEngine, Uncallable, list_names, outside_mask_hint,
     outside_some_masks_hint,
 };
 
@@ -498,14 +498,11 @@ const BITCNT: [u8; 16] = [4, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4];
 fn read_base(b: u8) -> Base {
     match NT16[b as usize] {
         15 => Base::Lost(LossReason::NotABase),
-        code if BITCNT[code as usize] == 2 => {
-            let mut pair = [0u8; 2];
-            let bases = (0..4).filter(|k| code & (1 << k) != 0).map(|k| b"ACGT"[k]);
-            for (slot, base) in pair.iter_mut().zip(bases) {
-                *slot = base;
-            }
-            Base::Het(pair)
-        }
+        // The code's lowest and highest set bits, in ACGT order.
+        code if BITCNT[code as usize] == 2 => Base::Het([
+            b"ACGT"[code.trailing_zeros() as usize],
+            b"ACGT"[(u8::BITS - 1 - code.leading_zeros()) as usize],
+        ]),
         _ => Base::Hom,
     }
 }
@@ -1116,19 +1113,14 @@ pub(crate) fn read_consensus_from(
             if !first_block && repeated.insert(f[0].to_vec()) {
                 summary.repeated_chroms.push(name.to_string());
             }
-            let uncallable = if summary.masked {
-                let outside = match masks.coverage(name) {
-                    MaskCoverage::Every => None,
-                    MaskCoverage::SomeMasks => Some(&mut summary.chroms_outside_some_masks),
-                    MaskCoverage::NoMask => Some(&mut summary.chroms_outside_mask),
-                };
-                if let (true, Some(list)) = (first_block, outside) {
-                    list.push(name.to_string());
-                }
-                Uncallable::new(masks.uncallable_for_chrom(name))
-            } else {
-                Uncallable::default()
-            };
+            if first_block {
+                masks.note_coverage(
+                    name,
+                    &mut summary.chroms_outside_mask,
+                    &mut summary.chroms_outside_some_masks,
+                );
+            }
+            let uncallable = masks.uncallable_for_chrom(name);
             cur = Some(Chrom::new(
                 name,
                 opts.bin_size,
