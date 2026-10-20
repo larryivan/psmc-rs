@@ -17,21 +17,23 @@ fn spinner_style() -> ProgressStyle {
     .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 }
 
-/// A progress bar of `len` steps drawn on stderr.
-pub fn bar(len: u64, prefix: &str, msg: &str) -> ProgressBar {
-    let pb = ProgressBar::with_draw_target(Some(len), ProgressDrawTarget::stderr_with_hz(15));
-    pb.set_style(bar_style());
+fn styled(pb: ProgressBar, style: ProgressStyle, prefix: &str, msg: &str) -> ProgressBar {
+    pb.set_style(style);
     pb.set_prefix(prefix.to_string());
     pb.set_message(msg.to_string());
     pb
 }
 
+/// A progress bar of `len` steps drawn on stderr.
+pub fn bar(len: u64, prefix: &str, msg: &str) -> ProgressBar {
+    let pb = ProgressBar::with_draw_target(Some(len), ProgressDrawTarget::stderr_with_hz(15));
+    styled(pb, bar_style(), prefix, msg)
+}
+
 /// A spinner drawn on stderr, ticking on its own.
 pub fn spinner(prefix: &str, msg: &str) -> ProgressBar {
     let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr_with_hz(15));
-    pb.set_style(spinner_style());
-    pb.set_prefix(prefix.to_string());
-    pb.set_message(msg.to_string());
+    let pb = styled(pb, spinner_style(), prefix, msg);
     pb.enable_steady_tick(Duration::from_millis(80));
     pb
 }
@@ -39,19 +41,11 @@ pub fn spinner(prefix: &str, msg: &str) -> ProgressBar {
 /// A progress bar styled like [`bar`], for a caller that chooses where it
 /// is drawn.
 pub fn bar_raw(len: u64, prefix: &str, msg: &str) -> ProgressBar {
-    let pb = ProgressBar::new(len);
-    pb.set_style(bar_style());
-    pb.set_prefix(prefix.to_string());
-    pb.set_message(msg.to_string());
-    pb
+    styled(ProgressBar::new(len), bar_style(), prefix, msg)
 }
 
 /// A spinner styled like [`spinner`], for a caller that draws it itself
 /// (for example in an `indicatif::MultiProgress`) and starts its ticks.
 pub fn spinner_raw(prefix: &str, msg: &str) -> ProgressBar {
-    let pb = ProgressBar::new_spinner();
-    pb.set_style(spinner_style());
-    pb.set_prefix(prefix.to_string());
-    pb.set_message(msg.to_string());
-    pb
+    styled(ProgressBar::new_spinner(), spinner_style(), prefix, msg)
 }
