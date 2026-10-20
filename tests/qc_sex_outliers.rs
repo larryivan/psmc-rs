@@ -8,89 +8,26 @@ use psmc_rs::qc::{
 };
 
 #[test]
-fn names_of_sex_chromosomes() {
-    for name in [
-        "X",
-        "x",
-        "Y",
-        "Z",
-        "W",
-        "chrX",
-        "ChrX",
-        "CHRY",
-        "chrZ",
-        "chrW",
-        "X1",
-        "chrY2",
-        "chrY_KI270740v1_random",
-        "chromosome_X",
-        "chromosomeX",
-        "chrom-Y",
-        "chr.Z",
-        "Y_unplaced_1",
-        "NC_000023.11",
-        "NC_000024.10",
-        "NC_000086.8",
+fn sequence_names_are_classified() {
+    let sex = "X x Y Z W chrX ChrX CHRY chrZ chrW X1 chrY2 chrY_KI270740v1_random \
+               chromosome_X chromosomeX chrom-Y chr.Z Y_unplaced_1 NC_000023.11 \
+               NC_000024.10 NC_000086.8";
+    let organelle = "MT Mt mt M chrM chrMT chrM_alt mito mtDNA MtDNA Pt ChrC chrc \
+                     mitochondrion dmel_mitochondrion_genome Mitochondrial_genome chloroplast \
+                     NC_037304_chloroplast Plastid apicoplast NC_012920.1 NC_001807 \
+                     NC_005089.1";
+    let other = "1 chr1 chr10 Chr2A chrX1A XY Xenopus_7 Zm00001 scaffold_12 scaffold_X \
+                 chrUn_KI270302v1 C MTR CP012345.1 PT12 NC_000001.11 LG7";
+    for (names, kind) in [
+        (sex, Some(SeqKind::Sex)),
+        (organelle, Some(SeqKind::Organelle)),
+        (other, None),
     ] {
-        assert_eq!(classify_name(name), Some(SeqKind::Sex), "{name}");
+        for name in names.split_whitespace() {
+            assert_eq!(classify_name(name), kind, "{name}");
+        }
     }
-}
-
-#[test]
-fn names_of_organelles() {
-    for name in [
-        "MT",
-        "Mt",
-        "mt",
-        "M",
-        "chrM",
-        "chrMT",
-        "chrM_alt",
-        "mito",
-        "mtDNA",
-        "MtDNA",
-        "Pt",
-        "ChrC",
-        "chrc",
-        "mitochondrion",
-        "dmel_mitochondrion_genome",
-        "Mitochondrial_genome",
-        "chloroplast",
-        "NC_037304_chloroplast",
-        "Plastid",
-        "apicoplast",
-        "NC_012920.1",
-        "NC_001807",
-        "NC_005089.1",
-    ] {
-        assert_eq!(classify_name(name), Some(SeqKind::Organelle), "{name}");
-    }
-}
-
-#[test]
-fn other_names() {
-    for name in [
-        "1",
-        "chr1",
-        "chr10",
-        "Chr2A",
-        "chrX1A",
-        "XY",
-        "Xenopus_7",
-        "Zm00001",
-        "scaffold_12",
-        "scaffold_X",
-        "chrUn_KI270302v1",
-        "C",
-        "MTR",
-        "CP012345.1",
-        "PT12",
-        "NC_000001.11",
-        "LG7",
-        "",
-    ] {
-        assert_eq!(classify_name(name), None, "{name}");
-    }
+    assert_eq!(classify_name(""), None);
 }
 
 /// Sequences as (name, called bins, K bins), laid out K..., T....
