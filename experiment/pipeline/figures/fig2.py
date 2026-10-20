@@ -58,9 +58,7 @@ def model_order(models) -> List[str]:
 def draw(src: Source):
     import numpy as np
 
-    cfg = src.profile.e1
-    figs = config.FIGURES
-    g = cfg.scaling.gen_years
+    g = src.profile.e1.scaling.gen_years
     df = src.table("E1_curves")
     check_truth_table(src.table("E1_truth"), g)
     windows = {r.model: (r.window_lo_years, r.window_hi_years) for r in src.table("E1_table1").itertuples()}
@@ -68,8 +66,9 @@ def draw(src: Source):
     pairs = src.table("E1_rs_vs_c")
     models = model_order(df["model"].unique())
     fits = curves(df, ["model", "tool", "replicate"])
-    xlim = figs.sim_years
-    grid = time_grid(xlim, figs.curve_grid_points)
+    xlim = config.FIGURES.sim_years
+    grid = time_grid(xlim, config.FIGURES.curve_grid_points)
+    truths = {m: truth_xy(m, g, xlim) for m in models}
 
     def of(m: str, tool: str):
         return [c for (mm, t, _), c in fits.items() if mm == m and t == tool]
@@ -79,7 +78,7 @@ def draw(src: Source):
     # reaches into a window must not flatten every panel).
     vals: List[float] = []
     for m in models:
-        _, ty = truth_xy(m, g, xlim)
+        _, ty = truths[m]
         vals += [float(ty.min()), float(ty.max())]
         wgrid = time_grid(windows[m], 200)
         inside = np.concatenate([c.at(wgrid) for c in of(m, "c") + of(m, "rs")])
@@ -106,14 +105,13 @@ def draw(src: Source):
                         zorder=2)
         for tool, ent, lw, z in (("c", style.C_PSMC, C_MEDIAN_LW, 4), ("rs", style.RS02, RS_MEDIAN_LW, 5)):
             ax.plot(grid, median(of(m, tool), grid), drawstyle="steps-post", color=ent.color, linewidth=lw, zorder=z)
-        tx, ty = truth_xy(m, g, xlim)
-        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW_DATA, zorder=6)
+        ax.plot(*truths[m], **style.truth_kw(zorder=6))
         style.years_axis(ax, xlim, label=False)
         style.ne_axis(ax, ylim, label=style.NE_LABEL if j == 0 else None)
         if j:
             ax.tick_params(labelleft=False)
         ax.tick_params(labelbottom=False)
-        style.note(ax, 0.97, 0.97, MODEL_LABEL.get(m, m), ha="right", va="top", color=style.INK, size=style.TEXT_PT)
+        style.note(ax, 0.97, 0.97, MODEL_LABEL.get(m, m), ha="right", color=style.INK, size=style.TEXT_PT)
         diffs[m] = [(r, fits[(m, "c", r)], metrics.interval_diff(c, fits[(m, "c", r)], windows[m]))
                     for (mm, t, r), c in fits.items() if mm == m and t == "rs" and (m, "c", r) in fits]
 
@@ -141,10 +139,9 @@ def draw(src: Source):
             # Top right, in the decade of headroom: the clipped line is at the left.
             style.note(ax, 0.97, 0.97, f"↑ off scale outside the window:\n"
                        f"{fmt_sig(d.max_abs_any)} in replicate {int(r)}, {higher} higher", ha="right",
-                       size=style.TEXT_PT,
-                       linespacing=1.2, zorder=6,
+                       size=style.TEXT_PT, linespacing=1.2, zorder=6,
                        bbox={"facecolor": style.SURFACE, "edgecolor": "none", "pad": 0.5})
-        style.years_axis(ax, xlim, label=True)
+        style.years_axis(ax, xlim)
         style.log_axis(ax, "y", grid=True)
         ax.set_ylim(*dlim)
         if j == 0:
@@ -154,7 +151,7 @@ def draw(src: Source):
 
     _rmse_panel(bottom, models, reps, pairs, src.table("E1_mstep") if src.has("E1_mstep") else None)
     handles = [
-        style.handle(style.TRUTH, linewidth=style.LW_DATA),
+        style.handle(style.TRUTH),
         style.handle(style.C_PSMC, linewidth=C_MEDIAN_LW, label="C psmc, median"),
         style.handle(style.RS02, linewidth=RS_MEDIAN_LW, label="psmc-rs 0.2, median"),
         # The replicates' tint, keyed thicker than the 0.5 pt lines so that it shows.
@@ -165,11 +162,11 @@ def draw(src: Source):
     ]
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
                  columnspacing=1.0)
-    style.panel_letters(fig, [*top, *mid, bottom], align_cols=True)
+    style.panel_letters(fig, [*top, *mid, bottom])
     return fig
 
 
-def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
+def _rmse_panel(ax, models: List[str], reps, pairs, mstep) -> None:
     """RMSE of log10 Ne per replicate: C and psmc-rs against the truth, psmc-rs against C (and a capped M-step fit)."""
     import numpy as np
 
@@ -219,6 +216,6 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep=None) -> None:
     ax.set_xticklabels([MODEL_LABEL.get(m, m) for m in models], fontsize=style.TEXT_PT, color=style.INK)
     ax.tick_params(axis="x", length=0)
     ax.set_ylabel("RMSE of log$_{10}$ $N_\\mathrm{e}$")
-    handles.append(style.handle(style.Entity("Mean", style.INK), linewidth=style.LW_DATA))
-    handles.append(style.handle(style.Entity("Median", style.INK, MEDIAN_STYLE), linewidth=style.LW_DATA))
+    handles += [style.handle(style.Entity("Mean", style.INK)),
+                style.handle(style.Entity("Median", style.INK, MEDIAN_STYLE))]
     style.legend(ax, handles, loc="upper left", bbox_to_anchor=(1.02, 1.0), ncol=1, handlelength=1.2)

@@ -31,7 +31,7 @@ from . import style
 from .data import Source, curves, decades, time_grid, truth_xy
 from .fig2 import MODEL_LABEL, model_order
 
-FLOOR = 1e-6
+FLOOR = 1e-6  # the floor of the differences axis (a smaller difference is drawn on it)
 # How the formats are drawn here: the multihetsep solid (style's dashes are
 # too close to the truth's), the VCF on top of it.
 FORMATS = {**style.FORMATS, "multihetsep": replace(style.FORMATS["multihetsep"], linestyle="-")}
@@ -44,9 +44,7 @@ NOTE_LINE_SHARE = 0.09  # share of a bottom panel's height one line of a note ta
 def draw(src: Source):
     import numpy as np
 
-    cfg = src.profile.e1
-    figs = config.FIGURES
-    g = cfg.scaling.gen_years
+    g = src.profile.e1.scaling.gen_years
     table = src.table("E6_S2_curves")
     fits = curves(table[table.format != "truth"], ["model", "format"])
     bins = src.table("E6_S2_bins")
@@ -54,8 +52,9 @@ def draw(src: Source):
     fit_rows = src.table("E6_S2_fits")
     models = model_order({m for m, _ in fits})
     inputs = [i for i in style.FORMAT_ORDER if any(k[1] == i for k in fits)]
-    xlim = figs.sim_years
-    grid = time_grid(xlim, figs.curve_grid_points)
+    xlim = config.FIGURES.sim_years
+    grid = time_grid(xlim, config.FIGURES.curve_grid_points)
+    truths = {m: truth_xy(m, g, xlim) for m in models}
     windows = {r.model: (float(r.window_lo_years), float(r.window_hi_years)) for r in fit_rows.itertuples()}
     n = len(models)
     fig = style.figure("double", 96)
@@ -74,7 +73,7 @@ def draw(src: Source):
                 vals += list(fits[(m, i)].at(grid[inside]))
                 if i != "psmcfa" and (m, "psmcfa") in fits:
                     diffs[(m, i)] = np.abs(metrics.interval_log10_ratio(fits[(m, i)], fits[(m, "psmcfa")]))
-        _, ty = truth_xy(m, g, xlim)
+        _, ty = truths[m]
         vals += [float(ty.min()), float(ty.max())]
     ylim = decades(min(vals) / 1.5, max(vals) * 1.5)
     notes = {m: _note(m, inputs, diffs, bins) for m in models}
@@ -96,8 +95,7 @@ def draw(src: Source):
             x, y = style.step_xy(c.years, c.ne, xlim)
             ax.plot(x, y, drawstyle="steps-post", color=ent.color, linestyle=ent.linestyle,
                     linewidth=FORMAT_LW.get(i, style.LW_DATA), zorder=FORMAT_Z.get(i, 3))
-        tx, ty = truth_xy(m, g, xlim)
-        ax.plot(tx, ty, color=style.INK, linestyle=style.DASH, linewidth=style.LW_DATA, zorder=5)
+        ax.plot(*truths[m], **style.truth_kw())
         style.years_axis(ax, xlim, label=False)
         style.ne_axis(ax, ylim, label=style.NE_LABEL if j == 0 else None)
         ax.tick_params(labelbottom=False)
@@ -109,7 +107,7 @@ def draw(src: Source):
                 continue
             x, y = style.step_xy(fits[(m, "psmcfa")].years, np.maximum(d, dlim[0]), xlim)
             axd.plot(x, y, drawstyle="steps-post", color=FORMATS[i].color, linewidth=style.LW_DATA, zorder=3)
-        style.note(axd, 0.03, 0.97, notes[m], ha="left", va="top", linespacing=1.2)
+        style.note(axd, 0.03, 0.97, notes[m], linespacing=1.2)
         style.years_axis(axd, xlim)
         style.log_axis(axd, "y", grid=True)
         axd.set_ylim(*dlim)
@@ -120,9 +118,9 @@ def draw(src: Source):
             ax.tick_params(labelleft=False)
 
     handles = [style.handle(FORMATS[i], linewidth=FORMAT_LW.get(i, style.LW_DATA)) for i in inputs]
-    handles.append(style.handle(style.TRUTH, linewidth=style.LW_DATA))
+    handles.append(style.handle(style.TRUTH))
     style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
-    style.panel_letters(fig, [*top, *bottom], align_cols=True)
+    style.panel_letters(fig, [*top, *bottom])
     return fig
 
 
