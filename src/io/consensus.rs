@@ -98,7 +98,7 @@ use crate::io::common::{
     DepthCounter, HetCall, SeqBuilder, is_regular_file, open_reader, reopen_reader,
 };
 use crate::io::vcf::{
-    MAX_POS, MaskEngine, Uncallable, list_names, outside_mask_hint, outside_some_masks_hint,
+    MaskEngine, Uncallable, list_names, outside_mask_hint, outside_some_masks_hint, parse_pos,
 };
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).
@@ -703,20 +703,6 @@ fn digits_u64(s: &[u8]) -> u64 {
     s.iter().fold(0u64, |v, &c| {
         v.saturating_mul(10).saturating_add(u64::from(c - b'0'))
     })
-}
-
-fn parse_pos(b: &[u8], row_no: usize) -> Result<u64> {
-    if b.is_empty() || b.len() > 19 || !b.iter().all(u8::is_ascii_digit) {
-        bail!(
-            "invalid VCF row {row_no}: bad POS '{}'",
-            String::from_utf8_lossy(b)
-        );
-    }
-    let pos = digits_u64(b);
-    if pos > MAX_POS {
-        bail!("invalid VCF row {row_no}: POS {pos} is beyond the supported maximum {MAX_POS}");
-    }
-    Ok(pos)
 }
 
 /// What the SNP/reference branch makes of one record.

@@ -778,6 +778,16 @@ fn parse_u64(b: &[u8]) -> Option<u64> {
     Some(v)
 }
 
+/// The POS column of data row `row_no`: a number of at most [`MAX_POS`].
+pub(crate) fn parse_pos(b: &[u8], row_no: usize) -> Result<u64> {
+    let pos = parse_u64(b)
+        .with_context(|| format!("invalid VCF row {row_no}: bad POS '{}'", lossy(b)))?;
+    if pos > MAX_POS {
+        bail!("invalid VCF row {row_no}: POS {pos} is beyond the supported maximum {MAX_POS}");
+    }
+    Ok(pos)
+}
+
 fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<'_>> {
     let mut it = line.split(|&b| b == b'\t');
     let mut cols: [&[u8]; 10] = [&[]; 10];
@@ -797,18 +807,9 @@ fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<
             )
         })?
     };
-    let pos = parse_u64(cols[1])
-        .with_context(|| format!("invalid VCF row {}: bad POS '{}'", row_no, lossy(cols[1])))?;
+    let pos = parse_pos(cols[1], row_no)?;
     if pos == 0 {
         bail!("invalid VCF row {}: POS must be >= 1", row_no);
-    }
-    if pos > MAX_POS {
-        bail!(
-            "invalid VCF row {}: POS {} is beyond the supported maximum {}",
-            row_no,
-            pos,
-            MAX_POS
-        );
     }
     Ok(Record {
         chrom: cols[0],
