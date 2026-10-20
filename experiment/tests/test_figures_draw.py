@@ -10,11 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 import tiny_runs  # noqa: E402
 
 from experiment.pipeline import config  # noqa: E402
@@ -27,15 +23,81 @@ ARTICLE_FIGURES = ("art1_agreement", "art2_performance", "fig7_1000_genomes", "f
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
 class Draw(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.runs = tiny_runs.runs_dir()
-        cls._tmp = tempfile.TemporaryDirectory()
-        cls.out = Path(cls._tmp.name)
+    """The figures of the tiny runs' tables are drawn once and written once, and the tests share them: none
+    changes a figure it is given."""
 
     @classmethod
-    def tearDownClass(cls):
-        cls._tmp.cleanup()
+    def setUpClass(cls):
+        import matplotlib.pyplot as plt
+
+        cls.runs = tiny_runs.runs_dir()
+        cls.out = Path(cls.enterClassContext(tempfile.TemporaryDirectory()))
+        cls.drawn, cls.written = {}, {}
+        cls.addClassCleanup(lambda: [plt.close(fig) for fig in cls.drawn.values()])
+
+    def _draw(self, module: str, runs: Path = None):
+        """The figure ``module`` draws from the tables of ``runs`` (default: the tiny runs', drawn once)."""
+        import importlib
+
+        import matplotlib.pyplot as plt
+
+        from experiment.pipeline.figures import data
+
+        if runs is None and module in self.drawn:
+            return self.drawn[module]
+        fig = importlib.import_module(f"experiment.pipeline.figures.{module}").draw(
+            data.Source(runs or self.runs, config.TINY))
+        if runs is None:
+            self.drawn[module] = fig
+        else:
+            self.addCleanup(plt.close, fig)
+        return fig
+
+    def _render(self, fs) -> list:
+        """The files of figure ``fs``, written once from the tiny runs' tables."""
+        from experiment.pipeline import figures
+
+        if fs.name not in self.written:
+            self.written[fs.name] = figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / fs.experiment)
+        return self.written[fs.name]
+
+    def _table(self, key: str):
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        return pd.read_csv(SCHEMAS[key].path(self.runs))
+
+    def _runs_with(self, experiment: str, **edits) -> Path:
+        """A runs directory with a copy of ``experiment``'s tables; ``edits`` maps a table to a function of it."""
+        import pandas as pd
+
+        from experiment.pipeline.figures.schemas import SCHEMAS
+
+        runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        shutil.copytree(self.runs / experiment / "tables", runs / experiment / "tables")
+        for key, edit in edits.items():
+            path = SCHEMAS[key].path(runs)
+            edit(pd.read_csv(path)).to_csv(path, index=False)
+        return runs
+
+    @staticmethod
+    def _labels(fig) -> list:
+        return [t.get_text() for leg in fig.legends + [ax.get_legend() for ax in fig.axes if ax.get_legend()]
+                for t in leg.get_texts()]
+
+    def _assert_notes_inside_axes(self, fig):
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        for i, ax in enumerate(fig.axes):
+            box = ax.get_window_extent(renderer)
+            for t in ax.texts:
+                ext = t.get_window_extent(renderer)
+                with self.subTest(axes=i, text=t.get_text()[:40]):
+                    self.assertGreaterEqual(ext.x0, box.x0 - 0.5)
+                    self.assertLessEqual(ext.x1, box.x1 + 0.5)
+                    self.assertGreaterEqual(ext.y0, box.y0 - 0.5)
+                    self.assertLessEqual(ext.y1, box.y1 + 0.5)
 
     def test_every_schema_is_a_table_its_experiment_writes(self):
         from experiment.pipeline.figures import data
@@ -53,7 +115,7 @@ class Draw(unittest.TestCase):
         for fs in figures.FIGURES:
             with self.subTest(figure=fs.name):
                 self.assertEqual(figures.missing_tables(fs, self.runs), [])
-                written = figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / fs.experiment)
+                written = self._render(fs)
                 self.assertEqual([p.name for p in written], [p.name for p in fs.outputs(self.runs)])
                 for p in written:
                     self.assertGreater(p.stat().st_size, 1000, p)
@@ -87,11 +149,8 @@ class Draw(unittest.TestCase):
         for name in ARTICLE_FIGURES:
             with self.subTest(figure=name):
                 fs = figures.spec(name)
-                a = [p.read_bytes() for p in figures.render(fs, self.runs, config.TINY, dpi=DPI,
-                                                            out_dir=self.out / "a" / name)]
-                b = [p.read_bytes() for p in figures.render(fs, self.runs, config.TINY, dpi=DPI,
-                                                            out_dir=self.out / "b" / name)]
-                self.assertEqual(a, b)
+                again = figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / "again" / name)
+                self.assertEqual([p.read_bytes() for p in self._render(fs)], [p.read_bytes() for p in again])
 
     def test_the_article_figures_never_show_psmc_rs_01(self):
         from matplotlib.colors import to_hex
@@ -127,36 +186,6 @@ class Draw(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
                 self.assertEqual(main(["fig3", "--profile", "tiny", "--runs-dir", empty, "--dpi", str(DPI)]), 1)
             self.assertIn("skip fig3_real_genomes", err.getvalue())
-
-    def _draw(self, module: str, runs: Path = None):
-        import importlib
-
-        import matplotlib.pyplot as plt
-
-        from experiment.pipeline.figures import data
-
-        fig = importlib.import_module(f"experiment.pipeline.figures.{module}").draw(
-            data.Source(runs or self.runs, config.TINY))
-        self.addCleanup(plt.close, fig)
-        return fig
-
-    @staticmethod
-    def _labels(fig) -> list:
-        return [t.get_text() for leg in fig.legends + [ax.get_legend() for ax in fig.axes if ax.get_legend()]
-                for t in leg.get_texts()]
-
-    def _assert_notes_inside_axes(self, fig):
-        fig.canvas.draw()
-        renderer = fig.canvas.get_renderer()
-        for i, ax in enumerate(fig.axes):
-            box = ax.get_window_extent(renderer)
-            for t in ax.texts:
-                ext = t.get_window_extent(renderer)
-                with self.subTest(axes=i, text=t.get_text()[:40]):
-                    self.assertGreaterEqual(ext.x0, box.x0 - 0.5)
-                    self.assertLessEqual(ext.x1, box.x1 + 0.5)
-                    self.assertGreaterEqual(ext.y0, box.y0 - 0.5)
-                    self.assertLessEqual(ext.y1, box.y1 + 0.5)
 
     def test_the_readme_gives_each_figures_size(self):
         import math
@@ -216,8 +245,7 @@ class Draw(unittest.TestCase):
     def test_fig3_gives_each_genomes_scaling_and_its_source(self):
         from experiment.pipeline.figures import fig3
 
-        fig = self._draw("fig3")
-        texts = [t.get_text() for ax in fig.axes for t in ax.texts]
+        texts = [t.get_text() for ax in self._draw("fig3").axes for t in ax.texts]
         for gid in ("NA12878", "HLhydTec1"):  # the tiny profile's genomes
             g = next(g for g in config.REAL_GENOMES if g.sample_id == gid)
             note = next(t for t in texts if t.startswith(fig3.where(g)))
@@ -226,14 +254,11 @@ class Draw(unittest.TestCase):
         self.assertTrue(any("Fenner 2005" in t for t in texts))
 
     def test_turtle_patterns_figure(self):
-        import pandas as pd
-
         from experiment.pipeline.figures import figs_turtle, style
-        from experiment.pipeline.figures.schemas import SCHEMAS
 
         fig = self._draw("figs_turtle")
         self._assert_notes_inside_axes(fig)
-        table = pd.read_csv(SCHEMAS["E2_split_patterns"].path(self.runs))
+        table = self._table("E2_split_patterns")
         self.assertEqual(len([ax for ax in fig.axes if ax.axison]), table["sample_id"].nunique())
         labels = self._labels(fig)
         for pattern in ("4+25*2+4+6 (Fig 3)", "2+2+25*2+4+6", "1+1+1+1+25*2+4+6", "Outside the comparison window"):
@@ -269,18 +294,13 @@ class Draw(unittest.TestCase):
     def test_fig1_gives_the_fit_its_invocation(self):
         from experiment.pipeline.figures import fig1
 
-        fig = self._draw("fig1")
-        texts = [t.get_text() for t in fig.axes[0].texts]
+        texts = [t.get_text() for t in self._draw("fig1").axes[0].texts]
         self.assertIn("fit", texts)
         self.assertIn("psmc-rs INPUT OUTPUT N_ITER", texts)
         self.assertEqual(fig1.FIT_USAGE, "psmc-rs INPUT OUTPUT N_ITER")
 
     def test_fig4_names_each_sizes_chromosomes_under_it(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
-        table2 = pd.read_csv(SCHEMAS["E3_table2"].path(self.runs))
+        table2 = self._table("E3_table2")
         fig = self._draw("fig4")
         fig.canvas.draw()
         for ax in fig.axes:
@@ -290,11 +310,7 @@ class Draw(unittest.TestCase):
             self.assertEqual(labels, want)
 
     def test_figs4_legend_draws_what_is_drawn_and_d_fits_the_figure(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
-        def check(runs):
+        def check(runs=None):
             fig = self._draw("figs4", runs)
             fig.canvas.draw()
             renderer = fig.canvas.get_renderer()
@@ -311,24 +327,15 @@ class Draw(unittest.TestCase):
                                  and a.get_text().endswith("%")))
             return self._labels(fig)
 
-        table2 = pd.read_csv(SCHEMAS["E3_table2"].path(self.runs))
-        labels = check(self.runs)
+        table2 = self._table("E3_table2")
+        labels = check()
         self.assertEqual(any("capped" in label for label in labels), (table2.tool == "rs02-default").any())
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            shutil.copytree(self.runs / "E3" / "tables", runs / "E3" / "tables")
-            for key in ("E3_table2", "E3_runs", "E3_determinism"):
-                path = SCHEMAS[key].path(runs)
-                t = pd.read_csv(path)
-                t[t.tool != "rs02-default"].to_csv(path, index=False)
-            self.assertEqual(check(runs), ["psmc-rs 0.2"])
+        uncapped = self._runs_with("E3", **{key: (lambda t: t[t.tool != "rs02-default"])
+                                            for key in ("E3_table2", "E3_runs", "E3_determinism")})
+        self.assertEqual(check(uncapped), ["psmc-rs 0.2"])
 
     def test_fig3_legend_names_a_block_size_only_beside_another(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
-        boots = pd.read_csv(SCHEMAS["E2_bootstrap"].path(self.runs))
+        boots = self._table("E2_bootstrap")
         labels = self._labels(self._draw("fig3"))
         fine = (boots["default_trunks"].astype(str) == "False").any()
         self.assertEqual("Bootstrap 95% band" in labels, not fine)
@@ -362,43 +369,29 @@ class Draw(unittest.TestCase):
                 self.assertGreater(max(z[style.BLUE]), max(z[style.ORANGE]))
 
     def test_fig5_names_the_bins_taken_as_full_for_what_they_are(self):
-        import pandas as pd
-
         from experiment.pipeline.figures import fig5, style
-        from experiment.pipeline.figures.schemas import SCHEMAS
 
         def texts(fig):
             return [t.get_text() for ax in fig.axes for t in ax.texts]
 
         # fq2psmcfa's bins, C psmc's input and model; without its rows, the same bins read from the VCF.
-        routes = pd.read_csv(SCHEMAS["E4_routes"].path(self.runs))
-        self.assertIn(fig5.FULL, set(routes.route))
+        self.assertIn(fig5.FULL, set(self._table("E4_routes").route))
         a = texts(self._draw("fig5"))
         self.assertIn(style.ROUTES["fq2psmcfa"].label, a)
         self.assertIn(style.ROUTES["mask_auto"].label, a)
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            shutil.copytree(self.runs / "E4" / "tables", runs / "E4" / "tables")
-            for key in ("E4_routes", "E4_curves"):
-                path = SCHEMAS[key].path(runs)
-                t = pd.read_csv(path)
-                t[t.route != fig5.FULL].to_csv(path, index=False)
-            b = texts(self._draw("fig5", runs))
+        without_full = self._runs_with("E4", **{key: (lambda t: t[t.route != fig5.FULL])
+                                                for key in ("E4_routes", "E4_curves")})
+        b = texts(self._draw("fig5", without_full))
         self.assertIn(style.ROUTES["mask_ignore"].label, b)
         self.assertFalse(any("fq2psmcfa" in t for t in b))
 
     def test_fig6_draws_one_row_of_three_panels_from_e5s_numbers(self):
-        import pandas as pd
         from matplotlib.colors import to_hex
         from matplotlib.text import Text
 
         from experiment.pipeline.figures import style
-        from experiment.pipeline.figures.schemas import SCHEMAS
 
-        def table(key):
-            return pd.read_csv(SCHEMAS[key].path(self.runs))
-
-        summary, sampling, bands = table("E5_summary"), table("E5_sampling"), table("E5_bands")
+        summary, sampling, bands = self._table("E5_summary"), self._table("E5_sampling"), self._table("E5_bands")
         rows = summary[(summary.window == "informative") & summary.trunk_bins.isin(set(bands.trunk_bins))]
         arms = len(rows)
         self.assertGreater(arms, 0)
@@ -437,15 +430,13 @@ class Draw(unittest.TestCase):
         self.assertFalse(any(t == "Median ratio" or "↑" in t for t in texts))
 
     def test_figs1_ends_both_tools_where_c_psmc_stops(self):
-        import pandas as pd
         from matplotlib.collections import LineCollection
         from matplotlib.text import Text
 
         from experiment.pipeline.figures import figs1
         from experiment.pipeline.figures.fig2 import model_order
-        from experiment.pipeline.figures.schemas import SCHEMAS
 
-        traces = pd.read_csv(SCHEMAS["E1_traces"].path(self.runs))
+        traces = self._table("E1_traces")
         last_c = int(traces[(traces.tool == "c") & traces.loglike.notna()]["iteration"].max())
         fig = self._draw("figs1")
         shown = [ax for ax in fig.axes if ax.axison]
@@ -465,13 +456,9 @@ class Draw(unittest.TestCase):
         self.assertFalse(any("Rounding" in t.get_text() or "psmc-rs 0." in t.get_text() for t in fig.findobj(Text)))
 
     def test_figs3_draws_coverage_by_posterior_mean_decile_when_given(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
         from experiment.pipeline.figures import style
 
-        calib = pd.read_csv(SCHEMAS["E6_S3_calibration"].path(self.runs))
+        calib = self._table("E6_S3_calibration")
         fig = self._draw("figs3")
         labels = self._labels(fig)
         # Every series of c in a palette colour: grey is for the style keys and the nominal line.
@@ -480,28 +467,17 @@ class Draw(unittest.TestCase):
         self.assertLessEqual(series, {style.BLUE, style.YELLOW})
         self.assertEqual("By decile of the posterior mean" in labels, (calib["by"] == "posterior_mean").any())
         self.assertIn("By decile of the true TMRCA", labels)
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            shutil.copytree(self.runs / "E6" / "tables", runs / "E6" / "tables")
-            path = SCHEMAS["E6_S3_calibration"].path(runs)
-            calib[calib["by"] == "true"].to_csv(path, index=False)
-            labels = self._labels(self._draw("figs3", runs))
+        by_truth = self._runs_with("E6", E6_S3_calibration=lambda t: t[t["by"] == "true"])
+        labels = self._labels(self._draw("figs3", by_truth))
         self.assertNotIn("By decile of the posterior mean", labels)
         self.assertIn("By decile of the true TMRCA", labels)
 
     def test_a_truth_table_that_disagrees_with_the_models_is_refused(self):
-        import pandas as pd
-
         from experiment.pipeline import figures
 
-        with tempfile.TemporaryDirectory() as d:
-            runs = Path(d)
-            shutil.copytree(self.runs / "E1" / "tables", runs / "E1" / "tables")
-            truth = pd.read_csv(figures.SCHEMAS["E1_truth"].path(runs))
-            truth["ne"] *= 2.0
-            truth.to_csv(figures.SCHEMAS["E1_truth"].path(runs), index=False)
-            with self.assertRaises(ValueError):
-                figures.render(figures.spec("fig2"), runs, config.TINY, dpi=DPI)
+        runs = self._runs_with("E1", E1_truth=lambda t: t.assign(ne=t["ne"] * 2.0))
+        with self.assertRaises(ValueError):
+            figures.render(figures.spec("fig2"), runs, config.TINY, dpi=DPI)
 
 
 if __name__ == "__main__":
