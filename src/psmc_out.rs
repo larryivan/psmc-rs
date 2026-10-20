@@ -39,15 +39,14 @@
 //! iterations, far above the 10 to 20 they take with C psmc's patterns). On
 //! the reference data of `tests/psmc_out_c_reference.rs` the rounds then
 //! agree with C's to a relative 7.3e-8 in LK, with a pattern or with one λ
-//! per state; what is left comes from the expected counts (C leaves out the
-//! last bin of each sequence), not from the M-steps: with that bin left out
-//! of ours too, rounds 2 to 5 agree to 2.8e-9, and C's own Hooke-Jeeves
-//! search in place of ours changes that by less than 1e-9. Ours evaluates
-//! its objective 30 to 120 times per round with C psmc's patterns, C's
-//! 1,000 to 7,000.
+//! per state; what is left comes from the expected counts, not from the
+//! M-steps: with the last bin of each sequence left out of ours too, rounds
+//! 2 to 5 agree to 2.8e-9, and C's own Hooke-Jeeves search in place of ours
+//! changes that by less than 1e-9. Ours evaluates its objective 30 to 120
+//! times per round with C psmc's patterns, C's 1,000 to 7,000.
 
 use anyhow::{Result, bail};
-use std::io::Write;
+use std::io::{self, Write};
 
 use crate::em::EmHistory;
 use crate::io::CallableSummary;
@@ -315,11 +314,7 @@ pub fn psmc_rounds(
 }
 
 /// Write a C psmc `.psmc` file: the header for `info`, then `rounds`.
-pub fn write_psmc<W: Write>(
-    mut w: W,
-    info: &PsmcRunInfo,
-    rounds: &[PsmcRound],
-) -> std::io::Result<()> {
+pub fn write_psmc<W: Write>(mut w: W, info: &PsmcRunInfo, rounds: &[PsmcRound]) -> io::Result<()> {
     w.write_all(HEADER.as_bytes())?;
     writeln!(w, "MM\tVersion: {}", info.version)?;
     writeln!(
@@ -364,13 +359,11 @@ pub fn write_psmc_from_history<W: Write>(
     Ok(())
 }
 
-fn write_round<W: Write>(w: &mut W, pattern: &str, r: &PsmcRound) -> std::io::Result<()> {
+fn write_round<W: Write>(w: &mut W, pattern: &str, r: &PsmcRound) -> io::Result<()> {
     let n_states = r.sigma.len();
     if [r.t.len(), r.lambda.len(), r.post_sigma.len()] != [n_states; 3] {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            format!("round {}: per-state vectors differ in length", r.round),
-        ));
+        let msg = format!("round {}: per-state vectors differ in length", r.round);
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, msg));
     }
     if let Some(n) = r.mstep_evaluations {
         writeln!(w, "IT\t{n}")?;
