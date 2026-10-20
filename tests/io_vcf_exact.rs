@@ -3,21 +3,15 @@
 //! of `fq2psmcfa`, and compare bin for bin, and the callable bases of every
 //! bin, over many random scenarios.
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::Observations;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf, read_vcf_with};
+use rayon::prelude::*;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
-
-/// A path no other test of this process uses: tests run in parallel, and
-/// the clock alone is too coarse to tell them apart.
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
-}
 
 /// SplitMix64: deterministic and dependency-free.
 struct Rng(u64);
@@ -336,39 +330,24 @@ fn mask_text(rows: &[MaskRow]) -> String {
     s
 }
 
-struct Files {
-    paths: Vec<PathBuf>,
-}
-
-impl Drop for Files {
-    fn drop(&mut self) {
-        for p in &self.paths {
-            let _ = fs::remove_file(p);
-        }
-    }
-}
-
 /// Write the scenario's VCF and masks; returns the VCF path, the options to
-/// read it with, and a guard that deletes the files.
-fn write_scenario(sc: &Scenario) -> (PathBuf, VcfOptions, Files) {
-    let mut files = Files { paths: Vec::new() };
-    let mut write = |prefix: &str, ext: &str, text: String| {
-        let p = unique_temp_path(prefix, ext);
-        fs::write(&p, text).expect("failed to write test input");
-        files.paths.push(p.clone());
+/// read it with, and the directory of the files, which removes them.
+fn write_scenario(sc: &Scenario) -> (PathBuf, VcfOptions, TempDir) {
+    let dir = TempDir::new("io_vcf_exact");
+    let write = |name: String, text: String| {
+        let p = dir.path(&name);
+        fs::write(&p, text).unwrap();
         p
     };
-    let vcf = write("exact_vcf", "vcf", vcf_text(sc));
-    let masks = sc
-        .masks
-        .iter()
-        .map(|m| write("exact_mask", "bed", mask_text(m)))
-        .collect();
-    let negative_masks = sc
-        .negative_masks
-        .iter()
-        .map(|m| write("exact_neg", "bed", mask_text(m)))
-        .collect();
+    let vcf = write("calls.vcf".to_string(), vcf_text(sc));
+    let write_masks = |kind: &str, masks: &[Vec<MaskRow>]| {
+        let named = masks.iter().enumerate();
+        named
+            .map(|(i, m)| write(format!("{kind}{i}.bed"), mask_text(m)))
+            .collect()
+    };
+    let masks = write_masks("mask", &sc.masks);
+    let negative_masks = write_masks("neg", &sc.negative_masks);
     let opts = VcfOptions {
         bin_size: sc.bin_size,
         batch_size: sc.batch_size,
@@ -379,7 +358,7 @@ fn write_scenario(sc: &Scenario) -> (PathBuf, VcfOptions, Files) {
         to_contig_end: sc.to_contig_end,
         gvcf: false,
     };
-    (vcf, opts, files)
+    (vcf, opts, dir)
 }
 
 fn chunk(seqs: &[Vec<u8>], batch_size: Option<usize>) -> (Vec<Vec<u8>>, Vec<bool>) {
@@ -475,7 +454,7 @@ fn check(sc: &Scenario, ctx: &str) -> bool {
             .map(|st| st[1..].iter().filter(|&&s| s == want).count() as u64)
             .sum()
     };
-    let (vcf, opts, _files) = write_scenario(sc);
+    let (vcf, opts, _dir) = write_scenario(sc);
     let result = read_vcf_with(&vcf, &opts);
     if count(State::Het) == 0 {
         let err = result.expect_err(ctx);
@@ -764,13 +743,11 @@ fn random_scenario_with(seed: u64, span: (u64, u64), densities: &[f64]) -> Scena
 #[test]
 fn reader_matches_per_base_reference_on_random_scenarios() {
     let n = 400;
-    let mut with_output = 0;
-    for seed in 0..n {
-        let sc = random_scenario(seed);
-        if check(&sc, &format!("scenario seed {seed}")) {
-            with_output += 1;
-        }
-    }
+    // The scenarios are independent: check them on every core.
+    let with_output = (0..n as u64)
+        .into_par_iter()
+        .filter(|&seed| check(&random_scenario(seed), &format!("scenario seed {seed}")))
+        .count();
     // Most scenarios must exercise the comparison, not just the error path.
     assert!(with_output > n * 3 / 4, "{with_output} of {n}");
 }
@@ -841,7 +818,7 @@ fn check_audit(sc: &Scenario, ctx: &str) {
         .iter()
         .map(|st| fq2psmcfa(&st[1..], sc.bin_size))
         .collect();
-    let (vcf, opts, _files) = write_scenario(sc);
+    let (vcf, opts, _dir) = write_scenario(sc);
     let got = read_vcf(&vcf, None, sc.bin_size, None, &opts.masks, &[])
         .unwrap_or_else(|e| panic!("{ctx}: {e:#}"));
     assert_same_bins(&got.rows, &want, ctx);
@@ -973,22 +950,21 @@ fn reader_matches_c_fq2psmcfa_on_the_consensus() {
             sc.bin_size = bin_size;
             let ctx = format!("seed {} bin {bin_size}", 1000 + seed);
             let states = reference_states(&sc);
-            let fasta = unique_temp_path("consensus", "fa");
-            fs::write(&fasta, consensus_fasta(&sc, &states)).expect("failed to write FASTA");
+            let (vcf, opts, dir) = write_scenario(&sc);
+            let fasta = dir.path("consensus.fa");
+            fs::write(&fasta, consensus_fasta(&sc, &states)).unwrap();
             let run = std::process::Command::new(&exe)
                 .arg("-s")
                 .arg(bin_size.to_string())
                 .arg(&fasta)
                 .output()
                 .expect("failed to run fq2psmcfa");
-            let _ = fs::remove_file(&fasta);
             assert!(run.status.success(), "{ctx}: fq2psmcfa failed");
             let from_c = parse_psmcfa(&String::from_utf8(run.stdout).unwrap());
 
             if !states.iter().flatten().any(|&s| s == State::Het) {
                 continue;
             }
-            let (vcf, opts, _files) = write_scenario(&sc);
             let read = read_vcf_with(&vcf, &opts).unwrap_or_else(|e| panic!("{ctx}: {e:#}"));
             let names = (0..sc.chroms.len())
                 .filter(|&ci| sc.extent(ci).is_some())

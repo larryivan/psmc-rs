@@ -6,11 +6,14 @@
 //! file holds a single test: tests of one binary run in parallel threads,
 //! and their allocations would mix.
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::fmt::Write as _;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// The system allocator, counting the bytes in use and their peak.
@@ -75,10 +78,6 @@ fn peak_of<T>(f: impl FnOnce() -> T) -> (T, usize) {
     (out, PEAK.load(Ordering::SeqCst) - base)
 }
 
-fn temp_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("psmc_rs_{name}_{}", std::process::id()))
-}
-
 /// A BED mask with one row per site for positions `1..=sites` of chr1, in
 /// increasing or, with `reversed`, decreasing order.
 fn per_site_mask(path: &Path, sites: u64, reversed: bool) {
@@ -96,7 +95,8 @@ fn per_site_mask(path: &Path, sites: u64, reversed: bool) {
 fn per_site_masks_take_memory_in_proportion_to_merged_intervals() {
     const LEN: u64 = 2_000_000;
     const SITES: u64 = 1_000_000;
-    let vcf = temp_path("mask_memory.vcf");
+    let dir = TempDir::new("io_mask_memory");
+    let vcf = dir.path("calls.vcf");
     fs::write(
         &vcf,
         format!(
@@ -107,7 +107,7 @@ fn per_site_masks_take_memory_in_proportion_to_merged_intervals() {
         ),
     )
     .unwrap();
-    let mask = temp_path("mask_memory.bed");
+    let mask = dir.path("mask.bed");
     for reversed in [false, true] {
         per_site_mask(&mask, SITES, reversed);
         let opts = VcfOptions {
@@ -126,6 +126,4 @@ fn per_site_masks_take_memory_in_proportion_to_merged_intervals() {
              {peak} bytes at its peak"
         );
     }
-    let _ = fs::remove_file(vcf);
-    let _ = fs::remove_file(mask);
 }

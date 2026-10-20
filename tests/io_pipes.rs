@@ -3,29 +3,23 @@
 //! The inputs are the route A fixtures (tests/data/route_a).
 #![cfg(unix)]
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{Dataset, InputFormat, InputOptions, SeqFilter, VcfMode, load};
 use psmc_rs::io::write::write_psmcfa_to;
 use std::fs;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/route_a");
-
+/// A file of tests/data/route_a.
 fn fixture(name: &str) -> PathBuf {
-    Path::new(DIR).join(name)
-}
-
-/// A path no other test of this process uses.
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
+    common::fixture(&format!("route_a/{name}"))
 }
 
 fn gunzip(bytes: &[u8]) -> Vec<u8> {
@@ -36,43 +30,28 @@ fn gunzip(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
-/// A FIFO whose writer sends `content` once, to the first reader that opens
-/// it, as a shell pipe or process substitution does. Removed on drop.
-struct Fifo(PathBuf);
-
-impl Fifo {
-    fn new(content: Vec<u8>) -> Self {
-        let path = unique_temp_path("io_pipes", "fifo");
-        let status = Command::new("mkfifo")
-            .arg(&path)
-            .status()
-            .expect("failed to run mkfifo");
-        assert!(status.success(), "mkfifo {} failed", path.display());
-        let target = path.clone();
-        thread::spawn(move || {
-            // Opening blocks until a reader opens the other end. A reader that
-            // stops early makes the write fail (EPIPE), which is fine here.
-            if let Ok(mut f) = fs::OpenOptions::new().write(true).open(&target) {
-                let _ = f.write_all(&content);
-            }
-        });
-        Self(path)
-    }
-}
-
-impl Drop for Fifo {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-/// `load` on another thread. A loader that opens the FIFO a second time
-/// waits for a writer that never comes; that fails the test instead of
-/// hanging it.
+/// `load` of a FIFO whose writer sends `content` once, to the first reader
+/// that opens it, as a shell pipe or process substitution does. It runs on
+/// another thread: a loader that opens the FIFO a second time waits for a
+/// writer that never comes, which fails the test instead of hanging it.
 fn load_fifo(content: Vec<u8>, opts: &InputOptions) -> anyhow::Result<Dataset> {
-    let fifo = Fifo::new(content);
+    let dir = TempDir::new("io_pipes");
+    let path = dir.path("in.fifo");
+    let status = Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .expect("failed to run mkfifo");
+    assert!(status.success(), "mkfifo {} failed", path.display());
+    let target = path.clone();
+    thread::spawn(move || {
+        // Opening blocks until a reader opens the other end. A reader that
+        // stops early makes the write fail (EPIPE), which is fine here.
+        if let Ok(mut f) = fs::OpenOptions::new().write(true).open(&target) {
+            let _ = f.write_all(&content);
+        }
+    });
     let (tx, rx) = mpsc::channel();
-    let (path, opts) = (fifo.0.clone(), opts.clone());
+    let opts = opts.clone();
     thread::spawn(move || {
         let _ = tx.send(load(&path, &opts));
     });
@@ -123,20 +102,18 @@ fn an_all_sites_vcf_from_a_fifo_is_read_like_the_file() {
             ..InputOptions::default()
         },
     ];
-    for opts in &option_sets {
+    let default_psmcfa = fs::read(fixture("expected/default.psmcfa")).unwrap();
+    for (i, opts) in option_sets.iter().enumerate() {
         let file = load(&path, opts).unwrap();
         for content in [gz.clone(), gunzip(&gz)] {
             let piped = load_fifo(content, opts).unwrap();
             assert_same(&piped, &file);
+            // The defaults are those of vcf2fq and fq2psmcfa.
+            if i == 0 {
+                assert_eq!(psmcfa_bytes(&piped), default_psmcfa);
+            }
         }
     }
-
-    // The defaults are those of vcf2fq and fq2psmcfa.
-    let piped = load_fifo(gz, &InputOptions::default()).unwrap();
-    assert_eq!(
-        psmcfa_bytes(&piped),
-        fs::read(fixture("expected/default.psmcfa")).unwrap()
-    );
 }
 
 #[test]

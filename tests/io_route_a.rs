@@ -7,12 +7,16 @@
 //! loader's callable bases per bin must be the good bases `fq2psmcfa` reads
 //! in vcf2fq's FASTQ.
 
-use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
+mod common;
+
+use common::TempDir;
+use psmc_rs::io::consensus::{ConsensusFilters, ConsensusSummary, DepthThresholds};
 use psmc_rs::io::input::{
-    Dataset, InputFormat, InputOptions, SeqFilter, SourceSummary, VcfDetails, VcfMode,
-    detect_vcf_mode, load,
+    Dataset, InputFormat, InputOptions, SeqFilter, SourceSummary, VcfDetails, VcfInputSummary,
+    VcfMode, detect_vcf_mode, load,
 };
 use psmc_rs::io::psmcfa::{parse_psmcfa, read_psmcfa};
+use psmc_rs::io::vcf::VcfSummary;
 use psmc_rs::io::write::{
     MultihetsepOptions, write_multihetsep, write_multihetsep_to, write_psmcfa,
 };
@@ -20,20 +24,16 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-const DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/route_a");
-
+/// A file of tests/data/route_a.
 fn fixture(name: &str) -> PathBuf {
-    Path::new(DIR).join(name)
+    common::fixture(&format!("route_a/{name}"))
 }
 
-/// A path no other test of this process uses (tests run in parallel, and the
-/// clock alone is too coarse to tell them apart).
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
+/// A file of tests/data/route_a_keep_alts (see its README): `bcftools call
+/// -c -A` at 250x, where most reference sites get an ALT allele.
+fn keep_alts(name: &str) -> PathBuf {
+    common::fixture(&format!("route_a_keep_alts/{name}"))
 }
 
 /// File contents, gunzipped when the name ends in `.gz`.
@@ -47,6 +47,56 @@ fn read_bytes(path: &Path) -> Vec<u8> {
         .read_to_end(&mut out)
         .unwrap();
     out
+}
+
+/// The mean, minimum and maximum depth of an `auto_depth.tsv`.
+fn auto_depth(path: &Path) -> (f64, u64, u64) {
+    let text = fs::read_to_string(path).unwrap();
+    let cols: Vec<&str> = text.split_whitespace().collect();
+    (
+        cols[0].parse().unwrap(),
+        cols[1].parse().unwrap(),
+        cols[2].parse().unwrap(),
+    )
+}
+
+fn vcf_summary(data: &Dataset) -> &VcfInputSummary {
+    let SourceSummary::Vcf(v) = &data.source else {
+        panic!("not read as a VCF: {:?}", data.source)
+    };
+    v
+}
+
+fn consensus_summary(data: &Dataset) -> &ConsensusSummary {
+    let VcfDetails::Consensus(c) = &vcf_summary(data).details else {
+        panic!("not read in consensus mode")
+    };
+    c
+}
+
+fn mask_summary(data: &Dataset) -> &VcfSummary {
+    let VcfDetails::Mask(m) = &vcf_summary(data).details else {
+        panic!("not read in mask mode")
+    };
+    m
+}
+
+/// `ours` equals the tools' `expected` output, shown in full if not.
+fn assert_same_output(ours: &[u8], expected: &[u8], ctx: &str) {
+    assert!(
+        ours == expected,
+        "{ctx}: differs from the tools' output\nours:\n{}\nexpected:\n{}",
+        String::from_utf8_lossy(ours),
+        String::from_utf8_lossy(expected)
+    );
+}
+
+/// What `write_psmcfa` writes for `data` to a file named `name`.
+fn written_psmcfa(data: &Dataset, name: &str) -> Vec<u8> {
+    let dir = TempDir::new("io_route_a");
+    let out = dir.path(name);
+    write_psmcfa(&out, data).unwrap();
+    read_bytes(&out)
 }
 
 /// One row of expected/option_sets.tsv.
@@ -87,6 +137,10 @@ fn option_sets() -> Vec<OptionSet> {
         .collect()
 }
 
+fn option_set(name: &str) -> OptionSet {
+    option_sets().into_iter().find(|s| s.name == name).unwrap()
+}
+
 impl OptionSet {
     fn get(map: &HashMap<char, String>, key: char, default: u64) -> u64 {
         map.get(&key).map_or(default, |v| v.parse().unwrap())
@@ -124,6 +178,16 @@ impl OptionSet {
         }
     }
 
+    /// The row's input loaded with `opts`.
+    fn load_with(&self, opts: &InputOptions) -> Dataset {
+        load(&fixture(&self.input), opts).unwrap_or_else(|e| panic!("{}: {e:#}", self.name))
+    }
+
+    /// The row's input loaded with its own options.
+    fn load(&self) -> Dataset {
+        self.load_with(&self.input_options())
+    }
+
     fn expected_path(&self) -> PathBuf {
         let plain = fixture(&format!("expected/{}.psmcfa", self.name));
         if plain.exists() {
@@ -139,25 +203,15 @@ fn consensus_mode_reproduces_vcf2fq_and_fq2psmcfa() {
     let sets = option_sets();
     assert_eq!(sets.len(), 6);
     for set in &sets {
-        let data = load(&fixture(&set.input), &set.input_options())
-            .unwrap_or_else(|e| panic!("{}: {e:#}", set.name));
-        let SourceSummary::Vcf(v) = &data.source else {
-            panic!("{}: not a VCF summary", set.name)
-        };
-        assert_eq!(v.mode.mode, VcfMode::Consensus, "{}", set.name);
-
-        let out = unique_temp_path(&format!("route_a_{}", set.name), "psmcfa");
-        write_psmcfa(&out, &data).unwrap();
-        let ours = fs::read(&out).unwrap();
-        let _ = fs::remove_file(&out);
-        let expected = read_bytes(&set.expected_path());
-        assert!(
-            ours == expected,
-            "{}: psmcfa differs from fq2psmcfa's\nours:\n{}\nexpected:\n{}",
-            set.name,
-            String::from_utf8_lossy(&ours),
-            String::from_utf8_lossy(&expected)
+        let data = set.load();
+        assert_eq!(
+            vcf_summary(&data).mode.mode,
+            VcfMode::Consensus,
+            "{}",
+            set.name
         );
+        let expected = read_bytes(&set.expected_path());
+        assert_same_output(&written_psmcfa(&data, "out.psmcfa"), &expected, &set.name);
 
         // The same bins as reading fq2psmcfa's file.
         let records = parse_psmcfa(expected.as_slice()).unwrap();
@@ -243,12 +297,10 @@ fn consensus_mode_counts_the_good_bases_of_vcf2fq_output() {
         ))));
         let expected = parse_psmcfa(read_bytes(&set.expected_path()).as_slice()).unwrap();
         // Every sequence, not only those fq2psmcfa's output filter keeps.
-        let opts = InputOptions {
+        let data = set.load_with(&InputOptions {
             filter: SeqFilter::DISABLED,
             ..set.input_options()
-        };
-        let data =
-            load(&fixture(&set.input), &opts).unwrap_or_else(|e| panic!("{}: {e:#}", set.name));
+        });
         let callable = data.sequence_callable().expect("consensus mode counts");
         assert_eq!(data.obs.callable.as_ref().unwrap().bin_size(), s);
         assert_eq!(data.seqs.len(), fastq.len(), "{}", set.name);
@@ -291,72 +343,35 @@ fn consensus_mode_counts_the_good_bases_of_vcf2fq_output() {
 
 #[test]
 fn the_default_pipeline_keeps_only_the_chromosome_with_10000_called_bases() {
-    let set = option_sets()
-        .into_iter()
-        .find(|s| s.name == "default")
-        .unwrap();
-    let data = load(&fixture(&set.input), &set.input_options()).unwrap();
+    let data = option_set("default").load();
     let kept: Vec<_> = data.seqs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(kept, ["chr1"]);
-    let chr1 = &data.seqs[0];
-    assert!(chr1.called.unwrap() >= 10_000);
+    assert!(data.seqs[0].called.unwrap() >= 10_000);
     let dropped: Vec<_> = data.dropped.iter().map(|d| d.name.as_str()).collect();
     assert_eq!(dropped, ["chr2", "chr3"]);
     // Every kind of loss the simulation was built to cause shows up.
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    let VcfDetails::Consensus(c) = &v.details else {
-        panic!("not consensus mode")
-    };
+    let c = consensus_summary(&data);
     let lost = &c.lost;
     assert!(lost.no_record >= 400, "{lost:?}");
     assert!(lost.low_depth > 0 && lost.indel_window > 0, "{lost:?}");
     assert_eq!(c.good_bases + lost.total(), c.bases);
     assert_eq!((c.extra_bases_at_pos, c.positions_without_base), (0, 0));
     assert!(c.indel_records > 0 && c.records_without_fq == 0);
-    let mq = option_sets()
-        .into_iter()
-        .find(|s| s.name == "mq_window")
-        .unwrap();
-    let data = load(&fixture(&mq.input), &mq.input_options()).unwrap();
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    let VcfDetails::Consensus(c) = &v.details else {
-        panic!("not consensus mode")
-    };
-    assert!(c.lost.low_mq >= 700, "{:?}", c.lost);
+    let data = option_set("mq_window").load();
+    let lost = &consensus_summary(&data).lost;
+    assert!(lost.low_mq >= 700, "{lost:?}");
 }
 
 #[test]
 fn auto_depth_matches_the_independent_computation() {
-    let text = fs::read_to_string(fixture("expected/auto_depth.tsv")).unwrap();
-    let cols: Vec<&str> = text.split_whitespace().collect();
-    let mean: f64 = cols[0].parse().unwrap();
-    let (min, max): (u64, u64) = (cols[1].parse().unwrap(), cols[2].parse().unwrap());
-    let set = option_sets()
-        .into_iter()
-        .find(|s| s.name == "auto")
-        .unwrap();
-    let data = load(&fixture(&set.input), &set.input_options()).unwrap();
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    let VcfDetails::Consensus(c) = &v.details else {
-        panic!("not consensus mode")
-    };
+    let (mean, min, max) = auto_depth(&fixture("expected/auto_depth.tsv"));
+    let data = option_set("auto").load();
+    let c = consensus_summary(&data);
     assert!(c.auto_depth);
     assert_eq!(c.depth.mean, mean);
     assert_eq!((c.min_depth, c.max_depth), (min, max));
     assert!(c.depth.median > 0.0);
     assert_eq!(c.depth.histogram.iter().sum::<u64>(), c.depth.records);
-}
-
-/// tests/data/route_a_keep_alts (see its README): `bcftools call -c -A` at
-/// 250x, where most reference sites get an ALT allele.
-fn keep_alts(name: &str) -> PathBuf {
-    Path::new(DIR).join("../route_a_keep_alts").join(name)
 }
 
 #[test]
@@ -375,9 +390,7 @@ fn call_c_with_alt_alleles_at_reference_sites_is_read_like_vcf2fq() {
         (3000, 1297, 3000, 3000)
     );
 
-    let text = fs::read_to_string(keep_alts("expected/auto_depth.tsv")).unwrap();
-    let cols: Vec<&str> = text.split_whitespace().collect();
-    let (min, max): (u64, u64) = (cols[1].parse().unwrap(), cols[2].parse().unwrap());
+    let (_, min, max) = auto_depth(&keep_alts("expected/auto_depth.tsv"));
     let opts = InputOptions {
         bin_size: 50,
         consensus: ConsensusFilters {
@@ -391,24 +404,10 @@ fn call_c_with_alt_alleles_at_reference_sites_is_read_like_vcf2fq() {
         ..InputOptions::default()
     };
     let data = load(&vcf, &opts).unwrap();
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    let VcfDetails::Consensus(c) = &v.details else {
-        panic!("not consensus mode")
-    };
+    let c = consensus_summary(&data);
     assert_eq!((c.min_depth, c.max_depth), (min, max));
-    let out = unique_temp_path("route_a_keep_alts", "psmcfa");
-    write_psmcfa(&out, &data).unwrap();
-    let ours = fs::read(&out).unwrap();
-    let _ = fs::remove_file(&out);
     let expected = fs::read(keep_alts("expected/keep_alts.psmcfa")).unwrap();
-    assert!(
-        ours == expected,
-        "ours:\n{}\nexpected:\n{}",
-        String::from_utf8_lossy(&ours),
-        String::from_utf8_lossy(&expected)
-    );
+    assert_same_output(&written_psmcfa(&data, "out.psmcfa"), &expected, "keep_alts");
 
     // `call -cv` on the same reads: FQ on every record, but variant sites
     // only, so mask mode.
@@ -420,28 +419,29 @@ fn call_c_with_alt_alleles_at_reference_sites_is_read_like_vcf2fq() {
 #[test]
 fn psmcfa_round_trip_keeps_every_row() {
     for set in option_sets() {
-        let data = load(&fixture(&set.input), &set.input_options()).unwrap();
-        for ext in ["psmcfa", "psmcfa.gz"] {
-            let out = unique_temp_path("route_a_rt", ext);
+        let data = set.load();
+        for name in ["out.psmcfa", "out.psmcfa.gz"] {
+            let dir = TempDir::new("io_route_a");
+            let out = dir.path(name);
             write_psmcfa(&out, &data).unwrap();
             let back = read_psmcfa(&out, None);
-            let _ = fs::remove_file(&out);
             if data.obs.rows.is_empty() {
                 assert!(back.is_err(), "{}: an empty file has no record", set.name);
             } else {
-                assert_eq!(back.unwrap().rows, data.obs.rows, "{} {ext}", set.name);
+                assert_eq!(back.unwrap().rows, data.obs.rows, "{} {name}", set.name);
             }
         }
     }
 }
 
-/// The three per-chromosome callable masks as one (multi-member gzip) file.
-fn combined_mask() -> PathBuf {
+/// The three per-chromosome callable masks as one (multi-member gzip) file
+/// in `dir`.
+fn combined_mask(dir: &TempDir) -> PathBuf {
     let mut bytes = Vec::new();
     for chrom in ["chr1", "chr2", "chr3"] {
         bytes.extend(fs::read(fixture(&format!("masks/mask_{chrom}.bed.gz"))).unwrap());
     }
-    let path = unique_temp_path("route_a_mask", "bed.gz");
+    let path = dir.path("mask.bed.gz");
     fs::write(&path, bytes).unwrap();
     path
 }
@@ -456,16 +456,18 @@ fn load_snps(vcf: &str, mask: &Path) -> Dataset {
         ..InputOptions::default()
     };
     let data = load(&fixture(vcf), &opts).unwrap();
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    assert_eq!(v.mode.mode, VcfMode::Mask, "{vcf}: variants only");
+    assert_eq!(
+        vcf_summary(&data).mode.mode,
+        VcfMode::Mask,
+        "{vcf}: variants only"
+    );
     data
 }
 
 #[test]
 fn multihetsep_matches_generate_multihetsep() {
-    let mask = combined_mask();
+    let dir = TempDir::new("io_route_a");
+    let mask = combined_mask(&dir);
     let mut sites = 0;
     for vcf in ["snps", "snps_phased"] {
         let data = load_snps(&format!("{vcf}.vcf.gz"), &mask);
@@ -476,65 +478,47 @@ fn multihetsep_matches_generate_multihetsep() {
             };
             write_multihetsep_to(&mut ours, &data, &opts).unwrap();
             let expected = read_bytes(&fixture(&format!("expected/{vcf}.{chrom}.multihetsep")));
-            assert!(
-                ours == expected,
-                "{vcf} {chrom}:\nours:\n{}\nexpected:\n{}",
-                String::from_utf8_lossy(&ours),
-                String::from_utf8_lossy(&expected)
-            );
+            assert_same_output(&ours, &expected, &format!("{vcf} {chrom}"));
             sites += expected.iter().filter(|&&b| b == b'\n').count();
         }
     }
-    let _ = fs::remove_file(mask);
     assert!(sites >= 60, "only {sites} sites compared");
 }
 
 #[test]
 fn multihetsep_round_trip_keeps_positions_and_called_counts() {
-    let mask = combined_mask();
-    let snps = load_snps("snps_phased.vcf.gz", &mask);
-    let _ = fs::remove_file(mask);
-    let consensus = {
-        let set = option_sets()
-            .into_iter()
-            .find(|s| s.name == "per_base")
-            .unwrap();
-        let opts = InputOptions {
-            collect_het_sites: true,
-            ..set.input_options()
-        };
-        load(&fixture(&set.input), &opts).unwrap()
+    let dir = TempDir::new("io_route_a");
+    let snps = load_snps("snps_phased.vcf.gz", &combined_mask(&dir));
+    let per_base = option_set("per_base");
+    let consensus = per_base.load_with(&InputOptions {
+        collect_het_sites: true,
+        ..per_base.input_options()
+    });
+    let mhs_opts = InputOptions {
+        format: Some(InputFormat::Mhs),
+        collect_het_sites: true,
+        filter: SeqFilter::DISABLED,
+        ..InputOptions::default()
+    };
+    let key = |d: &Dataset| -> Vec<(String, u64, u64, [u8; 2])> {
+        d.het_sites
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|h| {
+                let name = d.seqs[h.seq as usize].name.clone();
+                (name, h.pos, h.nr_called, h.alleles)
+            })
+            .collect()
     };
     for (label, data) in [("mask mode", &snps), ("consensus mode", &consensus)] {
-        for ext in ["mhs", "mhs.gz"] {
-            let out = unique_temp_path("route_a_mhs", ext);
+        for name in ["out.mhs", "out.mhs.gz"] {
+            let out = dir.path(name);
             write_multihetsep(&out, data, &MultihetsepOptions::default()).unwrap();
-            let opts = InputOptions {
-                format: Some(InputFormat::Mhs),
-                collect_het_sites: true,
-                filter: SeqFilter::DISABLED,
-                ..InputOptions::default()
-            };
-            let back = load(&out, &opts).unwrap();
-            let _ = fs::remove_file(&out);
-            let key = |d: &Dataset| -> Vec<(String, u64, u64, [u8; 2])> {
-                d.het_sites
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|h| {
-                        (
-                            d.seqs[h.seq as usize].name.clone(),
-                            h.pos,
-                            h.nr_called,
-                            h.alleles,
-                        )
-                    })
-                    .collect()
-            };
+            let back = load(&out, &mhs_opts).unwrap();
             let (a, b) = (key(data), key(&back));
             assert!(a.len() >= 30, "{label}: {} sites", a.len());
-            assert_eq!(a, b, "{label} {ext}");
+            assert_eq!(a, b, "{label} {name}");
         }
     }
 }
@@ -544,12 +528,7 @@ fn mask_mode_reports_the_depth_of_the_sample() {
     // `bcftools call -mv` writes no FORMAT/DP; with one sample, INFO/DP is
     // the sample's depth.
     let data = load_snps("snps.vcf.gz", &fixture("masks/mask_chr1.bed.gz"));
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not a VCF summary")
-    };
-    let VcfDetails::Mask(m) = &v.details else {
-        panic!("not mask mode")
-    };
+    let m = mask_summary(&data);
     let text = String::from_utf8(read_bytes(&fixture("snps.vcf.gz"))).unwrap();
     let depths: Vec<u64> = text
         .lines()

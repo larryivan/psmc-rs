@@ -3,21 +3,15 @@
 //! `tests/io_consensus_tools.rs` checks the same rules against the real
 //! Perl and C tools on random files.
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::consensus::{
     ConsensusFilters, ConsensusOptions, ConsensusRead, DepthThresholds, LossReason,
     auto_depth_thresholds, read_vcf_consensus, scan_depth,
 };
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-
-/// A path no other test of this process uses (tests run in parallel, and the
-/// clock alone is too coarse to tell them apart).
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
-}
 
 const HEADER: &str =
     "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
@@ -34,6 +28,7 @@ fn good_run(chrom: &str, from: u64, to: u64) -> String {
     (from..=to).map(|p| rec(chrom, p, "A", ".", GOOD)).collect()
 }
 
+/// One base per bin, so that every base of vcf2fq's string is a bin.
 fn opts() -> ConsensusOptions {
     ConsensusOptions {
         bin_size: 1,
@@ -41,12 +36,55 @@ fn opts() -> ConsensusOptions {
     }
 }
 
+/// [`opts`] with `filters`.
+fn filtered(filters: ConsensusFilters) -> ConsensusOptions {
+    ConsensusOptions { filters, ..opts() }
+}
+
+/// [`opts`] with an INDEL window of `l` bases.
+fn indel_window(l: u64) -> ConsensusOptions {
+    filtered(ConsensusFilters {
+        indel_window: l,
+        ..ConsensusFilters::default()
+    })
+}
+
+/// [`opts`] with fq2psmcfa's `-q min_qual`.
+fn min_qual(q: u64) -> ConsensusOptions {
+    filtered(ConsensusFilters {
+        min_qual: q,
+        ..ConsensusFilters::default()
+    })
+}
+
+/// [`opts`], collecting the heterozygous sites.
+fn het_sites() -> ConsensusOptions {
+    ConsensusOptions {
+        collect_het_sites: true,
+        ..opts()
+    }
+}
+
+/// `text` written to `name` in `dir`.
+fn write(dir: &TempDir, name: &str, text: &str) -> PathBuf {
+    let path = dir.path(name);
+    fs::write(&path, text).unwrap();
+    path
+}
+
 fn read(records: &str, opts: &ConsensusOptions) -> anyhow::Result<ConsensusRead> {
-    let path = unique_temp_path("consensus", "vcf");
-    fs::write(&path, format!("{HEADER}{records}")).expect("failed to write VCF");
-    let out = read_vcf_consensus(&path, opts);
-    let _ = fs::remove_file(path);
-    out
+    let dir = TempDir::new("io_consensus");
+    read_vcf_consensus(&write(&dir, "in.vcf", &format!("{HEADER}{records}")), opts)
+}
+
+/// [`opts`] with a callable mask of each of `rows`, written to `dir`.
+fn masks(dir: &TempDir, rows: &[&str]) -> ConsensusOptions {
+    let masks = rows
+        .iter()
+        .enumerate()
+        .map(|(i, r)| write(dir, &format!("mask{i}.bed"), r))
+        .collect();
+    ConsensusOptions { masks, ..opts() }
 }
 
 /// One character per base: T (called), K (heterozygous) or N (missing).
@@ -73,14 +111,7 @@ fn snp_or_reference_branch_follows_vcf2fq() {
         rec("c", 6, "AC", ".", GOOD),
     ]
     .concat();
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            indel_window: 2,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
-    let r = read(&records, &o).unwrap();
+    let r = read(&records, &indel_window(2)).unwrap();
     let s = &r.summary;
     assert_eq!(
         (
@@ -125,14 +156,7 @@ fn homozygous_and_heterozygous_calls() {
         rec("c", 10, "X", ".", "DP=20;MQ=50;AF1=0;FQ=-40"),
     ]
     .concat();
-    let r = read(
-        &records,
-        &ConsensusOptions {
-            collect_het_sites: true,
-            ..opts()
-        },
-    )
-    .unwrap();
+    let r = read(&records, &het_sites()).unwrap();
     assert_eq!(bases(&r, 0), "TTTKNNNKNT");
     let lost = &r.seqs[0].lost;
     assert_eq!(lost.no_het_code, 3);
@@ -165,14 +189,7 @@ fn missing_fq_is_a_heterozygous_call_of_quality_zero() {
     assert!(w.contains("which fq2psmcfa -q 10 makes missing"), "{w}");
 
     // With -q 0 the first is heterozygous; the second has no code.
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            min_qual: 0,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
-    let r = read(&records, &o).unwrap();
+    let r = read(&records, &min_qual(0)).unwrap();
     assert_eq!(bases(&r, 0), "KN");
     assert_eq!((r.summary.min_qual, r.summary.het_bases), (0, 1));
     let w = warning(&r);
@@ -184,15 +201,12 @@ fn missing_fq_is_a_heterozygous_call_of_quality_zero() {
 
 #[test]
 fn the_summary_reports_the_thresholds_used() {
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            depth: DepthThresholds::Fixed { min: 4, max: 40 },
-            min_mq: 25,
-            indel_window: 7,
-            min_qual: 15,
-        },
-        ..opts()
-    };
+    let o = filtered(ConsensusFilters {
+        depth: DepthThresholds::Fixed { min: 4, max: 40 },
+        min_mq: 25,
+        indel_window: 7,
+        min_qual: 15,
+    });
     let s = read(&good_run("c", 1, 3), &o).unwrap().summary;
     assert_eq!((s.min_depth, s.max_depth, s.auto_depth), (4, 40, false));
     assert_eq!((s.min_mq, s.indel_window, s.min_qual), (25, 7, 15));
@@ -222,14 +236,11 @@ fn depth_and_mapping_quality_bounds_are_inclusive() {
         "{lost:?}"
     );
 
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            depth: DepthThresholds::Fixed { min: 2, max: 3 },
-            min_mq: 9,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
+    let o = filtered(ConsensusFilters {
+        depth: DepthThresholds::Fixed { min: 2, max: 3 },
+        min_mq: 9,
+        ..ConsensusFilters::default()
+    });
     let r = read(&records, &o).unwrap();
     assert_eq!(bases(&r, 0), "TNTNNNNN");
 }
@@ -268,16 +279,9 @@ fn quality_is_rounded_and_capped_like_vcf2fq() {
     ]
     .concat();
     assert_eq!(bases(&read(&records, &opts()).unwrap(), 0), "NTTK");
-    let at = |q| ConsensusOptions {
-        filters: ConsensusFilters {
-            min_qual: q,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
     // The cap: 126 - 33 = 93.
-    assert_eq!(bases(&read(&records, &at(93)).unwrap(), 0), "NNTN");
-    assert_eq!(bases(&read(&records, &at(94)).unwrap(), 0), "NNNN");
+    assert_eq!(bases(&read(&records, &min_qual(93)).unwrap(), 0), "NNTN");
+    assert_eq!(bases(&read(&records, &min_qual(94)).unwrap(), 0), "NNNN");
 }
 
 #[test]
@@ -298,14 +302,7 @@ fn indel_windows_cover_l_bases_on_each_side() {
     assert_eq!(r.summary.lost.indel_window, 13);
 
     // l = 0 leaves POS itself and masks the REF bases after it.
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            indel_window: 0,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
-    let r = read(&records, &o).unwrap();
+    let r = read(&records, &indel_window(0)).unwrap();
     assert_eq!(
         bases(&r, 0),
         format!("{}NNN{}", "T".repeat(10), "T".repeat(12))
@@ -335,28 +332,14 @@ fn a_window_starting_beyond_the_string_is_an_error_as_in_perl() {
         rec("c", 5, "AC", "A", &format!("INDEL;{GOOD}")),
     ]
     .concat();
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            indel_window: 0,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
-    let err = read(&records, &o).unwrap_err();
+    let err = read(&records, &indel_window(0)).unwrap_err();
     assert!(
         format!("{err:#}").contains("substr outside of string"),
         "{err:#}"
     );
     // With l = 1 the window starts at index 4, the end of the string, and
     // is merely empty.
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            indel_window: 1,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
-    let r = read(&records, &o).unwrap();
+    let r = read(&records, &indel_window(1)).unwrap();
     assert_eq!(bases(&r, 0), "TTTT");
 }
 
@@ -378,14 +361,7 @@ fn bases_are_appended_so_duplicate_positions_shift_the_rest() {
         rec("c", 3, "A", "C", "DP=20;MQ=50;AF1=0.5;FQ=40"),
     ]
     .concat();
-    let r = read(
-        &records,
-        &ConsensusOptions {
-            collect_het_sites: true,
-            ..opts()
-        },
-    )
-    .unwrap();
+    let r = read(&records, &het_sites()).unwrap();
     assert_eq!(bases(&r, 0), "TTKK");
     assert_eq!(r.summary.extra_bases_at_pos, 1);
     let het: Vec<_> = r.seqs[0].het_sites().map(|h| (h.0, h.1)).collect();
@@ -481,8 +457,8 @@ fn auto_depth_uses_the_mean_of_base_records() {
         rec("c", 5, "A", ".", "MQ=50;FQ=-60"),
     ]
     .concat();
-    let path = unique_temp_path("consensus_depth", "vcf");
-    fs::write(&path, format!("{HEADER}{records}")).unwrap();
+    let dir = TempDir::new("io_consensus");
+    let path = write(&dir, "in.vcf", &format!("{HEADER}{records}"));
     let stats = scan_depth(&path).unwrap();
     assert_eq!((stats.records, stats.records_without_dp), (4, 1));
     assert_eq!((stats.mean, stats.median), (30.0, 25.0));
@@ -490,13 +466,10 @@ fn auto_depth_uses_the_mean_of_base_records() {
     assert_eq!((stats.histogram[10], stats.histogram[60]), (1, 1));
 
     // Mean 30: d = 10, D = 60.
-    let o = ConsensusOptions {
-        filters: ConsensusFilters {
-            depth: DepthThresholds::Auto,
-            ..ConsensusFilters::default()
-        },
-        ..opts()
-    };
+    let o = filtered(ConsensusFilters {
+        depth: DepthThresholds::Auto,
+        ..ConsensusFilters::default()
+    });
     let r = read_vcf_consensus(&path, &o).unwrap();
     let s = &r.summary;
     assert!(s.auto_depth);
@@ -504,7 +477,6 @@ fn auto_depth_uses_the_mean_of_base_records() {
     assert_eq!(s.depth.mean, 30.0);
     // POS 4 is masked by the INDEL window; POS 5 has no DP.
     assert_eq!(bases(&r, 0), "NNNNN");
-    let _ = fs::remove_file(&path);
 
     let err = read(&rec("c", 1, "A", ".", "MQ=50;FQ=-60"), &o).unwrap_err();
     assert!(
@@ -542,14 +514,7 @@ fn het_sites_count_called_bases_since_the_previous_one() {
         het("d", 2),
     ]
     .concat();
-    let r = read(
-        &records,
-        &ConsensusOptions {
-            collect_het_sites: true,
-            ..opts()
-        },
-    )
-    .unwrap();
+    let r = read(&records, &het_sites()).unwrap();
     let a: Vec<_> = r.seqs[0].het_sites().collect();
     assert_eq!(a, vec![(4, 4, *b"AG"), (10, 3, *b"AG")]);
     let d: Vec<_> = r.seqs[1].het_sites().collect();
@@ -560,33 +525,22 @@ fn het_sites_count_called_bases_since_the_previous_one() {
 
 #[test]
 fn masks_are_an_optional_extra_filter() {
-    let mask = unique_temp_path("consensus_mask", "bed");
+    let dir = TempDir::new("io_consensus");
     // BED rows: positions 3..=5 of c only; d has no row.
-    fs::write(&mask, "c\t2\t5\n").unwrap();
+    let o = masks(&dir, &["c\t2\t5\n"]);
     let records = [good_run("c", 1, 6), good_run("d", 1, 2)].concat();
-    let o = ConsensusOptions {
-        masks: vec![mask.clone()],
-        ..opts()
-    };
     let r = read(&records, &o).unwrap();
     assert_eq!(bases(&r, 0), "NNTTTN");
     assert_eq!(bases(&r, 1), "NN");
     assert!(r.summary.masked);
     assert_eq!(r.summary.lost.outside_mask, 5);
     assert_eq!(r.summary.chroms_outside_mask, ["d"]);
-    let _ = fs::remove_file(mask);
 }
 
 #[test]
 fn separate_per_chromosome_masks_are_reported_as_intersected() {
-    let mask_c = unique_temp_path("consensus_mask_c", "bed");
-    let mask_d = unique_temp_path("consensus_mask_d", "bed");
-    fs::write(&mask_c, "c\t0\t10\n").unwrap();
-    fs::write(&mask_d, "d\t0\t10\n").unwrap();
-    let o = ConsensusOptions {
-        masks: vec![mask_c.clone(), mask_d.clone()],
-        ..opts()
-    };
+    let dir = TempDir::new("io_consensus");
+    let o = masks(&dir, &["c\t0\t10\n", "d\t0\t10\n"]);
     let records = [
         good_run("c", 1, 2),
         good_run("d", 1, 2),
@@ -604,18 +558,12 @@ fn separate_per_chromosome_masks_are_reported_as_intersected() {
             && warnings[1].contains("intersected"),
         "{warnings:?}"
     );
-    let _ = fs::remove_file(mask_c);
-    let _ = fs::remove_file(mask_d);
 }
 
 #[test]
 fn chromosomes_outside_the_mask_and_repeated_ones_are_listed_once() {
-    let mask = unique_temp_path("consensus_mask", "bed");
-    fs::write(&mask, "b\t0\t10\n").unwrap();
-    let o = ConsensusOptions {
-        masks: vec![mask.clone()],
-        ..opts()
-    };
+    let dir = TempDir::new("io_consensus");
+    let o = masks(&dir, &["b\t0\t10\n"]);
     let blocks = ["a", "b", "a", "c", "a", "b", "c"];
     let records: String = blocks.iter().map(|c| good_run(c, 1, 2)).collect();
     let s = read(&records, &o).unwrap().summary;
@@ -630,7 +578,6 @@ fn chromosomes_outside_the_mask_and_repeated_ones_are_listed_once() {
     assert_eq!(r.summary.chroms_outside_mask.len(), n);
     assert_eq!(r.summary.chroms_outside_mask[n - 1], format!("s{}", n - 1));
     assert!(r.summary.repeated_chroms.is_empty());
-    let _ = fs::remove_file(mask);
 }
 
 #[test]

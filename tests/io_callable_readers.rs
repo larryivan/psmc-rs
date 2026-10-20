@@ -8,13 +8,13 @@
 mod common;
 
 use common::{TempDir, fixture};
+use psmc_rs::io::MAX_COUNTED_BIN_SIZE;
 use psmc_rs::io::common::Binner;
 use psmc_rs::io::input::{Dataset, InputFormat, InputOptions, SeqFilter, VcfMode, load};
 use psmc_rs::io::mhs::{MhsOptions, read_mhs_with};
 use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use psmc_rs::io::write::write_psmcfa;
-use psmc_rs::io::{MAX_COUNTED_BIN_SIZE, Observations};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -134,22 +134,23 @@ fn the_binner_bins_larger_bins_without_counting_them() {
     }
 }
 
-/// Write multihetsep rows and read them for the pair (0, 1).
-fn read_mhs_text(text: &str, bin_size: usize, batch_size: Option<usize>) -> Observations {
-    let dir = TempDir::new("io_callable_readers");
-    let opts = MhsOptions {
-        bin_size,
-        batch_size,
-        pair: (0, 1),
-    };
-    read_mhs_with(&write(&dir, "in.multihetsep", text), &opts).unwrap()
-}
-
 #[test]
 fn multihetsep_counts_follow_the_placement_of_uncalled_sites() {
+    let dir = TempDir::new("io_callable_readers");
+    let path = dir.path("in.multihetsep");
+    // The rows written to `path` (once, for both reads) for the pair (0, 1).
+    let read = |bin_size, batch_size| {
+        let opts = MhsOptions {
+            bin_size,
+            batch_size,
+            pair: (0, 1),
+        };
+        read_mhs_with(&path, &opts).unwrap()
+    };
     // 19 uncalled sites, then the heterozygous site at 20; 3 called sites,
     // then the heterozygous site at 24.
-    let obs = read_mhs_text("chr1 20 1 AC\nchr1 24 4 AC\n", 4, None);
+    fs::write(&path, "chr1 20 1 AC\nchr1 24 4 AC\n").unwrap();
+    let obs = read(4, None);
     assert_eq!(obs.rows, [vec![2, 2, 2, 2, 1, 1]]);
     let c = obs.callable.as_ref().unwrap();
     assert_eq!(c.bin_size(), 4);
@@ -192,13 +193,14 @@ fn multihetsep_counts_follow_the_placement_of_uncalled_sites() {
             want_bins.push(bins);
             want_counts.push(counts);
         }
-        let obs = read_mhs_text(&text, s, None);
+        fs::write(&path, &text).unwrap();
+        let obs = read(s, None);
         assert_eq!(obs.rows, want_bins, "case {case}");
         let c = obs.callable.as_ref().unwrap();
         assert_eq!(c.to_counts(), want_counts, "case {case}");
         obs.validate().unwrap();
         // Batched rows cut the counts with the bins.
-        let batched = read_mhs_text(&text, s, Some(7));
+        let batched = read(s, Some(7));
         let counts = batched.callable.as_ref().unwrap();
         let rejoined: Vec<u16> = counts.to_counts().concat();
         assert_eq!(rejoined, want_counts.concat(), "case {case}");
