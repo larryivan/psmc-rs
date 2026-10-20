@@ -1146,17 +1146,15 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
     report.findings = findings;
 
     let shown = rows_to_show(&counts, &named, MAX_SEQUENCE_ROWS);
-    let omitted = shown.iter().filter(|&&s| !s).count();
-    report.omitted = (omitted > 0).then(|| OmittedSequences {
-        sequences: omitted,
-        stats: Counts::sum(
-            counts
-                .iter()
-                .zip(&shown)
-                .filter(|(_, s)| !**s)
-                .map(|(c, _)| c),
-        )
-        .stats(bin_size),
+    let hidden: Vec<&Counts> = counts
+        .iter()
+        .zip(&shown)
+        .filter(|(_, shown)| !**shown)
+        .map(|(c, _)| c)
+        .collect();
+    report.omitted = (!hidden.is_empty()).then(|| OmittedSequences {
+        sequences: hidden.len(),
+        stats: Counts::sum(hidden).stats(bin_size),
     });
     let reference = report.het_reference.as_ref().map(|r| r.theta0_per_bin);
     report.sequences = infos
