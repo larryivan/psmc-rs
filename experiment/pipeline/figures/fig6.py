@@ -31,13 +31,12 @@ legend:
   the means (``E5_summary``), the grey line the nominal coverage. The gap
   between the two groups is PSMC's bias, not the bootstrap.
 
-Every text is placed from the fonts' own metrics, not from what a renderer
-measures (the PDF backend lays text out with widths hinted at 72 dpi, the
-PNG at its own dpi): the axis labels hang at fixed distances from their
-spines, so a's and b's x labels and c's group names share one baseline, and
-the letters b and c start at the ink of their panel's y label, in every
-output. The panels' x positions leave the same white between one panel's
-ink and the next one's.
+Text is placed from the fonts' own metrics, not from what a renderer
+measures (the PDF backend hints widths at 72 dpi, the PNG at its own dpi),
+so in every output the axis labels hang at fixed distances from their
+spines (a's and b's x labels and c's group names on one baseline) and the
+letters b and c start at the ink of their panel's y label. The panels
+leave the same white between one panel's ink and the next one's.
 
 Every number comes from E5's tables: ``E5_summary`` (block counts, median
 SD ratios, window coverages), ``E5_sampling`` (truth, the fits' range and
@@ -54,15 +53,13 @@ import math
 from typing import Dict, List, Sequence, Tuple
 
 from . import style
-from .data import SchemaError, Source
+from .data import Source
 
-# Layout (mm). One row: every axes top at style.TOP_MM and every bottom spine 7.5 mm above the figure's
-# bottom; a starts at style.LEFT_MM, b is square (as a calibration plot needs) and c ends at style.RIGHT_MM
-# from the right edge. a's width and b's x follow from the text (see _layout): GAP_MM of white between a's
-# ink and b's, and between b's and c's.
-FIG_H_MM = 56.0
+# Layout (mm). Every axes top at style.TOP_MM, its bottom spine 7.5 mm above the figure's bottom; a starts at
+# style.LEFT_MM, b is square (a calibration plot) and c ends style.RIGHT_MM from the right edge. a's width and
+# b's x follow from the text (_layout): GAP_MM of white between a's ink and b's, and between b's and c's.
+W_MM, H_MM = style.WIDTH_MM["double"], 56.0
 AX_H_MM = 44.0
-A_X_MM = style.LEFT_MM
 B_W_MM = AX_H_MM
 C_W_MM = 27.5
 GAP_MM = 6.5
@@ -91,14 +88,9 @@ X_PAD = 0.30
 JITTER = 0.12
 BAR_HALF = 0.17
 JITTER_SEED = 3
+DOT = {"linestyle": "none", "marker": "o", "markersize": style.STRIP_MS, "markeredgewidth": 0.0}  # b's and c's
 NOMINAL_DROP = 2.0  # c's 'Nominal 95%' hangs this many points of coverage below its line
 TOL = 1e-9  # recomputed coverages against E5_summary
-
-
-def _need(df, key: str, columns: Sequence[str]) -> None:
-    missing = [c for c in columns if c not in df.columns]
-    if missing:
-        raise SchemaError(f"{key}: missing column(s) {', '.join(missing)} (Fig S3 needs them)")
 
 
 def _centred_dash(dash, lw: float = style.LW_DATA):
@@ -250,26 +242,27 @@ def _right_ink_mm(ax, width_mm: float) -> float:
 
 
 def _panel_a(ax, sampling, example, color: str) -> None:
+    """a: the truth, the independent fits' range and (``example``) one genome's fit and band, with its key."""
     import numpy as np
     from matplotlib.lines import Line2D
 
     years = sampling["years"].to_numpy(dtype=float)
     true_ne = sampling["true_ne"].to_numpy(dtype=float)
     step = {"drawstyle": f"steps-{STEP}"}  # see STEP: grid times, not interval starts
-    band = None
-    if example is not None and len(example):
+    has_fit = example is not None and len(example) > 0
+    if has_fit:
         band = ax.fill_between(example["years"], example["boot_lo_ne"], example["boot_hi_ne"], step=STEP,
                                **style.band_kw(color, BAND_SHARE_A))
     for edge in ("lo_ne", "hi_ne"):  # the independent fits' range: two lines, never a second fill
         ax.plot(years, sampling[edge], color=style.REF, linewidth=style.LW_THIN, zorder=style.Z_CONTEXT, **step)
-    if example is not None and len(example):
+    if has_fit:
         ax.plot(example["years"], example["fit_ne"], **style.overlay_kw(color), **step)
     ax.plot(years, true_ne, **style.truth_kw(), **step)
 
     lo = 10.0 ** math.floor(math.log10(years[0]) + 1e-9)
     xlim = (lo if years[0] / lo < 1.1 else float(years[0]), float(years[-1]))
     floor, top = float(np.nanmin(true_ne)) / 2.0, float(np.nanmax(true_ne)) * 5.0
-    if example is not None and len(example):  # a fit far off the truth (small profiles) stays in view
+    if has_fit:  # a fit far off the truth (small profiles) stays in view
         fit = example["fit_ne"].to_numpy(dtype=float)
         floor, top = min(floor, float(np.nanmin(fit)) / 1.5), max(top, float(np.nanmax(fit)) * 1.5)
     style.years_axis(ax, xlim)
@@ -278,7 +271,7 @@ def _panel_a(ax, sampling, example, color: str) -> None:
     fits = int(sampling["fits"].iloc[0])
     keys: List = [style.handle(style.TRUTH, linestyle=_centred_dash(style.DASH))]
     labels = ["Truth"]
-    if band is not None:
+    if has_fit:
         fit_key = style.overlay_kw(color)
         fit_key.pop("zorder")
         keys += [Line2D([], [], **fit_key), band]
@@ -322,17 +315,16 @@ def _panel_b(ax, sd, arms: Sequence[int], color: Dict[int, str], rows: Dict) -> 
     if math.isfinite(r_lo) and math.isfinite(r_hi):
         ax.fill_between(xs, xs * r_lo, xs * r_hi, color=style.FILL, linewidth=0.0, zorder=style.Z_BAND)
     ax.plot(xs, xs, color=style.REF, linewidth=style.LW_THIN, zorder=style.Z_REF)
-    dot = {"linestyle": "none", "marker": "o", "markersize": style.STRIP_MS, "markeredgewidth": 0.0}
     for t in reversed(arms):  # the fewest blocks first, under the most
         p = pts[t]
         ax.plot(p["sd_true_log10"], p["sd_boot_log10_median"], color=color[t],
-                zorder=style.Z_DATA if t == arms[0] else style.Z_CONTEXT, **dot)
+                zorder=style.Z_DATA if t == arms[0] else style.Z_CONTEXT, **DOT)
     for which in ("x", "y"):  # plain decimals at the decades: 0.01, 0.1, 1
         style.log_axis(ax, which, fmt="plain", lim=(lo, hi))
     ax.set_xlabel(f"True SD of {style.LOGNE}")
     ax.set_ylabel(f"Bootstrap SD of {style.LOGNE}")
     if arms:
-        style.legend(ax, [Line2D([], [], color=color[t], **dot) for t in arms], _key_labels_b(arms, rows),
+        style.legend(ax, [Line2D([], [], color=color[t], **DOT) for t in arms], _key_labels_b(arms, rows),
                      loc="upper left", handlelength=0.8, handletextpad=0.4, labelspacing=0.25, borderaxespad=0.1)
 
 
@@ -353,13 +345,12 @@ def _panel_c(ax, per, arms: Sequence[int], color: Dict[int, str], rows: Dict, no
     xmax = max(pos.values())
     style.ref_line(ax, y=nominal, zorder=style.Z_BAND)
     rng = np.random.default_rng(JITTER_SEED)
-    dot = {"linestyle": "none", "marker": "o", "markersize": style.STRIP_MS, "markeredgewidth": 0.0}
     for g, summary_col in groups:
         for t in arms:
             x = pos[(g, t)]
             v = 100.0 * per.xs(t, level="trunk_bins").sort_index()[g].to_numpy(dtype=float)
             ax.plot(x + rng.uniform(-JITTER, JITTER, len(v)), v, color=color[t], zorder=style.Z_UNDERLAY,
-                    clip_on=False, **dot)  # whole dots at 100%
+                    clip_on=False, **DOT)  # whole dots at 100%
             m = 100.0 * float(getattr(rows[t], summary_col))
             ax.plot([x - BAR_HALF, x + BAR_HALF], [m, m], color=style.INK, linewidth=style.LW_DATA,
                     solid_capstyle="butt", zorder=style.Z_DATA)
@@ -378,22 +369,21 @@ def _panel_c(ax, per, arms: Sequence[int], color: Dict[int, str], rows: Dict, no
 # ---------------------------------------------------------------------------
 
 
-def _layout(fig, ax_a, ax_b, ax_c) -> Dict[int, float]:
+def _layout(ax_a, ax_b, ax_c) -> List[float]:
     """Place the three axes; return each one's y-label ink, in mm left of its spine.
 
-    a starts at ``A_X_MM`` and c ends ``style.RIGHT_MM`` from the right
-    edge; b's x and a's width leave ``GAP_MM`` of white between a's ink
+    a starts at ``style.LEFT_MM`` and c ends ``style.RIGHT_MM`` from the
+    right edge; b's x and a's width leave ``GAP_MM`` of white between a's ink
     (its spine or tick labels) and b's y label, and between b's ink and c's.
     """
-    fig_w = style.WIDTH_MM["double"]
-    ink = {id(ax): _ylabel_pt(ax)[1] / style.PT_PER_MM for ax in (ax_a, ax_b, ax_c)}
-    c_x = fig_w - style.RIGHT_MM - C_W_MM
-    b_x = c_x - ink[id(ax_c)] - GAP_MM - _right_ink_mm(ax_b, B_W_MM) - B_W_MM
-    a_w0 = ax_a.get_position().width * fig_w
-    a_w = b_x - ink[id(ax_b)] - GAP_MM - _right_ink_mm(ax_a, a_w0) - A_X_MM
-    bottom = (FIG_H_MM - style.TOP_MM - AX_H_MM) / FIG_H_MM
-    for ax, x, w in ((ax_a, A_X_MM, a_w), (ax_b, b_x, B_W_MM), (ax_c, c_x, C_W_MM)):
-        ax.set_position((x / fig_w, bottom, w / fig_w, AX_H_MM / FIG_H_MM))
+    ink = [_ylabel_pt(ax)[1] / style.PT_PER_MM for ax in (ax_a, ax_b, ax_c)]
+    c_x = W_MM - style.RIGHT_MM - C_W_MM
+    b_x = c_x - ink[2] - GAP_MM - _right_ink_mm(ax_b, B_W_MM) - B_W_MM
+    a_w0 = ax_a.get_position().width * W_MM
+    a_w = b_x - ink[1] - GAP_MM - _right_ink_mm(ax_a, a_w0) - style.LEFT_MM
+    bottom = (H_MM - style.TOP_MM - AX_H_MM) / H_MM
+    for ax, x, w in ((ax_a, style.LEFT_MM, a_w), (ax_b, b_x, B_W_MM), (ax_c, c_x, C_W_MM)):
+        ax.set_position((x / W_MM, bottom, w / W_MM, AX_H_MM / H_MM))
     return ink
 
 
@@ -466,13 +456,10 @@ def draw(src: Source):
     bands = src.table("E5_bands")
     sd = src.table("E5_sd_ratio")
     cov = src.table("E5_coverage")
-    _need(summary, "E5_summary", ("sd_ratio_median", "coverage_of_fit_mean_mean"))
-    _need(sampling, "E5_sampling", ("mean_log10_ne",))
-    _need(bands, "E5_bands", ("covers_truth",))
 
     informative = summary[summary["window"] == "informative"]
     rows = {int(r.trunk_bins): r for r in informative.itertuples()}
-    bootstrapped = set(int(t) for t in bands["trunk_bins"])
+    bootstrapped = {int(t) for t in bands["trunk_bins"]}
     # The block sizes E5 bootstrapped, the most blocks first.
     arms: List[int] = sorted((t for t in rows if t in bootstrapped), key=lambda t: (-int(rows[t].trunks), t))
     color = _arm_colors(arms)
@@ -481,14 +468,13 @@ def draw(src: Source):
     per = genome_coverage(bands, sampling)
     _check_coverage(per, cov, rows, arms)
 
-    fig = style.figure("double", FIG_H_MM)
-    fig_w = style.WIDTH_MM["double"]
+    fig = style.figure(W_MM, H_MM)
     # Provisional widths; _layout places the axes once their tick labels are known.
-    ax_a = style.axes_mm(fig, A_X_MM, style.TOP_MM, 70.0, AX_H_MM)
+    ax_a = style.axes_mm(fig, style.LEFT_MM, style.TOP_MM, 70.0, AX_H_MM)
     ax_b = style.axes_mm(fig, 96.0, style.TOP_MM, B_W_MM, AX_H_MM)
-    ax_c = style.axes_mm(fig, fig_w - style.RIGHT_MM - C_W_MM, style.TOP_MM, C_W_MM, AX_H_MM)
+    ax_c = style.axes_mm(fig, W_MM - style.RIGHT_MM - C_W_MM, style.TOP_MM, C_W_MM, AX_H_MM)
 
-    datasets = set(int(d) for d in bands["dataset"])
+    datasets = {int(d) for d in bands["dataset"]}
     ds = cfg.example_dataset if cfg.example_dataset in datasets else (min(datasets) if datasets else None)
     example = None
     if ds is not None and arms:
@@ -499,7 +485,7 @@ def draw(src: Source):
     centres = _panel_c(ax_c, per, arms, color, rows, nominal)
 
     axes = (ax_a, ax_b, ax_c)
-    ink = _layout(fig, *axes)
+    ink = _layout(*axes)
     drop = _pin_labels(fig, axes)
     # c's group names on the x labels' baseline, under its block counts.
     tr = blended_transform_factory(ax_c.transData, ax_c.transAxes) + ScaledTranslation(
@@ -511,8 +497,8 @@ def draw(src: Source):
     # figure; b and c with their ink at the ink of their panel's y label.
     baseline = style.TOP_MM - style.TITLE_RISE_MM
     style.panel_letter(fig, style.LETTER_X_MM, baseline, "a")
-    for ax, letter in ((ax_b, "b"), (ax_c, "c")):
-        x = ax.get_position().x0 * fig_w - ink[id(ax)]
+    for ax, letter, ink_mm in zip(axes[1:], "bc", ink[1:]):
+        x = ax.get_position().x0 * W_MM - ink_mm
         style.panel_letter(fig, x - _ink(letter, style.PANEL_PT, "bold").x0 / style.PT_PER_MM, baseline, letter)
     return fig
 
