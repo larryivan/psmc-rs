@@ -483,7 +483,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "Chromosome", "PSMCFA_NAME", "VCF_NAME", "longest_het_gap", "longest_hetfree_bins", "n_bins", "psmcfa_bins",
-    "psmcfa_record", "read_tmrca_track",
-    "seeds_for", "simulate_chromosome", "simulate_genome", "tmrca_intervals", "write_json", "write_tmrca",
+    "Chromosome", "PSMCFA_NAME", "VCF_NAME", "bgzip_and_index", "longest_het_gap", "longest_hetfree_bins", "n_bins",
+    "positions_digest", "psmcfa_bins", "psmcfa_record", "read_tmrca_track", "seeds_for", "simulate_chromosome",
+    "simulate_genome", "tmrca_intervals", "vcf_header", "vcf_lines", "write_json", "write_tmrca",
 ]

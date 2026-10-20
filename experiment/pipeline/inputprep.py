@@ -813,9 +813,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "Intervals", "SYMBOLS", "Vcf", "VcfRecord", "callable_mask", "compare_bins",
-    "complement", "confusion", "consensus_fasta", "consensus_sequence", "differing", "fasta_record",
-    "first_difference", "iupac", "mask_seed", "mask_summary", "mask_vcf", "multihetsep_rows", "read_bed",
-    "read_psmcfa", "read_vcf", "reference_seed", "run_fq2psmcfa", "split_vcf_by_chrom", "uncallable_runs",
-    "write_bed", "write_vcf",
+    "Intervals", "SYMBOLS", "Vcf", "VcfRecord", "callable_mask", "compare_bins", "complement", "confusion",
+    "consensus_fasta", "consensus_sequence", "differing", "fasta_record", "first_difference", "iupac", "mask_seed",
+    "mask_summary", "mask_vcf", "merge_intervals", "multihetsep_rows", "read_bed", "read_psmcfa", "read_vcf",
+    "reference_seed", "run_fq2psmcfa", "split_vcf_by_chrom", "uncallable_runs", "write_bed", "write_vcf",
 ]

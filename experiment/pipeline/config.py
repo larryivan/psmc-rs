@@ -710,11 +710,9 @@ class E4:
 # C psmc's: the report fails unless mask_auto and mask_ignore fit identically,
 # and that fit is the complete-data fit of the replicate.
 #
-# Masks: an alternating renewal process per chromosome (inputprep.py): callable
-# stretches and uncallable runs of geometric length (the discrete exponential),
-# with mean run length MaskSpec.mean_run_bp and mean callable stretch
-# mean_run_bp * (1 - f) / f, so that the expected missing fraction is f. Records
-# at uncallable sites are removed from the VCF (a caller does not call them).
+# Masks (inputprep.py): an alternating renewal process per chromosome, of
+# uncallable runs with mean length MaskSpec.mean_run_bp and an expected missing
+# fraction f. Records at uncallable sites are removed from the VCF.
 #
 # Seeds (section 4), experiment "E4", model "bottleneck": the simulation's
 # ancestry/<chrom> and mutations/<chrom>; mask/<mask>/<chrom> for each mask; and
