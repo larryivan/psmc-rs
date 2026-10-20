@@ -11,7 +11,6 @@ mod run;
 mod tui;
 
 use anyhow::Result;
-use clap::Parser;
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 
@@ -30,7 +29,7 @@ fn infer(args: &InferArgs) -> Result<ExitCode> {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = Cli::try_parse_args(std::env::args_os()).unwrap_or_else(|e| e.exit());
     let result = match &cli.command {
         Some(Command::Convert(args)) => convert::run(args),
         Some(Command::Qc(args)) => qc::run(args),

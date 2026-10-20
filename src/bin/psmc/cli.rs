@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::PathBuf;
 
@@ -589,6 +590,7 @@ Examples:
     about = ABOUT,
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP,
+    arg_required_else_help = true,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true
 )]
@@ -602,6 +604,71 @@ pub struct Cli {
     pub infer: InferArgs,
 }
 
+impl Cli {
+    /// Parse `argv` as [`Parser::try_parse_from`] does, with clearer errors
+    /// for two mistakes ([`explain`]).
+    pub fn try_parse_args<I, T>(argv: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString>,
+    {
+        let argv: Vec<OsString> = argv.into_iter().map(Into::into).collect();
+        Self::try_parse_from(&argv).map_err(|e| explain(e, &argv))
+    }
+}
+
+/// Clap's error `e` for `argv`, made clearer for two mistakes. An argument
+/// after INPUT OUTPUT N_ITER (such as a second input from a shell pattern)
+/// is reported as unexpected: clap takes it for a subcommand, which cannot
+/// follow inference's arguments, and says so even when it is none. A
+/// subcommand after other arguments is read as inference's INPUT, so the
+/// error gets a tip to give it first.
+fn explain(e: clap::Error, argv: &[OsString]) -> clap::Error {
+    use clap::CommandFactory;
+    use clap::error::{ContextKind, ContextValue, ErrorKind};
+    let cmd = Cli::command();
+    let subcommand = |arg: &OsStr| {
+        arg.to_str()
+            .filter(|&name| name == "help" || cmd.find_subcommand(name).is_some())
+            .map(str::to_string)
+    };
+    let late_subcommand = match argv {
+        [_, first, rest @ ..] if subcommand(first).is_none() => {
+            rest.iter().find_map(|arg| subcommand(arg))
+        }
+        _ => None,
+    };
+    let (mut e, tip) = match e.get(ContextKind::InvalidSubcommand) {
+        Some(ContextValue::String(arg))
+            if e.kind() == ErrorKind::ArgumentConflict && subcommand(arg.as_ref()).is_none() =>
+        {
+            let mut unexpected = clap::Error::new(ErrorKind::UnknownArgument).with_cmd(&cmd);
+            unexpected.insert(ContextKind::InvalidArg, ContextValue::String(arg.clone()));
+            if let Some(usage) = e.get(ContextKind::Usage) {
+                unexpected.insert(ContextKind::Usage, usage.clone());
+            }
+            let tip = "inference takes three arguments, INPUT OUTPUT N_ITER (one input file per \
+                       run)";
+            (unexpected, Some(tip.to_string()))
+        }
+        _ => (e, None),
+    };
+    let tip = match late_subcommand {
+        Some(name) => format!("a subcommand must be the first argument: psmc-rs {name} ..."),
+        None => match tip {
+            Some(tip) => tip,
+            None => return e,
+        },
+    };
+    let mut tips = match e.get(ContextKind::Suggested) {
+        Some(ContextValue::StyledStrs(tips)) => tips.clone(),
+        _ => Vec::new(),
+    };
+    tips.push(tip.into());
+    e.insert(ContextKind::Suggested, ContextValue::StyledStrs(tips));
+    e
+}
+
 /// The subcommands.
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
@@ -609,10 +676,12 @@ pub enum Command {
     ///
     /// The input (VCF, multihetsep or psmcfa) is read exactly as inference
     /// reads it.
+    #[command(arg_required_else_help = true)]
     Convert(ConvertArgs),
     /// Report how suitable an input is for PSMC.
     ///
     /// The input is read exactly as inference reads it.
+    #[command(arg_required_else_help = true)]
     Qc(QcArgs),
 }
 
@@ -1275,7 +1344,7 @@ mod tests {
     #[test]
     fn invalid_subcommand_uses_are_rejected() {
         let err = |argv: &str| {
-            Cli::try_parse_from(argv.split_whitespace())
+            Cli::try_parse_args(argv.split_whitespace())
                 .unwrap_err()
                 .to_string()
         };
@@ -1283,7 +1352,54 @@ mod tests {
         assert!(err("psmc-rs convert in.vcf").contains("--psmcfa"));
         // Inference options do not apply to a subcommand: before it, the
         // subcommand's name is read as the inference input.
-        assert!(err("psmc-rs --threads 4 qc in.vcf").contains("N_ITER"));
+        let late = err("psmc-rs --threads 4 qc in.vcf");
+        assert!(late.contains("N_ITER"), "{late}");
+        assert!(
+            late.contains("tip: a subcommand must be the first argument: psmc-rs qc ..."),
+            "{late}"
+        );
         assert!(err("psmc-rs qc in.vcf --threads 4").contains("--threads"));
+        let after = err("psmc-rs in out 3 convert");
+        assert!(
+            after.contains("the subcommand 'convert' cannot be used with"),
+            "{after}"
+        );
+    }
+
+    /// An argument after N_ITER, such as a second input matched by a shell
+    /// pattern, is named as unexpected, not as a subcommand.
+    #[test]
+    fn an_argument_after_n_iter_is_unexpected() {
+        let e = Cli::try_parse_args("psmc-rs a.psmcfa b.psmcfa out.json 3".split_whitespace())
+            .unwrap_err();
+        assert_eq!(e.kind(), clap::error::ErrorKind::UnknownArgument);
+        assert_eq!(e.exit_code(), i32::from(USAGE_EXIT));
+        let text = e.to_string();
+        assert!(
+            text.starts_with("error: unexpected argument '3' found"),
+            "{text}"
+        );
+        assert!(text.contains("one input file per run"), "{text}");
+        assert!(text.contains("Usage: psmc-rs [OPTIONS]"), "{text}");
+    }
+
+    /// Without arguments, the program and its subcommands print their help,
+    /// with the status of a usage error.
+    #[test]
+    fn no_arguments_show_the_help() {
+        for argv in [
+            &["psmc-rs"][..],
+            &["psmc-rs", "convert"],
+            &["psmc-rs", "qc"],
+        ] {
+            let e = Cli::try_parse_args(argv).unwrap_err();
+            assert_eq!(
+                e.kind(),
+                clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand,
+                "{argv:?}"
+            );
+            assert_eq!(e.exit_code(), i32::from(USAGE_EXIT));
+            assert!(e.to_string().contains("Usage: psmc-rs"), "{argv:?}");
+        }
     }
 }
