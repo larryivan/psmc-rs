@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import importlib.util
+import contextlib
+import io
 import json
 import os
 import re
@@ -12,18 +13,20 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import ROOT, has_modules  # noqa: E402
 
 from experiment.pipeline import config, provenance, runner  # noqa: E402
+from experiment.pipeline.__main__ import main  # noqa: E402
 from experiment.pipeline.runner import Graph, Job  # noqa: E402
 
-HAS_PSUTIL = importlib.util.find_spec("psutil") is not None
+HAS_PSUTIL = has_modules("psutil")
 
 FAKE_JOB = textwrap.dedent(
     """
@@ -48,9 +51,7 @@ FAKE_JOB = textwrap.dedent(
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.tmp = Path(self._tmp.name).resolve()
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
         self.runs = self.tmp / "runs"
         self.script = self.tmp / "fake_job.py"
         self.script.write_text(FAKE_JOB)
@@ -261,8 +262,6 @@ class DaemonTests(Base):
         self.assertIn("busiest_processes_before", rec["run"])
 
     def test_exit_status_75_defers_the_job_instead_of_failing_it(self):
-        from unittest import mock
-
         flag = self.tmp / "busy"
         flag.write_text("")
         script = self.tmp / "busy.py"
@@ -488,8 +487,6 @@ class MachineInfo(unittest.TestCase):
                          {"slurm_job_id": "1", "slurm_nodelist": "cn1"})
 
     def test_machine_records_the_host_and_on_linux_the_slurm_job(self):
-        from unittest import mock
-
         info = provenance.machine()
         self.assertEqual(info["hostname"], socket.gethostname())
         # Without the variables of a SLURM job the tests may themselves run in.
@@ -503,8 +500,6 @@ class MachineInfo(unittest.TestCase):
             self.assertGreater(info["cpus_usable"], 0)
 
     def test_machine_and_host_enter_no_job_key(self):
-        from unittest import mock
-
         j = Job(id="T/a", command=["true"], settings={"x": 1})
         key = provenance.job_key(j, Path("/tmp/none"), provenance.ChecksumCache(None))
         self.assertEqual(set(key), {"job", "command", "env", "settings", "tools", "seeds", "inputs"})
@@ -515,8 +510,6 @@ class MachineInfo(unittest.TestCase):
 
 class RunnerSettings(unittest.TestCase):
     def test_sample_seconds_from_the_environment(self):
-        from unittest import mock
-
         self.assertEqual(runner.sample_seconds({}), 0.05)
         self.assertEqual(runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: "1.5"}), 1.5)
         self.assertEqual(runner.sample_seconds({runner.SAMPLE_SECONDS_ENV: "0.01"}), 0.01)
@@ -529,8 +522,6 @@ class RunnerSettings(unittest.TestCase):
         self.assertEqual(d.sample_every, 0.5)
 
     def test_default_machine_lock_is_per_host_except_on_macos(self):
-        from unittest import mock
-
         base = Path.home() / ".cache" / "psmc-exp"
         self.assertEqual(runner.GUARD_HOSTS, sys.platform != "darwin")  # likewise the guards on other hosts
         self.assertEqual(runner.default_machine_lock("darwin", host="mac"), base / "machine.lock")
@@ -542,8 +533,6 @@ class RunnerSettings(unittest.TestCase):
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
 class AcrossHosts(Base):
     def setUp(self):
-        from unittest import mock
-
         super().setUp()
         self.enterContext(mock.patch.object(runner, "GUARD_HOSTS", True))  # as on Linux, also on macOS
 
@@ -572,8 +561,6 @@ class AcrossHosts(Base):
 
     def test_macos_does_not_guard_hosts(self):
         # Its host name follows the network: the laptop's own runner may have recorded another one.
-        from unittest import mock
-
         p = self.sleeper()
         self.write_state("before-the-network-changed", p.pid)
         self.hold_lock(424242, "before-the-network-changed")
@@ -589,8 +576,6 @@ class AcrossHosts(Base):
         self.assertFalse(runner.on_another_host(runner.this_host()))
 
     def test_kill_orphans_survives_a_process_it_may_not_signal(self):
-        from unittest import mock
-
         p = self.sleeper()
         self.write_state(None, p.pid)  # a state from before hosts were recorded: this host's
         with mock.patch.object(runner.os, "killpg", side_effect=PermissionError):
@@ -606,12 +591,6 @@ class AcrossHosts(Base):
         return lock
 
     def test_stop_refuses_a_runner_on_another_host(self):
-        import contextlib
-        import io
-        from unittest import mock
-
-        from experiment.pipeline.__main__ import main
-
         self.hold_lock(os.getpid(), "another-host")
         with mock.patch.object(runner.os, "kill") as kill:
             with self.assertRaises(runner.ElsewhereError):
@@ -624,8 +603,6 @@ class AcrossHosts(Base):
         self.assertIn("runs on another-host", err.getvalue())
 
     def test_stop_handles_a_runner_that_is_gone(self):
-        from unittest import mock
-
         lock = self.hold_lock(424242, runner.this_host())
 
         def gone(pid, sig):
@@ -640,8 +617,6 @@ class AcrossHosts(Base):
                 runner.stop_daemon(self.runs)
 
     def test_attempts_record_the_host_and_slurm_job_outside_the_key(self):
-        from unittest import mock
-
         a = self.job("T/a", ["a.txt"])
         with mock.patch.dict(os.environ, {"SLURM_JOB_ID": "4242"}):
             self.run_daemon([a])
@@ -657,9 +632,6 @@ class AcrossHosts(Base):
 class Signals(Base):
     def test_jobs_killed_by_the_signal_that_stops_the_runner_are_interrupted_not_failed(self):
         # SLURM sends SIGTERM to the runner and its jobs at once: the jobs die before the runner terminates them.
-        import threading
-        from unittest import mock
-
         j = self.job("T/long", ["l.txt"], sleep=30)
         d = runner.Daemon(Graph([j], self.runs), self.runs, config.Budget(), runner.Logger(self.runs), {})
 
@@ -677,8 +649,6 @@ class Signals(Base):
         self.assertEqual((attempt["status"], attempt["run"]["exit_status"]), ("interrupted", -signal.SIGTERM))
 
     def test_a_stop_or_drain_while_the_graph_is_made_is_not_lost(self):
-        from unittest import mock
-
         j = self.job("T/a", ["a.txt"])
         saved = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGUSR1, signal.SIGHUP)}
         self.addCleanup(lambda: [signal.signal(s, h) for s, h in saved.items()])
