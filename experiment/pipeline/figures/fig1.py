@@ -22,38 +22,39 @@ The drawing is laid out in millimetres on one axes spanning the figure.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 from . import style
-from .data import Source
 
 W, H = 183.0, 86.0  # mm
-EDGE = style.REF
 RS_FILL = "#e6f0fc"  # lighter than step 100 of the blue ramp, behind psmc-rs's boxes
-RS_EDGE = style.BLUE
 Box = Tuple[float, float, float, float]
+FIT_USAGE = "psmc-rs INPUT OUTPUT N_ITER"  # the fit has no subcommand (src/bin/psmc/cli.rs)
+FIT_ITEMS = (
+    "C psmc's model and EM",
+    "each called bin weighted by its\ncallable bases, c of its s\n(--bin-callable, default auto):\n"
+    r"$P(T\,|\,k, c) = e_T(k)^{\,c/s}$",
+    "exact forward and backward\npasses in linear time",
+    "same result for any --threads",
+    "C-compatible bootstrap",
+)
 
 
 def box(ax, x: float, y: float, w: float, h: float, title: str, detail: str = "", *, rs: bool = False,
-        bold: bool = False, title_top: bool = False) -> Box:
-    """A rounded box (mm) with a 7 pt title and optional detail lines; returns its extent.
-
-    The title is centred in a box without detail lines, unless ``title_top``
-    (the box's content is then drawn by the caller).
-    """
+        bold: bool = False) -> Box:
+    """A rounded box (mm) with a 7 pt title, at its top above detail lines or else centred; returns its extent."""
     from matplotlib.patches import FancyBboxPatch
 
     ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0,rounding_size=1.2",
-                                facecolor=RS_FILL if rs else style.SURFACE, edgecolor=RS_EDGE if rs else EDGE,
+                                facecolor=RS_FILL if rs else style.SURFACE, edgecolor=style.BLUE if rs else style.REF,
                                 linewidth=0.7 if rs else 0.6, zorder=2))
     weight = "bold" if bold else "normal"
-    if detail or title_top:
+    if detail:
         ax.text(x + w / 2, y + h - 1.9, title, ha="center", va="top", fontsize=style.TEXT_PT, color=style.INK,
                 fontweight=weight, zorder=3)
-    if detail:
         ax.text(x + w / 2, y + h - 5.3, detail, ha="center", va="top", fontsize=style.TEXT_PT, color=style.INK2,
                 linespacing=1.2, zorder=3)
-    elif not title_top:
+    else:
         ax.text(x + w / 2, y + h / 2, title, ha="center", va="center", fontsize=style.TEXT_PT, color=style.INK,
                 fontweight=weight, linespacing=1.2, zorder=3)
     return x, y, w, h
@@ -65,16 +66,14 @@ def arrow(ax, start: Tuple[float, float], end: Tuple[float, float], *, color: st
     from matplotlib.patches import FancyArrowPatch
     from matplotlib.path import Path
 
+    kw = {"arrowstyle": "-|>", "mutation_scale": 5.5, "linewidth": 0.6, "color": color, "shrinkA": 0.0,
+          "shrinkB": 0.4, "zorder": 1}
     if elbow and abs(start[1] - end[1]) > 1e-9:
         xm = (start[0] + end[0]) / 2
-        path = Path([start, (xm, start[1]), (xm, end[1]), end],
-                    [Path.MOVETO, Path.LINETO, Path.LINETO, Path.LINETO])
-        patch = FancyArrowPatch(path=path, arrowstyle="-|>", mutation_scale=5.5, linewidth=0.6, color=color,
-                                shrinkA=0.0, shrinkB=0.4, joinstyle="miter", zorder=1)
+        path = Path([start, (xm, start[1]), (xm, end[1]), end], [Path.MOVETO, Path.LINETO, Path.LINETO, Path.LINETO])
+        ax.add_patch(FancyArrowPatch(path=path, joinstyle="miter", **kw))
     else:
-        patch = FancyArrowPatch(start, end, arrowstyle="-|>", mutation_scale=5.5, linewidth=0.6, color=color,
-                                shrinkA=0.0, shrinkB=0.4, zorder=1)
-    ax.add_patch(patch)
+        ax.add_patch(FancyArrowPatch(start, end, **kw))
 
 
 def right(b: Box, dy: float = 0.0) -> Tuple[float, float]:
@@ -91,31 +90,18 @@ def heading(ax, x: float, y: float, text: str, note: str = "") -> None:
         ax.text(x, y - 0.8, note, ha="left", va="top", fontsize=style.TEXT_PT, color=style.INK2, linespacing=1.2)
 
 
-
-
-def bullets(ax, x: float, top: float, items, *, step: float = 3.0, gap: float = 1.0) -> float:
-    """Bullet points (7 pt, secondary ink) from ``top`` down at ``x`` (mm); returns the bottom of the last."""
+def bullets(ax, x: float, top: float, items) -> None:
+    """Bullet points (7 pt, secondary ink) from ``top`` down at ``x`` (mm)."""
     y = top
     for item in items:
-        ax.text(x, y, "\u2022", ha="left", va="top", fontsize=style.TEXT_PT, color=style.INK2, zorder=3)
+        ax.text(x, y, "•", ha="left", va="top", fontsize=style.TEXT_PT, color=style.INK2, zorder=3)
         ax.text(x + 2.2, y, item, ha="left", va="top", fontsize=style.TEXT_PT, color=style.INK2, linespacing=1.2,
                 zorder=3)
-        y -= step * (item.count("\n") + 1) + gap
-    return y + gap
+        y -= 3.0 * (item.count("\n") + 1) + 0.6
 
 
-FIT_USAGE = "psmc-rs INPUT OUTPUT N_ITER"  # the fit has no subcommand (src/bin/psmc/cli.rs)
-FIT_ITEMS = (
-    "C psmc's model and EM",
-    "each called bin weighted by its\ncallable bases, c of its s\n(--bin-callable, default auto):\n"
-    r"$P(T\,|\,k, c) = e_T(k)^{\,c/s}$",
-    "exact forward and backward\npasses in linear time",
-    "same result for any --threads",
-    "C-compatible bootstrap",
-)
-
-
-def draw(src: Optional[Source] = None):
+def draw(src=None):
+    """The schematic (``src``, the tables, is not read)."""
     from matplotlib.patches import FancyBboxPatch
 
     fig = style.figure("double", H)
@@ -152,7 +138,7 @@ def draw(src: Optional[Source] = None):
     # Column 3: psmc-rs.
     px, py, pw, ph = 93.0, 1.5, 46.0, H - 3.0
     ax.add_patch(FancyBboxPatch((px, py), pw, ph, boxstyle="round,pad=0,rounding_size=1.8", facecolor="none",
-                                edgecolor=RS_EDGE, linewidth=0.9, zorder=1))
+                                edgecolor=style.BLUE, linewidth=0.9, zorder=1))
     ax.text(px + pw / 2, py + ph - 2.0, "psmc-rs", ha="center", va="top", fontsize=style.PANEL_PT,
             fontweight="bold", color=style.INK)
     bx, bw = px + 2.0, pw - 4.0  # inset 2 mm: the fit's invocation line is 38 mm wide
@@ -162,7 +148,7 @@ def draw(src: Optional[Source] = None):
     # The fit is psmc-rs without a subcommand: its invocation under the title, so
     # that "fit" does not read as a third subcommand beside qc and convert.
     fit = box(ax, bx, py + 2.0, bw, 44.5 - (py + 2.0), "fit", FIT_USAGE, rs=True, bold=True)
-    bullets(ax, bx + 2.0, fit[1] + fit[3] - 9.4, FIT_ITEMS, gap=0.6)
+    bullets(ax, bx + 2.0, fit[1] + fit[3] - 9.4, FIT_ITEMS)
     for b in (a2, b2, b3, o2, o3):
         arrow(ax, right(b), (px, right(b)[1]), color=style.BLUE)
 
@@ -176,16 +162,12 @@ def draw(src: Optional[Source] = None):
         ("TMRCA posterior", "per bin: mean, MAP,\n95% interval"),
         ("Bootstrap", "replicates and summary"),
     ]
-    y, ys = 64.0, []
-    for title, detail in outs:
-        b = box(ax, ox, y, ow, 12.5, title, detail)
-        ys.append(left(b)[1])
-        y -= 15.5
+    ys = [left(box(ax, ox, 64.0 - 15.5 * k, ow, 12.5, title, detail))[1] for k, (title, detail) in enumerate(outs)]
     bus = (px + pw + ox) / 2
     yfit = right(fit, 4.0)[1]
-    ax.plot([bx + bw, bus], [yfit, yfit], color=style.BLUE, linewidth=0.6, solid_capstyle="butt", zorder=1)
-    ax.plot([bus, bus], [min(ys + [yfit]), max(ys + [yfit])], color=style.BLUE, linewidth=0.6,
-            solid_capstyle="butt", zorder=1)
+    wire = {"color": style.BLUE, "linewidth": 0.6, "solid_capstyle": "butt", "zorder": 1}
+    ax.plot([bx + bw, bus], [yfit, yfit], **wire)
+    ax.plot([bus, bus], [min(ys + [yfit]), max(ys + [yfit])], **wire)
     for yo in ys:
         arrow(ax, (bus, yo), (ox, yo), color=style.BLUE)
     return fig
