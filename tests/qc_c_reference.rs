@@ -9,6 +9,7 @@
 
 use psmc_rs::io::psmcfa::{PsmcfaRecord, read_psmcfa_records};
 use psmc_rs::qc::{QcContext, QcInput, QcReport, QcSeq, analyze, initial_recombinations};
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -100,31 +101,36 @@ fn check(label: &str, c: &CRow, n_seqs: usize, t: u64, k: u64, theta: Option<f64
 fn totals_and_records_match_c_psmc() {
     let table = c_rows();
     assert_eq!(table.len(), 6, "inputs in the reference table");
-    let mut records_checked = 0;
-    for (path, rows) in &table {
-        let records = read_psmcfa_records(Path::new(path)).unwrap();
-        let report = qc_of(&records);
-        for c in rows {
-            if c.record == "*" {
-                let s = &report.totals;
-                let n = report.n_sequences + report.empty_sequences;
-                check(path, c, n, s.t_bins, s.k_bins, s.theta0_per_bin);
-                let ours = report.expected_recombinations.unwrap();
-                assert!(same_number(c_fixed(ours, 6), &c.n_recomb), "{path}");
-            } else {
-                let i = records.iter().position(|r| r.name == c.record).unwrap();
-                let row = report
-                    .sequences
-                    .iter()
-                    .find(|s| s.name == c.record)
-                    .unwrap();
-                assert_eq!(row.stats.bins as usize, records[i].seq.len());
-                let s = &row.stats;
-                let label = format!("{path}:{}", c.record);
-                check(&label, c, 1, s.t_bins, s.k_bins, s.theta0_per_bin);
-                records_checked += 1;
+    // The inputs are independent: read and check them on every core.
+    let records_checked: usize = table
+        .par_iter()
+        .map(|(path, rows)| {
+            let records = read_psmcfa_records(Path::new(path)).unwrap();
+            let report = qc_of(&records);
+            let mut records_checked = 0;
+            for c in rows {
+                if c.record == "*" {
+                    let s = &report.totals;
+                    let n = report.n_sequences + report.empty_sequences;
+                    check(path, c, n, s.t_bins, s.k_bins, s.theta0_per_bin);
+                    let ours = report.expected_recombinations.unwrap();
+                    assert!(same_number(c_fixed(ours, 6), &c.n_recomb), "{path}");
+                } else {
+                    let i = records.iter().position(|r| r.name == c.record).unwrap();
+                    let row = report
+                        .sequences
+                        .iter()
+                        .find(|s| s.name == c.record)
+                        .unwrap();
+                    assert_eq!(row.stats.bins as usize, records[i].seq.len());
+                    let s = &row.stats;
+                    let label = format!("{path}:{}", c.record);
+                    check(&label, c, 1, s.t_bins, s.k_bins, s.theta0_per_bin);
+                    records_checked += 1;
+                }
             }
-        }
-    }
+            records_checked
+        })
+        .sum();
     assert_eq!(records_checked, 6 + 3 + 34);
 }

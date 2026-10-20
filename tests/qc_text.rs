@@ -5,6 +5,20 @@ use psmc_rs::qc::{
     TextOptions, analyze, render_text, render_text_with,
 };
 
+/// The report of `rows`, one sequence each, described by `seqs`, in bins of
+/// 100 bp with the default context and no bootstrap.
+fn qc(rows: &[Vec<u8>], seqs: &[QcSeq]) -> QcReport {
+    analyze(&QcInput {
+        rows,
+        row_starts: &vec![true; rows.len()],
+        seqs,
+        bin_size: 100,
+        bootstrap_trunk_bins: 0,
+        context: QcContext::default(),
+        callable: None,
+    })
+}
+
 /// Three sequences (one hemizygous-looking chrX), consensus depth stats and a
 /// dropped sequence.
 fn report() -> QcReport {
@@ -123,21 +137,11 @@ fn full_text_matches_the_reference_layout() {
 
 #[test]
 fn called_length_shows_the_uncalled_site_share() {
-    let rows = vec![vec![0u8; 1_000]];
     let mut seq = QcSeq::new("chr1", 1_000);
     seq.extent_bases = Some(100_000);
     seq.called_bases = Some(40_000);
     seq.het_sites = Some(80);
-    let r = analyze(&QcInput {
-        rows: &rows,
-        row_starts: &[true],
-        seqs: &[seq],
-        bin_size: 100,
-        bootstrap_trunk_bins: 0,
-        context: QcContext::default(),
-        callable: None,
-    });
-    let text = render_text(&r);
+    let text = render_text(&qc(&[vec![0u8; 1_000]], &[seq]));
     let line = text.lines().find(|l| l.contains("Called length")).unwrap();
     assert!(
         line.ends_with(
@@ -208,16 +212,7 @@ fn table_rows_prefer_named_sequences() {
         .collect();
     seqs[5].name = "cold".to_string();
     seqs[41].name = "chrX".to_string();
-    let starts = vec![true; rows.len()];
-    let r = analyze(&QcInput {
-        rows: &rows,
-        row_starts: &starts,
-        seqs: &seqs,
-        bin_size: 100,
-        bootstrap_trunk_bins: 0,
-        context: QcContext::default(),
-        callable: None,
-    });
+    let r = qc(&rows, &seqs);
     let text = render_text_with(
         &r,
         &TextOptions {
@@ -265,16 +260,7 @@ fn reports_without_findings_or_data_render() {
     let text = render_text(&r);
     assert!(text.contains("\nNo warnings or notes.\n"));
 
-    let empty = analyze(&QcInput {
-        rows: &[],
-        row_starts: &[],
-        seqs: &[],
-        bin_size: 100,
-        bootstrap_trunk_bins: 0,
-        context: QcContext::default(),
-        callable: None,
-    });
-    let text = render_text(&empty);
+    let text = render_text(&qc(&[], &[]));
     assert!(text.starts_with("Input QC: 0 sequences, 0 bins of 100 bp\n"));
     assert!(text.contains("  theta0            n/a per bin"), "{text}");
     assert!(text.contains("  Longest N run     none"), "{text}");

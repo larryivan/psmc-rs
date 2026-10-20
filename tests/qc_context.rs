@@ -1,6 +1,9 @@
 //! QC checks driven by how the input was read: multihetsep placement,
 //! consensus-mode depth and filters, dropped sequences.
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use psmc_rs::qc::{
@@ -8,7 +11,6 @@ use psmc_rs::qc::{
     QcCode, QcContext, QcInput, QcReport, Severity, analyze, render_text,
 };
 use std::fs;
-use std::path::PathBuf;
 
 /// 2,000 called bins with 100 K bins, read with `context`.
 fn qc(context: QcContext) -> QcReport {
@@ -47,20 +49,14 @@ fn approximate_missing_placement() {
     );
 }
 
-fn temp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("psmc_qc_{tag}_{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// The same calls as VCF + callable mask (exact) and as multihetsep (uncalled
 /// sites placed at the start of each interval) give different bins, which is
 /// what the APPROX_MISSING_PLACEMENT note says.
 #[test]
 fn multihetsep_placement_changes_which_bins_are_missing() {
-    let dir = temp_dir("placement");
+    let dir = TempDir::new("qc_context");
     // Callable: 1-150 and 400-1000; heterozygous SNPs at 120, 450, 455, 990.
-    let vcf = dir.join("calls.vcf");
+    let vcf = dir.path("calls.vcf");
     let mut text = String::from(
         "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
     );
@@ -68,11 +64,11 @@ fn multihetsep_placement_changes_which_bins_are_missing() {
         text.push_str(&format!("chr1\t{pos}\t.\tA\tC\t.\tPASS\t.\tGT\t0/1\n"));
     }
     fs::write(&vcf, text).unwrap();
-    let mask = dir.join("callable.bed");
+    let mask = dir.path("callable.bed");
     fs::write(&mask, "chr1\t0\t150\nchr1\t399\t1000\n").unwrap();
     // The multihetsep rows count called sites since the previous row:
     // 1-120: 120; 121-450: 30 + 51 = 81; 451-455: 5; 456-990: 535.
-    let mhs = dir.join("calls.multihetsep");
+    let mhs = dir.path("calls.multihetsep");
     fs::write(
         &mhs,
         "chr1\t120\t120\tAC\nchr1\t450\t81\tAC\nchr1\t455\t5\tAC\nchr1\t990\t535\tAC\n",
@@ -93,7 +89,6 @@ fn multihetsep_placement_changes_which_bins_are_missing() {
     // 249 uncalled sites of 121-450 at 121-369, leaving 69 in that bin: T.
     assert_eq!(exact.rows, [vec![0, 1, 2, 2, 1, 0, 0, 0, 0, 1]]);
     assert_eq!(placed.rows, [vec![0, 1, 2, 0, 1, 0, 0, 0, 0, 1]]);
-    let _ = fs::remove_dir_all(dir);
 }
 
 fn consensus(mean: f64, filters: &[(&str, u64)]) -> QcContext {

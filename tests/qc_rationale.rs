@@ -1,14 +1,95 @@
 //! The numbers quoted in the rationale of the QC checks (rustdoc of
 //! `psmc_rs::qc::QcCode`), recomputed from the model and the readers.
 
+mod common;
+
+use common::TempDir;
 use psmc_rs::PsmcModel;
 use psmc_rs::io::common::Binner;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use psmc_rs::qc::{
-    HEMIZYGOUS_MIN_EXPECTED_HET_BINS, QcCode, QcContext, QcInput, QcSeq,
+    HEMIZYGOUS_MIN_EXPECTED_HET_BINS, QcCode, QcContext, QcInput, QcReport, QcSeq,
     REFERENCE_MIN_CALLED_BASES, Severity, analyze, initial_recombinations, theta0_per_bin,
 };
 use std::fs;
+
+/// The QC report of `rows` and `seqs` in bins of 100 bp, with the default
+/// context and no bootstrap.
+fn qc(rows: &[Vec<u8>], row_starts: &[bool], seqs: &[QcSeq]) -> QcReport {
+    analyze(&QcInput {
+        rows,
+        row_starts,
+        seqs,
+        bin_size: 100,
+        bootstrap_trunk_bins: 0,
+        context: QcContext::default(),
+        callable: None,
+    })
+}
+
+/// A 64-bit LCG (Knuth's MMIX constants): deterministic and dependency-free.
+struct Lcg(u64);
+
+impl Lcg {
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+
+    /// Uniform in [0, 1).
+    fn uniform(&mut self) -> f64 {
+        (self.next() >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// Uniform in `0..n`.
+    fn below(&mut self, n: u64) -> u64 {
+        (self.next() >> 33) % n
+    }
+}
+
+/// 2 Mb with a heterozygous site at 0.2% of the sites, binned twice: whole
+/// (`full`), and with 60% of the sites missing at random (`holey`), whose
+/// called and heterozygous sites are counted.
+struct Holey {
+    full: Vec<u8>,
+    holey: Vec<u8>,
+    called: u64,
+    hets: u64,
+}
+
+fn holey_sites(seed: u64) -> Holey {
+    let mut rng = Lcg(seed);
+    let (mut full, mut holey) = (Binner::new(100), Binner::new(100));
+    let (mut called, mut hets) = (0, 0);
+    for _ in 0..2_000_000 {
+        let het = rng.uniform() < 0.002;
+        if het {
+            full.add_het();
+        } else {
+            full.add_called(1);
+        }
+        if rng.uniform() < 0.6 {
+            holey.add_missing(1);
+        } else {
+            if het {
+                holey.add_het();
+                hets += 1;
+            } else {
+                holey.add_called(1);
+            }
+            called += 1;
+        }
+    }
+    Holey {
+        full: full.finish(),
+        holey: holey.finish(),
+        called,
+        hets,
+    }
+}
 
 /// Share of the segments (C's sigma, the stationary state distribution) in
 /// each parameter group of `pattern` (groups of `sizes` intervals; one group
@@ -108,45 +189,9 @@ fn missing_sites_inside_called_bins_lower_theta() {
     // HIGH_MISSING: a bin is called with up to 90% of its sites missing, and
     // a partly called bin is less often K. Same sites, 60% of them made
     // missing at random: theta0 of the called bins drops.
-    let mut state = 42u64;
-    let mut uniform = || {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        (state >> 11) as f64 / (1u64 << 53) as f64
-    };
-    let (mut full, mut holey) = (Binner::new(100), Binner::new(100));
-    for _ in 0..2_000_000 {
-        let het = uniform() < 0.002;
-        if het {
-            full.add_het();
-        } else {
-            full.add_called(1);
-        }
-        if uniform() < 0.6 {
-            holey.add_missing(1);
-        } else if het {
-            holey.add_het();
-        } else {
-            holey.add_called(1);
-        }
-    }
-    let theta = |bins: Vec<u8>| {
-        let rows = vec![bins];
-        analyze(&QcInput {
-            rows: &rows,
-            row_starts: &[true],
-            seqs: &[],
-            bin_size: 100,
-            bootstrap_trunk_bins: 0,
-            context: QcContext::default(),
-            callable: None,
-        })
-        .totals
-        .theta0_per_bin
-        .unwrap()
-    };
-    let (a, b) = (theta(full.finish()), theta(holey.finish()));
+    let sites = holey_sites(42);
+    let theta = |bins: Vec<u8>| qc(&[bins], &[true], &[]).totals.theta0_per_bin.unwrap();
+    let (a, b) = (theta(sites.full), theta(sites.holey));
     // About 0.2 vs 0.08 per bin.
     assert!(b < 0.5 * a, "{a} vs {b}");
 }
@@ -169,16 +214,7 @@ fn missing_shares(runs: impl IntoIterator<Item = (u64, bool)>) -> (f64, f64) {
     let mut seq = QcSeq::new("chr1", rows[0].len());
     seq.extent_bases = Some(len);
     seq.called_bases = Some(len - uncalled);
-    let t = analyze(&QcInput {
-        rows: &rows,
-        row_starts: &[true],
-        seqs: &[seq],
-        bin_size: 100,
-        bootstrap_trunk_bins: 0,
-        context: QcContext::default(),
-        callable: None,
-    })
-    .totals;
+    let t = qc(&rows, &[true], &[seq]).totals;
     (t.uncalled_site_fraction.unwrap(), t.missing_fraction)
 }
 
@@ -187,21 +223,15 @@ fn n_bin_share_bounds_the_uncalled_site_share() {
     // HIGH_MISSING: every N bin has more than 90% of its sites uncalled, so
     // 0.9 times the N share is a lower bound on the uncalled share, for
     // clustered and scattered missing data alike.
-    let mut state = 99u64;
-    let mut next = |n: u64| {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        (state >> 33) % n
-    };
+    let mut rng = Lcg(99);
     for _ in 0..300 {
-        let (max_run, missing_pct) = (1 + next(400), next(101));
-        let target = 1_000 + next(50_000);
+        let (max_run, missing_pct) = (1 + rng.below(400), rng.below(101));
+        let target = 1_000 + rng.below(50_000);
         let mut runs = Vec::new();
         let mut len = 0;
         while len < target {
-            let run = 1 + next(max_run);
-            runs.push((run, next(100) < missing_pct));
+            let run = 1 + rng.below(max_run);
+            runs.push((run, rng.below(100) < missing_pct));
             len += run;
         }
         let (uncalled, n_share) = missing_shares(runs);
@@ -218,41 +248,13 @@ fn scattered_missing_sites_are_caught_by_the_site_count() {
     // HIGH_MISSING: 60% of 2 Mb missing at random leaves almost no N bin,
     // so only the loader's site count shows the missing data, and the
     // heterozygosity of the called sites shows the bias of the bins.
-    let mut state = 7u64;
-    let mut uniform = || {
-        state = state
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        (state >> 11) as f64 / (1u64 << 53) as f64
-    };
-    let mut binner = Binner::new(100);
-    let (mut called, mut hets) = (0u64, 0u64);
-    for _ in 0..2_000_000 {
-        let het = uniform() < 0.002;
-        if uniform() < 0.6 {
-            binner.add_missing(1);
-        } else if het {
-            binner.add_het();
-            (called, hets) = (called + 1, hets + 1);
-        } else {
-            binner.add_called(1);
-            called += 1;
-        }
-    }
-    let rows = vec![binner.finish()];
+    let sites = holey_sites(7);
+    let rows = vec![sites.holey];
     let mut seq = QcSeq::new("chr1", rows[0].len());
     seq.extent_bases = Some(2_000_000);
-    seq.called_bases = Some(called);
-    seq.het_sites = Some(hets);
-    let r = analyze(&QcInput {
-        rows: &rows,
-        row_starts: &[true],
-        seqs: &[seq],
-        bin_size: 100,
-        bootstrap_trunk_bins: 0,
-        context: QcContext::default(),
-        callable: None,
-    });
+    seq.called_bases = Some(sites.called);
+    seq.het_sites = Some(sites.hets);
+    let r = qc(&rows, &[true], &[seq]);
     let t = &r.totals;
     assert_eq!(t.missing_bins, 0);
     let uncalled = t.uncalled_site_fraction.unwrap();
@@ -269,9 +271,8 @@ fn scattered_missing_sites_are_caught_by_the_site_count() {
 fn variants_only_vcf_without_mask_lowers_theta() {
     // VARIANTS_ONLY_NO_MASK: the same calls read with and without the
     // callable mask that says only half of the chromosome was callable.
-    let dir = std::env::temp_dir().join(format!("psmc_qc_rationale_{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
-    let vcf = dir.join("calls.vcf");
+    let dir = TempDir::new("qc_rationale");
+    let vcf = dir.path("calls.vcf");
     let mut text = String::from(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=200000>\n\
          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
@@ -281,7 +282,7 @@ fn variants_only_vcf_without_mask_lowers_theta() {
         text.push_str(&format!("chr1\t{pos}\t.\tA\tG\t.\tPASS\t.\tGT\t0/1\n"));
     }
     fs::write(&vcf, text).unwrap();
-    let mask = dir.join("callable.bed");
+    let mask = dir.path("callable.bed");
     fs::write(&mask, "chr1\t0\t100000\n").unwrap();
 
     let theta = |masks: Vec<std::path::PathBuf>| {
@@ -294,15 +295,7 @@ fn variants_only_vcf_without_mask_lowers_theta() {
         )
         .unwrap()
         .obs;
-        let r = analyze(&QcInput {
-            rows: &obs.rows,
-            row_starts: &obs.row_starts,
-            seqs: &[],
-            bin_size: 100,
-            bootstrap_trunk_bins: 0,
-            context: QcContext::default(),
-            callable: None,
-        });
+        let r = qc(&obs.rows, &obs.row_starts, &[]);
         (r.totals.theta0_per_bin.unwrap(), r.totals.missing_fraction)
     };
     let (masked, masked_missing) = theta(vec![mask]);
@@ -312,7 +305,6 @@ fn variants_only_vcf_without_mask_lowers_theta() {
     assert_eq!(masked, theta0_per_bin(750, 250).unwrap());
     assert_eq!(unmasked, theta0_per_bin(1750, 250).unwrap());
     assert!(unmasked < 0.5 * masked);
-    let _ = fs::remove_dir_all(dir);
 }
 
 #[test]

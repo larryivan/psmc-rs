@@ -5,6 +5,7 @@
 //! records, of called (non-N) bins and of heterozygous (K) bins.
 
 use psmc_rs::io::psmcfa::{PsmcfaRecord, parse_psmcfa, read_psmcfa_records};
+use rayon::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
 
@@ -213,13 +214,13 @@ fn real_psmcfa_files_match_c_psmc() {
             (1_220, 18_694_606, 3_972_041),
         ),
     ];
-    for (rel, expected) in files {
+    files.par_iter().for_each(|(rel, expected)| {
         let path = root.join(rel);
         if !path.exists() {
             eprintln!("skipping {rel}: not present");
-            continue;
+            return;
         }
         let recs = read_psmcfa_records(&path).expect("parse failed");
         assert_eq!(c_counts(&recs), *expected, "{rel}");
-    }
+    });
 }
