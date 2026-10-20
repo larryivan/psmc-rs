@@ -14,7 +14,7 @@ use crate::bootstrap::{BootstrapCurvePoint, BootstrapSummary};
 use crate::hmm::TmrcaReportData;
 use crate::io::params::{BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary};
 use crate::model::PsmcModel;
-use crate::qc::fmt::{count, pct, sig};
+use crate::qc::fmt::{count, pct, plural, sig};
 use crate::qc::{QcReport, Severity};
 
 /// Everything [`write_html_report`] shows.
@@ -236,8 +236,11 @@ fn qc_section(r: &QcReport) -> String {
     let _ = writeln!(
         out,
         r#"<section class="card"><div class="meta"><h2>Input QC</h2>
-<div class="qc-headline">{warnings} warning(s), {notes} note(s) on {} sequence(s), {} bins of {} bp</div>"#,
+<div class="qc-headline">{warnings} {}, {notes} {} on {} {}, {} bins of {} bp</div>"#,
+        plural(warnings, "warning", "warnings"),
+        plural(notes, "note", "notes"),
         count(r.n_sequences as u64),
+        plural(r.n_sequences, "sequence", "sequences"),
         count(r.totals.bins),
         r.bin_size
     );

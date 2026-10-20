@@ -107,7 +107,10 @@ fn cli_vcf_input_dropped_by_the_output_filter_is_explained() {
     let input = dir.write("in.vcf", SMALL_VCF);
     let out = dir.path("out.json");
     let err = run_err(args![input, out, "0", "--bin-size", "4", "--no-progress"]);
-    assert!(err.contains("chr1: 24 bases, 24 called (< 10000)"), "{err}");
+    assert!(
+        err.contains("chr1: 24 bases, 24 called (< 10,000)"),
+        "{err}"
+    );
     assert!(
         err.contains("--min-good-bases 0 --min-good-fraction 0"),
         "{err}"

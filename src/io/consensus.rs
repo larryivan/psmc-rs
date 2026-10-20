@@ -400,15 +400,14 @@ impl ConsensusSummary {
         }
         if !self.repeated_chroms.is_empty() {
             out.push(format!(
-                "chromosome(s) {} appear in more than one block of the VCF and give several \
-                 sequences each, as in vcf2fq; sort the VCF (bcftools sort)",
+                "the VCF has more than one block of {}, and each block gives a sequence of its \
+                 own, as in vcf2fq; sort the VCF (bcftools sort)",
                 list_names(&self.repeated_chroms)
             ));
         }
         if !self.discarded_chroms.is_empty() {
             out.push(format!(
-                "chromosome(s) {} were dropped because vcf2fq drops a chromosome named '0' when \
-                 another one follows",
+                "dropped {}, as vcf2fq drops a chromosome named '0' when another one follows",
                 list_names(&self.discarded_chroms)
             ));
         }

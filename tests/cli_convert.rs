@@ -206,7 +206,7 @@ fn output_paths_are_checked_before_reading() {
         dir.path("nowhere/out.psmcfa")
     ]);
     assert!(err.contains("cannot write --psmcfa"), "{err}");
-    assert!(!err.contains("Input:"), "{err}");
+    assert!(!err.contains("Input QC"), "{err}");
     let err = run_err(args!["convert", input, "--psmcfa", input]);
     assert!(err.contains("is the input file"), "{err}");
     assert_eq!(read(&input), ">a\nTTKT\n");

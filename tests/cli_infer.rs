@@ -253,7 +253,7 @@ fn output_paths_are_checked_before_the_fit() {
         assert!(!o.success());
         assert!(o.stdout.is_empty(), "{}", o.stdout);
         // Nothing was read.
-        assert!(!o.stderr.contains("Input:"), "{}", o.stderr);
+        assert!(!o.stderr.contains("Input QC"), "{}", o.stderr);
         o.stderr
     };
     let missing = dir.path("nowhere/t.tsv");
@@ -433,7 +433,7 @@ fn usage_errors_exit_with_status_2() {
     let out = dir.path("fit.json");
     let exits = |code: i32, extra: &[&str]| {
         let stderr = outcome(args![input, out, "1", "--no-progress", ..extra]).exits(code);
-        assert!(!stderr.contains("Input:"), "{extra:?}: {stderr}");
+        assert!(!stderr.contains("Input QC"), "{extra:?}: {stderr}");
         stderr
     };
     let saved = saved.to_str().unwrap();

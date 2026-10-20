@@ -6,8 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use psmc_rs::io::CallableSummary;
-use psmc_rs::io::consensus::{DepthThresholds, LossReason};
+use psmc_rs::io::consensus::{ConsensusSummary, DepthThresholds, LossReason};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
+use psmc_rs::io::vcf::VcfSummary;
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
     QcReport, QcSeq, try_analyze,
@@ -361,101 +362,163 @@ pub fn percent(x: f64) -> String {
     format!("{:.1}%", 100.0 * x)
 }
 
+/// `n` of `total` as a percentage with one decimal (0.0% of nothing).
 fn share(n: u64, total: u64) -> String {
-    if total == 0 {
-        "0.0%".to_string()
+    percent(if total == 0 {
+        0.0
     } else {
-        format!("{:.1}%", 100.0 * n as f64 / total as f64)
+        n as f64 / total as f64
+    })
+}
+
+/// `n` with thousands separators, as the QC report writes counts:
+/// `1234567` -> `1,234,567`.
+pub fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// `n` and `one` or `many` after it: `1 sequence`, `3 sequences`.
+pub fn counted(n: usize, one: &str, many: &str) -> String {
+    format!(
+        "{} {}",
+        thousands(n as u64),
+        if n == 1 { one } else { many }
+    )
+}
+
+/// Lines telling the user how the input was read: what the input QC report
+/// does not say of it.
+pub fn describe(data: &Dataset) -> Vec<String> {
+    match &data.source {
+        SourceSummary::Psmcfa(p) => {
+            // C psmc counts the empty records in n_seqs (its MM line).
+            let empty = match p.empty_records {
+                0 => String::new(),
+                n => format!(
+                    " (n_seqs includes {})",
+                    counted(n, "empty record", "empty records")
+                ),
+            };
+            vec![format!(
+                "psmcfa: n_seqs:{}, sum_L:{}, sum_n:{}, as C psmc counts them{empty}",
+                p.records, p.called_bins, p.het_bins
+            )]
+        }
+        SourceSummary::Mhs(m) => vec![format!(
+            "multihetsep: {} of {} haplotypes; for the pair, {} heterozygous, {} homozygous \
+             and {} missing rows, and {} uncalled sites (placed at the start of each interval \
+             between rows)",
+            counted(m.rows as usize, "row", "rows"),
+            m.haplotypes,
+            thousands(m.het_rows),
+            thousands(m.hom_rows),
+            thousands(m.missing_rows),
+            thousands(m.uncalled_sites)
+        )],
+        SourceSummary::Vcf(v) => {
+            let mode = v.mode.mode.name();
+            let how = if v.mode.forced {
+                format!("VCF read in {mode} mode (--vcf-mode {mode})")
+            } else {
+                format!("VCF read in {}", v.mode.reason)
+            };
+            let details = match &v.details {
+                VcfDetails::Consensus(c) => describe_consensus(c),
+                VcfDetails::Mask(m) => vec![describe_mask(m)],
+            };
+            std::iter::once(how).chain(details).collect()
+        }
     }
 }
 
-/// Lines telling the user how the input was read and what it holds.
-pub fn describe(data: &Dataset) -> Vec<String> {
-    let mut out = Vec::new();
-    match &data.source {
-        SourceSummary::Psmcfa(p) => out.push(format!(
-            "psmcfa: {} records ({} empty), {} bins; as C psmc counts them, n_seqs:{}, \
-             sum_L:{}, sum_n:{}",
-            p.records, p.empty_records, p.bins, p.records, p.called_bins, p.het_bins
-        )),
-        SourceSummary::Mhs(m) => out.push(format!(
-            "multihetsep: {} rows of {} haplotypes; for the pair, {} heterozygous, {} \
-             homozygous and {} missing rows, and {} uncalled sites (placed at the start of \
-             each interval between rows)",
-            m.rows, m.haplotypes, m.het_rows, m.hom_rows, m.missing_rows, m.uncalled_sites
-        )),
-        SourceSummary::Vcf(v) => {
-            out.push(format!("VCF read in {}", v.mode.reason));
-            match &v.details {
-                VcfDetails::Consensus(c) => {
-                    out.push(format!(
-                        "consensus: depth mean {:.1}, median {}; bases kept at depth {}-{}{}, \
-                         MQ >= {}, quality >= {}, {} bp from indels",
-                        c.depth.mean,
-                        c.depth.median,
-                        c.min_depth,
-                        c.max_depth,
-                        if c.auto_depth { " (auto)" } else { "" },
-                        c.min_mq,
-                        c.min_qual,
-                        c.indel_window
-                    ));
-                    let losses: Vec<String> = LossReason::ALL
-                        .iter()
-                        .filter(|&&r| c.lost.get(r) > 0)
-                        .map(|&r| format!("{} {}", r.label(), c.lost.get(r)))
-                        .collect();
-                    out.push(format!(
-                        "consensus: {} of {} bases called ({}); missing: {}",
-                        c.good_bases,
-                        c.bases,
-                        share(c.good_bases, c.bases),
-                        if losses.is_empty() {
-                            "none".to_string()
-                        } else {
-                            losses.join(", ")
-                        }
-                    ));
-                }
-                VcfDetails::Mask(m) => {
-                    let extended = if m.contig_lengths_used.is_empty() {
-                        String::new()
-                    } else {
-                        format!(
-                            "; extended to the ##contig length: {}",
-                            m.contig_lengths_used.join(", ")
-                        )
-                    };
-                    out.push(format!(
-                        "VCF: {} records; {} het SNPs used ({} het SNP records); {}/{} sites \
-                         missing ({}); {} filtered; {} het non-SNP; {} missing GT; {} \
-                         positions with several records{extended}",
-                        m.records,
-                        m.het_snps,
-                        m.het_snp_records,
-                        m.missing_sites,
-                        m.sites,
-                        share(m.missing_sites, m.sites),
-                        m.filtered_records,
-                        m.het_non_snp_records,
-                        m.missing_genotypes,
-                        m.multi_record_positions
-                    ));
-                }
+/// How consensus mode called the bases (the QC report gives the depth and
+/// the share of each loss).
+fn describe_consensus(c: &ConsensusSummary) -> Vec<String> {
+    let losses: Vec<String> = LossReason::ALL
+        .iter()
+        .filter(|&&r| c.lost.get(r) > 0)
+        .map(|&r| format!("{} {}", r.label(), thousands(c.lost.get(r))))
+        .collect();
+    vec![
+        format!(
+            "consensus: bases kept at depth {}-{}{}, MQ >= {}, quality >= {}, {} bp from indels",
+            c.min_depth,
+            c.max_depth,
+            if c.auto_depth { " (auto)" } else { "" },
+            c.min_mq,
+            c.min_qual,
+            c.indel_window
+        ),
+        format!(
+            "consensus: {} of {} bases called; missing: {}",
+            thousands(c.good_bases),
+            thousands(c.bases),
+            if losses.is_empty() {
+                "none".to_string()
+            } else {
+                losses.join(", ")
             }
-        }
-    }
+        ),
+    ]
+}
+
+/// What mask mode read of the records (the QC report gives the share of
+/// missing sites).
+fn describe_mask(m: &VcfSummary) -> String {
+    let extended = if m.contig_lengths_used.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; extended to the ##contig length: {}",
+            m.contig_lengths_used.join(", ")
+        )
+    };
+    let n = |count: u64, one, many| counted(count as usize, one, many);
+    format!(
+        "VCF: {}, among them {} ({} SNPs used), {}, {} filtered and {} without a genotype; {} \
+         with several records; {} of {} sites missing{extended}",
+        n(m.records, "record", "records"),
+        n(
+            m.het_snp_records,
+            "heterozygous SNP record",
+            "heterozygous SNP records"
+        ),
+        thousands(m.het_snps),
+        n(
+            m.het_non_snp_records,
+            "heterozygous non-SNP",
+            "heterozygous non-SNPs"
+        ),
+        thousands(m.filtered_records),
+        thousands(m.missing_genotypes),
+        n(m.multi_record_positions, "position", "positions"),
+        thousands(m.missing_sites),
+        thousands(m.sites)
+    )
+}
+
+/// The sequences and bins of `data`, for when the input QC report, which
+/// gives them, could not be made.
+pub fn totals(data: &Dataset) -> String {
     let bins = data.n_bins() as u64;
     let het = data.het_bins() as u64;
     let missing = data.obs.rows.iter().flatten().filter(|&&b| b >= 2).count() as u64;
-    out.push(format!(
-        "Input: {} sequence(s) kept, {} left out; {bins} bins ({} heterozygous, {} missing)",
-        data.seqs.len(),
-        data.dropped.len(),
+    format!(
+        "Input: {} kept, {} left out; {} ({} heterozygous, {} missing)",
+        counted(data.seqs.len(), "sequence", "sequences"),
+        thousands(data.dropped.len() as u64),
+        counted(bins as usize, "bin", "bins"),
         share(het, bins),
         share(missing, bins)
-    ));
-    out
+    )
 }
 
 #[cfg(test)]
@@ -503,5 +566,40 @@ mod tests {
         }
         assert!(!yes("a.txt", FormatArg::Auto));
         assert!(!yes("a.gz", FormatArg::Auto));
+    }
+
+    #[test]
+    fn counts_are_written_as_the_qc_report_writes_them() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(1_000), "1,000");
+        assert_eq!(thousands(28_750_027), "28,750,027");
+        assert_eq!(counted(1, "record", "records"), "1 record");
+        assert_eq!(counted(10_000, "record", "records"), "10,000 records");
+    }
+
+    /// The psmcfa line gives C psmc's counts as its MM line writes them,
+    /// with the empty records that n_seqs counts.
+    #[test]
+    fn a_psmcfa_input_is_described_by_c_psmcs_counts() {
+        let dir = std::env::temp_dir().join(format!("psmc_rs_describe_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("in.psmcfa");
+        let cli = crate::cli::Cli::try_parse_args(["psmc-rs", "in", "out", "1"]).unwrap();
+        let opts = cli.infer.input.to_options();
+        fs::write(&path, ">a\nTTKTNTTTTTKT\n>b\n\n").unwrap();
+        let data = load(&path, &opts).unwrap();
+        assert_eq!(
+            describe(&data),
+            [
+                "psmcfa: n_seqs:2, sum_L:11, sum_n:2, as C psmc counts them (n_seqs includes 1 \
+              empty record)"
+            ]
+        );
+        assert_eq!(
+            totals(&data),
+            "Input: 1 sequence kept, 1 left out; 12 bins (16.7% heterozygous, 8.3% missing)"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 }

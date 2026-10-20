@@ -276,8 +276,8 @@ fn auto_fits_partly_callable_bins_and_says_so() {
         "--no-progress"
     ]);
     assert!(
-        stderr.contains("Callable bases (exact counts): called bins hold")
-            && stderr.contains("the fit weighs each called bin by its callable bases"),
+        stderr.contains("Callable bases (exact counts): the fit weighs each called bin by them")
+            && stderr.contains("(--bin-callable auto)"),
         "{stderr}"
     );
     let lossy = dir.path("lossy.psmcfa");
@@ -384,7 +384,7 @@ fn auto_does_not_fit_multihetseps_approximate_counts() {
     };
     let auto_says = stderr("auto");
     assert!(
-        auto_says.contains("Callable bases (approximate counts)")
+        auto_says.contains("Callable bases (approximate counts, see APPROX_MISSING_PLACEMENT)")
             && auto_says.contains("the fit treats every called bin as 100 bases"),
         "{auto_says}"
     );

@@ -37,6 +37,7 @@ use crate::io::vcf::{
     VcfOptions, VcfSummary, gvcf_block_end, list_names, no_het_snp_message, read_vcf_seqs_from,
 };
 use crate::io::{BinCounts, CallableBases, Observations, Sequences, sequence_ranges};
+use crate::qc::fmt::{count, plural};
 
 /// Input file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -550,7 +551,7 @@ pub struct DroppedSeq {
 }
 
 impl DroppedSeq {
-    /// One line for the user, e.g. `chrM: 16569 bases, 0 called (< 10000)`.
+    /// One line for the user, e.g. `chrM: 16,569 bases, 0 called (< 10,000)`.
     pub fn describe(&self, filter: &SeqFilter) -> String {
         match self.reason {
             DropReason::Empty => format!("{}: empty", self.name),
@@ -562,7 +563,7 @@ impl DroppedSeq {
                 let extent = self.extent.unwrap_or(0);
                 let mut why = Vec::new();
                 if few_good_bases {
-                    why.push(format!("< {}", filter.min_good_bases));
+                    why.push(format!("< {}", count(filter.min_good_bases)));
                 }
                 if low_good_fraction {
                     why.push(format!(
@@ -571,8 +572,10 @@ impl DroppedSeq {
                     ));
                 }
                 format!(
-                    "{}: {extent} bases, {good} called ({})",
+                    "{}: {} bases, {} called ({})",
                     self.name,
+                    count(extent),
+                    count(good),
                     why.join(", ")
                 )
             }
@@ -766,11 +769,13 @@ impl Dataset {
             .filter(|d| matches!(d.reason, DropReason::Filter { .. }))
             .collect();
         if let (Some(filter), false) = (&self.filter, filtered.is_empty()) {
+            let n = filtered.len();
             out.push(format!(
-                "{} sequence(s) dropped because fewer than {} of their positions, or less than \
-                 {}% of them, are called (fq2psmcfa's output filter): {}",
-                filtered.len(),
-                filter.min_good_bases,
+                "{n} {} dropped because fewer than {} of {} positions, or less than {}% of them, \
+                 are called (fq2psmcfa's output filter): {}",
+                plural(n, "sequence", "sequences"),
+                count(filter.min_good_bases),
+                plural(n, "its", "their"),
                 filter.min_good_fraction * 100.0,
                 describe_dropped(filtered.iter().copied(), filter)
             ));
@@ -792,13 +797,14 @@ impl Dataset {
             if let Some(filter) = &self.filter
                 && !self.dropped.is_empty()
             {
+                let n = self.dropped.len();
                 msg.push_str(&format!(
                     ": the output filter (at least {} called positions making up at least {}% of \
-                     the sequence, as in fq2psmcfa) dropped {} sequence(s) ({}); lower or disable \
-                     it for small test data",
-                    filter.min_good_bases,
+                     the sequence, as in fq2psmcfa) dropped {n} {} ({}); lower or disable it for \
+                     small test data",
+                    count(filter.min_good_bases),
                     filter.min_good_fraction * 100.0,
-                    self.dropped.len(),
+                    plural(n, "sequence", "sequences"),
                     describe_dropped(self.dropped.iter(), filter),
                 ));
             }

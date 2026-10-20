@@ -552,9 +552,12 @@ fn separate_per_chromosome_masks_are_reported_as_intersected() {
     assert_eq!(s.chroms_outside_mask, ["e"]);
     let warnings = s.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(warnings[0].contains("(e)") && warnings[0].contains("'chr1' vs '1'"));
     assert!(
-        warnings[1].contains("(c, d) have intervals in some of the callable masks")
+        warnings[0].contains("no interval on e (1 of the VCF's chromosomes)")
+            && warnings[0].contains("'chr1' vs '1'")
+    );
+    assert!(
+        warnings[1].contains("some of the callable masks have intervals on c, d (2 of the VCF's")
             && warnings[1].contains("intersected"),
         "{warnings:?}"
     );

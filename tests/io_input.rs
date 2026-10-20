@@ -657,7 +657,7 @@ fn the_output_filter_applies_to_every_vcf_mode() {
         let w = data.warnings();
         assert!(
             w.iter()
-                .any(|w| w.contains("1 sequence(s) dropped") && w.contains("c2")),
+                .any(|w| w.contains("1 sequence dropped") && w.contains("c2")),
             "{w:?}"
         );
         // Disabled, both are kept.
@@ -717,7 +717,7 @@ fn mask_mode_good_bases_are_the_callable_sites() {
         msg.contains("no sequence of the vcf input is left"),
         "{msg}"
     );
-    assert!(msg.contains("c: 30000 bases, 5999 called"), "{msg}");
+    assert!(msg.contains("c: 30,000 bases, 5,999 called"), "{msg}");
 }
 
 #[test]

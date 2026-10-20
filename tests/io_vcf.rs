@@ -482,7 +482,7 @@ fn chromosomes_the_mask_does_not_mention_are_reported() {
     );
     let msg = error(&ucsc, &opts);
     assert!(
-        msg.contains("no heterozygous SNP") && msg.contains("(chr1)"),
+        msg.contains("no heterozygous SNP") && msg.contains("no interval on chr1 (1 of"),
         "{msg}"
     );
 
@@ -673,7 +673,7 @@ fn separate_per_chromosome_masks_are_said_to_be_intersected() {
     };
     let err = error(&vcf2, &with_masks(&[&chr1, &chr2]));
     assert!(
-        err.contains("(chr1, chr2) have intervals in some of the callable masks")
+        err.contains("callable masks have intervals on chr1, chr2 (2 of the VCF's chromosomes)")
             && err.contains("intersected")
             && err.contains("concatenate"),
         "{err}"
@@ -697,8 +697,14 @@ fn separate_per_chromosome_masks_are_said_to_be_intersected() {
     assert_eq!(s.chroms_outside_mask, ["chrX"]);
     let warnings = s.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(warnings[0].contains("(chrX)") && warnings[0].contains("'chr1' vs '1'"));
-    assert!(warnings[1].contains("(chr2)") && warnings[1].contains("intersected"));
+    assert!(
+        warnings[0].contains("on chrX (1 of the VCF's chromosomes)")
+            && warnings[0].contains("'chr1' vs '1'")
+    );
+    assert!(
+        warnings[1].contains("on chr2 (1 of the VCF's chromosomes)")
+            && warnings[1].contains("intersected")
+    );
 }
 
 #[test]

@@ -793,6 +793,16 @@ fn the_output_json_records_the_run() {
 
     let html = read(dir.path("fit.html"));
     assert!(html.contains("<h2>Input QC</h2>"));
+    let (warnings, notes) = (codes("warning").len(), codes("info").len());
+    let word = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    assert!(
+        html.contains(&format!(
+            r#"<div class="qc-headline">{}, {} on 3 sequences, "#,
+            word(warnings, "warning"),
+            word(notes, "note")
+        )),
+        "{html}"
+    );
     assert!(html.contains("<code>TOO_SHORT</code>"));
     assert!(html.contains("<tr><th>Starting theta0/rho0</th><td>4</td></tr>"));
 }
@@ -856,12 +866,19 @@ fn qc_text_is_printed_unless_quiet() {
     let loud = run(&[]);
     assert!(loud.stdout.contains("Last EM loglike: "), "{}", loud.stdout);
     for line in [
+        "psmcfa: n_seqs:3, sum_L:",
         "Input QC (psmcfa): 3 sequences",
         "WARNING  TOO_SHORT",
         "Model: pattern 4+5*3+4",
     ] {
         assert!(loud.stderr.contains(line), "{}", loud.stderr);
     }
+    // The QC report's headline is the one summary of the sequences and bins.
+    assert!(
+        !loud.stderr.lines().any(|l| l.starts_with("Input:")) && !loud.stderr.contains("(s)"),
+        "{}",
+        loud.stderr
+    );
 
     let quiet = run(&["--quiet"]);
     assert_eq!(quiet.stdout, loud.stdout);
@@ -910,7 +927,7 @@ fn other_outputs_cannot_go_to_stdout() {
     // Run in the test's directory, where a file `-` would land.
     let run_here = |args: &[&str]| {
         let stderr = outcome_of(command().args(args).current_dir(dir.path(""))).exits(2);
-        assert!(!stderr.contains("Input:"), "{stderr}");
+        assert!(!stderr.contains("Input QC"), "{stderr}");
         assert!(!dir.path("-").exists(), "{args:?}");
         stderr
     };
@@ -1040,7 +1057,7 @@ fn the_report_can_embed_a_local_chart_library() {
     )
     .exits(1);
     assert!(stderr.contains("PSMC_ECHARTS_JS"), "{stderr}");
-    assert!(!stderr.contains("Input:"), "{stderr}");
+    assert!(!stderr.contains("Input QC"), "{stderr}");
     assert!(!dir.path("bad.json").exists());
     assert!(!dir.path("bad.bootstrap").exists());
 }

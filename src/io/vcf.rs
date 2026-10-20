@@ -385,11 +385,11 @@ impl Uncallable {
 pub(crate) fn outside_mask_hint(names: &[String]) -> Option<String> {
     (!names.is_empty()).then(|| {
         format!(
-            "the callable mask has no interval on {} VCF chromosome(s) ({}), which are \
-             therefore entirely missing; check that the chromosome names in the mask match \
+            "the callable mask has no interval on {} ({} of the VCF's chromosomes), so every \
+             position there is missing; check that the chromosome names in the mask match \
              the VCF (e.g. 'chr1' vs '1')",
-            names.len(),
-            list_names(names)
+            list_names(names),
+            names.len()
         )
     })
 }
@@ -399,13 +399,13 @@ pub(crate) fn outside_mask_hint(names: &[String]) -> Option<String> {
 pub(crate) fn outside_some_masks_hint(names: &[String]) -> Option<String> {
     (!names.is_empty()).then(|| {
         format!(
-            "{} VCF chromosome(s) ({}) have intervals in some of the callable masks but not in \
-             the others, and are therefore entirely missing: the masks given with --vcf-mask \
-             are intersected (a position must be in every one). To combine per-chromosome \
-             masks, concatenate them into one file (e.g. cat mask_chr*.bed > mask.bed) and \
-             give that file once",
-            names.len(),
-            list_names(names)
+            "some of the callable masks have intervals on {} ({} of the VCF's chromosomes) and \
+             the others do not, so every position there is missing: the masks given with \
+             --vcf-mask are intersected (a position must be in every one). To combine \
+             per-chromosome masks, concatenate them into one file (e.g. cat mask_chr*.bed > \
+             mask.bed) and give that file once",
+            list_names(names),
+            names.len()
         )
     })
 }
