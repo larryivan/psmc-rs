@@ -5,37 +5,32 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import ROOT, fake_tools, in_git_work_tree  # noqa: E402
 
 from experiment.pipeline import config, tools  # noqa: E402
 
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5"})
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0"})
-
-
-def in_git() -> bool:
-    if shutil.which("git") is None:
-        return False
-    return subprocess.run(["git", "rev-parse", "--git-dir"], cwd=ROOT, capture_output=True).returncode == 0
+FAKE = fake_tools("c", "rs02")
 
 
 class Commands(unittest.TestCase):
     def test_c_psmc(self):
-        cmd = tools.c_psmc_fit(FAKE_C, config.INFERENCE, Path("in.psmcfa"), Path("out.psmc"))
+        cmd = tools.c_psmc_fit(FAKE["c"], config.INFERENCE, Path("in.psmcfa"), Path("out.psmc"))
         self.assertEqual(cmd, ["/x/psmc", "-N25", "-t15", "-r5", "-p", "4+25*2+4+6", "-o", "out.psmc", "in.psmcfa"])
 
     def test_psmc_rs(self):
-        cmd = tools.rs02_fit(FAKE_RS, config.INFERENCE, config.SIMULATION_SCALING, Path("in"), Path("o.json"),
+        cmd = tools.rs02_fit(FAKE["rs02"], config.INFERENCE, config.SIMULATION_SCALING, Path("in"), Path("o.json"),
                              threads=3, psmc_out=Path("o.psmc"), extra=["--qc-json", "q.json"])
         self.assertEqual(cmd[:4], ["/x/psmc-rs", "in", "o.json", "25"])
         opts = dict(zip(cmd[4::2], cmd[5::2]))
@@ -52,13 +47,13 @@ class Commands(unittest.TestCase):
         self.assertEqual(cmd[-4:], ["--psmc-out", "o.psmc", "--qc-json", "q.json"])
 
     def test_qc(self):
-        self.assertEqual(tools.rs02_qc(FAKE_RS, Path("a.vcf.gz"), Path("q.json")), ["/x/psmc-rs", "qc", "a.vcf.gz", "--json", "q.json"])
+        self.assertEqual(tools.rs02_qc(FAKE["rs02"], Path("a.vcf.gz"), Path("q.json")), ["/x/psmc-rs", "qc", "a.vcf.gz", "--json", "q.json"])
 
     def test_fmt(self):
         self.assertEqual([tools.fmt(x) for x in (15.0, 5.0, 2.5e-8, 0.0, 1e-3)], ["15", "5", "2.5e-08", "0", "0.001"])
 
 
-@unittest.skipUnless(in_git(), "not a git checkout")
+@unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class Identities(unittest.TestCase):
     def test_rs02_source_state(self):
         state = tools.rs02_source_state()
@@ -105,8 +100,6 @@ BUILD_VARS = ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_RUSTFLAGS")
 
 
 def without_build_vars() -> dict:
-    import os
-
     return {k: v for k, v in os.environ.items()
             if k not in BUILD_VARS and not k.startswith(("CARGO_PROFILE_RELEASE_", "CARGO_TARGET_"))}
 
@@ -140,8 +133,6 @@ class Toolchain(unittest.TestCase):
 
     @unittest.skipIf(shutil.which("rustc") is None, "rustc not installed")
     def test_target_features_of_this_machine(self):
-        import platform
-
         features = tools.target_features([])
         if platform.machine() in ("arm64", "aarch64"):
             self.assertEqual(features, "neon")
@@ -168,8 +159,6 @@ class Toolchain(unittest.TestCase):
         self.assertNotIn("llvm", tools.build_identity(tc))
 
     def test_a_build_for_the_compiling_cpu_is_refused(self):
-        import tempfile
-
         self.assertTrue(tools.native_cpu(["-C", "target-cpu=native"]))
         self.assertTrue(tools.native_cpu(["-Ctarget-cpu=native", "-C", "opt-level=3"]))
         self.assertFalse(tools.native_cpu(["-C", "target-cpu=znver2"]))
@@ -186,8 +175,6 @@ class Toolchain(unittest.TestCase):
                 self.assertEqual(tools.toolchain()["rustflags"], "-C target-cpu=znver2")
 
     def test_cargo_configuration_that_changes_the_build_is_refused(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as d:
             d = Path(d).resolve()
             work, home = d / "checkout" / "sub", d / "cargo-home"
@@ -212,10 +199,8 @@ class Toolchain(unittest.TestCase):
                 with self.assertRaisesRegex(tools.ToolError, "build.rustflags"):
                     tools.toolchain(work)
 
-    @unittest.skipUnless(in_git(), "not a git checkout")
+    @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
     def test_both_psmc_rs_identities_carry_the_build(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             rs02 = fake_program(d / "rs02" / "psmc-rs", "psmc-rs 0.2.0")
@@ -252,11 +237,7 @@ class BuildC(unittest.TestCase):
     """``tools --build-c``: lh3/psmc's layout with stand-in sources (psmc prints a version, as lh3/psmc does)."""
 
     def setUp(self):
-        import tempfile
-
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.tools_dir = Path(self._tmp.name)
+        self.tools_dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.src = tools.c_psmc_dir(self.tools_dir)
         for name, text in C_SOURCES.items():
             (self.src / name).parent.mkdir(parents=True, exist_ok=True)
@@ -266,8 +247,6 @@ class BuildC(unittest.TestCase):
         return tools.build_c(self.src, cc="cc", log=lambda m: None, **kw)
 
     def test_defaults(self):
-        import os
-
         env = {k: v for k, v in os.environ.items() if k not in ("CC", "PSMC_C_CFLAGS")}
         with mock.patch.dict("os.environ", env, clear=True):
             with mock.patch.object(tools.sys, "platform", "linux"), \
@@ -405,8 +384,6 @@ class RequirementsLock(unittest.TestCase):
         self.assertIn("python", lock)
 
     def test_differences_are_named(self):
-        import tempfile
-
         with tempfile.TemporaryDirectory() as d:
             lock = Path(d) / "requirements.lock"
             lock.write_text("# python==0.0.1\nnumpy==0.0.1\nno-such-package-here==1.0\n")
