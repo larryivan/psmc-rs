@@ -1,3 +1,6 @@
+mod common;
+
+use common::{TempDir, json, model};
 use psmc_rs::PsmcModel;
 use psmc_rs::io::CallableSummary;
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, load};
@@ -5,20 +8,16 @@ use psmc_rs::io::params::{
     BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary, PsmcParamsFile, RunMetadata,
     load_params, save_params,
 };
-use serde_json::Value;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-fn unique_temp_path(prefix: &str, ext: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.{ext}", std::process::id()))
+/// The fields of the parameters file of C psmc's default model.
+fn default_params() -> PsmcParamsFile {
+    model("4+5*3+4", 0.01, 0.0025).params_file()
 }
 
 #[test]
 fn params_json_roundtrip() {
-    let path = unique_temp_path("psmc_params", "json");
+    let dir = TempDir::new("params_roundtrip");
+    let path = dir.path("params.json");
     let params = PsmcParamsFile {
         theta: 0.001,
         rho: 0.0002,
@@ -43,20 +42,19 @@ fn params_json_roundtrip() {
     assert_eq!(loaded.run, RunMetadata::default());
 
     // Without metadata the file holds the fields of psmc-rs 0.1 only.
-    let v: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let v = json(&path);
     let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(
         keys,
         ["lam", "mu", "n_steps", "pattern", "rho", "t_max", "theta"]
     );
-
-    let _ = fs::remove_file(path);
 }
 
 #[test]
 fn run_metadata_round_trips_at_the_top_level() {
-    let path = unique_temp_path("psmc_params_meta", "json");
+    let dir = TempDir::new("params_metadata");
+    let path = dir.path("params.json");
     let params = PsmcParamsFile {
         run: RunMetadata {
             version: Some("0.2.0".to_string()),
@@ -91,15 +89,13 @@ fn run_metadata_round_trips_at_the_top_level() {
                 }),
             }),
         },
-        ..PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into()))
-            .unwrap()
-            .params_file()
+        ..default_params()
     };
     save_params(&path, &params).unwrap();
     let loaded = load_params(&path).unwrap();
     assert_eq!(loaded, params);
 
-    let v: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let v = json(&path);
     assert_eq!(v["final_loglike"], -1234.5678901234567);
     assert_eq!(v["n_iter"], 2);
     assert_eq!(v["input"]["vcf_mode"], "consensus");
@@ -116,7 +112,6 @@ fn run_metadata_round_trips_at_the_top_level() {
         "bin_model:callable-length, counts:exact, mean_callable:0.961200, partial_bins:0.142202"
     );
     assert!(v.get("qc").is_none(), "unknown fields are left out");
-    let _ = fs::remove_file(path);
 }
 
 /// A file written by psmc-rs 0.1 (no metadata) still loads.
@@ -131,10 +126,8 @@ fn files_of_version_0_1_load() {
   "mu": 2.5e-8,
   "pattern": "4+5*3+4"
 }"#;
-    let path = unique_temp_path("psmc_params_v01", "json");
-    fs::write(&path, text).unwrap();
-    let p = load_params(&path).unwrap();
-    let _ = fs::remove_file(path);
+    let dir = TempDir::new("params_v01");
+    let p = load_params(&dir.write("v01.json", text)).unwrap();
     assert_eq!(p.run, RunMetadata::default());
     let m = PsmcModel::from_params_file(&p).unwrap();
     assert_eq!(m.lam, p.lam);
@@ -143,7 +136,7 @@ fn files_of_version_0_1_load() {
 
 #[test]
 fn a_saved_model_rebuilds_exactly() {
-    let mut m = PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into())).unwrap();
+    let mut m = model("4+5*3+4", 0.01, 0.0025);
     m.theta = 0.0072;
     m.rho = 0.0013;
     m.t_max = 17.25;
@@ -164,9 +157,7 @@ fn a_saved_model_rebuilds_exactly() {
 
 #[test]
 fn invalid_saved_models_are_rejected() {
-    let good = PsmcModel::new(15.0, 22, 0.01, 0.0025, 2.5e-8, Some("4+5*3+4".into()))
-        .unwrap()
-        .params_file();
+    let good = default_params();
     let err = |p: PsmcParamsFile| {
         PsmcModel::from_params_file(&p)
             .map(|_| ())
@@ -209,16 +200,14 @@ fn invalid_saved_models_are_rejected() {
 
 #[test]
 fn input_summary_counts_the_dataset() {
-    let path = unique_temp_path("psmc_params_input", "psmcfa");
-    fs::write(&path, ">a\nTTKTNNTT\n>empty\n>b\nKTTT\n").unwrap();
+    let dir = TempDir::new("params_input");
+    let path = dir.write("in.psmcfa", ">a\nTTKTNNTT\n>empty\n>b\nKTTT\n");
     let opts = InputOptions {
         format: Some(InputFormat::Psmcfa),
         filter: SeqFilter::DISABLED,
         ..InputOptions::default()
     };
-    let data = load(&path, &opts).unwrap();
-    let _ = fs::remove_file(path);
-    let s = InputSummary::of(&data);
+    let s = InputSummary::of(&load(&path, &opts).unwrap());
     assert_eq!(
         s,
         InputSummary {

@@ -1,18 +1,12 @@
 //! Scaling helpers: N0, the Ne(t) curve and per-state TMRCA in years.
 
+mod common;
+
 use psmc_rs::PsmcModel;
 
 fn fitted_like_model() -> PsmcModel {
     // θ = 0.0072 per 100-bp bin and μ = 2.5e-8 give N0 = 720.
-    let mut model = PsmcModel::new(
-        15.0,
-        22,
-        0.0072,
-        0.0015,
-        2.5e-8,
-        Some("4+5*3+4".to_string()),
-    )
-    .unwrap();
+    let mut model = common::model("4+5*3+4", 0.0072, 0.0015);
     model.lam = vec![2.0, 0.5, 0.8, 1.6, 3.0, 6.0, 9.0];
     model.param_recalculate().unwrap();
     model

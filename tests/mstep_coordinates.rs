@@ -7,22 +7,18 @@
 //! had been carried past its optimum to where Q falls slowly towards the
 //! bound, and the L-BFGS memory predicted no further decrease there.
 
+mod common;
+
+use common::{c_start_free, e_step, fixture_obs, model_at, mstep, params};
+use psmc_rs::PsmcModel;
 use psmc_rs::em::{hmm_q, hmm_q0};
-use psmc_rs::hmm::{SufficientStats, e_step_streaming};
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::opt::{MStepConfig, bounds_from_config, m_step_lbfgs_with_outcome};
-use psmc_rs::{PsmcModel, initial_theta};
-use std::path::Path;
+use psmc_rs::hmm::SufficientStats;
+use psmc_rs::opt::{bounds_from_config, m_step_lbfgs_with_outcome};
 
 /// C psmc's Q at `params` (θ, ρ, t_max, λ...) of `template`'s layout;
 /// -inf where the transition matrix is not stochastic.
 fn q_at(template: &PsmcModel, stats: &SufficientStats, params: &[f64]) -> f64 {
-    let mut m = template.clone();
-    m.theta = params[0];
-    m.rho = params[1];
-    m.t_max = params[2];
-    m.lam.copy_from_slice(&params[3..]);
-    m.param_recalculate().unwrap();
+    let m = model_at(template, params);
     let rows_ok = m
         .transition_matrix()
         .rows()
@@ -36,32 +32,13 @@ fn q_at(template: &PsmcModel, stats: &SufficientStats, params: &[f64]) -> f64 {
 
 #[test]
 fn first_m_step_ends_at_a_maximum_along_every_parameter() {
-    let obs = read_psmcfa(
-        Path::new("tests/data/sim_bottleneck/bottleneck_2mb.psmcfa.gz"),
-        None,
-    )
-    .unwrap();
-    let theta0 = initial_theta(&obs.rows).unwrap();
-    let model = PsmcModel::new(15.0, 63, theta0, theta0 / 5.0, 2.5e-8, None).unwrap();
-    let stats = e_step_streaming(
-        model.prior_matrix(),
-        model.transition_matrix(),
-        model.emission_matrix(),
-        &obs.rows,
-        &obs.row_starts,
-        false,
-        "E",
-    )
-    .unwrap()
-    .stats;
-    let config = MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    };
+    let obs = fixture_obs("sim_bottleneck/bottleneck_2mb.psmcfa.gz");
+    let model = c_start_free(&obs.rows, 63, 5.0);
+    let stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
+    let config = mstep();
     let bounds = bounds_from_config(&model, &config);
-    let mut init = vec![model.theta, model.rho, model.t_max];
-    init.extend_from_slice(&model.lam);
-    let outcome = m_step_lbfgs_with_outcome(&model, &stats, &init, &bounds, &config, None).unwrap();
+    let outcome =
+        m_step_lbfgs_with_outcome(&model, &stats, &params(&model), &bounds, &config, None).unwrap();
     let q = q_at(&model, &stats, &outcome.params);
     assert!(q > -4.45, "Q - Q0 = {q} ({:?})", outcome.stop);
 

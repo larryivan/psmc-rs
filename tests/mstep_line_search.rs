@@ -1,52 +1,27 @@
 //! M-step behaviour that must not depend on the size of the input.
 
-use psmc_rs::hmm::{SufficientStats, e_step_streaming};
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::model::n_steps_for_pattern;
+mod common;
+
+use common::{REFERENCE_PSMCFA, c_start, e_step, fixture_obs, mstep, params};
+use psmc_rs::PsmcModel;
+use psmc_rs::hmm::SufficientStats;
 use psmc_rs::opt::{MStepConfig, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome};
-use psmc_rs::{PsmcModel, initial_theta};
-use std::path::Path;
 
-const PATTERN: &str = "4+25*2+4+6";
-
-/// C psmc's starting point on the 180,000-bin reference input and the
-/// statistics of the first E-step there.
+/// C psmc's starting point on the 180,000-bin reference input with pattern
+/// 4+25*2+4+6, and the statistics of the first E-step there.
 fn first_e_step() -> (PsmcModel, SufficientStats) {
-    let obs = read_psmcfa(
-        Path::new("tests/data/c_reference/papuan_chr1_3seg.psmcfa"),
-        None,
-    )
-    .unwrap();
-    let theta0 = initial_theta(&obs.rows).unwrap();
-    let model = PsmcModel::new(
-        15.0,
-        n_steps_for_pattern(PATTERN).unwrap(),
-        theta0,
-        theta0 / 4.0,
-        2.5e-8,
-        Some(PATTERN.to_string()),
-    )
-    .unwrap();
-    let e = e_step_streaming(
-        model.prior_matrix(),
-        model.transition_matrix(),
-        model.emission_matrix(),
-        &obs.rows,
-        &obs.row_starts,
-        false,
-        "E",
-    )
-    .unwrap();
-    (model, e.stats)
+    let obs = fixture_obs(REFERENCE_PSMCFA);
+    let model = c_start(&obs.rows, "4+25*2+4+6", 4.0);
+    let stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
+    (model, stats)
 }
 
 fn scaled(stats: &SufficientStats, factor: f64) -> SufficientStats {
     SufficientStats {
-        gobs: [
-            stats.gobs[0].iter().map(|v| v * factor).collect(),
-            stats.gobs[1].iter().map(|v| v * factor).collect(),
-            stats.gobs[2].iter().map(|v| v * factor).collect(),
-        ],
+        gobs: stats
+            .gobs
+            .each_ref()
+            .map(|g| g.iter().map(|v| v * factor).collect()),
         xi: stats.xi.mapv(|v| v * factor),
         callable: None,
     }
@@ -62,12 +37,10 @@ fn m_step_iterates_do_not_depend_on_the_amount_of_data() {
     let (model, stats) = first_e_step();
     let config = MStepConfig {
         lambda: 0.0,
-        progress: false,
-        ..MStepConfig::default()
+        ..mstep()
     };
     let bounds = bounds_from_config(&model, &config);
-    let mut init = vec![model.theta, model.rho, model.t_max];
-    init.extend_from_slice(&model.lam);
+    let init = params(&model);
 
     let base = m_step_lbfgs_with_outcome(&model, &stats, &init, &bounds, &config, None).unwrap();
     assert_eq!(base.stop, MStepStop::Converged);

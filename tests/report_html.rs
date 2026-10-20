@@ -1,6 +1,9 @@
 //! The HTML report: the curve comes from the model's scaling helpers, and
 //! the settings, QC, bootstrap and TMRCA sections show what they are given.
 
+mod common;
+
+use common::{TempDir, read};
 use psmc_rs::PsmcModel;
 use psmc_rs::bootstrap::{BootstrapCurvePoint, BootstrapSummary};
 use psmc_rs::hmm::TmrcaReportData;
@@ -11,17 +14,10 @@ use psmc_rs::io::params::{
 use psmc_rs::qc::{QcContext, QcInput, QcSeq, analyze};
 use psmc_rs::report::{BootstrapReport, ReportData, write_html_report};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-fn temp_html(prefix: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("{prefix}_{}_{n}.html", std::process::id()))
-}
+use std::path::Path;
 
 fn model() -> PsmcModel {
-    let mut m = PsmcModel::new(15.0, 22, 0.0072, 0.0015, 2.5e-8, Some("4+5*3+4".into())).unwrap();
+    let mut m = common::model("4+5*3+4", 0.0072, 0.0015);
     m.lam = vec![2.0, 0.5, 0.8, 1.6, 3.0, 6.0, 9.0];
     m.param_recalculate().unwrap();
     m
@@ -87,11 +83,41 @@ fn the_report_shows_how_the_fit_used_the_callable_bases() {
 }
 
 fn render(data: &ReportData) -> String {
-    let path = temp_html("psmc_report");
+    let dir = TempDir::new("report_html");
+    let path = dir.path("report.html");
     write_html_report(&path, data).unwrap();
-    let html = std::fs::read_to_string(&path).unwrap();
-    let _ = std::fs::remove_file(path);
-    html
+    read(path)
+}
+
+/// A bootstrap summary of `n_replicates` replicates in trunks of
+/// `block_size` bins, without the replicates `skipped`.
+fn summary(n_replicates: usize, block_size: usize, skipped: Vec<usize>) -> BootstrapSummary {
+    BootstrapSummary {
+        n_replicates,
+        skipped_replicates: skipped,
+        block_size,
+        seed: 42,
+        points: Vec::new(),
+    }
+}
+
+/// The report of [`model`] with the bootstrap of `summary`.
+fn render_bootstrap(
+    summary: &BootstrapSummary,
+    em_iters: usize,
+    trunks: usize,
+    started_from: Option<&Path>,
+) -> String {
+    let m = model();
+    render(&ReportData {
+        bootstrap: Some(BootstrapReport {
+            summary,
+            em_iters,
+            trunks: Some(trunks),
+            started_from,
+        }),
+        ..base(&m)
+    })
 }
 
 /// The JSON assigned to `const <name> = ` on one line of the page.
@@ -227,12 +253,7 @@ fn qc_findings_and_metrics_are_listed() {
 
 #[test]
 fn the_bootstrap_section_states_its_caveat() {
-    let m = model();
     let summary = BootstrapSummary {
-        n_replicates: 30,
-        skipped_replicates: Vec::new(),
-        block_size: 500_000,
-        seed: 42,
         points: vec![BootstrapCurvePoint {
             x_years: 1000.0,
             ne_main: 5000.0,
@@ -240,16 +261,9 @@ fn the_bootstrap_section_states_its_caveat() {
             ne_q500: 5100.0,
             ne_q975: 6500.0,
         }],
+        ..summary(30, 500_000, Vec::new())
     };
-    let html = render(&ReportData {
-        bootstrap: Some(BootstrapReport {
-            summary: &summary,
-            em_iters: 25,
-            trunks: Some(61),
-            started_from: None,
-        }),
-        ..base(&m)
-    });
+    let html = render_bootstrap(&summary, 25, 61, None);
     assert!(html.contains("<h2>Bootstrap</h2>"));
     assert!(html.contains("<tr><th>Trunk size (bins)</th><td>500,000</td></tr>"));
     assert!(html.contains("<tr><th>Trunks resampled</th><td>61</td></tr>"));
@@ -295,23 +309,8 @@ fn the_bootstrap_section_states_its_caveat() {
 /// the further caveat that brings.
 #[test]
 fn a_bootstrap_from_saved_parameters_says_so() {
-    let m = model();
-    let summary = BootstrapSummary {
-        n_replicates: 10,
-        skipped_replicates: Vec::new(),
-        block_size: 20_000,
-        seed: 42,
-        points: Vec::new(),
-    };
-    let html = render(&ReportData {
-        bootstrap: Some(BootstrapReport {
-            summary: &summary,
-            em_iters: 2,
-            trunks: Some(30),
-            started_from: Some(Path::new("fits/<old>.json")),
-        }),
-        ..base(&m)
-    });
+    let saved = Path::new("fits/<old>.json");
+    let html = render_bootstrap(&summary(10, 20_000, Vec::new()), 2, 30, Some(saved));
     assert!(html.contains(
         "<tr><th>Replicates start from</th><td>the parameters in fits/&lt;old&gt;.json</td></tr>"
     ));
@@ -324,23 +323,7 @@ fn a_bootstrap_from_saved_parameters_says_so() {
 /// and named, with the caveat that brings.
 #[test]
 fn skipped_replicates_are_reported() {
-    let m = model();
-    let summary = BootstrapSummary {
-        n_replicates: 18,
-        skipped_replicates: vec![3, 12],
-        block_size: 1_000,
-        seed: 42,
-        points: Vec::new(),
-    };
-    let html = render(&ReportData {
-        bootstrap: Some(BootstrapReport {
-            summary: &summary,
-            em_iters: 5,
-            trunks: Some(40),
-            started_from: None,
-        }),
-        ..base(&m)
-    });
+    let html = render_bootstrap(&summary(18, 1_000, vec![3, 12]), 5, 40, None);
     assert!(html.contains("<tr><th>Replicates</th><td>18</td></tr>"));
     assert!(html.contains("<tr><th>Skipped replicates</th><td>2 of 20 (3, 12)</td></tr>"));
     assert!(html.contains(
