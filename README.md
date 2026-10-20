@@ -719,11 +719,9 @@ exclusive node, 5 repeats on five nodes, 25 EM iterations of
 chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`. On 3000 Mb
 (30 chromosomes) psmc-rs 0.2 took a median 519 s on 1 thread, 36.0 s on
 16 and 18.3 s on 30, against 4,446 s for C psmc: 8.6, 123 and 243 times as
-fast (psmc-rs 0.1: 6,193 s on 1 thread, 317 s on 30). psmc-rs 0.2 peaked
-at 36 MB of resident memory on 1 thread and 148 MB on 30, C psmc at
-1,062 MB and psmc-rs 0.1 at 14,959 MB on 30 threads. Every size and
-thread count, the ranges over the repeats, the thread scaling and the
-outputs' determinism are in
+fast. psmc-rs 0.2 peaked at 36 MB of resident memory on 1 thread and
+148 MB on 30, C psmc at 1,062 MB. Every size and thread count, the ranges
+over the repeats, the thread scaling and the outputs' determinism are in
 [Supplementary Note 1, section 10](experiment/Supplementary_Note_1_Reproducibility.md#10-performance-e3).
 
 Use a release build, and `-q --no-progress` for batch runs. The model has

@@ -102,9 +102,9 @@ The pipeline also draws figures that the article leaves out, for the
 analyses it quotes in its text: the software's schematic
 (`runs/FIG/figures/fig1_workflow`), E1's and E2's fits in more detail
 (`runs/E1/figures/fig2_simulated_accuracy`,
-`runs/E2/figures/fig3_real_genomes`), E3's timings with all the runs of
-section 10 and its thread scaling (`runs/E3/figures/fig4_performance`,
-`figS4_thread_scaling`), E6's format consistency and TMRCA decoding
+`runs/E2/figures/fig3_real_genomes`), E3's timings at every size and
+thread count of section 10 and its thread scaling
+(`runs/E3/figures/fig4_performance`, `figS4_thread_scaling`), E6's format consistency and TMRCA decoding
 (`runs/E6/figures/figS2_format_consistency`, `figS3_tmrca_decoding`),
 E2's split-first-window check (`runs/E2/figures/figS_turtle_patterns`)
 and E7's populations and checks
@@ -207,7 +207,7 @@ and system time):
 | --- | --- | --- | --- |
 | E1 | 121 | 13.0 | 53386770 (report: 53467834) |
 | E2 | 23 | 59.8 | 6 in 53386770, 16 in 53452276 (report: 53467834) |
-| E3 | 160 | 55.3 | five exclusive nodes, 53420812 to 53420816 (section 10; report: 53467842) |
+| E3 | 100 | 15.1 | five exclusive nodes, 53420812 to 53420816 (section 10; report: 53467842) |
 | E4 | 286 | 5.2 | 53386770 (report: 53467834) |
 | E5 | 121 | 19.1 | 53386770 (report: 53467834) |
 | E6 | 26 | 0.3 | 53386770 and 53452276 (reports: 53467834) |
@@ -431,12 +431,9 @@ sizes; `E3_seeds.csv`), each fit 25 EM iterations of the recipe
 (`-N25 -t15 -r5 -p "4+25*2+4+6"`, 100 bp bins): C psmc on its one
 thread, psmc-rs on 1, 8 and 30 threads, and psmc-rs on 3000 Mb also on
 2, 4 and 16 threads, 5 repeats of each (Fig 2, Table 2, and the
-pipeline's thread-scaling figure): 19 setups and 95 timed runs. E3 also
-times psmc-rs 0.1, an earlier release, on 1, 8 and 30 threads (12 more
-setups and 60 runs, the rows `rs01` of its tables), which the article
-does not report; all 31 setups were measured, 155 timed runs in all
-(`E3_table2.csv`, `status`). The numbers below are computed from E3's
-tables in `runs/E3/tables/`, named with each.
+pipeline's thread-scaling figure): 19 setups and 95 timed runs, all
+measured (`E3_table2.csv`, `status`). The numbers below are computed from
+E3's tables in `runs/E3/tables/`, named with each.
 
 **Machines and builds.** Each repeat ran on its own exclusive Ibex node,
 all five of one CPU model: AMD EPYC 7702, 128 cores, 503.7 GB of
@@ -445,7 +442,7 @@ Linux 5.14.0-427.20.1.el9_4.0.1.x86_64 and glibc 2.34
 (`E3_environment.csv`, whose `clean_runs_on_mixed_machines` is False). Repeats 1 to 5 ran on
 cn506-02-l, cn506-18-l, cn514-07-r, cn513-19-l and cn514-04-l, as SLURM
 jobs 53420812 to 53420816 in that order (`E3_runs.csv`: `hostname`,
-`slurm_job_id`); each repeat's 31 runs took 5.46 to 5.53 hours of wall
+`slurm_job_id`); each repeat's 19 runs took 2.19 to 2.22 hours of wall
 time (the sum of its `wall_seconds`).
 
 | tool | build |
@@ -486,15 +483,14 @@ to stop if the node was busier than the protocol allows; none stopped.
 The protocol deferred runs while a node was busy and ran them again
 later: the runner logs have 4 deferral lines in repeat 2 and 2 in
 repeat 3 and none in repeats 1, 4 and 5, and every deferred run was clean
-when it ran. `merge_e3.sh` merged the five repeats, 31 timing records
-each, and found every run done for the current code. All 155 runs (20 of
-C psmc, 75 of psmc-rs and 60 of psmc-rs 0.1) are clean
-(`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean` are 0). In
-the quiet check's 2 s window before them the node had 0.21 to 0.955 core
-busy, median 0.32 (the limit is 1; the five nodes' medians 0.29 to
-0.35): in 93 runs less than the 0.35 to 0.49 busy core of an idle node
-given above, in 54 within it and in 8 more. During them the other
-processes kept a median 0.27 and at most 0.42 core busy (the limit is
+when it ran. `merge_e3.sh` merged the five repeats and found every run
+done for the current code. All 95 runs (20 of C psmc and 75 of psmc-rs)
+are clean (`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean`
+are 0). In the quiet check's 2 s window before them the node had 0.215 to
+0.715 core busy, median 0.31 (the limit is 1; the five nodes' medians
+0.285 to 0.32): in 60 runs less than the 0.35 to 0.49 busy core of an idle
+node given above, in 30 within it and in 5 more. During them the other
+processes kept a median 0.26 and at most 0.42 core busy (the limit is
 0.5), at most 0.33% of all cores (the limit is 5%), and steal time was
 0 (`E3_runs.csv`: `busy_before_cores`, `other_cores_during`,
 `other_cpu_share_during`, `steal_cores_during`). Each median below is

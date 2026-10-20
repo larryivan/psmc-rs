@@ -472,17 +472,16 @@ Layout of `experiment/runs/E3/`: `sims/` (not committed), `truth/`,
 `fits/<tool>/<size>Mb/t<threads>/rep<r>.{psmc,json}`, `timings/...` (the
 timing records), `provenance/`, `tables/`, `figures/`.
 
-**Cost** (`plan E3`): 160 jobs; the 155 timing runs take about 21 hours of
-wall time one after another by the laptop's estimates (C psmc about 1 hour each on 3000 Mb; psmc-rs
-0.1's 1000 forward-mode L-BFGS iterations per M-step add about 200 s per
-run, 25 M-steps on one thread, whatever the size, where psmc-rs 0.2's
-converged M-steps take under a second). They need the machine to themselves: close
-other work, stay on AC power, and expect the runner to defer runs while the
-machine is busy (`status --jobs` says why). Measured on Ibex, one exclusive
-AMD EPYC 7702 node per repeat: 53.8 CPU hours in the 155 timed runs (the
-sum of `cpu_seconds` in `E3_runs.csv`: C psmc 9.0, psmc-rs 0.1 39.5,
-psmc-rs 0.2 5.3) and 27.5 hours of wall time, 5.5 per repeat (the sum of
-`wall_seconds`); C psmc took a median 74 minutes on 3000 Mb.
+**Cost** (`plan E3`): 100 jobs; the 95 timing runs take about 10 hours of
+wall time one after another by the laptop's estimates (C psmc about 1 hour
+each on 3000 Mb; psmc-rs 0.2's converged M-steps take under a second per
+run). They need the machine to themselves: close other work, stay on AC
+power, and expect the runner to defer runs while the machine is busy
+(`status --jobs` says why). Measured on Ibex, one exclusive AMD EPYC 7702
+node per repeat: 14.4 CPU hours in the 95 timed runs (the sum of
+`cpu_seconds` in `E3_runs.csv`: C psmc 9.0, psmc-rs 0.2 5.3) and 11.0
+hours of wall time, 2.2 per repeat (the sum of `wall_seconds`); C psmc took
+a median 74 minutes on 3000 Mb.
 [Supplementary Note 1, section 10](../Supplementary_Note_1_Reproducibility.md#10-performance-e3)
 gives the results.
 
@@ -848,7 +847,7 @@ back.
 | --- | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | 13.0 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
 | E2 | 23 | 47 | 2.1 (50 cores) | 59.8 (the turtles' C psmc fits and QC from the first `prod` job, the rest from the second; Supplementary Note 1, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
-| E3 | 160 | 95 | 21 (exclusive) | 53.8 (the 155 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive nodes) | needs the machine to itself and `--mem-gb 15`; busy periods defer runs |
+| E3 | 100 | 15 | 9.9 (exclusive) | 14.4 (the 95 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive nodes) | needs the machine to itself; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.3 | S1-S3 wait for E1 |
@@ -859,10 +858,10 @@ The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
 the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost a few
 ms per EM iteration (allowed 0.02 s), its E-steps the rest. E3 alone takes
-about 21 hours (psmc-rs 0.1's M-steps of 1000 forward-mode iterations and C
-psmc dominate it); E1, E2, E4, E5, E6 and FIG together about 2.1 hours on 50
-cores and 64 GB (E2's bootstraps dominate; E2 cannot start on fewer than 50
-cores): about 23 hours in all, either way. Every job is resumable: `stop`
+about 10 hours (C psmc's runs dominate it); E1, E2, E4, E5, E6 and FIG
+together about 2.1 hours on 50 cores and 64 GB (E2's bootstraps dominate;
+E2 cannot start on fewer than 50 cores): about 12 hours in all, either
+way. Every job is resumable: `stop`
 (or a crash, or a reboot) and `start` again rerun only what is not done, at
 most the jobs that were running.
 
@@ -873,7 +872,7 @@ jobs in 1 hour 48 minutes, 81 CPU hours in all; the measured costs of
 E1, E2, E4, E5 and E6 above come from its provenance records and
 `runs/_runner/runner.log` (not committed). Its jobs shared the node with one another (1-minute load
 averages of 5 to 72 when they started), so their times are costs, not controlled timings:
-E3 times the tools. E3's measured cost is the tools' CPU time in its 155
+E3 times the tools. E3's measured cost is the tools' CPU time in its 95
 timed runs (`E3_runs.csv`), without the simulations each repeat ran or
 the `measure` wrapper.
 

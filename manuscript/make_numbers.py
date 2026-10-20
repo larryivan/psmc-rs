@@ -160,7 +160,7 @@ def e3() -> None:
     c = P.e3
     put("EthreeRepeats", str(c.repeats), "config.E3.repeats")
     t = table("E3", "E3_table2")
-    t = t[t.tool.isin(["c", "rs02"])]  # E3 also times psmc-rs 0.1, which the article does not report
+    t = t[t.tool.isin(["c", "rs02"])]  # not psmc-rs with capped M-steps (rs02-default), when E3 times it
     big = t[t.size_mb == max(c.genome_sizes_mb)].set_index(["tool", "threads"])
     put("EthreeBigMb", thousands(max(c.genome_sizes_mb)), "config.E3.genome_sizes_mb")
     put("EthreeCWall", thousands(big.loc[("c", 1), "wall_median_s"]), "E3_table2 c 1 thread")
