@@ -66,23 +66,16 @@ impl AlphaCacheBudget {
 
     /// Reserve `bytes` if they fit; the reservation is returned on drop.
     pub(crate) fn try_reserve(&self, bytes: usize) -> Option<Reservation<'_>> {
-        let mut cur = self.used.load(Ordering::Relaxed);
-        loop {
-            let next = cur.checked_add(bytes).filter(|&v| v <= self.limit)?;
-            match self
-                .used
-                .compare_exchange_weak(cur, next, Ordering::AcqRel, Ordering::Relaxed)
-            {
-                Ok(_) => {
-                    self.peak.fetch_max(next, Ordering::Relaxed);
-                    return Some(Reservation {
-                        budget: self,
-                        bytes,
-                    });
-                }
-                Err(v) => cur = v,
-            }
-        }
+        let fits = |used: usize| used.checked_add(bytes).filter(|&v| v <= self.limit);
+        let before = self
+            .used
+            .fetch_update(Ordering::AcqRel, Ordering::Relaxed, fits)
+            .ok()?;
+        self.peak.fetch_max(before + bytes, Ordering::Relaxed);
+        Some(Reservation {
+            budget: self,
+            bytes,
+        })
     }
 }
 

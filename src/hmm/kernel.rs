@@ -316,11 +316,8 @@ impl Semiseparable {
 }
 
 /// `a * b + c`, rounded once when `FUSED` and twice otherwise. Each build
-/// of the passes fixes `FUSED` at compile time ([`super::simd`]): fused on
-/// aarch64 and in the x86-64 code compiled with FMA, where it is one
-/// instruction; unfused in the portable x86-64 code, where `mul_add` would
-/// call libm's `fma` in this latency-bound scan (several times slower on a
-/// CPU with FMA, and emulated in software on one without).
+/// of the passes fixes `FUSED` at compile time ([`super::simd`]), never
+/// fusing where `mul_add` would call libm's `fma` in this latency-bound scan.
 #[inline(always)]
 fn fmadd<const FUSED: bool>(a: f64, b: f64, c: f64) -> f64 {
     if FUSED { a.mul_add(b, c) } else { a * b + c }
@@ -450,12 +447,6 @@ impl Kernel {
     fn em(&self, o: u16) -> &[f64] {
         let at = usize::from(o) * self.np;
         &self.em[at..at + self.np]
-    }
-
-    /// Whether the O(n) semiseparable kernel is in use.
-    #[cfg(test)]
-    fn is_semiseparable(&self) -> bool {
-        self.semi.is_some()
     }
 
     /// Whether a forward step is cheap enough that caching full forward rows
@@ -628,7 +619,7 @@ mod tests {
         ] {
             for _ in 0..20 {
                 let k = psmc_kernel(&mut rng, n_steps, pattern);
-                assert!(k.is_semiseparable(), "n_steps {n_steps}");
+                assert!(k.semi.is_some(), "n_steps {n_steps}");
                 let np = k.np();
                 let mut x = vec![0.0; np];
                 for v in &mut x[..k.n_states()] {
@@ -717,17 +708,17 @@ mod tests {
             let s: f64 = row.sum();
             row.mapv_inplace(|v| v / s);
         }
-        assert!(!Kernel::new(&pi, &a, &em, &ObsTable::plain()).is_semiseparable());
+        assert!(Kernel::new(&pi, &a, &em, &ObsTable::plain()).semi.is_none());
 
         // A PSMC matrix with one entry perturbed beyond rounding.
         let mut k = psmc_kernel(&mut rng, 11, None);
         let mut a = Array2::from_shape_fn((12, 12), |(i, j)| k.a[i * k.np() + j]);
         a[(5, 2)] *= 1.0 + 1e-10;
         k = Kernel::new(&pi, &a, &em, &ObsTable::plain());
-        assert!(!k.is_semiseparable());
+        assert!(k.semi.is_none());
 
         // An underflowed reference entry falls back too.
         a[(11, 0)] = 0.0;
-        assert!(!Kernel::new(&pi, &a, &em, &ObsTable::plain()).is_semiseparable());
+        assert!(Kernel::new(&pi, &a, &em, &ObsTable::plain()).semi.is_none());
     }
 }

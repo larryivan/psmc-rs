@@ -209,6 +209,16 @@ enum Unit {
     },
 }
 
+/// The first index of each of consecutive pieces of lengths `lens`, then
+/// the total.
+fn starts(lens: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    let mut s = vec![0];
+    for len in lens {
+        s.push(s[s.len() - 1] + len);
+    }
+    s
+}
+
 /// Where the next window starts: segment `seg` of sequence `seq`.
 #[derive(Debug, Default)]
 struct Cursor {
@@ -639,19 +649,14 @@ pub fn write_tmrca_posterior_tsv_with_options(
     let n_states = pi.len();
     if tmrca_years.len() != n_states {
         bail!(
-            "tmrca_years length {} != n_states {}",
-            tmrca_years.len(),
-            n_states
+            "tmrca_years length {} != n_states {n_states}",
+            tmrca_years.len()
         );
     }
     let total_sites = pass.plan.total_sites as usize;
     let n_seqs = pass.plan.seqs.len();
-    let mut seq_start = Vec::with_capacity(n_seqs + 1);
-    seq_start.push(0);
-    for r in &pass.plan.seqs {
-        let len: usize = rows[r.clone()].iter().map(Vec::len).sum();
-        seq_start.push(seq_start[seq_start.len() - 1] + len);
-    }
+    let seq_len = |r: &Range<usize>| rows[r.clone()].iter().map(Vec::len).sum();
+    let seq_start = starts(pass.plan.seqs.iter().map(seq_len));
     let stride = if max_points == 0 {
         1
     } else {
@@ -736,20 +741,12 @@ mod tests {
 
     const K: usize = CHECKPOINT_STRIDE;
 
-    fn starts(lens: &[usize]) -> Vec<usize> {
-        let mut s = vec![0];
-        for &l in lens {
-            s.push(s.last().unwrap() + l);
-        }
-        s
-    }
-
     /// Walks every window, in spans ending at each sequence longer than a
     /// window as `write_tmrca_posterior_tsv` does, and checks that the units
     /// cover each site once, in order, within the size limits. Returns the
     /// number of units per window.
     fn check_windows(lens: &[usize]) -> Vec<usize> {
-        let seq_start = starts(lens);
+        let seq_start = starts(lens.iter().copied());
         let n = lens.len();
         let stops = (0..n).filter(|&i| lens[i] > WINDOW_SITES).chain([n]);
         let mut cur = Cursor::default();

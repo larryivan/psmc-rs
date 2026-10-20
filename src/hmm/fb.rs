@@ -676,10 +676,15 @@ mod tests {
             .collect()
     }
 
-    /// Calls `$imp::<true>` or `$imp::<false>` as `$fused` says.
-    macro_rules! instance {
-        ($fused:expr, $imp:ident($($arg:expr),* $(,)?)) => {
-            if $fused { $imp::<true>($($arg),*) } else { $imp::<false>($($arg),*) }
+    /// Calls `$imp::<true>` or `$imp::<false>` for `$run` `Some(fused)`, and
+    /// the dispatched `$disp` for `None`.
+    macro_rules! run {
+        ($run:expr, $imp:ident | $disp:ident($($arg:expr),* $(,)?)) => {
+            match $run {
+                Some(true) => $imp::<true>($($arg),*),
+                Some(false) => $imp::<false>($($arg),*),
+                None => $disp($($arg),*),
+            }
         };
     }
 
@@ -699,43 +704,37 @@ mod tests {
         let np = k.np();
         let mut ws = Workspace::new(np);
         let mut acc = Partial::new(table.len(), np);
-        let ll = match run {
-            Some(f) => instance!(f, log_likelihood_impl(k, &seq, &mut ws, &ctx)),
-            None => log_likelihood(k, &seq, &mut ws, &ctx),
-        };
+        let ll = run!(
+            run,
+            log_likelihood_impl | log_likelihood(k, &seq, &mut ws, &ctx)
+        );
         let mut out = vec![vec![ll.unwrap()]];
-        match run {
-            Some(f) => instance!(f, e_step_impl(k, &seq, &mut ws, &mut acc, &ctx)),
-            None => e_step(k, &seq, &mut ws, &mut acc, &ctx),
-        }
-        .unwrap();
+        run!(run, e_step_impl | e_step(k, &seq, &mut ws, &mut acc, &ctx)).unwrap();
         out.extend([vec![acc.loglike], acc.g, acc.m]);
         let ckpt = DecodeCheckpoints {
-            alpha: match run {
-                Some(f) => instance!(f, forward_checkpoints_impl(k, &seq, &ctx)),
-                None => forward_checkpoints(k, &seq, &ctx),
-            }
+            alpha: run!(
+                run,
+                forward_checkpoints_impl | forward_checkpoints(k, &seq, &ctx)
+            )
             .unwrap(),
-            beta: match run {
-                Some(f) => instance!(f, backward_checkpoints_impl(k, &seq, &ctx)),
-                None => backward_checkpoints(k, &seq, &ctx),
-            }
+            beta: run!(
+                run,
+                backward_checkpoints_impl | backward_checkpoints(k, &seq, &ctx)
+            )
             .unwrap(),
         };
         for s in 0..seq.n_segments() {
-            let (_, post) = match run {
-                Some(f) => instance!(f, segment_posteriors_impl(k, &seq, &ckpt, s, &mut ws)),
-                None => segment_posteriors(k, &seq, &ckpt, s, &mut ws),
-            }
-            .unwrap();
-            out.push(post.to_vec());
+            let post = run!(
+                run,
+                segment_posteriors_impl | segment_posteriors(k, &seq, &ckpt, s, &mut ws)
+            );
+            out.push(post.unwrap().1.to_vec());
         }
-        let (_, post) = match run {
-            Some(f) => instance!(f, sequence_posteriors_impl(k, &seq, &mut ws)),
-            None => sequence_posteriors(k, &seq, &mut ws),
-        }
-        .unwrap();
-        out.push(post.to_vec());
+        let post = run!(
+            run,
+            sequence_posteriors_impl | sequence_posteriors(k, &seq, &mut ws)
+        );
+        out.push(post.unwrap().1.to_vec());
         out.extend([ckpt.alpha, ckpt.beta]);
         out
     }

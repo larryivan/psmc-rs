@@ -1,25 +1,22 @@
 //! Which build of the per-site kernels the HMM passes run.
 //!
 //! On x86-64 the per-sequence passes are compiled twice: for the target as
-//! given (SSE2 only in the portable release binary) and with AVX2 and FMA.
-//! The second runs when the CPU has both, unless the environment variable
-//! `PSMC_RS_SIMD` is `portable` (read once, for tests and benchmarks) or
-//! [`set_force_portable`] says otherwise. AVX-512 is not used: on AMD Zen 5
-//! it was slower than AVX2. aarch64 always runs its NEON kernels; other
-//! targets the portable ones.
+//! given (SSE2 only in the portable release binary) and with AVX2 and FMA,
+//! which runs when the CPU has both unless `PSMC_RS_SIMD=portable` (read
+//! once, for tests and benchmarks) or [`set_force_portable`] says otherwise.
+//! AVX-512 is not used: on AMD Zen 5 it was slower than AVX2. aarch64 always
+//! runs its NEON kernels; other targets the portable ones.
 //!
-//! Whether the multiply-adds of the O(states) forward and backward products
-//! are fused is fixed per build at compile time, by the `FUSED` parameter
-//! of the passes: fused in the AVX2 and FMA build and on aarch64, where it
-//! is one instruction, and unfused in the portable build ([`DEFAULT_FUSED`]),
-//! where `f64::mul_add` would call libm's `fma` (a fit took 3.75 times as
-//! long with it on AMD Zen 5, and CPUs without FMA emulate it in software).
-//! The other x86-64 kernels never fuse (Rust never contracts `a * b + c`),
-//! and no sum changes its order with the vector width, so the AVX2 and FMA
-//! build gives the bits of the portable code instantiated fused, and those
-//! of an `x86-64-v3` build, which takes the same path at run time. The
-//! portable build rounds those multiply-adds twice, and its results differ
-//! from the AVX2 and FMA build's in the last digits.
+//! Each build fixes at compile time, by the `FUSED` parameter of the passes,
+//! whether the multiply-adds of the O(states) forward and backward products
+//! are fused: in the AVX2 and FMA build and on aarch64, where it is one
+//! instruction, but not in the portable build ([`DEFAULT_FUSED`]), where
+//! `f64::mul_add` would call libm's `fma` (a fit took 3.75 times as long on
+//! AMD Zen 5, and CPUs without FMA emulate it in software). Nothing else
+//! fuses (Rust never contracts `a * b + c`) and no sum changes its order
+//! with the vector width, so the AVX2 and FMA build gives the bits of the
+//! portable code instantiated fused (and of an `x86-64-v3` build, which
+//! takes the same path); the portable build differs in the last digits.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -121,14 +118,12 @@ pub(crate) fn avx2_fma() -> bool {
     }
 }
 
-/// Whether the build of the passes for the target as given fuses the
-/// multiply-adds of the O(states) products: on aarch64, whose NEON kernels
-/// fuse anyway; not elsewhere, where `f64::mul_add` is a call to libm's
-/// `fma` unless the build enables FMA (and an x86-64 build that does takes
-/// the AVX2 and FMA path at run time).
+/// Whether the passes compiled for the target as given fuse the
+/// multiply-adds of the O(states) products: only on aarch64, whose NEON
+/// kernels fuse anyway. Elsewhere `f64::mul_add` calls libm's `fma` unless
+/// the build enables FMA, and an x86-64 build that does runs the AVX2 and
+/// FMA path anyway.
 pub(crate) const DEFAULT_FUSED: bool = cfg!(target_arch = "aarch64");
-// The portable x86-64 passes must not fuse: that would make them call
-// libm's `fma` per multiply-add.
 #[cfg(target_arch = "x86_64")]
 const _: () = assert!(!DEFAULT_FUSED);
 
