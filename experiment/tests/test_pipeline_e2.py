@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import csv
 import gzip
-import importlib.util
 import json
 import math
 import shutil
@@ -15,31 +13,15 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402
+from fixtures import (C_REF, ROOT, assert_ignore_rules, c_ref_json, c_ref_loglikes, fake_ctx, fake_tools,  # noqa: E402
+                      has_modules, in_git_work_tree, option, read_csv)
 
 from experiment.pipeline import config, demography, paths, results, runner, tools  # noqa: E402
 from experiment.pipeline.experiments import Context, available, e2, e5, e7  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import tiny_runs  # noqa: E402
-
-C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-HAS_NUMPY = importlib.util.find_spec("numpy") is not None
-HAS_MPL = importlib.util.find_spec("matplotlib") is not None
-HAS_PSUTIL = importlib.util.find_spec("psutil") is not None
-
-
-def read_csv(path: Path):
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def fake_ctx(profile: config.Profile, runs: Path) -> Context:
-    return Context(profile, runs, _tools={"c": FAKE_C, "rs02": FAKE_RS})
+HAS_NUMPY = has_modules("numpy")
 
 
 def genome(sid: str) -> config.RealGenome:
@@ -88,9 +70,7 @@ class Config(unittest.TestCase):
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.jobs = e2.jobs(fake_ctx(config.PRODUCTION, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
 
@@ -111,13 +91,12 @@ class Jobs(unittest.TestCase):
         self.assertEqual(c.inputs, rs.inputs)
         self.assertEqual(c.command[1:6], ["-N25", "-t15", "-r5", "-p", "4+25*2+4+6"])
         self.assertEqual(rs.command[3], "25")
-        self.assertEqual(rs.command[rs.command.index("--mu") + 1], "4.6e-09")
-        self.assertEqual(rs.command[rs.command.index("--gen-years") + 1], "15")
+        self.assertEqual((option(rs.command, "--mu"), option(rs.command, "--gen-years")), ("4.6e-09", "15"))
         self.assertEqual(c.settings["inference"], rs.settings["inference"])
         # C psmc is given no scaling: its command does not change with mu and g.
         self.assertNotIn("--mu", c.command)
         human = self.by_id["E2/fit-rs/NA12878"]
-        self.assertEqual(human.command[human.command.index("--gen-years") + 1], "29")
+        self.assertEqual(option(human.command, "--gen-years"), "29")
         # Both tools read the packaged gzip file itself (C psmc and psmc-rs read gzip).
         packaged = paths.REAL_DATA / "NA12878_1kGP30x_diploid.psmcfa.gz"
         self.assertEqual(self.by_id["E2/fit-c/NA12878"].inputs, [packaged])
@@ -132,7 +111,7 @@ class Jobs(unittest.TestCase):
                 self.assertEqual(job.inputs, rs.inputs)
                 self.assertEqual(job.outputs, [lay.split_json("HLpelCas1", name), lay.split_psmc("HLpelCas1", name)])
                 self.assertEqual(job.outputs[0].name, f"HLpelCas1.{name}.rs.json")
-                self.assertEqual(job.command[job.command.index("--pattern") + 1], pattern)
+                self.assertEqual(option(job.command, "--pattern"), pattern)
                 # Every other argument is fit-rs's (its output files aside).
                 differ = [(a, b) for a, b in zip(rs.command, job.command) if a != b]
                 self.assertEqual(differ, [(str(lay.rs_json("HLpelCas1")), str(lay.split_json("HLpelCas1", name))),
@@ -145,13 +124,10 @@ class Jobs(unittest.TestCase):
 
     def test_bootstrap_job(self):
         boot = self.by_id["E2/boot-rs/trunk500000/HLhydTec1"]
-        cmd = boot.command
         seed = config.seed("E2", "HLhydTec1", 0, "bootstrap")
         self.assertEqual(boot.seeds, {"bootstrap": seed})
-        self.assertEqual(cmd[cmd.index("--bootstrap-seed") + 1], str(seed))
-        self.assertEqual(cmd[cmd.index("--bootstrap") + 1], "100")
-        self.assertEqual(cmd[cmd.index("--bootstrap-block-size") + 1], "500000")
-        self.assertEqual(cmd[cmd.index("--threads") + 1], "50")
+        self.assertEqual([option(boot.command, o) for o in ("--bootstrap-seed", "--bootstrap", "--bootstrap-block-size",
+                                                            "--threads")], [str(seed), "100", "500000", "50"])
         self.assertEqual(boot.cores, 50)
         self.assertEqual(boot.mem_gb, 10.0)  # one replicate per thread at once
         lay = e2.Layout(self.runs / "E2")
@@ -187,7 +163,7 @@ class Jobs(unittest.TestCase):
         # The command is the one E7 builds, but for the input's and outputs' paths and the threads.
         lay, trunk = e2.Layout(self.runs / "E2"), p.e7.bootstrap_trunk_bins
         self.assertEqual(boot.command, tools.rs02_fit(
-            FAKE_RS, p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file, lay.boot_main("NA12878", trunk),
+            fake_tools("rs02")["rs02"], p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file, lay.boot_main("NA12878", trunk),
             threads=p.e2.rs_threads, extra=e7.bootstrap_args(p.e7, "NA12878", lay.boot_dir("NA12878", trunk)),
         ))
         # One bootstrap: none on fine trunks, whose seed would be E2's own.
@@ -208,7 +184,7 @@ class Jobs(unittest.TestCase):
     def test_qc_job_checks_the_bootstrap_trunks(self):
         qc = self.by_id["E2/qc/HLpelCas1"]
         self.assertEqual(qc.command[1:3], ["qc", str(paths.REAL_DATA / "HLpelCas1_diploid.psmcfa")])
-        self.assertEqual(qc.command[qc.command.index("--bootstrap-block-size") + 1], "500000")
+        self.assertEqual(option(qc.command, "--bootstrap-block-size"), "500000")
         self.assertEqual(qc.stdout, self.runs / "E2" / "qc" / "HLpelCas1.qc.txt")
 
     def test_estimates_fit_the_budget(self):
@@ -237,15 +213,13 @@ class Jobs(unittest.TestCase):
         # The prefix forms 10 trunks of 20,000 bins (< 20): a second bootstrap, on trunks of 5,000.
         fine = jobs["E2/boot-rs/trunk5000/NA12878"]
         self.assertEqual(fine.inputs, subset.outputs)
-        self.assertEqual(fine.command[fine.command.index("--bootstrap-block-size") + 1], "5000")
+        self.assertEqual(option(fine.command, "--bootstrap-block-size"), "5000")
         self.assertEqual(fine.seeds, {"bootstrap": config.seed("E2", "NA12878", 0, "bootstrap/trunk5000")})
 
 
 class Psmcfa(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.tmp = Path(self._tmp.name)
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.src = self.tmp / "in.psmcfa"
         seqs = [("a desc", "T" * 70 + "K" * 5), ("empty", ""), ("b", "NK" * 40), ("c", "T" * 10)]
         self.src.write_text("".join(f">{n}\n" + "".join(s[i:i + 50] + "\n" for i in range(0, len(s), 50)) for n, s in seqs))
@@ -270,12 +244,16 @@ class Psmcfa(unittest.TestCase):
         self.assertEqual(list(e2.read_psmcfa(dst)), [("a desc", "T" * 70 + "K" * 5), ("b", ("NK" * 40)[:25])])
         self.assertEqual(e2.psmcfa_lengths(dst), (75, 25))
 
-    def test_command_line(self):
+    def subset(self, src: Path) -> Path:
+        """``e2 subset SRC --max-bins 80``, run as the subset job runs it."""
         dst = self.tmp / "cli.psmcfa"
-        res = subprocess.run([sys.executable, "-m", e2.MODULE, "subset", str(self.src), str(dst), "--max-bins", "80"],
+        res = subprocess.run([sys.executable, "-m", e2.MODULE, "subset", str(src), str(dst), "--max-bins", "80"],
                              cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(e2.psmcfa_lengths(dst), (75, 5))
+        return dst
+
+    def test_command_line(self):
+        self.assertEqual(e2.psmcfa_lengths(self.subset(self.src)), (75, 5))
 
     def gzip_copy(self, name: str) -> Path:
         """The source compressed one gzip member per record, as E7 writes one per chromosome."""
@@ -297,10 +275,7 @@ class Psmcfa(unittest.TestCase):
         e2.write_psmcfa_prefix(self.src, self.tmp / "from_plain.psmcfa", 100)
         self.assertEqual(shape, e2.Shape(2, 100, 75))
         self.assertEqual((self.tmp / "from_gz.psmcfa").read_bytes(), (self.tmp / "from_plain.psmcfa").read_bytes())
-        dst = self.tmp / "cli.psmcfa"
-        res = subprocess.run([sys.executable, "-m", e2.MODULE, "subset", str(gz), str(dst), "--max-bins", "80"],
-                             cwd=ROOT, capture_output=True, text=True)
-        self.assertEqual(res.returncode, 0, res.stderr)
+        dst = self.subset(gz)
         self.assertFalse(e2.is_gzip(dst))
         self.assertEqual(e2.psmcfa_lengths(dst), (75, 5))
 
@@ -391,8 +366,6 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
     are that fit with the first free lambda 3 times as large (:func:`write_stand_in_splits`).
     """
     lay = e2.Layout(runs / "E2")
-    ref = results.parse_psmc(C_REF)
-    last = ref.last()
     for g in cfg.genomes:
         sid = g.sample_id
         scale = 2.0 if sid == "HLhydTec1" else 1.0
@@ -401,28 +374,21 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
         lay.c_psmc(sid).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(C_REF, lay.c_psmc(sid))
         shutil.copy(C_REF, lay.rs_psmc(sid))
-
-        def params(lam_scale: float, extra: bool = True):
-            p = {"theta": last.pa["theta"], "rho": last.pa["rho"], "t_max": last.pa["t_max"], "n_steps": 63,
-                 "mu": g.scaling.mu, "pattern": "4+25*2+4+6", "lam": [x * lam_scale for x in last.pa["lambdas"]]}
-            if extra:
-                p.update(n_iter=5, loglike=[ref.loglikes()[i] for i in range(5)] + [-25000.0],
+        fit = c_ref_json(scale, mu=g.scaling.mu, n_iter=5, loglike=c_ref_loglikes(),
                          input={"sequences": 3, "bins": 150947, "missing_bins": 0, "het_bins": 7373},
                          qc={"warnings": ["TOO_SHORT"], "notes": []})
-            return p
-
-        main = json.dumps(params(scale), indent=2)
+        main = json.dumps(fit, indent=2)
         lay.rs_json(sid).write_text(main)
         if sid in cfg.split_genomes:
-            write_stand_in_splits(lay, cfg, sid, params(scale))
+            write_stand_in_splits(lay, cfg, sid, fit)
         sc = g.scaling
-        main_curve = results.fit_from_rs(params(scale)).curve(sc.mu, sc.gen_years, 100)
+        main_curve = results.fit_from_rs(fit).curve(sc.mu, sc.gen_years, 100)
         for trunk in e2.trunk_sizes(cfg, e2.input_lengths(cfg, g)):
             lay.boot_dir(sid, trunk).mkdir(parents=True, exist_ok=True)
             lay.boot_main(sid, trunk).write_text(main)
             reps = []
             for r in range(1, cfg.bootstrap_replicates + 1):
-                p = params(scale * (1 + r / 10), extra=False)
+                p = c_ref_json(scale * (1 + r / 10), mu=g.scaling.mu)
                 lay.boot_replicate(sid, trunk, r).write_text(json.dumps(p))
                 reps.append(results.fit_from_rs(p).curve(sc.mu, sc.gen_years, 100))
             xs = list(main_curve.years[1:])
@@ -447,22 +413,21 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
     return lay
 
 
+# The tiny profile with C psmc's reference settings (5 iterations, -r4) and 3 bootstrap replicates.
+STAND_IN_PROFILE = replace(config.TINY, e2=replace(
+    config.TINY.e2, inference=replace(config.INFERENCE, n_iter=5, tr_ratio=4.0), bootstrap_replicates=3))
+
+
 @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
 class Tables(unittest.TestCase):
     """The report on stand-in outputs (see :func:`write_stand_in_outputs`)."""
 
     @classmethod
     def setUpClass(cls):
-        cls._tmp = tempfile.TemporaryDirectory()
-        cls.runs = Path(cls._tmp.name)
-        inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
-        cls.profile = replace(config.TINY, e2=replace(config.TINY.e2, inference=inference, bootstrap_replicates=3))
+        cls.runs = Path(cls.enterClassContext(tempfile.TemporaryDirectory()))
+        cls.profile = STAND_IN_PROFILE
         cls.lay = write_stand_in_outputs(cls.runs, cls.profile.e2)
         cls.written = e2.report(Context(cls.profile, cls.runs))
-
-    @classmethod
-    def tearDownClass(cls):
-        cls._tmp.cleanup()
 
     def test_every_table_is_written(self):
         self.assertEqual(set(self.written), set(e2.TABLES))
@@ -561,32 +526,37 @@ class Tables(unittest.TestCase):
         self.assertIn("Fenner 2005", rows[("NA12878", "c")]["scaling_source"])
 
 
-@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
-class SplitFits(unittest.TestCase):
-    """A split-first-window fit must be of its pattern and of fit-rs's input."""
+class EditedStandIns(unittest.TestCase):
+    """The report on stand-in outputs of which one, ``self.path``, a test changes."""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
-        inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
-        self.profile = replace(config.TINY, e2=replace(config.TINY.e2, inference=inference, bootstrap_replicates=3))
-        self.lay = write_stand_in_outputs(self.runs, self.profile.e2)
-        self.path = self.lay.split_json("HLhydTec1", "split2")
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.lay = write_stand_in_outputs(self.runs, STAND_IN_PROFILE.e2)
         self.params = json.loads(self.path.read_text())
+
+    def report(self):
+        self.path.write_text(json.dumps(self.params))
+        return e2.report(Context(STAND_IN_PROFILE, self.runs))
+
+
+@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
+class SplitFits(EditedStandIns):
+    """A split-first-window fit must be of its pattern and of fit-rs's input."""
+
+    @property
+    def path(self) -> Path:
+        return self.lay.split_json("HLhydTec1", "split2")
 
     def test_another_pattern_fails_the_report(self):
         self.params["pattern"] = "1+1+1+1+25*2+4+6"
         self.params["lam"] = self.params["lam"] + [1.0, 1.0]
-        self.path.write_text(json.dumps(self.params))
         with self.assertRaisesRegex(ValueError, "pattern 1\\+1\\+1\\+1\\+25\\*2\\+4\\+6, expected 2\\+2\\+25"):
-            e2.report(Context(self.profile, self.runs))
+            self.report()
 
     def test_another_input_fails_the_report(self):
         self.params["input"]["het_bins"] += 1
-        self.path.write_text(json.dumps(self.params))
         with self.assertRaisesRegex(ValueError, "another input than fit-rs's"):
-            e2.report(Context(self.profile, self.runs))
+            self.report()
 
 
 class RecentShape(unittest.TestCase):
@@ -619,51 +589,33 @@ class RecentShape(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_NUMPY, "numpy not installed")
-class BootstrapMainFit(unittest.TestCase):
+class BootstrapMainFit(EditedStandIns):
     """The bootstrap run's main fit must be fit-rs's fit; its qc record may differ."""
 
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
-        inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
-        self.profile = replace(config.TINY, e2=replace(config.TINY.e2, inference=inference, bootstrap_replicates=3))
-        self.lay = write_stand_in_outputs(self.runs, self.profile.e2)
-        g = genome("NA12878")
-        self.main = self.lay.boot_main("NA12878", e2.trunk_sizes(self.profile.e2, e2.input_lengths(self.profile.e2, g))[0])
-        self.params = json.loads(self.main.read_text())
+    @property
+    def path(self) -> Path:
+        cfg = STAND_IN_PROFILE.e2
+        return self.lay.boot_main("NA12878", e2.trunk_sizes(cfg, e2.input_lengths(cfg, genome("NA12878")))[0])
 
     def test_a_qc_record_of_the_bootstrap_trunks_is_not_a_difference(self):
         self.params["qc"]["warnings"].append("SHORT_SEQUENCES")
-        self.main.write_text(json.dumps(self.params))
-        e2.report(Context(self.profile, self.runs))
+        self.report()
         rows = [r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "NA12878"]
         self.assertTrue(all(r["main_identical_to_fit"] == "True" for r in rows))
         self.assertTrue(all(float(r["main_fit_max_abs_diff"]) == 0.0 for r in rows))
 
     def test_a_different_fit_fails_the_report_after_writing_the_tables(self):
         self.params["theta"] *= 1.0 + 1e-12
-        self.main.write_text(json.dumps(self.params))
         with self.assertRaisesRegex(ValueError, "NA12878 trunk5000: theta"):
-            e2.report(Context(self.profile, self.runs))
+            self.report()
         row = next(r for r in read_csv(self.lay.table("bootstrap")) if r["sample_id"] == "NA12878")
         self.assertEqual((row["main_identical_to_fit"], row["main_fit_fields_differing"]), ("False", "theta"))
-
-def in_git_work_tree() -> bool:
-    if shutil.which("git") is None:
-        return False
-    res = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
-    return res.returncode == 0 and res.stdout.strip() == "true"
-
-
-def ignored(rel_path: str) -> bool:
-    return subprocess.run(["git", "check-ignore", "-q", "--no-index", rel_path], cwd=ROOT).returncode == 0
 
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class RunsLayout(unittest.TestCase):
-    def test_small_results_are_tracked(self):
-        for p in (
+    def test_small_results_are_tracked_and_replicate_rounds_and_local_files_ignored(self):
+        assert_ignore_rules(self, kept=(
             "experiment/runs/E2/fits/HLemySub1.c.psmc",
             "experiment/runs/E2/fits/HLemySub1.rs.json",
             "experiment/runs/E2/fits/HLemySub1.rs.psmc",
@@ -684,19 +636,14 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E2/tables/E2_bootstrap_replicates.csv",
             "experiment/runs/E2/figures/fig3_real_genomes.pdf",
             "experiment/runs/E2/figures/fig3_real_genomes.svg",
-        ):
-            self.assertFalse(ignored(p), p)
-
-    def test_replicate_rounds_and_local_files_are_ignored(self):
-        for p in (
+        ), ignored=(
             "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/replicate_001.psmc",
             "experiment/runs/E2/bootstrap/HLemySub1/trunk500000/replicate_001.html",
             "experiment/runs/E2/inputs/HLemySub1.psmcfa",
             "experiment/runs/E2/fits/HLemySub1.rs.html",
             "experiment/runs/E2/fits/HLemySub1.split2.rs.html",
             "experiment/runs/E2/logs/jobs/boot-rs/HLemySub1.log",
-        ):
-            self.assertTrue(ignored(p), p)
+        ))
 
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
