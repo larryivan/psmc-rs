@@ -35,24 +35,22 @@ class Inference:
     """The settings of one PSMC fit, passed explicitly to both tools.
 
     The defaults are the canonical human recipe of the psmc README,
-    ``psmc -N25 -t15 -r5 -p "4+25*2+4+6"``, which psmc-rs takes as
-    ``N_ITER 25 --t-max 15 --tr-ratio 5 --pattern 4+25*2+4+6``, plus
-    ``--smooth-lambda 0`` (C psmc's objective has no penalty) and
-    ``--mstep-iters 1000``.
+    ``psmc -N25 -t15 -r5 -p "4+25*2+4+6"`` (psmc-rs: ``N_ITER 25 --t-max 15
+    --tr-ratio 5 --pattern 4+25*2+4+6``), plus ``--smooth-lambda 0`` (C
+    psmc's objective has no penalty) and ``--mstep-iters 1000``.
 
     The M-step: C psmc's Hooke-Jeeves search runs each M-step to
-    convergence, and so does psmc-rs 0.2's L-BFGS: it stops by a
-    convergence test, and ``--mstep-iters`` (default 1000, passed
-    explicitly) is a cap that its M-steps stay far below (10 to 70
+    convergence, and so does psmc-rs 0.2's L-BFGS, which stops by a
+    convergence test far below the ``--mstep-iters`` cap (10 to 70
     iterations, a few ms per EM iteration on one thread). On a simulated
-    4 x 25 Mb bottleneck genome the two tools' curves are 7.7e-5 apart
-    (RMSE of log10 Ne on the informative window), as close as C psmc's own
-    Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5). psmc-rs 0.1's
-    L-BFGS stopped after 100 iterations, which left the curves 0.03 to 0.16
-    apart. psmc-rs's default M-step is therefore the converged one, and no
-    experiment fits a separate default arm (:attr:`E1.default_mstep_iters`
-    and :attr:`E3.default_mstep_iters` are None); a cap set there fits or
-    times psmc-rs with M-steps capped at that many iterations too.
+    4 x 25 Mb bottleneck genome the two tools' curves are 7.7e-5 apart (RMSE
+    of log10 Ne on the informative window), as close as C psmc's own
+    Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5); psmc-rs 0.1's
+    L-BFGS, stopped after 100 iterations, left them 0.03 to 0.16 apart. The
+    default M-step is therefore the converged one, and no experiment fits a
+    separate default arm (:attr:`E1.default_mstep_iters` and
+    :attr:`E3.default_mstep_iters` are None; a cap set there fits or times
+    psmc-rs with M-steps capped at that many iterations too).
     """
 
     n_iter: int = 25  # EM iterations: C -N, psmc-rs N_ITER
@@ -169,12 +167,8 @@ _MS_SOURCE = (
 )
 
 CONSTANT = ms_model("constant", 10_000, (), _MS_SOURCE)
-BOTTLENECK = ms_model(
-    "bottleneck", 20_000, ((0.01, 0.05), (0.015, 0.5), (0.05, 0.25), (0.5, 0.5)), _MS_SOURCE
-)
-EXPANSION = ms_model(
-    "expansion", 10_000, ((0.01, 0.1), (0.06, 1.0), (0.2, 0.5), (1.0, 1.0), (2.0, 2.0)), _MS_SOURCE
-)
+BOTTLENECK = ms_model("bottleneck", 20_000, ((0.01, 0.05), (0.015, 0.5), (0.05, 0.25), (0.5, 0.5)), _MS_SOURCE)
+EXPANSION = ms_model("expansion", 10_000, ((0.01, 0.1), (0.06, 1.0), (0.2, 0.5), (1.0, 1.0), (2.0, 2.0)), _MS_SOURCE)
 
 # Zigzag_1S14 of the stdpopsim 0.3.0 HomSap catalog (Schiffels & Durbin 2014,
 # Nat Genet 46:919, doi:10.1038/ng.3015): N0 = 5 * 14312, five epochs of
@@ -283,10 +277,9 @@ class E1:
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1  # psmc-rs --threads per fit; many fits run in parallel instead
     # An M-step cap to fit every genome with as well (job fit-rs-default,
-    # table E1_mstep.csv), against C psmc and the main fit. None: no such
-    # fit. psmc-rs 0.2's default M-step runs to convergence like the main
-    # fit's (see Inference), so the default needs no fit of its own; a small
-    # cap (say 5) shows what an M-step stopped short of convergence does.
+    # table E1_mstep.csv), against C psmc and the main fit; None: no such fit
+    # (the default M-step converges, see Inference). A small cap (say 5)
+    # shows what an M-step stopped short of convergence does.
     default_mstep_iters: Optional[int] = None
 
 
@@ -307,11 +300,11 @@ class RealGenome:
     sha256: Optional[str] = None
     # Another experiment that bootstraps this psmcfa too (E7 for NA12878).
     # E2's bootstrap of it at the default trunks is then that experiment's
-    # run: it draws that experiment's seed, seed(<experiment>, sample_id, 0,
-    # "bootstrap"), and E2 refuses to plan a run of the whole file unless the
-    # experiment's replicates, trunks and inference (the replicates'
-    # iterations among it) are E2's, so that both figures show the identical
-    # band. None: E2's own seed.
+    # run, with its seed, seed(<experiment>, sample_id, 0, "bootstrap"), and
+    # E2 plans a run of the whole file only when that experiment's
+    # replicates, trunks and inference (the replicates' iterations among it)
+    # are E2's, so that both figures show the identical band. None: E2's own
+    # seed.
     bootstrap_shared_with: Optional[str] = None
 
 
@@ -320,12 +313,13 @@ class RealGenome:
 # that of nine trios of the painted turtle Chrysemys picta, a cryptodire
 # (Bergeron et al. 2023: 3.04e-9 to 6.56e-9 per bp per generation, mean
 # 4.61e-9; the paper's 2.3e-10 per year divides it by an assumed g of 20).
-# The psmc-rs 0.1 runs used 7.9e-9, which is a crocodilian rate: Green et
-# al. 2014 derived it from the alligator-crocodile divergence with a 20-year
+# The psmc-rs 0.1 runs used 7.9e-9, a crocodilian rate: Green et al. 2014
+# derived it from the alligator-crocodile divergence with a 20-year
 # generation. g 15 years is shared by the three species: close to the values
 # of Sozzoni et al. 2025 (Table S2) for P. castaneus (15.9) and E. subglobosa
 # (12.4); H. tectifera has no published age at maturity or generation time.
 # Ne and time scale as 1/mu, and time also as g (figures/README.md: Fig 3).
+_TURTLE_SCALING = Scaling(4.6e-9, 15.0)
 _TURTLE_SCALING_SOURCE = (
     "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios "
     "(Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a "
@@ -335,8 +329,9 @@ _TURTLE_SCALING_SOURCE = (
     "Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449)."
 )
 _TURTLE_SCALING_CITE = "painted turtle trios (Bergeron 2023)"
-# The human scaling, shared with E7 (config.E7.scaling_source), which fits
-# the same NA12878 psmcfa.
+# The human scaling, shared with E7 (E7.scaling and scaling_source), which
+# fits the same NA12878 psmcfa.
+_HUMAN_SCALING = Scaling(1.25e-8, 29.0)
 _HUMAN_SCALING_SOURCE = (
     "mu 1.25e-8: the pedigree-based human rate (Scally & Durbin 2012, Nat Rev Genet 13:745); g 29: the "
     "mean human generation interval of Fenner 2005 (Am J Phys Anthropol 128:415), as in Bergstrom et al. "
@@ -344,34 +339,27 @@ _HUMAN_SCALING_SOURCE = (
 )
 _HUMAN_SCALING_CITE = "Scally & Durbin 2012; g: Fenner 2005"
 
+
+def _turtle(sample_id: str, species: str) -> RealGenome:
+    return RealGenome(sample_id, f"{sample_id}_diploid.psmcfa", species, f"{species} ({sample_id})",
+                      _TURTLE_SCALING, _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE)
+
+
 REAL_GENOMES: Tuple[RealGenome, ...] = (
-    RealGenome(
-        "HLemySub1", "HLemySub1_diploid.psmcfa", "Emydura subglobosa",
-        "Emydura subglobosa (HLemySub1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
-    ),
-    RealGenome(
-        "HLhydTec1", "HLhydTec1_diploid.psmcfa", "Hydromedusa tectifera",
-        "Hydromedusa tectifera (HLhydTec1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
-    ),
-    RealGenome(
-        "HLpelCas1", "HLpelCas1_diploid.psmcfa", "Pelusios castaneus",
-        "Pelusios castaneus (HLpelCas1)", Scaling(4.6e-9, 15.0), _TURTLE_SCALING_SOURCE, _TURTLE_SCALING_CITE,
-    ),
+    _turtle("HLemySub1", "Emydura subglobosa"),
+    _turtle("HLhydTec1", "Hydromedusa tectifera"),
+    _turtle("HLpelCas1", "Pelusios castaneus"),
     # NA12878 (CEU; GIAB's HG001): chr1-22 of the 1000 Genomes 30x NYGC
     # joint-called VCF, 22 sequences of 28,750,027 bins in all (GRCh38's
     # lengths / 100; 59 trunks of 50 Mb), one gzip member per chromosome.
-    # E7's data stage made it (kg1000.py: the GRCh38 strict mask, every
-    # non-PASS position missing; assemble-samples): it is E7's
-    # inputs/psmcfa/NA12878.psmcfa.gz byte for byte, and sha256 is that
-    # file's entry in E7's MANIFEST.json. E7 bootstraps it too
+    # It is E7's inputs/psmcfa/NA12878.psmcfa.gz byte for byte (kg1000.py:
+    # the GRCh38 strict mask, every non-PASS position missing), and sha256 is
+    # that file's entry in E7's MANIFEST.json. E7 bootstraps it too
     # (E7.bootstrap_samples), and E2's bootstrap of it is E7's run, seed and
-    # settings (Fig 3a and Fig 7 show one band). The Papuan chromosome 1 E2
-    # fitted before (Papuan_highlands_diploid.psmcfa) stays in real_data for
-    # the top-level README's benchmarks, the Rust tests and the psmc-rs 0.1
-    # scripts (experiment/scripts/run_real_data.py).
+    # settings (Fig 3a and Fig 7 show one band).
     RealGenome(
         "NA12878", "NA12878_1kGP30x_diploid.psmcfa.gz", "Homo sapiens",
-        "Homo sapiens (NA12878, CEU)", Scaling(1.25e-8, 29.0), _HUMAN_SCALING_SOURCE, _HUMAN_SCALING_CITE,
+        "Homo sapiens (NA12878, CEU)", _HUMAN_SCALING, _HUMAN_SCALING_SOURCE, _HUMAN_SCALING_CITE,
         sequence_noun="chromosomes",
         sha256="a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
         bootstrap_shared_with="E7",
@@ -394,17 +382,16 @@ class E2:
     inference: Inference = INFERENCE
     bootstrap_replicates: int = 100
     bootstrap_trunk_bins: int = 500_000  # psmc-rs default (splitfa's 50 Mb at 100 bp)
-    # A second bootstrap, with trunks of the size E5 also calibrates (50,000
-    # bins, 5 Mb), of every genome whose default trunks are fewer than
-    # ``few_trunks``, whose default band rests on that few resampling units.
-    # No genome of the production run has so few (NA12878 59, HLhydTec1 51,
-    # HLemySub1 897, HLpelCas1 1,220), so production runs none; the smoke and
-    # tiny profiles' prefixes do. E5 calibrates bootstraps of 50 Mb
-    # chromosomes cut into 50 Mb and 5 Mb trunks; the turtles' default
-    # bootstraps resample whole scaffolds of very different lengths (50%, 23%
-    # and 97% of the bins of HLemySub1, HLhydTec1 and HLpelCas1 lie in
-    # scaffolds shorter than a trunk), a regime E5 does not calibrate. None:
-    # no second bootstrap.
+    # A second bootstrap, on the trunks E5 also calibrates (50,000 bins,
+    # 5 Mb), of every genome with fewer than ``few_trunks`` default trunks,
+    # whose default band rests on that few resampling units. No production
+    # genome has so few (NA12878 59, HLhydTec1 51, HLemySub1 897, HLpelCas1
+    # 1,220), so production runs none; the smoke and tiny profiles' prefixes
+    # do. E5 calibrates bootstraps of 50 Mb chromosomes cut into 50 Mb and
+    # 5 Mb trunks; the turtles' default bootstraps resample whole scaffolds of
+    # very different lengths (50%, 23% and 97% of the bins of HLemySub1,
+    # HLhydTec1 and HLpelCas1 lie in scaffolds shorter than a trunk), a regime
+    # E5 does not calibrate. None: no second bootstrap.
     fine_trunk_bins: Optional[int] = 50_000
     band: Tuple[float, float] = (0.025, 0.975)
     # The bootstrap fits replicates in parallel, one per thread; its output
@@ -470,43 +457,42 @@ class TimingProtocol:
     interrupts and steal) over ``quiet_window_seconds`` is at most
     ``quiet_cpu_percent`` of all cores and at most ``quiet_max_cores`` cores.
     During the run it samples the RSS of the tool's process tree every
-    ``rss_sample_seconds`` (the tools are single processes; the larger of
-    that sample and the tool's own ``ru_maxrss`` is kept: ``ru_maxrss`` is
-    never below the peak, but on Linux it also counts the memory the process
-    held when it was launched from the Python wrapper, about 25 MB on Ibex,
-    so it is an upper bound for a tool that needs less) and afterwards
-    records the CPU time that other processes used while it ran. A run is
-    only kept when it was clean: the machine became quiet within
+    ``rss_sample_seconds`` and keeps the larger of that peak and the tool's
+    own ``ru_maxrss`` (never below the peak, but on Linux it also counts the
+    memory the process held when launched from the Python wrapper, about
+    25 MB on Ibex, so it is an upper bound for a tool that needs less);
+    afterwards it records the CPU time other processes used while it ran.
+
+    A run is kept only when it was clean: the machine became quiet within
     ``max_wait_seconds``, other processes used at most
     ``max_other_cpu_share`` of all cores and at most ``max_other_cores``
     cores on average during it, the machine did not sleep (wall-clock span
     within ``max_sleep_seconds`` of the monotonic run time) and, with
     ``require_ac_power``, it ran on AC power without Low Power Mode.
     Otherwise ``measure`` writes no record and exits with status 75, and the
-    runner starts the run again later (it defers it).
+    runner defers the run (starts it again later).
 
-    "Other processes" during the run are the user-space processes other than
-    the tool's and the timing wrapper, each one's CPU time, with that of the
-    children it reaped, read before and after the run (Linux): a process
-    that ended during the run counts through the one that waited for it,
-    and only one that nothing waits for is missed (it shows in
-    ``during.unaccounted_cores``, recorded, not limited). Steal time
-    (another machine's, under a hypervisor) is limited with them. The
-    kernel's threads and interrupt time are not counted: part of it is the
-    kernel's work for the tool (a run keeping 30 cores busy adds about 0.1
-    core of it on a 128-core node), the rest the machine's housekeeping
-    that the quiet check before the run bounds, and neither is another
-    workload. Where not every process can be read (other users' processes
-    on macOS, where reaped children's CPU is not readable either), the
-    machine's busy CPU time but the tool's is limited instead, kernel and
-    interrupt time included, so that nothing is under-counted; each record
-    says which (``during.other_method``).
+    "Other processes" are the user-space processes other than the tool's and
+    the timing wrapper, each one's CPU time with that of the children it
+    reaped, read before and after the run (Linux): a process that ended
+    during the run counts through the one that waited for it, and only one
+    that nothing waits for is missed (it shows in
+    ``during.unaccounted_cores``, recorded, not limited). Steal time (another
+    machine's, under a hypervisor) is limited with them. Kernel threads and
+    interrupt time are not: part of it is the kernel's work for the tool (a
+    run keeping 30 cores busy adds about 0.1 core of it on a 128-core node),
+    the rest housekeeping that the quiet check before the run bounds, and
+    neither is another workload. Where not every process can be read (other
+    users' processes on macOS, where reaped children's CPU is not readable
+    either), the machine's busy CPU time but the tool's is limited instead,
+    kernel and interrupt time included, so that nothing is under-counted;
+    each record says which (``during.other_method``).
 
     Each limit is the smaller of a share of all cores and a number of cores:
     on the 8 to 10 cores of a laptop the shares decide (0.8 to 1 core busy
-    before a run, 0.4 to 0.5 core of other work during it), while on a node
-    of 128 or 192 cores the shares would let 6 to 19 busy cores pass, and the
-    core counts decide.
+    before a run, 0.4 to 0.5 core of other work during it); on a node of 128
+    or 192 cores the shares would let 6 to 19 busy cores pass, and the core
+    counts decide.
     """
 
     settle_seconds: float = 10.0
@@ -523,10 +509,11 @@ class TimingProtocol:
 
 # For the smoke and tiny profiles: no waiting, one short look at the machine,
 # and every run kept whatever else the machine does.
-QUICK_TIMING = TimingProtocol(settle_seconds=0.0, quiet_window_seconds=0.2, max_wait_seconds=0.0,
-                              rss_sample_seconds=0.05, quiet_cpu_percent=100.0, quiet_max_cores=1e9,
-                              max_other_cpu_share=1.0, max_other_cores=1e9, max_sleep_seconds=1e9,
-                              require_ac_power=False)
+QUICK_TIMING = TimingProtocol(
+    settle_seconds=0.0, quiet_window_seconds=0.2, max_wait_seconds=0.0, rss_sample_seconds=0.05,
+    quiet_cpu_percent=100.0, quiet_max_cores=1e9, max_other_cpu_share=1.0, max_other_cores=1e9,
+    max_sleep_seconds=1e9, require_ac_power=False,
+)
 
 
 @dataclass(frozen=True)
@@ -578,10 +565,10 @@ class ResourceModel:
     parallel_efficiency: float = 0.7
     # psmc-rs 0.1's M-step runs on one thread for --mstep-iters forward-mode
     # L-BFGS iterations and costs per EM iteration about this many seconds
-    # per 1000 of them (8.4 s measured on 300 Mb; it varies between genomes
-    # from about 1 to 8 s). psmc-rs 0.2's converges in a few ms per EM
-    # iteration whatever the size (with 64 states, measured on 100 and
-    # 500 Mb); rs02_mstep_s_per_iter is generous, and covers a capped arm.
+    # per 1000 of them (8.4 s measured on 300 Mb; 1 to 8 s across genomes).
+    # psmc-rs 0.2's converges in a few ms per EM iteration whatever the size
+    # (64 states, measured on 100 and 500 Mb); rs02_mstep_s_per_iter is
+    # generous, and covers a capped arm.
     rs01_mstep_s_per_iter_1000: float = 8.0
     rs02_mstep_s_per_iter: float = 0.02
 
@@ -625,11 +612,11 @@ class E3:
     thread_scaling_size_mb: int = 3000
     thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8, 16, 30)
     memory_limit_gb: float = 64.0  # skip any run whose estimated peak exceeds this (and say why)
-    rs01_commit: str = "e50d69d"
     # psmc-rs 0.1 has no --tr-ratio; its default start rho0 = theta0/5 is the
     # -r5 of the recipe, so it gets the other settings (pattern, t_max,
     # smoothing 0, M-step iterations, EM iterations) and its default start.
     # It has no --bin-size either: it reads a psmcfa as 100 bp bins.
+    rs01_commit: str = "e50d69d"
     timing: TimingProtocol = TimingProtocol()
     resources: ResourceModel = ResourceModel()
 
@@ -655,13 +642,14 @@ class E4:
     N0 = theta / (4 mu s) and every time and size come out low, by
     somewhat more than the share of bases missing from the called bins
     (about 1.2 times it in the production run: theta -12% with 10% and
-    -35% with 30% dispersed missing). psmc-rs's callable-length model (``--bin-callable auto``, its
-    default; docs/design/bin-callable-model.md) weighs each bin by the
-    callable bases the VCF and its mask say it holds. E4 fits both models
-    on the same bins, the classic fq2psmcfa route, multihetsep (whose
-    callable bases are approximate, so that ``--bin-callable auto`` fits
-    its bins with C psmc's model) and the VCF without its mask, each
-    against the truth and against the complete-data fit of the same genome.
+    -35% with 30% dispersed missing). psmc-rs's callable-length model
+    (``--bin-callable auto``, its default; docs/design/bin-callable-model.md)
+    weighs each bin by the callable bases the VCF and its mask say it holds.
+    E4 fits both models on the same bins, the classic fq2psmcfa route,
+    multihetsep (whose callable bases are approximate, so that
+    ``--bin-callable auto`` fits its bins with C psmc's model) and the VCF
+    without its mask, each against the truth and against the complete-data
+    fit of the same genome.
     """
 
     model: str = "bottleneck"
@@ -677,10 +665,10 @@ class E4:
         MaskSpec("dispersed30", 0.3, "dispersed", 20.0),
     )
     no_missing_control: bool = True
-    # The routes fitted (described below, with the --bin-callable each one
-    # passes in E4_BIN_CALLABLE). mask_auto and mask_ignore are required:
-    # they are the corrected route and the fq2psmcfa binning it is compared
-    # with, and the control's mask_auto fit is the complete-data fit.
+    # The routes fitted (below, with the --bin-callable of each in
+    # E4_BIN_CALLABLE). mask_auto and mask_ignore are required: they are the
+    # corrected route and the fq2psmcfa binning it is compared with, and the
+    # control's mask_auto fit is the complete-data fit.
     routes: Tuple[str, ...] = ("mask_auto", "mask_ignore", "fq2psmcfa", "multihetsep", "nomask")
     multihetsep_crosscheck_replicates: int = 1
     grid: TimeGrid = TimeGrid()
@@ -736,11 +724,8 @@ class E4:
 
 E4_CONTROL_MASK = "nomissing"  # the no-missing control: every site callable
 
-# psmc-rs --bin-callable of each E4 route, passed explicitly. auto is
-# psmc-rs's default; a psmcfa records no callable bases, so the fq2psmcfa
-# route fits C psmc's model with it (and ignore would only add a warning),
-# and auto fits exact counts only, so the multihetsep route, whose counts
-# are approximate, fits C psmc's model on its bins too (as ignore would).
+# psmc-rs --bin-callable of each E4 route, passed explicitly (auto is its
+# default; see the routes above for what it does on each).
 E4_BIN_CALLABLE: Dict[str, str] = {
     "mask_auto": "auto",
     "mask_ignore": "ignore",
@@ -947,8 +932,6 @@ _KG_MASK = ("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_ge
 _GIAB = ("https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/NISTv4.2.1/GRCh38/"
          "HG001_GRCh38_1_22_v4.2.1_benchmark")
 
-_KG_SCALING_SOURCE = _HUMAN_SCALING_SOURCE  # E2's, whose NA12878 is the same psmcfa
-
 
 @dataclass(frozen=True)
 class E7Costs:
@@ -1047,8 +1030,8 @@ class E7:
     pilot_samples: Tuple[str, ...] = ("NA18507", "NA19239", "NA12878")
 
     # -- Fits (the runner) -------------------------------------------------------
-    scaling: Scaling = Scaling(mu=1.25e-8, gen_years=29.0)
-    scaling_source: str = _KG_SCALING_SOURCE
+    scaling: Scaling = _HUMAN_SCALING  # E2's, whose NA12878 is the same psmcfa
+    scaling_source: str = _HUMAN_SCALING_SOURCE
     inference: Inference = INFERENCE
     fit_threads: int = 1
     # E2's bootstrap of NA12878 is this one (RealGenome.bootstrap_shared_with):
@@ -1174,22 +1157,14 @@ class Profile:
 PRODUCTION = Profile(name="production")
 
 # smoke: the same code paths at a size that runs in a few minutes, 3 EM
-# iterations everywhere.
-# - E1: 2 models x 2 replicates x 2 chromosomes of 2 Mb.
-# - E2: the first 20 Mb (200,000 bins) of each of the four genomes (job
-#   E2/subset/<sample>; the real genomes hold 1.85 to 2.88 Gb and C psmc
-#   needs about 50 minutes for each turtle and 70 for NA12878), 4 bootstrap
-#   replicates on 2 Mb trunks: 10 per genome, so each genome also gets the
-#   second bootstrap, on trunks of 0.5 Mb.
-# - E3: genomes of 2 and 4 Mb (chromosomes of 2 Mb), 1 repeat, every run
-#   kept whatever the machine does (QUICK_TIMING).
-# - E4: 1 replicate of 2 x 2 Mb.
-# - E5: 8 genomes of 2 x 2 Mb, the first 3 bootstrapped with 8 replicates at
-#   trunks of 5,000 and 2,000 bins (8 and 20 trunks, as production's 6 and 60).
-# - E7: the real data, a 1 Mb window of chr21 (30-31 Mb) streamed in two
-#   chunks of 500 kb, the default set only (52 samples); the bootstraps with 4
-#   replicates on trunks of 1,000 bins (the window leaves the rest of chr21
-#   uncallable, so the default trunks would mostly hold no data).
+# iterations everywhere. E2 fits the first 20 Mb of each genome (job
+# E2/subset/<sample>; the real genomes hold 1.85 to 2.88 Gb, and C psmc needs
+# about 50 minutes for each turtle and 70 for NA12878) on 2 Mb trunks, 10 per
+# genome, so each genome also gets the second bootstrap. E5's trunks make 8
+# and 20 per genome, as production's make 6 and 60. E7 streams a 1 Mb window
+# of chr21 in two chunks, the default set only (52 samples), and bootstraps on
+# trunks of 1,000 bins (the window leaves the rest of chr21 uncallable, so the
+# default trunks would mostly hold no data).
 _SMOKE_GENOME = Genome(n_chromosomes=2, chromosome_length=2_000_000)
 _SMOKE_INFERENCE = replace(INFERENCE, n_iter=3)
 SMOKE = Profile(
@@ -1200,31 +1175,22 @@ SMOKE = Profile(
     e3=E3(genome_sizes_mb=(2, 4), chromosome_length=2_000_000, repeats=1, inference=_SMOKE_INFERENCE,
           rs01_threads=(1, 2), rs02_threads=(1, 2), thread_scaling_size_mb=4,
           thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
-    e4=replace(E4(), replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
-    e5=replace(E5(), genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, truth_replicates=8, bootstrap_datasets=3,
-               bootstrap_replicates=8, trunk_bins=(5_000, 2_000)),
-    e7=replace(E7(), chromosomes=("chr21",), window=(30_000_001, 31_000_000), chunk_bp=500_000, cohort=None,
-               min_good_fraction=0.0, inference=_SMOKE_INFERENCE, bootstrap_replicates=4, bootstrap_trunk_bins=1_000,
-               bootstrap_threads=2),
+    e4=E4(replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
+    e5=E5(genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, truth_replicates=8, bootstrap_datasets=3,
+          bootstrap_replicates=8, trunk_bins=(5_000, 2_000)),
+    e7=E7(chromosomes=("chr21",), window=(30_000_001, 31_000_000), chunk_bp=500_000, cohort=None,
+          min_good_fraction=0.0, inference=_SMOKE_INFERENCE, bootstrap_replicates=4, bootstrap_trunk_bins=1_000,
+          bootstrap_threads=2),
 )
 
-# tiny: for the unit tests (seconds per experiment), 2 EM iterations.
-# - E1: one replicate of one model, one chromosome of 300 kb; a second
-#   psmc-rs fit with M-steps capped at 5 iterations exercises that arm.
-# - E2: the first 2 Mb of NA12878 (of its chr1) and of one turtle, 2
-#   bootstrap replicates on 500 kb trunks (and on 100 kb trunks).
-# - E3: one genome of two 0.5 Mb chromosomes, every tool, two repeats, and
-#   psmc-rs 0.2 with M-steps capped at 5 iterations.
-# - E4: two chromosomes of 300 kb (the multihetsep cross-check runs per
-#   chromosome), the control and one mask of each structure, clustered runs
-#   shortened so that a chromosome holds several.
-# - E5: 3 genomes of one 300 kb chromosome, the first bootstrapped with 3
-#   replicates at trunks of 1,000 and 500 bins.
-# - E7: a synthetic cohort (kg1000 fixture: 24 msprime genomes of 7
-#   populations on a 400 kb "chr21" and a 300 kb "chr22", with missing
-#   genotypes, non-PASS records, indels and a GIAB-like truth) read from local
-#   files, in chunks of 150 kb split in batches of 4 samples; 2 bootstrap
-#   replicates on trunks of 1,000 bins.
+# tiny: for the unit tests (seconds per experiment), 2 EM iterations. E1 and
+# E3 also fit psmc-rs with M-steps capped at 5 iterations, to exercise that
+# arm. E4 has two chromosomes (the multihetsep cross-check runs per
+# chromosome), the control and one mask of each structure, its clustered runs
+# short enough that a chromosome holds several. E7 reads a synthetic cohort
+# from local files (kg1000 fixture: 24 msprime genomes of 7 populations on a
+# 400 kb "chr21" and a 300 kb "chr22", with missing genotypes, non-PASS
+# records, indels and a GIAB-like truth).
 _TINY_GENOME = Genome(n_chromosomes=1, chromosome_length=300_000)
 _TINY_INFERENCE = replace(INFERENCE, n_iter=2)
 TINY = Profile(
@@ -1235,16 +1201,14 @@ TINY = Profile(
           bootstrap_replicates=2, bootstrap_trunk_bins=5_000, fine_trunk_bins=1_000, rs_threads=2, max_bins=20_000),
     e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=_TINY_INFERENCE,
           rs01_threads=(1,), rs02_threads=(1, 2), rs02_default_threads=(1,), default_mstep_iters=5,
-          thread_scaling_size_mb=1,
-          thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
-    e4=replace(E4(), replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000), inference=_TINY_INFERENCE,
-               masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0),
-                      MaskSpec("dispersed30", 0.3, "dispersed", 20.0))),
-    e5=replace(E5(), genome=_TINY_GENOME, inference=_TINY_INFERENCE, truth_replicates=3, bootstrap_datasets=1,
-               bootstrap_replicates=3, trunk_bins=(1_000, 500)),
-    e7=replace(E7(), local_source="fixture", chromosomes=("chr21", "chr22"), chunk_bp=150_000,
-               inference=_TINY_INFERENCE, bootstrap_replicates=2, bootstrap_trunk_bins=1_000, bootstrap_threads=2,
-               split_batch_size=4, chunk_attempts=1, retry_wait_seconds=0.0),
+          thread_scaling_size_mb=1, thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
+    e4=E4(replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000), inference=_TINY_INFERENCE,
+          masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0), MaskSpec("dispersed30", 0.3, "dispersed", 20.0))),
+    e5=E5(genome=_TINY_GENOME, inference=_TINY_INFERENCE, truth_replicates=3, bootstrap_datasets=1,
+          bootstrap_replicates=3, trunk_bins=(1_000, 500)),
+    e7=E7(local_source="fixture", chromosomes=("chr21", "chr22"), chunk_bp=150_000, inference=_TINY_INFERENCE,
+          bootstrap_replicates=2, bootstrap_trunk_bins=1_000, bootstrap_threads=2, split_batch_size=4,
+          chunk_attempts=1, retry_wait_seconds=0.0),
 )
 
 PROFILES: Dict[str, Profile] = {p.name: p for p in (PRODUCTION, SMOKE, TINY)}
@@ -1259,10 +1223,11 @@ def get_profile(name: str) -> Profile:
 
 
 __all__ = [
-    "Budget", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs", "E4_BIN_CALLABLE", "E4_COSTS",
-    "E4_CONTROL_MASK", "E5", "E6", "E6Costs", "E7", "E7Costs", "FIGURES", "Figures", "Genome", "INFERENCE", "Inference", "MODELS",
-    "MODEL_ORDER", "MaskSpec",
-    "PROFILES", "PSMC_RS_SUMMARY_QUANTILES", "Profile", "QUICK_TIMING", "REAL_GENOMES", "RealGenome", "ResourceModel",
-    "SIMULATION", "SIMULATION_SCALING", "Scaling", "Simulation", "SizeChange", "TRUTH_TABLE_YEARS", "TimeGrid",
-    "TimingProtocol", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
+    "BOTTLENECK", "Budget", "CONSTANT", "Costs", "DemographicModel", "E1", "E2", "E3", "E4", "E4Costs",
+    "E4_BIN_CALLABLE", "E4_CONTROL_MASK", "E4_COSTS", "E5", "E6", "E6Costs", "E7", "E7Costs", "EXPANSION",
+    "FIGURES", "Figures", "GENOME_500MB", "Genome", "INFERENCE", "Inference", "MODELS", "MODEL_ORDER", "MaskSpec",
+    "PRODUCTION", "PROFILES", "PSMC_RS_SUMMARY_QUANTILES", "Profile", "QUICK_TIMING", "REAL_GENOMES",
+    "RealGenome", "ResourceModel", "SEED_NAMESPACE", "SIMULATION", "SIMULATION_SCALING", "SMOKE", "Scaling",
+    "Simulation", "SizeChange", "TINY", "TRUTH_TABLE_YEARS", "TimeGrid",
+    "TimingProtocol", "ZIGZAG", "ZIGZAG_STDPOPSIM", "get_profile", "ms_model", "seed",
 ]
