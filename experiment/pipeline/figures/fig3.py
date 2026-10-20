@@ -117,10 +117,79 @@ class Panel(NamedTuple):
     cite: str  # mu's source in a few words
 
 
-def draw(src: Source):
+def _bands(ax, bands, mine, window: Tuple[float, float], xlim: Tuple[float, float]) -> Tuple[List[float], float]:
+    """Draw a genome's bootstrap bands (``mine``: its rows of ``E2_bootstrap``; ``bands``: its band rows).
+
+    The default blocks' band is filled, another outlined. Returns the Ne
+    values the bands reach inside ``window`` and the top there of a coarse
+    band, which is clipped rather than fitted to the axis (0 without one).
+    """
+    vals: List[float] = []
+    coarse_hi = 0.0
+    for row in mine.itertuples():
+        b = bands[bands.trunk_bins == row.trunk_bins].sort_values("years")
+        x = b["years"].to_numpy()
+        lo, hi = b["ne_band_lo"].to_numpy(), b["ne_band_hi"].to_numpy()
+        keep = (x >= xlim[0]) & (x <= xlim[1])
+        if str(row.default_trunks) == "True":
+            ax.fill_between(x[keep], lo[keep], hi[keep], step="post", color=style.BLUE, alpha=style.BAND_ALPHA,
+                            linewidth=0, zorder=2)
+        else:
+            for edge in (lo, hi):
+                ax.plot(x[keep], edge[keep], drawstyle="steps-post", color=style.BLUE_650, linewidth=FINE_LW,
+                        linestyle=FINE_STYLE, zorder=3)
+        inside = (x >= window[0]) & (x <= window[1])
+        if str(row.coarse_band) == "True":
+            coarse_hi = max(coarse_hi, float(hi[inside].max()))
+        else:
+            vals += [float(lo[inside].min()), float(hi[inside].max())]
+    return vals, coarse_hi
+
+
+def _ne_ranges(panels: Sequence[Panel]) -> Dict[Tuple[float, float], Tuple[float, float]]:
+    """One Ne range per scaling (the turtles share theirs), every one spanning the same number of decades.
+
+    Each leaves room for the notes above and below the data (a box would
+    cover the grey outside the window) and is then widened evenly to the
+    widest, so that a ten-fold change is drawn at the same height in every
+    panel.
+    """
+    room_top = 1.0 - SCALING_NOTE_Y + SCALING_NOTE_LINES * NOTE_LINE_SHARE
+    ranges: Dict[Tuple[float, float], Tuple[float, float]] = {}
+    for key in {p.scaling for p in panels}:
+        group = [p for p in panels if p.scaling == key]
+        room_bottom = 0.03 + NOTE_LINE_SHARE * max(len(p.lines) for p in group)
+        ranges[key] = with_room(min(v for p in group for v in p.vals) / 1.6,
+                                max(v for p in group for v in p.vals) * 1.6, room_top, room_bottom)
+    widest = max(math.log10(hi / lo) for lo, hi in ranges.values())
+    for key, (lo, hi) in ranges.items():
+        extra = (widest - math.log10(hi / lo)) / 2.0
+        ranges[key] = (lo / 10**extra, hi * 10**extra)
+    return ranges
+
+
+def _legend(fig, cfg: config.E2, boots) -> None:
+    """The key. A band's block size is named only beside the other band's: few of a genome's blocks are that long."""
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
+    default_mb = cfg.bootstrap_trunk_bins * cfg.inference.bin_size / 1e6
+    fine = boots[boots["default_trunks"].astype(str) == "False"]
+    handles = [
+        style.handle(style.C_PSMC, linewidth=C_LW),
+        style.handle(style.RS02, linewidth=RS_LW),
+        Patch(facecolor=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0,
+              label="Bootstrap 95% band" if fine.empty else f"Bootstrap 95% band, {default_mb:g} Mb blocks"),
+    ]
+    if not fine.empty:
+        handles.append(Line2D([], [], color=style.BLUE_650, linewidth=FINE_LW, linestyle=FINE_STYLE,
+                              label=f"Bootstrap 95% band, {float(fine['trunk_mb'].iloc[0]):g} Mb blocks"))
+    handles.append(Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"))
+    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
+                 columnspacing=1.0, handlelength=2.0)
+
+
+def draw(src: Source):
     cfg = src.profile.e2
     fits = curves(src.table("E2_curves"), ["sample_id", "tool"])
     bands = src.table("E2_bands")
@@ -141,29 +210,10 @@ def draw(src: Source):
     for i, gnm in enumerate(genomes):
         sid = gnm.sample_id
         ax = fig.add_subplot(gs[i // ncol, i % ncol])
-        pair = pairs[sid]
         window = windows[sid]
         style.shade_outside(ax, window, xlim)
         mine = boots[boots.sample_id == sid].sort_values("trunk_bins", ascending=False)
-        vals: List[float] = []
-        coarse_hi = 0.0
-        for row in mine.itertuples():
-            b = bands[(bands.sample_id == sid) & (bands.trunk_bins == row.trunk_bins)].sort_values("years")
-            x = b["years"].to_numpy()
-            lo, hi = b["ne_band_lo"].to_numpy(), b["ne_band_hi"].to_numpy()
-            keep = (x >= xlim[0]) & (x <= xlim[1])
-            if str(row.default_trunks) == "True":
-                ax.fill_between(x[keep], lo[keep], hi[keep], step="post", color=style.BLUE, alpha=style.BAND_ALPHA,
-                                linewidth=0, zorder=2)
-            else:
-                for edge in (lo, hi):
-                    ax.plot(x[keep], edge[keep], drawstyle="steps-post", color=style.BLUE_650, linewidth=FINE_LW,
-                            linestyle=FINE_STYLE, zorder=3)
-            inside = (x >= window[0]) & (x <= window[1])
-            if str(row.coarse_band) == "True":
-                coarse_hi = max(coarse_hi, float(hi[inside].max()))
-            else:
-                vals += [float(lo[inside].min()), float(hi[inside].max())]
+        vals, coarse_hi = _bands(ax, bands[bands.sample_id == sid], mine, window, xlim)
         grid = time_grid(window, 200)
         for tool, ent, lw, z in (("c", style.C_PSMC, C_LW, 4), ("rs", style.RS02, RS_LW, 5)):
             c = fits.get((sid, tool))
@@ -178,6 +228,7 @@ def draw(src: Source):
             mu, g, cite, sequences = float(sc.mu), float(sc.gen_years), str(sc.scaling_cite), int(sc.sequences)
         else:
             mu, g, cite, sequences = gnm.scaling.mu, gnm.scaling.gen_years, gnm.scaling_cite, None
+        pair = pairs[sid]
         lines = [r"psmc-rs vs C, log$_{10}$ $N_\mathrm{e}$ per interval:",
                  f"RMSE {fmt_sig(float(pair.rmse_log10_ne_rs_vs_c_per_interval))}, "
                  f"max {fmt_sig(float(pair.max_abs_log10_ne_rs_vs_c_per_interval))}"]
@@ -185,20 +236,7 @@ def draw(src: Source):
                   for row in mine.itertuples()]
         panels.append(Panel(ax, gnm, vals, lines, coarse_hi, (mu, g), cite))
 
-    # One Ne range per scaling (the turtles share theirs), leaving room for the notes above and below the data
-    # (a box would cover the grey outside the window); then every range is widened evenly to the same number of
-    # decades, so that a ten-fold change is drawn at the same height in every panel.
-    room_top = 1.0 - SCALING_NOTE_Y + SCALING_NOTE_LINES * NOTE_LINE_SHARE
-    ranges: Dict[Tuple[float, float], Tuple[float, float]] = {}
-    for key in {p.scaling for p in panels}:
-        group = [p for p in panels if p.scaling == key]
-        room_bottom = 0.03 + NOTE_LINE_SHARE * max(len(p.lines) for p in group)
-        ranges[key] = with_room(min(v for p in group for v in p.vals) / 1.6,
-                                max(v for p in group for v in p.vals) * 1.6, room_top, room_bottom)
-    widest = max(math.log10(hi / lo) for lo, hi in ranges.values())
-    for key, (lo, hi) in ranges.items():
-        extra = (widest - math.log10(hi / lo)) / 2.0
-        ranges[key] = (lo / 10**extra, hi * 10**extra)
+    ranges = _ne_ranges(panels)
     for i, p in enumerate(panels):
         lo, hi = ranges[p.scaling]
         lines = p.lines
@@ -214,22 +252,7 @@ def draw(src: Source):
         style.note(p.ax, 0.97, 0.03, "\n".join(lines), ha="right", va="bottom", linespacing=1.25, zorder=7)
     for j in range(n, nrow * ncol):
         fig.add_subplot(gs[j // ncol, j % ncol]).set_axis_off()
-
-    # A band's block size is named only beside the other band's: few of a genome's blocks are that long.
-    default_mb = cfg.bootstrap_trunk_bins * cfg.inference.bin_size / 1e6
-    fine = boots[boots["default_trunks"].astype(str) == "False"]
-    handles = [
-        style.handle(style.C_PSMC, linewidth=C_LW),
-        style.handle(style.RS02, linewidth=RS_LW),
-        Patch(facecolor=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0,
-              label="Bootstrap 95% band" if fine.empty else f"Bootstrap 95% band, {default_mb:g} Mb blocks"),
-    ]
-    if not fine.empty:
-        handles.append(Line2D([], [], color=style.BLUE_650, linewidth=FINE_LW, linestyle=FINE_STYLE,
-                              label=f"Bootstrap 95% band, {float(fine['trunk_mb'].iloc[0]):g} Mb blocks"))
-    handles.append(Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
-                 columnspacing=1.0, handlelength=2.0)
+    _legend(fig, cfg, boots)
     style.panel_letters(fig, [p.ax for p in panels])
     return fig
 
