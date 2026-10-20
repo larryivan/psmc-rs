@@ -465,7 +465,6 @@ def rc_params() -> Dict:
         "axes.titlelocation": "left",
         "axes.titlepad": TITLE_RISE_MM * PT_PER_MM,
         "axes.titley": 1.0,  # the title's baseline stays TITLE_RISE_MM above the axes
-        "legend.fontsize": TEXT_PT,
         "text.color": INK,
         "axes.labelcolor": INK,
         "axes.edgecolor": AXIS,
@@ -491,13 +490,10 @@ def rc_params() -> Dict:
         "lines.solid_capstyle": "butt",
         "lines.dash_capstyle": "butt",
         "patch.linewidth": LW_HAIR,
-        "legend.frameon": False,
-        "legend.handlelength": 1.8,
-        "legend.handletextpad": 0.5,
+        **{f"legend.{key}": value for key, value in LEGEND_KW.items()},
         "legend.borderaxespad": 0.2,
         "legend.borderpad": 0.2,
         "legend.labelspacing": 0.3,
-        "legend.columnspacing": 1.5,
         "mathtext.fontset": "custom",
         "mathtext.rm": family[0],
         "mathtext.it": f"{family[0]}:italic",
@@ -743,6 +739,7 @@ def direct_label(ax, x: float, y: float, text: str, *, ha: str = "left", va: str
 # Legends
 # ---------------------------------------------------------------------------
 
+# Every legend's style (also the rc defaults), passed explicitly by legend() and top_legend().
 LEGEND_KW = {"frameon": False, "fontsize": TEXT_PT, "handlelength": 1.8, "handletextpad": 0.5,
              "columnspacing": 1.5}
 
