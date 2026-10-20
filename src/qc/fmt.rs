@@ -39,6 +39,11 @@ pub(crate) fn pct(fraction: f64) -> String {
     }
 }
 
+/// `one` for a count of 1, else `many`.
+pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
+    if n == 1 { one } else { many }
+}
+
 /// A length in bases with a unit and three significant digits: `850 bp`,
 /// `12.3 kb`, `45.6 Mb`, `2.94 Gb`. Digits are cut, not rounded, so that a
 /// length just below a limit never prints as the limit (99,999,900 bp is

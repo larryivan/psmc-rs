@@ -1,11 +1,12 @@
 //! Plain-text rendering of a [`QcReport`].
 
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use super::fmt::{bases, count, pct, sig};
+use super::fmt::{bases, count, pct, plural, sig};
 use super::{
-    BinStats, Finding, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE, SequenceRow, Severity,
+    DepthReport, Finding, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE, SequenceRow, Severity,
 };
 
 /// How [`render_text_with`] lays out a report.
@@ -67,11 +68,7 @@ fn headline(out: &mut String, r: &QcReport) {
         out,
         "Input QC{format}: {} {}, {} bins of {} bp",
         count(r.n_sequences as u64),
-        if r.n_sequences == 1 {
-            "sequence"
-        } else {
-            "sequences"
-        },
+        plural(r.n_sequences, "sequence", "sequences"),
         count(r.totals.bins),
         r.bin_size
     );
@@ -103,21 +100,20 @@ fn wrap(out: &mut String, text: &str, first: &str, rest: &str, width: usize) {
 }
 
 fn findings(out: &mut String, findings: &[Finding], width: usize) {
-    let warnings = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Warning)
-        .count();
-    let infos = findings.len() - warnings;
     if findings.is_empty() {
         out.push_str("No warnings or notes.\n");
         return;
     }
-    let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+    let warnings = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Warning)
+        .count();
+    let notes = findings.len() - warnings;
     let _ = writeln!(
         out,
-        "{}, {}",
-        plural(warnings, "warning"),
-        plural(infos, "note")
+        "{warnings} {}, {notes} {}",
+        plural(warnings, "warning", "warnings"),
+        plural(notes, "note", "notes")
     );
     for f in findings {
         let label = match f.severity {
@@ -141,25 +137,6 @@ fn opt_sig(v: Option<f64>, digits: usize) -> String {
 
 fn metrics(out: &mut String, r: &QcReport) {
     let t = &r.totals;
-    let mut rows: Vec<(&str, String)> = Vec::new();
-    rows.push((
-        "Bins",
-        format!(
-            "T {}, K {}, N {}",
-            with_share(t.t_bins, t.t_fraction),
-            with_share(t.k_bins, t.k_fraction),
-            with_share(t.missing_bins, t.missing_fraction)
-        ),
-    ));
-    rows.push((
-        "theta0",
-        format!(
-            "{} per bin, {} per bp ({} per kb)",
-            opt_sig(t.theta0_per_bin, 3),
-            opt_sig(t.theta_per_bp, 3),
-            opt_sig(t.het_per_kb, 3)
-        ),
-    ));
     let mut called = format!("{} in called bins", bases(t.called_bases_from_bins));
     if let Some(c) = t.called_bases {
         let _ = write!(called, "; {} called sites", bases(c));
@@ -170,7 +147,27 @@ fn metrics(out: &mut String, r: &QcReport) {
     if let Some(h) = t.site_het_per_kb {
         let _ = write!(called, ", {} het sites per kb", sig(h, 3));
     }
-    rows.push(("Called length", called));
+    let mut rows: Vec<(&str, String)> = vec![
+        (
+            "Bins",
+            format!(
+                "T {}, K {}, N {}",
+                with_share(t.t_bins, t.t_fraction),
+                with_share(t.k_bins, t.k_fraction),
+                with_share(t.missing_bins, t.missing_fraction)
+            ),
+        ),
+        (
+            "theta0",
+            format!(
+                "{} per bin, {} per bp ({} per kb)",
+                opt_sig(t.theta0_per_bin, 3),
+                opt_sig(t.theta_per_bp, 3),
+                opt_sig(t.het_per_kb, 3)
+            ),
+        ),
+        ("Called length", called),
+    ];
     if let Some(c) = &r.callable {
         rows.push((
             "Callable bases",
@@ -252,11 +249,7 @@ fn metrics(out: &mut String, r: &QcReport) {
                 "{} per kb ({how} {} {}{per})",
                 sig(h.het_per_kb, 3),
                 count(h.sequences as u64),
-                if h.sequences == 1 {
-                    "sequence"
-                } else {
-                    "sequences"
-                }
+                plural(h.sequences, "sequence", "sequences")
             ),
         ));
     }
@@ -270,42 +263,7 @@ fn metrics(out: &mut String, r: &QcReport) {
         ));
     }
     if let Some(d) = &r.depth {
-        let mut depth = format!("mean {}x, median {}x", sig(d.mean, 3), sig(d.median, 3));
-        if let Some([p05, _, _, p95]) = d.quantiles {
-            // A quantile in the open last class is only a lower bound.
-            let open = d.histogram.len().saturating_sub(1);
-            let q = |p: u32| {
-                if p as usize == open {
-                    format!("{p}+")
-                } else {
-                    p.to_string()
-                }
-            };
-            let _ = write!(depth, ", 5-95% {}-{}x", q(p05), q(p95));
-        }
-        match (d.min_depth, d.max_depth) {
-            (Some(lo), Some(hi)) => {
-                let _ = write!(depth, "; kept {lo}-{hi}x");
-            }
-            (Some(lo), None) => {
-                let _ = write!(depth, "; kept >= {lo}x");
-            }
-            (None, Some(hi)) => {
-                let _ = write!(depth, "; kept <= {hi}x");
-            }
-            (None, None) => {}
-        }
-        let shares: Vec<String> = [
-            d.below_min_fraction.map(|f| format!("{} below", pct(f))),
-            d.above_max_fraction.map(|f| format!("{} above", pct(f))),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        if !shares.is_empty() {
-            let _ = write!(depth, " ({})", shares.join(", "));
-        }
-        rows.push(("Read depth", depth));
+        rows.push(("Read depth", read_depth(d)));
         if !d.filters.is_empty() {
             let list: Vec<String> = d
                 .filters
@@ -344,6 +302,41 @@ fn metrics(out: &mut String, r: &QcReport) {
     }
 }
 
+/// The read depth row: mean and median, the 5-95% range, the depths kept and
+/// the shares outside them.
+fn read_depth(d: &DepthReport) -> String {
+    let mut s = format!("mean {}x, median {}x", sig(d.mean, 3), sig(d.median, 3));
+    if let Some([p05, _, _, p95]) = d.quantiles {
+        // A quantile in the open last class is only a lower bound.
+        let open = d.histogram.len().saturating_sub(1);
+        let q = |p: u32| {
+            if p as usize == open {
+                format!("{p}+")
+            } else {
+                p.to_string()
+            }
+        };
+        let _ = write!(s, ", 5-95% {}-{}x", q(p05), q(p95));
+    }
+    let _ = match (d.min_depth, d.max_depth) {
+        (Some(lo), Some(hi)) => write!(s, "; kept {lo}-{hi}x"),
+        (Some(lo), None) => write!(s, "; kept >= {lo}x"),
+        (None, Some(hi)) => write!(s, "; kept <= {hi}x"),
+        (None, None) => Ok(()),
+    };
+    let shares: Vec<String> = [
+        d.below_min_fraction.map(|f| format!("{} below", pct(f))),
+        d.above_max_fraction.map(|f| format!("{} above", pct(f))),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if !shares.is_empty() {
+        let _ = write!(s, " ({})", shares.join(", "));
+    }
+    s
+}
+
 /// Longest name shown in the sequence table; longer ones are cut.
 const MAX_NAME: usize = 32;
 
@@ -357,7 +350,7 @@ fn cut_name(name: &str) -> String {
 }
 
 fn table_cells(row: &SequenceRow) -> Vec<String> {
-    let s: &BinStats = &row.stats;
+    let s = &row.stats;
     vec![
         cut_name(&row.name),
         count(s.bins),
@@ -372,6 +365,21 @@ fn table_cells(row: &SequenceRow) -> Vec<String> {
     ]
 }
 
+/// One line of the sequence table: the first and last columns (name and
+/// kind) left-aligned, the numbers right-aligned.
+fn table_line<S: AsRef<str>>(cols: &[S], widths: &[usize]) -> String {
+    let mut s = String::from(" ");
+    for (c, (text, &w)) in cols.iter().zip(widths).enumerate() {
+        let text = text.as_ref();
+        if c == 0 || c == widths.len() - 1 {
+            let _ = write!(s, " {text:<w$}");
+        } else {
+            let _ = write!(s, " {text:>w$}");
+        }
+    }
+    s.trim_end().to_string()
+}
+
 fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
     let named: HashSet<&str> = r
         .findings
@@ -380,15 +388,9 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
         .collect();
     let mut chosen: Vec<usize> = (0..r.sequences.len()).collect();
     if chosen.len() > cap {
-        chosen.sort_by(|&a, &b| {
-            let (ra, rb) = (&r.sequences[a], &r.sequences[b]);
-            let (na, nb) = (
-                named.contains(ra.name.as_str()),
-                named.contains(rb.name.as_str()),
-            );
-            nb.cmp(&na)
-                .then(rb.stats.bins.cmp(&ra.stats.bins))
-                .then(a.cmp(&b))
+        chosen.sort_by_key(|&i| {
+            let s = &r.sequences[i];
+            (!named.contains(s.name.as_str()), Reverse(s.stats.bins), i)
         });
         chosen.truncate(cap);
         chosen.sort_unstable();
@@ -420,19 +422,6 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
                 .unwrap_or(0)
         })
         .collect();
-    let line = |cols: &[&str]| -> String {
-        let mut s = String::from(" ");
-        for (c, text) in cols.iter().enumerate() {
-            let w = widths[c];
-            // Names and kinds left-aligned, numbers right-aligned.
-            if c == 0 || c == header.len() - 1 {
-                let _ = write!(s, " {text:<w$}");
-            } else {
-                let _ = write!(s, " {text:>w$}");
-            }
-        }
-        s.trim_end().to_string()
-    };
 
     let _ = writeln!(
         out,
@@ -440,12 +429,9 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
         count(chosen.len() as u64),
         count(r.n_sequences as u64)
     );
-    out.push_str(&line(&header));
-    out.push('\n');
+    let _ = writeln!(out, "{}", table_line(&header, &widths));
     for row in &cells {
-        let refs: Vec<&str> = row.iter().map(String::as_str).collect();
-        out.push_str(&line(&refs));
-        out.push('\n');
+        let _ = writeln!(out, "{}", table_line(row, &widths));
     }
     let hidden = r.n_sequences - chosen.len();
     if hidden > 0 {
@@ -454,7 +440,7 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
             out,
             "  ... {} more {} with {} bins (included in the totals)",
             count(hidden as u64),
-            if hidden == 1 { "sequence" } else { "sequences" },
+            plural(hidden, "sequence", "sequences"),
             count(r.totals.bins - shown_bins)
         );
     }

@@ -5,9 +5,9 @@
 
 use serde::Serialize;
 
-use super::fmt::{bases, count, pct, sig};
+use super::fmt::{bases, count, pct, plural, sig};
 use super::names::SeqKind;
-use super::stats::median;
+use super::stats::{fraction, median};
 use super::{
     DEFAULT_TR_RATIO, QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, SeqInfo,
     largest_trunk_within,
@@ -415,12 +415,17 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn new(code: QcCode, severity: Severity, message: String, recommendation: String) -> Self {
+    fn new(
+        code: QcCode,
+        severity: Severity,
+        message: impl Into<String>,
+        recommendation: impl Into<String>,
+    ) -> Self {
         Self {
             code,
             severity,
-            message,
-            recommendation,
+            message: message.into(),
+            recommendation: recommendation.into(),
             sequences: Vec::new(),
         }
     }
@@ -462,12 +467,7 @@ pub(super) fn run(
 
 /// `names` joined with commas, at most [`MAX_LISTED`] of them.
 fn listing(names: &[String]) -> String {
-    let mut s = names
-        .iter()
-        .take(MAX_LISTED)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
+    let mut s = names[..names.len().min(MAX_LISTED)].join(", ");
     if names.len() > MAX_LISTED {
         s.push_str(&format!(" and {} more", names.len() - MAX_LISTED));
     }
@@ -503,15 +503,12 @@ fn sex_or_organelle(
         };
         let note = match judged {
             Some((ratio, expected)) if expected >= HEMIZYGOUS_MIN_EXPECTED_HET_BINS => {
-                if ratio < HEMIZYGOUS_MAX_RATIO {
+                let hemi = ratio < HEMIZYGOUS_MAX_RATIO;
+                if hemi {
                     hemizygous.push(s.name.clone());
-                    format!(
-                        "{}x the autosomal heterozygosity, hemizygous?",
-                        sig(ratio, 2)
-                    )
-                } else {
-                    format!("{}x the autosomal heterozygosity", sig(ratio, 2))
                 }
+                let hemi = if hemi { ", hemizygous?" } else { "" };
+                format!("{}x the autosomal heterozygosity{hemi}", sig(ratio, 2))
             }
             Some(_) => "too few called bins to judge".to_string(),
             None if called_bins == 0 => "no called bins".to_string(),
@@ -519,7 +516,6 @@ fn sex_or_organelle(
         };
         described.push(format!("{} ({kind}, {note})", s.name));
     }
-    let names: Vec<String> = flagged.iter().map(|s| s.name.clone()).collect();
     let (severity, consequence, advice) = if hemizygous.is_empty() {
         (
             Severity::Info,
@@ -530,19 +526,18 @@ fn sex_or_organelle(
                 .to_string(),
         )
     } else {
+        let listed = listing(&hemizygous);
         (
             Severity::Warning,
             format!(
-                "{} {} far less heterozygous than the autosomes, as a single (hemizygous) \
+                "{listed} {} far less heterozygous than the autosomes, as a single (hemizygous) \
                  copy is; PSMC reads such a sequence as a long stretch of recent common \
                  ancestry, which lowers theta and adds a false signal of small recent Ne.",
-                listing(&hemizygous),
-                if hemizygous.len() == 1 { "is" } else { "are" },
+                plural(hemizygous.len(), "is", "are"),
             ),
             format!(
-                "Exclude {} (keep autosomes only, e.g. by restricting the mask, VCF or \
-                 psmcfa to them).",
-                listing(&hemizygous)
+                "Exclude {listed} (keep autosomes only, e.g. by restricting the mask, VCF or \
+                 psmcfa to them)."
             ),
         )
     };
@@ -552,16 +547,12 @@ fn sex_or_organelle(
         format!(
             "{} {} named like a sex chromosome or organelle: {}. {consequence}",
             count(flagged.len() as u64),
-            if flagged.len() == 1 {
-                "sequence is"
-            } else {
-                "sequences are"
-            },
+            plural(flagged.len(), "sequence is", "sequences are"),
             listing(&described),
         ),
         advice,
     );
-    f.sequences = names;
+    f.sequences = flagged.iter().map(|s| s.name.clone()).collect();
     Some(f)
 }
 
@@ -622,8 +613,7 @@ fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> 
          scaffolds (near zero when hemizygous), runs of homozygosity (inbreeding, a real \
          signal), deletions or an over-strict mask. Check depth, mapping quality, the mask \
          and the chromosome assignment of these sequences, and exclude any that are \
-         artefacts or hemizygous."
-            .to_string(),
+         artefacts or hemizygous.",
     );
     f.sequences = outliers.iter().map(|(s, _)| s.name.clone()).collect();
     Some(f)
@@ -716,49 +706,46 @@ fn variants_only_no_mask(input: &QcInput, report: &QcReport) -> Option<Finding> 
     if !input.context.variants_only_no_mask {
         return None;
     }
-    if input.context.gvcf {
-        return Some(Finding::new(
-            QcCode::VariantsOnlyNoMask,
-            Severity::Warning,
+    let missing = pct(report.totals.missing_fraction);
+    let theta = report
+        .totals
+        .theta0_per_bin
+        .map_or("n/a".to_string(), |t| format!("{} per bin", sig(t, 3)));
+    let (message, recommendation) = if input.context.gvcf {
+        (
             format!(
                 "The gVCF was read without a callable-sites mask. Positions that no record or \
-                 block covers are missing ({} of bins are missing), but every reference block \
-                 counts as called homozygous over its span, whatever its depth and genotype \
-                 quality: GATK writes stretches without reads as 0/0 blocks, which pulls theta \
-                 ({}) and Ne down, and blocks over repeats and collapsed duplications keep their \
-                 false heterozygous calls nearby, which pushes them up.",
-                pct(report.totals.missing_fraction),
-                report
-                    .totals
-                    .theta0_per_bin
-                    .map_or("n/a".to_string(), |t| format!("{} per bin", sig(t, 3))),
+                 block covers are missing ({missing} of bins are missing), but every reference \
+                 block counts as called homozygous over its span, whatever its depth and \
+                 genotype quality: GATK writes stretches without reads as 0/0 blocks, which \
+                 pulls theta ({theta}) and Ne down, and blocks over repeats and collapsed \
+                 duplications keep their false heterozygous calls nearby, which pushes them up."
             ),
             "Make a callable-sites BED from the gVCF's blocks with depth and genotype-quality \
              bounds, pass it with --vcf-mask, and give the variant records alone (`bcftools \
-             view -v snps,indels`); see docs/preprocessing.md, route B."
-                .to_string(),
-        ));
-    }
+             view -v snps,indels`); see docs/preprocessing.md, route B.",
+        )
+    } else {
+        (
+            format!(
+                "The VCF was read without a callable-sites mask, so every position without a \
+                 record counted as a called homozygous site ({missing} of bins are missing). In \
+                 a variants-only VCF that hides every uncalled position, which pulls theta \
+                 ({theta}) and Ne down and makes uncalled stretches look like recent common \
+                 ancestry; meanwhile false heterozygous calls in repeats and collapsed \
+                 duplications, which a callable mask would exclude, push them up. The net bias \
+                 has no fixed direction."
+            ),
+            "Pass a BED of callable sites (--vcf-mask), e.g. from your variant-calling \
+             pipeline or a depth profile, or call all sites (`bcftools mpileup -f ref.fa \
+             aln.bam | bcftools call -c`) so that every called position has a record.",
+        )
+    };
     Some(Finding::new(
         QcCode::VariantsOnlyNoMask,
         Severity::Warning,
-        format!(
-            "The VCF was read without a callable-sites mask, so every position without a \
-             record counted as a called homozygous site ({} of bins are missing). In a \
-             variants-only VCF that hides every uncalled position, which pulls theta ({}) \
-             and Ne down and makes uncalled stretches look like recent common ancestry; \
-             meanwhile false heterozygous calls in repeats and collapsed duplications, which \
-             a callable mask would exclude, push them up. The net bias has no fixed direction.",
-            pct(report.totals.missing_fraction),
-            report
-                .totals
-                .theta0_per_bin
-                .map_or("n/a".to_string(), |t| format!("{} per bin", sig(t, 3))),
-        ),
-        "Pass a BED of callable sites (--vcf-mask), e.g. from your variant-calling \
-         pipeline or a depth profile, or call all sites (`bcftools mpileup -f ref.fa \
-         aln.bam | bcftools call -c`) so that every called position has a record."
-            .to_string(),
+        message,
+        recommendation,
     ))
 }
 
@@ -773,13 +760,7 @@ fn counts_used(input: &QcInput) -> bool {
 /// `[0.9, 1)` and full.
 pub(crate) fn callable_distribution(c: &CallableSummary) -> String {
     let h = &c.histogram;
-    let share = |n: u64| {
-        if c.called_bins == 0 {
-            0.0
-        } else {
-            n as f64 / c.called_bins as f64
-        }
-    };
+    let share = |n: u64| fraction(n, c.called_bins);
     format!(
         "{} hold 10-50% of their bases callable, {} 50-90%, {} 90-99% and {} all",
         pct(share(h[..4].iter().sum())),
@@ -797,43 +778,10 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
     if input.context.approximate_missing_placement {
         return None;
     }
-    let s = report.bin_size;
     let Some(c) = &report.callable else {
-        // psmcfa: which bins are called, but not how many of their bases.
-        let t = &report.totals;
-        let next = t.called_next_to_missing;
-        let called = t.t_bins + t.k_bins;
-        if t.missing_bins == 0
-            || (next as f64) < PARTLY_CALLABLE_NOTE_FRACTION * called as f64
-            || next == 0
-        {
-            return None;
-        }
-        return Some(Finding::new(
-            QcCode::PartlyCallableBins,
-            Severity::Info,
-            format!(
-                "This input records which bins are called (at least 10% of their {s} bases \
-                 callable, fq2psmcfa's rule) but not how many of their bases are, as psmcfa \
-                 does, so the fit treats every called bin as {s} bases, as C psmc does. {} of \
-                 bins are missing (N), and {} called bins ({} of them) border those runs: they \
-                 hold fewer than {s} callable bases unless a run starts or ends at a bin \
-                 boundary. If missing data are also scattered in runs shorter than a bin, most \
-                 called bins do, which this input cannot show. Partly callable bins show fewer \
-                 heterozygous sites, which biases theta, the times and Ne low by about their \
-                 missing share.",
-                pct(t.missing_fraction),
-                count(next),
-                pct(next as f64 / called as f64)
-            ),
-            "To measure it, run `psmc-rs qc` on the data the psmcfa was made from: a VCF with \
-             its callable mask (--vcf-mask) or an all-sites VCF from `bcftools call -c`. It \
-             reports the share of callable bases of the called bins, and a fit of that VCF \
-             weighs each bin by its callable bases (--bin-callable auto), which removes the \
-             bias."
-                .to_string(),
-        ));
+        return partly_callable_psmcfa(report);
     };
+    let s = report.bin_size;
     if c.partial_fraction() < PARTLY_CALLABLE_NOTE_FRACTION {
         return None;
     }
@@ -860,8 +808,7 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
             ),
             "Nothing to do: keep --bin-callable auto (the default). A psmcfa written from this \
              input (psmc-rs convert --psmcfa, fq2psmcfa) cannot record the counts, so fit the \
-             input itself rather than such a psmcfa."
-                .to_string(),
+             input itself rather than such a psmcfa.",
         ));
     }
     let severity = if c.mean_fraction < PARTLY_CALLABLE_WARN_MEAN {
@@ -879,8 +826,44 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
             pct(1.0 - c.mean_fraction)
         ),
         "Fit with --bin-callable auto (the default), which weighs each called bin by its \
-         callable bases."
-            .to_string(),
+         callable bases.",
+    ))
+}
+
+/// [`QcCode::PartlyCallableBins`] for input that records which bins are
+/// called but not how many of their bases (psmcfa).
+fn partly_callable_psmcfa(report: &QcReport) -> Option<Finding> {
+    let (s, t) = (report.bin_size, &report.totals);
+    let next = t.called_next_to_missing;
+    let called = t.t_bins + t.k_bins;
+    if t.missing_bins == 0
+        || (next as f64) < PARTLY_CALLABLE_NOTE_FRACTION * called as f64
+        || next == 0
+    {
+        return None;
+    }
+    Some(Finding::new(
+        QcCode::PartlyCallableBins,
+        Severity::Info,
+        format!(
+            "This input records which bins are called (at least 10% of their {s} bases \
+             callable, fq2psmcfa's rule) but not how many of their bases are, as psmcfa \
+             does, so the fit treats every called bin as {s} bases, as C psmc does. {} of \
+             bins are missing (N), and {} called bins ({} of them) border those runs: they \
+             hold fewer than {s} callable bases unless a run starts or ends at a bin \
+             boundary. If missing data are also scattered in runs shorter than a bin, most \
+             called bins do, which this input cannot show. Partly callable bins show fewer \
+             heterozygous sites, which biases theta, the times and Ne low by about their \
+             missing share.",
+            pct(t.missing_fraction),
+            count(next),
+            pct(next as f64 / called as f64)
+        ),
+        "To measure it, run `psmc-rs qc` on the data the psmcfa was made from: a VCF with \
+         its callable mask (--vcf-mask) or an all-sites VCF from `bcftools call -c`. It \
+         reports the share of callable bases of the called bins, and a fit of that VCF \
+         weighs each bin by its callable bases (--bin-callable auto), which removes the \
+         bias.",
     ))
 }
 
@@ -947,8 +930,7 @@ fn high_missing(input: &QcInput, report: &QcReport) -> Option<Finding> {
         "Check what removes the data: depth and mapping-quality filters, a callable mask \
          that does not match the chromosome names, or low coverage; per-site filters \
          scatter the uncalled sites over called bins. Nadachowska-Brzyska et al. (2016) \
-         recommend at most 25% missing data for PSMC."
-            .to_string(),
+         recommend at most 25% missing data for PSMC.",
     ))
 }
 
@@ -1021,8 +1003,7 @@ fn few_hets(input: &QcInput, report: &QcReport) -> Option<Finding> {
         ),
         "Add data (more of the genome, a less strict mask) or fit a --pattern with fewer, \
          wider parameter groups; read the curve's oldest and most recent parts with \
-         caution."
-            .to_string(),
+         caution.",
     ))
 }
 
@@ -1054,8 +1035,7 @@ fn too_short(report: &QcReport) -> Option<Finding> {
         ),
         "Use more of the genome if possible (all autosomes, a less strict mask); \
          otherwise check the curve with bootstrap replicates and read its ends with \
-         caution."
-            .to_string(),
+         caution.",
     ))
 }
 
@@ -1065,8 +1045,8 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
     let short_trunk = l
         .below_trunk
         .as_ref()
-        .is_some_and(|s| s.fraction > SHORT_SEQUENCES_MAX_FRACTION);
-    if !short_1mb && !short_trunk {
+        .filter(|s| s.fraction > SHORT_SEQUENCES_MAX_FRACTION);
+    if !short_1mb && short_trunk.is_none() {
         return None;
     }
     let mut parts = Vec::new();
@@ -1085,7 +1065,7 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
                 .to_string(),
         );
     }
-    if let (true, Some(below)) = (short_trunk, &l.below_trunk) {
+    if let Some(below) = short_trunk {
         parts.push(format!(
             "{} of bins lie in {} sequences shorter than the bootstrap trunk ({} bins), \
              which the bootstrap can only resample whole",
@@ -1144,8 +1124,7 @@ fn approx_missing_placement(input: &QcInput, report: &QcReport) -> Option<Findin
                 pct(uncalled)
             ),
             "For exact bins and callable bases, read the VCF with its callable-sites mask \
-             instead."
-                .to_string(),
+             instead.",
         ));
     }
     Some(Finding::new(
@@ -1164,8 +1143,7 @@ fn approx_missing_placement(input: &QcInput, report: &QcReport) -> Option<Findin
             pct(uncalled)
         ),
         "Fit the VCF the multihetsep was made from, with its callable-sites mask \
-         (--vcf-mask): it bins exactly and weighs each called bin by its callable bases."
-            .to_string(),
+         (--vcf-mask): it bins exactly and weighs each called bin by its callable bases.",
     ))
 }
 
@@ -1187,21 +1165,18 @@ fn depth(report: &QcReport) -> Option<Finding> {
                 .to_string(),
         );
     }
-    let heavy: Vec<&super::FilterShare> = d
+    let heavy: Vec<String> = d
         .filters
         .iter()
         .filter(|f| f.fraction > MAX_FILTER_FRACTION)
+        .map(|f| format!("'{}' {}", f.name, pct(f.fraction)))
         .collect();
     if !heavy.is_empty() {
-        let list: Vec<String> = heavy
-            .iter()
-            .map(|f| format!("'{}' {}", f.name, pct(f.fraction)))
-            .collect();
         problems.push(format!(
             "Single filters removed more than {} of the {} bases: {}.",
             pct(MAX_FILTER_FRACTION),
             count(d.total_bases),
-            list.join(", ")
+            heavy.join(", ")
         ));
         let thresholds = match (d.min_depth, d.max_depth) {
             (Some(lo), Some(hi)) => format!(" (now {lo}-{hi} at a mean of {}x)", sig(d.mean, 3)),
@@ -1243,15 +1218,10 @@ fn dropped_sequences(report: &QcReport) -> Option<Finding> {
         format!(
             "{} {} left out of the analysis: {}.",
             count(total as u64),
-            if total == 1 {
-                "sequence was"
-            } else {
-                "sequences were"
-            },
+            plural(total, "sequence was", "sequences were"),
             reasons.join("; ")
         ),
         "Check that these sequences were meant to be left out (for example, chromosome \
-         names in the mask or VCF that do not match)."
-            .to_string(),
+         names in the mask or VCF that do not match).",
     ))
 }
