@@ -65,6 +65,8 @@ HET_SEGMENT_BP = 20_000
 HOM_SNP_RATE = 1 / 4000
 INDELS_PER_KB = 0.15
 PARALOG_DIVERGENCE = 0.015
+# Extra depth of paralog reads in the collapsed repeat.
+PARALOG_DEPTH = 100
 # Indels and segment edges are kept this far apart, so that reads never
 # carry an indel across a segment boundary.
 EDGE_GAP = 50
@@ -98,8 +100,6 @@ def chromosomes(depth=DEPTH):
     ]
 
 
-# Extra depth of paralog reads in the collapsed repeat.
-PARALOG_DEPTH = 100
 # Kinds whose positions must come out missing, and kinds that are callable.
 MASKED_KINDS = {"low_depth", "no_reads", "collapsed_repeat", "unmappable", "assembly_gap"}
 CALLABLE_KINDS = {"normal", "dip"}
@@ -257,7 +257,7 @@ class Haplotype:
             prev = rp
         return "".join(f"{n}{op}" for op, n in ops)
 
-    def read(self, rng, start0):
+    def read(self, start0):
         """A read starting at reference position start0, as (pos0, cigar,
         bases), or None if it would run off the haplotype. Reads start and
         end on a reference base."""
@@ -369,9 +369,8 @@ def main():
         truth_rows.extend(f"{name}\t{p + 1}\t{r}\t{a}\t{z}\t{t}" for p, r, a, z, t in truth)
         haps = [Haplotype(ref, v) for v in variants]
 
-        def draw(start0, haps=haps, mapq=MAPQ, both=True):
-            hap = haps[rng.randrange(2)] if both else haps[0]
-            r = hap.read(rng, start0)
+        def draw(start0, haps=haps, mapq=MAPQ):
+            r = haps[rng.randrange(2)].read(start0)
             return None if r is None else r + (mapq,)
 
         # A haploid stretch has half the reads (the second haplotype is a
@@ -393,7 +392,7 @@ def main():
                 para = Haplotype(paralog_of(rng, ref[s:e]), {})
 
                 def draw_paralog(p, para=para, s=s):
-                    r = para.read(rng, p - s)
+                    r = para.read(p - s)
                     return None if r is None else (r[0] + s, r[1], r[2], MAPQ)
                 reads.extend((name,) + r for r in reads_over(
                     rng, s, e, args.paralog_depth, draw_paralog))

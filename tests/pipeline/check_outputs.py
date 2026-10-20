@@ -117,7 +117,8 @@ def recovery(args):
           f"({fk:.4f}, threshold {args.max_false_k})")
     print(f"bins inside masked regions: {len(masked_bins)}, N: {len(masked_n)} "
           f"({mn:.4f}, threshold {args.min_masked_n})")
-    missed = [f"{c}:{p}" for c, p in target if (c, p) not in set(found)]
+    found_set = set(found)
+    missed = [f"{c}:{p}" for c, p in target if (c, p) not in found_set]
     if missed:
         print(f"missed: {' '.join(missed[:20])}")
     if len(target) < 100:
@@ -159,7 +160,7 @@ def multihetsep(args):
     seqs = read_psmcfa(args.psmcfa)
     truth = {(c, p) for c, p, _, _, z, t in read_truth(f"{args.sim}/truth.tsv")
              if z == "het" and t == "snp"}
-    rows, false = 0, []
+    rows, others = 0, []
     for path in args.files:
         with open(path) as f:
             for line in f:
@@ -167,7 +168,7 @@ def multihetsep(args):
                 pos, nr_called = int(pos), int(nr_called)
                 rows += 1
                 if (chrom, pos) not in truth:
-                    false.append(f"{chrom}:{pos}")
+                    others.append(f"{chrom}:{pos}")
                 if nr_called < 1:
                     fail(f"{path}: {chrom}:{pos} has nr_called {nr_called}")
                 if len(alleles) != 2 or alleles[0] == alleles[1]:
@@ -176,10 +177,10 @@ def multihetsep(args):
                     fail(f"{path}: the bin of {chrom}:{pos} is not K in {args.psmcfa}")
     if rows == 0:
         fail("no multihetsep row")
-    true_share = 1 - len(false) / rows
-    print(f"multihetsep: {rows} rows in K bins, {rows - len(false)} simulated heterozygous "
+    true_share = 1 - len(others) / rows
+    print(f"multihetsep: {rows} rows in K bins, {rows - len(others)} simulated heterozygous "
           f"SNPs ({true_share:.4f}, threshold {args.min_true})"
-          + (f"; others: {' '.join(false[:20])}" if false else ""))
+          + (f"; others: {' '.join(others[:20])}" if others else ""))
     if true_share < args.min_true:
         fail(f"only {true_share:.4f} of the multihetsep rows are simulated heterozygous SNPs")
 
@@ -276,26 +277,28 @@ def kinds(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("recovery")
-    p.add_argument("sim")
-    p.add_argument("psmcfa")
-    p.add_argument("bin_size", type=int)
+    # The SIM_DIR PSMCFA BIN_SIZE that the checks against the truth start with.
+    bins = argparse.ArgumentParser(add_help=False)
+    bins.add_argument("sim")
+    bins.add_argument("psmcfa")
+    bins.add_argument("bin_size", type=int)
+
+    def command(check, *parents):
+        p = sub.add_parser(check.__name__, parents=list(parents))
+        p.set_defaults(check=check)
+        return p
+
+    p = command(recovery, bins)
     p.add_argument("--min-recovery", type=float, default=0.95)
     p.add_argument("--max-false-k", type=float, default=0.02)
     p.add_argument("--min-masked-n", type=float, default=0.95)
-    p = sub.add_parser("region")
-    p.add_argument("sim")
-    p.add_argument("psmcfa")
-    p.add_argument("bin_size", type=int)
+    p = command(region, bins)
     p.add_argument("kind")
     p.add_argument("--max-k", type=float, default=0.5)
-    p = sub.add_parser("multihetsep")
-    p.add_argument("sim")
-    p.add_argument("psmcfa")
-    p.add_argument("bin_size", type=int)
+    p = command(multihetsep, bins)
     p.add_argument("files", nargs="+")
     p.add_argument("--min-true", type=float, default=0.98)
-    p = sub.add_parser("qc")
+    p = command(qc)
     p.add_argument("json")
     p.add_argument("--sex-warning")
     p.add_argument("--kept")
@@ -303,17 +306,16 @@ def main():
     p.add_argument("--format", default="vcf, consensus mode")
     p.add_argument("--has", action="append", default=[])
     p.add_argument("--lacks", action="append", default=[])
-    p = sub.add_parser("fit")
+    p = command(fit)
     p.add_argument("json")
     p.add_argument("psmc")
     p.add_argument("n_iter", type=int)
     p.add_argument("sequences", type=int)
-    p = sub.add_parser("kinds")
+    p = command(kinds)
     p.add_argument("dry_run")
     p.add_argument("json")
     args = ap.parse_args()
-    {"recovery": recovery, "region": region, "multihetsep": multihetsep, "qc": qc,
-     "fit": fit, "kinds": kinds}[args.cmd](args)
+    args.check(args)
 
 
 if __name__ == "__main__":

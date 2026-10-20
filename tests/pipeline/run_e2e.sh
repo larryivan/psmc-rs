@@ -29,12 +29,15 @@ fail() {
   exit 1
 }
 check() { python3 "$here/check_outputs.py" "$@"; }
-run_script() {
-  if [ -n "${E2E_BASH:-}" ]; then
-    "$E2E_BASH" "$script" "$@"
-  else
-    "$script" "$@"
-  fi
+run_script() { ${E2E_BASH:+"$E2E_BASH"} "$script" "$@"; }
+# The sequences with records in the VCF $1, on one line.
+vcf_contigs() { bcftools index -s "$1" 2> /dev/null | cut -f 1 | tr '\n' ' '; }
+# Fails unless every file given is there and not empty.
+expect_files() {
+  local f
+  for f in "$@"; do
+    [ -s "$f" ] || fail "missing output $f"
+  done
 }
 
 PSMC_RS=${PSMC_RS:-$root/target/release/psmc-rs}
@@ -285,14 +288,12 @@ out=$work/run
 run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/sim" --threads 3 \
   --multihetsep --run 3 2> "$work/run1.err"
 p=$out/sim
-for f in "$p.vcf.gz" "$p.vcf.gz.tbi" "$p.qc.txt" "$p.qc.json" "$p.psmcfa" "$p.json" \
-  "$p.html" "$p.psmc" "$p.log" "$p.chr1.multihetsep"; do
-  [ -s "$f" ] || fail "missing output $f"
-done
+expect_files "$p.vcf.gz" "$p.vcf.gz.tbi" "$p.qc.txt" "$p.qc.json" "$p.psmcfa" "$p.json" \
+  "$p.html" "$p.psmc" "$p.log" "$p.chr1.multihetsep"
 [ -z "$(find "$out" -name '.*tmp*')" ] || fail "working directory left behind in $out"
 grep -qF "left out by name: chrX (sex chromosome), chrM (organelle)" "$work/run1.err" ||
   fail "the log does not list chrX and chrM as left out"
-contigs=$(bcftools index -s "$p.vcf.gz" 2> /dev/null | cut -f 1 | tr '\n' ' ')
+contigs=$(vcf_contigs "$p.vcf.gz")
 [ "$contigs" = "chr1 chr2 chr3 chrUn_scaffold1 " ] || fail "VCF contigs with records: $contigs"
 ok "outputs written; chrX and chrM left out, VCF holds $contigs"
 
@@ -358,7 +359,7 @@ run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$out/withx" \
 grep -qF "warning: chrX is named like a sex chromosome" "$work/run3.err" ||
   fail "no warning about chrX"
 q=$out/withx
-contigs=$(bcftools index -s "$q.vcf.gz" 2> /dev/null | cut -f 1 | tr '\n' ' ')
+contigs=$(vcf_contigs "$q.vcf.gz")
 [ "$contigs" = "chr1 chr2 chr3 chrX " ] || fail "VCF contigs with records: $contigs"
 expect_classic "$q" "run 3"
 check qc "$q.qc.json" --sex-warning chrX --kept chr1,chr2,chr3,chrX --dropped 0
@@ -369,9 +370,7 @@ step "reruns: the outputs of an earlier run that no longer match go"
 r=$out/re
 run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr3 --multihetsep \
   --run 1 2> "$work/re1.err"
-for f in "$r.json" "$r.html" "$r.psmc" "$r.chr3.multihetsep"; do
-  [ -s "$f" ] || fail "missing output $f"
-done
+expect_files "$r.json" "$r.html" "$r.psmc" "$r.chr3.multihetsep"
 # The same psmcfa: the fit and the multihetsep file still match and stay.
 run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr3 \
   2> "$work/re2.err"
@@ -426,8 +425,8 @@ tabix -C -p sam "$c/aln.sam.gz"
 for bam in aln.sam aln.sam.gz; do
   run_script --bam "$c/$bam" --ref "$c/ref.fa" --out "$c/$bam.out" --chroms "$name" \
     2> "$c/$bam.err"
-  contigs=$(bcftools index -s "$c/$bam.out.vcf.gz" 2> /dev/null | cut -f 1)
-  [ "$contigs" = "$name" ] || fail "$bam: VCF contigs with records: $contigs"
+  contigs=$(vcf_contigs "$c/$bam.out.vcf.gz")
+  [ "$contigs" = "$name " ] || fail "$bam: VCF contigs with records: $contigs"
   [ "$(grep '^>' "$c/$bam.out.psmcfa")" = ">$name" ] || fail "$bam: no psmcfa record for $name"
 done
 cmp "$c/aln.sam.out.psmcfa" "$c/aln.sam.gz.out.psmcfa" || fail "-T and -R calls differ"
@@ -489,14 +488,21 @@ leftovers() {
   done
   return 0
 }
+only_log_left() { [ -z "$(leftovers "$1")" ] || fail "outputs left: $(leftovers "$1")"; }
 
-f=$out/fail
-s=0
-run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$f" --chroms chr3 --min-mapq 255 \
-  2> "$work/fail.err" || s=$?
-[ "$s" -eq 1 ] || fail "exit status $s with no read passing --min-mapq"
-grep -qF "bcftools called no site" "$work/fail.err" || fail "$(cat "$work/fail.err")"
-[ -z "$(leftovers fail)" ] || fail "outputs left: $(leftovers fail)"
+# The script, with prefix $out/NAME and the other arguments, must fail (exit
+# 1) with MESSAGE on standard error, which it keeps in $work/NAME.err.
+expect_failure() { # name, message, arguments...
+  local name=$1 msg=$2 s=0
+  shift 2
+  run_script --out "$out/$name" "$@" 2> "$work/$name.err" || s=$?
+  [ "$s" -eq 1 ] || fail "$name: exit status $s, not 1"
+  grep -qF -- "$msg" "$work/$name.err" || fail "$(cat "$work/$name.err")"
+}
+
+expect_failure fail "bcftools called no site" \
+  --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr3 --min-mapq 255
+only_log_left fail
 [ -z "$(find "$out" -name '.*tmp*')" ] || fail "working directory left behind in $out"
 ok "no site called: error, only fail.log written"
 
@@ -505,59 +511,43 @@ awk 'BEGIN { OFS = "\t" }
   /^@RG/ { print; print "@RG\tID:run2\tSM:sim2"; next }
   /^@/ { print; next }
   { if (NR % 2) sub(/RG:Z:run1$/, "RG:Z:run2"); print }' "$sim/aln.sam" > "$work/two.sam"
-s=0
-run_script --bam "$work/two.sam" --ref "$sim/ref.fa" --out "$out/two" --chroms chr3 \
-  2> "$work/two.err" || s=$?
-[ "$s" -eq 1 ] || fail "exit status $s with two samples"
-grep -qF "the alignments hold 2 samples" "$work/two.err" || fail "$(cat "$work/two.err")"
+expect_failure two "the alignments hold 2 samples" \
+  --bam "$work/two.sam" --ref "$sim/ref.fa" --chroms chr3
 ok "two samples: error"
 
 # With an index, the samples are checked before any chromosome is called.
 bgzip -c "$work/two.sam" > "$work/two.sam.gz"
 tabix -C -p sam "$work/two.sam.gz"
-s=0
-run_script --bam "$work/two.sam.gz" --ref "$sim/ref.fa" --out "$out/two-indexed" \
-  --chroms chr1,chr3 2> "$work/two-indexed.err" || s=$?
-[ "$s" -eq 1 ] || fail "exit status $s with two samples, indexed"
-grep -qF "the alignments hold 2 samples" "$work/two-indexed.err" ||
-  fail "$(cat "$work/two-indexed.err")"
+expect_failure two-indexed "the alignments hold 2 samples" \
+  --bam "$work/two.sam.gz" --ref "$sim/ref.fa" --chroms chr1,chr3
 if grep -qF '# N = 1..' "$out/two-indexed.log"; then
   fail "the calls started before the samples were checked"
 fi
-[ -z "$(leftovers two-indexed)" ] || fail "outputs left: $(leftovers two-indexed)"
+only_log_left two-indexed
 ok "two samples, indexed: error before any chromosome is called"
 
 # A mistake in the fit's options stops the run before the calls, with
 # psmc-rs's own error line and tip.
-s=0
-run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/typo" --chroms chr3 --run 1 \
-  -- --patern '4+5*3+4' 2> "$work/typo.err" || s=$?
-[ "$s" -eq 1 ] || fail "exit status $s with --patern"
-grep -qF "error: unexpected argument '--patern' found" "$work/typo.err" || fail "$(cat "$work/typo.err")"
+expect_failure typo "error: unexpected argument '--patern' found" \
+  --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr3 --run 1 -- --patern '4+5*3+4'
 grep -qF "tip: a similar argument exists: '--pattern'" "$work/typo.err" || fail "$(cat "$work/typo.err")"
 if grep -qF '# N = 1..' "$out/typo.log"; then
   fail "the calls started before the fit's options were checked"
 fi
-[ -z "$(leftovers typo)" ] || fail "outputs left: $(leftovers typo)"
+only_log_left typo
 ok "a typo in the fit's options: error before any chromosome is called, with psmc-rs's error and tip"
 
 # A fit that fails only once it has read the input shows psmc-rs's error
 # line, which follows pages of QC text.
-s=0
-run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/fitfail" --chroms chr3 --run 1 \
-  -- --bootstrap 2 --bootstrap-block-size 100000000 2> "$work/fitfail.err" || s=$?
-[ "$s" -eq 1 ] || fail "exit status $s with one bootstrap trunk"
-grep -qF "Error: --bootstrap-block-size is too large for this input" "$work/fitfail.err" ||
-  fail "$(cat "$work/fitfail.err")"
+expect_failure fitfail "Error: --bootstrap-block-size is too large for this input" \
+  --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr3 --run 1 \
+  -- --bootstrap 2 --bootstrap-block-size 100000000
 ok "a fit that fails: its error line is shown"
 
 # A --max-depth below twice the automatic upper bound (about 50 at 25x).
-s=0
-run_script --bam "$sim/aln.sam" --ref "$sim/ref.fa" --out "$out/capped" --chroms chr3 \
-  --max-depth 60 2> "$work/capped.err" || s=$?
-[ "$s" -eq 1 ] || fail "exit status $s with --max-depth 60"
-grep -qF "more than --max-depth 60" "$work/capped.err" || fail "$(cat "$work/capped.err")"
-[ -z "$(leftovers capped)" ] || fail "outputs left: $(leftovers capped)"
+expect_failure capped "more than --max-depth 60" \
+  --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr3 --max-depth 60
+only_log_left capped
 ok "--max-depth below twice the automatic upper bound: error, only capped.log written"
 
 # Interrupted runs. A stand-in for one tool never finishes (a `sleep` with
@@ -634,7 +624,7 @@ for tool in pkill pgrep ps; do
 done
 interrupt int TERM 143 BCFTOOLS="$work/slow-bcftools" PATH="$work/minbin" -- \
   --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr2,chr3 --threads 2
-[ -z "$(leftovers int)" ] || fail "outputs left: $(leftovers int)"
+only_log_left int
 ok "SIGTERM while calling, without pkill on PATH: exit 143, mpileup and call stopped, only int.log written"
 
 # The fit never finishes: SIGTERM to the script alone, and SIGINT to its
