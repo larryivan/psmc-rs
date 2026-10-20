@@ -11,7 +11,7 @@ use psmc_rs::io::psmcfa::{read_psmcfa, read_psmcfa_records};
 use psmc_rs::io::write::write_psmcfa_to;
 use psmc_rs::io::{CallableBases, Observations};
 use psmc_rs::model::{NegativeTransitions, n_steps_for_pattern};
-use psmc_rs::opt::MStepConfig;
+use psmc_rs::opt::{EmHistory, MStepConfig, em_train};
 use psmc_rs::{PsmcModel, initial_theta};
 use serde_json::Value;
 use std::ffi::{OsStr, OsString};
@@ -374,24 +374,48 @@ pub fn max_rho(theta: f64) -> f64 {
         .unwrap()
 }
 
-/// C psmc's start on `rows` with `n_steps` intervals grouped by `pattern`:
-/// θ0 = -ln(1 - K/L), ρ0 = θ0 / `tr_ratio`, t_max 15, λ = 1.
-pub fn c_start(
-    rows: &[Vec<u8>],
-    n_steps: usize,
-    pattern: Option<&str>,
-    tr_ratio: f64,
-) -> PsmcModel {
+/// C psmc's start on `rows` with the intervals of `pattern`: θ0 =
+/// -ln(1 - K/L), ρ0 = θ0 / `tr_ratio`, t_max 15, λ = 1.
+pub fn c_start(rows: &[Vec<u8>], pattern: &str, tr_ratio: f64) -> PsmcModel {
     let theta0 = initial_theta(rows).unwrap();
-    PsmcModel::new(
-        15.0,
-        n_steps,
-        theta0,
-        theta0 / tr_ratio,
-        2.5e-8,
-        pattern.map(str::to_string),
-    )
-    .unwrap()
+    model(pattern, theta0, theta0 / tr_ratio)
+}
+
+/// [`c_start`] without a pattern: `n_steps` intervals of a λ each (C's
+/// `-p "N*1"` with N = `n_steps` + 1).
+pub fn c_start_free(rows: &[Vec<u8>], n_steps: usize, tr_ratio: f64) -> PsmcModel {
+    let theta0 = initial_theta(rows).unwrap();
+    PsmcModel::new(15.0, n_steps, theta0, theta0 / tr_ratio, 2.5e-8, None).unwrap()
+}
+
+/// A run of C psmc's EM: its input, its start and its history.
+pub struct CFit {
+    pub obs: Observations,
+    pub template: PsmcModel,
+    pub history: EmHistory,
+}
+
+/// C psmc's run on the psmcfa fixture `name` (one row per sequence):
+/// `n_iter` EM iterations from [`c_start`] of `pattern` and ρ0 = θ0/4, or
+/// without a pattern from 23 states of a λ each (C's `-p "23*1"`), with C's
+/// objective (no smoothing).
+pub fn c_fit(name: &str, pattern: Option<&str>, n_iter: usize) -> CFit {
+    let obs = fixture_obs(name);
+    let template = match pattern {
+        Some(p) => c_start(&obs.rows, p, 4.0),
+        None => c_start_free(&obs.rows, 22, 4.0),
+    };
+    let mut model = template.clone();
+    let config = MStepConfig {
+        lambda: 0.0,
+        ..mstep()
+    };
+    let history = em_train(&mut model, &obs.rows, &obs.row_starts, n_iter, &config).unwrap();
+    CFit {
+        obs,
+        template,
+        history,
+    }
 }
 
 /// The parameters EM fits, as its history records them: θ, ρ, t_max, λ...

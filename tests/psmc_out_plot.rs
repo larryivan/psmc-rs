@@ -9,15 +9,12 @@
 //! (`tests/data/psmc_out/plot`, see the README there), and then used to
 //! check that our output plots as `PsmcModel::ne_curve` of the picked round.
 
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::model::n_steps_for_pattern;
-use psmc_rs::opt::{MStepConfig, em_train};
-use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc_from_history};
-use psmc_rs::{PsmcModel, initial_theta};
-use std::path::Path;
+mod common;
 
-const DATA: &str = "tests/data";
-const PLOT: &str = "tests/data/psmc_out/plot";
+use common::{CFit, REFERENCE_PSMCFA, c_fit, fixture, model_at, read};
+use psmc_rs::PsmcModel;
+use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc_from_history};
+use std::sync::OnceLock;
 
 /// The psmc_plot.pl options that change its data files, except `-M`
 /// (several titled runs) and `-S` (no scaling), which are not ported.
@@ -232,10 +229,15 @@ fn close(a: f64, b: f64, rel: f64) -> bool {
     (a - b).abs() <= rel * a.abs().max(b.abs())
 }
 
+/// A file of `tests/data/psmc_out/plot`.
+fn plot_file(name: &str) -> String {
+    read(fixture(&format!("psmc_out/plot/{name}")))
+}
+
 /// The cases of `plot/cases.tsv`: name, options, input files.
 fn cases() -> Vec<(String, String, Vec<String>)> {
-    let text = std::fs::read_to_string(Path::new(PLOT).join("cases.tsv")).unwrap();
-    text.lines()
+    plot_file("cases.tsv")
+        .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
         .map(|l| {
             let cols: Vec<&str> = l.split('\t').collect();
@@ -250,15 +252,11 @@ fn port_reproduces_psmc_plot_pl() {
     let cases = cases();
     assert_eq!(cases.len(), 11);
     for (name, options, inputs) in cases {
-        let text: String = inputs
-            .iter()
-            .map(|f| std::fs::read_to_string(Path::new(DATA).join(f)).unwrap())
-            .collect();
+        let text: String = inputs.iter().map(|f| read(fixture(f))).collect();
         let data = plot_data(&text, &PlotOptions::parse(&options));
         assert_eq!(data.len(), inputs.len(), "{name}: data sets");
         for (i, set) in data.iter().enumerate() {
-            let file = Path::new(PLOT).join(format!("{name}.{i}.txt"));
-            let golden = std::fs::read_to_string(&file).unwrap();
+            let golden = plot_file(&format!("{name}.{i}.txt"));
             let lines: Vec<&str> = golden.lines().collect();
             assert_eq!(set.rows.len(), lines.len(), "{name}.{i}: rows");
             for (k, (row, line)) in set.rows.iter().zip(&lines).enumerate() {
@@ -280,7 +278,7 @@ fn port_reproduces_psmc_plot_pl() {
                 assert_eq!(row.rest, [cols[2], cols[3], cols[4]], "{name}.{i} row {k}");
             }
         }
-        let par = std::fs::read_to_string(Path::new(PLOT).join(format!("{name}.par"))).unwrap();
+        let par = plot_file(&format!("{name}.par"));
         assert_eq!(
             data[0].par.as_deref(),
             Some(par.trim_end_matches('\n')),
@@ -296,8 +294,7 @@ fn psmc_plot_pl_draws_our_curves_like_cs() {
     // smallest RI in both) give the same curve up to the M-step differences
     // of tests/psmc_out_c_reference.rs: 3.4e-5 relative at most.
     let read = |name: &str| -> Vec<(f64, f64)> {
-        std::fs::read_to_string(Path::new(PLOT).join(name))
-            .unwrap()
+        plot_file(name)
             .lines()
             .map(|l| {
                 let mut c = l.split('\t').map(|v| v.parse::<f64>().unwrap());
@@ -314,30 +311,22 @@ fn psmc_plot_pl_draws_our_curves_like_cs() {
     }
 }
 
-/// A fit from C's starting point with the default M-step settings.
-fn fit(pattern: Option<&str>, n_iter: usize) -> (String, PsmcModel, Vec<Vec<f64>>, Vec<f64>) {
-    let obs = read_psmcfa(
-        &Path::new(DATA).join("c_reference/papuan_chr1_3seg.psmcfa"),
-        None,
-    )
-    .unwrap();
-    let theta0 = initial_theta(&obs.rows).unwrap();
-    let n_steps = pattern.map_or(22, |p| n_steps_for_pattern(p).unwrap());
-    let template = PsmcModel::new(
-        15.0,
-        n_steps,
-        theta0,
-        theta0 / 4.0,
-        2.5e-8,
-        pattern.map(str::to_string),
-    )
-    .unwrap();
-    let mut model = template.clone();
-    let config = MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    };
-    let history = em_train(&mut model, &obs.rows, &obs.row_starts, n_iter, &config).unwrap();
+/// A run from C's starting point on the reference data, as psmc_plot.pl
+/// reads it: the `.psmc` text, the template, the parameters of each round
+/// and its RI.
+struct Run {
+    text: String,
+    template: PsmcModel,
+    params: Vec<Vec<f64>>,
+    ri: Vec<f64>,
+}
+
+fn run(pattern: Option<&str>, n_iter: usize) -> Run {
+    let CFit {
+        obs,
+        template,
+        history,
+    } = c_fit(REFERENCE_PSMCFA, pattern, n_iter);
     let mut out = Vec::new();
     write_psmc_from_history(&mut out, &template, &history, &obs.rows, &obs.row_starts).unwrap();
     let info = PsmcRunInfo::from_history(&template, &history, &obs.rows, &obs.row_starts).unwrap();
@@ -346,37 +335,32 @@ fn fit(pattern: Option<&str>, n_iter: usize) -> (String, PsmcModel, Vec<Vec<f64>
         .iter()
         .map(|r| r.relative_information())
         .collect();
-    (
-        String::from_utf8(out).unwrap(),
+    Run {
+        text: String::from_utf8(out).unwrap(),
         template,
-        history.params,
+        params: history.params,
         ri,
-    )
+    }
+}
+
+/// Six rounds of pattern 4+5*3+4, run once for the tests that read them.
+fn pattern_run() -> &'static Run {
+    static RUN: OnceLock<Run> = OnceLock::new();
+    RUN.get_or_init(|| run(Some("4+5*3+4"), 6))
 }
 
 /// Checks that psmc_plot.pl with `options` plots round `expected_round` of
-/// our output as `ne_curve` of that round's parameters, over its first
+/// `run` as `ne_curve` of that round's parameters, over its first
 /// `n_points` states.
-fn check_curve(
-    text: &str,
-    template: &PsmcModel,
-    params: &[Vec<f64>],
-    options: &str,
-    expected_round: usize,
-    n_points: usize,
-) {
+fn check_curve(run: &Run, options: &str, expected_round: usize, n_points: usize) {
     let o = PlotOptions::parse(options);
-    let data = plot_data(text, &o);
+    let data = plot_data(&run.text, &o);
     assert_eq!(data.len(), 1);
     let round: usize = data[0].round.as_deref().unwrap().parse().unwrap();
     assert_eq!(round, expected_round, "{options}");
 
-    let p = &params[round];
-    let mut model = template.clone();
-    model.theta = p[0];
-    model.rho = p[1];
-    model.t_max = p[2];
-    model.lam.copy_from_slice(&p[3..]);
+    let p = &run.params[round];
+    let mut model = model_at(&run.template, p);
     model.mu = o.u;
     model.param_recalculate().unwrap();
     let curve = model.ne_curve(o.s, o.g).unwrap();
@@ -417,48 +401,40 @@ fn smallest_ri(ri: &[f64], m: usize) -> usize {
 
 #[test]
 fn psmc_plot_pl_draws_ne_curve_of_the_picked_round() {
-    let n_iter = 6;
-    let (text, template, params, ri) = fit(Some("4+5*3+4"), n_iter);
-    assert!(ri[0].is_infinite());
+    let run = pattern_run();
+    assert!(run.ri[0].is_infinite());
     // 4+5*3+4 has 23 states, the last pattern group 4: 19 are plotted.
     for m in [1, 3, 5] {
         let options = format!("-n 0 -m {m}");
-        check_curve(&text, &template, &params, &options, smallest_ri(&ri, m), 19);
+        check_curve(run, &options, smallest_ri(&run.ri, m), 19);
     }
-    check_curve(&text, &template, &params, "-n 2", 2, 19);
+    check_curve(run, "-n 2", 2, 19);
     // psmc_plot.pl's defaults take round 20, which this run lacks; -n 6.
-    check_curve(&text, &template, &params, "-n 6", 6, 19);
+    check_curve(run, "-n 6", 6, 19);
     // Other scalings, and the last group shown.
     let scaled = "-n 0 -m 2 -L -u 1.25e-8 -g 29 -s 50";
-    check_curve(&text, &template, &params, scaled, smallest_ri(&ri, 2), 23);
+    check_curve(run, scaled, smallest_ri(&run.ri, 2), 23);
 }
 
 #[test]
 fn psmc_plot_pl_draws_ne_curve_without_pattern() {
-    let (text, template, params, ri) = fit(None, 3);
+    let run = run(None, 3);
     // "23*1": every state is its own group, so only the last is dropped.
-    check_curve(
-        &text,
-        &template,
-        &params,
-        "-n 0 -m 1",
-        smallest_ri(&ri, 1),
-        22,
-    );
-    check_curve(&text, &template, &params, "-n 3 -L", 3, 23);
+    check_curve(&run, "-n 0 -m 1", smallest_ri(&run.ri, 1), 22);
+    check_curve(&run, "-n 3 -L", 3, 23);
 }
 
 #[test]
 fn round_0_and_nan_ri_are_never_picked() {
     // RI is inf in round 0 and nan when a posterior state probability is 0;
     // psmc_plot.pl skips both, so C's spelling ("inf", "nan") matters.
-    let (text, _, _, ri) = fit(Some("4+5*3+4"), 2);
+    let Run { text, ri, .. } = pattern_run();
     assert_eq!(text.matches("RI\tinf").count(), 1);
-    let data = plot_data(&text, &PlotOptions::parse("-n 0 -m 0"));
-    let picked = smallest_ri(&ri, 1).to_string();
+    let data = plot_data(text, &PlotOptions::parse("-n 0 -m 0"));
+    let picked = smallest_ri(ri, 1).to_string();
     assert_eq!(data[0].round.as_deref(), Some(picked.as_str()));
     let nan_ri = text.replace("RI\t0.", "RI\tnan");
-    assert_eq!(nan_ri.matches("RI\tnan").count(), 2);
+    assert_eq!(nan_ri.matches("RI\tnan").count(), ri.len() - 1);
     let data = plot_data(&nan_ri, &PlotOptions::parse("-n 0 -m 0"));
     assert_eq!(data[0].round, None);
 }

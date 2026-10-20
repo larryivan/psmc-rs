@@ -8,26 +8,13 @@
 //! emission of the last bin of each sequence. How much that difference
 //! matters depends on the share of such bins in the data.
 
+mod common;
+
+use common::psmc_text::round_lines;
+use common::{c_start, e_step, fixture, fixture_obs, read};
+use psmc_rs::PsmcModel;
 use psmc_rs::em::{hmm_q, hmm_q0, posterior_sigma};
-use psmc_rs::hmm::{SufficientStats, e_step_streaming};
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::model::n_steps_for_pattern;
-use psmc_rs::{PsmcModel, initial_theta};
-use std::path::Path;
-
-const DATA: &str = "tests/data/c_reference";
-const FIXTURES: &str = "tests/data/psmc_out";
-
-/// The lines of round `round` of a C `.psmc` file, from `RD` to `//`.
-fn c_round(path: &Path, round: usize) -> Vec<String> {
-    let text = std::fs::read_to_string(path).unwrap();
-    let start = format!("RD\t{round}");
-    text.lines()
-        .skip_while(|l| *l != start)
-        .take_while(|l| *l != "//")
-        .map(str::to_string)
-        .collect()
-}
+use psmc_rs::hmm::SufficientStats;
 
 /// The filtered state distribution at the last bin of `row`, which is the
 /// posterior there (the backward vector of the last bin is uniform).
@@ -74,33 +61,14 @@ struct Gap {
     ri: f64,
 }
 
-/// Runs our E-step at C's starting parameters on `psmcfa` and compares it
-/// with round 1 of `c_file`, C's `psmc -p pattern` output on the same file.
-fn check(psmcfa: &Path, pattern: &str, c_file: &Path) -> Gap {
-    let obs = read_psmcfa(psmcfa, None).unwrap();
+/// Runs our E-step at C's starting parameters on the psmcfa fixture
+/// `psmcfa` and compares it with round 1 of `c_file`, C's `psmc -p pattern`
+/// output on the same file.
+fn check(psmcfa: &str, pattern: &str, c_file: &str) -> Gap {
+    let obs = fixture_obs(psmcfa);
     assert!(obs.row_starts.iter().all(|&s| s), "one row per sequence");
-    let theta0 = initial_theta(&obs.rows).unwrap();
-    let n_steps = n_steps_for_pattern(pattern).unwrap();
-    let model = PsmcModel::new(
-        15.0,
-        n_steps,
-        theta0,
-        theta0 / 4.0,
-        2.5e-8,
-        Some(pattern.into()),
-    )
-    .unwrap();
-    let mut stats: SufficientStats = e_step_streaming(
-        model.prior_matrix(),
-        model.transition_matrix(),
-        model.emission_matrix(),
-        &obs.rows,
-        &obs.row_starts,
-        false,
-        "E",
-    )
-    .unwrap()
-    .stats;
+    let model = c_start(&obs.rows, pattern, 4.0);
+    let mut stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
     let q = |s: &SufficientStats| {
         hmm_q(model.transition_matrix(), model.emission_matrix(), s) - hmm_q0(s)
     };
@@ -123,7 +91,8 @@ fn check(psmcfa: &Path, pattern: &str, c_file: &Path) -> Gap {
     let q_c = q(&stats);
     let post_c = posterior_sigma(&stats);
 
-    let round = c_round(c_file, 1);
+    let c_text = read(fixture(c_file));
+    let round = round_lines(&c_text, 1);
     let field = |tag: &str| {
         round
             .iter()
@@ -137,7 +106,7 @@ fn check(psmcfa: &Path, pattern: &str, c_file: &Path) -> Gap {
         .filter_map(|l| l.strip_prefix("RS\t"))
         .map(|l| l.split('\t').collect())
         .collect();
-    assert_eq!(rs.len(), n_steps + 1);
+    assert_eq!(rs.len(), model.n_steps + 1);
     for (k, cols) in rs.iter().enumerate() {
         assert_eq!(
             format!("{:.6}", post_c[k]),
@@ -200,9 +169,9 @@ fn check_scale(gap: &Gap) {
 /// 3 sequences, 150,947 non-missing bins: the share is 2.0e-5.
 fn check_reference(pattern: &str, c_file: &str) {
     let gap = check(
-        &Path::new(DATA).join("papuan_chr1_3seg.psmcfa"),
+        common::REFERENCE_PSMCFA,
         pattern,
-        &Path::new(DATA).join(c_file),
+        &format!("c_reference/{c_file}"),
     );
     assert_eq!(gap.share, 3.0 / 150_947.0);
     // Measured: post_sigma 2.4e-6 (4+5*3+4) and 8.6e-7 (4+25*2+4+6), QD
@@ -227,9 +196,9 @@ fn first_round_matches_c_pattern_4_25x2_4_6() {
 #[test]
 fn first_round_matches_c_on_fragments() {
     let gap = check(
-        &Path::new(FIXTURES).join("fragmented.psmcfa"),
+        "psmc_out/fragmented.psmcfa",
         "4+5*3+4",
-        &Path::new(FIXTURES).join("c_4+5x3+4_fragmented_N1.psmc"),
+        "psmc_out/c_4+5x3+4_fragmented_N1.psmc",
     );
     assert_eq!(gap.share, 893.0 / 35_465.0);
     // Measured: post_sigma 9.3e-5, QD 3.5%, RI 1.2%.

@@ -17,78 +17,52 @@
 mod common;
 
 use common::psmc_text::{parse_round, round_lines, tag};
+use common::{CFit, REFERENCE_PSMCFA, c_fit, fixture, model, model_at, mstep, read};
+use psmc_rs::PsmcModel;
 use psmc_rs::em::EmHistory;
 use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::model::n_steps_for_pattern;
-use psmc_rs::opt::{MStepConfig, MStepStop, em_train};
+use psmc_rs::opt::{MStepStop, em_train};
 use psmc_rs::psmc_out::{PsmcRunInfo, c_pattern, psmc_rounds, write_psmc, write_psmc_from_history};
-use psmc_rs::{PsmcModel, initial_theta};
-use std::path::Path;
+use std::sync::OnceLock;
 
-const C_REF: &str = "tests/data/c_reference";
-const FIXTURES: &str = "tests/data/psmc_out";
 const N_ITER: usize = 5;
+const FRAGMENTS: &str = "psmc_out/fragmented.psmcfa";
 
-struct Fit {
-    template: PsmcModel,
-    history: EmHistory,
-    rows: Vec<Vec<u8>>,
-    row_starts: Vec<bool>,
-}
-
-/// C's run: θ0 = -ln(1 - K/L), ρ0 = θ0/4, t_max = 15, λ = 1, `N_ITER` rounds,
-/// with the default M-step, as in the CLI. Without a pattern the model has
-/// 23 states, each with its own λ (C's `-p "23*1"`).
-fn fit(pattern: Option<&str>) -> Fit {
-    let psmcfa = Path::new(C_REF).join("papuan_chr1_3seg.psmcfa");
-    fit_file(&psmcfa, pattern, N_ITER)
-}
-
-/// [`fit`] for `n_iter` rounds on `psmcfa`. Every M-step must end by its
-/// convergence criteria, as C's Hooke-Jeeves search does, not at the cap.
-fn fit_file(psmcfa: &Path, pattern: Option<&str>, n_iter: usize) -> Fit {
-    let obs = read_psmcfa(psmcfa, None).unwrap();
-    let theta0 = initial_theta(&obs.rows).unwrap();
-    let n_steps = pattern.map_or(22, |p| n_steps_for_pattern(p).unwrap());
-    let template = PsmcModel::new(
-        15.0,
-        n_steps,
-        theta0,
-        theta0 / 4.0,
-        2.5e-8,
-        pattern.map(str::to_string),
-    )
-    .unwrap();
-    let mut model = template.clone();
-    let config = MStepConfig {
-        progress: false,
-        lambda: 0.0,
-        ..MStepConfig::default()
-    };
-    let history = em_train(&mut model, &obs.rows, &obs.row_starts, n_iter, &config).unwrap();
-    let (stops, iterations) = (&history.mstep_stops, &history.mstep_iterations);
+/// [`c_fit`] of `n_iter` rounds on `name`, as in the CLI. Every M-step must
+/// end by its convergence criteria, as C's Hooke-Jeeves search does, not at
+/// the cap.
+fn checked_fit(name: &str, pattern: Option<&str>, n_iter: usize) -> CFit {
+    let fit = c_fit(name, pattern, n_iter);
+    let (stops, iterations) = (&fit.history.mstep_stops, &fit.history.mstep_iterations);
     assert!(
         stops.iter().all(|&s| s != MStepStop::MaxIters),
         "{pattern:?}: {stops:?} after {iterations:?} iterations"
     );
-    Fit {
-        template,
-        history,
-        rows: obs.rows,
-        row_starts: obs.row_starts,
-    }
+    fit
 }
 
-fn psmc_text(fit: &Fit) -> String {
+/// C's run on the reference data: `N_ITER` rounds with `pattern`, or
+/// without one 23 states with a λ each (C's `-p "23*1"`). Each is fitted
+/// once, for every test that reads it.
+fn fit(pattern: Option<&str>) -> &'static CFit {
+    static FITS: [OnceLock<CFit>; 3] = [const { OnceLock::new() }; 3];
+    let i = match pattern {
+        Some("4+5*3+4") => 0,
+        Some("4+25*2+4+6") => 1,
+        None => 2,
+        Some(p) => panic!("no fit with pattern {p}"),
+    };
+    FITS[i].get_or_init(|| checked_fit(REFERENCE_PSMCFA, pattern, N_ITER))
+}
+
+fn psmc_text(fit: &CFit) -> String {
     let mut out = Vec::new();
-    write_psmc_from_history(
-        &mut out,
-        &fit.template,
-        &fit.history,
-        &fit.rows,
-        &fit.row_starts,
-    )
-    .unwrap();
+    let CFit {
+        obs,
+        template,
+        history,
+    } = fit;
+    write_psmc_from_history(&mut out, template, history, &obs.rows, &obs.row_starts).unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -167,7 +141,7 @@ fn shapes_keep_the_printed_precision() {
 
 /// Checks rounds 1.. against C's within the tolerances of a fit whose
 /// M-step differs from C's.
-fn check_rounds(ours: &str, c: &str, max_lambda_rel: f64) {
+fn check_rounds(ours: &str, c: &str) {
     for i in 1..=N_ITER {
         let (a, b) = (
             parse_round(&round_lines(ours, i)),
@@ -189,38 +163,17 @@ fn check_rounds(ours: &str, c: &str, max_lambda_rel: f64) {
             "{:?}",
             a.qd
         );
-        assert!(
-            rel(a.qd.0, b.qd.0) < 5e-3,
-            "round {i} QD {:?} vs {:?}",
-            a.qd,
-            b.qd
-        );
-        assert!(
-            rel(a.qd.1, b.qd.1) < 5e-3,
-            "round {i} QD {:?} vs {:?}",
-            a.qd,
-            b.qd
-        );
         assert!(a.ri.is_finite() && a.ri > 0.0, "round {i} RI {}", a.ri);
-        assert!(rel(a.ri, b.ri) < 0.1, "round {i} RI {} vs {}", a.ri, b.ri);
-        assert!(
-            rel(a.tr.0, b.tr.0) < 2e-3,
-            "round {i} theta {:?} vs {:?}",
-            a.tr,
-            b.tr
-        );
-        assert!(
-            rel(a.tr.1, b.tr.1) < 2e-3,
-            "round {i} rho {:?} vs {:?}",
-            a.tr,
-            b.tr
-        );
-        assert!(
-            rel(a.mt, b.mt) < 2e-3,
-            "round {i} t_max {} vs {}",
-            a.mt,
-            b.mt
-        );
+        for (what, x, y, tol) in [
+            ("QD before", a.qd.0, b.qd.0, 5e-3),
+            ("QD after", a.qd.1, b.qd.1, 5e-3),
+            ("RI", a.ri, b.ri, 0.1),
+            ("theta", a.tr.0, b.tr.0, 2e-3),
+            ("rho", a.tr.1, b.tr.1, 2e-3),
+            ("t_max", a.mt, b.mt, 2e-3),
+        ] {
+            assert!(rel(x, y) < tol, "round {i} {what} {x} vs {y}");
+        }
         assert_eq!(a.rs.len(), b.rs.len());
         for (k, (x, y)) in a.rs.iter().zip(&b.rs).enumerate() {
             if y[0] > 0.0 {
@@ -232,7 +185,7 @@ fn check_rounds(ours: &str, c: &str, max_lambda_rel: f64) {
                 );
             }
             assert!(
-                rel(x[1], y[1]) < max_lambda_rel,
+                rel(x[1], y[1]) < 2e-3,
                 "round {i} lambda_{k} {} vs {}",
                 x[1],
                 y[1]
@@ -241,28 +194,27 @@ fn check_rounds(ours: &str, c: &str, max_lambda_rel: f64) {
     }
 }
 
-fn read(dir: &str, file: &str) -> String {
-    std::fs::read_to_string(Path::new(dir).join(file)).unwrap()
+/// Our output for `pattern` against C's `c_file`, whose rounds then agree
+/// within the tolerances of [`check_rounds`].
+fn check_against_c(pattern: Option<&str>, c_file: &str) {
+    let ours = psmc_text(fit(pattern));
+    let c = read(fixture(c_file));
+    check_format(&ours, &c);
+    check_rounds(&ours, &c);
 }
 
 #[test]
 fn matches_c_psmc_output_pattern_4_5x3_4() {
-    let ours = psmc_text(&fit(Some("4+5*3+4")));
-    let c = read(C_REF, "c_4+5x3+4_N5.psmc");
-    check_format(&ours, &c);
     // Measured (relative): LK 6.8e-8, lambda 2.5e-4, theta, rho and t_max
     // 2.4e-4, RI 1.1e-4, QD 6.2e-5.
-    check_rounds(&ours, &c, 2e-3);
+    check_against_c(Some("4+5*3+4"), "c_reference/c_4+5x3+4_N5.psmc");
 }
 
 #[test]
 fn matches_c_psmc_output_pattern_4_25x2_4_6() {
-    let ours = psmc_text(&fit(Some("4+25*2+4+6")));
-    let c = read(C_REF, "c_4+25x2+4+6_N5.psmc");
-    check_format(&ours, &c);
     // Measured (relative): LK 7.3e-8, lambda 3.3e-4, theta, rho and t_max
     // 2.3e-4, RI 2.6e-5, QD 1.2e-4.
-    check_rounds(&ours, &c, 2e-3);
+    check_against_c(Some("4+25*2+4+6"), "c_reference/c_4+25x2+4+6_N5.psmc");
 }
 
 #[test]
@@ -270,12 +222,9 @@ fn matches_c_psmc_output_without_pattern() {
     // C's "23*1": every state has its own lambda. (With M-steps capped at
     // 100 L-BFGS iterations, as psmc-rs's default was, the fits drifted
     // apart in every state: by round 5 lambda_0 was 4.33 vs C's 6.52.)
-    let ours = psmc_text(&fit(None));
-    let c = read(FIXTURES, "c_23x1_N5.psmc");
-    check_format(&ours, &c);
     // Measured (relative): LK 7.1e-8, lambda 4.1e-4, theta, rho and t_max
     // 2.3e-4, RI 2.5e-4, QD 1.5e-4.
-    check_rounds(&ours, &c, 2e-3);
+    check_against_c(None, "psmc_out/c_23x1_N5.psmc");
 }
 
 /// Many short sequences (`tests/data/psmc_out/fragmented.psmcfa`, 1,010 of
@@ -285,9 +234,8 @@ fn matches_c_psmc_output_without_pattern() {
 /// values is checked in `tests/em_c_reference.rs`.
 #[test]
 fn matches_c_psmc_output_on_fragments() {
-    let psmcfa = Path::new(FIXTURES).join("fragmented.psmcfa");
-    let ours = psmc_text(&fit_file(&psmcfa, Some("4+5*3+4"), 1));
-    let c = read(FIXTURES, "c_4+5x3+4_fragmented_N1.psmc");
+    let ours = psmc_text(&checked_fit(FRAGMENTS, Some("4+5*3+4"), 1));
+    let c = read(fixture("psmc_out/c_4+5x3+4_fragmented_N1.psmc"));
     check_format(&ours, &c);
     assert!(ours.contains("\nMM\tn_seqs:1010, sum_L:35465, sum_n:1869\n"));
     let (a, b) = (
@@ -299,10 +247,7 @@ fn matches_c_psmc_output_on_fragments() {
 
 #[test]
 fn patterns_are_written_in_c_syntax() {
-    let with = |pattern: &str| {
-        let n_steps = n_steps_for_pattern(pattern).unwrap();
-        PsmcModel::new(15.0, n_steps, 0.05, 0.0125, 2.5e-8, Some(pattern.into())).unwrap()
-    };
+    let with = |pattern: &str| model(pattern, 0.05, 0.0125);
     assert_eq!(c_pattern(&with("4+5*3+4")), "4+5*3+4");
     assert_eq!(c_pattern(&with("4+25*2+4+6")), "4+25*2+4+6");
     assert_eq!(c_pattern(&with("1*4+ 5*3 +4")), "4+5*3+4");
@@ -319,27 +264,21 @@ fn patterns_are_written_in_c_syntax() {
 #[test]
 fn rounds_report_the_em_history() {
     let fit = fit(Some("4+5*3+4"));
-    let info =
-        PsmcRunInfo::from_history(&fit.template, &fit.history, &fit.rows, &fit.row_starts).unwrap();
+    let (template, h, obs) = (&fit.template, &fit.history, &fit.obs);
+    let info = PsmcRunInfo::from_history(template, h, &obs.rows, &obs.row_starts).unwrap();
     assert_eq!(
         (info.n_seqs, info.sum_l, info.sum_n, info.n_iterations),
         (3, 150_947, 7373, N_ITER)
     );
     assert_eq!((info.max_t, info.tr_ratio), (15.0, 4.0));
-    let rounds = psmc_rounds(&fit.template, &fit.history, info.sum_l).unwrap();
+    let rounds = psmc_rounds(template, h, info.sum_l).unwrap();
     assert_eq!(rounds.len(), N_ITER + 1);
-    let h = &fit.history;
     for (i, r) in rounds.iter().enumerate() {
         assert_eq!(r.round, i);
         let p = &h.params[i];
         assert_eq!((r.theta, r.rho, r.t_max), (p[0], p[1], p[2]));
         assert_eq!(r.free_lambdas, p[3..]);
-        let mut model = fit.template.clone();
-        model.theta = p[0];
-        model.rho = p[1];
-        model.t_max = p[2];
-        model.lam.copy_from_slice(&p[3..]);
-        model.param_recalculate().unwrap();
+        let model = model_at(template, p);
         assert_eq!(r.sigma, model.sigma);
         assert_eq!(r.lambda, model.map_lam(&model.lam).unwrap());
         assert_eq!(r.t, model.compute_t(0.1)[..r.sigma.len()]);
@@ -370,7 +309,7 @@ fn rounds_report_the_em_history() {
     let mut out = Vec::new();
     write_psmc(&mut out, &info, &rounds).unwrap();
     let text = String::from_utf8(out).unwrap();
-    assert_eq!(text, psmc_text(&fit));
+    assert_eq!(text, psmc_text(fit));
 
     // The printed IT and RI lines are the rounds' values.
     let lines: Vec<&str> = text.lines().collect();
@@ -391,7 +330,7 @@ fn rounds_report_the_em_history() {
     }
 
     // The template may also be the fitted model: only its layout is used.
-    let mut fitted = fit.template.clone();
+    let mut fitted = template.clone();
     fitted.theta *= 3.0;
     fitted.lam[2] = 7.0;
     assert_eq!(psmc_rounds(&fitted, h, info.sum_l).unwrap(), rounds);
@@ -399,19 +338,10 @@ fn rounds_report_the_em_history() {
 
 #[test]
 fn chunked_rows_count_as_one_sequence() {
-    let obs = read_psmcfa(
-        &Path::new(C_REF).join("papuan_chr1_3seg.psmcfa"),
-        Some(7000),
-    )
-    .unwrap();
+    let obs = read_psmcfa(&fixture(REFERENCE_PSMCFA), Some(7000)).unwrap();
     assert!(obs.rows.len() > 3);
-    let model = PsmcModel::new(15.0, 22, 0.05, 0.0125, 2.5e-8, Some("4+5*3+4".into())).unwrap();
-    let mut m = model.clone();
-    let config = MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    };
-    let history = em_train(&mut m, &obs.rows, &obs.row_starts, 0, &config).unwrap();
+    let model = model("4+5*3+4", 0.05, 0.0125);
+    let history = em_train(&mut model.clone(), &obs.rows, &obs.row_starts, 0, &mstep()).unwrap();
     let info = PsmcRunInfo::from_history(&model, &history, &obs.rows, &obs.row_starts).unwrap();
     // C's MM line for this file: n_seqs:3, sum_L:150947, sum_n:7373.
     assert_eq!((info.n_seqs, info.sum_l, info.sum_n), (3, 150_947, 7373));
@@ -425,26 +355,30 @@ fn chunked_rows_count_as_one_sequence() {
 
 #[test]
 fn inconsistent_history_is_rejected() {
-    let fit = fit(Some("4+5*3+4"));
+    let CFit {
+        obs,
+        template,
+        history,
+    } = fit(Some("4+5*3+4"));
     let mut h = EmHistory {
-        loglike: fit.history.loglike.clone(),
-        params: fit.history.params.clone(),
-        post_sigma: fit.history.post_sigma.clone(),
-        q: fit.history.q.clone(),
-        mstep_evaluations: fit.history.mstep_evaluations.clone(),
-        mstep_iterations: fit.history.mstep_iterations.clone(),
-        mstep_stops: fit.history.mstep_stops.clone(),
+        loglike: history.loglike.clone(),
+        params: history.params.clone(),
+        post_sigma: history.post_sigma.clone(),
+        q: history.q.clone(),
+        mstep_evaluations: history.mstep_evaluations.clone(),
+        mstep_iterations: history.mstep_iterations.clone(),
+        mstep_stops: history.mstep_stops.clone(),
     };
     h.q.pop();
-    assert!(psmc_rounds(&fit.template, &h, 150_947).is_err());
+    assert!(psmc_rounds(template, &h, 150_947).is_err());
     h.q.push((0.0, 0.0));
     h.post_sigma[1].pop();
-    assert!(psmc_rounds(&fit.template, &h, 150_947).is_err());
+    assert!(psmc_rounds(template, &h, 150_947).is_err());
 
     let other = PsmcModel::new(15.0, 22, 0.05, 0.0125, 2.5e-8, None).unwrap();
-    assert!(psmc_rounds(&other, &fit.history, 150_947).is_err());
-    assert!(PsmcRunInfo::from_history(&other, &fit.history, &fit.rows, &fit.row_starts).is_err());
-    assert!(PsmcRunInfo::from_history(&fit.template, &fit.history, &fit.rows, &[true]).is_err());
+    assert!(psmc_rounds(&other, history, 150_947).is_err());
+    assert!(PsmcRunInfo::from_history(&other, history, &obs.rows, &obs.row_starts).is_err());
+    assert!(PsmcRunInfo::from_history(template, history, &obs.rows, &[true]).is_err());
 }
 
 /// Rewrites the psmc-rs `.psmc` files that `tests/psmc_out_plot.rs` runs
@@ -456,7 +390,7 @@ fn regenerate_fixtures() {
         (Some("4+5*3+4"), "rs_4+5x3+4_N5.psmc"),
         (None, "rs_23x1_N5.psmc"),
     ] {
-        let text = psmc_text(&fit(pattern));
-        std::fs::write(Path::new(FIXTURES).join(name), text).unwrap();
+        let text = psmc_text(fit(pattern));
+        std::fs::write(fixture(&format!("psmc_out/{name}")), text).unwrap();
     }
 }
