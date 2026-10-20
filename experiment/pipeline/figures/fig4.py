@@ -45,8 +45,8 @@ from .data import Source
 THREAD_LINESTYLES = ("-", (0, (3.0, 1.5)), (0, (3.0, 1.2, 1.0, 1.2)), (0, (1.0, 1.2)))
 TOOL_ENTITY = {"c": style.C_PSMC, "rs01": style.RS01, "rs02": style.RS02,
                "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}  # legend order
-TIME_TICKS = [1, 10, 60, 600, 3600, 36000]
-MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]
+TIME_TICKS = [1, 10, 60, 600, 3600, 36000]  # seconds: 1 s to 10 h
+MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]  # MB: 1 MB to 100 GB
 
 
 def tool_threads(cfg) -> Dict[str, Tuple[int, ...]]:
