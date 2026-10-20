@@ -171,6 +171,17 @@ is_uint() {
   esac
 }
 
+# Whether the options after -- include $1.
+has_extra() {
+  local a
+  for a in ${extra[@]+"${extra[@]}"}; do
+    case "$a" in
+      "$1" | "$1"=*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --bam) need_value "$@"; bam=$2; shift 2 ;;
@@ -231,16 +242,6 @@ elif [ "$depth" != auto ] && [ "$((2 * dmax))" -gt "$DEFAULT_MAX_DEPTH" ]; then
 else
   max_depth=$DEFAULT_MAX_DEPTH
 fi
-# Whether the options after -- include $1.
-has_extra() {
-  local a
-  for a in ${extra[@]+"${extra[@]}"}; do
-    case "$a" in
-      "$1" | "$1"=*) return 0 ;;
-    esac
-  done
-  return 1
-}
 if [ -n "$run_iters" ]; then
   is_uint "$run_iters" || usage_error "--run must be a whole number of EM iterations, not '$run_iters'"
 elif [ "${#extra[@]}" -gt 0 ]; then
@@ -272,43 +273,40 @@ version_at_least() {
   }'
 }
 
-# The version that `$1 --version` prints after "$2 " at the start of a line
-# of its standard output, the first such line; $3 matches the version (a sed
-# BRE). Standard error is not searched, as the dynamic loader or an
-# LD_PRELOAD library may write a line there before the program runs (glibc's
-# "weak version `GLIBC_2.39' not found" with a binary built on a newer
-# glibc, for one); the error messages show it.
-tool_version() { # program, name, version pattern
+# The version of the program $1, named $2, which must be at least $3: what
+# `$1 --version` prints after "$2 " at the start of a line of its standard
+# output, the first such line; $4 matches the version (a sed BRE), and $5
+# (optional) says what needs the minimum. Standard error is not searched,
+# as the dynamic loader or an LD_PRELOAD library may write a line there
+# before the program runs (glibc's "weak version `GLIBC_2.39' not found"
+# with a binary built on a newer glibc, for one); the error messages show it.
+tool_version() { # program, name, minimum, version pattern[, what needs it]
   local out version
   out=$("$1" --version 2> /dev/null) || die "'$1 --version' failed: $("$1" --version 2>&1)"
-  version=$(printf '%s\n' "$out" | sed -n "s/^$2 \\($3\\).*/\\1/p" | sed -n 1p)
+  version=$(printf '%s\n' "$out" | sed -n "s/^$2 \\($4\\).*/\\1/p" | sed -n 1p)
   [ -n "$version" ] || die "cannot read the $2 version from '$("$1" --version 2>&1)'"
+  version_at_least "$version" "$3" || die "$2 $version is too old: $3 or later is needed${5-}"
   printf '%s\n' "$version"
 }
 
 bcftools=${BCFTOOLS:-bcftools}
 command -v "$bcftools" > /dev/null 2>&1 ||
   die "bcftools not found (install bcftools >= $MIN_BCFTOOLS, or set BCFTOOLS to its path)"
-bcftools_version=$(tool_version "$bcftools" bcftools \
+bcftools_version=$(tool_version "$bcftools" bcftools "$MIN_BCFTOOLS" \
   '[0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)*') || exit 1
-version_at_least "$bcftools_version" "$MIN_BCFTOOLS" ||
-  die "bcftools $bcftools_version is too old: $MIN_BCFTOOLS or later is needed"
 
-if [ -z "$psmc_rs" ]; then
-  psmc_rs=${PSMC_RS:-psmc-rs}
-fi
+psmc_rs=${psmc_rs:-${PSMC_RS:-psmc-rs}}
 command -v "$psmc_rs" > /dev/null 2>&1 ||
   die "psmc-rs not found (build it with cargo build --release, then give --psmc-rs PATH or set PSMC_RS)"
-psmc_rs_version=$(tool_version "$psmc_rs" psmc-rs \
-  '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*') || exit 1
-version_at_least "$psmc_rs_version" "$MIN_PSMC_RS" ||
-  die "psmc-rs $psmc_rs_version is too old: $MIN_PSMC_RS or later is needed (for qc and convert)"
+psmc_rs_version=$(tool_version "$psmc_rs" psmc-rs "$MIN_PSMC_RS" \
+  '[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*' " (for qc and convert)") || exit 1
 
 # ---------------------------------------------------------------------------
 # Reference index and chromosomes
 
 fai="$ref.fai"
-make_fai() {
+if [ ! -s "$fai" ]; then
+  [ "$dry_run" -eq 0 ] || die "$fai does not exist; a dry run does not create it"
   # htslib builds the .fai when a command first opens the FASTA; an empty
   # VCF through `bcftools norm -f` does that without reading any reads.
   log_cmd "bcftools norm -f $(quoted "$ref") (creates $(quoted "$fai"))"
@@ -316,11 +314,6 @@ make_fai() {
     "$bcftools" norm --no-version -f "$ref" -o /dev/null > /dev/null 2>&1 || true
   [ -s "$fai" ] ||
     die "cannot index $ref (gzip-compressed FASTA must be bgzip-compressed; or create $fai with samtools faidx)"
-}
-
-if [ ! -s "$fai" ]; then
-  [ "$dry_run" -eq 0 ] || die "$fai does not exist; a dry run does not create it"
-  make_fai
 fi
 
 # The rule of psmc-rs's qc::classify_name: prints "sex chromosome",
@@ -411,14 +404,12 @@ if [ -z "$chroms_arg" ]; then
   if [ "${#roman_x[@]}" -gt 0 ]; then
     say "kept ${roman_x[*]}: the reference numbers its chromosomes in Roman numerals (it has IX or XI), so X is chromosome 10, not a sex chromosome; if it is one, list the chromosomes with --chroms"
   fi
-  i=0
-  while [ "$i" -lt "${#ref_names[@]}" ]; do
+  for i in "${!ref_names[@]}"; do
     if [ -n "${ref_kinds[$i]}" ]; then
       excluded+=("${ref_names[$i]} (${ref_kinds[$i]})")
     else
       selected+=("$i")
     fi
-    i=$((i + 1))
   done
   # Contigs that are not chromosomes of the primary assembly, in the naming
   # of GRCh37, GRCh38 and their analysis sets: unplaced and unlocalized
@@ -463,7 +454,6 @@ vcf="$out.vcf.gz"
 psmcfa="$out.psmcfa"
 qc_txt="$out.qc.txt"
 qc_json="$out.qc.json"
-log_path="$out.log"
 
 # The alignments are read by region when they have an index.
 indexed=0
@@ -503,9 +493,7 @@ if [ "$dry_run" -eq 1 ]; then
   done
   if [ "${#excluded[@]}" -gt 0 ]; then
     echo "Left out by name (${#excluded[@]}):"
-    for e in "${excluded[@]}"; do
-      echo "  $e"
-    done
+    printf '  %s\n' "${excluded[@]}"
   fi
   echo "Commands:"
   echo "  $(mpileup_cmd "TMP/regions/N.txt") TMP/calls/N.bcf   # per chromosome, $threads at a time"
@@ -520,8 +508,8 @@ if [ "$dry_run" -eq 1 ]; then
 fi
 
 mkdir -p "$out_dir" || die "cannot create the output directory $out_dir"
-: > "$log_path" || die "cannot write $log_path"
-log_file=$log_path
+: > "$out.log" || die "cannot write $out.log"
+log_file=$out.log
 
 # Working directories of earlier runs with this prefix that were killed
 # before they could remove them (SIGKILL, a lost node). Another run with
@@ -602,7 +590,7 @@ error_lines() {
 check_samples() {
   local samples count
   samples=$("$bcftools" query -l "$1" 2>> "$log_file") || die "cannot read the samples of $1"
-  count=$(printf '%s\n' "$samples" | awk 'NF' | wc -l | tr -d ' ')
+  count=$(printf '%s\n' "$samples" | awk 'NF { n++ } END { print n + 0 }')
   [ "$count" -eq 1 ] ||
     die "the alignments hold $count samples (read-group SM tags: $(printf '%s\n' "$samples" | tr '\n' ' ' | sed 's/ $//')); PSMC needs the reads of one diploid genome, so give one sample's reads or fix the SM tags"
   say "sample: $samples"
@@ -833,4 +821,7 @@ $(error_lines "$tmp/fit.err")"
   cat "$tmp/fit.out" >&2
 fi
 
-say "done: $vcf, $qc_txt, $qc_json, $psmcfa$([ "$multihetsep" -eq 0 ] || printf ', %s' "$out.<chrom>.multihetsep")$([ -z "$run_iters" ] || printf ', %s' "$out.json, $out.html, $out.psmc")"
+written="$vcf, $qc_txt, $qc_json, $psmcfa"
+[ "$multihetsep" -eq 0 ] || written="$written, $out.<chrom>.multihetsep"
+[ -z "$run_iters" ] || written="$written, $out.json, $out.html, $out.psmc"
+say "done: $written"
