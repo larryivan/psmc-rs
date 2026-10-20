@@ -766,18 +766,7 @@ impl DepthReader {
         if !single_sample {
             return (None, false);
         }
-        // The value of the first `DP=` key of INFO.
-        let mut rest = rec.info;
-        let value = loop {
-            if let Some(v) = rest.strip_prefix(b"DP=") {
-                break Some(&v[..v.iter().position(|&b| b == b';').unwrap_or(v.len())]);
-            }
-            match rest.iter().position(|&b| b == b';') {
-                Some(i) => rest = &rest[i + 1..],
-                None => break None,
-            }
-        };
-        (value.and_then(parse_u64), true)
+        (info_value(rec.info, b"DP").and_then(parse_u64), true)
     }
 }
 
