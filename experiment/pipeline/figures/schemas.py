@@ -45,10 +45,6 @@ class TableSchema:
     def path(self, runs_dir: Path) -> Path:
         return Path(runs_dir) / self.experiment / "tables" / self.file
 
-    def describe(self) -> str:
-        cols = "\n".join(f"    {c}: {m}" for c, m in self.columns)
-        return f"{self.experiment}/tables/{self.file} (one row per {self.rows}):\n{cols}"
-
 
 SCHEMAS: Dict[str, TableSchema] = {}
 
@@ -444,9 +440,4 @@ _add("E7_throughput", "E7", "route and tool", {
 })
 
 
-def describe_all() -> str:
-    """Every schema, as the figures README lists them."""
-    return "\n\n".join(s.describe() for s in SCHEMAS.values())
-
-
-__all__ = ["CURVE_COLUMNS", "SCHEMAS", "TableSchema", "describe_all"]
+__all__ = ["CURVE_COLUMNS", "SCHEMAS", "TableSchema"]

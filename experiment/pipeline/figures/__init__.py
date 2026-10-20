@@ -36,13 +36,8 @@ class FigureSpec:
 
     @property
     def sources(self) -> Tuple[str, ...]:
-        """The experiments whose tables the figure reads."""
-        out: List[str] = []
-        for key in self.tables:
-            exp = SCHEMAS[key].experiment
-            if exp not in out:
-                out.append(exp)
-        return tuple(out)
+        """The experiments whose tables the figure reads, in order."""
+        return tuple(dict.fromkeys(SCHEMAS[key].experiment for key in self.tables))
 
     def table_paths(self, runs_dir: Path) -> List[Path]:
         return [SCHEMAS[k].path(runs_dir) for k in self.tables]
