@@ -745,11 +745,19 @@ mod tests {
         last_fallbacks: usize,
     }
 
+    /// `model` with the parameters at the unconstrained point `x`, and its
+    /// HMM computed.
+    fn model_at(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> PsmcModel {
+        let mut at_x = model.clone();
+        unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
+        at_x.param_recalculate().unwrap();
+        at_x
+    }
+
     /// `-ln alpha[n]`, the cumulative coalescence rate up to t_max, of the
     /// parameters at the unconstrained point `x`.
     fn log_survival_to_t_max(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> f64 {
-        let mut at_x = model.clone();
-        unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
+        let at_x = model_at(model, x, bounds);
         let t = at_x.compute_t(crate::model::GRID_ALPHA);
         let lam = at_x.map_lam(&at_x.lam).unwrap();
         (0..at_x.n_steps).map(|k| (t[k + 1] - t[k]) / lam[k]).sum()
@@ -777,9 +785,7 @@ mod tests {
     /// and the largest deviation of a row of transition probabilities from
     /// summing to 1 (summed in order).
     fn hmm_validity(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> (bool, f64) {
-        let mut at_x = model.clone();
-        unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
-        at_x.param_recalculate().unwrap();
+        let at_x = model_at(model, x, bounds);
         let in_unit = |p: f64| (0.0..=1.0).contains(&p);
         let mut valid = at_x.emission_matrix().iter().all(|&e| in_unit(e));
         let mut deviation = 0.0f64;
@@ -1150,9 +1156,7 @@ mod tests {
             let bounds = bounds_from_config(&model, &config);
             let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
             let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
-            let mut at_x = model.clone();
-            unpack_params(&mut at_x, &from_unconstrained(&x, &bounds).unwrap()).unwrap();
-            at_x.param_recalculate().unwrap();
+            let at_x = model_at(&model, &x, &bounds);
             let avg = at_x.avg_t();
             let c = stats.callable.as_ref().unwrap();
             let mut q = 0.0;
@@ -1293,9 +1297,7 @@ mod tests {
             let bounds = bounds_from_config(&model, &config);
             let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
             let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, config.lambda);
-            let mut at_x = model.clone();
-            unpack_params(&mut at_x, &from_unconstrained(&x, &bounds).unwrap()).unwrap();
-            at_x.param_recalculate().unwrap();
+            let at_x = model_at(&model, &x, &bounds);
             let q = crate::em::hmm_q(at_x.transition_matrix(), at_x.emission_matrix(), &stats);
             assert!(
                 (f + q).abs() <= 1e-12 * q.abs(),
