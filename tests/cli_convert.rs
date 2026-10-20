@@ -5,113 +5,36 @@
 
 mod common;
 
-use common::{TempDir, fixture, run, run_err, run_ok};
-use std::collections::HashMap;
+use common::{
+    Outcome, TempDir, args, command, finding_codes, fixture, gunzipped, json, outcome, read,
+    route_a_option_sets, run_err, run_ok,
+};
 use std::fs;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
-/// File contents, gunzipped when the name ends in `.gz`.
-fn read_bytes(path: &Path) -> Vec<u8> {
-    let raw = fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    if !path.to_string_lossy().ends_with(".gz") {
-        return raw;
-    }
-    let mut out = Vec::new();
-    flate2::read::MultiGzDecoder::new(raw.as_slice())
-        .read_to_end(&mut out)
-        .unwrap();
-    out
-}
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::Stdio;
 
 fn route_a(name: &str) -> PathBuf {
     fixture(&format!("route_a/{name}"))
 }
 
-/// The tool options of one row of expected/option_sets.tsv.
-fn flags(text: &str, tool: &str) -> HashMap<char, String> {
-    let rest = text.strip_prefix(tool).expect("tool name");
-    let words: Vec<&str> = rest.split_whitespace().collect();
-    words
-        .chunks(2)
-        .map(|p| {
-            (
-                p[0].trim_start_matches('-').chars().next().unwrap(),
-                p[1].to_string(),
-            )
-        })
-        .collect()
-}
-
-/// The convert arguments equivalent to a row's vcf2fq and fq2psmcfa options
-/// (their defaults where it gives none); the `auto` row lets psmc-rs choose
-/// the depth bounds.
-fn convert_args(
-    name: &str,
-    vcf2fq: &HashMap<char, String>,
-    fq2psmcfa: &HashMap<char, String>,
-) -> Vec<String> {
-    let get = |m: &HashMap<char, String>, k: char, default: &str| {
-        m.get(&k).cloned().unwrap_or_else(|| default.to_string())
-    };
-    let depth = if name == "auto" {
-        "auto".to_string()
-    } else {
-        format!("{}:{}", get(vcf2fq, 'd', "3"), get(vcf2fq, 'D', "100000"))
-    };
-    vec![
-        "--depth".to_string(),
-        depth,
-        "--min-mapq".to_string(),
-        get(vcf2fq, 'Q', "10"),
-        "--indel-window".to_string(),
-        get(vcf2fq, 'l', "5"),
-        "--min-qual".to_string(),
-        get(fq2psmcfa, 'q', "10"),
-        "--min-good-bases".to_string(),
-        get(fq2psmcfa, 'g', "10000"),
-        "--bin-size".to_string(),
-        get(fq2psmcfa, 's', "100"),
-    ]
-}
-
 #[test]
 fn convert_reproduces_vcf2fq_and_fq2psmcfa() {
     let dir = TempDir::new("convert_route_a");
-    let table = fs::read_to_string(route_a("expected/option_sets.tsv")).unwrap();
-    let mut n = 0;
-    for line in table.lines().skip(1) {
-        let cols: Vec<&str> = line.split('\t').collect();
-        let (name, input) = (cols[0], cols[3]);
-        let args = convert_args(
-            name,
-            &flags(cols[1], "vcf2fq"),
-            &flags(cols[2], "fq2psmcfa"),
-        );
-        let expected = ["psmcfa", "psmcfa.gz"]
-            .iter()
-            .map(|ext| route_a(&format!("expected/{name}.{ext}")))
-            .find(|p| p.exists())
-            .unwrap();
+    let sets = route_a_option_sets();
+    assert_eq!(sets.len(), 6);
+    for set in sets {
         // Plain and gzip output hold the same bytes.
         for ext in ["psmcfa", "psmcfa.gz"] {
-            let out = dir.path(&format!("{name}.{ext}"));
-            let mut all = vec![
-                "convert".to_string(),
-                route_a(input).display().to_string(),
-                "--psmcfa".to_string(),
-                out.display().to_string(),
-            ];
-            all.extend(args.iter().cloned());
-            run_ok(&all);
+            let out = dir.path(&format!("{}.{ext}", set.name));
+            run_ok(args!["convert", set.vcf, "--psmcfa", out, ..set.args]);
             assert!(
-                read_bytes(&out) == read_bytes(&expected),
-                "{name} ({ext}) differs from fq2psmcfa's output"
+                gunzipped(&out) == gunzipped(&set.expected),
+                "{} ({ext}) differs from fq2psmcfa's output",
+                set.name
             );
         }
-        n += 1;
     }
-    assert_eq!(n, 6);
 }
 
 /// `bcftools call -c -A` at 250x: consensus mode is detected although most
@@ -120,23 +43,18 @@ fn convert_reproduces_vcf2fq_and_fq2psmcfa() {
 fn convert_reads_call_c_with_alt_alleles() {
     let dir = TempDir::new("convert_keep_alts");
     let out = dir.path("keep_alts.psmcfa");
-    let stderr_of = |args: &[&str]| {
-        let o = run(args);
-        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
-        String::from_utf8(o.stderr).unwrap()
-    };
-    let stderr = stderr_of(&[
+    let stderr = outcome(args![
         "convert",
-        fixture("route_a_keep_alts/keep_alts.vcf.gz")
-            .to_str()
-            .unwrap(),
+        fixture("route_a_keep_alts/keep_alts.vcf.gz"),
         "--psmcfa",
-        out.to_str().unwrap(),
+        out,
         "--bin-size",
         "50",
         "--min-good-bases",
         "1000",
-    ]);
+    ])
+    .ok()
+    .stderr;
     assert!(stderr.contains("VCF read in consensus mode"), "{stderr}");
     assert!(
         stderr.contains("bases kept at depth 77-463 (auto)"),
@@ -148,44 +66,39 @@ fn convert_reads_call_c_with_alt_alleles() {
     );
 }
 
-/// The three per-chromosome callable masks as one (multi-member gzip) file:
-/// several --vcf-mask files must all contain a site.
-fn combined_mask(dir: &TempDir) -> PathBuf {
-    let mut bytes = Vec::new();
-    for chrom in ["chr1", "chr2", "chr3"] {
-        bytes.extend(fs::read(route_a(&format!("masks/mask_{chrom}.bed.gz"))).unwrap());
-    }
-    let path = dir.path("mask.bed.gz");
-    fs::write(&path, bytes).unwrap();
-    path
-}
-
 #[test]
 fn convert_reproduces_generate_multihetsep() {
     let dir = TempDir::new("convert_mhs");
-    let mask = combined_mask(&dir);
+    // The three per-chromosome callable masks as one (multi-member gzip)
+    // file: several --vcf-mask files must all contain a site.
+    let chroms = ["chr1", "chr2", "chr3"];
+    let masks: Vec<u8> = chroms
+        .iter()
+        .flat_map(|c| fs::read(route_a(&format!("masks/mask_{c}.bed.gz"))).unwrap())
+        .collect();
+    let mask = dir.write("mask.bed.gz", masks);
     for vcf in ["snps", "snps_phased"] {
-        let prefix = dir.path(vcf);
         let all = dir.path(&format!("{vcf}.all.multihetsep.gz"));
-        run_ok([
+        run_ok(args![
             "convert",
-            route_a(&format!("{vcf}.vcf.gz")).to_str().unwrap(),
+            route_a(&format!("{vcf}.vcf.gz")),
             "--vcf-mask",
-            mask.to_str().unwrap(),
+            mask,
             // generate_multihetsep.py has no output filter.
             "--min-good-bases",
             "0",
             "--min-good-fraction",
             "0",
             "--multihetsep-per-chrom",
-            prefix.to_str().unwrap(),
+            dir.path(vcf),
             "--multihetsep",
-            all.to_str().unwrap(),
+            all,
         ]);
         let mut concatenated = Vec::new();
-        for chrom in ["chr1", "chr2", "chr3"] {
-            let ours = read_bytes(&dir.path(&format!("{vcf}.{chrom}.multihetsep")));
-            let expected = read_bytes(&route_a(&format!("expected/{vcf}.{chrom}.multihetsep")));
+        for chrom in chroms {
+            let ours = fs::read(dir.path(&format!("{vcf}.{chrom}.multihetsep"))).unwrap();
+            let expected =
+                fs::read(route_a(&format!("expected/{vcf}.{chrom}.multihetsep"))).unwrap();
             assert!(
                 ours == expected,
                 "{vcf} {chrom}:\nours:\n{}\nexpected:\n{}",
@@ -198,29 +111,45 @@ fn convert_reproduces_generate_multihetsep() {
         assert!(sites >= 30, "{vcf}: only {sites} sites compared");
         // nr_called restarts with each chromosome, so the single file is
         // the per-chromosome files one after the other.
-        assert!(read_bytes(&all) == concatenated, "{vcf}: --multihetsep");
+        assert!(gunzipped(&all) == concatenated, "{vcf}: --multihetsep");
     }
 }
 
 #[test]
 fn convert_normalises_psmcfa() {
     let dir = TempDir::new("convert_psmcfa");
-    let input = dir.path("in.psmcfa");
     let bins = "tTkKNn".repeat(15);
-    fs::write(&input, format!(">a desc\n{bins}\n>empty\n\n>b\nTTKT\r\n")).unwrap();
-    let out = dir.path("out.psmcfa");
-    run_ok([
-        "convert",
-        input.to_str().unwrap(),
-        "--psmcfa",
-        out.to_str().unwrap(),
-    ]);
-    let expected = format!(
-        ">a\n{}\n{}\n>b\nTTKT\n",
-        &"TTKKNN".repeat(15)[..60],
-        &"TTKKNN".repeat(15)[60..]
+    let input = dir.write(
+        "in.psmcfa",
+        format!(">a desc\n{bins}\n>empty\n\n>b\nTTKT\r\n"),
     );
-    assert_eq!(fs::read_to_string(&out).unwrap(), expected);
+    let out = dir.path("out.psmcfa");
+    run_ok(args!["convert", input, "--psmcfa", out]);
+    let upper = "TTKKNN".repeat(15);
+    assert_eq!(
+        read(&out),
+        format!(">a\n{}\n{}\n>b\nTTKT\n", &upper[..60], &upper[60..])
+    );
+}
+
+/// Run convert on `bytes` written to its stdin through a pipe.
+fn convert_piped(bytes: Vec<u8>, args: &[&str]) -> Outcome {
+    let mut child = command()
+        .args(["convert", "/dev/stdin"])
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let writer = std::thread::spawn(move || {
+        // The reader may stop early, closing the pipe.
+        let _ = stdin.write_all(&bytes);
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    out.into()
 }
 
 /// Multihetsep output of psmcfa input is a usage error (exit status 2)
@@ -230,35 +159,23 @@ fn convert_normalises_psmcfa() {
 #[test]
 fn psmcfa_has_no_sites_for_multihetsep() {
     let dir = TempDir::new("convert_no_sites");
-    let input = dir.path("in.psmcfa");
     // The second record ends inside a FASTQ quality block, which the
     // loader refuses.
-    let text = ">a\nTTKTTT\n>b\nTT+\n";
-    fs::write(&input, text).unwrap();
+    let input = dir.write("in.psmcfa", ">a\nTTKTTT\n>b\nTT+\n");
     let out = dir.path("out.mhs");
-    for extra in [&[][..], &["--input-format", "psmcfa"][..]] {
-        let mut args = vec![
-            "convert",
-            input.to_str().unwrap(),
-            "--multihetsep",
-            out.to_str().unwrap(),
-        ];
-        args.extend_from_slice(extra);
-        let o = run(&args);
-        let err = String::from_utf8(o.stderr).unwrap();
-        assert_eq!(o.status.code(), Some(2), "{extra:?}: {err}");
-        assert!(err.contains("psmcfa input has no sites"), "{err}");
+    let to_mhs = ["--multihetsep", out.to_str().unwrap()];
+    for extra in [&[][..], &["--input-format", "psmcfa"]] {
+        let err = outcome(args!["convert", input, ..to_mhs, ..extra]).exits(2);
+        assert!(
+            err.contains("psmcfa input has no sites"),
+            "{extra:?}: {err}"
+        );
         assert!(!out.exists());
     }
-    let o = convert_piped(
-        b">a\nTTKTTT\n".to_vec(),
-        &["--multihetsep", out.to_str().unwrap()],
-    );
-    let err = String::from_utf8(o.stderr).unwrap();
-    assert_eq!(o.status.code(), Some(2), "{err}");
+    let err = convert_piped(b">a\nTTKTTT\n".to_vec(), &to_mhs).exits(2);
     assert!(err.contains("psmcfa input has no sites"), "{err}");
     assert!(!out.exists());
-    let err = run_err(["convert", input.to_str().unwrap()]);
+    let err = run_err(args!["convert", input]);
     assert!(err.contains("--psmcfa"), "{err}");
 }
 
@@ -267,59 +184,43 @@ fn psmcfa_has_no_sites_for_multihetsep() {
 #[test]
 fn qc_json_on_stdout_is_the_only_stdout() {
     let dir = TempDir::new("convert_qc_stdout");
-    let input = dir.path("in.psmcfa");
-    fs::write(&input, format!(">a\n{}\n", "TTTTKTTTTN".repeat(30))).unwrap();
+    let input = dir.write("in.psmcfa", format!(">a\n{}\n", "TTTTKTTTTN".repeat(30)));
     let out = dir.path("out.psmcfa");
-    let o = run([
-        "convert",
-        input.to_str().unwrap(),
-        "--psmcfa",
-        out.to_str().unwrap(),
-        "--qc-json",
-        "-",
-    ]);
-    assert!(o.status.success());
-    let qc: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    let o = outcome(args!["convert", input, "--psmcfa", out, "--qc-json", "-"]).ok();
+    let qc: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
     assert_eq!(qc["n_sequences"], 1);
-    let stderr = String::from_utf8(o.stderr).unwrap();
     assert!(
-        stderr.contains(&format!(
+        o.stderr.contains(&format!(
             "psmcfa: {} (1 sequences, 300 bins)",
             out.display()
         )),
-        "{stderr}"
+        "{}",
+        o.stderr
     );
-    assert!(!stderr.contains("QC report: -"), "{stderr}");
+    assert!(!o.stderr.contains("QC report: -"), "{}", o.stderr);
 }
 
 /// Outputs that cannot be written fail before the input is read.
 #[test]
 fn output_paths_are_checked_before_reading() {
     let dir = TempDir::new("convert_paths");
-    let input = dir.path("in.psmcfa");
-    fs::write(&input, ">a\nTTKT\n").unwrap();
-    let missing = dir.path("nowhere/out.psmcfa");
-    let err = run_err([
+    let input = dir.write("in.psmcfa", ">a\nTTKT\n");
+    let err = run_err(args![
         "convert",
-        input.to_str().unwrap(),
+        input,
         "--psmcfa",
-        missing.to_str().unwrap(),
+        dir.path("nowhere/out.psmcfa")
     ]);
     assert!(err.contains("cannot write --psmcfa"), "{err}");
     assert!(!err.contains("Input:"), "{err}");
-    let err = run_err([
-        "convert",
-        input.to_str().unwrap(),
-        "--psmcfa",
-        input.to_str().unwrap(),
-    ]);
+    let err = run_err(args!["convert", input, "--psmcfa", input]);
     assert!(err.contains("is the input file"), "{err}");
-    assert_eq!(fs::read_to_string(&input).unwrap(), ">a\nTTKT\n");
-    let err = run_err([
+    assert_eq!(read(&input), ">a\nTTKT\n");
+    let err = run_err(args![
         "convert",
-        route_a("allsites.vcf.gz").to_str().unwrap(),
+        route_a("allsites.vcf.gz"),
         "--multihetsep-per-chrom",
-        dir.path("nowhere/snps").to_str().unwrap(),
+        dir.path("nowhere/snps"),
     ]);
     assert!(
         err.contains("cannot write --multihetsep-per-chrom"),
@@ -335,28 +236,24 @@ fn output_paths_are_checked_before_reading() {
 fn per_chromosome_files_are_checked_before_writing() {
     let dir = TempDir::new("per_chrom_names");
     // Four haplotypes; --mhs-pair 2,3 takes the second sample.
-    let input = dir.path("sample.chr1.multihetsep");
     let text = "chr1\t1000\t1000\tACAC\nchr1\t2500\t1500\tAAGT\n\
                 chr1\t3100\t600\tCCCG\nchr1\t5000\t1900\tTATA\n";
-    fs::write(&input, text).unwrap();
+    let input = dir.write("sample.chr1.multihetsep", text);
     let convert = |extra: &[&str]| {
-        let mut args = vec![
+        outcome(args![
             "convert",
-            input.to_str().unwrap(),
+            input,
             "--mhs-pair",
             "2,3",
             "--min-good-bases",
             "0",
             "--min-good-fraction",
             "0",
-        ];
-        args.extend_from_slice(extra);
-        let o = run(&args);
-        assert_eq!(o.status.code(), Some(2), "{extra:?}");
-        String::from_utf8(o.stderr).unwrap()
+            ..extra
+        ])
     };
     let prefix = dir.path("sample");
-    let err = convert(&["--multihetsep-per-chrom", prefix.to_str().unwrap()]);
+    let err = convert(&["--multihetsep-per-chrom", prefix.to_str().unwrap()]).exits(2);
     assert!(
         err.contains(&format!(
             "--multihetsep-per-chrom {} is the input file",
@@ -364,7 +261,7 @@ fn per_chromosome_files_are_checked_before_writing() {
         )),
         "{err}"
     );
-    assert_eq!(fs::read_to_string(&input).unwrap(), text);
+    assert_eq!(read(&input), text);
 
     // The per-chromosome file would replace another output, or the QC JSON,
     // which is written first: nothing is written at all.
@@ -376,24 +273,16 @@ fn per_chromosome_files_are_checked_before_writing() {
             pair_chr1.to_str().unwrap(),
             "--multihetsep-per-chrom",
             pair.to_str().unwrap(),
-        ]);
+        ])
+        .exits(2);
         assert!(err.contains("are the same file"), "{flag}: {err}");
         assert!(!pair_chr1.exists(), "{flag}");
     }
-    let ok = run_ok([
-        "convert",
-        input.to_str().unwrap(),
-        "--mhs-pair",
-        "2,3",
-        "--min-good-bases",
-        "0",
-        "--min-good-fraction",
-        "0",
-        "--multihetsep-per-chrom",
-        pair.to_str().unwrap(),
-    ]);
+    let ok = convert(&["--multihetsep-per-chrom", pair.to_str().unwrap()])
+        .ok()
+        .stdout;
     assert!(ok.contains(&format!("multihetsep: {}", pair_chr1.display())));
-    assert!(fs::read_to_string(&pair_chr1).unwrap().contains("\tGT\n"));
+    assert!(read(&pair_chr1).contains("\tGT\n"));
 }
 
 /// Multihetsep can be binned, with a note that missing sites were placed by
@@ -401,23 +290,21 @@ fn per_chromosome_files_are_checked_before_writing() {
 #[test]
 fn multihetsep_converts_to_psmcfa_with_a_note() {
     let dir = TempDir::new("convert_mhs_psmcfa");
-    let input = dir.path("in.mhs");
-    fs::write(
-        &input,
+    let input = dir.write(
+        "in.mhs",
         "chr1\t150\t150\tAC\nchr1\t450\t100\tGT\nchr1\t850\t400\tCA\n",
-    )
-    .unwrap();
+    );
     let out = dir.path("out.psmcfa");
-    let o = run([
+    let stderr = outcome(args![
         "convert",
-        input.to_str().unwrap(),
+        input,
         "--psmcfa",
-        out.to_str().unwrap(),
+        out,
         "--min-good-bases",
-        "0",
-    ]);
-    assert!(o.status.success());
-    let stderr = String::from_utf8(o.stderr).unwrap();
+        "0"
+    ])
+    .ok()
+    .stderr;
     assert!(
         stderr.contains("placed at the start of each interval"),
         "{stderr}"
@@ -425,7 +312,7 @@ fn multihetsep_converts_to_psmcfa_with_a_note() {
     assert!(stderr.contains("APPROX_MISSING_PLACEMENT"), "{stderr}");
     // The 200 uncalled sites before the second row go to 151-350, which
     // leaves bin 3 (201-300) missing.
-    assert_eq!(fs::read_to_string(&out).unwrap(), ">chr1\nTKNTKTTTK\n");
+    assert_eq!(read(&out), ">chr1\nTKNTKTTTK\n");
 }
 
 /// Like fq2psmcfa, convert writes an empty file when every sequence is
@@ -435,57 +322,33 @@ fn convert_writes_an_empty_file_when_everything_is_dropped() {
     let dir = TempDir::new("convert_empty");
     let out = dir.path("out.psmcfa");
     let qc_json = dir.path("qc.json");
-    let o = run([
+    let stderr = outcome(args![
         "convert",
-        route_a("allsites.vcf.gz").to_str().unwrap(),
+        route_a("allsites.vcf.gz"),
         "--depth",
         "3:100000",
         "--min-good-bases",
         "1000000",
         "--psmcfa",
-        out.to_str().unwrap(),
+        out,
         "--qc-json",
-        qc_json.to_str().unwrap(),
-    ]);
-    assert!(o.status.success());
-    let stderr = String::from_utf8(o.stderr).unwrap();
+        qc_json,
+    ])
+    .ok()
+    .stderr;
     assert!(stderr.contains("no sequence is left to write"), "{stderr}");
     assert!(
         stderr.contains("Input QC (vcf, consensus mode): 0 sequences"),
         "{stderr}"
     );
     assert_eq!(fs::read(&out).unwrap(), b"");
-    let qc = common::json(&qc_json);
+    let qc = json(&qc_json);
     assert_eq!(qc["n_sequences"], 0);
-    let codes: Vec<&str> = qc["findings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|f| f["code"].as_str().unwrap())
-        .collect();
-    assert!(codes.contains(&"DROPPED_SEQUENCES"), "{codes:?}");
-}
-
-/// Run convert on `bytes` written to its stdin through a pipe.
-fn convert_piped(bytes: Vec<u8>, args: &[&str]) -> std::process::Output {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let mut child = Command::new(common::bin())
-        .args(["convert", "/dev/stdin"])
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    let writer = std::thread::spawn(move || {
-        // The reader may stop early, closing the pipe.
-        let _ = stdin.write_all(&bytes);
-    });
-    let out = child.wait_with_output().unwrap();
-    writer.join().unwrap();
-    out
+    let codes = finding_codes(&qc);
+    assert!(
+        codes.contains(&"DROPPED_SEQUENCES".to_string()),
+        "{codes:?}"
+    );
 }
 
 /// A pipe can be read once, so the automatic depth bounds (two passes)
@@ -495,15 +358,15 @@ fn a_piped_vcf_needs_explicit_depth_bounds() {
     let dir = TempDir::new("convert_pipe");
     let vcf = fs::read(route_a("allsites.vcf.gz")).unwrap();
     let out = dir.path("out.psmcfa");
-    let o = convert_piped(vcf.clone(), &["--psmcfa", out.to_str().unwrap()]);
-    assert!(!o.status.success());
-    let stderr = String::from_utf8(o.stderr).unwrap();
-    assert!(stderr.contains("Give them as --depth MIN:MAX"), "{stderr}");
-
-    let o = convert_piped(
-        vcf,
-        &["--psmcfa", out.to_str().unwrap(), "--depth", "3:100000"],
+    let to_psmcfa = ["--psmcfa", out.to_str().unwrap()];
+    let o = convert_piped(vcf.clone(), &to_psmcfa);
+    assert!(!o.success());
+    assert!(
+        o.stderr.contains("Give them as --depth MIN:MAX"),
+        "{}",
+        o.stderr
     );
-    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
-    assert!(read_bytes(&out) == read_bytes(&route_a("expected/default.psmcfa")));
+
+    convert_piped(vcf, &[&to_psmcfa[..], &["--depth", "3:100000"]].concat()).ok();
+    assert!(gunzipped(&out) == gunzipped(route_a("expected/default.psmcfa")));
 }

@@ -2,8 +2,22 @@
 
 mod common;
 
-use common::psmc_text::parse_rounds;
-use common::{TempDir, json, run_err, run_ok, small_psmcfa};
+use common::psmc_text::{Round, parse_rounds};
+use common::{TempDir, args, finding_codes, json, outcome, read, run_err, run_ok, small_psmcfa};
+use serde_json::Value;
+use std::path::PathBuf;
+
+/// Fit `dir/in.psmcfa` (5,000 bins of each reference sequence, written on
+/// the first call) for `n_iter` iterations into `dir/<name>.json`.
+fn fit_json(dir: &TempDir, name: &str, n_iter: &str, extra: &[&str]) -> Value {
+    let input = dir.path("in.psmcfa");
+    if !input.exists() {
+        small_psmcfa(&input, 5000);
+    }
+    let out = dir.path(&format!("{name}.json"));
+    run_ok(args![input, out, n_iter, "--no-progress", ..extra]);
+    json(&out)
+}
 
 /// With neither --pattern nor --n-steps the model is C psmc's default, and
 /// rho0 = theta0 / 4 (C's -r 4).
@@ -17,23 +31,6 @@ fn defaults_follow_c_psmc() {
     assert_eq!(v["t_max"], 15.0);
     let theta = v["theta"].as_f64().unwrap();
     assert_eq!(v["rho"].as_f64().unwrap(), theta / 4.0);
-}
-
-fn fit_json(dir: &TempDir, name: &str, n_iter: &str, extra: &[&str]) -> serde_json::Value {
-    let input = dir.path("in.psmcfa");
-    if !input.exists() {
-        small_psmcfa(&input, 5000);
-    }
-    let out = dir.path(&format!("{name}.json"));
-    let mut args = vec![
-        input.display().to_string(),
-        out.display().to_string(),
-        n_iter.to_string(),
-        "--no-progress".to_string(),
-    ];
-    args.extend(extra.iter().map(|s| s.to_string()));
-    run_ok(&args);
-    json(&out)
 }
 
 #[test]
@@ -60,29 +57,22 @@ fn n_steps_is_taken_from_the_pattern_and_checked() {
     );
     assert_eq!(v["n_steps"], 63);
 
-    let input = dir.path("in.psmcfa");
-    let out = dir.path("bad.json");
-    let err = run_err([
-        input.to_str().unwrap(),
-        out.to_str().unwrap(),
+    let (input, out) = (dir.path("in.psmcfa"), dir.path("bad.json"));
+    let err = run_err(args![
+        input,
+        out,
         "0",
         "--pattern",
         "4+5*3+4",
         "--n-steps",
-        "30",
+        "30"
     ]);
     assert!(
         err.contains("--n-steps 30 does not match --pattern '4+5*3+4', which has 23 intervals"),
         "{err}"
     );
     assert!(!out.exists());
-    let err = run_err([
-        input.to_str().unwrap(),
-        out.to_str().unwrap(),
-        "0",
-        "--pattern",
-        "4+5*",
-    ]);
+    let err = run_err(args![input, out, "0", "--pattern", "4+5*"]);
     assert!(err.contains("invalid --pattern '4+5*'"), "{err}");
 }
 
@@ -113,7 +103,7 @@ fn smoothing_is_off_by_default() {
 }
 
 /// The model fields of a fit, as written.
-fn model_fields(v: &serde_json::Value) -> Vec<serde_json::Value> {
+fn model_fields(v: &Value) -> Vec<Value> {
     ["theta", "rho", "t_max", "lam", "n_steps", "pattern", "mu"]
         .iter()
         .map(|k| v[k].clone())
@@ -141,29 +131,22 @@ fn init_params_continues_a_saved_fit() {
         &["--init-params", saved, "--pattern", "4+5*3+4"],
     );
     assert_eq!(model_fields(&same), model_fields(&two));
-    let input = dir.path("in.psmcfa");
-    let err = run_err([
-        input.to_str().unwrap(),
-        dir.path("bad.json").to_str().unwrap(),
-        "1",
-        "--init-params",
-        saved,
-        "--pattern",
-        "4+25*2+4+6",
-    ]);
+    let fails = |extra: &[&str]| {
+        run_err(args![
+            dir.path("in.psmcfa"),
+            dir.path("bad.json"),
+            "1",
+            "--init-params",
+            saved,
+            ..extra
+        ])
+    };
+    let err = fails(&["--pattern", "4+25*2+4+6"]);
     assert!(
         err.contains("holds a model with pattern 4+5*3+4 (23 intervals)"),
         "{err}"
     );
-    let err = run_err([
-        input.to_str().unwrap(),
-        dir.path("bad.json").to_str().unwrap(),
-        "1",
-        "--init-params",
-        saved,
-        "--theta0",
-        "0.01",
-    ]);
+    let err = fails(&["--theta0", "0.01"]);
     assert!(err.contains("cannot be used with"), "{err}");
 }
 
@@ -181,14 +164,13 @@ fn zero_iterations_record_the_starting_loglike() {
     assert_eq!(fresh["loglike"], serde_json::json!([two["loglike"][0]]));
     assert_eq!(fresh["final_loglike"], two["loglike"][0]);
 
-    let saved = dir.path("two.json");
-    let out = run_ok([
-        dir.path("in.psmcfa").to_str().unwrap(),
-        dir.path("again.json").to_str().unwrap(),
+    let out = run_ok(args![
+        dir.path("in.psmcfa"),
+        dir.path("again.json"),
         "0",
         "--no-progress",
         "--init-params",
-        saved.to_str().unwrap(),
+        dir.path("two.json"),
     ]);
     assert!(
         out.contains(&format!("Last EM loglike: {saved_ll}\n")),
@@ -198,7 +180,7 @@ fn zero_iterations_record_the_starting_loglike() {
     assert_eq!(again["loglike"], serde_json::json!([saved_ll]));
     assert_eq!(again["final_loglike"].as_f64(), Some(saved_ll));
     // The report shows it too.
-    let html = std::fs::read_to_string(dir.path("again.html")).unwrap();
+    let html = read(dir.path("again.html"));
     assert!(
         html.contains(&format!(
             "<tr><th>Final log-likelihood</th><td>{saved_ll:.6}</td></tr>"
@@ -215,23 +197,22 @@ fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
     fit_json(&dir, "two", "2", &[]);
     let saved = dir.path("two.json");
     let main_psmc = dir.path("main.psmc");
-    let out = dir.path("cont.json");
-    let o = common::run([
-        dir.path("in.psmcfa").to_str().unwrap(),
-        out.to_str().unwrap(),
+    let stderr = outcome(args![
+        dir.path("in.psmcfa"),
+        dir.path("cont.json"),
         "1",
         "--no-progress",
         "--init-params",
-        saved.to_str().unwrap(),
+        saved,
         "--psmc-out",
-        main_psmc.to_str().unwrap(),
+        main_psmc,
         "--bootstrap",
         "2",
         "--bootstrap-block-size",
         "1000",
-    ]);
-    assert!(o.status.success());
-    let stderr = String::from_utf8(o.stderr).unwrap();
+    ])
+    .ok()
+    .stderr;
     assert!(
         stderr.contains(&format!(
             "Warning: every bootstrap replicate starts from the parameters in {}",
@@ -239,12 +220,14 @@ fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
         )),
         "{stderr}"
     );
-    let main = parse_rounds(&std::fs::read_to_string(&main_psmc).unwrap());
+    let main = parse_rounds(&read(&main_psmc));
     let start = &main[0];
     assert!(start.rs.iter().any(|rs| rs[1] != 1.0), "a fitted start");
+    let lambdas = |r: &Round| -> Vec<f64> { r.rs.iter().map(|rs| rs[1]).collect() };
     for rep in 1..=2 {
-        let path = dir.path(&format!("cont.bootstrap/replicate_{rep:03}.psmc"));
-        let rounds = parse_rounds(&std::fs::read_to_string(path).unwrap());
+        let rounds = parse_rounds(&read(
+            dir.path(&format!("cont.bootstrap/replicate_{rep:03}.psmc")),
+        ));
         assert_eq!(rounds.len(), 2, "replicate {rep}");
         let first = &rounds[0];
         assert_eq!(
@@ -252,12 +235,9 @@ fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
             (start.tr, start.mt),
             "replicate {rep}"
         );
-        let lambdas =
-            |r: &common::psmc_text::Round| -> Vec<f64> { r.rs.iter().map(|rs| rs[1]).collect() };
         assert_eq!(lambdas(first), lambdas(start), "replicate {rep}");
     }
-    let html = std::fs::read_to_string(out.with_extension("html")).unwrap();
-    assert!(html.contains(&format!(
+    assert!(read(dir.path("cont.html")).contains(&format!(
         "<tr><th>Replicates start from</th><td>the parameters in {}</td></tr>",
         saved.display()
     )));
@@ -272,32 +252,21 @@ fn output_paths_are_checked_before_the_fit() {
     small_psmcfa(&input, 3000);
     let original = std::fs::read(&input).unwrap();
     let out = dir.path("fit.json");
-    let fails = |output: &std::path::Path, extra: &[&str]| -> String {
-        let mut args = vec![
-            input.display().to_string(),
-            output.display().to_string(),
-            "2".to_string(),
-            "--no-progress".to_string(),
-        ];
-        args.extend(extra.iter().map(|s| s.to_string()));
-        let o = common::run(&args);
-        assert!(!o.status.success());
-        assert!(
-            o.stdout.is_empty(),
-            "{}",
-            String::from_utf8_lossy(&o.stdout)
-        );
-        let stderr = String::from_utf8(o.stderr).unwrap();
+    let fails = |output: &PathBuf, extra: &[&str]| -> String {
+        let o = outcome(args![input, output, "2", "--no-progress", ..extra]);
+        assert!(!o.success());
+        assert!(o.stdout.is_empty(), "{}", o.stdout);
         // Nothing was read.
-        assert!(!stderr.contains("Input:"), "{stderr}");
-        stderr
+        assert!(!o.stderr.contains("Input:"), "{}", o.stderr);
+        o.stderr
     };
     let missing = dir.path("nowhere/t.tsv");
+    let missing_str = missing.to_str().unwrap();
     let err = fails(
         &out,
         &[
             "--tmrca-out",
-            missing.to_str().unwrap(),
+            missing_str,
             "--bootstrap",
             "2",
             "--bootstrap-block-size",
@@ -305,22 +274,31 @@ fn output_paths_are_checked_before_the_fit() {
         ],
     );
     assert!(
-        err.contains(&format!("cannot write --tmrca-out {}", missing.display())),
+        err.contains(&format!("cannot write --tmrca-out {missing_str}")),
         "{err}"
     );
     assert!(err.contains("does not exist"), "{err}");
-    let err = fails(&dir.path("nowhere/fit.json"), &[]);
-    assert!(err.contains("cannot write OUTPUT"), "{err}");
-
-    let err = fails(&dir.path("fit.html"), &[]);
-    assert!(err.contains("ends in .html"), "{err}");
-    let err = fails(&out, &["--psmc-out", out.to_str().unwrap()]);
-    assert!(err.contains("are the same file"), "{err}");
-    let err = fails(&input, &[]);
-    assert!(err.contains("is the input file"), "{err}");
-    let err = fails(&out, &["--qc-json", input.to_str().unwrap()]);
-    assert!(err.contains("--qc-json"), "{err}");
-    assert!(err.contains("is the input file"), "{err}");
+    let cases: [(PathBuf, &[&str], &[&str]); 5] = [
+        (dir.path("nowhere/fit.json"), &[], &["cannot write OUTPUT"]),
+        (dir.path("fit.html"), &[], &["ends in .html"]),
+        (
+            out.clone(),
+            &["--psmc-out", out.to_str().unwrap()],
+            &["are the same file"],
+        ),
+        (input.clone(), &[], &["is the input file"]),
+        (
+            out.clone(),
+            &["--qc-json", input.to_str().unwrap()],
+            &["--qc-json", "is the input file"],
+        ),
+    ];
+    for (output, extra, messages) in cases {
+        let err = fails(&output, extra);
+        for message in messages {
+            assert!(err.contains(message), "{extra:?}: {err}");
+        }
+    }
 
     for name in ["fit.json", "fit.html", "fit.bootstrap", "nowhere"] {
         assert!(!dir.path(name).exists(), "{name}");
@@ -335,23 +313,23 @@ fn options_of_another_format_are_reported() {
     let dir = TempDir::new("ignored_options");
     let input = dir.path("in.psmcfa");
     small_psmcfa(&input, 2000);
-    let o = common::run([
-        input.to_str().unwrap(),
-        dir.path("fit.json").to_str().unwrap(),
+    let stderr = outcome(args![
+        input,
+        dir.path("fit.json"),
         "0",
         "-q",
         "--no-progress",
         "--vcf-mask",
-        dir.path("missing.bed").to_str().unwrap(),
+        dir.path("missing.bed"),
         "--vcf-sample",
         "s1",
         "--depth",
         "5:10",
         "--mhs-pair",
         "2,3",
-    ]);
-    assert!(o.status.success());
-    let stderr = String::from_utf8(o.stderr).unwrap();
+    ])
+    .ok()
+    .stderr;
     assert!(
         stderr.contains(
             "Warning: --vcf-sample, --vcf-mask, --depth and --mhs-pair do not apply to psmcfa \
@@ -359,17 +337,8 @@ fn options_of_another_format_are_reported() {
         ),
         "{stderr}"
     );
-    let o = common::run([
-        input.to_str().unwrap(),
-        dir.path("plain.json").to_str().unwrap(),
-        "0",
-        "--no-progress",
-    ]);
-    assert!(
-        !String::from_utf8(o.stderr)
-            .unwrap()
-            .contains("do not apply")
-    );
+    let plain = outcome(args![input, dir.path("plain.json"), "0", "--no-progress"]);
+    assert!(!plain.stderr.contains("do not apply"));
 }
 
 /// When the sequence filter leaves nothing, the fit fails, but the QC
@@ -377,11 +346,10 @@ fn options_of_another_format_are_reported() {
 #[test]
 fn qc_json_is_written_when_nothing_is_left_to_fit() {
     let dir = TempDir::new("nothing_left");
-    let vcf = common::fixture("route_a/allsites.vcf.gz");
     let qc_json = dir.path("qc.json");
-    let err = run_err([
-        vcf.to_str().unwrap(),
-        dir.path("fit.json").to_str().unwrap(),
+    let err = run_err(args![
+        common::fixture("route_a/allsites.vcf.gz"),
+        dir.path("fit.json"),
         "1",
         "--no-progress",
         "--depth",
@@ -389,7 +357,7 @@ fn qc_json_is_written_when_nothing_is_left_to_fit() {
         "--min-good-bases",
         "1000000",
         "--qc-json",
-        qc_json.to_str().unwrap(),
+        qc_json,
     ]);
     assert!(
         err.contains("pass --min-good-bases 0 --min-good-fraction 0"),
@@ -397,13 +365,7 @@ fn qc_json_is_written_when_nothing_is_left_to_fit() {
     );
     let qc = json(&qc_json);
     assert_eq!(qc["n_sequences"], 0);
-    assert!(
-        qc["findings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|f| f["code"] == "DROPPED_SEQUENCES")
-    );
+    assert!(finding_codes(&qc).contains(&"DROPPED_SEQUENCES".to_string()));
     assert!(!dir.path("fit.json").exists());
 }
 
@@ -411,22 +373,20 @@ fn qc_json_is_written_when_nothing_is_left_to_fit() {
 #[test]
 fn init_params_reads_files_of_version_0_1() {
     let dir = TempDir::new("init_v01");
-    let old = dir.path("old.json");
-    std::fs::write(
-        &old,
+    let old = dir.write(
+        "old.json",
         r#"{"theta": 0.0068, "rho": 0.0014, "lam": [1.5, 0.7, 2.0, 3.0, 1.0, 0.5, 4.0],
             "t_max": 14.2, "n_steps": 22, "mu": 2.5e-8, "pattern": "4+5*3+4"}"#,
-    )
-    .unwrap();
+    );
     let v = fit_json(&dir, "out", "0", &["--init-params", old.to_str().unwrap()]);
     assert_eq!(v["theta"], 0.0068);
     assert_eq!(v["lam"][6], 4.0);
-    let err = run_err([
-        dir.path("in.psmcfa").to_str().unwrap(),
-        dir.path("x.json").to_str().unwrap(),
+    let err = run_err(args![
+        dir.path("in.psmcfa"),
+        dir.path("x.json"),
         "0",
         "--init-params",
-        dir.path("missing.json").to_str().unwrap(),
+        dir.path("missing.json"),
     ]);
     assert!(err.contains("--init-params"), "{err}");
 }
@@ -440,25 +400,12 @@ fn usage_errors_exit_with_status_2() {
     let input = dir.path("in.psmcfa");
     small_psmcfa(&input, 2000);
     let saved = dir.path("saved.json");
-    run_ok([
-        input.to_str().unwrap(),
-        saved.to_str().unwrap(),
-        "0",
-        "--no-progress",
-    ]);
+    run_ok(args![input, saved, "0", "--no-progress"]);
     let out = dir.path("fit.json");
-    let status = |extra: &[&str]| -> (Option<i32>, String) {
-        let mut args = vec![
-            input.display().to_string(),
-            out.display().to_string(),
-            "1".to_string(),
-            "--no-progress".to_string(),
-        ];
-        args.extend(extra.iter().map(|s| s.to_string()));
-        let o = common::run(&args);
-        let stderr = String::from_utf8(o.stderr).unwrap();
-        assert!(!stderr.contains("Input:"), "{stderr}");
-        (o.status.code(), stderr)
+    let exits = |code: i32, extra: &[&str]| {
+        let stderr = outcome(args![input, out, "1", "--no-progress", ..extra]).exits(code);
+        assert!(!stderr.contains("Input:"), "{extra:?}: {stderr}");
+        stderr
     };
     let saved = saved.to_str().unwrap();
     let usage: &[(&[&str], &str)] = &[
@@ -483,62 +430,39 @@ fn usage_errors_exit_with_status_2() {
         (&["--threads", "0"], "at least 1"),
     ];
     for (extra, message) in usage {
-        let (code, stderr) = status(extra);
-        assert_eq!(code, Some(2), "{extra:?}: {stderr}");
+        let stderr = exits(2, extra);
         assert!(stderr.contains(message), "{extra:?}: {stderr}");
     }
-    let o = common::run([
-        input.to_str().unwrap(),
-        dir.path("fit.html").to_str().unwrap(),
-        "1",
-    ]);
-    assert_eq!(o.status.code(), Some(2));
+    outcome(args![input, dir.path("fit.html"), "1"]).exits(2);
     // The TUI's refusal of the QC JSON on stdout, before the interface
     // starts.
-    let o = common::run([
-        input.to_str().unwrap(),
-        out.to_str().unwrap(),
-        "1",
-        "--tui",
-        "--qc-json",
-        "-",
-    ]);
-    let stderr = String::from_utf8(o.stderr).unwrap();
-    assert_eq!(o.status.code(), Some(2), "{stderr}");
+    let stderr = outcome(args![input, out, "1", "--tui", "--qc-json", "-"]).exits(2);
     assert!(
         stderr.contains("give --qc-json a file with --tui"),
         "{stderr}"
     );
 
     // Not usage errors: a file that cannot be read or written.
-    let missing = dir.path("missing.json");
-    let (code, stderr) = status(&["--init-params", missing.to_str().unwrap()]);
-    assert_eq!(code, Some(1), "{stderr}");
-    let missing = dir.path("nowhere/t.tsv");
-    let (code, stderr) = status(&["--tmrca-out", missing.to_str().unwrap()]);
-    assert_eq!(code, Some(1), "{stderr}");
+    exits(
+        1,
+        &["--init-params", dir.path("missing.json").to_str().unwrap()],
+    );
+    exits(
+        1,
+        &["--tmrca-out", dir.path("nowhere/t.tsv").to_str().unwrap()],
+    );
     assert!(!out.exists());
 
     // convert: multihetsep output asked of psmcfa input.
-    let o = common::run([
+    outcome(args![
         "convert",
-        input.to_str().unwrap(),
+        input,
         "--input-format",
         "psmcfa",
         "--multihetsep",
-        dir.path("x.mhs").to_str().unwrap(),
-    ]);
-    assert_eq!(o.status.code(), Some(2));
-}
-
-/// A psmcfa input of two sequences whose bins are 60% heterozygous: C's
-/// start (theta0 = -ln(1 - K/L) = 0.92, rho0 = theta0 / 4 = 0.23) is past
-/// the limit of about 1/6 on rho per bin at t_max 15.
-fn too_diverse_psmcfa(dir: &TempDir) -> std::path::PathBuf {
-    let input = dir.path("diverse.psmcfa");
-    let bins = "KKKTT".repeat(2000);
-    std::fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
-    input
+        dir.path("x.mhs"),
+    ])
+    .exits(2);
 }
 
 /// A start EM cannot move from is refused before the fit, with advice this
@@ -548,23 +472,15 @@ fn too_diverse_psmcfa(dir: &TempDir) -> std::path::PathBuf {
 #[test]
 fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
     let dir = TempDir::new("invalid_start");
-    let input = too_diverse_psmcfa(&dir);
+    // Two sequences whose bins are 60% heterozygous: C's start (theta0 =
+    // -ln(1 - K/L) = 0.92, rho0 = theta0 / 4 = 0.23) is past the limit of
+    // about 1/6 on rho per bin at t_max 15.
+    let bins = "KKKTT".repeat(2000);
+    let input = dir.write("diverse.psmcfa", format!(">a\n{bins}\n>b\n{bins}\n"));
     let out = dir.path("fit.json");
-    let args = |n_iter: &str, extra: &[&str]| {
-        let mut args = vec![
-            input.display().to_string(),
-            out.display().to_string(),
-            n_iter.to_string(),
-            "--no-progress".to_string(),
-        ];
-        args.extend(extra.iter().map(|s| s.to_string()));
-        args
-    };
     // The error line (QC's own advice comes before it).
     let fit_err = |extra: &[&str]| {
-        let o = common::run(args("1", extra));
-        let stderr = String::from_utf8(o.stderr).unwrap();
-        assert_eq!(o.status.code(), Some(1), "{stderr}");
+        let stderr = outcome(args![input, out, "1", "--no-progress", ..extra]).exits(1);
         assert!(!out.exists(), "{stderr}");
         stderr
             .lines()
@@ -586,7 +502,7 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
         "{err}"
     );
     // The advice works.
-    run_ok(args("1", &["--tr-ratio", ratio]));
+    run_ok(args![input, out, "1", "--no-progress", "--tr-ratio", ratio]);
     std::fs::remove_file(&out).unwrap();
 
     let err = fit_err(&["--rho0", "0.3"]);
@@ -597,15 +513,9 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
     // Saved parameters with that rho (written without iterations, which
     // fit nothing and so refuse nothing).
     let saved = dir.path("saved.json");
-    run_ok([
-        input.to_str().unwrap(),
-        saved.to_str().unwrap(),
-        "0",
-        "--no-progress",
-        "--rho0",
-        "0.3",
-    ]);
-    let err = fit_err(&["--init-params", saved.to_str().unwrap()]);
+    run_ok(args![input, saved, "0", "--no-progress", "--rho0", "0.3"]);
+    let from_saved = ["--init-params", saved.to_str().unwrap()];
+    let err = fit_err(&from_saved);
     assert!(err.contains(begins), "{err}");
     assert!(
         err.contains(&format!("Set rho in {} below 0.16", saved.display())),
@@ -620,8 +530,7 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
         "{err}"
     );
     // QC's advice, printed before the error, also speaks of the saved file.
-    let o = common::run(args("1", &["--init-params", saved.to_str().unwrap()]));
-    let stderr = String::from_utf8(o.stderr).unwrap();
+    let stderr = outcome(args![input, out, "1", "--no-progress", ..from_saved]).stderr;
     assert!(stderr.contains("INVALID_START"), "{stderr}");
     assert!(
         stderr.contains("lower rho in the --init-params file"),
