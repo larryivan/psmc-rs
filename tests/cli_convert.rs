@@ -7,7 +7,7 @@ mod common;
 
 use common::{
     Outcome, TempDir, args, command, finding_codes, fixture, gunzipped, json, outcome, read,
-    route_a_option_sets, run_err, run_ok,
+    route_a_option_sets, run_err, run_ok, words,
 };
 use std::fs;
 use std::io::Write;
@@ -48,10 +48,7 @@ fn convert_reads_call_c_with_alt_alleles() {
         fixture("route_a_keep_alts/keep_alts.vcf.gz"),
         "--psmcfa",
         out,
-        "--bin-size",
-        "50",
-        "--min-good-bases",
-        "1000",
+        ..words("--bin-size 50 --min-good-bases 1000"),
     ])
     .ok()
     .stderr;
@@ -85,10 +82,7 @@ fn convert_reproduces_generate_multihetsep() {
             "--vcf-mask",
             mask,
             // generate_multihetsep.py has no output filter.
-            "--min-good-bases",
-            "0",
-            "--min-good-fraction",
-            "0",
+            ..words("--min-good-bases 0 --min-good-fraction 0"),
             "--multihetsep-per-chrom",
             dir.path(vcf),
             "--multihetsep",
@@ -243,12 +237,7 @@ fn per_chromosome_files_are_checked_before_writing() {
         outcome(args![
             "convert",
             input,
-            "--mhs-pair",
-            "2,3",
-            "--min-good-bases",
-            "0",
-            "--min-good-fraction",
-            "0",
+            ..words("--mhs-pair 2,3 --min-good-bases 0 --min-good-fraction 0"),
             ..extra
         ])
     };
@@ -325,10 +314,7 @@ fn convert_writes_an_empty_file_when_everything_is_dropped() {
     let stderr = outcome(args![
         "convert",
         route_a("allsites.vcf.gz"),
-        "--depth",
-        "3:100000",
-        "--min-good-bases",
-        "1000000",
+        ..words("--depth 3:100000 --min-good-bases 1000000"),
         "--psmcfa",
         out,
         "--qc-json",

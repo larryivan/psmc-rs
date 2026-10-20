@@ -34,6 +34,12 @@ pub fn os(x: impl AsRef<OsStr>) -> OsString {
     x.as_ref().to_owned()
 }
 
+/// The words of `s`, to splice into [`args!`] a run of options that read
+/// better on one line: `..words("--bootstrap 2 --bootstrap-seed 7")`.
+pub fn words(s: &str) -> Vec<&str> {
+    s.split_whitespace().collect()
+}
+
 /// Command-line arguments from strings and paths alike, as a
 /// `Vec<OsString>`; `..xs` splices in the items of `xs`.
 #[allow(unused_macros)]

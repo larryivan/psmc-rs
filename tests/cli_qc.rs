@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{TempDir, args, finding_codes, fixture, json, outcome, read, run_ok};
+use common::{TempDir, args, finding_codes, fixture, json, outcome, read, run_ok, words};
 use serde_json::Value;
 
 /// `qc` reads the input as convert and inference do, and --strict turns its
@@ -213,12 +213,7 @@ fn a_gvcf_without_a_mask_is_reported_as_a_gvcf() {
     run_ok(args![
         "qc",
         vcf,
-        "--bin-size",
-        "10",
-        "--min-good-bases",
-        "0",
-        "--min-good-fraction",
-        "0",
+        ..words("--bin-size 10 --min-good-bases 0 --min-good-fraction 0"),
         "--json",
         json_path,
     ]);

@@ -7,7 +7,7 @@ mod common;
 use common::psmc_text::{Round, header_value, parse_rounds};
 use common::{
     TempDir, args, command, gunzipped, json, outcome, outcome_of, read, run_err, run_ok,
-    small_psmcfa,
+    small_psmcfa, words,
 };
 use psmc_rs::PsmcModel;
 use psmc_rs::io::params::load_params;
@@ -74,12 +74,7 @@ fn outputs_do_not_depend_on_the_thread_count() {
                 tmrca,
                 "--psmc-out",
                 psmc,
-                "--bootstrap",
-                "3",
-                "--bootstrap-block-size",
-                "5000",
-                "--bootstrap-iters",
-                "2",
+                ..words("--bootstrap 3 --bootstrap-block-size 5000 --bootstrap-iters 2"),
                 "--bootstrap-dir",
                 boot,
             ],
@@ -347,14 +342,7 @@ fn the_psmc_plot_options_are_printed() {
         .ok()
         .stderr
     };
-    let err = stderr(args![
-        "--bin-size",
-        "50",
-        "--mu",
-        "1.25e-8",
-        "--gen-years",
-        "29"
-    ]);
+    let err = stderr(args![..words("--bin-size 50 --mu 1.25e-8 --gen-years 29")]);
     assert!(
         err.contains(&format!(
             "To plot it: psmc_plot.pl -s 50 -u 1.25e-8 -g 29 -n 2 PREFIX {} (-s is the bin size",
@@ -373,10 +361,7 @@ fn the_psmc_plot_options_are_printed() {
     // psmc_plot.pl fail.
     let bootstrap = |iters: &str| {
         stderr(args![
-            "--bootstrap",
-            "2",
-            "--bootstrap-block-size",
-            "1000",
+            ..words("--bootstrap 2 --bootstrap-block-size 1000"),
             "--bootstrap-iters",
             iters,
         ])
@@ -406,11 +391,7 @@ fn bootstrap_writes_replicates_and_summary() {
         input,
         dir.path("fit.json"),
         "2",
-        "--no-progress",
-        "--bootstrap",
-        "3",
-        "--bootstrap-block-size",
-        "1000",
+        ..words("--no-progress --bootstrap 3 --bootstrap-block-size 1000"),
     ])
     .ok()
     .stderr;
@@ -519,13 +500,7 @@ fn a_rerun_that_fails_in_its_bootstrap_leaves_no_earlier_files() {
             input,
             dir.path("fit.json"),
             "1",
-            "--no-progress",
-            "--threads",
-            "1",
-            "--bootstrap",
-            "4",
-            "--bootstrap-block-size",
-            "1000",
+            ..words("--no-progress --threads 1 --bootstrap 4 --bootstrap-block-size 1000"),
             "--bootstrap-seed",
             seed,
         ])
@@ -579,13 +554,7 @@ fn replicates_with_an_invalid_start_are_skipped_and_reported() {
             input,
             out,
             n_iter,
-            "--no-progress",
-            "--bootstrap",
-            "8",
-            "--bootstrap-iters",
-            "1",
-            "--bootstrap-block-size",
-            "1000",
+            ..words("--no-progress --bootstrap 8 --bootstrap-iters 1 --bootstrap-block-size 1000"),
             ..extra
         ]
     };
@@ -727,10 +696,7 @@ fn generation_time_scales_the_time_axis() {
                 years,
                 "--tmrca-out",
                 tmrca,
-                "--bootstrap",
-                "2",
-                "--bootstrap-block-size",
-                "1000",
+                ..words("--bootstrap 2 --bootstrap-block-size 1000"),
             ],
         );
         let summary = json(&dir.path(&format!("g{years}.bootstrap/summary.json")));
@@ -1008,11 +974,7 @@ fn the_missing_mask_warning_is_given_once() {
         vcf,
         out,
         "0",
-        "--bin-size",
-        "4",
-        "--min-good-bases",
-        "0",
-        "--no-progress",
+        ..words("--bin-size 4 --min-good-bases 0 --no-progress"),
     ])
     .ok()
     .stderr;
@@ -1072,10 +1034,7 @@ fn the_report_can_embed_a_local_chart_library() {
                 input,
                 dir.path("bad.json"),
                 "1",
-                "--bootstrap",
-                "2",
-                "--bootstrap-block-size",
-                "500",
+                ..words("--bootstrap 2 --bootstrap-block-size 500"),
             ])
             .env("PSMC_ECHARTS_JS", dir.path("missing.js")),
     )

@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{TempDir, args, json, read, run_err, run_ok};
+use common::{TempDir, args, json, read, run_err, run_ok, words};
 
 const PSMCFA: &str = "> chr1\nTTTTTKTTTTKTTTTNTTTTKTTTTKTTTT\n";
 
@@ -63,12 +63,7 @@ fn cli_bootstrap_writes_replicates_summary_and_html_overlay() {
         input,
         dir.path("out.json"),
         "1",
-        "--bootstrap",
-        "2",
-        "--bootstrap-block-size",
-        "8",
-        "--bootstrap-seed",
-        "7",
+        ..words("--bootstrap 2 --bootstrap-block-size 8 --bootstrap-seed 7"),
         "--bootstrap-dir",
         boot,
         "--no-progress",
@@ -95,15 +90,9 @@ fn cli_vcf_input_runs_and_writes_json() {
         input,
         out,
         "0",
-        "--input-format",
-        "vcf",
-        "--mhs-bin-size",
-        "4",
-        "--min-good-bases",
-        "0",
-        "--min-good-fraction",
-        "0",
-        "--no-progress",
+        ..words(
+            "--input-format vcf --mhs-bin-size 4 --min-good-bases 0 --min-good-fraction 0 --no-progress"
+        ),
     ]);
     let v = json(&out);
     for key in ["theta", "rho", "lam"] {

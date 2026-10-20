@@ -14,7 +14,7 @@
 
 mod common;
 
-use common::{TempDir, args, json, mstep, outcome, read, route_a_option_sets, run_ok};
+use common::{TempDir, args, json, mstep, outcome, read, route_a_option_sets, run_ok, words};
 use psmc_rs::PsmcModel;
 use psmc_rs::bootstrap::{
     BootstrapConfig, BootstrapOptions, observations_to_sequences, run_bootstrap_sequences,
@@ -493,14 +493,9 @@ fn the_counts_reach_decoding_the_start_and_the_bootstrap() {
         &boot_json,
         "1",
         args![
-            "--bootstrap",
-            "2",
-            "--bootstrap-iters",
-            "1",
-            "--bootstrap-block-size",
-            "3000",
-            "--bootstrap-seed",
-            "7",
+            ..words(
+                "--bootstrap 2 --bootstrap-iters 1 --bootstrap-block-size 3000 --bootstrap-seed 7"
+            ),
         ],
     );
     let cfg = BootstrapConfig {

@@ -3,7 +3,9 @@
 mod common;
 
 use common::psmc_text::{Round, parse_rounds};
-use common::{TempDir, args, finding_codes, json, outcome, read, run_err, run_ok, small_psmcfa};
+use common::{
+    TempDir, args, finding_codes, json, outcome, read, run_err, run_ok, small_psmcfa, words,
+};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -62,10 +64,7 @@ fn n_steps_is_taken_from_the_pattern_and_checked() {
         input,
         out,
         "0",
-        "--pattern",
-        "4+5*3+4",
-        "--n-steps",
-        "30"
+        ..words("--pattern 4+5*3+4 --n-steps 30")
     ]);
     assert!(
         err.contains("--n-steps 30 does not match --pattern '4+5*3+4', which has 23 intervals"),
@@ -206,10 +205,7 @@ fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
         saved,
         "--psmc-out",
         main_psmc,
-        "--bootstrap",
-        "2",
-        "--bootstrap-block-size",
-        "1000",
+        ..words("--bootstrap 2 --bootstrap-block-size 1000"),
     ])
     .ok()
     .stderr;
@@ -321,12 +317,7 @@ fn options_of_another_format_are_reported() {
         "--no-progress",
         "--vcf-mask",
         dir.path("missing.bed"),
-        "--vcf-sample",
-        "s1",
-        "--depth",
-        "5:10",
-        "--mhs-pair",
-        "2,3",
+        ..words("--vcf-sample s1 --depth 5:10 --mhs-pair 2,3"),
     ])
     .ok()
     .stderr;
@@ -351,11 +342,7 @@ fn qc_json_is_written_when_nothing_is_left_to_fit() {
         common::fixture("route_a/allsites.vcf.gz"),
         dir.path("fit.json"),
         "1",
-        "--no-progress",
-        "--depth",
-        "3:100000",
-        "--min-good-bases",
-        "1000000",
+        ..words("--no-progress --depth 3:100000 --min-good-bases 1000000"),
         "--qc-json",
         qc_json,
     ]);
