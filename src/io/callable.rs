@@ -225,21 +225,10 @@ impl BinCounts {
             Repr::Dense(Dense::Wide(counts)) => out.copy_from_slice(&counts[start..end]),
             Repr::Runs { runs, .. } => {
                 out.fill(self.full);
-                let Runs {
-                    start: s,
-                    run,
-                    count,
-                } = runs;
-                let run_end = |k: usize| s[k] as usize + run[k] as usize;
-                let mut k = s.partition_point(|&x| (x as usize) < start);
-                if k > 0 && run_end(k - 1) > start {
-                    k -= 1;
-                }
-                while k < s.len() && (s[k] as usize) < end {
-                    let from = start.max(s[k] as usize);
-                    let to = end.min(run_end(k));
-                    out[from - start..to - start].fill(count[k]);
-                    k += 1;
+                for k in runs.overlapping(start..end) {
+                    let from = start.max(runs.start[k] as usize);
+                    let to = end.min(runs.end(k));
+                    out[from - start..to - start].fill(runs.count[k]);
                 }
             }
         }
@@ -266,19 +255,12 @@ impl BinCounts {
         );
         match &self.repr {
             Repr::Runs { runs, .. } => {
-                let Runs { start, run, count } = runs;
-                // The runs that overlap the range, cut to it.
-                let end = |k: usize| start[k] as usize + run[k] as usize;
-                let mut first = start.partition_point(|&s| (s as usize) < range.start);
-                if first > 0 && end(first - 1) > range.start {
-                    first -= 1;
-                }
-                let last = start.partition_point(|&s| (s as usize) < range.end);
-                let mut cut = Runs::with_capacity(last - first);
-                for k in first..last {
-                    let from = range.start.max(start[k] as usize);
-                    let to = range.end.min(end(k));
-                    cut.add(from - range.start, to - from, count[k]);
+                let overlapping = runs.overlapping(range.clone());
+                let mut cut = Runs::with_capacity(overlapping.len());
+                for k in overlapping {
+                    let from = range.start.max(runs.start[k] as usize);
+                    let to = range.end.min(runs.end(k));
+                    cut.add(from - range.start, to - from, runs.count[k]);
                 }
                 Self::from_runs(self.full, range.len(), cut)
             }
@@ -340,6 +322,21 @@ impl Runs {
         self.start.len()
     }
 
+    /// The bin after the last of run `k`.
+    fn end(&self, k: usize) -> usize {
+        self.start[k] as usize + self.run[k] as usize
+    }
+
+    /// The runs that hold a bin of `bins`, found by binary search.
+    fn overlapping(&self, bins: Range<usize>) -> Range<usize> {
+        let mut first = self.start.partition_point(|&s| (s as usize) < bins.start);
+        if first > 0 && self.end(first - 1) > bins.start {
+            first -= 1;
+        }
+        let last = self.start.partition_point(|&s| (s as usize) < bins.end);
+        first..last
+    }
+
     fn heap_bytes(&self) -> usize {
         (self.start.capacity() + self.run.capacity()) * size_of::<u32>()
             + self.count.capacity() * size_of::<u16>()
@@ -347,10 +344,7 @@ impl Runs {
 
     /// Whether bins of `c` bases from bin `at` on would extend the last run.
     fn extends_last(&self, at: usize, c: u16) -> bool {
-        match (self.start.last(), self.run.last(), self.count.last()) {
-            (Some(&s), Some(&n), Some(&last)) => last == c && s as usize + n as usize == at,
-            _ => false,
-        }
+        self.count.last() == Some(&c) && self.end(self.len() - 1) == at
     }
 
     /// Add `n` bins of `c` bases from bin `at` on, after every run so far;
@@ -359,22 +353,21 @@ impl Runs {
         if n == 0 {
             return;
         }
+        let in_32_bits = |v: usize| u32::try_from(v).expect("runs within 32 bits");
         if self.extends_last(at, c) {
             let last = self.run.last_mut().expect("a last run");
-            *last = u32::try_from(*last as usize + n).expect("runs within 32 bits");
+            *last = in_32_bits(*last as usize + n);
         } else {
-            self.start
-                .push(u32::try_from(at).expect("runs within 32 bits"));
-            self.run
-                .push(u32::try_from(n).expect("runs within 32 bits"));
+            self.start.push(in_32_bits(at));
+            self.run.push(in_32_bits(n));
             self.count.push(c);
         }
     }
 
     /// Write the runs' counts into `dense`.
     fn fill(&self, dense: &mut Dense) {
-        for ((&s, &n), &c) in self.start.iter().zip(&self.run).zip(&self.count) {
-            dense.fill(s as usize..s as usize + n as usize, c);
+        for k in 0..self.len() {
+            dense.fill(self.start[k] as usize..self.end(k), self.count[k]);
         }
     }
 
