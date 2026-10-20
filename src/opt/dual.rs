@@ -1,14 +1,12 @@
-//! The M-step objective differentiated in forward mode: every value carries
-//! its derivatives with respect to all parameters (a heap vector per
-//! operation). The M-step used it before the adjoint gradient of
-//! [`super::objective`]; it is kept as the test oracle of that gradient.
-//! `compute_params_dual` is a line-by-line copy of
-//! [`PsmcModel::param_recalculate`](crate::model::PsmcModel::param_recalculate)
-//! on dual numbers.
+//! The M-step objective differentiated in forward mode, the test oracle of
+//! the adjoint gradient of [`super::objective`]: every value carries its
+//! derivatives with respect to all parameters (a heap vector per
+//! operation). `compute_params_dual` is a line-by-line copy of
+//! [`PsmcModel::param_recalculate`] on dual numbers.
 //!
 //! The dual numbers are generic over their scalar: in `f64` they perform
-//! the operations of the M-step code before the adjoint gradient, to the
-//! bit; in double-double arithmetic ([`Dd`], about 32 digits) the same code
+//! the objective's operations in its order, so its value to the bit; in
+//! double-double arithmetic ([`Dd`], about 32 digits) the same code
 //! gives the objective's derivatives to far more digits than either `f64`
 //! gradient has, as a reference where the objective is ill-conditioned.
 
@@ -16,12 +14,12 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-use anyhow::{Result, bail};
+use anyhow::{Result, ensure};
 
 use super::Bounds;
 use super::objective::EmissionCounts;
 use crate::hmm::SufficientStats;
-use crate::model::{PsmcModel, T_INF};
+use crate::model::{GRID_ALPHA, PsmcModel, T_INF};
 
 /// The scalar of a [`Dual`].
 pub(super) trait Real:
@@ -231,6 +229,7 @@ impl Real for Dd {
     }
 }
 
+/// A value with its derivatives with respect to every parameter.
 #[derive(Clone, Debug)]
 pub(super) struct Dual<T: Real = f64> {
     pub(super) re: T,
@@ -246,56 +245,49 @@ impl<T: Real> Dual<T> {
     }
 
     pub(super) fn variable(val: f64, n: usize, idx: usize) -> Self {
-        let mut grad = vec![T::of(0.0); n];
-        grad[idx] = T::of(1.0);
-        Self {
-            re: T::of(val),
-            grad,
-        }
+        let mut v = Self::constant(val, n);
+        v.grad[idx] = T::of(1.0);
+        v
+    }
+
+    /// The value `re`, whose derivatives are `d` of `self`'s.
+    fn map(&self, re: T, d: impl Fn(T) -> T) -> Self {
+        let grad = self.grad.iter().map(|&g| d(g)).collect();
+        Self { re, grad }
+    }
+
+    /// The value `re`, whose derivatives are `d` of `self`'s and `rhs`'s.
+    fn zip(&self, rhs: &Self, re: T, d: impl Fn(T, T) -> T) -> Self {
+        let grad = self
+            .grad
+            .iter()
+            .zip(&rhs.grad)
+            .map(|(&a, &b)| d(a, b))
+            .collect();
+        Self { re, grad }
     }
 
     fn exp(&self) -> Self {
         let v = self.re.exp();
-        let grad = self.grad.iter().map(|&g| g * v).collect();
-        Self { re: v, grad }
+        self.map(v, |g| g * v)
     }
 
     fn ln(&self) -> Self {
-        let v = self.re.ln();
-        let grad = self.grad.iter().map(|&g| g / self.re).collect();
-        Self { re: v, grad }
+        self.map(self.re.ln(), |g| g / self.re)
     }
 }
 
 impl<T: Real> Add<&Dual<T>> for &Dual<T> {
     type Output = Dual<T>;
     fn add(self, rhs: &Dual<T>) -> Dual<T> {
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(&a, &b)| a + b)
-            .collect();
-        Dual {
-            re: self.re + rhs.re,
-            grad,
-        }
+        self.zip(rhs, self.re + rhs.re, |a, b| a + b)
     }
 }
 
 impl<T: Real> Sub<&Dual<T>> for &Dual<T> {
     type Output = Dual<T>;
     fn sub(self, rhs: &Dual<T>) -> Dual<T> {
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(&a, &b)| a - b)
-            .collect();
-        Dual {
-            re: self.re - rhs.re,
-            grad,
-        }
+        self.zip(rhs, self.re - rhs.re, |a, b| a - b)
     }
 }
 
@@ -304,16 +296,7 @@ impl<T: Real> Mul<&Dual<T>> for &Dual<T> {
     // The product rule adds the two partial products.
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, rhs: &Dual<T>) -> Dual<T> {
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(&a, &b)| a * rhs.re + b * self.re)
-            .collect();
-        Dual {
-            re: self.re * rhs.re,
-            grad,
-        }
+        self.zip(rhs, self.re * rhs.re, |a, b| a * rhs.re + b * self.re)
     }
 }
 
@@ -321,90 +304,51 @@ impl<T: Real> Div<&Dual<T>> for &Dual<T> {
     type Output = Dual<T>;
     fn div(self, rhs: &Dual<T>) -> Dual<T> {
         let denom = rhs.re * rhs.re;
-        let grad = self
-            .grad
-            .iter()
-            .zip(&rhs.grad)
-            .map(|(&a, &b)| (a * rhs.re - b * self.re) / denom)
-            .collect();
-        Dual {
-            re: self.re / rhs.re,
-            grad,
-        }
+        self.zip(rhs, self.re / rhs.re, |a, b| {
+            (a * rhs.re - b * self.re) / denom
+        })
+    }
+}
+
+impl<T: Real> Neg for &Dual<T> {
+    type Output = Dual<T>;
+    fn neg(self) -> Dual<T> {
+        self.map(-self.re, |g| -g)
     }
 }
 
 impl<T: Real> Add<f64> for &Dual<T> {
     type Output = Dual<T>;
     fn add(self, rhs: f64) -> Dual<T> {
-        Dual {
-            re: self.re + T::of(rhs),
-            grad: self.grad.clone(),
-        }
+        self.map(self.re + T::of(rhs), |g| g)
     }
 }
 
 impl<T: Real> Sub<f64> for &Dual<T> {
     type Output = Dual<T>;
     fn sub(self, rhs: f64) -> Dual<T> {
-        Dual {
-            re: self.re - T::of(rhs),
-            grad: self.grad.clone(),
-        }
+        self.map(self.re - T::of(rhs), |g| g)
     }
 }
 
 impl<T: Real> Mul<f64> for &Dual<T> {
     type Output = Dual<T>;
     fn mul(self, rhs: f64) -> Dual<T> {
-        let grad = self.grad.iter().map(|&g| g * T::of(rhs)).collect();
-        Dual {
-            re: self.re * T::of(rhs),
-            grad,
-        }
+        self.map(self.re * T::of(rhs), |g| g * T::of(rhs))
     }
 }
 
 impl<T: Real> Div<f64> for &Dual<T> {
     type Output = Dual<T>;
     fn div(self, rhs: f64) -> Dual<T> {
-        let grad = self.grad.iter().map(|&g| g / T::of(rhs)).collect();
-        Dual {
-            re: self.re / T::of(rhs),
-            grad,
-        }
-    }
-}
-
-impl<T: Real> Add<&Dual<T>> for f64 {
-    type Output = Dual<T>;
-    fn add(self, rhs: &Dual<T>) -> Dual<T> {
-        Dual {
-            re: T::of(self) + rhs.re,
-            grad: rhs.grad.clone(),
-        }
+        self.map(self.re / T::of(rhs), |g| g / T::of(rhs))
     }
 }
 
 impl<T: Real> Sub<&Dual<T>> for f64 {
     type Output = Dual<T>;
     fn sub(self, rhs: &Dual<T>) -> Dual<T> {
-        let grad = rhs.grad.iter().map(|&g| -g).collect();
-        Dual {
-            re: T::of(self) - rhs.re,
-            grad,
-        }
-    }
-}
-
-impl<T: Real> Mul<&Dual<T>> for f64 {
-    type Output = Dual<T>;
-    fn mul(self, rhs: &Dual<T>) -> Dual<T> {
-        let grad = rhs.grad.iter().map(|&g| g * T::of(self)).collect();
-        Dual {
-            re: T::of(self) * rhs.re,
-            grad,
-        }
+        rhs.map(T::of(self) - rhs.re, |g| -g)
     }
 }
 
@@ -412,41 +356,22 @@ impl<T: Real> Div<&Dual<T>> for f64 {
     type Output = Dual<T>;
     fn div(self, rhs: &Dual<T>) -> Dual<T> {
         let denom = rhs.re * rhs.re;
-        let grad = rhs.grad.iter().map(|&g| T::of(-self) * g / denom).collect();
-        Dual {
-            re: T::of(self) / rhs.re,
-            grad,
-        }
-    }
-}
-
-impl<T: Real> Neg for &Dual<T> {
-    type Output = Dual<T>;
-    fn neg(self) -> Dual<T> {
-        let grad = self.grad.iter().map(|&g| -g).collect();
-        Dual { re: -self.re, grad }
+        rhs.map(T::of(self) / rhs.re, |g| T::of(-self) * g / denom)
     }
 }
 
 fn sigmoid_dual<T: Real>(x: &Dual<T>) -> Dual<T> {
-    let n = x.grad.len();
-    let one = Dual::constant(1.0, n);
+    let one = Dual::constant(1.0, x.grad.len());
     let denom = &one + &(-x).exp();
     &one / &denom
 }
 
 fn from_unconstrained_dual<T: Real>(p: &[Dual<T>], bounds: &[Bounds]) -> Result<Vec<Dual<T>>> {
-    if p.len() != bounds.len() {
-        bail!("bounds length mismatch");
-    }
-    let mut out = Vec::with_capacity(p.len());
-    for (v, b) in p.iter().zip(bounds.iter()) {
-        let z = sigmoid_dual(v);
-        let scaled = &z * (b.hi - b.lo);
-        let scaled = &scaled + b.lo;
-        out.push(scaled);
-    }
-    Ok(out)
+    ensure!(p.len() == bounds.len(), "bounds length mismatch");
+    Ok(p.iter()
+        .zip(bounds)
+        .map(|(v, b)| &(&sigmoid_dual(v) * (b.hi - b.lo)) + b.lo)
+        .collect())
 }
 
 /// The λ of each state of `model`'s layout ([`PsmcModel::map_lam`]).
@@ -455,9 +380,11 @@ pub(super) fn expand_lam_dual<T: Real>(
     lam_grouped: &[Dual<T>],
 ) -> Result<Vec<Dual<T>>> {
     let n_free = model.n_free_params() - 3;
-    if lam_grouped.len() != n_free {
-        bail!("{} λ for {n_free} free ones", lam_grouped.len());
-    }
+    ensure!(
+        lam_grouped.len() == n_free,
+        "{} λ for {n_free} free ones",
+        lam_grouped.len()
+    );
     Ok(model
         .par_map()
         .into_iter()
@@ -476,6 +403,7 @@ pub(super) struct DualParams<T: Real> {
     pub(super) fallbacks: Vec<usize>,
 }
 
+/// [`PsmcModel::param_recalculate`], line by line, on dual numbers.
 pub(super) fn compute_params_dual<T: Real>(
     n_steps: usize,
     theta: &Dual<T>,
@@ -485,11 +413,14 @@ pub(super) fn compute_params_dual<T: Real>(
 ) -> Result<DualParams<T>> {
     let n = n_steps;
     let n_params = theta.grad.len();
-    if lam_full.len() != n + 1 {
-        bail!("lam_full length {} != n_steps+1 {}", lam_full.len(), n + 1);
-    }
+    ensure!(
+        lam_full.len() == n + 1,
+        "lam_full length {} != n_steps+1 {}",
+        lam_full.len(),
+        n + 1
+    );
 
-    let alpha_c = Dual::constant(0.1, n_params);
+    let alpha_c = Dual::constant(GRID_ALPHA, n_params);
     let one = Dual::constant(1.0, n_params);
     let beta = (&(&one + &(t_max / &alpha_c)).ln()) / (n as f64);
 
@@ -503,10 +434,7 @@ pub(super) fn compute_params_dual<T: Real>(
     t.push(t_max.clone());
     t.push(Dual::constant(T_INF, n_params));
 
-    let mut tau = vec![Dual::constant(0.0, n_params); n + 1];
-    for k in 0..=n {
-        tau[k] = &t[k + 1] - &t[k];
-    }
+    let tau: Vec<Dual<T>> = (0..=n).map(|k| &t[k + 1] - &t[k]).collect();
 
     let mut alpha = vec![Dual::constant(0.0, n_params); n + 2];
     alpha[0] = one.clone();
@@ -515,7 +443,6 @@ pub(super) fn compute_params_dual<T: Real>(
         let term = (-&ratio).exp();
         alpha[k] = &alpha[k - 1] * &term;
     }
-    alpha[n + 1] = Dual::constant(0.0, n_params);
 
     let mut beta_arr = vec![Dual::constant(0.0, n_params); n + 1];
     for k in 1..=n {
