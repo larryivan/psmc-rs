@@ -192,7 +192,7 @@ def draw(src: Source):
     runs = src.table("E3_runs")
     fig = style.figure("double", 70)
     # bottom_mm: a second tick line under each size, its chromosome count.
-    gs = style.grid(fig, 1, 3, left_mm=12.5, right_mm=3.0, top_mm=12.0, bottom_mm=11.5, wspace_mm=14.0)
+    gs = style.grid(fig, 1, 3, left_mm=12.5, right_mm=3.0, top_mm=9.0, bottom_mm=11.5, wspace_mm=14.0)
     ax_t, ax_m, ax_s = (fig.add_subplot(gs[0, i]) for i in range(3))
     sizes = sorted(int(s) for s in table2["size_mb"].unique())
     chromosomes = chromosome_counts(table2)
