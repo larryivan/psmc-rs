@@ -115,6 +115,11 @@ def bootstrap_seed(cfg: config.E5, r: int, trunk_bins: int) -> int:
     return config.seed(NAME, cfg.model, r, bootstrap_stage(trunk_bins))
 
 
+def resampling_stage(window: str, trunk_bins: int) -> str:
+    """The seed stage (replicate 0) of the datasets' resampling for one window and trunk size."""
+    return f"summary/{window}/{trunk_dir(trunk_bins)}"
+
+
 @dataclass(frozen=True)
 class Layout:
     """Where E5's files are."""
@@ -664,7 +669,7 @@ def summary_rows(cfg: config.E5, window: str, res: Dict, trunks: Dict[int, int])
     for trunk in cfg.trunk_bins:
         c = res["calibration"][trunk]
         rm = c["ratio_median"]
-        seed = config.seed(NAME, cfg.model, 0, f"summary/{window}/{trunk_dir(trunk)}")
+        seed = config.seed(NAME, cfg.model, 0, resampling_stage(window, trunk))
         resampled = dataset_resampling(c, cfg.dataset_resamples, seed)
         rows.append(
             {
@@ -863,7 +868,7 @@ def seed_rows(cfg: config.E5, genomes: List[GenomeFit]) -> List[Dict]:
                              "seed": bootstrap_seed(cfg, gn.replicate, trunk)})
     for window in WINDOWS:
         for trunk in cfg.trunk_bins:
-            stage = f"summary/{window}/{trunk_dir(trunk)}"
+            stage = resampling_stage(window, trunk)
             rows.append({"replicate": 0, "stage": stage, "seed": config.seed(NAME, cfg.model, 0, stage)})
     return rows
 
