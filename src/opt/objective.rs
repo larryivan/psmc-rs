@@ -144,6 +144,49 @@ impl<'a> EmissionCounts<'a> {
             n: g2,
         })
     }
+
+    /// The terms of `Q` of the `K` bins of state `k` (`None` where every
+    /// count is zero), and the derivative of the emission terms of `T` and
+    /// `K` with respect to `prod = θ avg_t[k]`, with `e0 = exp(-prod)` the
+    /// emission of `T` (so `d e0 / d prod = -e0`). A `K` bin with a share
+    /// `f` of callable bases emits with probability `1 - e_f`,
+    /// `e_f = exp(-prod f)`, whose derivative is `f e_f`.
+    fn state_terms(&self, k: usize, prod: f64, e0: f64) -> (Option<f64>, f64) {
+        let mut bar_prod = 0.0;
+        if self.t[k] != 0.0 {
+            bar_prod -= self.t[k] * (e0 / (e0 + LN_GUARD));
+        }
+        let mut k_term: Option<f64> = None;
+        for &(f, g) in &self.k {
+            let g = g[k];
+            if g != 0.0 {
+                let e = (-(prod * f)).exp();
+                let em1 = 1.0 - e;
+                let term = (em1 + LN_GUARD).ln() * g;
+                k_term = Some(k_term.map_or(term, |sum| sum + term));
+                bar_prod += g * (f * e / (em1 + LN_GUARD));
+            }
+        }
+        (k_term, bar_prod)
+    }
+
+    /// Adds the emission terms of `Q` to `q`, state by state: those of `T`
+    /// (emitted with probability `em0`), of `K`
+    /// ([`state_terms`](Self::state_terms)) and of `N` (probability 1).
+    fn add_terms(&self, q: &mut f64, em0: &[f64], k_terms: &[Option<f64>]) {
+        let ln_one = (1.0f64 + LN_GUARD).ln();
+        for (k, (&e0, k_term)) in em0.iter().zip(k_terms).enumerate() {
+            if self.t[k] != 0.0 {
+                *q += (e0 + LN_GUARD).ln() * self.t[k];
+            }
+            if let Some(term) = k_term {
+                *q += term;
+            }
+            if self.n[k] != 0.0 {
+                *q += ln_one * self.n[k];
+            }
+        }
+    }
 }
 
 /// The M-step objective of one E-step's expected counts, with its
@@ -424,11 +467,6 @@ impl<'a> Objective<'a> {
         }
         let (mut bar_theta, mut bar_rho) = (0.0, 0.0);
         let (mut bar_c_pi, mut bar_c_pi_rho, mut bar_c_sigma) = (0.0, 0.0, 0.0);
-        let EmissionCounts {
-            t: count_t,
-            k: count_k,
-            n: count_n,
-        } = &self.emissions;
         let mut q_sum = 0.0;
         let mut sum_t = 0.0;
         // Whether every probability is a number in [0, 1] (for transitions,
@@ -514,26 +552,9 @@ impl<'a> Objective<'a> {
             }
             row_deviation = row_deviation.max((row_sum - 1.0).abs());
 
-            // The emissions of T and K (that of a missing bin is 1); their
-            // terms are added to Q after all transitions, as C adds them.
-            // e0 = exp(-(theta avg)), so d e0 / d(theta avg) = -e0; a K
-            // bin with a share f of callable bases emits with probability
-            // 1 - e_f, e_f = exp(-(theta avg) f), whose derivative is f e_f.
-            let mut bar_prod = 0.0;
-            if count_t[k] != 0.0 {
-                bar_prod -= count_t[k] * (e0 / (e0 + LN_GUARD));
-            }
-            let mut k_term: Option<f64> = None;
-            for &(f, g) in count_k {
-                let g = g[k];
-                if g != 0.0 {
-                    let e = (-(prod * f)).exp();
-                    let em1 = 1.0 - e;
-                    let term = (em1 + LN_GUARD).ln() * g;
-                    k_term = Some(k_term.map_or(term, |sum| sum + term));
-                    bar_prod += g * (f * e / (em1 + LN_GUARD));
-                }
-            }
+            // The emissions of T and K; their terms are added to Q after all
+            // transitions, as C adds them.
+            let (k_term, bar_prod) = self.emissions.state_terms(k, prod, e0);
             k_terms[k] = k_term;
             bar_theta += bar_prod * avg;
             let bar_avg = bar_prod * theta;
@@ -600,18 +621,7 @@ impl<'a> Objective<'a> {
 
             sum_t += tau_k;
         }
-        let ln_one = (1.0f64 + LN_GUARD).ln();
-        for k in 0..=n {
-            if count_t[k] != 0.0 {
-                q_sum += (em0[k] + LN_GUARD).ln() * count_t[k];
-            }
-            if let Some(term) = k_terms[k] {
-                q_sum += term;
-            }
-            if count_n[k] != 0.0 {
-                q_sum += ln_one * count_n[k];
-            }
-        }
+        self.emissions.add_terms(&mut q_sum, em0, k_terms);
 
         self.row_deviation = if valid { row_deviation } else { f64::NAN };
         // Not a valid HMM (a NaN probability made `valid` false, so
