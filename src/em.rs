@@ -72,26 +72,25 @@ impl EmHistory {
 ///
 /// which with every count `s` is C's expression, to the bit.
 pub fn hmm_q(transition: &Array2<f64>, emission: &Array2<f64>, stats: &SufficientStats) -> f64 {
+    q_sum(transition, emission, stats).unwrap_or(f64::NEG_INFINITY)
+}
+
+/// [`hmm_q`], or `None` where a probability is not positive.
+fn q_sum(transition: &Array2<f64>, emission: &Array2<f64>, stats: &SufficientStats) -> Option<f64> {
+    // A NaN probability is let through: it makes the sum NaN.
+    let term = |count: f64, p: f64| if p <= 0.0 { None } else { Some(count * p.ln()) };
     let mut sum = 0.0;
     match &stats.callable {
         None => {
             for (b, counts) in stats.gobs[..2].iter().enumerate() {
                 for (k, &count) in counts.iter().enumerate() {
-                    let p = emission[(b, k)];
-                    if p <= 0.0 {
-                        return f64::NEG_INFINITY;
-                    }
-                    sum += count * p.ln();
+                    sum += term(count, emission[(b, k)])?;
                 }
             }
         }
         Some(c) => {
             for (k, &count) in c.t_weighted.iter().enumerate() {
-                let p = emission[(0, k)];
-                if p <= 0.0 {
-                    return f64::NEG_INFINITY;
-                }
-                sum += count * p.ln();
+                sum += term(count, emission[(0, k)])?;
             }
             let s = c.bin_size as f64;
             for (n, counts) in &c.k_by_count {
@@ -103,21 +102,15 @@ pub fn hmm_q(transition: &Array2<f64>, emission: &Array2<f64>, stats: &Sufficien
                     } else {
                         1.0 - (emission[(0, k)].ln() * f).exp()
                     };
-                    if p <= 0.0 {
-                        return f64::NEG_INFINITY;
-                    }
-                    sum += count * p.ln();
+                    sum += term(count, p)?;
                 }
             }
         }
     }
-    for (&count, &p) in stats.xi.iter().zip(transition.iter()) {
-        if p <= 0.0 {
-            return f64::NEG_INFINITY;
-        }
-        sum += count * p.ln();
+    for (&count, &p) in stats.xi.iter().zip(transition) {
+        sum += term(count, p)?;
     }
-    sum
+    Some(sum)
 }
 
 /// C psmc's `hmm_Q0`: the largest value [`hmm_q`] takes for the expected
@@ -197,6 +190,9 @@ pub fn hmm_q0(stats: &SufficientStats) -> f64 {
 /// the left, where it climbs monotonically; without `T` counts `h` rises to
 /// its supremum 0 as `mu` grows.
 fn max_callable_emission_q(t: f64, full: f64, partial: &[(f64, f64)]) -> f64 {
+    if t == 0.0 {
+        return 0.0;
+    }
     let terms = || std::iter::once((1.0, full)).chain(partial.iter().copied());
     let h = |mu: f64| -> f64 {
         let mut v = -t * mu;
@@ -207,9 +203,6 @@ fn max_callable_emission_q(t: f64, full: f64, partial: &[(f64, f64)]) -> f64 {
         }
         v
     };
-    if t == 0.0 {
-        return 0.0;
-    }
     // h'(mu) = -t + sum g f / (e^(f mu) - 1), h''(mu) = -sum g f² e^(f mu) / (e^(f mu) - 1)².
     let slope = |mu: f64| -> (f64, f64) {
         let (mut d1, mut d2) = (-t, 0.0);
@@ -397,11 +390,8 @@ pub fn em_train_with_options(
     history.params.push(params.clone());
 
     let bounds = bounds_from_config(model, config);
-    let pb_em = if config.progress && n_iter > 0 {
-        Some(progress::bar(n_iter as u64, "EM", "overall"))
-    } else {
-        None
-    };
+    let pb_em =
+        (config.progress && n_iter > 0).then(|| progress::bar(n_iter as u64, "EM", "overall"));
 
     if n_iter > 0 {
         model.param_recalculate()?;
@@ -412,50 +402,48 @@ pub fn em_train_with_options(
             .check_transitions()
             .context("EM cannot start from these parameters")?;
     }
-    for iter in 0..n_iter {
-        check_cancel(iter + 1)?;
+    for iter in 1..=n_iter {
+        check_cancel(iter)?;
         if let Some(cb) = on_progress.as_mut() {
-            (*cb)(EmProgressEvent::IterStart {
-                iter: iter + 1,
+            cb(EmProgressEvent::IterStart {
+                iter,
                 total_iters: n_iter,
             });
         }
         if let Some(pb) = &pb_em {
-            pb.set_message(format!("overall {}/{}", iter + 1, n_iter));
+            pb.set_message(format!("overall {iter}/{n_iter}"));
         }
-        let e = {
-            let mut map_es = on_progress.as_mut().map(|cb_outer| {
-                move |ev: EStepProgress| {
-                    (*cb_outer)(EmProgressEvent::EStep {
-                        iter: iter + 1,
-                        total_iters: n_iter,
-                        phase: ev.phase,
-                        done: ev.done,
-                        total: ev.total,
-                    })
-                }
-            });
-            let e_opts = EStepOptions {
-                progress_bars: config.progress,
-                label: "E",
-                on_progress: map_es
-                    .as_mut()
-                    .map(|cb| cb as &mut dyn FnMut(EStepProgress)),
-                cancel,
-                thread_pool,
-                alpha_cache: None,
-                callable,
-            };
-            e_step_with_options(
-                model.prior_matrix(),
-                model.transition_matrix(),
-                model.emission_matrix(),
-                rows,
-                row_starts,
-                e_opts,
-            )
-            .map_err(|err| cancelled_in(iter + 1, err))?
+        let mut on_e_step = on_progress.as_mut().map(|cb| {
+            move |ev: EStepProgress| {
+                cb(EmProgressEvent::EStep {
+                    iter,
+                    total_iters: n_iter,
+                    phase: ev.phase,
+                    done: ev.done,
+                    total: ev.total,
+                })
+            }
+        });
+        let e_opts = EStepOptions {
+            progress_bars: config.progress,
+            label: "E",
+            on_progress: on_e_step
+                .as_mut()
+                .map(|cb| cb as &mut dyn FnMut(EStepProgress)),
+            cancel,
+            thread_pool,
+            alpha_cache: None,
+            callable,
         };
+        let e = e_step_with_options(
+            model.prior_matrix(),
+            model.transition_matrix(),
+            model.emission_matrix(),
+            rows,
+            row_starts,
+            e_opts,
+        )
+        .map_err(|err| cancelled_in(iter, err))?;
         // This E-step evaluates the parameters the previous iteration left.
         if let Some(prev) = history.loglike.last_mut() {
             prev.1 = e.loglike;
@@ -464,20 +452,27 @@ pub fn em_train_with_options(
         let stats = e.stats;
         let q0 = hmm_q0(&stats);
         let q_before = hmm_q(model.transition_matrix(), model.emission_matrix(), &stats) - q0;
-        check_cancel(iter + 1)?;
-        let outcome = if let Some(cb_outer) = on_progress.as_mut() {
-            let mut map_ms = |ev: MStepProgress| {
-                (*cb_outer)(EmProgressEvent::MStep {
-                    iter: iter + 1,
+        check_cancel(iter)?;
+        let mut on_m_step = on_progress.as_mut().map(|cb| {
+            move |ev: MStepProgress| {
+                cb(EmProgressEvent::MStep {
+                    iter,
                     total_iters: n_iter,
                     done: ev.done,
                     total: ev.total,
-                });
-            };
-            m_step_lbfgs_with_outcome(model, &stats, &params, &bounds, config, Some(&mut map_ms))?
-        } else {
-            m_step_lbfgs_with_outcome(model, &stats, &params, &bounds, config, None)?
-        };
+                })
+            }
+        });
+        let outcome = m_step_lbfgs_with_outcome(
+            model,
+            &stats,
+            &params,
+            &bounds,
+            config,
+            on_m_step
+                .as_mut()
+                .map(|cb| cb as &mut dyn FnMut(MStepProgress)),
+        )?;
         params = outcome.params;
         unpack_params(model, &params)?;
         // Keep the model's matrices in step with its parameters, also when
