@@ -21,19 +21,14 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
    runner's machine lock) with as many cores as threads, at most the
    machine's (:func:`machine_cores`), timed by ``e3_run measure`` (wall
    time, CPU time, peak RSS of the tool's process tree, machine load before
-   and after, CPU used by other processes during the run, power source; see
-   :mod:`.e3_run`). A run that is not clean (the whole machine not quiet
-   before it, more than ``timing.max_other_cpu_share`` of the cores or
-   ``timing.max_other_cores`` cores used during it by other user-space
-   processes, with the children they reaped, and steal time; a sleep;
-   battery power) is not kept: the runner starts it again later. During
-   the run the kernel's threads and interrupt time do not count as other
-   work (they are the kernel's work for the tool and the machine's own
-   housekeeping, not another workload); where not every process can be
-   read (macOS), the machine's busy CPU but the tool's does, and each
-   record says which (``other_method``).
-   Jobs are ranked by repeat, so every setup's first repeat runs before any
-   second one and drift over the night does not fall on one tool;
+   and after, CPU used by other work during the run, power source). A run
+   that is not clean (the whole machine not quiet before it; other work
+   during it, as :mod:`.e3_run` defines it and each record's
+   ``other_method`` says, above ``timing.max_other_cpu_share`` of the cores
+   or ``timing.max_other_cores`` cores; a sleep; battery power) is not
+   kept: the runner starts it again later. Jobs are ranked by repeat, so
+   every setup's first repeat runs before any second one and drift over the
+   night does not fall on one tool;
 3. writes the tables, from clean runs only.
 
 A run whose estimated peak memory (:class:`.config.ResourceModel`) exceeds
@@ -234,12 +229,12 @@ def estimate_seconds(cfg: config.E3, setup: Setup) -> float:
         run = per * work / speedup
         if setup.tool == "rs01":
             run += m.rs01_mstep_s_per_iter_1000 * cfg.inference.n_iter * cfg.inference.mstep_iters / 1000.0
+            cached = rs01_caches(cfg, setup)
+            if cached is not None:
+                n = genome_for(cfg, setup.size_mb).n_chromosomes
+                run *= 1.0 + m.rs01_uncached_extra * (n - cached) / n
         else:
             run += m.rs02_mstep_s_per_iter * cfg.inference.n_iter
-        cached = rs01_caches(cfg, setup) if setup.tool == "rs01" else None
-        if cached is not None:
-            n = genome_for(cfg, setup.size_mb).n_chromosomes
-            run *= 1.0 + m.rs01_uncached_extra * (n - cached) / n
     return run + cfg.timing.settle_seconds + cfg.timing.quiet_window_seconds + 1.0
 
 
@@ -268,6 +263,12 @@ def plan(cfg: config.E3) -> List[Planned]:
 def runs(cfg: config.E3) -> List[Run]:
     """Every run that is not skipped."""
     return [Run(p.setup, r) for p in plan(cfg) if p.skip is None for r in range(1, cfg.repeats + 1)]
+
+
+def table_order(run: Run) -> Tuple[int, int, int, int]:
+    """The order of runs in the tables: tool, threads, size, repeat."""
+    u = run.setup
+    return TOOL_ORDER.index(u.tool), u.threads, u.size_mb, run.repeat
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +388,7 @@ def run_cores(threads: int, machine: int) -> int:
 
 
 def jobs(ctx: Context) -> List[Job]:
-    cfg = ctx.profile.e3
-    costs = ctx.profile.costs
+    cfg, costs = ctx.profile.e3, ctx.profile.costs
     cores = machine_cores()
     lay = Layout(ctx.exp_dir(NAME))
     out: List[Job] = []
@@ -399,33 +399,31 @@ def jobs(ctx: Context) -> List[Job]:
     }
     for size in sizes(cfg):
         genome = genome_for(cfg, size)
-        out.append(
-            Job(
-                id=f"{NAME}/sim/{size}Mb",
-                command=[
-                    paths.python(), "-m", "experiment.pipeline.experiments.e3_run", "simulate",
-                    "--profile", ctx.profile.name, "--size-mb", str(size),
-                    "--out-dir", str(lay.sim_dir(size)), "--truth", str(lay.truth(size)),
-                ],
-                outputs=[lay.psmcfa(size), lay.truth(size)],
-                mem_gb=costs.simulate_gb,
-                est_seconds=costs.simulate_s_base + costs.simulate_s_per_mb * size,
-                settings={
-                    "model": asdict(config.MODELS[cfg.model]),
-                    "genome": asdict(genome),
-                    "simulation": asdict(cfg.simulation),
-                    "replicate": cfg.replicate,
-                },
-                tools=sim_identity,
-                seeds={c: simulate.seeds_for(NAME, cfg.model, cfg.replicate, c) for c in genome.names()},
-                description=f"simulate the {size} Mb genome",
-            )
-        )
+        out.append(Job(
+            id=f"{NAME}/sim/{size}Mb",
+            command=[
+                paths.python(), "-m", "experiment.pipeline.experiments.e3_run", "simulate",
+                "--profile", ctx.profile.name, "--size-mb", str(size),
+                "--out-dir", str(lay.sim_dir(size)), "--truth", str(lay.truth(size)),
+            ],
+            outputs=[lay.psmcfa(size), lay.truth(size)],
+            mem_gb=costs.simulate_gb,
+            est_seconds=costs.simulate_s_base + costs.simulate_s_per_mb * size,
+            settings={
+                "model": asdict(config.MODELS[cfg.model]),
+                "genome": asdict(genome),
+                "simulation": asdict(cfg.simulation),
+                "replicate": cfg.replicate,
+            },
+            tools=sim_identity,
+            seeds={c: simulate.seeds_for(NAME, cfg.model, cfg.replicate, c) for c in genome.names()},
+            description=f"simulate the {size} Mb genome",
+        ))
     timing_identity = provenance.python_identity(["experiments/e3_run.py"], ["psutil"])
     estimates = {p.setup: p for p in plan(cfg)}
     report_inputs: List[Path] = [lay.truth(s) for s in sizes(cfg)]
     for run in runs(cfg):
-        u = run.setup
+        u, est = run.setup, estimates[run.setup]
         tool, cmd = tool_command(ctx, cfg, lay, run)
         settings = {
             "tool": u.tool, "size_mb": u.size_mb, "threads": u.threads, "repeat": run.repeat,
@@ -433,43 +431,38 @@ def jobs(ctx: Context) -> List[Job]:
         }
         if u.tool != "c":
             settings["scaling"] = asdict(cfg.scaling)
-        est = estimates[u]
-        out.append(
-            Job(
-                id=run_job_id(run),
-                command=measure_command(ctx, cfg, lay, run, cmd),
-                inputs=[lay.psmcfa(u.size_mb)],
-                outputs=[lay.fit(run), lay.timing(run)],
-                cores=run_cores(u.threads, cores),
-                mem_gb=round(max(est.est_gb, 0.05) + 0.005, 2),
-                exclusive=True,
-                est_seconds=est.est_seconds,
-                settings=settings,
-                tools={tool.name: tool.identity, "timing": timing_identity},
-                env={"RAYON_NUM_THREADS": str(u.threads)},
-                description=f"{TOOL_LABELS[u.tool]} on {u.size_mb} Mb, {u.threads} thread(s), repeat {run.repeat}",
-                rank=run.repeat,
-            )
-        )
+        out.append(Job(
+            id=run_job_id(run),
+            command=measure_command(ctx, cfg, lay, run, cmd),
+            inputs=[lay.psmcfa(u.size_mb)],
+            outputs=[lay.fit(run), lay.timing(run)],
+            cores=run_cores(u.threads, cores),
+            mem_gb=round(max(est.est_gb, 0.05) + 0.005, 2),
+            exclusive=True,
+            est_seconds=est.est_seconds,
+            settings=settings,
+            tools={tool.name: tool.identity, "timing": timing_identity},
+            env={"RAYON_NUM_THREADS": str(u.threads)},
+            description=f"{TOOL_LABELS[u.tool]} on {u.size_mb} Mb, {u.threads} thread(s), repeat {run.repeat}",
+            rank=run.repeat,
+        ))
         report_inputs += [lay.fit(run), lay.timing(run), lay.record(run)]
     c_build = tools.c_psmc_dir() / tools.C_BUILD_RECORD
     if c_build.exists():  # E3_environment says how C psmc was built
         report_inputs.append(c_build)
-    out.append(
-        Job(
-            id=f"{NAME}/report",
-            command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
-            inputs=report_inputs,
-            outputs=[lay.table(k) for k in TABLES],
-            mem_gb=costs.report_gb,
-            est_seconds=costs.report_s,
-            settings={"e3": asdict(cfg)},
-            tools={"pipeline": provenance.python_identity(
-                ["experiments/e3.py", "experiments/e3_run.py", "experiments/e1.py", "results.py", "tools.py"], []
-            )},
-            description="E3 tables",
-        )
-    )
+    out.append(Job(
+        id=f"{NAME}/report",
+        command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
+        inputs=report_inputs,
+        outputs=[lay.table(k) for k in TABLES],
+        mem_gb=costs.report_gb,
+        est_seconds=costs.report_s,
+        settings={"e3": asdict(cfg)},
+        tools={"pipeline": provenance.python_identity(
+            ["experiments/e3.py", "experiments/e3_run.py", "experiments/e1.py", "results.py", "tools.py"], []
+        )},
+        description="E3 tables",
+    ))
     return out
 
 
@@ -771,7 +764,7 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
     for k, vs in sorted(values.items()):
         add(f"machine.{k}", ";".join(sorted(vs)))
     seen = set()
-    for run in sorted(rows, key=lambda r: (TOOL_ORDER.index(r.setup.tool), r.setup.threads, r.setup.size_mb, r.repeat)):
+    for run in sorted(rows, key=table_order):
         if run.setup.tool in seen:
             continue
         try:
@@ -881,16 +874,13 @@ def c_compiler() -> str:
     return res.stdout.splitlines()[0].strip() if res.returncode == 0 and res.stdout else "unavailable"
 
 
-def seed_rows(cfg: config.E3, truths: Dict[int, Dict]) -> List[Dict]:
-    out = []
-    for size in sorted(truths):
-        for ch in truths[size]["chromosomes"]:
-            out.append(
-                {"size_mb": size, "chromosome": ch["name"], "ancestry_seed": ch["seeds"]["ancestry"],
-                 "mutation_seed": ch["seeds"]["mutations"], "het_sites": ch["het_sites"], "het_bins": ch["het_bins"],
-                 "trees": ch.get("trees"), "longest_het_gap_bp": ch.get("longest_het_gap_bp")}
-            )
-    return out
+def seed_rows(truths: Dict[int, Dict]) -> List[Dict]:
+    return [
+        {"size_mb": size, "chromosome": ch["name"], "ancestry_seed": ch["seeds"]["ancestry"],
+         "mutation_seed": ch["seeds"]["mutations"], "het_sites": ch["het_sites"], "het_bins": ch["het_bins"],
+         "trees": ch.get("trees"), "longest_het_gap_bp": ch.get("longest_het_gap_bp")}
+        for size in sorted(truths) for ch in truths[size]["chromosomes"]
+    ]
 
 
 def report(ctx: Context) -> Dict[str, Path]:
@@ -915,8 +905,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         rows[run] = run_row(lay, cfg, run, truths[run.setup.size_mb], out, timing)
         outputs[run] = out
         timings[run] = timing
-    ordered = [rows[r] for r in sorted(rows, key=lambda r: (TOOL_ORDER.index(r.setup.tool), r.setup.threads,
-                                                             r.setup.size_mb, r.repeat))]
+    ordered = [rows[r] for r in sorted(rows, key=table_order)]
     kinds = clean_machine_kinds(rows, timings)
     if len(kinds) > 1:
         ctx.log(f"[E3] warning: the clean runs were timed on {len(kinds)} kinds of machine ({'; '.join(kinds)}); "
@@ -927,7 +916,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         "scaling": scaling_rows(cfg, rows, outputs),
         "determinism": determinism_rows(outputs),
         "environment": environment_rows(cfg, lay, rows, timings, tools.read_c_build()),
-        "seeds": seed_rows(cfg, truths),
+        "seeds": seed_rows(truths),
     }
     written = {}
     for key, table in tables.items():
