@@ -4,29 +4,24 @@
 //! callable-length model in each replicate, from a fresh start whose θ0
 //! comes from the replicate's own counts.
 
+mod common;
+
+use common::{REFERENCE_PSMCFA, bits, fixture_obs, full_bins, max_rho, model, mstep, params, pool};
 use psmc_rs::bootstrap::{
-    BootstrapConfig, BootstrapOptions, invalid_replicate_starts_sequences,
+    BootstrapConfig, BootstrapOptions, BootstrapReplicate, invalid_replicate_starts_sequences,
     observations_to_sequences, replicate_initial_model_with_callable, replicate_rng,
     resample_chunks, resample_sequences, rows_to_sequences, run_bootstrap_sequences,
     run_bootstrap_with_options, split_for_bootstrap, split_sequences_for_bootstrap,
 };
 use psmc_rs::em::{EmOptions, em_train_with_options};
 use psmc_rs::io::common::chunk_sequences;
-use psmc_rs::io::psmcfa::read_psmcfa;
 use psmc_rs::io::{CallableBases, Sequences};
-use psmc_rs::model::NegativeTransitions;
-use psmc_rs::opt::MStepConfig;
 use psmc_rs::{PsmcModel, initial_theta, initial_theta_with_callable};
-use std::path::Path;
 
 /// The three reference sequences cut down to `len` bins each, with made-up
 /// callable bases that agree with the symbols (bins of 100 bases).
 fn counted_seqs(len: usize) -> Sequences {
-    let obs = read_psmcfa(
-        Path::new("tests/data/c_reference/papuan_chr1_3seg.psmcfa"),
-        None,
-    )
-    .unwrap();
+    let obs = fixture_obs(REFERENCE_PSMCFA);
     let bins: Vec<Vec<u8>> = rows_to_sequences(&obs.rows, &obs.row_starts)
         .unwrap()
         .into_iter()
@@ -82,6 +77,7 @@ fn observations_join_back_into_their_sequences_with_their_counts() {
 #[test]
 fn trunks_keep_the_counts_of_their_bins() {
     let seqs = counted_seqs(2500);
+    let all = seqs.callable.as_ref().unwrap().to_counts().concat();
     for trunk in [1, 2, 99, 400, 1000, 1666, 1667, 2500, 10_000] {
         let trunks = split_sequences_for_bootstrap(&seqs, trunk);
         assert_eq!(
@@ -96,7 +92,6 @@ fn trunks_keep_the_counts_of_their_bins() {
         let bin_lengths: Vec<usize> = trunks.bins.iter().map(Vec::len).collect();
         assert_eq!(lengths, bin_lengths, "trunk {trunk}");
         // In order, the trunks are the sequences cut up.
-        let all = seqs.callable.as_ref().unwrap().to_counts().concat();
         assert_eq!(counts.to_counts().concat(), all, "trunk {trunk}");
     }
     let plain = split_sequences_for_bootstrap(&Sequences::from(seqs.bins.clone()), 400);
@@ -137,14 +132,7 @@ fn resampling_draws_the_same_trunks_with_their_counts() {
 }
 
 fn template() -> PsmcModel {
-    PsmcModel::new(15.0, 22, 0.02, 0.004, 2.5e-8, Some("4+5*3+4".to_string())).unwrap()
-}
-
-fn mstep() -> MStepConfig {
-    MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    }
+    model("4+5*3+4", 0.02, 0.004)
 }
 
 fn config() -> BootstrapConfig {
@@ -160,13 +148,18 @@ fn config() -> BootstrapConfig {
     }
 }
 
-/// The parameters of a model as bits.
-fn bits(m: &PsmcModel) -> Vec<u64> {
-    [m.theta, m.rho, m.t_max]
-        .iter()
-        .chain(&m.lam)
-        .map(|v| v.to_bits())
-        .collect()
+/// The replicates of `seqs` with their counts.
+fn replicates(
+    seqs: &Sequences,
+    cfg: &BootstrapConfig,
+    opts: BootstrapOptions,
+) -> anyhow::Result<Vec<BootstrapReplicate>> {
+    run_bootstrap_sequences(seqs, &template(), cfg, &mstep(), opts)
+}
+
+/// The parameters of each replicate's fit, as bits.
+fn fits(reps: &[BootstrapReplicate]) -> Vec<Vec<u64>> {
+    reps.iter().map(|r| bits(&params(&r.model))).collect()
 }
 
 /// Each replicate is the fit of its resampled bins with their counts: from
@@ -176,14 +169,7 @@ fn bits(m: &PsmcModel) -> Vec<u64> {
 fn replicates_fit_their_resampled_counts() {
     let seqs = counted_seqs(3000);
     let cfg = config();
-    let with = run_bootstrap_sequences(
-        &seqs,
-        &template(),
-        &cfg,
-        &mstep(),
-        BootstrapOptions::default(),
-    )
-    .unwrap();
+    let with = replicates(&seqs, &cfg, BootstrapOptions::default()).unwrap();
     let without = run_bootstrap_with_options(
         &seqs.bins,
         &template(),
@@ -196,23 +182,25 @@ fn replicates_fit_their_resampled_counts() {
     let trunks = split_sequences_for_bootstrap(&seqs, cfg.trunk_size);
     for (a, b) in with.iter().zip(&without) {
         assert_eq!((a.index, a.data), (b.index, b.data));
-        assert_ne!(bits(&a.model), bits(&b.model), "the counts change the fit");
+        let fit = bits(&params(&a.model));
+        assert_ne!(fit, bits(&params(&b.model)), "the counts change the fit");
         // The same fit, by hand.
         let sampled = resample_sequences(&trunks, &mut replicate_rng(cfg.seed, a.index));
         let obs = chunk_sequences(sampled, cfg.batch_size, "empty").unwrap();
+        let callable = obs.callable.as_ref();
         let mut model = replicate_initial_model_with_callable(
             &template(),
             &obs.rows,
-            obs.callable.as_ref(),
+            callable,
             cfg.t_max,
             cfg.tr_ratio,
         )
         .unwrap();
-        let theta0 = initial_theta_with_callable(&obs.rows, obs.callable.as_ref()).unwrap();
+        let theta0 = initial_theta_with_callable(&obs.rows, callable).unwrap();
         assert_eq!(model.theta.to_bits(), theta0.to_bits());
         assert!(theta0 > initial_theta(&obs.rows).unwrap());
         let opts = EmOptions {
-            callable: obs.callable.as_ref(),
+            callable,
             ..EmOptions::default()
         };
         em_train_with_options(
@@ -224,46 +212,23 @@ fn replicates_fit_their_resampled_counts() {
             opts,
         )
         .unwrap();
-        assert_eq!(bits(&a.model), bits(&model), "replicate {}", a.index);
+        assert_eq!(fit, bits(&params(&model)), "replicate {}", a.index);
     }
 
     // With every called bin full, the counts change nothing.
-    let mut full = seqs.clone();
-    let counts = seqs
-        .bins
-        .iter()
-        .zip(seqs.callable.as_ref().unwrap().to_counts())
-        .map(|(b, c)| {
-            b.iter()
-                .zip(c)
-                .map(|(&v, c)| if v == 2 { c } else { 100 })
-                .collect()
-        })
-        .collect();
-    full.callable = Some(CallableBases::from_counts(100, counts).unwrap());
-    let full = run_bootstrap_sequences(
-        &full,
-        &template(),
-        &cfg,
-        &mstep(),
-        BootstrapOptions::default(),
-    )
-    .unwrap();
-    for (a, b) in full.iter().zip(&without) {
-        assert_eq!(bits(&a.model), bits(&b.model), "replicate {}", a.index);
-    }
+    let full = Sequences {
+        callable: Some(full_bins(&seqs.bins, seqs.callable.as_ref().unwrap())),
+        ..seqs.clone()
+    };
+    let full = replicates(&full, &cfg, BootstrapOptions::default()).unwrap();
+    assert_eq!(fits(&full), fits(&without));
 
     // Invalid counts stop the bootstrap before anything is fitted.
-    let mut bad = seqs.clone();
-    bad.callable = Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap());
-    let err = run_bootstrap_sequences(
-        &bad,
-        &template(),
-        &cfg,
-        &mstep(),
-        BootstrapOptions::default(),
-    )
-    .unwrap_err();
+    let bad = Sequences {
+        callable: Some(CallableBases::from_counts(100, vec![vec![100]]).unwrap()),
+        ..seqs
+    };
+    let err = replicates(&bad, &cfg, BootstrapOptions::default()).unwrap_err();
     assert!(format!("{err:#}").contains("callable bases for 1 sequences"));
 }
 
@@ -273,10 +238,7 @@ fn replicates_fit_their_resampled_counts() {
 fn counted_replicates_do_not_depend_on_threads_or_batching() {
     let seqs = counted_seqs(3000);
     let run = |threads: usize, batch: Option<usize>| -> Vec<Vec<u64>> {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
+        let pool = pool(threads);
         let cfg = BootstrapConfig {
             batch_size: batch,
             ..config()
@@ -285,11 +247,7 @@ fn counted_replicates_do_not_depend_on_threads_or_batching() {
             thread_pool: Some(&pool),
             ..BootstrapOptions::default()
         };
-        run_bootstrap_sequences(&seqs, &template(), &cfg, &mstep(), opts)
-            .unwrap()
-            .iter()
-            .map(|r| bits(&r.model))
-            .collect()
+        fits(&replicates(&seqs, &cfg, opts).unwrap())
     };
     let reference = run(1, None);
     for (threads, batch) in [(2, Some(700)), (8, Some(129)), (3, None)] {
@@ -309,37 +267,29 @@ fn invalid_counted_starts_are_found_and_skipped() {
     let seqs = counted_seqs(3000);
     let template = template();
     let theta0 = initial_theta_with_callable(&seqs.bins, seqs.callable.as_ref()).unwrap();
-    let limit = PsmcModel::new(15.0, 22, theta0, 0.5, 2.5e-8, Some("4+5*3+4".into()))
-        .unwrap()
-        .check_transitions()
-        .unwrap_err()
-        .downcast::<NegativeTransitions>()
-        .unwrap()
-        .max_rho
-        .unwrap();
     let cfg = BootstrapConfig {
         replicates: 12,
-        tr_ratio: theta0 / (0.995 * limit),
+        tr_ratio: theta0 / (0.995 * max_rho(theta0)),
         em_iters: 1,
         ..config()
     };
     let invalid = invalid_replicate_starts_sequences(&seqs, &template, &cfg).unwrap();
     let trunks = split_sequences_for_bootstrap(&seqs, cfg.trunk_size);
-    let mut expected = Vec::new();
-    for rep in 0..cfg.replicates {
-        let sampled = resample_sequences(&trunks, &mut replicate_rng(cfg.seed, rep));
-        let start = replicate_initial_model_with_callable(
-            &template,
-            &sampled.bins,
-            sampled.callable.as_ref(),
-            cfg.t_max,
-            cfg.tr_ratio,
-        )
-        .unwrap();
-        if start.check_transitions().is_err() {
-            expected.push((rep, start.theta.to_bits(), start.rho.to_bits()));
-        }
-    }
+    let expected: Vec<(usize, u64, u64)> = (0..cfg.replicates)
+        .filter_map(|rep| {
+            let sampled = resample_sequences(&trunks, &mut replicate_rng(cfg.seed, rep));
+            let start = replicate_initial_model_with_callable(
+                &template,
+                &sampled.bins,
+                sampled.callable.as_ref(),
+                cfg.t_max,
+                cfg.tr_ratio,
+            )
+            .unwrap();
+            let invalid = start.check_transitions().is_err();
+            invalid.then_some((rep, start.theta.to_bits(), start.rho.to_bits()))
+        })
+        .collect();
     let found: Vec<(usize, u64, u64)> = invalid
         .iter()
         .map(|r| (r.index, r.start.theta.to_bits(), r.start.rho.to_bits()))
@@ -355,16 +305,13 @@ fn invalid_counted_starts_are_found_and_skipped() {
         skip_invalid_starts: true,
         ..BootstrapOptions::default()
     };
-    let fitted: Vec<usize> = run_bootstrap_sequences(&seqs, &template, &cfg, &mstep(), opts)
+    let fitted: Vec<usize> = replicates(&seqs, &cfg, opts)
         .unwrap()
         .iter()
         .map(|r| r.index)
         .collect();
-    let skipped: Vec<usize> = found.iter().map(|r| r.0).collect();
-    assert_eq!(
-        fitted,
-        (0..cfg.replicates)
-            .filter(|i| !skipped.contains(i))
-            .collect::<Vec<_>>()
-    );
+    let kept: Vec<usize> = (0..cfg.replicates)
+        .filter(|i| !found.iter().any(|f| f.0 == *i))
+        .collect();
+    assert_eq!(fitted, kept);
 }

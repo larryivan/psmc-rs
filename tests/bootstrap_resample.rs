@@ -2,6 +2,9 @@
 //! keep the resampled length close to the original, and be reproducible from
 //! the seed alone.
 
+mod common;
+
+use common::pool;
 use psmc_rs::bootstrap::{
     DEFAULT_BOOTSTRAP_TRUNK, new_rng, replicate_rng, resample_chunk_indices, resample_chunks,
     split_for_bootstrap,
@@ -143,16 +146,12 @@ fn resampling_does_not_depend_on_thread_count() {
         .map(|i| (0..(100 + 13 * i)).map(|j| ((i * j) % 3) as u8).collect())
         .collect();
     let run = |threads: usize| -> Vec<Vec<Vec<u8>>> {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap()
-            .install(|| {
-                (0..64)
-                    .into_par_iter()
-                    .map(|rep| resample_chunks(&chunks, &mut replicate_rng(9, rep)))
-                    .collect()
-            })
+        pool(threads).install(|| {
+            (0..64)
+                .into_par_iter()
+                .map(|rep| resample_chunks(&chunks, &mut replicate_rng(9, rep)))
+                .collect()
+        })
     };
     let one = run(1);
     assert_eq!(one, run(4));

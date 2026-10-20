@@ -7,10 +7,10 @@
 pub mod psmc_text;
 
 use psmc_rs::hmm::{EStepResult, e_step_streaming};
-use psmc_rs::io::Observations;
 use psmc_rs::io::psmcfa::{read_psmcfa, read_psmcfa_records};
 use psmc_rs::io::write::write_psmcfa_to;
-use psmc_rs::model::n_steps_for_pattern;
+use psmc_rs::io::{CallableBases, Observations};
+use psmc_rs::model::{NegativeTransitions, n_steps_for_pattern};
 use psmc_rs::opt::MStepConfig;
 use psmc_rs::{PsmcModel, initial_theta};
 use serde_json::Value;
@@ -35,6 +35,7 @@ pub fn os(x: impl AsRef<OsStr>) -> OsString {
 
 /// Command-line arguments from strings and paths alike, as a
 /// `Vec<OsString>`; `..xs` splices in the items of `xs`.
+#[allow(unused_macros)]
 macro_rules! args {
     (@chain ($it:expr)) => {
         $it.collect::<Vec<::std::ffi::OsString>>()
@@ -49,6 +50,7 @@ macro_rules! args {
         args!(@chain (::std::iter::empty()) $($t)*)
     };
 }
+#[allow(unused_imports)]
 pub(crate) use args;
 
 /// Run the binary with `args`.
@@ -341,6 +343,35 @@ pub fn mstep() -> MStepConfig {
 pub fn model(pattern: &str, theta: f64, rho: f64) -> PsmcModel {
     let n_steps = n_steps_for_pattern(pattern).unwrap();
     PsmcModel::new(15.0, n_steps, theta, rho, 2.5e-8, Some(pattern.into())).unwrap()
+}
+
+/// `callable` with every called bin of `bins` full (N bins keep their
+/// counts): data that C psmc's model fits as the callable-length one does.
+pub fn full_bins(bins: &[Vec<u8>], callable: &CallableBases) -> CallableBases {
+    let s = callable.bin_size();
+    let counts = bins
+        .iter()
+        .zip(callable.to_counts())
+        .map(|(b, c)| {
+            b.iter()
+                .zip(c)
+                .map(|(&v, c)| if v == 2 { c } else { s as u16 })
+                .collect()
+        })
+        .collect();
+    CallableBases::from_counts(s, counts).unwrap()
+}
+
+/// The limit on ρ of a start of θ `theta` with pattern 4+5*3+4 and t_max
+/// 15: above it some transition probabilities are negative.
+pub fn max_rho(theta: f64) -> f64 {
+    let err = model("4+5*3+4", theta, 0.5)
+        .check_transitions()
+        .unwrap_err();
+    err.downcast::<NegativeTransitions>()
+        .unwrap()
+        .max_rho
+        .unwrap()
 }
 
 /// C psmc's start on `rows` with `n_steps` intervals grouped by `pattern`:

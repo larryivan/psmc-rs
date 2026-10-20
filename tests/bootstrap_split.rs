@@ -36,7 +36,9 @@ fn check(trunk: usize, cases: &[(usize, Vec<usize>)]) {
 #[test]
 fn matches_splitfa_trunk_10() {
     let t = 10;
-    let mut cases = vec![
+    // `n` full trunks, then one of `last` bins.
+    let then = |n: usize, last: usize| [vec![t; n], vec![last]].concat();
+    let cases = vec![
         (1, vec![1]),
         (9, vec![9]),
         (10, vec![10]),
@@ -52,14 +54,10 @@ fn matches_splitfa_trunk_10() {
         (35, vec![10, 10, 10, 5]),
         (36, vec![10, 10, 10, 6]),
         (100, vec![t; 10]),
+        (101, then(9, 11)),
+        (104, then(9, 14)),
+        (105, then(10, 5)),
     ];
-    let mut l101 = vec![t; 9];
-    l101.push(11);
-    let mut l104 = vec![t; 9];
-    l104.push(14);
-    let mut l105 = vec![t; 10];
-    l105.push(5);
-    cases.extend([(101, l101), (104, l104), (105, l105)]);
     check(t, &cases);
 }
 
