@@ -46,7 +46,7 @@ use std::borrow::Cow;
 use std::cmp::Reverse;
 use std::ops::Range;
 
-use crate::io::{BinCounts, CallableBases, CallableSummary};
+use crate::io::{BinCounts, CallableBases, CallableSummary, sequence_ranges};
 use crate::model::{PsmcModel, ThetaCounts};
 
 mod checks;
@@ -991,17 +991,14 @@ fn spans<'a>(input: &QcInput<'a>) -> Result<Vec<Span<'a>>> {
     if input.row_starts.first() == Some(&false) {
         bail!("QC: the first row must start a sequence (row_starts[0] is false)");
     }
-    let mut groups: Vec<(Range<usize>, usize)> = Vec::new();
-    for (i, (row, &start)) in input.rows.iter().zip(input.row_starts).enumerate() {
-        match groups.last_mut() {
-            Some((range, bins)) if !start => {
-                range.end = i + 1;
-                *bins += row.len();
-            }
-            _ => groups.push((i..i + 1, row.len())),
-        }
-    }
-    groups.retain(|(_, bins)| *bins > 0);
+    let groups: Vec<(Range<usize>, usize)> = sequence_ranges(input.row_starts)
+        .into_iter()
+        .map(|rows| {
+            let bins = input.rows[rows.clone()].iter().map(Vec::len).sum();
+            (rows, bins)
+        })
+        .filter(|&(_, bins)| bins > 0)
+        .collect();
 
     if input.seqs.is_empty() {
         return Ok(groups

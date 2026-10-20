@@ -90,7 +90,7 @@ use crate::hmm::Cancelled;
 use crate::io::callable::join_counts;
 use crate::io::common::chunk_sequences;
 use crate::io::params::CALLABLE_LENGTH_MODEL;
-use crate::io::{CallableBases, CallableSummary, Observations, Sequences};
+use crate::io::{CallableBases, CallableSummary, Observations, Sequences, sequence_ranges};
 use crate::model::{NegativeTransitions, PsmcModel, ThetaCounts, initial_theta_with_callable};
 use crate::opt::MStepConfig;
 use crate::psmc_out::{PsmcRunInfo, bin_callable_line, psmc_rounds, write_psmc};
@@ -432,18 +432,10 @@ fn checked_sequence_rows(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Ra
     if !row_starts[0] {
         bail!("row_starts[0] must be true");
     }
-    let mut seqs = Vec::<Range<usize>>::new();
-    for (i, (row, &starts)) in rows.iter().zip(row_starts).enumerate() {
-        if row.is_empty() {
-            bail!("row {i} is empty");
-        }
-        // Row 0 starts a sequence, so every later row has one to continue.
-        match seqs.last_mut() {
-            Some(seq) if !starts => seq.end = i + 1,
-            _ => seqs.push(i..i + 1),
-        }
+    if let Some(i) = rows.iter().position(Vec::is_empty) {
+        bail!("row {i} is empty");
     }
-    Ok(seqs)
+    Ok(sequence_ranges(row_starts))
 }
 
 /// Cut sequences into HMM rows of at most `batch_size` bins (whole

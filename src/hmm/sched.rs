@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use super::fb::Progress;
 use super::{EStepPhase, EStepProgress};
+use crate::io::sequence_ranges;
 use crate::progress;
 
 /// Upper bound on the number of work items. Sequences are grouped into at
@@ -36,15 +37,7 @@ pub(crate) struct Plan {
 impl Plan {
     /// `rows` and `row_starts` must have been validated.
     pub(crate) fn new(rows: &[Vec<u8>], row_starts: &[bool]) -> Self {
-        let mut seqs = Vec::new();
-        let mut start = 0usize;
-        for (i, &starts_seq) in row_starts.iter().enumerate().skip(1) {
-            if starts_seq {
-                seqs.push(start..i);
-                start = i;
-            }
-        }
-        seqs.push(start..rows.len());
+        let seqs = sequence_ranges(row_starts);
         let per_item = seqs.len().div_ceil(MAX_WORK_ITEMS);
         let items = (0..seqs.len())
             .step_by(per_item)

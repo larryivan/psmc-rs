@@ -23,7 +23,6 @@ use serde::Serialize;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::{BufRead, Cursor, Read};
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::io::callable::join_counts;
@@ -37,7 +36,7 @@ use crate::io::psmcfa::{PsmcfaRecord, parse_psmcfa_with_stats};
 use crate::io::vcf::{
     VcfOptions, VcfSummary, gvcf_block_end_of, list_names, no_het_snp_message, read_vcf_seqs_from,
 };
-use crate::io::{BinCounts, CallableBases, Observations, Sequences};
+use crate::io::{BinCounts, CallableBases, Observations, Sequences, sequence_ranges};
 
 /// Input file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -728,15 +727,13 @@ impl Dataset {
     /// Each kept sequence with its bins (rows of one sequence joined).
     pub fn sequences(&self) -> Vec<(&SeqInfo, Cow<'_, [u8]>)> {
         let rows = &self.obs.rows;
-        let bins = sequence_rows(&self.obs.row_starts, self.seqs.len())
-            .into_iter()
-            .map(|r| {
-                if r.len() == 1 {
-                    Cow::Borrowed(rows[r.start].as_slice())
-                } else {
-                    Cow::Owned(rows[r].concat())
-                }
-            });
+        let bins = sequence_ranges(&self.obs.row_starts).into_iter().map(|r| {
+            if r.len() == 1 {
+                Cow::Borrowed(rows[r.start].as_slice())
+            } else {
+                Cow::Owned(rows[r].concat())
+            }
+        });
         self.seqs.iter().zip(bins).collect()
     }
 
@@ -746,7 +743,7 @@ impl Dataset {
     pub fn sequence_callable(&self) -> Option<Vec<Cow<'_, BinCounts>>> {
         let counts = self.obs.callable.as_ref()?.rows();
         Some(
-            sequence_rows(&self.obs.row_starts, self.seqs.len())
+            sequence_ranges(&self.obs.row_starts)
                 .into_iter()
                 .map(|r| join_counts(counts, r))
                 .collect(),
@@ -848,22 +845,6 @@ fn describe_dropped<'a>(
         shown.push("...".to_string());
     }
     shown.join("; ")
-}
-
-/// The rows of the first `n` sequences of rows chained by `row_starts`
-/// (`true` for the first row of a sequence), as ranges of row indices.
-fn sequence_rows(row_starts: &[bool], n: usize) -> Vec<Range<usize>> {
-    let mut out = Vec::with_capacity(n);
-    let mut i = 0;
-    while i < row_starts.len() && out.len() < n {
-        let mut j = i + 1;
-        while j < row_starts.len() && !row_starts[j] {
-            j += 1;
-        }
-        out.push(i..j);
-        i = j;
-    }
-    out
 }
 
 /// One sequence as a reader produced it, before the output filter.
