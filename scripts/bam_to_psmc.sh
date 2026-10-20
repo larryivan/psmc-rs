@@ -578,6 +578,23 @@ run_step() {
   return "$s"
 }
 
+# Log a command, then run it with run_step, its messages going to the log.
+run_logged() {
+  log_cmd "$(quoted "$@")"
+  run_step "$@" 2>> "$log_file"
+}
+
+# Run a command with run_step, its output in the file $1 and its messages
+# in $2, both then appended to the log (only the messages if it failed).
+run_captured() { # output file, messages file, command...
+  local stdout=$1 stderr=$2 s=0
+  shift 2
+  run_step "$@" > "$stdout" 2> "$stderr" || s=$?
+  cat "$stderr" >> "$log_file"
+  [ "$s" -ne 0 ] || cat "$stdout" >> "$log_file"
+  return "$s"
+}
+
 say "bam_to_psmc.sh $SCRIPT_VERSION: $command_line"
 say "bcftools $bcftools_version ($(command -v "$bcftools")), psmc-rs $psmc_rs_version ($(command -v "$psmc_rs"))"
 at_once=$threads
@@ -633,10 +650,8 @@ fi
 samples_checked=0
 if [ "$indexed" -eq 1 ]; then
   printf '%s\t1\t1\n' "${ref_names[${selected[0]}]}" > "$tmp/samples.txt"
-  sample_cmd=("$bcftools" mpileup --no-version -f "$ref" -R "$tmp/samples.txt" -Ou
-    -o "$tmp/samples.bcf" "$bam")
-  log_cmd "$(quoted "${sample_cmd[@]}")"
-  run_step "${sample_cmd[@]}" 2>> "$log_file" || die "bcftools mpileup cannot read $bam (see $log_file)"
+  run_logged "$bcftools" mpileup --no-version -f "$ref" -R "$tmp/samples.txt" -Ou \
+    -o "$tmp/samples.bcf" "$bam" || die "bcftools mpileup cannot read $bam (see $log_file)"
   check_samples "$tmp/samples.bcf"
   samples_checked=1
 fi
@@ -704,11 +719,9 @@ done
 for ((n = 1; n <= ${#selected[@]}; n++)); do
   printf '%s\n' "$tmp/calls/$n.bcf"
 done > "$tmp/calls.txt"
-log_cmd "$(quoted "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" -f "$tmp/calls.txt")"
-run_step "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" \
-  -f "$tmp/calls.txt" 2>> "$log_file" || die "bcftools concat failed (see $log_file)"
-log_cmd "$(quoted "$bcftools" index -t "$tmp/all.vcf.gz")"
-run_step "$bcftools" index -t "$tmp/all.vcf.gz" 2>> "$log_file" || die "bcftools index failed (see $log_file)"
+run_logged "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" \
+  -f "$tmp/calls.txt" || die "bcftools concat failed (see $log_file)"
+run_logged "$bcftools" index -t "$tmp/all.vcf.gz" || die "bcftools index failed (see $log_file)"
 records=$("$bcftools" index -n "$tmp/all.vcf.gz" 2>> "$log_file") ||
   die "cannot count the records of the VCF"
 [ "$records" -gt 0 ] ||
@@ -724,12 +737,7 @@ mv -f "$tmp/all.vcf.gz.tbi" "$vcf.tbi"
 
 qc=("$psmc_rs" qc "$vcf" "${common_input_opts[@]}" --json "$tmp/qc.json")
 log_cmd "$(quoted "${qc[@]}") > $(quoted "$tmp/qc.txt")"
-if ! run_step "${qc[@]}" > "$tmp/qc.txt" 2> "$tmp/qc.err"; then
-  cat "$tmp/qc.err" >> "$log_file"
-  die "psmc-rs qc failed: $(cat "$tmp/qc.err")"
-fi
-cat "$tmp/qc.err" >> "$log_file"
-cat "$tmp/qc.txt" >> "$log_file"
+run_captured "$tmp/qc.txt" "$tmp/qc.err" "${qc[@]}" || die "psmc-rs qc failed: $(cat "$tmp/qc.err")"
 if [ "$depth" = auto ]; then
   bound=$(sed -n 's/.*bases kept at depth [0-9]*-\([0-9]*\) (auto).*/\1/p' "$tmp/qc.err" | head -n 1)
   if [ -z "$bound" ]; then
@@ -753,13 +761,10 @@ mv -f "$tmp/qc.json" "$qc_json"
 mkdir -p "$tmp/convert"
 convert_cmd "$tmp/convert/out.psmcfa" "$tmp/convert/$base"
 log_cmd "$(quoted "${conv[@]}")"
-if ! run_step "${conv[@]}" > "$tmp/convert.out" 2> "$tmp/convert.err"; then
-  cat "$tmp/convert.err" >> "$log_file"
-  die "psmc-rs convert failed: $(cat "$tmp/convert.err")"
-fi
 # convert reads the input as qc did and repeats its warnings: they go to the
 # log only.
-cat "$tmp/convert.err" "$tmp/convert.out" >> "$log_file"
+run_captured "$tmp/convert.out" "$tmp/convert.err" "${conv[@]}" ||
+  die "psmc-rs convert failed: $(cat "$tmp/convert.err")"
 # When the psmcfa differs from the one an earlier run left here, that run's
 # fit and multihetsep files no longer match it, and they are removed: in
 # silence when this run writes them again (so that a failure leaves none
@@ -812,12 +817,9 @@ grep -q '^>' "$psmcfa" ||
 if [ -n "$run_iters" ]; then
   grep -q '^>' "$psmcfa" || die "nothing to fit: $psmcfa is empty"
   log_cmd "$(quoted "${fit[@]}")"
-  if ! run_step "${fit[@]}" > "$tmp/fit.out" 2> "$tmp/fit.err"; then
-    cat "$tmp/fit.err" >> "$log_file"
+  run_captured "$tmp/fit.out" "$tmp/fit.err" "${fit[@]}" ||
     die "psmc-rs failed (full messages in $log_file):
 $(error_lines "$tmp/fit.err")"
-  fi
-  cat "$tmp/fit.err" "$tmp/fit.out" >> "$log_file"
   # The QC warnings were shown already; the fit's own warnings and the
   # psmc_plot.pl hint were not.
   grep -v '^Warning: QC ' "$tmp/fit.err" | grep -E '^(Warning: |To plot it)' >&2 || true
