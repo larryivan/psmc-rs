@@ -65,41 +65,30 @@ impl Console {
         self
     }
 
-    /// Print `line` on stderr without breaking the progress bars.
-    fn eprint(&self, line: &str) {
+    /// Print `line` with `print` (on stdout or stderr) without breaking the
+    /// progress bars.
+    fn line(&self, print: fn(&str), line: &str) {
         let line = format!("{line}\n");
         match &self.bars {
-            Some(b) => b.multi.suspend(|| print_err(&line)),
-            None => print_err(&line),
+            Some(b) => b.multi.suspend(|| print(&line)),
+            None => print(&line),
         }
     }
 
     /// Show one event of the pipeline.
     pub fn emit(&self, ev: Event) {
         match ev {
-            Event::Info(line) => {
-                if !self.quiet {
-                    self.eprint(&line);
+            Event::Info(_) if self.quiet => {}
+            Event::Info(line) => self.line(print_err, &line),
+            Event::Warning(line) => self.line(print_err, &format!("Warning: {line}")),
+            Event::Qc { warnings, .. } if self.quiet => {
+                for w in warnings {
+                    self.line(print_err, &format!("Warning: {w}"));
                 }
             }
-            Event::Warning(line) => self.eprint(&format!("Warning: {line}")),
-            Event::Qc { text, warnings } => {
-                if self.quiet {
-                    for w in warnings {
-                        self.eprint(&format!("Warning: {w}"));
-                    }
-                } else {
-                    self.eprint(text.trim_end());
-                }
-            }
-            Event::Output(line) if self.results_on_stderr => self.eprint(&line),
-            Event::Output(line) => {
-                let line = format!("{line}\n");
-                match &self.bars {
-                    Some(b) => b.multi.suspend(|| print_out(&line)),
-                    None => print_out(&line),
-                }
-            }
+            Event::Qc { text, .. } => self.line(print_err, text.trim_end()),
+            Event::Output(line) if self.results_on_stderr => self.line(print_err, &line),
+            Event::Output(line) => self.line(print_out, &line),
             Event::Iteration { iter, total } => {
                 if let Some(b) = &self.bars {
                     b.iteration(iter, total);
@@ -131,15 +120,12 @@ impl Console {
 }
 
 impl Bars {
-    fn add(&self, pb: ProgressBar) -> ProgressBar {
-        self.multi.add(pb)
-    }
-
     fn iteration(&self, iter: usize, total: usize) {
         let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let em = s
-            .em
-            .get_or_insert_with(|| self.add(progress::bar_raw(total as u64, "EM", "iterations")));
+        let em = s.em.get_or_insert_with(|| {
+            self.multi
+                .add(progress::bar_raw(total as u64, "EM", "iterations"))
+        });
         em.set_position(iter.saturating_sub(1) as u64);
         em.set_message(format!("iteration {iter}/{total}"));
     }
@@ -153,7 +139,7 @@ impl Bars {
                         pb.finish_and_clear();
                     }
                 } else if s.io.is_none() {
-                    let pb = self.add(progress::spinner_raw("IO", "reading input"));
+                    let pb = self.multi.add(progress::spinner_raw("IO", "reading input"));
                     pb.enable_steady_tick(std::time::Duration::from_millis(80));
                     s.io = Some(pb);
                 }
@@ -169,7 +155,7 @@ impl Bars {
                     if let Some((_, pb)) = s.phase.take() {
                         pb.finish_and_clear();
                     }
-                    let pb = self.add(progress::bar_raw(total, "  ", label));
+                    let pb = self.multi.add(progress::bar_raw(total, "  ", label));
                     s.phase = Some((stage, pb));
                 }
                 if let Some((_, pb)) = &s.phase {
@@ -188,7 +174,8 @@ impl Bars {
                     }
                 }
                 let pb = s.bootstrap.get_or_insert_with(|| {
-                    self.add(progress::bar_raw(total, "BOOT", "replicates"))
+                    self.multi
+                        .add(progress::bar_raw(total, "BOOT", "replicates"))
                 });
                 pb.set_position(done.min(total));
             }

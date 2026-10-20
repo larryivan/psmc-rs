@@ -42,7 +42,8 @@ use crate::output::{
     write_bootstrap_summary, write_main_psmc, write_qc_json, write_replicate_psmc,
 };
 
-/// A stage of the pipeline with a progress count.
+/// A stage of the pipeline with a progress count. The TUI indexes its
+/// gauges by the order of the variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     /// Reading the input (bytes).

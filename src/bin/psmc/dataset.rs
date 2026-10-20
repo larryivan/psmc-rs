@@ -285,37 +285,28 @@ pub fn is_supported_input_file(path: &Path, fmt: FormatArg) -> bool {
     }
 }
 
-/// Files in `dir` that look like `fmt` input, sorted by name.
-pub fn supported_files_in(dir: &Path, fmt: FormatArg) -> Result<Vec<PathBuf>> {
+/// `path`, or for a directory the first input file in it by name.
+pub fn resolve_input_path(path: &Path, fmt: FormatArg) -> Result<PathBuf> {
+    if !path.is_dir() {
+        return Ok(path.to_path_buf());
+    }
     let mut files = Vec::new();
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+    for entry in fs::read_dir(path).with_context(|| format!("failed to read {}", path.display()))? {
         let p = entry?.path();
         if p.is_file() && is_supported_input_file(&p, fmt) {
             files.push(p);
         }
     }
-    files.sort();
-    Ok(files)
-}
-
-/// `path`, or for a directory the first input file in it.
-pub fn resolve_input_path(path: &Path, fmt: FormatArg) -> Result<PathBuf> {
-    if !path.is_dir() {
-        return Ok(path.to_path_buf());
-    }
-    supported_files_in(path, fmt)?
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            let what = match fmt {
-                FormatArg::Auto => "psmcfa, multihetsep or VCF".to_string(),
-                f => f.name().to_string(),
-            };
-            anyhow!(
-                "directory {} does not contain a {what} input file",
-                path.display()
-            )
-        })
+    files.into_iter().min().ok_or_else(|| {
+        let what = match fmt {
+            FormatArg::Auto => "psmcfa, multihetsep or VCF",
+            f => f.name(),
+        };
+        anyhow!(
+            "directory {} does not contain a {what} input file",
+            path.display()
+        )
+    })
 }
 
 /// [`load`] with the path in the error, and the option to use when the

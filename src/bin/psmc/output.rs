@@ -89,10 +89,7 @@ pub fn write_main_psmc(
     }
     info.bin_callable = bin_callable.psmc_line();
     let rounds = psmc_rounds(model, history, info.sum_l)?;
-    let file =
-        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
-    write_psmc(BufWriter::new(file), &info, &rounds)
-        .with_context(|| format!("failed to write {}", path.display()))
+    write_buffered(path, |w| Ok(write_psmc(w, &info, &rounds)?))
 }
 
 /// Write each replicate's `.psmc` output next to its JSON file,
@@ -101,12 +98,17 @@ pub fn write_main_psmc(
 pub fn write_replicate_psmc(dir: &Path, replicates: &[BootstrapReplicate]) -> Result<()> {
     for rep in replicates {
         let path = replicate_json_path(dir, rep.index + 1).with_extension("psmc");
-        let file =
-            File::create(&path).with_context(|| format!("failed to create {}", path.display()))?;
-        rep.write_psmc(BufWriter::new(file))
-            .with_context(|| format!("failed to write {}", path.display()))?;
+        write_buffered(&path, |w| rep.write_psmc(w))?;
     }
     Ok(())
+}
+
+/// Create the file `path` and fill it through a buffer with `write`,
+/// naming the file in errors.
+fn write_buffered(path: &Path, write: impl FnOnce(BufWriter<File>) -> Result<()>) -> Result<()> {
+    let file =
+        File::create(path).with_context(|| format!("failed to create {}", path.display()))?;
+    write(BufWriter::new(file)).with_context(|| format!("failed to write {}", path.display()))
 }
 
 /// The file names of the bootstrap summary in its directory: TSV, JSON.
