@@ -366,9 +366,10 @@ impl App {
     /// format for [`FIELD_INPUT`], the output's directory for
     /// [`FIELD_OUTPUT`]. It starts in the field's directory.
     fn open_picker(&mut self, field: usize) -> Result<()> {
-        let format = parse_input_format_field(self.field_value(FIELD_INPUT_FORMAT))?;
         let mode = match field {
-            FIELD_INPUT => PickerMode::Input(format),
+            FIELD_INPUT => PickerMode::Input(parse_input_format_field(
+                self.field_value(FIELD_INPUT_FORMAT),
+            )?),
             _ => PickerMode::OutputDir,
         };
         let start = infer_picker_dir(self.field_value(field));
@@ -462,8 +463,10 @@ fn infer_picker_dir(raw_path: &str) -> PathBuf {
             return p.to_path_buf();
         }
         if p.is_file() {
+            // A bare file name's parent is the empty path, which is not a directory to list.
             return p
                 .parent()
+                .filter(|d| !d.as_os_str().is_empty())
                 .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
         }
         if let Some(parent) = p.parent()
@@ -781,6 +784,26 @@ mod tests {
 
     fn set(app: &mut App, field: usize, value: &str) {
         app.fields[field].value = value.to_string();
+    }
+
+    /// A file named without a directory opens the picker in the current
+    /// directory (its parent is the empty path).
+    #[test]
+    fn the_picker_starts_in_the_directory_of_a_bare_file_name() {
+        assert_eq!(infer_picker_dir("Cargo.toml"), PathBuf::from("."));
+        let mut a = app(&[]);
+        set(&mut a, FIELD_INPUT, "Cargo.toml");
+        set(&mut a, FIELD_INPUT_FORMAT, "psmcfa");
+        a.open_picker(FIELD_INPUT).unwrap();
+    }
+
+    /// The output-directory picker does not need the input's format.
+    #[test]
+    fn the_output_picker_opens_whatever_the_input_format_field_holds() {
+        let mut a = app(&[]);
+        set(&mut a, FIELD_INPUT_FORMAT, "not-a-format");
+        assert!(a.open_picker(FIELD_INPUT).is_err());
+        a.open_picker(FIELD_OUTPUT).unwrap();
     }
 
     /// The form fills the settings it shows and keeps the others of the

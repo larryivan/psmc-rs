@@ -534,6 +534,10 @@ Reproduction package (`experiment/`):
 - Output files with the same name overwrote each other (`OUTPUT fit.html`
   was replaced by the report), and a bad output path failed only after the
   fit and the bootstrap.
+- The TUI's file picker (Ctrl+O) failed with "failed to read directory"
+  when the input field held a file name without a directory, and the
+  output-directory picker (Ctrl+D) refused to open while the input-format
+  field was invalid, though it does not use it.
 - The TUI form could not take q, x, r or a space, and its stop key could
   not interrupt EM.
 - The HTML report was blank, without a word, when ECharts could not be
