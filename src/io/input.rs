@@ -860,6 +860,17 @@ struct RawSeq {
     het_sites: Vec<HetCall>,
 }
 
+impl RawSeq {
+    /// Why the sequence is dropped, with `filter` the output filter of its
+    /// input (if any): an empty sequence always is.
+    fn drop_reason(&self, filter: Option<&SeqFilter>) -> Option<DropReason> {
+        if self.bins.is_empty() {
+            return Some(DropReason::Empty);
+        }
+        filter?.verdict(self.called?, self.extent?)
+    }
+}
+
 impl From<PsmcfaRecord> for RawSeq {
     fn from(r: PsmcfaRecord) -> Self {
         Self {
@@ -958,7 +969,6 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
             (raw, SourceSummary::Vcf(summary), Some(opts.filter))
         }
     };
-    let collect = opts.collect_het_sites && format != InputFormat::Psmcfa;
     // Every reader but psmcfa's bins the input, counting the callable bases
     // of each bin when the bins are small enough.
     let binned = format != InputFormat::Psmcfa;
@@ -967,17 +977,9 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     let mut kept_callable = Vec::new();
     let mut seqs = Vec::new();
     let mut dropped = Vec::new();
-    let mut het_sites = collect.then(Vec::new);
+    let mut het_sites = (opts.collect_het_sites && binned).then(Vec::new);
     for s in raw {
-        let reason = if s.bins.is_empty() {
-            Some(DropReason::Empty)
-        } else {
-            match (&filter, s.called, s.extent) {
-                (Some(f), Some(good), Some(extent)) => f.verdict(good, extent),
-                _ => None,
-            }
-        };
-        if let Some(reason) = reason {
+        if let Some(reason) = s.drop_reason(filter.as_ref()) {
             dropped.push(DroppedSeq {
                 name: s.name,
                 n_bins: s.bins.len(),
