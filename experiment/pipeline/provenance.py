@@ -25,7 +25,9 @@ import json
 import os
 import platform
 import socket
+import subprocess
 import threading
+from importlib import metadata
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
@@ -42,6 +44,14 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def read_json(path: Path) -> Dict:
+    """The JSON in ``path``, or {} when it is missing or unreadable."""
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def write_json_atomic(path: Path, obj) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,13 +66,8 @@ class ChecksumCache:
     def __init__(self, path: Optional[Path]):
         self.path = Path(path) if path is not None else None
         self._lock = threading.Lock()
-        self._data: Dict[str, List] = {}
+        self._data: Dict[str, List] = read_json(self.path) if self.path is not None else {}
         self._dirty = False
-        if self.path is not None and self.path.exists():
-            try:
-                self._data = json.loads(self.path.read_text())
-            except (OSError, ValueError):
-                self._data = {}
 
     def sha256(self, path: Path) -> str:
         p = str(Path(path).resolve())
@@ -82,12 +87,7 @@ class ChecksumCache:
         if self.path is None or not self._dirty:
             return
         with self._lock:
-            merged: Dict[str, List] = {}
-            if self.path.exists():
-                try:
-                    merged = json.loads(self.path.read_text())
-                except (OSError, ValueError):
-                    merged = {}
+            merged = read_json(self.path)
             merged.update(self._data)
             self._data = merged
             write_json_atomic(self.path, merged)
@@ -95,14 +95,19 @@ class ChecksumCache:
 
 
 def portable(value, runs_dir: Path):
-    """``value`` (str, path, list or dict) with machine-specific prefixes replaced."""
-    if isinstance(value, (str, Path)):
-        return paths.portable(str(value), runs_dir)
-    if isinstance(value, dict):
-        return {portable(k, runs_dir): portable(v, runs_dir) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [portable(v, runs_dir) for v in value]
-    return value
+    """``value`` (str, path, or a list or dict of them) with machine-specific prefixes replaced."""
+    prefixes = paths.placeholders(runs_dir)
+
+    def convert(v):
+        if isinstance(v, (str, Path)):
+            return paths.replace_prefixes(str(v), prefixes)
+        if isinstance(v, dict):
+            return {convert(k): convert(x) for k, x in v.items()}
+        if isinstance(v, (list, tuple)):
+            return [convert(x) for x in v]
+        return v
+
+    return convert(value)
 
 
 def digest(key: Dict) -> str:
@@ -111,14 +116,15 @@ def digest(key: Dict) -> str:
 
 def job_key(job, runs_dir: Path, cache: ChecksumCache) -> Dict:
     """The key of ``job`` now: what its outputs depend on. Inputs must exist."""
+    command, env, inputs = portable([[str(c) for c in job.command], dict(job.env), job.inputs], runs_dir)
     return {
         "job": job.id,
-        "command": portable([str(c) for c in job.command], runs_dir),
-        "env": portable(dict(job.env), runs_dir),
+        "command": command,
+        "env": env,
         "settings": job.settings,
         "tools": job.tools,
         "seeds": job.seeds,
-        "inputs": {portable(str(p), runs_dir): cache.sha256(p) for p in job.inputs},
+        "inputs": {name: cache.sha256(p) for name, p in zip(inputs, job.inputs)},
     }
 
 
@@ -143,11 +149,8 @@ def machine() -> Dict:
     if platform.system() == "Darwin":
         info["macos"] = platform.mac_ver()[0]
         try:
-            import subprocess
-
-            res = subprocess.run(
-                ["sysctl", "-n", "machdep.cpu.brand_string", "hw.memsize"], capture_output=True, text=True, timeout=5
-            )
+            res = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string", "hw.memsize"],
+                                 capture_output=True, text=True, timeout=5)
             lines = res.stdout.split("\n")
             info["cpu"] = lines[0].strip()
             info["memory_gb"] = round(int(lines[1]) / 2**30, 1)
@@ -224,8 +227,7 @@ def check_done(job, runs_dir: Path, cache: ChecksumCache) -> Tuple[bool, str]:
         what = key_differences(rec.get("key", {}), key)
         return False, "changed: " + (", ".join(what) if what else "record format")
     recorded = rec.get("outputs", {})
-    for p in job.outputs:
-        name = portable(str(p), runs_dir)
+    for p, name in zip(job.outputs, portable(job.outputs, runs_dir)):
         if not Path(p).exists():
             return False, f"output missing: {Path(p).name}"
         if recorded.get(name) != cache.sha256(p):
@@ -239,19 +241,11 @@ def write_record(job, runs_dir: Path, cache: ChecksumCache, key: Dict, run: Dict
         "record_version": RECORD_VERSION,
         "digest": digest(key),
         "key": key,
-        "outputs": {portable(str(p), runs_dir): cache.sha256(p) for p in job.outputs},
+        "outputs": {name: cache.sha256(p) for p, name in zip(job.outputs, portable(job.outputs, runs_dir))},
         "run": run,
     }
     write_json_atomic(job.record_path(runs_dir), rec)
     return rec
-
-
-def read_record(job, runs_dir: Path) -> Optional[Dict]:
-    p = job.record_path(runs_dir)
-    try:
-        return json.loads(p.read_text())
-    except (OSError, ValueError):
-        return None
 
 
 def python_identity(modules: Sequence[str], packages: Sequence[str] = ()) -> Dict[str, str]:
@@ -262,8 +256,6 @@ def python_identity(modules: Sequence[str], packages: Sequence[str] = ()) -> Dic
     to them re-runs the step; when it reproduces its outputs, nothing
     downstream re-runs (see the module documentation).
     """
-    from importlib import metadata
-
     base = paths.EXPERIMENT / "pipeline"
     h = hashlib.sha256()
     for m in sorted(modules):

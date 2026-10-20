@@ -31,13 +31,8 @@ SMOKE_RUNS = EXPERIMENT / ".runs-smoke"
 def main_checkout() -> Optional[Path]:
     """The main working tree of this repository when ROOT is a linked worktree, else None."""
     try:
-        res = subprocess.run(
-            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
+        res = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                             cwd=ROOT, capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return None
     if res.returncode != 0:
@@ -90,7 +85,12 @@ def placeholders(runs_dir: Path) -> Dict[str, str]:
 
 def portable(text: str, runs_dir: Path) -> str:
     """``text`` with the machine-specific prefixes of :func:`placeholders` replaced."""
-    for prefix, name in placeholders(runs_dir).items():
+    return replace_prefixes(text, placeholders(runs_dir))
+
+
+def replace_prefixes(text: str, prefixes: Dict[str, str]) -> str:
+    """``text`` with each prefix of a :func:`placeholders` replaced by its name (for many texts at once)."""
+    for prefix, name in prefixes.items():
         text = text.replace(prefix, name)
     return text
 
