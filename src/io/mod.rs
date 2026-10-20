@@ -10,6 +10,8 @@ pub mod write;
 
 use std::ops::Range;
 
+use common::BinnedSeq;
+
 pub use callable::{BinCounts, CallableBases, CallableSummary, MAX_COUNTED_BIN_SIZE};
 
 /// Binned input as the HMM reads it: rows of bins, `0` (`T`), `1` (`K`) or
@@ -47,6 +49,18 @@ pub(crate) fn sequence_ranges(row_starts: &[bool]) -> Vec<Range<usize>> {
 pub struct Sequences {
     pub bins: Vec<Vec<u8>>,
     pub callable: Option<CallableBases>,
+}
+
+impl Sequences {
+    /// The sequences a reader binned into bins of `bin_size` bases, with
+    /// their callable bases when bins of that size are counted.
+    pub(crate) fn of_binned(bin_size: usize, seqs: Vec<BinnedSeq>) -> Self {
+        let (bins, counts): (_, Vec<_>) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
+        Self {
+            bins,
+            callable: CallableBases::of_binned(bin_size, counts),
+        }
+    }
 }
 
 impl From<Vec<Vec<u8>>> for Sequences {

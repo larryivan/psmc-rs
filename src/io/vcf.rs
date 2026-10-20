@@ -62,7 +62,7 @@ use crate::io::common::{
     BinnedSeq, DepthCounter, DepthStats, SeqBuilder, chunk_sequences, open_reader,
 };
 use crate::io::consensus::utf8_chrom;
-use crate::io::{CallableBases, Observations, Sequences};
+use crate::io::{Observations, Sequences};
 
 type Interval = (u64, u64); // inclusive [start, end], 1-based
 
@@ -164,12 +164,8 @@ impl IntervalAcc {
 }
 
 fn intersect_intervals(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
-    if a.is_empty() || b.is_empty() {
-        return Vec::new();
-    }
-    let mut i = 0usize;
-    let mut j = 0usize;
-    let mut out = Vec::<Interval>::new();
+    let (mut i, mut j) = (0, 0);
+    let mut out = Vec::new();
     while i < a.len() && j < b.len() {
         let (as_, ae) = a[i];
         let (bs, be) = b[j];
@@ -188,15 +184,8 @@ fn intersect_intervals(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
 }
 
 fn subtract_intervals(a: &[Interval], b: &[Interval]) -> Vec<Interval> {
-    if a.is_empty() {
-        return Vec::new();
-    }
-    if b.is_empty() {
-        return a.to_vec();
-    }
-
-    let mut out = Vec::<Interval>::new();
-    let mut j = 0usize;
+    let mut out = Vec::new();
+    let mut j = 0;
     for &(as_, ae) in a {
         let mut cur_s = as_;
         while j < b.len() && b[j].1 < cur_s {
@@ -931,17 +920,12 @@ fn info_value<'a>(info: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
         .find_map(|kv| kv.strip_prefix(key)?.strip_prefix(b"="))
 }
 
-/// The END of a gVCF reference or no-call block: a record whose ALT alleles
-/// all stand for "no other allele" (`.`, or the symbolic `<*>` of bcftools
-/// and DeepVariant, `<NON_REF>` of GATK, `<X>` of old bcftools) and whose
-/// INFO/END is at or after POS. Such a record states one genotype for every
-/// position of `POS..=END`.
-fn gvcf_block_end(rec: &Record<'_>) -> Option<u64> {
-    gvcf_block_end_of(rec.pos, rec.alt, rec.info)
-}
-
-/// [`gvcf_block_end`] from the POS, ALT and INFO columns.
-pub(crate) fn gvcf_block_end_of(pos: u64, alt: &[u8], info: &[u8]) -> Option<u64> {
+/// The END of a gVCF reference or no-call block, from a record's POS, ALT
+/// and INFO: a record whose ALT alleles all stand for "no other allele"
+/// (`.`, or the symbolic `<*>` of bcftools and DeepVariant, `<NON_REF>` of
+/// GATK, `<X>` of old bcftools) and whose INFO/END is at or after POS. Such
+/// a record states one genotype for every position of `POS..=END`.
+pub(crate) fn gvcf_block_end(pos: u64, alt: &[u8], info: &[u8]) -> Option<u64> {
     let reference_only = alt
         .split(|&b| b == b',')
         .all(|a| matches!(a, b"." | b"<*>" | b"<NON_REF>" | b"<X>"));
@@ -1249,13 +1233,8 @@ pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
     if summary.het_snps == 0 {
         bail!("{}", no_het_snp_message(&summary, opts.keep_filtered));
     }
-    let (bins, counts): (_, Vec<_>) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
-    let seqs = Sequences {
-        bins,
-        callable: CallableBases::of_binned(opts.bin_size, counts),
-    };
     let obs = chunk_sequences(
-        seqs,
+        Sequences::of_binned(opts.bin_size, seqs),
         opts.batch_size,
         "no valid segregating sites found in VCF input",
     )?;
@@ -1392,8 +1371,8 @@ pub(crate) fn read_vcf_seqs_from(
         }
         // A block reaching past the contig (or past any real chromosome)
         // ends there.
-        let block_end =
-            gvcf_block_end(&rec).map(|end| end.min(chrom.contig_len.unwrap_or(MAX_POS)));
+        let block_end = gvcf_block_end(rec.pos, rec.alt, rec.info)
+            .map(|end| end.min(chrom.contig_len.unwrap_or(MAX_POS)));
         let class = classify(&rec, opts.keep_filtered, block_end, row_no, &mut summary)?;
         chrom.add_record(rec.pos, class, (rec.ref_end(), block_end), &mut summary);
     }

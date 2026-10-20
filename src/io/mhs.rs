@@ -7,7 +7,7 @@ use std::io::BufRead;
 use std::path::Path;
 
 use crate::io::common::{BinnedSeq, SeqBuilder, chunk_sequences, open_reader};
-use crate::io::{CallableBases, Observations, Sequences};
+use crate::io::{Observations, Sequences};
 
 /// Options for [`read_mhs_with`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,11 +188,7 @@ pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
     check_options(opts)?;
     let (seqs, _) =
         read_mhs_seqs_from(open_reader(path)?, path, opts, false).map_err(|e| e.error)?;
-    let (bins, counts): (_, Vec<_>) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
-    let seqs = Sequences {
-        bins,
-        callable: CallableBases::of_binned(opts.bin_size, counts),
-    };
+    let seqs = Sequences::of_binned(opts.bin_size, seqs);
     chunk_sequences(seqs, opts.batch_size, "no valid mhs rows found in input")
 }
 
