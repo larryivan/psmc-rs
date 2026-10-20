@@ -56,8 +56,11 @@ const BGZF_EOF: [u8; 28] = [
     0, 0, 0, 0, 0, 0, 0,
 ];
 
-fn decoding_reader(file: File, path: &Path) -> Result<Box<dyn BufRead>> {
-    let mut file = file;
+/// Bytes of text read at a time: large enough that reading a big file, or
+/// a pipe, takes few system calls and decoder calls.
+const READ_BUFFER: usize = 128 << 10;
+
+fn decoding_reader(mut file: File, path: &Path) -> Result<Box<dyn BufRead>> {
     // The gzip header up to the first extra subfield's identifier, which is
     // `BC` in a BGZF block. A pipe may deliver it in several reads.
     let mut head = Vec::with_capacity(14);
@@ -69,13 +72,19 @@ fn decoding_reader(file: File, path: &Path) -> Result<Box<dyn BufRead>> {
     let is_bgzf = is_gzip && head.len() == 14 && head[3] & 4 != 0 && head[12..14] == *b"BC";
     let raw = Cursor::new(head).chain(file);
     let decoded: Box<dyn BufRead> = if is_bgzf {
-        Box::new(BufReader::new(BgzfReader {
-            decoder: MultiGzDecoder::new(TailKeeper::new(raw)),
-        }))
+        Box::new(BufReader::with_capacity(
+            READ_BUFFER,
+            BgzfReader {
+                decoder: MultiGzDecoder::new(TailKeeper::new(raw)),
+            },
+        ))
     } else if is_gzip {
-        Box::new(BufReader::new(MultiGzDecoder::new(raw)))
+        Box::new(BufReader::with_capacity(
+            READ_BUFFER,
+            MultiGzDecoder::new(raw),
+        ))
     } else {
-        Box::new(BufReader::new(raw))
+        Box::new(BufReader::with_capacity(READ_BUFFER, raw))
     };
     check_text_start(decoded, path)
 }
