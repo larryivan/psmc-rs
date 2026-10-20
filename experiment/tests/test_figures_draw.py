@@ -153,28 +153,6 @@ class Draw(unittest.TestCase):
                 again = figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / "again" / name)
                 self.assertEqual([p.read_bytes() for p in self._render(fs)], [p.read_bytes() for p in again])
 
-    def test_the_article_figures_never_show_psmc_rs_01(self):
-        from matplotlib.colors import to_hex
-        from matplotlib.text import Text
-
-        from experiment.pipeline import figures
-        from experiment.pipeline.figures import style
-
-        for name in ARTICLE_FIGURES:
-            fs = figures.spec(name)
-            with self.subTest(figure=name):
-                self.assertNotIn("psmc-rs 0.", fs.title)
-                fig = self._draw(fs.module)
-                for t in fig.findobj(Text):
-                    self.assertNotIn("psmc-rs 0.", t.get_text())
-                    self.assertNotIn("rs01", t.get_text())
-                colours = set()
-                for ax in fig.axes:
-                    colours |= {to_hex(ln.get_color()) for ln in ax.lines}
-                    for c in ax.collections:
-                        colours |= {to_hex(v) for v in list(c.get_facecolors()) + list(c.get_edgecolors())}
-                self.assertNotIn(style.RS01.color, colours)  # psmc-rs 0.1's aqua
-
     def test_cli_lists_and_skips_figures_without_tables(self):
         from experiment.pipeline.figures.__main__ import main
 
@@ -350,8 +328,8 @@ class Draw(unittest.TestCase):
         fig = self._draw("fig5")
         self.assertEqual(len(fig.axes), 3)  # a, and b's two facets
         # Only the two routes of the paper's colours are drawn: never the dark blue of the same bins read from
-        # the VCF, multihetsep's ochre, the raspberry of a VCF without its mask, or psmc-rs 0.1's aqua.
-        absent = {style.ROUTES[r].color for r in ("mask_ignore", "multihetsep", "nomask")} | {style.RS01.color}
+        # the VCF, multihetsep's ochre or the raspberry of a VCF without its mask.
+        absent = {style.ROUTES[r].color for r in ("mask_ignore", "multihetsep", "nomask")}
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
         for i, ax in enumerate(fig.axes):

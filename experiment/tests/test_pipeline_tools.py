@@ -200,22 +200,17 @@ class Toolchain(unittest.TestCase):
                     tools.toolchain(work)
 
     @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
-    def test_both_psmc_rs_identities_carry_the_build(self):
+    def test_psmc_rs_identity_carries_the_build(self):
         with tempfile.TemporaryDirectory() as d:
-            d = Path(d)
-            rs02 = fake_program(d / "rs02" / "psmc-rs", "psmc-rs 0.2.0")
-            rs01 = fake_program(d / "psmc-rs-0.1" / "target" / "release" / "psmc-rs", "")
-            dirs = {"base": d / "psmc-rs-0.1", "src": d / "psmc-rs-0.1" / "src", "target": d / "psmc-rs-0.1" / "target"}
+            rs02 = fake_program(Path(d) / "rs02" / "psmc-rs", "psmc-rs 0.2.0")
             with mock.patch.object(tools, "rs02_binary", return_value=rs02), \
-                    mock.patch.object(tools, "rs01_dirs", return_value=dirs), \
                     mock.patch.dict("os.environ", without_build_vars(), clear=True):
-                t02, t01 = tools.psmc_rs_02(build=False), tools.psmc_rs_01(build=False)
+                a = tools.psmc_rs_02(build=False)
                 with mock.patch.dict("os.environ", {"CARGO_PROFILE_RELEASE_OPT_LEVEL": "2"}):
-                    t02b, t01b = tools.psmc_rs_02(build=False), tools.psmc_rs_01(build=False)
-        for a, b in ((t02, t02b), (t01, t01b)):
-            self.assertTrue(set(tools.BUILD_FIELDS) <= set(a.identity), a.name)
-            self.assertNotEqual(a.identity, b.identity, a.name)
-            self.assertEqual(b.identity["cargo_profile_release"], "CARGO_PROFILE_RELEASE_OPT_LEVEL=2")
+                    b = tools.psmc_rs_02(build=False)
+        self.assertTrue(set(tools.BUILD_FIELDS) <= set(a.identity))
+        self.assertNotEqual(a.identity, b.identity)
+        self.assertEqual(b.identity["cargo_profile_release"], "CARGO_PROFILE_RELEASE_OPT_LEVEL=2")
 
 
 C_SOURCES = {
@@ -359,7 +354,6 @@ class BuildC(unittest.TestCase):
         self.assertIn("cc failed", err.getvalue())
         with mock.patch.object(tools, "build_c") as build, \
                 mock.patch.object(tools, "psmc_rs_02", side_effect=missing), \
-                mock.patch.object(tools, "psmc_rs_01", side_effect=missing), \
                 mock.patch.object(tools, "c_psmc", side_effect=missing), \
                 mock.patch.object(tools, "utility", side_effect=missing), \
                 contextlib.redirect_stdout(io.StringIO()) as out:
@@ -368,7 +362,6 @@ class BuildC(unittest.TestCase):
         self.assertIn("missing  psmc-rs 0.2: not here", out.getvalue())
         found = tools.Tool("x", Path("/x"), {}, {})
         with mock.patch.object(tools, "psmc_rs_02", return_value=found), \
-                mock.patch.object(tools, "psmc_rs_01", return_value=found), \
                 mock.patch.object(tools, "c_psmc", return_value=found), \
                 mock.patch.object(tools, "utility", return_value=found), \
                 mock.patch.object(tools, "describe", return_value=""), \

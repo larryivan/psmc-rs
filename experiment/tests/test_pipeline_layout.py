@@ -32,7 +32,7 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/_runner/runner.pid",
             "experiment/runs/_runner/checksums.json",
             "experiment/.runs-smoke/E1/tables/E1_table1.csv",
-            "experiment/.tools/psmc-rs-0.1/target/release/psmc-rs",
+            "experiment/.tools/psmc_c/psmc",
         ))
 
 

@@ -35,11 +35,11 @@ class Plan(unittest.TestCase):
         keys = [u.key() for u in e3.setups(cfg)]
         self.assertEqual(len(keys), len(set(keys)))
         self.assertEqual(sum(k.startswith("c/") for k in keys), 4)
-        self.assertEqual(sum(k.startswith("rs01/") for k in keys), 12)
         # rs02: 4 sizes x (1, 8, 30) threads, plus 3000 Mb on 2, 4 and 16 threads
         self.assertEqual(sorted(u.threads for u in e3.setups(cfg) if u.tool == "rs02" and u.size_mb == 3000),
                          [1, 2, 4, 8, 16, 30])
         self.assertEqual(sum(k.startswith("rs02/") for k in keys), 15)
+        self.assertEqual(len(keys), 19)  # C psmc and psmc-rs 0.2 only
         self.assertEqual(e3.sizes(cfg), [100, 300, 1000, 3000])
 
     def test_memory_estimates_follow_each_tool(self):
@@ -47,13 +47,9 @@ class Plan(unittest.TestCase):
         c = [setup_of(cfg, "c", s, 1).est_gb for s in cfg.genome_sizes_mb]
         self.assertEqual(len(set(c)), 1)  # the longest sequence, 100 Mb, at every size
         self.assertAlmostEqual(c[0], (6.0 + 1005.0) / 1024, places=6)
-        self.assertAlmostEqual(setup_of(cfg, "rs01", 1000, 1).est_gb * 1024, 5.0 + 9.5 + 8 * 248 + 496, places=6)
-        self.assertAlmostEqual(setup_of(cfg, "rs01", 3000, 8).est_gb * 1024, 5.0 + 28.5 + 8 * 496, places=6)
-        self.assertAlmostEqual(setup_of(cfg, "rs01", 3000, 30).est_gb * 1024, 5.0 + 28.5 + 30 * 496, places=6)
-        self.assertAlmostEqual(setup_of(cfg, "rs01", 100, 8).est_gb, setup_of(cfg, "rs01", 100, 1).est_gb)
         self.assertLess(setup_of(cfg, "rs02", 3000, 8).est_gb, 0.1)
         self.assertLess(setup_of(cfg, "rs02", 3000, 30).est_gb, 0.2)
-        self.assertTrue(all(p.skip is None for p in e3.plan(cfg)))  # the largest, rs01 on 30 threads, 14.6 GB
+        self.assertTrue(all(p.skip is None for p in e3.plan(cfg)))  # the largest, C psmc, about 1 GB
 
     def test_runs_over_the_memory_limit_are_skipped_and_say_why(self):
         cfg = replace(config.PRODUCTION.e3, genome_sizes_mb=(1500, 3000), chromosome_length=1_500_000_000,
@@ -63,8 +59,6 @@ class Plan(unittest.TestCase):
         self.assertIsNotNone(c.skip)
         self.assertIn("14.7 GB exceeds the 12 GB limit", c.skip)
         self.assertIn("longest sequence (1500 Mb)", c.skip)
-        self.assertIsNone(plan[e3.Setup("rs01", 1500, 1)].skip)  # nothing cached, one 7.3 GB buffer
-        self.assertIsNotNone(plan[e3.Setup("rs01", 3000, 8)].skip)  # two buffers at once
         self.assertIsNone(plan[e3.Setup("rs02", 3000, 8)].skip)
         self.assertFalse(any(r.setup.tool == "c" for r in e3.runs(cfg)))
 
@@ -74,9 +68,6 @@ class Plan(unittest.TestCase):
         self.assertGreater(c, 3000)
         one, eight = setup_of(cfg, "rs02", 3000, 1).est_seconds, setup_of(cfg, "rs02", 3000, 8).est_seconds
         self.assertGreater(one / eight, 4)  # 30 sequences in parallel; the M-step takes ms
-        # psmc-rs 0.1's M-step, 1000 forward-mode iterations, costs seconds per EM iteration.
-        self.assertGreater(setup_of(cfg, "rs01", 100, 1).est_seconds,
-                           setup_of(cfg, "rs02", 100, 1).est_seconds + 100)
         capped = replace(cfg, default_mstep_iters=5)
         self.assertLessEqual(setup_of(capped, "rs02-default", 3000, 8).est_seconds, eight)
         # one 100 Mb chromosome: no parallel speed-up
@@ -95,7 +86,7 @@ class Jobs(unittest.TestCase):
         cfg = config.PRODUCTION.e3
         runs = [j for j in jobs.values() if j.name.startswith("run/")]
         # No run with capped M-steps: psmc-rs 0.2's default M-step converges.
-        self.assertEqual(len(runs), 31 * cfg.repeats)
+        self.assertEqual(len(runs), 19 * cfg.repeats)
         self.assertFalse(any("rs02-default" in j.id for j in runs))
         self.assertEqual(len(jobs), len(runs) + 4 + 1)
         self.assertTrue(all(j.exclusive for j in runs))
@@ -111,18 +102,14 @@ class Jobs(unittest.TestCase):
         c = jobs["E3/run/c/300Mb/t1/rep1"]
         self.assertEqual(tool_command(c)[:6], ["/x/psmc", "-N25", "-t15", "-r5", "-p", "4+25*2+4+6"])
         self.assertIn("experiment.pipeline.experiments.e3_run", c.command)
-        rs01 = jobs["E3/run/rs01/1000Mb/t8/rep3"]
-        cmd = tool_command(rs01)
-        self.assertEqual(cmd[3], "25")
-        self.assertNotIn("--tr-ratio", cmd)
-        for opt, val in (("--pattern", "4+25*2+4+6"), ("--n-steps", "63"), ("--t-max", "15"),
-                         ("--smooth-lambda", "0"), ("--mstep-iters", "1000"), ("--threads", "8")):
-            self.assertEqual(option(cmd, opt), val)
-        self.assertEqual(rs01.env, {"RAYON_NUM_THREADS": "8"})
-        self.assertEqual(rs01.cores, min(8, e3.machine_cores()))
         rs02 = jobs["E3/run/rs02/3000Mb/t2/rep1"]
         cmd = tool_command(rs02)
+        self.assertEqual(cmd[3], "25")
         self.assertEqual([option(cmd, o) for o in ("--tr-ratio", "--threads", "--mstep-iters")], ["5", "2", "1000"])
+        for opt, val in (("--pattern", "4+25*2+4+6"), ("--t-max", "15"), ("--smooth-lambda", "0")):
+            self.assertEqual(option(cmd, opt), val)
+        self.assertEqual(rs02.env, {"RAYON_NUM_THREADS": "2"})
+        self.assertEqual(rs02.cores, min(2, e3.machine_cores()))
         self.assertEqual(rs02.settings["repeat"], 1)
         self.assertEqual(set(rs02.tools), {"psmc-rs-0.2", "timing"})
         capped = replace(config.PRODUCTION, e3=replace(config.PRODUCTION.e3, default_mstep_iters=5))
@@ -142,14 +129,9 @@ class Jobs(unittest.TestCase):
                 self.assertEqual((option(tool_command(big), "--threads"), big.env), ("30", {"RAYON_NUM_THREADS": "30"}))
                 # measure is told the threads, and refuses to time 30 threads on fewer cores
                 self.assertEqual(option(big.command[: big.command.index("--")], "--threads"), "30")
-                # The runs are exclusive: the default budget's 7 cores start them all. Its 12 GB do not
-                # start psmc-rs 0.1 on 30 threads (14.6 GB); E3 is started with --mem-gb 15.
+                # The runs are exclusive: the default budget's 7 cores and 12 GB start them all.
                 runs = [j for j in jobs.values() if j.exclusive]
-                blocked = {j.id: runner.fits_budget(j, config.Budget()) for j in runs}
-                self.assertEqual({k for k, why in blocked.items() if why},
-                                 {f"E3/run/rs01/3000Mb/t30/rep{r}" for r in range(1, 6)})
-                self.assertTrue(all("GB" in why for why in blocked.values() if why))
-                self.assertEqual([j.id for j in runs if runner.fits_budget(j, config.Budget(mem_gb=15.0))], [])
+                self.assertEqual([j.id for j in runs if runner.fits_budget(j, config.Budget())], [])
 
     def test_the_report_reads_c_psmcs_build_record_when_there_is_one(self):
         c_dir = self.runs / "tools" / "psmc_c"
@@ -167,10 +149,6 @@ class Jobs(unittest.TestCase):
         self.assertEqual(sim.seeds["chr1"], jobs["E3/sim/3000Mb"].seeds["chr1"])  # one set of chromosomes
         self.assertIn("--size-mb", sim.command)
 
-    def test_missing_rs01_build_does_not_stop_planning(self):
-        tool = e3.rs01_tool(fake_ctx(config.SMOKE, self.runs, "c", "rs02"))
-        self.assertEqual(tool.name, "psmc-rs-0.1")
-
 
 class Report(unittest.TestCase):
     """The tables from stand-in runs: C psmc's reference output, and psmc-rs JSON made from it."""
@@ -187,7 +165,7 @@ class Report(unittest.TestCase):
         ]}
         lay.truth(1).parent.mkdir(parents=True)
         lay.truth(1).write_text(json.dumps(truth))
-        walls = {"c": 10.0, "rs01": 4.0, "rs02": 1.0, "rs02-default": 0.5}
+        walls = {"c": 10.0, "rs02": 1.0, "rs02-default": 0.5}
         for run in e3.runs(cfg):
             u = run.setup
             fit = lay.fit(run)
@@ -195,10 +173,9 @@ class Report(unittest.TestCase):
             if u.tool == "c":
                 shutil.copy(C_REF, fit)
             else:
-                # psmc-rs 0.1 on 2 threads would differ; here rs02 on 2 threads repeat 2 does
+                # rs02 on 2 threads, repeat 2, differs
                 params = c_ref_json(1.001 if (u.tool == "rs02" and u.threads == 2 and run.repeat == 2) else 1.0)
-                if u.tool in ("rs02", "rs02-default"):
-                    params.update(n_iter=5, final_loglike=-25000.0, input={"bins": 150947, "het_bins": 7373})
+                params.update(n_iter=5, final_loglike=-25000.0, input={"bins": 150947, "het_bins": 7373})
                 fit.write_text(json.dumps(params))
             wall = walls[u.tool] / (1.6 if u.threads == 2 else 1.0) + 0.1 * run.repeat
             timing = {
@@ -243,7 +220,6 @@ class Report(unittest.TestCase):
         self.assertAlmostEqual(float(c["seconds_per_iteration_median"]), 10.15 / 5)
         rs02 = rows[("rs02", "1")]
         self.assertAlmostEqual(float(rs02["speedup_vs_c"]), 10.15 / 1.15)
-        self.assertAlmostEqual(float(rs02["speedup_vs_rs01_same_threads"]), 4.15 / 1.15)
         self.assertAlmostEqual(float(rs02["c_rss_over_rss"]), 10.0)
         self.assertEqual(rs02["all_quiet"], "True")
         self.assertEqual(rs02["outputs_identical"], "True")
@@ -274,7 +250,7 @@ class Report(unittest.TestCase):
     def test_environment(self):
         env = self.environment()
         self.assertEqual((env["machine.cpu"], env["machine.cpu_count"]), ("Test CPU", "8"))
-        self.assertEqual(env["tool.rs01.commit"], "e" * 40)
+        self.assertEqual((env["tool.c.version"], env["tool.rs02.version"]), ("0.6.5", "psmc-rs 0.2.0"))
         self.assertEqual((env["runs_not_quiet"], env["runs_not_clean"]), ("0", "0"))
 
     def test_environment_lists_every_host_of_merged_shards(self):
@@ -443,10 +419,11 @@ class Report(unittest.TestCase):
         self.assertTrue(all(j.rank == int(j.id.rsplit("rep", 1)[1]) for j in runs))
 
     def test_partial_results_are_reported_as_incomplete(self):
-        run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs01")
+        run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02")
         self.lay.timing(run).unlink()
         self.report()
-        row = next(r for r in read_csv(self.lay.table("table2")) if r["tool"] == "rs01")
+        row = next(r for r in read_csv(self.lay.table("table2"))
+                   if (r["tool"], r["threads"], r["size_mb"]) == ("rs02", str(run.setup.threads), str(run.setup.size_mb)))
         self.assertEqual(row["status"], "incomplete")
         self.assertEqual(row["repeats"], "1")
 

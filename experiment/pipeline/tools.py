@@ -1,4 +1,4 @@
-"""The tools: psmc-rs 0.2 (this checkout), psmc-rs 0.1 (commit e50d69d), C psmc and utilities.
+"""The tools: psmc-rs 0.2 (this checkout), C psmc and utilities.
 
 Each tool is a :class:`Tool`: a path, an identity and information. The
 identity enters the provenance key of every job that runs the tool, and is
@@ -18,10 +18,6 @@ information is recorded next to it and changes nothing:
   is the identity. The binary is ``target/release/psmc-rs`` of this
   checkout, built with ``cargo build --release --locked --offline`` (a no-op
   when up to date).
-* psmc-rs 0.1: the commit it is built from (in a git worktree under the
-  tools directory with ``CARGO_TARGET_DIR`` next to it, see
-  :func:`build_rs01`) and the build, as 0.2's; information: the binary's
-  SHA-256.
 * C psmc and the utilities: their version where they print one, and the
   SHA-256 of the file. C psmc built by :func:`build_c` (``tools
   --build-c``) also has the compiler and CFLAGS its ``BUILD.json`` records.
@@ -309,62 +305,6 @@ def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
     identity = {"version": version, **source, **build_identity(tc)}
     return Tool("psmc-rs-0.2", binary, identity, {"source_commit": commit, "binary_sha256": digest,
                                                   "llvm": tc.get("llvm", "")})
-
-
-# ---------------------------------------------------------------------------
-# psmc-rs 0.1
-# ---------------------------------------------------------------------------
-
-
-def rs01_dirs() -> Dict[str, Path]:
-    base = paths.tools_dir() / "psmc-rs-0.1"
-    return {"base": base, "src": base / "src", "target": base / "target"}
-
-
-def build_rs01(commit: str = config.E3().rs01_commit, log: Callable[[str], None] = print) -> Path:
-    """Build psmc-rs 0.1 from ``commit`` into the tools directory.
-
-    The source is a detached git worktree at ``<tools>/psmc-rs-0.1/src`` and
-    the build goes to ``CARGO_TARGET_DIR=<tools>/psmc-rs-0.1/target``, so
-    nothing of this checkout changes. Offline: the dependencies must be in
-    cargo's cache.
-    """
-    d = rs01_dirs()
-    full = _git("rev-parse", f"{commit}^{{commit}}")
-    if not d["src"].exists():
-        d["base"].mkdir(parents=True, exist_ok=True)
-        _git("worktree", "add", "--detach", str(d["src"]), full)
-        log(f"[tools] git worktree for psmc-rs 0.1 at {d['src']}")
-    head = _git("rev-parse", "HEAD", cwd=d["src"])
-    if head != full:
-        raise ToolError(f"{d['src']} is at {head}, expected {full}; remove it (git worktree remove) and rebuild")
-    env = dict(os.environ, CARGO_TARGET_DIR=str(d["target"]))
-    res = _run(["cargo", "build", "--release", "--locked", "--offline"], cwd=d["src"], env=env, timeout=3600)
-    if res.returncode != 0:
-        raise ToolError(f"building psmc-rs 0.1 failed:\n{res.stderr[-4000:]}")
-    binary = d["target"] / "release" / "psmc-rs"
-    log(f"[tools] psmc-rs 0.1 is built ({binary})")
-    return binary
-
-
-def psmc_rs_01(build: bool = False, commit: str = config.E3().rs01_commit, log: Callable[[str], None] = print) -> Tool:
-    """psmc-rs 0.1, built from ``commit`` when ``build``.
-
-    0.1 has no ``--version``; its version comes from the Cargo.toml it was
-    built from, and the commit and the binary's SHA-256 identify it.
-    """
-    d = rs01_dirs()
-    binary = build_rs01(commit, log=log) if build else d["target"] / "release" / "psmc-rs"
-    if not binary.exists():
-        raise ToolError(f"{binary} does not exist; build it with: python -m experiment.pipeline tools --build-rs01")
-    head = _git("rev-parse", "HEAD", cwd=d["src"]) if d["src"].exists() else ""
-    m = re.search(r'^version\s*=\s*"([^"]+)"', (d["src"] / "Cargo.toml").read_text(), re.M) if head else None
-    tc = toolchain(d["src"] if d["src"].exists() else paths.ROOT)
-    digest = sha256_file(binary)
-    identity = {"version": f"psmc-rs {m.group(1)}" if m else "unknown", "commit": head, **build_identity(tc)}
-    if not head:
-        identity["binary_sha256"] = digest  # no sources to identify it by
-    return Tool("psmc-rs-0.1", binary, identity, {"binary_sha256": digest})
 
 
 # ---------------------------------------------------------------------------

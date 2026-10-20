@@ -61,7 +61,7 @@ def _job_args(p: argparse.ArgumentParser, budget: bool = True) -> None:
                         f"{config.E2().rs_threads}; exclusive jobs, E3's timing runs, run alone on as many cores "
                         "as threads)")
     p.add_argument("--mem-gb", type=float, default=b.mem_gb,
-                   help=f"memory the jobs may use at once (default {b.mem_gb:g}; E3 needs 15)")
+                   help=f"memory the jobs may use at once (default {b.mem_gb:g})")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -96,7 +96,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("experiment")
 
     p = sub.add_parser("tools", help="show the tools and their identities")
-    p.add_argument("--build-rs01", action="store_true", help="build psmc-rs 0.1 (commit e50d69d) into the tools directory")
     p.add_argument("--build-c", action="store_true",
                    help="build C psmc, fq2psmcfa and splitfa in <tools>/psmc_c with $CC (default gcc, else cc), "
                         f"$PSMC_C_CFLAGS (default the Makefile's {tools.C_DEFAULT_CFLAGS!r}; on macOS arm64, where "
@@ -296,7 +295,6 @@ def cmd_tools(args) -> int:
     attempts = [
         ("psmc-rs 0.2", lambda: tools.psmc_rs_02(build=True)),
         ("C psmc", tools.c_psmc),
-        ("psmc-rs 0.1", lambda: tools.psmc_rs_01(build=args.build_rs01)),
         *[(name, (lambda n=name: tools.utility(n))) for name in tools.UTILITIES],
     ]
     for label, get in attempts:

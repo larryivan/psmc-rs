@@ -32,7 +32,6 @@ def missing() -> str:
     absent = [m for m in MODULES if not fixtures.has_modules(m)]
     try:
         tools.c_psmc()
-        tools.psmc_rs_01(build=False)
         for name in ("fq2psmcfa", "generate_multihetsep.py"):
             tools.utility(name)
     except (tools.ToolError, OSError) as exc:

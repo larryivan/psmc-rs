@@ -1,7 +1,7 @@
 """E3: performance (Fig 4, Table 2, Fig S4).
 
-How fast and how lean are C psmc, psmc-rs 0.1 and psmc-rs 0.2 on the same
-inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
+How fast and how lean are C psmc and psmc-rs 0.2 on the same inputs, and
+does psmc-rs 0.2 give the same result whatever its thread count?
 :class:`.config.E3` holds every setting. The runner
 
 1. simulates one constant-model genome per size (100, 300, 1000 and
@@ -10,13 +10,13 @@ inputs, and does psmc-rs 0.2 give the same result whatever its thread count?
    larger one);
 2. fits every size with every tool, ``repeats`` times, with the inference
    recipe (``psmc -N25 -t15 -r5 -p "4+25*2+4+6"``): C psmc on its one
-   thread, psmc-rs 0.1 (commit e50d69d, built out of tree) and psmc-rs 0.2
-   at each of their thread counts (psmc-rs 0.2 also with its M-steps capped
-   at ``E3.default_mstep_iters`` iterations, ``rs02-default``, when that is
-   set; by default it is not, since psmc-rs 0.2's default M-step converges
-   like every other run's); psmc-rs 0.2 also fits the 3000 Mb genome
-   on 1, 2, 4, 8, 16 and 30 threads (thread scaling; with one sequence per
-   thread, its 30 chromosomes are the most threads can use). Each run is an
+   thread and psmc-rs 0.2 at each of its thread counts (also with its
+   M-steps capped at ``E3.default_mstep_iters`` iterations,
+   ``rs02-default``, when that is set; by default it is not, since psmc-rs
+   0.2's default M-step converges like every other run's); psmc-rs 0.2
+   also fits the 3000 Mb genome on 1, 2, 4, 8, 16 and 30 threads (thread
+   scaling; with one sequence per thread, its 30 chromosomes are the most
+   threads can use). Each run is an
    exclusive job (nothing else runs, on this runner or any other: see the
    runner's machine lock) with as many cores as threads, at most the
    machine's (:func:`machine_cores`), timed by ``e3_run measure`` (wall
@@ -35,20 +35,14 @@ A run whose estimated peak memory (:class:`.config.ResourceModel`) exceeds
 ``memory_limit_gb`` is not run; Table 2 lists it as skipped, with the
 estimate and the reason. With 100 Mb chromosomes no run is skipped: C psmc
 holds the forward-backward matrices of one sequence at a time (about 1 GB
-for 100 Mb), psmc-rs 0.1 at most about 15 GB (30 threads on 3000 Mb),
-psmc-rs 0.2 well under 1 GB.
-
-psmc-rs 0.1 has no ``--tr-ratio`` or ``--bin-size``: it gets the pattern,
-``--n-steps``, ``--t-max``, ``--smooth-lambda 0``, ``--mstep-iters`` and the
-number of iterations, and its default start (rho0 = theta0 / 5, the
-recipe's ``-r5``; psmcfa bins of 100 bp). Both psmc-rs versions write their
-HTML report next to the JSON, as in normal use; C psmc writes its ``.psmc``.
+for 100 Mb), psmc-rs 0.2 well under 1 GB. psmc-rs writes its HTML report
+next to the JSON, as in normal use; C psmc writes its ``.psmc``.
 
 Layout under ``<runs>/E3/``::
 
     sims/<size>Mb/genome.psmcfa                 simulated genome (not committed)
     truth/<size>Mb.json                         seeds, counts, checksums, true Ne(t)
-    fits/<tool>/<size>Mb/t<threads>/rep<r>.psmc|.json   each run's output (c: .psmc; rs01, rs02: .json)
+    fits/<tool>/<size>Mb/t<threads>/rep<r>.psmc|.json   each run's output (c: .psmc; rs02: .json)
     timings/<tool>/<size>Mb/t<threads>/rep<r>.json      each run's timing record (e3_run measure)
     provenance/...                              one record per job
     tables/E3_*.csv                             written by ``report E3``
@@ -59,9 +53,9 @@ Tables (``tables/``):
   status (measured, skipped with the reason, or incomplete), estimated peak
   memory, the clean repeats and every repeat measured, median, minimum and
   maximum wall time over the clean repeats, median CPU time and peak RSS,
-  seconds per EM iteration, speed-up over C psmc and over psmc-rs 0.1 at the
-  same thread count, C psmc's peak RSS over the tool's, the M-step budget,
-  and whether the repeats' outputs are byte-identical.
+  seconds per EM iteration, speed-up over C psmc, C psmc's peak RSS over
+  the tool's, the M-step budget, and whether the repeats' outputs are
+  byte-identical.
 * ``E3_runs.csv``: one row per run: every measurement, the machine's state
   before and during it (before: busy cores, and of them user-space
   processes, kernel threads and interrupts; during: the other work the
@@ -107,10 +101,9 @@ from .e1 import write_csv
 from .e3_run import genome_for, machine_other_cores, measure_args, other_cores, other_method, other_share, usable_cpus
 
 NAME = "E3"
-TOOL_ORDER = ("c", "rs01", "rs02", "rs02-default")
-TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2",
-               "rs02-default": "psmc-rs 0.2, capped M-step"}
-TOOL_NAMES = {"c": "c-psmc", "rs01": "psmc-rs-0.1", "rs02": "psmc-rs-0.2", "rs02-default": "psmc-rs-0.2"}  # tools.Tool.name
+TOOL_ORDER = ("c", "rs02", "rs02-default")
+TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-default": "psmc-rs 0.2, capped M-step"}
+TOOL_NAMES = {"c": "c-psmc", "rs02": "psmc-rs-0.2", "rs02-default": "psmc-rs-0.2"}  # tools.Tool.name
 RS02 = ("rs02", "rs02-default")
 TABLES = {
     "table2": "E3_table2.csv",
@@ -134,7 +127,7 @@ C_PSMC_BUILD = "lh3/psmc 0.6.5-r74 built with -O1 (an -O2 build segfaults on mac
 class Setup:
     """One tool on one genome size with one thread count (repeated ``E3.repeats`` times)."""
 
-    tool: str  # "c", "rs01", "rs02" or "rs02-default"
+    tool: str  # "c", "rs02" or "rs02-default"
     size_mb: int
     threads: int
 
@@ -171,7 +164,6 @@ def sizes(cfg: config.E3) -> List[int]:
 def setups(cfg: config.E3) -> List[Setup]:
     """Every setup of the experiment, in table order (tool, threads, size)."""
     out = {Setup("c", s, 1) for s in cfg.genome_sizes_mb}
-    out |= {Setup("rs01", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs01_threads}
     out |= {Setup("rs02", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_threads}
     out |= {Setup("rs02", cfg.thread_scaling_size_mb, t) for t in cfg.thread_scaling_threads}
     if cfg.default_mstep_iters is not None and cfg.default_mstep_iters != cfg.inference.mstep_iters:
@@ -189,15 +181,6 @@ def in_flight(cfg: config.E3, size_mb: int, threads: int) -> int:
     return max(1, min(threads, genome_for(cfg, size_mb).n_chromosomes))
 
 
-def rs01_caches(cfg: config.E3, setup: Setup) -> Optional[int]:
-    """How many sequences psmc-rs 0.1 caches: None when it runs them in parallel (no cache)."""
-    genome = genome_for(cfg, setup.size_mb)
-    if setup.threads > 1 and genome.n_chromosomes > 1:
-        return None
-    row = cfg.resources.rs01_mb_per_mb_cache * genome.chromosome_length / 1e6
-    return min(genome.n_chromosomes, int(cfg.resources.rs01_cache_mb // row)) if row > 0 else genome.n_chromosomes
-
-
 def estimate_mb(cfg: config.E3, setup: Setup) -> float:
     """Estimated peak RSS of a setup in MB (2**20 bytes), from :class:`.config.ResourceModel`."""
     m = cfg.resources
@@ -205,12 +188,6 @@ def estimate_mb(cfg: config.E3, setup: Setup) -> float:
     chrom_mb = genome.chromosome_length / 1e6
     if setup.tool == "c":
         return m.c_mb_base + m.c_mb_per_mb_longest * chrom_mb
-    if setup.tool == "rs01":
-        base = m.rs01_mb_base + m.rs01_mb_per_mb_input * setup.size_mb
-        cached = rs01_caches(cfg, setup)
-        if cached is not None:
-            return base + cached * m.rs01_mb_per_mb_cache * chrom_mb + m.rs01_mb_per_mb_buffer * chrom_mb
-        return base + in_flight(cfg, setup.size_mb, setup.threads) * m.rs01_mb_per_mb_buffer * chrom_mb
     if setup.tool in RS02:
         extra = in_flight(cfg, setup.size_mb, setup.threads) - 1
         return m.rs02_mb_base + m.rs02_mb_per_mb_input * setup.size_mb + m.rs02_mb_per_extra_thread * extra
@@ -224,23 +201,14 @@ def estimate_seconds(cfg: config.E3, setup: Setup) -> float:
     if setup.tool == "c":
         run = m.c_s_per_mb_iter * work
     else:
-        per = m.rs01_s_per_mb_iter if setup.tool == "rs01" else m.rs02_s_per_mb_iter
         speedup = 1.0 + (in_flight(cfg, setup.size_mb, setup.threads) - 1) * m.parallel_efficiency
-        run = per * work / speedup
-        if setup.tool == "rs01":
-            run += m.rs01_mstep_s_per_iter_1000 * cfg.inference.n_iter * cfg.inference.mstep_iters / 1000.0
-            cached = rs01_caches(cfg, setup)
-            if cached is not None:
-                n = genome_for(cfg, setup.size_mb).n_chromosomes
-                run *= 1.0 + m.rs01_uncached_extra * (n - cached) / n
-        else:
-            run += m.rs02_mstep_s_per_iter * cfg.inference.n_iter
+        run = m.rs02_s_per_mb_iter * work / speedup
+        run += m.rs02_mstep_s_per_iter * cfg.inference.n_iter
     return run + cfg.timing.settle_seconds + cfg.timing.quiet_window_seconds + 1.0
 
 
 SKIP_WHY = {
     "c": "C psmc holds the forward and backward matrices of its longest sequence ({chrom:g} Mb)",
-    "rs01": "psmc-rs 0.1 caches forward variables and holds one forward buffer per sequence in work ({chrom:g} Mb each)",
     "rs02": "psmc-rs 0.2 holds the input and a buffer per thread",
     "rs02-default": "psmc-rs 0.2 holds the input and a buffer per thread",
 }
@@ -312,39 +280,6 @@ def run_job_id(run: Run) -> str:
     return f"{NAME}/run/{run.key()}"
 
 
-def rs01_tool(ctx: Context) -> tools.Tool:
-    """psmc-rs 0.1, built (when the context builds tools) from ``E3.rs01_commit`` into the tools directory.
-
-    Without a build, a missing binary gives a stand-in identity, so that
-    ``plan``, ``list`` and ``status`` work before the first ``start``.
-    """
-    if "rs01" not in ctx._tools:
-        try:
-            ctx._tools["rs01"] = tools.psmc_rs_01(build=ctx.build_tools, commit=ctx.profile.e3.rs01_commit, log=ctx.log)
-        except tools.ToolError as exc:
-            if ctx.build_tools:
-                raise
-            binary = tools.rs01_dirs()["target"] / "release" / "psmc-rs"
-            ctx._tools["rs01"] = tools.Tool("psmc-rs-0.1", binary, {"version": "not built", "error": str(exc)})
-    return ctx._tools["rs01"]
-
-
-def rs01_fit(tool: tools.Tool, inference: config.Inference, scaling: config.Scaling, inp: Path, out_json: Path,
-             *, threads: int) -> List[str]:
-    """``psmc-rs IN OUT.json N_ITER`` for psmc-rs 0.1 with the recipe as far as its options go."""
-    return [
-        str(tool.path), str(inp), str(out_json), str(inference.n_iter),
-        "--pattern", inference.pattern,
-        "--n-steps", str(results.pattern_intervals(inference.pattern) - 1),
-        "--t-max", tools.fmt(inference.t_max),
-        "--smooth-lambda", tools.fmt(inference.smooth_lambda),
-        "--mstep-iters", str(inference.mstep_iters),
-        "--mu", tools.fmt(scaling.mu),
-        "--threads", str(threads),
-        "--no-progress",
-    ]
-
-
 def tool_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run) -> Tuple[tools.Tool, List[str]]:
     """The tool and its exact command line for one run."""
     u = run.setup
@@ -352,9 +287,6 @@ def tool_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run) -> Tuple[t
     if u.tool == "c":
         tool = ctx.c_psmc()
         return tool, tools.c_psmc_fit(tool, cfg.inference, inp, out)
-    if u.tool == "rs01":
-        tool = rs01_tool(ctx)
-        return tool, rs01_fit(tool, cfg.inference, cfg.scaling, inp, out, threads=u.threads)
     tool = ctx.rs02()
     return tool, tools.rs02_fit(tool, inference_of(cfg, u.tool), cfg.scaling, inp, out, threads=u.threads)
 
@@ -378,8 +310,8 @@ def run_cores(threads: int, machine: int) -> int:
     A timing job is exclusive: it runs alone, so it needs only fit the
     machine, not a share of it, and the runner starts it whatever its
     ``--cores`` budget (:func:`.runner.fits_budget`). Its memory must fit
-    ``--mem-gb``: psmc-rs 0.1 on 30 threads needs 14.6 GB, so E3 is started
-    with ``--mem-gb 15`` or more. On fewer cores than threads, ``measure
+    ``--mem-gb``: the default budget fits every run (C psmc's, the largest,
+    need about 1 GB). On fewer cores than threads, ``measure
     --threads`` refuses to time the run (it would be oversubscribed), and
     the job fails until a runner runs it on a machine or allocation of
     enough cores.
@@ -498,7 +430,7 @@ def read_output(path: Path, tool: str, n_iter: int) -> Output:
                       pf.header.get("sum_L"), pf.header.get("sum_n"))
     params = results.read_rs_json(path)
     fit = results.fit_from_rs(params)
-    if tool in RS02 and int(params.get("n_iter", -1)) != n_iter:
+    if int(params.get("n_iter", -1)) != n_iter:
         raise ValueError(f"{path}: n_iter {params.get('n_iter')}, expected {n_iter}")
     inp = params.get("input", {})
     loglike = params.get("final_loglike")
@@ -648,7 +580,6 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
         else:
             status, note = "measured", ""
         c_setup = Setup("c", u.size_mb, 1)
-        rs01_setup = Setup("rs01", u.size_mb, u.threads)
         med = medians.get(u)
         out.append({
             "tool": u.tool,
@@ -669,7 +600,6 @@ def table2_rows(cfg: config.E3, planned: Sequence[Planned], rows: Dict[Run, Dict
             "peak_rss_median_mb": rss.get(u),
             "peak_rss_max_mb": max((r["peak_rss_mb"] for r in rs), default=None),
             "speedup_vs_c": _ratio(medians.get(c_setup), med) if u.tool != "c" else None,
-            "speedup_vs_rs01_same_threads": _ratio(medians.get(rs01_setup), med) if u.tool in RS02 else None,
             "mstep_iters": inference_of(cfg, u.tool).mstep_iters if u.tool != "c" else None,
             "c_rss_over_rss": _ratio(rss.get(c_setup), rss.get(u)) if u.tool != "c" else None,
             "all_quiet": all(bool(r["quiet_before"]) for r in rs) if rs else None,
@@ -776,8 +706,6 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
             add(f"tool.{run.setup.tool}.binary_sha256", exes[tool_path])
     for key, value in c_build_rows(c_build):
         add(key, value)
-    add("tool.rs01.settings", "pattern, --n-steps, --t-max, --smooth-lambda 0, --mstep-iters and N_ITER of the recipe; "
-        "its default start rho0 = theta0/5 (= -r5) and 100 bp bins (it has no --tr-ratio or --bin-size)")
     add("inference", asdict(cfg.inference))
     add("timing_protocol", asdict(cfg.timing))
     add("memory_limit_gb", f"{cfg.memory_limit_gb:g}")

@@ -11,7 +11,7 @@ schema cannot drift from its table unnoticed.
 Conventions, as in the experiments' tables: times in ``years`` (scaled with
 the experiment's mu and g), sizes ``ne`` in diploid individuals, replicates
 and datasets counted from 1, ``tool`` is ``c`` (C psmc), ``rs`` (psmc-rs
-0.2) or, in E3, ``rs01`` (psmc-rs 0.1), ``rs02`` and ``rs02-default``. A
+0.2) or, in E3, ``rs02`` and ``rs02-default`` (psmc-rs 0.2). A
 curve table has one row per PSMC interval: ``ne`` holds from ``years`` to
 the next row's ``years`` (the first row's ``years`` is 0, the last interval
 runs to infinity), as :meth:`..results.Fit.curve` gives it. Booleans are
@@ -170,7 +170,7 @@ _add("E2_split_curves", "E2", "turtle, pattern and interval", {
 # ---------------------------------------------------------------------------
 
 _add("E3_table2", "E3", "tool, thread count and genome size (Table 2)", {
-    "tool": "c, rs01, rs02 or rs02-default",
+    "tool": "c, rs02 or rs02-default",
     "threads": "threads given to the tool (1 for C psmc)",
     "size_mb": "genome size (Mb)",
     "chromosomes": "chromosomes of the genome (100 Mb each in production)",
@@ -181,7 +181,7 @@ _add("E3_table2", "E3", "tool, thread count and genome size (Table 2)", {
     "speedup_vs_c": "C psmc's median wall time over this setup's, at the same size",
 })
 _add("E3_runs", "E3", "timed run", {
-    "tool": "c, rs01, rs02 or rs02-default",
+    "tool": "c, rs02 or rs02-default",
     "threads": "threads",
     "size_mb": "genome size (Mb)",
     "repeat": "repeat (1..)",
@@ -198,7 +198,7 @@ _add("E3_thread_scaling", "E3", "thread count (psmc-rs 0.2 on the thread-scaling
     "peak_rss_median_mb": "median peak RSS (MiB)",
 })
 _add("E3_determinism", "E3", "run, against its tool's reference at the same size", {
-    "tool": "c, rs01, rs02 or rs02-default",
+    "tool": "c, rs02 or rs02-default",
     "size_mb": "genome size (Mb)",
     "threads": "threads",
     "sha256": "SHA-256 of the output",

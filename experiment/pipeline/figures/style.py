@@ -120,9 +120,8 @@ manuscript places them at 100%, never scaled).
   step of it where the mark is below 4.3:1 on white), because there the
   colour is the key.
 
-  psmc-rs 0.1 (:data:`RS01`, :data:`AQUA`), :data:`YELLOW`, band alpha
-  (:data:`BAND_ALPHA`) and outside-window shading (:func:`shade_outside`)
-  serve the pipeline-only modules (fig1-fig4, figs2-figs6 and figs_turtle,
+  :data:`YELLOW`, band alpha (:data:`BAND_ALPHA`) and outside-window
+  shading (:func:`shade_outside`) serve the pipeline-only modules (fig1-fig4, figs2-figs6 and figs_turtle,
   which are not in the paper); no article figure uses them.
 
 Export (:func:`save`) writes ``<name>.pdf``, ``.svg`` and a 600-dpi ``.png``
@@ -297,8 +296,8 @@ BLUE_RAMP = ("#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "
              "#1c5cab", "#184f95", "#104281", "#0d366b")
 OCHRE = "#b07800"  # multihetsep (3.8:1 on white)
 RASPBERRY = "#c94f80"  # a VCF read without its mask (4.3:1)
-# Pipeline-only: psmc-rs 0.1's aqua (RS01) and the yellow of figs3.py.
-AQUA, YELLOW = "#1baf7a", "#eda100"
+# Pipeline-only: the yellow of figs3.py.
+YELLOW = "#eda100"
 
 # Text colours of entities named in place (darker steps of the mark colours).
 ORANGE_TEXT = "#c4501f"  # C psmc (4.65:1 on white; the mark is 3.2:1)
@@ -307,8 +306,6 @@ BLUE_TEXT = BLUE_RAMP[9]  # psmc-rs, #1c5cab (6.6:1)
 RS02 = Entity("psmc-rs", BLUE, "-", "o")
 C_PSMC = Entity("C psmc", ORANGE, "-", "s", halo=C_HALO_SHARE)
 TRUTH = Entity("Truth", INK, DASH, "none")
-# psmc-rs 0.1: pipeline-only (fig4.py and figs4.py); no article figure may use it.
-RS01 = Entity("psmc-rs 0.1", AQUA, "-", "D")
 
 # Supplement Fig S2 (fig5.py, E4): routes from a VCF and a callable mask to
 # psmc-rs. psmc-rs's default, its callable-length model on the VCF with its

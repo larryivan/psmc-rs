@@ -43,7 +43,6 @@ def quiet() -> contextlib.ExitStack:
 # Stand-ins for the tools a Context identifies (Context._tools): their identities enter the jobs, but no job runs.
 _FAKE_TOOLS = {
     "c": ("c-psmc", "/x/psmc", {"version": "0.6.5", "sha256": "0" * 64}),
-    "rs01": ("psmc-rs-0.1", "/x/psmc-rs-0.1", {"version": "psmc-rs 0.1.0", "commit": "e" * 40}),
     "rs02": ("psmc-rs-0.2", "/x/psmc-rs", {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40}),
     "fq2psmcfa": ("fq2psmcfa", "/x/fq2psmcfa", {"sha256": "1" * 64}),
     "generate_multihetsep.py": ("generate_multihetsep.py", "/x/gm.py", {"sha256": "2" * 64}),

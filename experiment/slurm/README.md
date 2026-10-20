@@ -7,7 +7,7 @@ SLURM allocations:
 
 | job | what | allocation |
 | --- | --- | --- |
-| `build` | builds psmc-rs 0.2 (release profile, no RUSTFLAGS), psmc-rs 0.1 and C psmc (`tools --build-c`, recorded in `BUILD.json`), runs every Rust and Python test; ends with "all passed" | 32 CPUs, 2 h |
+| `build` | builds psmc-rs 0.2 (release profile, no RUSTFLAGS) and C psmc (`tools --build-c`, recorded in `BUILD.json`), checks every tool (`tools`), runs every Rust and Python test; ends with "all passed" | 32 CPUs, 2 h |
 | `prod` | E1 E2 E4 E5 E6 E7: one runner in the foreground within the allocation (E7 once `e7-prep` is done) | `$PROD_CPUS` CPUs (at least 52: E2's bootstraps run on 50 threads), `$PROD_MEM`, `$PROD_TIME` |
 | `e3 R` | E3's simulations and the timing runs of repeat R, each run alone | an exclusive node of `$E3_CONSTRAINT`, `$E3_TIME` |
 | `e3-report` | E3's tables from the merged repeats | 2 CPUs, 1 h |
@@ -31,8 +31,6 @@ git worktree add --detach $PROD <commit>              # the production commit
 cp experiment/slurm/site.env.example $PROD/experiment/slurm/site.env   # and fill it in
 rustup toolchain install 1.99.0 --profile minimal
 (cd $PROD && cargo fetch --locked)                     # compute nodes build offline
-git worktree add --detach $MAIN/experiment/.tools/psmc-rs-0.1/src e50d69d
-(cd $MAIN/experiment/.tools/psmc-rs-0.1/src && cargo fetch --locked)
 # experiment/.tools: lh3/psmc 0.6.5-r74 sources in psmc_c/, vcfutils.pl,
 # msmc-tools/generate_multihetsep.py (see experiment/pipeline/README.md)
 # Python 3.13.13 with experiment/pipeline/requirements.lock and htslib 1.24:

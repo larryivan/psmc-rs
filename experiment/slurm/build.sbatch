@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build psmc-rs 0.2 (and 0.1 for E3) and C psmc on a compute node, from the
-# production worktree, and run every Rust and Python test there.
+# Build psmc-rs 0.2 and C psmc on a compute node, from the production
+# worktree, and run every Rust and Python test there.
 # Submit with experiment/slurm/submit.sh build; it ends with "all passed".
 source "$PSMC_SLURM_DIR/env.sh" || exit 1
 set -uo pipefail
@@ -32,8 +32,8 @@ else
   "$PY" -m experiment.pipeline tools --build-c --force; check
 fi
 
-step "psmc-rs 0.1 (tools --build-rs01) and every tool's identity"
-"$PY" -m experiment.pipeline tools --build-rs01; check   # exits 1 if a tool is missing
+step "every tool's identity (tools)"
+"$PY" -m experiment.pipeline tools; check   # exits 1 if a tool is missing
 
 step "Python tests of the pipeline"
 "$PY" -m unittest discover -s experiment/tests 2>&1 | tail -4; [ "${PIPESTATUS[0]}" -eq 0 ]; check

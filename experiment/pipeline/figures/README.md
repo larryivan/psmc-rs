@@ -27,7 +27,7 @@ with E7. The article numbers its figures in its own order: its Fig 1 is
 `art2_performance` (E3 and E7), and its Fig 3 `fig7_1000_genomes`; the
 supplement's Figs S1, S2 and S3 are `figS1_em_convergence`,
 `fig5_input_preparation` and `fig6_bootstrap_calibration`. These six are
-drawn in the house style of `style.py`; psmc-rs 0.1 appears in none of them.
+drawn in the house style of `style.py`.
 
 ## The figures
 
@@ -151,10 +151,10 @@ so that it can be turned into the caption. The article numbers its figures in it
   the caption should say whether Fig 3's recent peaks persist.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
-  E3 recorded. psmc-rs (0.1 and 0.2) runs the E-step of each sequence on
-  one thread, in parallel across sequences, so on t threads a genome of n
-  equal chromosomes takes about ceil(n / t) times one chromosome's time:
-  17.2 to 18.3 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
+  E3 recorded. psmc-rs runs the E-step of each sequence on one thread, in
+  parallel across sequences, so on t threads a genome of n equal
+  chromosomes takes about ceil(n / t) times one chromosome's time: 17.2 to
+  18.3 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
   10). The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the second
   line of the size ticks). Threads beyond the chromosome count add nothing:
   the 30-thread lines are flat, and the 30-thread speed-up at 3,000 Mb
@@ -239,7 +239,6 @@ mode, checked with `dataviz/scripts/validate_palette.js`):
 | Fig 5's routes (the supplement's Fig S2) | weighted bins (`mask_auto`) blue; bins taken as full through fq2psmcfa orange, from the VCF (`mask_ignore`) `#104281` (blue ramp 650); multihetsep `#b07800`, a VCF without its mask `#c94f80` (not drawn) | `"#2a78d6,#104281" --ordinal`: pass |
 | block sizes (Fig 6) | the most blocks `#2a78d6`, the fewest `#86b6ef` (blue ramp) | |
 | superpopulations (Fig 7) | AFR `#eda100`, AMR `#12966b`, EAS `#4a3aa7`, EUR `#e87ba4`, SAS `#a0522d` | `fig7.py` gives the check |
-| psmc-rs 0.1 (pipeline-only Figs 4 and S4) | `#1baf7a` aqua | below 3:1 on white: markers and a legend, Table 2 as the table view |
 | a psmc-rs variant in the pipeline-only figures (VCF input, 5 Mb trunks, the split-first-window patterns) | `#104281` (blue ramp 650), dotted or dashed | |
 | counts (`figS3_tmrca_decoding`, pipeline-only) | sequential blue ramp, steps 100-700 | |
 
@@ -255,7 +254,7 @@ writes, so a schema cannot drift from its table unnoticed. Curve tables have
 one row per PSMC interval: `ne` holds from `years` to the next row's
 `years` (the first is 0, the last interval runs to infinity), as
 `results.Fit.curve` gives it. `tool` is `c` or `rs`, and in E3 `c`,
-`rs01`, `rs02` or `rs02-default`.
+`rs02` or `rs02-default`.
 
 | table | one row per | columns the figures need |
 | --- | --- | --- |

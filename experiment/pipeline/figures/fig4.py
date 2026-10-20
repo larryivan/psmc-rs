@@ -5,8 +5,8 @@ Every run fits 25 EM iterations of the recipe to a constant-model genome of
 and 30 chromosomes at 100, 300, 1,000 and 3,000 Mb, the second line of each
 size's tick label.
 
-psmc-rs (0.1 and 0.2) runs the E-step of each sequence on one thread, in
-parallel across sequences, so on t threads a genome of n equal chromosomes
+psmc-rs runs the E-step of each sequence on one thread, in parallel across
+sequences, so on t threads a genome of n equal chromosomes
 takes about ceil(n / t) times one chromosome's time: 17.2 to 18.3 s for
 every psmc-rs 0.2 setup in production (Supplementary Note 1, section 10).
 Threads beyond the chromosome count add nothing: at 100 Mb (one
@@ -15,10 +15,10 @@ are flat, and the 30-thread speed-up at 3,000 Mb (243x in production)
 holds because its 30 equal chromosomes give each thread one. On a real
 genome the longest sequence sets the floor (Fig S4).
 
-* a: wall time against genome size: C psmc (one thread), psmc-rs 0.1 and
-  psmc-rs 0.2 at each of the thread counts E3 times every size at (1, 8
-  and 30 in production: solid, dashed and dash-dotted; the other counts of
-  the thread scaling are Fig S4's), and, when E3 timed it
+* a: wall time against genome size: C psmc (one thread) and psmc-rs 0.2
+  at each of the thread counts E3 times every size at (1, 8 and 30 in
+  production: solid, dashed and dash-dotted; the other counts of the
+  thread scaling are Fig S4's), and, when E3 timed it
   (``E3.default_mstep_iters``, not by default), psmc-rs 0.2 with capped
   M-steps (dark blue). The y label gives the profile's EM iterations (25 in
   production). Lines and markers are the medians of the repeats, small dots
@@ -43,7 +43,7 @@ from .data import Source
 
 # A tool's thread counts, fewest first: solid, dashed, dash-dotted, dotted (more counts reuse the last).
 THREAD_LINESTYLES = ("-", (0, (3.0, 1.5)), (0, (3.0, 1.2, 1.0, 1.2)), (0, (1.0, 1.2)))
-TOOL_ENTITY = {"c": style.C_PSMC, "rs01": style.RS01, "rs02": style.RS02,
+TOOL_ENTITY = {"c": style.C_PSMC, "rs02": style.RS02,
                "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}  # legend order
 TIME_TICKS = [1, 10, 60, 600, 3600, 36000]  # seconds: 1 s to 10 h
 MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]  # MB: 1 MB to 100 GB
@@ -51,8 +51,7 @@ MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]  # MB: 1 MB to 100 GB
 
 def tool_threads(cfg) -> Dict[str, Tuple[int, ...]]:
     """The thread counts E3 times every genome size at, per tool (not the thread-scaling ones: Fig S4)."""
-    return {"c": (1,), "rs01": tuple(cfg.rs01_threads), "rs02": tuple(cfg.rs02_threads),
-            "rs02-default": tuple(cfg.rs02_default_threads)}
+    return {"c": (1,), "rs02": tuple(cfg.rs02_threads), "rs02-default": tuple(cfg.rs02_default_threads)}
 
 
 def series(table2, threads: Optional[Dict[str, Sequence[int]]] = None) -> List[Tuple[str, int, style.Entity]]:

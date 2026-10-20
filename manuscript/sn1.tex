@@ -71,9 +71,7 @@ replicates' \texttt{.psmc} files, HTML reports, logs and the runner's state
   warn when the running interpreter differs.
 \item
   \textbf{psmc-rs 0.2.0}, built from the repository with \texttt{cargo\ build\ -\/\allowbreak{}-release\ -\/\allowbreak{}-locked} (Rust 1.88 or later; the production build used rustc 1.99.0,
-  the release profile and no \texttt{RUSTFLAGS}). E3 also times an earlier
-  release, psmc-rs 0.1 (commit e50d69d, built by \texttt{tools\ -\/\allowbreak{}-build-rs01}),
-  which the article does not report (section 10).
+  the release profile and no \texttt{RUSTFLAGS}).
 \item
   \textbf{C psmc} (lh3/psmc 0.6.5-r74) with its \texttt{fq2psmcfa}, \texttt{splitfa} and
   \texttt{psmc\_\allowbreak{}plot.pl}, \texttt{vcfutils.pl}, and \texttt{generate\_\allowbreak{}multihetsep.py} of
@@ -187,8 +185,8 @@ the tables of \texttt{\$RUNS} with the committed ones shows what was reproduced.
 \texttt{-\/\allowbreak{}-cores} and \texttt{-\/\allowbreak{}-mem-gb} set the runner's budget (default 7 cores and
 12 GB). E2's bootstraps run on 50 threads each, so E2 needs \texttt{-\/\allowbreak{}-cores\ 50}
 and a machine with at least 50 cores; E3 needs the machine to itself
-(\texttt{start\ E3\ -\/\allowbreak{}-mem-gb\ 15} on a quiet machine on AC power; see the pipeline
-README's E3 section). On the development laptop (Apple M1 Pro, 8 cores,
+(\texttt{start\ E3} on a quiet machine on AC power; see the pipeline README's E3
+section). On the development laptop (Apple M1 Pro, 8 cores,
 16 GB), \texttt{plan} estimates E1 at 1.4 hours, E4 at 0.6, E5 at 2.3 and E6 at
 0.1 (wall time alone on 7 cores). Section 5 gives the costs measured in
 the production run.
@@ -220,7 +218,7 @@ without build flags, the Python environment with its htslib first on
 
 \begin{verbatim}
 cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the production commit
-./submit.sh build                  # build psmc-rs 0.2 and 0.1 and C psmc, run every Rust and Python test
+./submit.sh build                  # build psmc-rs 0.2 and C psmc, run every Rust and Python test
 ./submit.sh prod                   # E1 E2 E4 E5 E6 in one allocation; submit again if the time ran out
 ./submit.sh e3 1 2 3 4 5           # E3: one exclusive node of one CPU model per repeat
 ./merge_e3.sh                      # once every e3 job has ended
@@ -773,7 +771,7 @@ differ, and checks that every run is done for the current code and tools.
 On one machine, with nothing else running, on AC power:
 
 \begin{verbatim}
-$PY -m experiment.pipeline start --runs-dir $RUNS E3 --mem-gb 15
+$PY -m experiment.pipeline start --runs-dir $RUNS E3
 $PY -m experiment.pipeline status --runs-dir $RUNS --jobs    # deferred runs say why
 \end{verbatim}
 

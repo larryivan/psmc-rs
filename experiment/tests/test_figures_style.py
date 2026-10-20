@@ -61,9 +61,8 @@ class Style(unittest.TestCase):
 
     def test_entity_colours_are_fixed(self):
         self.assertEqual(style.RS02.color, "#2a78d6")
-        self.assertEqual(style.RS02.label, "psmc-rs")  # psmc-rs 0.1 is not in the paper
+        self.assertEqual(style.RS02.label, "psmc-rs")
         self.assertEqual(style.C_PSMC.color, "#eb6834")
-        self.assertEqual(style.RS01.color, "#1baf7a")
         self.assertEqual(style.TRUTH.color, "#1a1a1a")
         self.assertEqual(style.TRUTH.linestyle, style.DASH)
         self.assertEqual(style.C_HALO, "#f6bba4")
@@ -510,16 +509,15 @@ class Performance(unittest.TestCase):
     def test_fig4_draws_each_thread_count_of_a_tool_in_its_own_style(self):
         cfg = config.PRODUCTION.e3
         # Table 2's rows: every size at 1, 8 and 30 threads, the thread-scaling size at 2, 4 and 16 too.
-        rows = [("c", 1)] + [(tool, t) for tool in ("rs01", "rs02") for t in (1, 8, 30)] + [("rs02", t) for t in (2, 4, 16)]
+        rows = [("c", 1)] + [("rs02", t) for t in (1, 8, 30)] + [("rs02", t) for t in (2, 4, 16)]
         table2 = pd.DataFrame(rows, columns=["tool", "threads"])
         series = fig4.series(table2, fig4.tool_threads(cfg))
-        self.assertEqual([(tool, t) for tool, t, _ in series], rows[:7])  # not the thread-scaling counts
-        for tool in ("rs01", "rs02"):
-            ents = [e for name, _, e in series if name == tool]
-            self.assertEqual(len({str(e.linestyle) for e in ents}), 3, tool)
-            self.assertEqual([e.filled for e in ents], [True, False, False])
-            self.assertEqual(ents[0].linestyle, "-")
-        self.assertEqual(len(fig4.series(table2)), 10)  # without the profile's counts: every one in the table
+        self.assertEqual([(tool, t) for tool, t, _ in series], rows[:4])  # not the thread-scaling counts
+        ents = [e for name, _, e in series if name == "rs02"]
+        self.assertEqual(len({str(e.linestyle) for e in ents}), 3)
+        self.assertEqual([e.filled for e in ents], [True, False, False])
+        self.assertEqual(ents[0].linestyle, "-")
+        self.assertEqual(len(fig4.series(table2)), 7)  # without the profile's counts: every one in the table
 
     def test_fig4_gives_each_size_its_chromosomes(self):
         table2 = pd.DataFrame({"size_mb": [100, 100, 300, 3000], "chromosomes": [1, 1, 3, 30]})
@@ -534,13 +532,13 @@ class Performance(unittest.TestCase):
             for t in (1, 8, 30):
                 for r in (1, 2):
                     sha = "same" if size == 100 or t > 1 else f"one-{size}"
-                    rows.append(("rs01", size, t, r, sha, 2.5e-5 if sha.startswith("one") else 0.0))
+                    rows.append(("rs02", size, t, r, sha, 2.5e-5 if sha.startswith("one") else 0.0))
             rows.append(("c", size, 1, 1, f"c-{size}", 0.0))
         det = pd.DataFrame(rows, columns=["tool", "size_mb", "threads", "repeat", "sha256", "max_rel_diff_params"])
         (n, text), = figs4.output_differences(det)
         nb = figs4.NBSP
         self.assertEqual(n, 2)
-        self.assertTrue(text.startswith(f"psmc-rs 0.1 at 300{nb}Mb and above: 1{nb}thread wrote different bytes "
+        self.assertTrue(text.startswith(f"psmc-rs 0.2 at 300{nb}Mb and above: 1{nb}thread wrote different bytes "
                                         f"from 8 and 30{nb}threads"), text)
         self.assertIn("2.5$\\times$10$^{-5}$ relative", text)
         self.assertIn("repeats at a thread count are identical", text)

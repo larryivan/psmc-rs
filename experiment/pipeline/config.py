@@ -537,19 +537,6 @@ class ResourceModel:
     # 1011 MB for one of 100 Mb.
     c_mb_base: float = 6.0
     c_mb_per_mb_longest: float = 10.05
-    # psmc-rs 0.1 (e50d69d), one thread or one sequence: the forward
-    # variables of whole sequences as f32 (2.48 MB per Mb), largest first,
-    # while they fit its 2 GiB cache budget (PSMC_ALPHA_CACHE_MB unset),
-    # plus one f64 forward buffer of the longest sequence (4.96 MB per Mb)
-    # and the input (one byte per bin): 752 MB for one 100 Mb sequence,
-    # 2497 MB for ten (eight cached). Several threads and sequences: one f64
-    # buffer per sequence in work, nothing cached: 3977 MB for ten 100 Mb
-    # sequences on 8 threads.
-    rs01_mb_base: float = 5.0
-    rs01_mb_per_mb_input: float = 0.0095
-    rs01_mb_per_mb_cache: float = 2.48
-    rs01_cache_mb: float = 2048.0
-    rs01_mb_per_mb_buffer: float = 4.96
     # psmc-rs 0.2: the input (one byte per bin) and a few MB per sequence in
     # work: 12 MB for one 100 Mb sequence, 21 MB for ten on one thread,
     # 49 MB for ten on 8 threads.
@@ -559,33 +546,26 @@ class ResourceModel:
     # Run time per Mb and EM iteration on one thread, input and output
     # included (25 iterations: C psmc about 1 h for 3000 Mb). psmc-rs runs
     # min(threads, sequences) sequences at once, each extra one adding
-    # parallel_efficiency of a thread. psmc-rs 0.1 on one thread computes the
-    # forward pass of a sequence it could not cache twice (+50% for it).
+    # parallel_efficiency of a thread.
     c_s_per_mb_iter: float = 0.05
-    rs01_s_per_mb_iter: float = 0.03
-    rs01_uncached_extra: float = 0.5
     rs02_s_per_mb_iter: float = 0.006
     parallel_efficiency: float = 0.7
-    # psmc-rs 0.1's M-step runs on one thread for --mstep-iters forward-mode
-    # L-BFGS iterations and costs per EM iteration about this many seconds
-    # per 1000 of them (8.4 s measured on 300 Mb; 1 to 8 s across genomes).
-    # psmc-rs 0.2's converges in a few ms per EM iteration whatever the size
-    # (64 states, measured on 100 and 500 Mb); rs02_mstep_s_per_iter is
-    # generous, and covers a capped arm.
-    rs01_mstep_s_per_iter_1000: float = 8.0
+    # psmc-rs 0.2's M-step converges in a few ms per EM iteration whatever
+    # the size (64 states, measured on 100 and 500 Mb); rs02_mstep_s_per_iter
+    # is generous, and covers a capped arm.
     rs02_mstep_s_per_iter: float = 0.02
 
 
 @dataclass(frozen=True)
 class E3:
-    """Performance (Fig 4, Table 2, Fig S4): run time and peak memory of C psmc, psmc-rs 0.1 and 0.2.
+    """Performance (Fig 4, Table 2, Fig S4): run time and peak memory of C psmc and psmc-rs 0.2.
 
     One genome per size, made of ``chromosome_length`` chromosomes under the
     ``model``, simulated as in E1 with the seed key
     ``E3/<model>/<replicate>/...``: the chromosomes are the same for every
     size, so each genome is the first chromosomes of the next larger one.
-    C psmc (one thread; it has no threads), psmc-rs 0.1 and psmc-rs 0.2 (at
-    each of their thread counts) fit every size with the inference recipe,
+    C psmc (one thread; it has no threads) and psmc-rs 0.2 (at each of
+    ``rs02_threads``) fit every size with the inference recipe,
     ``repeats`` times; psmc-rs 0.2 also fits the thread-scaling size at
     every count of ``thread_scaling_threads``. Every run is an exclusive
     runner job (nothing else runs), timed as ``timing`` says. A run whose
@@ -604,7 +584,6 @@ class E3:
     # Thread counts. psmc-rs works on one sequence per thread, so the 30
     # chromosomes of the largest genome make 30 threads the most that can
     # help; every run is exclusive, and gets as many cores as threads.
-    rs01_threads: Tuple[int, ...] = (1, 8, 30)
     rs02_threads: Tuple[int, ...] = (1, 8, 30)
     # psmc-rs 0.2 timed with its M-steps capped at default_mstep_iters too
     # ("rs02-default"), at these thread counts (those of rs02_threads); None:
@@ -615,11 +594,6 @@ class E3:
     thread_scaling_size_mb: int = 3000
     thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8, 16, 30)
     memory_limit_gb: float = 64.0  # skip any run whose estimated peak exceeds this (and say why)
-    # psmc-rs 0.1 has no --tr-ratio; its default start rho0 = theta0/5 is the
-    # -r5 of the recipe, so it gets the other settings (pattern, t_max,
-    # smoothing 0, M-step iterations, EM iterations) and its default start.
-    # It has no --bin-size either: it reads a psmcfa as 100 bp bins.
-    rs01_commit: str = "e50d69d"
     timing: TimingProtocol = TimingProtocol()
     resources: ResourceModel = ResourceModel()
 
@@ -1174,7 +1148,7 @@ SMOKE = Profile(
     e2=E2(bootstrap_replicates=4, inference=_SMOKE_INFERENCE, rs_threads=2, max_bins=200_000,
           bootstrap_trunk_bins=20_000, fine_trunk_bins=5_000),
     e3=E3(genome_sizes_mb=(2, 4), chromosome_length=2_000_000, repeats=1, inference=_SMOKE_INFERENCE,
-          rs01_threads=(1, 2), rs02_threads=(1, 2), thread_scaling_size_mb=4,
+          rs02_threads=(1, 2), thread_scaling_size_mb=4,
           thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
     e4=E4(replicates=1, genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE),
     e5=E5(genome=_SMOKE_GENOME, inference=_SMOKE_INFERENCE, truth_replicates=8, bootstrap_datasets=3,
@@ -1201,7 +1175,7 @@ TINY = Profile(
     e2=E2(genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("NA12878", "HLhydTec1")), inference=_TINY_INFERENCE,
           bootstrap_replicates=2, bootstrap_trunk_bins=5_000, fine_trunk_bins=1_000, rs_threads=2, max_bins=20_000),
     e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=_TINY_INFERENCE,
-          rs01_threads=(1,), rs02_threads=(1, 2), rs02_default_threads=(1,), default_mstep_iters=5,
+          rs02_threads=(1, 2), rs02_default_threads=(1,), default_mstep_iters=5,
           thread_scaling_size_mb=1, thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
     e4=E4(replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000), inference=_TINY_INFERENCE,
           masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0), MaskSpec("dispersed30", 0.3, "dispersed", 20.0))),

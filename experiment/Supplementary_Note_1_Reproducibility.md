@@ -53,9 +53,7 @@ replicates' `.psmc` files, HTML reports, logs and the runner's state
   warn when the running interpreter differs.
 - **psmc-rs 0.2.0**, built from the repository with `cargo build --release
   --locked` (Rust 1.88 or later; the production build used rustc 1.99.0,
-  the release profile and no `RUSTFLAGS`). E3 also times an earlier
-  release, psmc-rs 0.1 (commit e50d69d, built by `tools --build-rs01`),
-  which the article does not report (section 10).
+  the release profile and no `RUSTFLAGS`).
 - **C psmc** (lh3/psmc 0.6.5-r74) with its `fq2psmcfa`, `splitfa` and
   `psmc_plot.pl`, `vcfutils.pl`, and `generate_multihetsep.py` of
   msmc-tools, in `experiment/.tools` (or `$PSMC_EXP_TOOLS`); section 7
@@ -152,8 +150,8 @@ the tables of `$RUNS` with the committed ones shows what was reproduced.
 `--cores` and `--mem-gb` set the runner's budget (default 7 cores and
 12 GB). E2's bootstraps run on 50 threads each, so E2 needs `--cores 50`
 and a machine with at least 50 cores; E3 needs the machine to itself
-(`start E3 --mem-gb 15` on a quiet machine on AC power; see the pipeline
-README's E3 section). On the development laptop (Apple M1 Pro, 8 cores,
+(`start E3` on a quiet machine on AC power; see the pipeline README's E3
+section). On the development laptop (Apple M1 Pro, 8 cores,
 16 GB), `plan` estimates E1 at 1.4 hours, E4 at 0.6, E5 at 2.3 and E6 at
 0.1 (wall time alone on 7 cores). Section 5 gives the costs measured in
 the production run.
@@ -185,7 +183,7 @@ without build flags, the Python environment with its htslib first on
 
 ```bash
 cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the production commit
-./submit.sh build                  # build psmc-rs 0.2 and 0.1 and C psmc, run every Rust and Python test
+./submit.sh build                  # build psmc-rs 0.2 and C psmc, run every Rust and Python test
 ./submit.sh prod                   # E1 E2 E4 E5 E6 in one allocation; submit again if the time ran out
 ./submit.sh e3 1 2 3 4 5           # E3: one exclusive node of one CPU model per repeat
 ./merge_e3.sh                      # once every e3 job has ended
@@ -611,7 +609,7 @@ differ, and checks that every run is done for the current code and tools.
 On one machine, with nothing else running, on AC power:
 
 ```bash
-$PY -m experiment.pipeline start --runs-dir $RUNS E3 --mem-gb 15
+$PY -m experiment.pipeline start --runs-dir $RUNS E3
 $PY -m experiment.pipeline status --runs-dir $RUNS --jobs    # deferred runs say why
 ```
 

@@ -25,7 +25,7 @@ class Context:
     runs_dir: Path
     build_tools: bool = False  # build psmc-rs 0.2 first (the daemon does; status only identifies)
     log: Callable[[str], None] = print
-    _tools: Dict[str, tools.Tool] = field(default_factory=dict)  # identified once (E3 adds psmc-rs 0.1)
+    _tools: Dict[str, tools.Tool] = field(default_factory=dict)  # identified once
 
     def exp_dir(self, experiment: str) -> Path:
         return Path(self.runs_dir) / experiment

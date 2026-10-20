@@ -20,10 +20,8 @@ iterations, E3's clean runs), on 1 to 30 threads:
   runs summed over E3's four genome sizes (100 to 3,000 Mb; thread counts
   x repeats x sizes), and Outputs, how many distinct output files the runs
   at one genome size wrote (a range where the sizes differ). A footnote
-  names the runs behind any count above 1: in production, psmc-rs 0.1 on
-  one thread wrote different bytes than on 8 and 30 threads at 300 Mb and
-  above (parameters within 2.5 x 10^-5 relative), while its repeats at a
-  thread count were identical.
+  names the runs behind any count above 1; in production there are none:
+  every run at a size wrote the same bytes.
 
 Only when E3 times psmc-rs 0.2 with capped M-steps
 (``E3.default_mstep_iters``, which production does not set) do a and b
@@ -41,7 +39,7 @@ from .fig4 import (MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xa
                    log_ticks, medians)
 
 TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
-TOOL_LABELS = {"c": "C psmc", "rs01": "psmc-rs 0.1", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
+TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
 NBSP = " "  # keeps a number on the line of its unit when a footnote wraps
 MS = 3.2  # the medians' markers
 

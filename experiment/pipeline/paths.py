@@ -4,7 +4,7 @@ Everything is located from this file, so the pipeline behaves the same from
 any working directory. Two locations can be overridden from the environment:
 
 * ``PSMC_EXP_TOOLS``: the tools directory (C psmc and its utilities,
-  vcfutils.pl, msmc-tools, and the psmc-rs 0.1 build). Default
+  vcfutils.pl, msmc-tools). Default
   ``experiment/.tools`` of this checkout, or, in a git worktree that has none,
   of the main checkout, so that worktrees share one set of tools.
 * ``PSMC_EXP_RUNS``: the runs directory of the production profile (default

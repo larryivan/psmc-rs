@@ -39,7 +39,7 @@ is described at the end ([Production](#production)).
 | `paths.py` | repository, tools directory (`PSMC_EXP_TOOLS`), runs directory (`PSMC_EXP_RUNS`) |
 | `demography.py` | models as `msprime.Demography`; true Ne(t) and pairwise coalescence-time distribution in closed form; checks against msprime's `DemographyDebugger` and stdpopsim |
 | `simulate.py` | one diploid genome: psmcfa, bgzipped VCF, truth record; true TMRCA track on demand |
-| `tools.py` | psmc-rs 0.2 (this checkout), psmc-rs 0.1 (built from e50d69d), C psmc and utilities: locate, build, identify; exact command lines; the requirements lock |
+| `tools.py` | psmc-rs 0.2 (this checkout), C psmc and utilities: locate, build, identify; exact command lines; the requirements lock |
 | `results.py` | C `.psmc` (every round: LK, QD, RI, TR, MT, RS, PA) and psmc-rs JSON as PSMC models and Ne(t) curves |
 | `metrics.py` | time grids, RMSE of log10 Ne against the truth, against the pattern-projected truth and between tools |
 | `provenance.py` | checksums and provenance records: when a job is done |
@@ -391,20 +391,18 @@ outputs: remove `runs/E2/fits/Papuan.*`,
 
 ## E3: performance
 
-Run time and peak memory of C psmc, psmc-rs 0.1 and psmc-rs 0.2 on
-constant-model genomes of 100, 300, 1000 and 3000 Mb (1, 3, 10 and 30
-chromosomes of 100 Mb; one simulation per size, the chromosomes shared
-between sizes), 25 EM iterations of the recipe, 5 repeats each: C psmc on
-its one thread; psmc-rs 0.1 (commit e50d69d, built out of the tree; it has
-no `--tr-ratio`, and its default start rho0 = theta0/5 is the recipe's
-`-r5`) and psmc-rs 0.2 on 1, 8 and 30 threads (and psmc-rs 0.2 with capped
-M-steps, `rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2 on the
-3000 Mb genome with 1, 2, 4, 8, 16 and 30 threads (thread scaling). psmc-rs
-works on one sequence per thread, so the 30 chromosomes of the largest
-genome make 30 threads the most that can help. A setup whose estimated
-peak memory exceeds 64 GB is not run and Table 2 says why (none with
-100 Mb chromosomes: C psmc holds about 1 GB, psmc-rs 0.1 on 30 threads
-14.6 GB).
+Run time and peak memory of C psmc and psmc-rs 0.2 on constant-model
+genomes of 100, 300, 1000 and 3000 Mb (1, 3, 10 and 30 chromosomes of
+100 Mb; one simulation per size, the chromosomes shared between sizes), 25
+EM iterations of the recipe, 5 repeats each: C psmc on its one thread;
+psmc-rs 0.2 on 1, 8 and 30 threads (and with capped M-steps,
+`rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2
+on the 3000 Mb genome with 1, 2, 4, 8, 16 and 30 threads (thread scaling):
+19 setups, 95 timed runs. psmc-rs works on one sequence per thread, so the
+30 chromosomes of the largest genome make 30 threads the most that can
+help. A setup whose estimated peak memory exceeds 64 GB is not run and
+Table 2 says why (none with 100 Mb chromosomes: C psmc holds about 1 GB,
+psmc-rs 0.2 well under 1 GB).
 
 Every run is an exclusive job (nothing else runs, on this runner or any
 other), ranked by repeat, with as many cores as threads, and timed by
@@ -413,8 +411,8 @@ sampled every 0.5 s with the tool's own `ru_maxrss`, the machine's load and
 the busiest processes before the run, the CPU other processes used during
 it, the power source, and on Linux the CPU model, cpufreq governor, boost,
 host and SLURM job). The runner starts an exclusive job whatever its
-`--cores`, but its memory must fit `--mem-gb`: start E3 with `--mem-gb 15`
-or more. `measure` refuses (exit status 69, a failure the next `start`
+`--cores`, but its memory must fit `--mem-gb` (the default 12 GB fits
+every E3 run). `measure` refuses (exit status 69, a failure the next `start`
 retries) to time a run of more threads than the CPUs it may use (its
 affinity: a SLURM allocation's), since it would be timed oversubscribed.
 The tool runs without `PSMC_*` and Rust build variables in its environment.
@@ -463,7 +461,7 @@ and speed-ups would mix them: keep E3's runs on nodes of one CPU model.
 
 | table | contents |
 | --- | --- |
-| `E3_table2.csv` | Table 2, per tool, thread count and size: status (measured, skipped with the reason, incomplete), estimated peak memory, clean and measured repeats, median, minimum and maximum wall time, median CPU time, seconds per iteration, peak RSS, speed-up over C psmc and over psmc-rs 0.1 at the same threads, C psmc's RSS over the tool's, the M-step budget, whether the repeats' outputs are identical |
+| `E3_table2.csv` | Table 2, per tool, thread count and size: status (measured, skipped with the reason, incomplete), estimated peak memory, clean and measured repeats, median, minimum and maximum wall time, median CPU time, seconds per iteration, peak RSS, speed-up over C psmc, C psmc's RSS over the tool's, the M-step budget, whether the repeats' outputs are identical |
 | `E3_runs.csv` | every run: measurements, machine state (before: busy cores, and of them processes, kernel threads, interrupts; during: the other work the clean check limited by `other_method`, the machine-wide measure, kernel threads, interrupts, steal, what none explains, processes that ended), power, clean or not, CPU model, governor, boost, usable CPUs, host, SLURM job, theta, rho, t_max, log-likelihood, output SHA-256 |
 | `E3_thread_scaling.csv` | Fig S4: psmc-rs 0.2 on 3000 Mb per thread count: median wall time, speed-up, efficiency, peak RSS, whether the JSON is byte-identical to the one-thread run |
 | `E3_determinism.csv` | Fig S4: every output against its tool's reference at the same size (fewest threads, first repeat) |
@@ -828,10 +826,9 @@ checkout's environment:
 ```bash
 PY=<main checkout>/experiment/.venv/bin/python
 $PY -m experiment.pipeline tools                 # identities; exits 1 if a tool is missing
-$PY -m experiment.pipeline tools --build-rs01    # psmc-rs 0.1 from e50d69d, once
 $PY -m experiment.pipeline tools --build-c       # C psmc with a recorded build (not needed on the laptop)
 $PY -m experiment.pipeline plan                  # the estimates below
-$PY -m experiment.pipeline start E3 --mem-gb 15  # first, alone, on a quiet machine on AC power
+$PY -m experiment.pipeline start E3              # first, alone, on a quiet machine on AC power
 $PY -m experiment.pipeline status --jobs         # deferred runs say why
 $PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG --cores 50 --mem-gb 64   # once E3's runner has exited
 $PY -m experiment.pipeline.kg1000 run --jobs 16 --pilot chr21   # E7's data stage (or submit.sh e7-prep)
@@ -890,10 +887,7 @@ QC reports, bootstrap replicates' JSON, tables and figures.
 The tools directory is `$PSMC_EXP_TOOLS`, else `experiment/.tools` (of the
 main checkout when run from a worktree without one): `psmc_c/psmc` (lh3/psmc
 0.6.5-r74), `psmc_c/utils/{fq2psmcfa,splitfa}`, `psmc_c/psmc_plot.pl`,
-`vcfutils.pl`, `msmc-tools/generate_multihetsep.py`. `tools --build-rs01`
-builds psmc-rs 0.1 from commit e50d69d in a detached git worktree at
-`<tools>/psmc-rs-0.1/src` with `CARGO_TARGET_DIR=<tools>/psmc-rs-0.1/target`
-(offline: the dependencies must be in cargo's cache). psmc-rs 0.2 is this
+`vcfutils.pl`, `msmc-tools/generate_multihetsep.py`. psmc-rs 0.2 is this
 checkout's `target/release/psmc-rs`, built by `start`. A psmc-rs build is
 identified by rustc, the rustflags and `CARGO_PROFILE_RELEASE_*` variables
 and the target features they enable; one with `-C target-cpu=native`, or

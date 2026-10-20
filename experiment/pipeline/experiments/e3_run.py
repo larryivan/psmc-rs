@@ -105,8 +105,8 @@ RECORD = "psmc-rs-manuscript/E3/timing/4"
 EX_TEMPFAIL = 75  # not a clean run: the runner defers the job
 EX_UNAVAILABLE = 69  # too few CPUs for the tool's threads: a failure, which the next start retries
 # Variables removed from the tool's environment: psmc-rs reads PSMC_*
-# (e.g. psmc-rs 0.1's PSMC_ALPHA_CACHE_MB, which changes its memory and
-# time), and the others change a build or what a tool prints.
+# (e.g. PSMC_ALPHA_CACHE_MB, which changes its memory and time on models of
+# more than 256 states), and the others change a build or what a tool prints.
 CLEANED_PREFIXES = ("PSMC_", "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUST_LOG", "RUST_BACKTRACE")
 
 
