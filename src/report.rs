@@ -6,11 +6,11 @@
 
 use anyhow::{Context, Result};
 use serde::Serialize;
-use std::fmt::Write as _;
+use std::fmt::{Display, Write as _};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::bootstrap::BootstrapSummary;
+use crate::bootstrap::{BootstrapCurvePoint, BootstrapSummary};
 use crate::hmm::TmrcaReportData;
 use crate::io::params::{BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary};
 use crate::model::PsmcModel;
@@ -63,7 +63,7 @@ pub struct BootstrapReport<'a> {
 
 #[derive(Serialize)]
 struct JsSeries {
-    name: String,
+    name: &'static str,
     data: Vec<[f64; 2]>,
 }
 
@@ -94,6 +94,11 @@ fn fmt_num(v: f64) -> String {
     }
 }
 
+/// [`sig`] of a value that may be missing (`n/a`).
+fn sig_or_na(v: Option<f64>, digits: usize) -> String {
+    v.map_or("n/a".to_string(), |v| sig(v, digits))
+}
+
 /// Check that the ECharts bundle `PSMC_ECHARTS_JS` names, if any, can be
 /// read, as [`write_html_report`] will read it. A run calls this before its
 /// work, so that a wrong path fails at once rather than after the fit and
@@ -105,34 +110,25 @@ pub fn check_echarts_bundle() -> Result<()> {
 /// The `<script>` that loads ECharts: the bundle `PSMC_ECHARTS_JS` names,
 /// embedded, or the CDN.
 fn echarts_script_tag() -> Result<String> {
-    if let Ok(js_path) = std::env::var("PSMC_ECHARTS_JS") {
-        let path = Path::new(&js_path);
-        let js = fs::read_to_string(path).with_context(|| {
-            format!(
-                "failed to read ECharts bundle from PSMC_ECHARTS_JS={}",
-                path.display()
-            )
-        })?;
-        return Ok(format!("<script>\n{}\n</script>", js));
-    }
-    Ok(
-        r#"<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>"#
-            .to_string(),
-    )
+    const CDN: &str =
+        r#"<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>"#;
+    let Ok(path) = std::env::var("PSMC_ECHARTS_JS") else {
+        return Ok(CDN.to_string());
+    };
+    let js = fs::read_to_string(&path)
+        .with_context(|| format!("failed to read ECharts bundle from PSMC_ECHARTS_JS={path}"))?;
+    Ok(format!("<script>\n{js}\n</script>"))
 }
 
 /// The report path for a JSON output: the same path with `.html`.
-pub fn default_html_path(output_json: &Path) -> std::path::PathBuf {
+pub fn default_html_path(output_json: &Path) -> PathBuf {
     output_json.with_extension("html")
 }
 
 /// One `<tr>` of a two-column table; `value` is HTML.
-fn row(out: &mut String, name: &str, value: &str) {
-    let _ = writeln!(
-        out,
-        "<tr><th>{}</th><td>{value}</td></tr>",
-        escape_html(name)
-    );
+fn row(out: &mut String, name: &str, value: impl Display) {
+    let name = escape_html(name);
+    let _ = writeln!(out, "<tr><th>{name}</th><td>{value}</td></tr>");
 }
 
 /// The rows of the run summary that say how the fit used the callable bases
@@ -160,84 +156,33 @@ pub fn bin_callable_rows(b: &BinCallableRecord) -> Vec<(&'static str, String)> {
 /// The run summary table.
 fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) -> String {
     let m = d.model;
+    let mono = |path: &Path| {
+        let path = escape_html(&path.display().to_string());
+        format!(r#"<span class="mono">{path}</span>"#)
+    };
     let mut out = String::new();
     row(&mut out, "psmc-rs", env!("CARGO_PKG_VERSION"));
     row(&mut out, "HMM kernels", crate::hmm::simd_path().name());
-    row(
-        &mut out,
-        "Input",
-        &format!(
-            r#"<span class="mono">{}</span>"#,
-            escape_html(&d.input_file.display().to_string())
-        ),
-    );
-    row(
-        &mut out,
-        "Output JSON",
-        &format!(
-            r#"<span class="mono">{}</span>"#,
-            escape_html(&d.output_json.display().to_string())
-        ),
-    );
+    row(&mut out, "Input", mono(d.input_file));
+    row(&mut out, "Output JSON", mono(d.output_json));
     if let Some(i) = d.input {
-        let format = match &i.vcf_mode {
-            Some(mode) => format!("{} ({mode} mode)", i.format),
-            None => i.format.clone(),
-        };
-        row(&mut out, "Input format", &escape_html(&format));
-        row(
-            &mut out,
-            "Sequences",
-            &format!(
-                "{} analysed, {} left out",
-                count(i.sequences as u64),
-                count(i.dropped_sequences as u64)
-            ),
-        );
-        let share = |n: u64| {
-            if i.bins == 0 {
-                "0.0%".to_string()
-            } else {
-                pct(n as f64 / i.bins as f64)
-            }
-        };
-        row(
-            &mut out,
-            "Bins",
-            &format!(
-                "{} ({} heterozygous, {} missing)",
-                count(i.bins),
-                share(i.het_bins),
-                share(i.missing_bins)
-            ),
-        );
+        input_rows(&mut out, i);
     }
-    if let Some(b) = d.bin_callable {
-        for (name, value) in bin_callable_rows(b) {
-            row(&mut out, name, &escape_html(&value));
-        }
+    for (name, value) in d.bin_callable.map(bin_callable_rows).unwrap_or_default() {
+        row(&mut out, name, escape_html(&value));
     }
-    row(&mut out, "EM iterations", &d.n_iter.to_string());
-    row(
-        &mut out,
-        "Final log-likelihood",
-        &d.final_loglike
-            .map_or("-".to_string(), |ll| format!("{ll:.6}")),
-    );
-    row(
-        &mut out,
-        "Pattern",
-        &escape_html(
-            m.pattern
-                .as_deref()
-                .unwrap_or("none (one lambda per state)"),
-        ),
-    );
-    row(
-        &mut out,
-        "States / free lambdas",
-        &format!("{} / {}", m.n_steps + 1, m.lam.len()),
-    );
+    row(&mut out, "EM iterations", d.n_iter);
+    let loglike = d
+        .final_loglike
+        .map_or("-".to_string(), |ll| format!("{ll:.6}"));
+    row(&mut out, "Final log-likelihood", loglike);
+    let pattern = m
+        .pattern
+        .as_deref()
+        .unwrap_or("none (one lambda per state)");
+    row(&mut out, "Pattern", escape_html(pattern));
+    let states = format!("{} / {}", m.n_steps + 1, m.lam.len());
+    row(&mut out, "States / free lambdas", states);
     for (name, v) in [
         ("theta (per bin)", m.theta),
         ("rho (per bin)", m.rho),
@@ -247,24 +192,35 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
         ("Bin size (bp)", d.bin_size),
         ("Generation time (years)", d.gen_years),
     ] {
-        row(&mut out, name, &fmt_num(v));
+        row(&mut out, name, fmt_num(v));
     }
     for (name, value) in &d.settings {
-        row(&mut out, name, &escape_html(value));
+        row(&mut out, name, escape_html(value));
     }
-    row(&mut out, "Curve points", &points.to_string());
-    let [(x_min, x_max), (y_min, y_max)] = ranges;
-    row(
-        &mut out,
-        "Time range (years)",
-        &format!("{} - {}", fmt_num(x_min), fmt_num(x_max)),
-    );
-    row(
-        &mut out,
-        "Ne range",
-        &format!("{} - {}", fmt_num(y_min), fmt_num(y_max)),
-    );
+    row(&mut out, "Curve points", points);
+    for (name, (lo, hi)) in ["Time range (years)", "Ne range"].into_iter().zip(ranges) {
+        row(&mut out, name, format!("{} - {}", fmt_num(lo), fmt_num(hi)));
+    }
     out
+}
+
+/// The run summary's rows on the input: its format and size.
+fn input_rows(out: &mut String, i: &InputSummary) {
+    let format = match &i.vcf_mode {
+        Some(mode) => format!("{} ({mode} mode)", i.format),
+        None => i.format.clone(),
+    };
+    row(out, "Input format", escape_html(&format));
+    let (kept, dropped) = (count(i.sequences as u64), count(i.dropped_sequences as u64));
+    let sequences = format!("{kept} analysed, {dropped} left out");
+    row(out, "Sequences", sequences);
+    let share = |n: u64| match i.bins {
+        0 => "0.0%".to_string(),
+        bins => pct(n as f64 / bins as f64),
+    };
+    let (het, missing) = (share(i.het_bins), share(i.missing_bins));
+    let bins = format!("{} ({het} heterozygous, {missing} missing)", count(i.bins));
+    row(out, "Bins", bins);
 }
 
 /// The input QC section: findings, then the key metrics and the
@@ -301,134 +257,106 @@ fn qc_section(r: &QcReport) -> String {
         }
         out.push_str("</ul>");
     }
-
     out.push_str("<table>");
+    qc_metric_rows(&mut out, r);
+    out.push_str("</table>");
+    if !r.sequences.is_empty() {
+        sequence_table(&mut out, r);
+    }
+    out.push_str("</div></section>");
+    out
+}
+
+/// The key metrics of the input QC, as table rows.
+fn qc_metric_rows(out: &mut String, r: &QcReport) {
     let t = &r.totals;
-    let opt = |v: Option<f64>, digits| v.map_or("n/a".to_string(), |v| sig(v, digits));
-    row(
-        &mut out,
-        "Bins T / K / N",
-        &format!(
-            "{} / {} / {}",
-            pct(t.t_fraction),
-            pct(t.k_fraction),
-            pct(t.missing_fraction)
-        ),
-    );
-    row(&mut out, "theta0 per bin", &opt(t.theta0_per_bin, 4));
-    row(&mut out, "Heterozygous sites per kb", &opt(t.het_per_kb, 3));
+    let bins = [t.t_fraction, t.k_fraction, t.missing_fraction].map(pct);
+    row(out, "Bins T / K / N", bins.join(" / "));
+    row(out, "theta0 per bin", sig_or_na(t.theta0_per_bin, 4));
+    row(out, "Heterozygous sites per kb", sig_or_na(t.het_per_kb, 3));
     let called = match t.called_bases {
         Some(n) => format!("{} bp (called sites)", count(n)),
         None => format!("{} bp (in called bins)", count(t.called_bases_from_bins)),
     };
-    row(&mut out, "Called length", &called);
+    row(out, "Called length", called);
     if let Some(c) = &r.callable {
-        row(
-            &mut out,
-            "Callable bases of called bins",
-            &escape_html(&format!(
-                "{} on average; {}{}",
-                pct(c.mean_fraction),
-                crate::qc::callable_distribution(c),
-                crate::qc::approximate_counts_note(r)
-            )),
+        let callable = format!(
+            "{} on average; {}{}",
+            pct(c.mean_fraction),
+            crate::qc::callable_distribution(c),
+            crate::qc::approximate_counts_note(r)
         );
+        row(out, "Callable bases of called bins", escape_html(&callable));
     }
-    row(
-        &mut out,
-        "N50 / L50",
-        &format!(
-            "{} bp / {}",
-            count(r.lengths.n50_bases),
-            count(r.lengths.l50 as u64)
-        ),
-    );
+    let (n50, l50) = (count(r.lengths.n50_bases), count(r.lengths.l50 as u64));
+    row(out, "N50 / L50", format!("{n50} bp / {l50}"));
     if let Some(run) = &r.longest_missing_run {
-        row(
-            &mut out,
-            "Longest missing run",
-            &format!("{} bins in {}", count(run.bins), escape_html(&run.sequence)),
-        );
+        let longest = format!("{} bins in {}", count(run.bins), escape_html(&run.sequence));
+        row(out, "Longest missing run", longest);
     }
     if let Some(s) = &r.saturation {
-        row(
-            &mut out,
-            "K bins with 2+ het sites",
-            &format!("about {}", pct(s.multi_het_share)),
-        );
+        let share = pct(s.multi_het_share);
+        row(out, "K bins with 2+ het sites", format!("about {share}"));
     }
     if let Some(n) = r.expected_recombinations {
-        row(
-            &mut out,
-            "Recombinations (C psmc's start)",
-            &format!("about {}", count(n.round() as u64)),
-        );
+        let n = count(n.round() as u64);
+        row(out, "Recombinations (C psmc's start)", format!("about {n}"));
     }
     if let Some(trunks) = r.lengths.bootstrap_trunks {
-        row(&mut out, "Bootstrap trunks", &count(trunks));
+        row(out, "Bootstrap trunks", count(trunks));
     }
     if let Some(dp) = &r.depth {
         let bounds = match (dp.min_depth, dp.max_depth) {
             (Some(lo), Some(hi)) => format!(", calls kept at {lo}-{hi}"),
             _ => String::new(),
         };
-        row(
-            &mut out,
-            "Read depth",
-            &format!(
-                "mean {}, median {}{bounds}",
-                sig(dp.mean, 3),
-                sig(dp.median, 3)
-            ),
+        let depth = format!(
+            "mean {}, median {}{bounds}",
+            sig(dp.mean, 3),
+            sig(dp.median, 3)
         );
+        row(out, "Read depth", depth);
     }
     for d in &r.dropped {
-        row(
-            &mut out,
-            "Left out",
-            &format!("{} {}", count(d.count as u64), escape_html(&d.reason)),
+        let left_out = format!("{} {}", count(d.count as u64), escape_html(&d.reason));
+        row(out, "Left out", left_out);
+    }
+}
+
+/// The per-sequence metrics of the input QC, in a collapsed table.
+fn sequence_table(out: &mut String, r: &QcReport) {
+    let per_callable = r.het_per_callable_kb();
+    let _ = writeln!(
+        out,
+        r#"<details><summary>Per-sequence metrics ({} of {})</summary><table class="seq-table">
+<tr><th>Sequence</th><th>Bins</th><th>K</th><th>N</th><th>{}</th><th>vs others</th></tr>"#,
+        r.sequences.len(),
+        r.n_sequences,
+        if per_callable { "Het/kb*" } else { "Het/kb" }
+    );
+    for s in &r.sequences {
+        let kind = s
+            .kind
+            .map_or(String::new(), |k| format!(" ({})", k.label()));
+        let vs_others = s
+            .het_vs_reference
+            .map_or("-".to_string(), |v| format!("{}x", sig(v, 2)));
+        let _ = writeln!(
+            out,
+            "<tr><td>{}{kind}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{vs_others}</td></tr>",
+            escape_html(&s.name),
+            count(s.stats.bins),
+            pct(s.stats.k_fraction),
+            pct(s.stats.missing_fraction),
+            sig_or_na(s.stats.het_per_kb_comparable(), 3),
         );
     }
     out.push_str("</table>");
-
-    if !r.sequences.is_empty() {
-        let per_callable = r.het_per_callable_kb();
-        let _ = writeln!(
-            out,
-            r#"<details><summary>Per-sequence metrics ({} of {})</summary><table class="seq-table">
-<tr><th>Sequence</th><th>Bins</th><th>K</th><th>N</th><th>{}</th><th>vs others</th></tr>"#,
-            r.sequences.len(),
-            r.n_sequences,
-            if per_callable { "Het/kb*" } else { "Het/kb" }
-        );
-        for s in &r.sequences {
-            let kind = s
-                .kind
-                .map_or(String::new(), |k| format!(" ({})", k.label()));
-            let _ = writeln!(
-                out,
-                "<tr><td>{}{kind}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                escape_html(&s.name),
-                count(s.stats.bins),
-                pct(s.stats.k_fraction),
-                pct(s.stats.missing_fraction),
-                opt(s.stats.het_per_kb_comparable(), 3),
-                s.het_vs_reference
-                    .map_or("-".to_string(), |v| format!("{}x", sig(v, 2)))
-            );
-        }
-        out.push_str("</table>");
-        if per_callable {
-            let _ = write!(
-                out,
-                "<div class=\"note\">* {}</div>",
-                escape_html(crate::qc::HET_PER_CALLABLE_KB_NOTE)
-            );
-        }
-        out.push_str("</details>");
+    if per_callable {
+        let note = escape_html(crate::qc::HET_PER_CALLABLE_KB_NOTE);
+        let _ = write!(out, "<div class=\"note\">* {note}</div>");
     }
-    out.push_str("</div></section>");
-    out
+    out.push_str("</details>");
 }
 
 /// The bootstrap section, with the coverage caveat that
@@ -436,469 +364,179 @@ fn qc_section(r: &QcReport) -> String {
 /// and objective (the numbers the README gives).
 fn bootstrap_section(b: &BootstrapReport) -> String {
     let s = b.summary;
+    let skipped = s.skipped_replicates.len();
     let mut out =
         String::from(r#"<section class="card"><div class="meta"><h2>Bootstrap</h2><table>"#);
-    row(&mut out, "Replicates", &count(s.n_replicates as u64));
-    let skipped = s.skipped_replicates.len();
+    row(&mut out, "Replicates", count(s.n_replicates as u64));
     if skipped > 0 {
         let numbers: Vec<String> = s.skipped_replicates.iter().map(usize::to_string).collect();
-        row(
-            &mut out,
-            "Skipped replicates",
-            &format!(
-                "{} of {} ({})",
-                count(skipped as u64),
-                count((s.n_replicates + skipped) as u64),
-                numbers.join(", ")
-            ),
+        let (n, total) = (
+            count(skipped as u64),
+            count((s.n_replicates + skipped) as u64),
         );
+        let skipped = format!("{n} of {total} ({})", numbers.join(", "));
+        row(&mut out, "Skipped replicates", skipped);
     }
-    row(&mut out, "Trunk size (bins)", &count(s.block_size as u64));
+    row(&mut out, "Trunk size (bins)", count(s.block_size as u64));
     if let Some(n) = b.trunks {
-        row(&mut out, "Trunks resampled", &count(n as u64));
+        row(&mut out, "Trunks resampled", count(n as u64));
     }
-    row(
-        &mut out,
-        "EM iterations per replicate",
-        &b.em_iters.to_string(),
-    );
-    row(&mut out, "Seed", &s.seed.to_string());
+    row(&mut out, "EM iterations per replicate", b.em_iters);
+    row(&mut out, "Seed", s.seed);
     let start = match b.started_from {
         Some(path) => format!("the parameters in {}", path.display()),
         None => "a fresh start".to_string(),
     };
-    row(&mut out, "Replicates start from", &escape_html(&start));
-    out.push_str("</table>");
+    row(&mut out, "Replicates start from", escape_html(&start));
     let (fitted, saved_note) = match b.started_from {
         Some(_) => (
             "each fitted from the saved parameters the main fit continued (as C psmc -i -b does)",
-            " Those parameters were fitted to the whole input, so replicates that run few iterations from them stay close to them, and the band understates the uncertainty further.",
+            " Those parameters were fitted to the whole input, so replicates that run few \
+             iterations from them stay close to them, and the band understates the uncertainty \
+             further.",
         ),
         None => ("each fitted from a fresh start", ""),
     };
     let skipped_note = match skipped {
         0 => String::new(),
         n => format!(
-            " {n} of the {} replicates were left out: the fresh start of their resampled data had negative transition probabilities, which EM cannot fit. Their resamples were the most heterozygous, so without them the band may be too narrow.",
+            " {n} of the {} replicates were left out: the fresh start of their resampled data \
+             had negative transition probabilities, which EM cannot fit. Their resamples were the \
+             most heterozygous, so without them the band may be too narrow.",
             s.n_replicates + n
         ),
     };
     let _ = write!(
         out,
-        r#"<div class="note caveat">The band spans the 2.5% to 97.5% quantiles of the replicate curves, {fitted} on trunks of the input resampled with replacement, as C psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations with psmc-rs's default start and objective (examples/bootstrap_calibration.rs, described in the README), the bootstrap standard deviation of log10 Ne was a median 0.85 (whole sequences as trunks) to 0.91 (1,000-bin trunks) of the true sampling standard deviation, and 0.74 to 0.78 at the oldest times, though at the most recent times whole-sequence trunks gave a band wider than the true spread; the estimator's bias, about a third of that standard deviation, does not show in the band at all. Few trunks give coarse bands.{saved_note}{skipped_note}</div>"#,
+        "</table><div class=\"note caveat\">The band spans the 2.5% to 97.5% quantiles of the \
+         replicate curves, {fitted} on trunks of the input resampled with replacement, as C \
+         psmc's bootstrap does. Read it as a lower bound on the uncertainty. In simulations with \
+         psmc-rs's default start and objective (examples/bootstrap_calibration.rs, described in \
+         the README), the bootstrap standard deviation of log10 Ne was a median 0.85 (whole \
+         sequences as trunks) to 0.91 (1,000-bin trunks) of the true sampling standard \
+         deviation, and 0.74 to 0.78 at the oldest times, though at the most recent times \
+         whole-sequence trunks gave a band wider than the true spread; the estimator's bias, \
+         about a third of that standard deviation, does not show in the band at all. Few trunks \
+         give coarse bands.{saved_note}{skipped_note}</div></div></section>"
     );
-    out.push_str("</div></section>");
     out
+}
+
+/// The smallest (at least 1e-12) and the largest of coordinate `i` of
+/// `points`.
+fn axis_range(points: &[[f64; 2]], i: usize) -> (f64, f64) {
+    let lo = points
+        .iter()
+        .map(|p| p[i])
+        .fold(f64::INFINITY, f64::min)
+        .max(1e-12);
+    let hi = points.iter().map(|p| p[i]).fold(0.0f64, f64::max).max(lo);
+    (lo, hi)
+}
+
+/// The chart's curves: the fit's, and the bootstrap's quantiles.
+fn curve_series(main: Vec<[f64; 2]>, bootstrap: Option<&BootstrapReport>) -> Vec<JsSeries> {
+    let mut series = vec![JsSeries {
+        name: "psmc-rs",
+        data: main,
+    }];
+    if let Some(b) = bootstrap {
+        let points = &b.summary.points;
+        let quantile = |name, ne: fn(&BootstrapCurvePoint) -> f64| JsSeries {
+            name,
+            data: points.iter().map(|p| [p.x_years, ne(p)]).collect(),
+        };
+        series.extend([
+            quantile("Bootstrap q2.5", |p| p.ne_q025),
+            quantile("Bootstrap median", |p| p.ne_q500),
+            quantile("Bootstrap q97.5", |p| p.ne_q975),
+        ]);
+    }
+    series
+}
+
+/// The TMRCA panel and its script, with each state's interval of the time
+/// grid `curve` in years.
+fn tmrca_html(tm: &TmrcaReportData, curve: &[[f64; 2]]) -> Result<(String, String)> {
+    let total_mass: f64 = tm.state_mass.iter().sum();
+    let state_bins: Vec<TmrcaStateBin> = tm
+        .state_mass
+        .iter()
+        .enumerate()
+        .map(|(k, &mass)| TmrcaStateBin {
+            start_years: curve.get(k).map_or(f64::NAN, |p| p[0]),
+            end_years: curve.get(k + 1).map(|p| p[0]),
+            mass,
+            mass_pct: if total_mass > 0.0 {
+                100.0 * mass / total_mass
+            } else {
+                0.0
+            },
+        })
+        .collect();
+    let panel = TMRCA_PANEL
+        .replace("__ROWS__", &tm.total_sites.to_string())
+        .replace("__POINTS__", &tm.sampled_mean.len().to_string())
+        .replace("__SEQUENCES__", &tm.seq_count.to_string());
+    let script = TMRCA_SCRIPT
+        .replace("__MEAN__", &serde_json::to_string(&tm.sampled_mean)?)
+        .replace("__MAP__", &serde_json::to_string(&tm.sampled_map)?)
+        .replace("__LO__", &serde_json::to_string(&tm.sampled_lo)?)
+        .replace("__HI__", &serde_json::to_string(&tm.sampled_hi)?)
+        .replace("__STATE_BINS__", &serde_json::to_string(&state_bins)?);
+    Ok((panel, script))
 }
 
 /// Write the report of `data` to `output_html`.
 pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
-    let model = data.model;
     let echarts_script = echarts_script_tag()?;
-    let curve = model.ne_curve(data.bin_size, data.gen_years)?;
-    let n0 = model.n0_for_bin(data.bin_size);
-    let main_data: Vec<[f64; 2]> = curve
+    let curve = data.model.ne_curve(data.bin_size, data.gen_years)?;
+    let main: Vec<[f64; 2]> = curve
         .iter()
         .copied()
         .filter(|&[x, y]| x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0)
         .collect();
-
-    let range = |i: usize| {
-        let lo = main_data
-            .iter()
-            .map(|p| p[i])
-            .fold(f64::INFINITY, f64::min)
-            .max(1e-12);
-        let hi = main_data
-            .iter()
-            .map(|p| p[i])
-            .fold(0.0f64, f64::max)
-            .max(lo);
-        (lo, hi)
+    let n0 = data.model.n0_for_bin(data.bin_size);
+    let ranges = [axis_range(&main, 0), axis_range(&main, 1)];
+    let meta_rows = meta_rows(data, n0, ranges, main.len());
+    let series = curve_series(main, data.bootstrap.as_ref());
+    let (tmrca_panel, tmrca_script) = match data.tmrca {
+        Some(tm) => tmrca_html(tm, &curve)?,
+        None => Default::default(),
     };
-    let ranges = [range(0), range(1)];
-    let points = main_data.len();
-
-    let mut series = vec![JsSeries {
-        name: "psmc-rs".to_string(),
-        data: main_data,
-    }];
-    if let Some(b) = &data.bootstrap {
-        let bs = b.summary;
-        series.push(JsSeries {
-            name: "Bootstrap q2.5".to_string(),
-            data: bs.points.iter().map(|p| [p.x_years, p.ne_q025]).collect(),
-        });
-        series.push(JsSeries {
-            name: "Bootstrap median".to_string(),
-            data: bs.points.iter().map(|p| [p.x_years, p.ne_q500]).collect(),
-        });
-        series.push(JsSeries {
-            name: "Bootstrap q97.5".to_string(),
-            data: bs.points.iter().map(|p| [p.x_years, p.ne_q975]).collect(),
-        });
-    }
-    let series_json = serde_json::to_string(&series)?;
-
-    let title = "PSMC Inference Report";
     let input_name = data
         .input_file
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("input");
-    let meta_rows = meta_rows(data, n0, ranges, points);
-    let qc_html = data.qc.map(qc_section).unwrap_or_default();
-    let bootstrap_html = data
-        .bootstrap
-        .as_ref()
-        .map(bootstrap_section)
-        .unwrap_or_default();
+    let qc = data.qc.map(qc_section).unwrap_or_default();
+    let bootstrap = data.bootstrap.as_ref().map(bootstrap_section);
+    // In this order: each value is searched for the placeholders after it.
+    let mut html = PAGE.to_string();
+    for (placeholder, value) in [
+        ("__INPUT_NAME__", escape_html(input_name)),
+        ("__VERSION__", env!("CARGO_PKG_VERSION").to_string()),
+        ("__META_ROWS__", meta_rows),
+        ("__QC_SECTION__", qc),
+        ("__BOOTSTRAP_SECTION__", bootstrap.unwrap_or_default()),
+        ("__TMRCA_PANEL__", tmrca_panel),
+        ("__TMRCA_SCRIPT__", tmrca_script),
+        ("__SERIES_JSON__", serde_json::to_string(&series)?),
+        ("__ECHARTS_SCRIPT__", echarts_script),
+    ] {
+        html = html.replace(placeholder, &value);
+    }
+    fs::write(output_html, html)
+        .with_context(|| format!("failed to write {}", output_html.display()))
+}
 
-    let (tmrca_panel, tmrca_script) = if let Some(tm) = data.tmrca {
-        let tmrca_mean_json = serde_json::to_string(&tm.sampled_mean)?;
-        let tmrca_map_json = serde_json::to_string(&tm.sampled_map)?;
-        let tmrca_lo_json = serde_json::to_string(&tm.sampled_lo)?;
-        let tmrca_hi_json = serde_json::to_string(&tm.sampled_hi)?;
-        let total_mass: f64 = tm.state_mass.iter().sum();
-        // Each state's interval of the time grid, in years.
-        let state_bins: Vec<TmrcaStateBin> = tm
-            .state_mass
-            .iter()
-            .enumerate()
-            .map(|(k, &mass)| TmrcaStateBin {
-                start_years: curve.get(k).map_or(f64::NAN, |p| p[0]),
-                end_years: curve.get(k + 1).map(|p| p[0]),
-                mass,
-                mass_pct: if total_mass > 0.0 {
-                    100.0 * mass / total_mass
-                } else {
-                    0.0
-                },
-            })
-            .collect();
-        let tmrca_state_bins_json = serde_json::to_string(&state_bins)?;
-        let panel = format!(
-            r#"
-    <section class="card tmrca-card">
-      <div class="chart-wrap">
-        <div class="chart-head">
-          <div class="chart-title">TMRCA Posterior Track</div>
-          <div class="chart-actions">
-            <label class="ctrl"><input id="ctrl-tmrca-map" type="checkbox" checked /> MAP</label>
-            <label class="ctrl"><input id="ctrl-tmrca-ci" type="checkbox" checked /> 95% CI</label>
-            <label class="ctrl">
-              Y
-              <select id="ctrl-tmrca-yscale">
-                <option value="log" selected>log</option>
-                <option value="value">linear</option>
-              </select>
-            </label>
-            <button class="btn ghost" id="btn-tmrca-reset" type="button">Reset</button>
-            <button class="btn" id="btn-tmrca-save" type="button">Save PNG</button>
-          </div>
-        </div>
-        <div id="tmrca-track"></div>
-      </div>
-      <div class="chart-wrap compact">
-        <div class="chart-head">
-          <div class="chart-title">Posterior Mass by State Interval</div>
-          <div class="chart-actions">
-            <label class="ctrl">
-              Metric
-              <select id="ctrl-state-metric">
-                <option value="pct" selected>percent</option>
-                <option value="raw">raw mass</option>
-              </select>
-            </label>
-            <button class="btn ghost" id="btn-state-reset" type="button">Reset</button>
-            <button class="btn" id="btn-state-save" type="button">Save PNG</button>
-          </div>
-        </div>
-        <div id="tmrca-state"></div>
-      </div>
-      <div class="meta tmrca-meta">
-        <table>
-          <tr><th>TMRCA rows</th><td>{}</td></tr>
-          <tr><th>Sampled points</th><td>{}</td></tr>
-          <tr><th>Posterior CI</th><td>q2.5 to q97.5 (per sampled bin)</td></tr>
-          <tr><th>Sequences</th><td>{}</td></tr>
-        </table>
-      </div>
-    </section>
-"#,
-            tm.total_sites,
-            tm.sampled_mean.len(),
-            tm.seq_count
-        );
-        let script = format!(
-            r##"
-    const tmrcaMeanRaw = {};
-    const tmrcaMapRaw = {};
-    const tmrcaLoRaw = {};
-    const tmrcaHiRaw = {};
-    const tmrcaStateBins = {};
-    const positiveY = (pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]) && pt[1] > 0;
-    const tmrcaMean = tmrcaMeanRaw.filter(positiveY);
-    const tmrcaMap = tmrcaMapRaw.filter(positiveY);
-    const tmrcaLo = tmrcaLoRaw.filter(positiveY);
-    const tmrcaHi = tmrcaHiRaw.filter(positiveY);
-    const tmrcaTrack = echarts.init(document.getElementById("tmrca-track"), null, {{ renderer: "canvas" }});
-    const tmrcaStateChart = echarts.init(document.getElementById("tmrca-state"), null, {{ renderer: "canvas" }});
-    const tmrcaCtrl = {{
-      map: document.getElementById("ctrl-tmrca-map"),
-      ci: document.getElementById("ctrl-tmrca-ci"),
-      yScale: document.getElementById("ctrl-tmrca-yscale"),
-      stateMetric: document.getElementById("ctrl-state-metric")
-    }};
-
-    const fmtYears = (v) => {{
-      if (!Number.isFinite(v)) return "NA";
-      if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
-      if (v >= 1e3) return (v / 1e3).toFixed(1) + "k";
-      return v.toFixed(1);
-    }};
-    const tmrcaStateLabels = tmrcaStateBins.map((b) => {{
-      const s = fmtYears(b.start_years);
-      if (b.end_years === null || !Number.isFinite(b.end_years)) {{
-        return `>= ${{s}}`;
-      }}
-      return `${{s}} - ${{fmtYears(b.end_years)}}`;
-    }});
-    const tmrcaStatePct = tmrcaStateBins.map((b) => b.mass_pct);
-    const tmrcaStateRaw = tmrcaStateBins.map((b) => b.mass);
-    const tickStep = Math.max(1, Math.ceil(tmrcaStateLabels.length / 18));
-
-    const buildTmrcaTrackOption = (theme) => {{
-      const yType = tmrcaCtrl.yScale ? tmrcaCtrl.yScale.value : "log";
-      const showMap = tmrcaCtrl.map ? tmrcaCtrl.map.checked : true;
-      const showCi = tmrcaCtrl.ci ? tmrcaCtrl.ci.checked : true;
-      const widthSlider = document.getElementById("ctrl-main-width");
-      const lineW = widthSlider ? Number(widthSlider.value) : 2.4;
-      const trackSeries = [
-        {{
-          name: "mean",
-          type: "line",
-          showSymbol: false,
-          symbol: "none",
-          data: tmrcaMean,
-          lineStyle: {{ width: Math.max(1.4, lineW - 0.4), color: theme.trackMean }},
-          itemStyle: {{ color: theme.trackMean }}
-        }}
-      ];
-      if (showMap) {{
-        trackSeries.push({{
-          name: "map",
-          type: "line",
-          showSymbol: false,
-          symbol: "none",
-          data: tmrcaMap,
-          lineStyle: {{ width: Math.max(1.2, lineW - 0.6), color: theme.trackMap, type: "dashed" }},
-          itemStyle: {{ color: theme.trackMap }}
-        }});
-      }}
-      if (showCi) {{
-        trackSeries.push(
-          {{
-            name: "q2.5",
-            type: "line",
-            showSymbol: false,
-            symbol: "none",
-            data: tmrcaLo,
-            lineStyle: {{ width: 1.2, color: theme.ci, type: "dotted" }},
-            itemStyle: {{ color: theme.ci }}
-          }},
-          {{
-            name: "q97.5",
-            type: "line",
-            showSymbol: false,
-            symbol: "none",
-            data: tmrcaHi,
-            lineStyle: {{ width: 1.2, color: theme.ci, type: "dotted" }},
-            itemStyle: {{ color: theme.ci }}
-          }}
-        );
-      }}
-
-      return {{
-        animationDuration: 650,
-        animationEasing: "cubicOut",
-        legend: {{
-          top: 8,
-          left: 14,
-          textStyle: {{ color: "#223a52", fontSize: 12, fontFamily: "Sora, sans-serif" }}
-        }},
-        grid: {{ left: 84, right: 42, top: 44, bottom: 68, containLabel: true }},
-        tooltip: {{
-          trigger: "axis",
-          axisPointer: {{ type: "cross" }},
-          backgroundColor: "rgba(13, 22, 34, 0.90)",
-          borderWidth: 0,
-          textStyle: {{ color: "#f2f6fb" }}
-        }},
-        toolbox: {{
-          right: 8,
-          top: 6,
-          itemSize: 14,
-          feature: {{
-            dataZoom: {{ yAxisIndex: "none" }},
-            restore: {{}},
-            saveAsImage: {{ pixelRatio: 2 }}
-          }}
-        }},
-        xAxis: {{
-          type: "value",
-          name: "Genome bin index",
-          nameLocation: "middle",
-          nameGap: 34,
-          axisLine: {{ lineStyle: {{ color: "#698198" }} }},
-          axisLabel: {{ color: "#51697f" }},
-          splitLine: {{ lineStyle: {{ color: "rgba(81,105,127,0.15)" }} }}
-        }},
-        yAxis: {{
-          type: yType,
-          name: "TMRCA (years)",
-          nameLocation: "middle",
-          nameRotate: 90,
-          nameGap: 62,
-          axisLine: {{ lineStyle: {{ color: "#698198" }} }},
-          axisLabel: {{ color: "#51697f" }},
-          splitLine: {{ lineStyle: {{ color: "rgba(81,105,127,0.15)" }} }}
-        }},
-        dataZoom: [
-          {{ type: "inside", xAxisIndex: 0 }},
-          {{
-            type: "slider",
-            xAxisIndex: 0,
-            bottom: 16,
-            height: 18,
-            borderColor: "rgba(17,34,51,0.15)",
-            backgroundColor: "rgba(255,255,255,0.62)",
-            fillerColor: "rgba(66,165,245,0.20)",
-            handleStyle: {{ color: theme.accent }}
-          }}
-        ],
-        series: trackSeries
-      }};
-    }};
-
-    const buildTmrcaStateOption = (theme) => {{
-      const metric = tmrcaCtrl.stateMetric ? tmrcaCtrl.stateMetric.value : "pct";
-      const isPct = metric !== "raw";
-      const yData = isPct ? tmrcaStatePct : tmrcaStateRaw;
-      const yName = isPct ? "Posterior mass (%)" : "Posterior mass";
-      return {{
-        animationDuration: 600,
-        animationEasing: "cubicOut",
-        tooltip: {{
-          trigger: "axis",
-          axisPointer: {{ type: "shadow" }},
-          backgroundColor: "rgba(13, 22, 34, 0.90)",
-          borderWidth: 0,
-          textStyle: {{ color: "#f2f6fb" }},
-          formatter: (params) => {{
-            const p = Array.isArray(params) ? params[0] : params;
-            const idx = p.dataIndex;
-            const b = tmrcaStateBins[idx];
-            if (!b) return "";
-            const endTxt = (b.end_years === null || !Number.isFinite(b.end_years))
-              ? "inf"
-              : b.end_years.toExponential(3);
-            return [
-              `State ${{idx}}`,
-              `Interval: ${{b.start_years.toExponential(3)}} - ${{endTxt}} years`,
-              `Mass: ${{b.mass.toExponential(3)}}`,
-              `Mass %: ${{b.mass_pct.toFixed(2)}}%`
-            ].join("<br/>");
-          }}
-        }},
-        toolbox: {{
-          right: 8,
-          top: 6,
-          itemSize: 14,
-          feature: {{
-            dataZoom: {{ yAxisIndex: "none" }},
-            restore: {{}},
-            saveAsImage: {{ pixelRatio: 2 }}
-          }}
-        }},
-        grid: {{ left: 84, right: 42, top: 32, bottom: 64, containLabel: true }},
-        xAxis: {{
-          type: "category",
-          data: tmrcaStateLabels,
-          name: "State interval (years)",
-          nameLocation: "middle",
-          nameGap: 44,
-          axisLine: {{ lineStyle: {{ color: "#698198" }} }},
-          axisLabel: {{
-            color: "#51697f",
-            interval: (idx) => idx % tickStep === 0,
-            rotate: 24,
-            fontSize: 10
-          }},
-          splitLine: {{ show: false }}
-        }},
-        yAxis: {{
-          type: "value",
-          name: yName,
-          nameLocation: "middle",
-          nameRotate: 90,
-          nameGap: 56,
-          axisLine: {{ lineStyle: {{ color: "#698198" }} }},
-          axisLabel: {{ color: "#51697f" }},
-          splitLine: {{ lineStyle: {{ color: "rgba(81,105,127,0.15)" }} }}
-        }},
-        dataZoom: [
-          {{ type: "inside", xAxisIndex: 0 }},
-          {{
-            type: "slider",
-            xAxisIndex: 0,
-            bottom: 12,
-            height: 16,
-            borderColor: "rgba(17,34,51,0.15)",
-            backgroundColor: "rgba(255,255,255,0.62)",
-            fillerColor: "rgba(38,166,154,0.22)",
-            handleStyle: {{ color: theme.accent2 }}
-          }}
-        ],
-        series: [{{
-          name: isPct ? "mass %" : "mass",
-          type: "bar",
-          data: yData,
-          barMaxWidth: 24,
-          itemStyle: {{
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              {{ offset: 0, color: theme.stateTop }},
-              {{ offset: 1, color: theme.stateBottom }}
-            ]),
-            borderRadius: [4, 4, 0, 0]
-          }}
-        }}]
-      }};
-    }};
-
-    const applyTmrcaCharts = (theme) => {{
-      tmrcaTrack.setOption(buildTmrcaTrackOption(theme), true);
-      tmrcaStateChart.setOption(buildTmrcaStateOption(theme), true);
-    }};
-    window.__psmcTmrca = {{
-      track: tmrcaTrack,
-      state: tmrcaStateChart,
-      apply: applyTmrcaCharts
-    }};
-"##,
-            tmrca_mean_json, tmrca_map_json, tmrca_lo_json, tmrca_hi_json, tmrca_state_bins_json
-        );
-        (panel, script)
-    } else {
-        (String::new(), String::new())
-    };
-
-    let template = r##"<!doctype html>
+/// The page; `__NAME__` marks where [`write_html_report`] puts each part.
+const PAGE: &str = r##"<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>__TITLE__</title>
+  <title>PSMC Inference Report</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -1180,7 +818,7 @@ pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
 <body>
   <div class="wrap">
     <header class="hero">
-      <h1>__TITLE__</h1>
+      <h1>PSMC Inference Report</h1>
       <div class="sub">Input: __INPUT_NAME__ · psmc-rs __VERSION__ · Interactive report with per-chart export.</div>
     </header>
 
@@ -1625,18 +1263,309 @@ pub fn write_html_report(output_html: &Path, data: &ReportData) -> Result<()> {
 </html>
 "##;
 
-    let html = template
-        .replace("__TITLE__", &escape_html(title))
-        .replace("__INPUT_NAME__", &escape_html(input_name))
-        .replace("__VERSION__", env!("CARGO_PKG_VERSION"))
-        .replace("__META_ROWS__", &meta_rows)
-        .replace("__QC_SECTION__", &qc_html)
-        .replace("__BOOTSTRAP_SECTION__", &bootstrap_html)
-        .replace("__TMRCA_PANEL__", &tmrca_panel)
-        .replace("__TMRCA_SCRIPT__", &tmrca_script)
-        .replace("__SERIES_JSON__", &series_json)
-        .replace("__ECHARTS_SCRIPT__", &echarts_script);
-    fs::write(output_html, html)
-        .with_context(|| format!("failed to write {}", output_html.display()))?;
-    Ok(())
-}
+/// The TMRCA panel of the page; `__NAME__` marks each number.
+const TMRCA_PANEL: &str = r#"
+    <section class="card tmrca-card">
+      <div class="chart-wrap">
+        <div class="chart-head">
+          <div class="chart-title">TMRCA Posterior Track</div>
+          <div class="chart-actions">
+            <label class="ctrl"><input id="ctrl-tmrca-map" type="checkbox" checked /> MAP</label>
+            <label class="ctrl"><input id="ctrl-tmrca-ci" type="checkbox" checked /> 95% CI</label>
+            <label class="ctrl">
+              Y
+              <select id="ctrl-tmrca-yscale">
+                <option value="log" selected>log</option>
+                <option value="value">linear</option>
+              </select>
+            </label>
+            <button class="btn ghost" id="btn-tmrca-reset" type="button">Reset</button>
+            <button class="btn" id="btn-tmrca-save" type="button">Save PNG</button>
+          </div>
+        </div>
+        <div id="tmrca-track"></div>
+      </div>
+      <div class="chart-wrap compact">
+        <div class="chart-head">
+          <div class="chart-title">Posterior Mass by State Interval</div>
+          <div class="chart-actions">
+            <label class="ctrl">
+              Metric
+              <select id="ctrl-state-metric">
+                <option value="pct" selected>percent</option>
+                <option value="raw">raw mass</option>
+              </select>
+            </label>
+            <button class="btn ghost" id="btn-state-reset" type="button">Reset</button>
+            <button class="btn" id="btn-state-save" type="button">Save PNG</button>
+          </div>
+        </div>
+        <div id="tmrca-state"></div>
+      </div>
+      <div class="meta tmrca-meta">
+        <table>
+          <tr><th>TMRCA rows</th><td>__ROWS__</td></tr>
+          <tr><th>Sampled points</th><td>__POINTS__</td></tr>
+          <tr><th>Posterior CI</th><td>q2.5 to q97.5 (per sampled bin)</td></tr>
+          <tr><th>Sequences</th><td>__SEQUENCES__</td></tr>
+        </table>
+      </div>
+    </section>
+"#;
+
+/// The script of the TMRCA charts; `__NAME__` marks each data set.
+const TMRCA_SCRIPT: &str = r##"
+    const tmrcaMeanRaw = __MEAN__;
+    const tmrcaMapRaw = __MAP__;
+    const tmrcaLoRaw = __LO__;
+    const tmrcaHiRaw = __HI__;
+    const tmrcaStateBins = __STATE_BINS__;
+    const positiveY = (pt) => Number.isFinite(pt[0]) && Number.isFinite(pt[1]) && pt[1] > 0;
+    const tmrcaMean = tmrcaMeanRaw.filter(positiveY);
+    const tmrcaMap = tmrcaMapRaw.filter(positiveY);
+    const tmrcaLo = tmrcaLoRaw.filter(positiveY);
+    const tmrcaHi = tmrcaHiRaw.filter(positiveY);
+    const tmrcaTrack = echarts.init(document.getElementById("tmrca-track"), null, { renderer: "canvas" });
+    const tmrcaStateChart = echarts.init(document.getElementById("tmrca-state"), null, { renderer: "canvas" });
+    const tmrcaCtrl = {
+      map: document.getElementById("ctrl-tmrca-map"),
+      ci: document.getElementById("ctrl-tmrca-ci"),
+      yScale: document.getElementById("ctrl-tmrca-yscale"),
+      stateMetric: document.getElementById("ctrl-state-metric")
+    };
+
+    const fmtYears = (v) => {
+      if (!Number.isFinite(v)) return "NA";
+      if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
+      if (v >= 1e3) return (v / 1e3).toFixed(1) + "k";
+      return v.toFixed(1);
+    };
+    const tmrcaStateLabels = tmrcaStateBins.map((b) => {
+      const s = fmtYears(b.start_years);
+      if (b.end_years === null || !Number.isFinite(b.end_years)) {
+        return `>= ${s}`;
+      }
+      return `${s} - ${fmtYears(b.end_years)}`;
+    });
+    const tmrcaStatePct = tmrcaStateBins.map((b) => b.mass_pct);
+    const tmrcaStateRaw = tmrcaStateBins.map((b) => b.mass);
+    const tickStep = Math.max(1, Math.ceil(tmrcaStateLabels.length / 18));
+
+    const buildTmrcaTrackOption = (theme) => {
+      const yType = tmrcaCtrl.yScale ? tmrcaCtrl.yScale.value : "log";
+      const showMap = tmrcaCtrl.map ? tmrcaCtrl.map.checked : true;
+      const showCi = tmrcaCtrl.ci ? tmrcaCtrl.ci.checked : true;
+      const widthSlider = document.getElementById("ctrl-main-width");
+      const lineW = widthSlider ? Number(widthSlider.value) : 2.4;
+      const trackSeries = [
+        {
+          name: "mean",
+          type: "line",
+          showSymbol: false,
+          symbol: "none",
+          data: tmrcaMean,
+          lineStyle: { width: Math.max(1.4, lineW - 0.4), color: theme.trackMean },
+          itemStyle: { color: theme.trackMean }
+        }
+      ];
+      if (showMap) {
+        trackSeries.push({
+          name: "map",
+          type: "line",
+          showSymbol: false,
+          symbol: "none",
+          data: tmrcaMap,
+          lineStyle: { width: Math.max(1.2, lineW - 0.6), color: theme.trackMap, type: "dashed" },
+          itemStyle: { color: theme.trackMap }
+        });
+      }
+      if (showCi) {
+        trackSeries.push(
+          {
+            name: "q2.5",
+            type: "line",
+            showSymbol: false,
+            symbol: "none",
+            data: tmrcaLo,
+            lineStyle: { width: 1.2, color: theme.ci, type: "dotted" },
+            itemStyle: { color: theme.ci }
+          },
+          {
+            name: "q97.5",
+            type: "line",
+            showSymbol: false,
+            symbol: "none",
+            data: tmrcaHi,
+            lineStyle: { width: 1.2, color: theme.ci, type: "dotted" },
+            itemStyle: { color: theme.ci }
+          }
+        );
+      }
+
+      return {
+        animationDuration: 650,
+        animationEasing: "cubicOut",
+        legend: {
+          top: 8,
+          left: 14,
+          textStyle: { color: "#223a52", fontSize: 12, fontFamily: "Sora, sans-serif" }
+        },
+        grid: { left: 84, right: 42, top: 44, bottom: 68, containLabel: true },
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "cross" },
+          backgroundColor: "rgba(13, 22, 34, 0.90)",
+          borderWidth: 0,
+          textStyle: { color: "#f2f6fb" }
+        },
+        toolbox: {
+          right: 8,
+          top: 6,
+          itemSize: 14,
+          feature: {
+            dataZoom: { yAxisIndex: "none" },
+            restore: {},
+            saveAsImage: { pixelRatio: 2 }
+          }
+        },
+        xAxis: {
+          type: "value",
+          name: "Genome bin index",
+          nameLocation: "middle",
+          nameGap: 34,
+          axisLine: { lineStyle: { color: "#698198" } },
+          axisLabel: { color: "#51697f" },
+          splitLine: { lineStyle: { color: "rgba(81,105,127,0.15)" } }
+        },
+        yAxis: {
+          type: yType,
+          name: "TMRCA (years)",
+          nameLocation: "middle",
+          nameRotate: 90,
+          nameGap: 62,
+          axisLine: { lineStyle: { color: "#698198" } },
+          axisLabel: { color: "#51697f" },
+          splitLine: { lineStyle: { color: "rgba(81,105,127,0.15)" } }
+        },
+        dataZoom: [
+          { type: "inside", xAxisIndex: 0 },
+          {
+            type: "slider",
+            xAxisIndex: 0,
+            bottom: 16,
+            height: 18,
+            borderColor: "rgba(17,34,51,0.15)",
+            backgroundColor: "rgba(255,255,255,0.62)",
+            fillerColor: "rgba(66,165,245,0.20)",
+            handleStyle: { color: theme.accent }
+          }
+        ],
+        series: trackSeries
+      };
+    };
+
+    const buildTmrcaStateOption = (theme) => {
+      const metric = tmrcaCtrl.stateMetric ? tmrcaCtrl.stateMetric.value : "pct";
+      const isPct = metric !== "raw";
+      const yData = isPct ? tmrcaStatePct : tmrcaStateRaw;
+      const yName = isPct ? "Posterior mass (%)" : "Posterior mass";
+      return {
+        animationDuration: 600,
+        animationEasing: "cubicOut",
+        tooltip: {
+          trigger: "axis",
+          axisPointer: { type: "shadow" },
+          backgroundColor: "rgba(13, 22, 34, 0.90)",
+          borderWidth: 0,
+          textStyle: { color: "#f2f6fb" },
+          formatter: (params) => {
+            const p = Array.isArray(params) ? params[0] : params;
+            const idx = p.dataIndex;
+            const b = tmrcaStateBins[idx];
+            if (!b) return "";
+            const endTxt = (b.end_years === null || !Number.isFinite(b.end_years))
+              ? "inf"
+              : b.end_years.toExponential(3);
+            return [
+              `State ${idx}`,
+              `Interval: ${b.start_years.toExponential(3)} - ${endTxt} years`,
+              `Mass: ${b.mass.toExponential(3)}`,
+              `Mass %: ${b.mass_pct.toFixed(2)}%`
+            ].join("<br/>");
+          }
+        },
+        toolbox: {
+          right: 8,
+          top: 6,
+          itemSize: 14,
+          feature: {
+            dataZoom: { yAxisIndex: "none" },
+            restore: {},
+            saveAsImage: { pixelRatio: 2 }
+          }
+        },
+        grid: { left: 84, right: 42, top: 32, bottom: 64, containLabel: true },
+        xAxis: {
+          type: "category",
+          data: tmrcaStateLabels,
+          name: "State interval (years)",
+          nameLocation: "middle",
+          nameGap: 44,
+          axisLine: { lineStyle: { color: "#698198" } },
+          axisLabel: {
+            color: "#51697f",
+            interval: (idx) => idx % tickStep === 0,
+            rotate: 24,
+            fontSize: 10
+          },
+          splitLine: { show: false }
+        },
+        yAxis: {
+          type: "value",
+          name: yName,
+          nameLocation: "middle",
+          nameRotate: 90,
+          nameGap: 56,
+          axisLine: { lineStyle: { color: "#698198" } },
+          axisLabel: { color: "#51697f" },
+          splitLine: { lineStyle: { color: "rgba(81,105,127,0.15)" } }
+        },
+        dataZoom: [
+          { type: "inside", xAxisIndex: 0 },
+          {
+            type: "slider",
+            xAxisIndex: 0,
+            bottom: 12,
+            height: 16,
+            borderColor: "rgba(17,34,51,0.15)",
+            backgroundColor: "rgba(255,255,255,0.62)",
+            fillerColor: "rgba(38,166,154,0.22)",
+            handleStyle: { color: theme.accent2 }
+          }
+        ],
+        series: [{
+          name: isPct ? "mass %" : "mass",
+          type: "bar",
+          data: yData,
+          barMaxWidth: 24,
+          itemStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: theme.stateTop },
+              { offset: 1, color: theme.stateBottom }
+            ]),
+            borderRadius: [4, 4, 0, 0]
+          }
+        }]
+      };
+    };
+
+    const applyTmrcaCharts = (theme) => {
+      tmrcaTrack.setOption(buildTmrcaTrackOption(theme), true);
+      tmrcaStateChart.setOption(buildTmrcaStateOption(theme), true);
+    };
+    window.__psmcTmrca = {
+      track: tmrcaTrack,
+      state: tmrcaStateChart,
+      apply: applyTmrcaCharts
+    };
+"##;
