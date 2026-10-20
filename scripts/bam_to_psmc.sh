@@ -139,11 +139,9 @@ usage_error() {
 
 # A command line as the shell would read it back.
 quoted() {
-  local out="" a
-  for a in "$@"; do
-    out="$out $(printf '%q' "$a")"
-  done
-  printf '%s' "${out# }"
+  local line
+  printf -v line '%q ' "$@"
+  printf '%s' "${line% }"
 }
 
 # Log a command (or a pipeline, given as one string) before it runs.
