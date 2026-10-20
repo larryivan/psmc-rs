@@ -43,6 +43,7 @@ from .data import Source, decades
 
 GROUPS = (("true", style.BLUE, "decile of the true TMRCA"),
           ("posterior_mean", style.YELLOW, "decile of the posterior mean"))  # grey is for keys and references
+POINT_DASH = (0, (3.0, 1.5))  # c: the interval of the quantiles' state average times
 
 
 def draw(src: Source):
@@ -50,6 +51,7 @@ def draw(src: Source):
     from matplotlib.colors import LogNorm
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
+    from matplotlib.ticker import FuncFormatter, MultipleLocator
 
     track = src.table("E6_S3_track").sort_values(["sequence", "start_bp"])
     dens = src.table("E6_S3_density")
@@ -85,8 +87,7 @@ def draw(src: Source):
     het = track[track["obs"] == "K"]
     ax_a.plot(het["start_bp"] / 1e6, np.full(len(het), ylim[0] * 1.3), linestyle="none", marker="|", markersize=3,
               markeredgewidth=0.4, color=style.REF, zorder=1)
-    style.log_axis(ax_a, "y", grid=True)
-    ax_a.set_ylim(*ylim)
+    style.log_axis(ax_a, "y", grid=True, lim=ylim)
     ax_a.set_xlim(mb[0], mb[-1])
     ax_a.set_xlabel(f"Position on {track['sequence'].iloc[0]} (Mb)")
     ax_a.set_ylabel("TMRCA (years)")
@@ -108,17 +109,16 @@ def draw(src: Source):
                            norm=LogNorm(vmin=1.0, vmax=float(np.nanmax(counts))), shading="flat", rasterized=True)
     lims = (10 ** min(edges_x[0], edges_y[0]), 10 ** max(edges_x[-1], edges_y[-1]))
     ax_b.plot(lims, lims, color=style.INK, linewidth=style.LW_THIN, linestyle=style.DASH, zorder=3)
-    style.log_axis(ax_b, "x")
-    style.log_axis(ax_b, "y")
-    ax_b.set_xlim(*lims)
-    ax_b.set_ylim(*lims)
+    style.log_axis(ax_b, "x", lim=lims)
+    style.log_axis(ax_b, "y", lim=lims)
     ax_b.set_aspect("equal", anchor="W")  # square, flush left under a
     ax_b.set_xlabel("True TMRCA (years)")
     ax_b.set_ylabel("Posterior mean TMRCA (years)")
     if overall is not None:
         style.note(ax_b, 0.03, 0.97, f"r(log$_{{10}}$) = {float(overall.pearson_log10_mean):.2f}\n"
-                                     f"{int(overall.n_bins):,} bins", ha="left", va="top")
-    style.note(ax_b, 0.97, 0.03, "right and top edge cells also\nhold the bins beyond the axes", ha="right", va="bottom")
+                                     f"{int(overall.n_bins):,} bins")
+    style.note(ax_b, 0.97, 0.03, "right and top edge cells also\nhold the bins beyond the axes", ha="right",
+               va="bottom")
     cax = ax_b.inset_axes([1.04, 0.0, 0.05, 1.0])
     cb = fig.colorbar(mesh, cax=cax)
     cb.outline.set_linewidth(style.LW_HAIR)
@@ -142,11 +142,9 @@ def draw(src: Source):
     ax_c.set_xticks(k)
     ax_c.set_xlim(k[0] - 0.5, k[-1] + 0.5)
     ax_c.set_ylim(min(0.75, np.floor((low - 0.02) * 20) / 20 - 0.05), 1.0)  # room below for the legend
-    from matplotlib.ticker import MultipleLocator
-
     ax_c.yaxis.set_major_locator(MultipleLocator(0.05))
-    ax_c.yaxis.set_major_formatter(_percent())
-    ax_c.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+    ax_c.yaxis.set_major_formatter(FuncFormatter(lambda v, _pos: f"{100 * v:.0f}%"))
+    style.value_grid(ax_c)
     ax_c.set_xlabel("Decile of the TMRCA (1 = youngest)")
     ax_c.set_ylabel("Coverage of the 95% interval")
     states, point = "States from the 2.5% to the 97.5% quantile", "Quantiles' state average times"
@@ -163,17 +161,8 @@ def draw(src: Source):
     handles.append(Line2D([], [], color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT))
     labels.append("Nominal 95%")
     style.legend(ax_c, handles, labels, loc="lower left")
-    style.panel_letters(fig, [ax_a, ax_b, ax_c], align_cols=True)
+    style.panel_letters(fig, [ax_a, ax_b, ax_c])
     return fig
-
-
-POINT_DASH = (0, (3.0, 1.5))
-
-
-def _percent():
-    from matplotlib.ticker import FuncFormatter
-
-    return FuncFormatter(lambda v, _p: f"{100 * v:.0f}%")
 
 
 __all__ = ["draw"]
