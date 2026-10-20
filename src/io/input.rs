@@ -35,8 +35,7 @@ use crate::io::consensus::{
 use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
 use crate::io::psmcfa::{PsmcfaRecord, parse_psmcfa_with_stats};
 use crate::io::vcf::{
-    VcfOptions, VcfSummary, gvcf_block_end_of, list_names, no_het_snp_message,
-    read_vcf_seqs_from,
+    VcfOptions, VcfSummary, gvcf_block_end_of, list_names, no_het_snp_message, read_vcf_seqs_from,
 };
 use crate::io::{BinCounts, CallableBases, Observations, Sequences};
 

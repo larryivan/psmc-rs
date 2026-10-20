@@ -93,13 +93,12 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use crate::io::BinCounts;
+pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
 use crate::io::common::{
     DepthCounter, HetCall, SeqBuilder, is_regular_file, open_reader, reopen_reader,
 };
-pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
 use crate::io::vcf::{
-    MAX_POS, MaskEngine, Uncallable, list_names, outside_mask_hint,
-    outside_some_masks_hint,
+    MAX_POS, MaskEngine, Uncallable, list_names, outside_mask_hint, outside_some_masks_hint,
 };
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).

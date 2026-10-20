@@ -1440,7 +1440,13 @@ fn start_chrom(
         summary.contig_lengths_used.push(name.to_string());
     }
     let uncallable = masks.uncallable_for_chrom(name);
-    Ok(ChromBuilder::new(chrom, uncallable, contig_len, opts, collect_het))
+    Ok(ChromBuilder::new(
+        chrom,
+        uncallable,
+        contig_len,
+        opts,
+        collect_het,
+    ))
 }
 
 /// [`read_vcf_with`] with the default options for everything not given here.

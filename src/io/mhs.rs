@@ -314,13 +314,16 @@ fn read_rows(
         // wherever it is.
         *maybe_other_format = true;
         let mut cols = trimmed.split_whitespace();
-        let mut fields = [""; 4];
-        for (field, name) in fields.iter_mut().zip(["chrom", "pos", "nr_called", "alleles"]) {
-            *field = cols
-                .next()
-                .with_context(|| format!("invalid mhs row {row_no}: missing {name}"))?;
-        }
-        let [chrom, pos_str, called_str, alleles] = fields;
+        let mut col = |name: &str| {
+            cols.next()
+                .with_context(|| format!("invalid mhs row {row_no}: missing {name}"))
+        };
+        let (chrom, pos_str, called_str, alleles) = (
+            col("chrom")?,
+            col("pos")?,
+            col("nr_called")?,
+            col("alleles")?,
+        );
         // From here on, an error in any row but the first is one of a
         // multihetsep file.
         *maybe_other_format = summary.rows == 0;
