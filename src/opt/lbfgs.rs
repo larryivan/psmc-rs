@@ -49,12 +49,24 @@
 
 use std::collections::VecDeque;
 
+use super::MStepStop;
 use super::objective::Objective;
 
 /// Step of the forward differences of the gradient that estimate the
 /// Hessian's diagonal, in the unconstrained coordinates (about a relative
 /// change of 1e-4 in each parameter).
 const CURVATURE_STEP: f64 = 1e-4;
+
+/// The moves of one coordinate that [`move_flat_coordinates`] tries, in
+/// the unconstrained coordinates (in which 1 is about a factor e in a
+/// parameter away from its bounds); the largest crosses the whole range.
+const FLAT_MOVES: [f64; 9] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
+
+/// Restarts by [`check_before_stopping`] in one minimisation.
+const MAX_RESTARTS: usize = 3;
+
+/// Consecutive iterations that must meet the convergence test.
+const CONVERGED_ITERATIONS: usize = 2;
 
 /// The settings of [`minimize`].
 pub(crate) struct Settings {
@@ -68,40 +80,32 @@ pub(crate) struct Settings {
     pub debug: bool,
 }
 
-/// The moves of one coordinate that [`move_flat_coordinates`] tries, in
-/// the unconstrained coordinates (in which 1 is about a factor e in a
-/// parameter away from its bounds); the largest crosses the whole range.
-const FLAT_MOVES: [f64; 9] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
-
-/// Restarts by [`check_before_stopping`] in one minimisation.
-const MAX_RESTARTS: usize = 3;
-
-/// Consecutive iterations that must meet the convergence test.
-const CONVERGED_ITERATIONS: usize = 2;
-
-/// Why [`minimize`] stopped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Stop {
-    Converged,
-    LineSearchFailed,
-    MaxIters,
-}
-
 /// The result of [`minimize`].
 pub(crate) struct Minimum {
     pub x: Vec<f64>,
     pub iterations: usize,
-    pub stop: Stop,
+    pub stop: MStepStop,
+}
+
+/// A point with its objective `f` and gradient `g`.
+struct Point {
+    x: Vec<f64>,
+    f: f64,
+    g: Vec<f64>,
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-/// The L-BFGS curvature pairs and the diagonal initial matrix.
+/// `a - b`, element by element.
+fn difference(a: &[f64], b: &[f64]) -> Vec<f64> {
+    a.iter().zip(b).map(|(a, b)| a - b).collect()
+}
+
+/// The L-BFGS curvature pairs `(s, y)` and the diagonal initial matrix.
 struct Memory {
-    s: VecDeque<Vec<f64>>,
-    y: VecDeque<Vec<f64>>,
+    pairs: VecDeque<(Vec<f64>, Vec<f64>)>,
     capacity: usize,
     /// The initial inverse Hessian, diagonal.
     h0: Vec<f64>,
@@ -110,19 +114,18 @@ struct Memory {
 impl Memory {
     /// The quasi-Newton direction `-H g` (two-loop recursion).
     fn direction(&self, g: &[f64]) -> Vec<f64> {
-        let k = self.s.len();
         let mut q = g.to_vec();
-        let mut a = vec![0.0; k];
-        for i in (0..k).rev() {
-            a[i] = dot(&self.s[i], &q) / dot(&self.y[i], &self.s[i]);
-            for (qj, yj) in q.iter_mut().zip(&self.y[i]) {
-                *qj -= a[i] * yj;
+        let mut a = vec![0.0; self.pairs.len()];
+        for ((s, y), ai) in self.pairs.iter().zip(&mut a).rev() {
+            *ai = dot(s, &q) / dot(y, s);
+            for (qj, yj) in q.iter_mut().zip(y) {
+                *qj -= *ai * yj;
             }
         }
         for (qj, hj) in q.iter_mut().zip(&self.h0) {
             *qj *= hj;
         }
-        for ((s, y), ai) in self.s.iter().zip(&self.y).zip(&a) {
+        for ((s, y), ai) in self.pairs.iter().zip(&a) {
             let b = dot(y, &q) / dot(y, s);
             for (qj, sj) in q.iter_mut().zip(s) {
                 *qj += (ai - b) * sj;
@@ -144,13 +147,16 @@ impl Memory {
             && sy.is_finite()
             && sy > 1e-10 * dot(&s, &s).sqrt() * dot(&y, &y).sqrt()
         {
-            if self.s.len() == self.capacity {
-                self.s.pop_front();
-                self.y.pop_front();
+            if self.pairs.len() == self.capacity {
+                self.pairs.pop_front();
             }
-            self.s.push_back(s);
-            self.y.push_back(y);
+            self.pairs.push_back((s, y));
         }
+    }
+
+    /// Forgets the curvature pairs: the direction becomes `-h0 g`.
+    fn clear(&mut self) {
+        self.pairs.clear();
     }
 }
 
@@ -183,6 +189,11 @@ fn curvature_floor(curvature: &[f64]) -> f64 {
     (1e-12 * steepest).max(f64::MIN_POSITIVE)
 }
 
+/// `1 / c`, or `1 / floor` where the curvature `c` is not above `floor`.
+fn inverse(c: f64, floor: f64) -> f64 {
+    if c > floor { 1.0 / c } else { 1.0 / floor }
+}
+
 /// The inverse of the Hessian's diagonal at `x` (gradient `g`), from
 /// [`curvatures`]: positive, and at most 1e12 times that of the steepest
 /// direction where a curvature is zero, negative or not finite (the line
@@ -192,134 +203,146 @@ fn inverse_curvatures(obj: &mut Objective, x: &[f64], g: &[f64], limit: f64) -> 
     let floor = curvature_floor(&curvature);
     curvature
         .into_iter()
-        .map(|c| {
-            if c.is_finite() && c > floor {
-                1.0 / c
-            } else {
-                1.0 / floor
-            }
-        })
+        .map(|c| inverse(if c.is_finite() { c } else { floor }, floor))
         .collect()
 }
 
-/// The check before the search stops, at `x` (where the objective is `f`
-/// with gradient `g`): from fresh curvatures, moves the flat coordinates
-/// ([`move_flat_coordinates`]), and returns the inverse curvatures to go on
-/// with when the objective could still fall by more than `threshold`: when
-/// those moves lowered it by more, or when the diagonal quadratic model of
-/// the other coordinates predicts more (`g' D g / 2`, with `D` their inverse
-/// curvatures). The latter catches a stop that the L-BFGS memory, built
-/// from curvatures elsewhere, predicted wrongly: a λ carried far past its
-/// optimum to where Q falls slowly towards the bound kept a gradient of
-/// 1.7e-3 at curvature 3.8e-3 (a Newton decrease of 3.7e-4) while the memory
-/// predicted less than 2.6e-8.
+/// The check before the search stops, at `at`: from fresh curvatures,
+/// moves the flat coordinates ([`move_flat_coordinates`]), and returns the
+/// inverse curvatures to go on with when the objective could still fall by
+/// more than `threshold`: when those moves lowered it by more, or when the
+/// diagonal quadratic model of the other coordinates predicts more
+/// (`g' D g / 2`, with `D` their inverse curvatures). The latter catches a
+/// stop that the L-BFGS memory, built from curvatures elsewhere, predicted
+/// wrongly: a λ carried far past its optimum to where Q falls slowly
+/// towards the bound kept a gradient of 1.7e-3 at curvature 3.8e-3 (a
+/// Newton decrease of 3.7e-4) while the memory predicted less than 2.6e-8.
 fn check_before_stopping(
     obj: &mut Objective,
-    x: &mut [f64],
-    f: &mut f64,
-    g: &mut [f64],
-    limit: f64,
+    at: &mut Point,
+    settings: &Settings,
     threshold: f64,
-    debug: bool,
 ) -> Option<Vec<f64>> {
-    let curvature = curvatures(obj, x, g, limit);
+    let limit = settings.x_limit;
+    let curvature = curvatures(obj, &at.x, &at.g, limit);
     let floor = curvature_floor(&curvature);
-    let moved = move_flat_coordinates(obj, x, f, g, &curvature, floor, limit, debug);
+    let moved = move_flat_coordinates(obj, at, &curvature, floor, settings);
     if moved > threshold {
-        return Some(inverse_curvatures(obj, x, g, limit));
+        return Some(inverse_curvatures(obj, &at.x, &at.g, limit));
     }
     let predicted: f64 = curvature
         .iter()
-        .zip(g.iter())
+        .zip(&at.g)
         .filter(|(c, _)| **c > floor)
         .map(|(c, gi)| 0.5 * gi * gi / c)
         .sum();
-    if debug {
+    if settings.debug {
         eprintln!(
             "M-step: before stopping, flat moves decreased {moved:.3e} and the diagonal \
              model predicts {predicted:.3e}, against {threshold:.3e}"
         );
     }
-    (predicted > threshold).then(|| {
-        curvature
-            .iter()
-            .map(|&c| if c > floor { 1.0 / c } else { 1.0 / floor })
-            .collect()
-    })
+    (predicted > threshold).then(|| curvature.iter().map(|&c| inverse(c, floor)).collect())
 }
 
-/// Moves each coordinate along which the objective at `x` does not curve
+/// Moves each coordinate along which the objective at `at` does not curve
 /// upwards (`curvature` not above `floor`) alone, downhill by each of
-/// [`FLAT_MOVES`] within ±`limit`, to the lowest objective found below the
-/// current one; `f` and `g` follow `x`. Returns the decrease of the
-/// objective.
-#[allow(clippy::too_many_arguments)]
+/// [`FLAT_MOVES`] within ±`x_limit`, to the lowest objective found below
+/// the current one. Returns the decrease of the objective.
 fn move_flat_coordinates(
     obj: &mut Objective,
-    x: &mut [f64],
-    f: &mut f64,
-    g: &mut [f64],
+    at: &mut Point,
     curvature: &[f64],
     floor: f64,
-    limit: f64,
-    debug: bool,
+    settings: &Settings,
 ) -> f64 {
-    let start = *f;
-    let mut trial = x.to_vec();
-    let mut g_trial = vec![0.0; x.len()];
-    let mut g_best = vec![0.0; x.len()];
-    for i in 0..x.len() {
-        if curvature[i] > floor || !(g[i] != 0.0 && g[i].is_finite()) {
+    let limit = settings.x_limit;
+    let start = at.f;
+    let mut trial = at.x.clone();
+    let mut g_trial = vec![0.0; trial.len()];
+    let mut g_best = vec![0.0; trial.len()];
+    for i in 0..trial.len() {
+        let gi = at.g[i];
+        if curvature[i] > floor || !(gi != 0.0 && gi.is_finite()) {
             continue;
         }
-        let downhill = -g[i].signum();
+        let downhill = -gi.signum();
         let mut best: Option<(f64, f64)> = None;
         for &moved in &FLAT_MOVES {
-            trial[i] = (x[i] + downhill * moved).clamp(-limit, limit);
-            if trial[i] == x[i] {
+            trial[i] = (at.x[i] + downhill * moved).clamp(-limit, limit);
+            if trial[i] == at.x[i] {
                 continue;
             }
             let f_trial = obj.eval(&trial, &mut g_trial);
-            if f_trial < best.map_or(*f, |(f_best, _)| f_best) {
+            if f_trial < best.map_or(at.f, |(f_best, _)| f_best) {
                 best = Some((f_trial, trial[i]));
                 std::mem::swap(&mut g_best, &mut g_trial);
             }
         }
-        match best {
-            Some((f_best, x_best)) => {
-                if debug {
-                    eprintln!(
-                        "M-step: coordinate {i} (curvature {:.2e}) moved from {:.3} to {:.3}, \
-                         decrease={:.3e}",
-                        curvature[i],
-                        x[i],
-                        x_best,
-                        (*f - f_best) / f.abs()
-                    );
-                }
-                x[i] = x_best;
-                trial[i] = x_best;
-                *f = f_best;
-                g.copy_from_slice(&g_best);
-            }
-            None => trial[i] = x[i],
+        let Some((f_best, x_best)) = best else {
+            trial[i] = at.x[i];
+            continue;
+        };
+        if settings.debug {
+            eprintln!(
+                "M-step: coordinate {i} (curvature {:.2e}) moved from {:.3} to {:.3}, \
+                 decrease={:.3e}",
+                curvature[i],
+                at.x[i],
+                x_best,
+                (at.f - f_best) / at.f.abs()
+            );
         }
+        at.x[i] = x_best;
+        trial[i] = x_best;
+        at.f = f_best;
+        at.g.copy_from_slice(&g_best);
     }
-    start - *f
+    start - at.f
+}
+
+/// Searches along `d` (slope `slope` at `at`) from a unit step,
+/// backtracking by safeguarded quadratic interpolation (to between 0.1 and
+/// 0.5 of the step) until the Armijo condition holds with a strict
+/// decrease. Returns the accepted step, whose point is then in `trial`.
+fn line_search(
+    obj: &mut Objective,
+    at: &Point,
+    d: &[f64],
+    slope: f64,
+    settings: &Settings,
+    trial: &mut Point,
+) -> Option<f64> {
+    let mut step = 1.0;
+    for _ in 0..settings.max_ls_steps {
+        for ((xt, xi), di) in trial.x.iter_mut().zip(&at.x).zip(d) {
+            *xt = (xi + step * di).clamp(-settings.x_limit, settings.x_limit);
+        }
+        trial.f = obj.eval(&trial.x, &mut trial.g);
+        if trial.f < at.f && trial.f <= at.f + settings.c1 * step * slope {
+            return Some(step);
+        }
+        // The minimum of the quadratic through f, the slope and the trial.
+        let quadratic = -slope * step * step / (2.0 * (trial.f - at.f - slope * step));
+        step = if quadratic.is_finite() {
+            quadratic.clamp(0.1 * step, 0.5 * step)
+        } else {
+            0.5 * step
+        };
+    }
+    None
 }
 
 /// Minimises the objective from `x` (where it is `f`, finite, with gradient
 /// `g`); calls `on_iteration` with the count after each iteration.
 ///
-/// Each iteration searches along the L-BFGS direction from a unit step,
-/// backtracking by safeguarded quadratic interpolation (to between 0.1 and
-/// 0.5 of the step) until the Armijo condition holds with a strict
-/// decrease. When no step of the line search does, the memory is cleared
-/// and the search repeated along the preconditioned gradient; when that
-/// fails too, the objective cannot be lowered at its precision
-/// ([`Stop::LineSearchFailed`]).
+/// Each iteration searches along the L-BFGS direction ([`line_search`]).
+/// When no step of the line search lowers the objective, the memory is
+/// cleared and the search repeated along the preconditioned gradient; when
+/// that fails too, the objective cannot be lowered at its precision
+/// ([`MStepStop::LineSearchFailed`]).
 ///
-/// The search has converged ([`Stop::Converged`]) when, in each of two
+/// The search has converged ([`MStepStop::Converged`]) when, in each of two
 /// consecutive iterations, the objective decreased by at most
 /// `rel_tol * |f|` and the next quasi-Newton step predicts no larger a
 /// decrease (`g' H g / 2`, the gradient's size in the metric of the inverse
@@ -334,9 +357,9 @@ fn move_flat_coordinates(
 /// [`MAX_RESTARTS`] times.
 pub(crate) fn minimize(
     obj: &mut Objective,
-    mut x: Vec<f64>,
-    mut f: f64,
-    mut g: Vec<f64>,
+    x: Vec<f64>,
+    f: f64,
+    g: Vec<f64>,
     settings: &Settings,
     on_iteration: &mut dyn FnMut(usize),
 ) -> Minimum {
@@ -345,12 +368,11 @@ pub(crate) fn minimize(
         return Minimum {
             x,
             iterations: 0,
-            stop: Stop::MaxIters,
+            stop: MStepStop::MaxIters,
         };
     }
     let mut memory = Memory {
-        s: VecDeque::new(),
-        y: VecDeque::new(),
+        pairs: VecDeque::new(),
         capacity: settings.memory,
         h0: inverse_curvatures(obj, &x, &g, settings.x_limit),
     };
@@ -362,86 +384,66 @@ pub(crate) fn minimize(
             .collect();
         eprintln!("M-step curvatures (f={f:.6e}): {}", curvatures.join(" "));
     }
-    let mut d = memory.direction(&g);
-    let mut x_new = vec![0.0; n];
-    let mut g_new = vec![0.0; n];
+    let mut at = Point { x, f, g };
+    let mut trial = Point {
+        x: vec![0.0; n],
+        f: f64::NAN,
+        g: vec![0.0; n],
+    };
+    let mut d = memory.direction(&at.g);
     let mut iterations = 0;
     let mut quiet = 0;
     let mut restarts = 0;
     loop {
         if iterations >= settings.max_iters {
             return Minimum {
-                x,
+                x: at.x,
                 iterations,
-                stop: Stop::MaxIters,
+                stop: MStepStop::MaxIters,
             };
         }
-        let mut slope = dot(&g, &d);
+        let mut slope = dot(&at.g, &d);
         if slope.is_nan() || slope >= 0.0 {
             // Not a descent direction (rounding in the memory): restart.
-            memory.s.clear();
-            memory.y.clear();
-            d = memory.direction(&g);
-            slope = dot(&g, &d);
+            memory.clear();
+            d = memory.direction(&at.g);
+            slope = dot(&at.g, &d);
         }
-        let mut step = 1.0;
-        let mut accepted = None;
-        for _ in 0..settings.max_ls_steps {
-            for ((xn, xi), di) in x_new.iter_mut().zip(&x).zip(&d) {
-                *xn = (xi + step * di).clamp(-settings.x_limit, settings.x_limit);
-            }
-            let f_try = obj.eval(&x_new, &mut g_new);
-            if f_try < f && f_try <= f + settings.c1 * step * slope {
-                accepted = Some(f_try);
-                break;
-            }
-            // The minimum of the quadratic through f, the slope and f_try.
-            let quadratic = -slope * step * step / (2.0 * (f_try - f - slope * step));
-            step = if quadratic.is_finite() {
-                quadratic.clamp(0.1 * step, 0.5 * step)
-            } else {
-                0.5 * step
-            };
-        }
-        let stop = match accepted {
-            None if memory.s.is_empty() => {
+        let stop = match line_search(obj, &at, &d, slope, settings, &mut trial) {
+            None if memory.pairs.is_empty() => {
                 if settings.debug {
                     eprintln!("M-step: no decrease along the preconditioned gradient");
                 }
-                Stop::LineSearchFailed
+                MStepStop::LineSearchFailed
             }
             None => {
                 if settings.debug {
                     eprintln!("M-step: line search failed; clearing the memory");
                 }
-                memory.s.clear();
-                memory.y.clear();
-                d = memory.direction(&g);
+                memory.clear();
+                d = memory.direction(&at.g);
                 continue;
             }
-            Some(f_new) => {
+            Some(step) => {
                 // The accepted trial point was the last one evaluated.
                 let row_deviation = obj.row_deviation();
-                let s: Vec<f64> = x_new.iter().zip(&x).map(|(a, b)| a - b).collect();
-                let y: Vec<f64> = g_new.iter().zip(&g).map(|(a, b)| a - b).collect();
-                memory.push(s, y);
-                let decrease = f - f_new;
-                std::mem::swap(&mut x, &mut x_new);
-                std::mem::swap(&mut g, &mut g_new);
-                f = f_new;
+                memory.push(difference(&trial.x, &at.x), difference(&trial.g, &at.g));
+                let decrease = at.f - trial.f;
+                std::mem::swap(&mut at, &mut trial);
                 iterations += 1;
                 on_iteration(iterations);
 
-                d = memory.direction(&g);
-                let predicted = -0.5 * dot(&g, &d);
-                let scale = settings.rel_tol * f.abs();
+                d = memory.direction(&at.g);
+                let predicted = -0.5 * dot(&at.g, &d);
+                let scale = settings.rel_tol * at.f.abs();
                 if settings.debug {
                     eprintln!(
-                        "M-step iteration {iterations}: f={f:.17e}, decrease={:.3e}, \
+                        "M-step iteration {iterations}: f={:.17e}, decrease={:.3e}, \
                          predicted={:.3e}, step={step:.3e}, evaluations={}, rows sum to 1 \
                          within {row_deviation:.2e}",
-                        decrease / f.abs(),
-                        predicted / f.abs(),
+                        at.f,
+                        decrease / at.f.abs(),
+                        predicted / at.f.abs(),
                         obj.evaluations
                     );
                 }
@@ -453,37 +455,28 @@ pub(crate) fn minimize(
                 if quiet < CONVERGED_ITERATIONS {
                     continue;
                 }
-                Stop::Converged
+                MStepStop::Converged
             }
         };
         // About to stop: check with fresh curvatures first.
         if restarts < MAX_RESTARTS && iterations < settings.max_iters {
             restarts += 1;
-            let before = x.clone();
-            let threshold = settings.rel_tol * f.abs();
-            if let Some(h0) = check_before_stopping(
-                obj,
-                &mut x,
-                &mut f,
-                &mut g,
-                settings.x_limit,
-                threshold,
-                settings.debug,
-            ) {
-                if x != before {
+            let before = at.x.clone();
+            let threshold = settings.rel_tol * at.f.abs();
+            if let Some(h0) = check_before_stopping(obj, &mut at, settings, threshold) {
+                if at.x != before {
                     iterations += 1;
                     on_iteration(iterations);
                 }
-                memory.s.clear();
-                memory.y.clear();
+                memory.clear();
                 memory.h0 = h0;
-                d = memory.direction(&g);
+                d = memory.direction(&at.g);
                 quiet = 0;
                 continue;
             }
         }
         return Minimum {
-            x,
+            x: at.x,
             iterations,
             stop,
         };

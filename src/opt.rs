@@ -347,11 +347,7 @@ pub fn m_step_lbfgs_with_outcome(
         params,
         evaluations: objective.evaluations,
         iterations: minimum.iterations,
-        stop: match minimum.stop {
-            lbfgs::Stop::Converged => MStepStop::Converged,
-            lbfgs::Stop::LineSearchFailed => MStepStop::LineSearchFailed,
-            lbfgs::Stop::MaxIters => MStepStop::MaxIters,
-        },
+        stop: minimum.stop,
     })
 }
 #[cfg(test)]
