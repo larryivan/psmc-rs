@@ -25,7 +25,7 @@ class Context:
     runs_dir: Path
     build_tools: bool = False  # build psmc-rs 0.2 first (the daemon does; status only identifies)
     log: Callable[[str], None] = print
-    _tools: Dict[str, tools.Tool] = field(default_factory=dict)
+    _tools: Dict[str, tools.Tool] = field(default_factory=dict)  # identified once (E3 adds psmc-rs 0.1)
 
     def exp_dir(self, experiment: str) -> Path:
         return Path(self.runs_dir) / experiment
@@ -41,7 +41,7 @@ class Context:
         return self._tools["c"]
 
     def pipeline_cmd(self, *args: str) -> List[str]:
-        """``python -m experiment.pipeline ARGS``, with this context's profile and runs directory."""
+        """``python -m experiment.pipeline ARGS``, with the interpreter that runs the pipeline."""
         return [paths.python(), "-m", "experiment.pipeline", *args]
 
     def profile_args(self) -> List[str]:
@@ -60,7 +60,4 @@ def module(name: str):
 
 
 def jobs_for(ctx: Context, experiments: Sequence[str]) -> List[Job]:
-    out: List[Job] = []
-    for name in experiments:
-        out.extend(module(name).jobs(ctx))
-    return out
+    return [job for name in experiments for job in module(name).jobs(ctx)]

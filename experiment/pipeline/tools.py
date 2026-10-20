@@ -12,12 +12,12 @@ information is recorded next to it and changes nothing:
   ``rustc -vV``, the rustflags and ``CARGO_PROFILE_RELEASE_*`` variables
   cargo reads, and the target features the flags enable; a build that a
   cargo configuration file changes, or for ``target-cpu=native``, is
-  refused). Information: the
-  last commit that touched the sources and the binary's SHA-256 (it embeds
-  the checkout's path, so it differs between clones of the same sources).
-  Outside a git checkout the binary's SHA-256 is the identity. The binary
-  is ``target/release/psmc-rs`` of this checkout, built with ``cargo build
-  --release --locked --offline`` (a no-op when up to date).
+  refused). Information: the last commit that touched the sources and the
+  binary's SHA-256 (it embeds the checkout's path, so it differs between
+  clones of the same sources). Outside a git checkout the binary's SHA-256
+  is the identity. The binary is ``target/release/psmc-rs`` of this
+  checkout, built with ``cargo build --release --locked --offline`` (a no-op
+  when up to date).
 * psmc-rs 0.1: the commit it is built from (in a git worktree under the
   tools directory with ``CARGO_TARGET_DIR`` next to it, see
   :func:`build_rs01`) and the build, as 0.2's; information: the binary's
@@ -45,11 +45,14 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from dataclasses import dataclass, field
+from importlib import metadata
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 from . import config, paths
+from .provenance import sha256_file
 
 RS_SOURCES = ("src", "Cargo.toml", "Cargo.lock")
 
@@ -69,15 +72,8 @@ class ToolError(RuntimeError):
     pass
 
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def _run(cmd: Sequence[str], cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None, timeout: float = 60) -> subprocess.CompletedProcess:
+def _run(cmd: Sequence[str], cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None,
+         timeout: float = 60) -> subprocess.CompletedProcess:
     return subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
 
 
@@ -97,9 +93,9 @@ def rs02_binary() -> Path:
     return paths.ROOT / "target" / "release" / "psmc-rs"
 
 
-def source_tree(cwd: Path = paths.ROOT) -> str:
+def source_tree() -> str:
     """The content of the Rust sources at HEAD: ``src=<tree id>;Cargo.toml=<blob id>;Cargo.lock=<blob id>``."""
-    return ";".join(f"{p}={_git('rev-parse', f'HEAD:{p}', cwd=cwd)}" for p in RS_SOURCES)
+    return ";".join(f"{p}={_git('rev-parse', f'HEAD:{p}')}" for p in RS_SOURCES)
 
 
 # The target features that change psmc-rs's code: with ``fma`` an x86-64
@@ -178,10 +174,6 @@ def cargo_config_settings(path: Path) -> List[str]:
         text = path.read_text()
     except (OSError, UnicodeDecodeError) as exc:
         return [f"unreadable ({exc})"]
-    try:
-        import tomllib
-    except ImportError:  # Python < 3.11: any such key, as text
-        return sorted(set(re.findall(r"^\s*(rustflags|\[profile\.release)", text, re.M)))
     try:
         data = tomllib.loads(text)
     except ValueError as exc:
@@ -324,12 +316,12 @@ def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
 # ---------------------------------------------------------------------------
 
 
-def rs01_dirs(tools: Optional[Path] = None) -> Dict[str, Path]:
-    base = (tools or paths.tools_dir()) / "psmc-rs-0.1"
+def rs01_dirs() -> Dict[str, Path]:
+    base = paths.tools_dir() / "psmc-rs-0.1"
     return {"base": base, "src": base / "src", "target": base / "target"}
 
 
-def build_rs01(commit: str = config.E3().rs01_commit, tools: Optional[Path] = None, log: Callable[[str], None] = print) -> Path:
+def build_rs01(commit: str = config.E3().rs01_commit, log: Callable[[str], None] = print) -> Path:
     """Build psmc-rs 0.1 from ``commit`` into the tools directory.
 
     The source is a detached git worktree at ``<tools>/psmc-rs-0.1/src`` and
@@ -337,7 +329,7 @@ def build_rs01(commit: str = config.E3().rs01_commit, tools: Optional[Path] = No
     nothing of this checkout changes. Offline: the dependencies must be in
     cargo's cache.
     """
-    d = rs01_dirs(tools)
+    d = rs01_dirs()
     full = _git("rev-parse", f"{commit}^{{commit}}")
     if not d["src"].exists():
         d["base"].mkdir(parents=True, exist_ok=True)
@@ -482,16 +474,16 @@ def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Option
     except subprocess.TimeoutExpired:
         raise ToolError(f"{compiler} --version timed out") from None
     version = res.stdout.splitlines()[0].strip() if res.returncode == 0 and res.stdout.strip() else "unknown"
-    commands: Dict[str, str] = {}
-    with tempfile.TemporaryDirectory(dir=src, prefix=".build-") as tmp:
-        for name, (cwd, files, extra) in targets.items():
-            def command(out: str) -> List[str]:
-                return [compiler, *shlex.split(cflags), *extra, *shlex.split(ldflags), "-o", out, *files,
-                        *shlex.split(C_LIBS)]
 
-            commands[name] = shlex.join(command(Path(name).name))  # as run, but for where the program goes
+    def command(name: str, out: str) -> List[str]:
+        _, files, extra = targets[name]
+        return [compiler, *shlex.split(cflags), *extra, *shlex.split(ldflags), "-o", out, *files, *shlex.split(C_LIBS)]
+
+    commands = {name: shlex.join(command(name, Path(name).name)) for name in targets}  # but for where it goes
+    with tempfile.TemporaryDirectory(dir=src, prefix=".build-") as tmp:
+        for name, (cwd, _, _) in targets.items():
             try:
-                res = _run(command(str(Path(tmp) / Path(name).name)), cwd=cwd, timeout=600)
+                res = _run(command(name, str(Path(tmp) / Path(name).name)), cwd=cwd, timeout=600)
             except subprocess.TimeoutExpired:
                 raise ToolError(f"building {name} timed out after 600 s: {commands[name]}") from None
             if res.returncode != 0:
@@ -500,11 +492,6 @@ def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Option
             if (src / name).exists():
                 os.replace(src / name, src / f"{name}.prev")
             os.replace(Path(tmp) / Path(name).name, src / name)
-    prev_record = src / f"{C_BUILD_RECORD}.prev"
-    if (src / C_BUILD_RECORD).exists():
-        shutil.copy2(src / C_BUILD_RECORD, prev_record)
-    elif prev_record.exists():
-        prev_record.unlink()  # it describes no <program>.prev now
     record = {
         "record": C_BUILD_RECORD_ID,
         "built": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -518,11 +505,21 @@ def build_c(src: Optional[Path] = None, cc: Optional[str] = None, cflags: Option
         "binaries": {name: sha256_file(src / name) for name in targets},
         "platform": platform.platform(),
     }
+    _save_c_build(src, record)
+    log(f"[tools] C psmc, fq2psmcfa and splitfa are built in {src} ({version}; CFLAGS {cflags})")
+    return record
+
+
+def _save_c_build(src: Path, record: Dict) -> None:
+    """Write ``record`` as ``src``'s :data:`C_BUILD_RECORD`, keeping the one it replaces as ``.prev``."""
+    prev_record = src / f"{C_BUILD_RECORD}.prev"
+    if (src / C_BUILD_RECORD).exists():
+        shutil.copy2(src / C_BUILD_RECORD, prev_record)
+    elif prev_record.exists():
+        prev_record.unlink()  # it describes no <program>.prev now
     tmp_record = src / f".{C_BUILD_RECORD}.tmp"
     tmp_record.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
     os.replace(tmp_record, src / C_BUILD_RECORD)
-    log(f"[tools] C psmc, fq2psmcfa and splitfa are built in {src} ({version}; CFLAGS {cflags})")
-    return record
 
 
 def read_c_build(src: Optional[Path] = None) -> Optional[Dict]:
@@ -594,17 +591,8 @@ def fmt(x: float) -> str:
 
 def c_psmc_fit(tool: Tool, inference: config.Inference, inp: Path, out: Path) -> List[str]:
     """``psmc -N<n> -t<t> -r<r> -p <pattern> -o OUT IN``."""
-    return [
-        str(tool.path),
-        f"-N{inference.n_iter}",
-        f"-t{fmt(inference.t_max)}",
-        f"-r{fmt(inference.tr_ratio)}",
-        "-p",
-        inference.pattern,
-        "-o",
-        str(out),
-        str(inp),
-    ]
+    return [str(tool.path), f"-N{inference.n_iter}", f"-t{fmt(inference.t_max)}", f"-r{fmt(inference.tr_ratio)}",
+            "-p", inference.pattern, "-o", str(out), str(inp)]
 
 
 def rs02_model_args(inference: config.Inference) -> List[str]:
@@ -619,29 +607,11 @@ def rs02_model_args(inference: config.Inference) -> List[str]:
     ]
 
 
-def rs02_fit(
-    tool: Tool,
-    inference: config.Inference,
-    scaling: config.Scaling,
-    inp: Path,
-    out_json: Path,
-    *,
-    threads: int,
-    psmc_out: Optional[Path] = None,
-    extra: Sequence[str] = (),
-) -> List[str]:
+def rs02_fit(tool: Tool, inference: config.Inference, scaling: config.Scaling, inp: Path, out_json: Path, *,
+             threads: int, psmc_out: Optional[Path] = None, extra: Sequence[str] = ()) -> List[str]:
     """``psmc-rs IN OUT.json N_ITER`` with the model, scaling and run options."""
-    cmd = [
-        str(tool.path),
-        str(inp),
-        str(out_json),
-        str(inference.n_iter),
-        *rs02_model_args(inference),
-        "--mu", fmt(scaling.mu),
-        "--gen-years", fmt(scaling.gen_years),
-        "--threads", str(threads),
-        "--no-progress",
-    ]
+    cmd = [str(tool.path), str(inp), str(out_json), str(inference.n_iter), *rs02_model_args(inference),
+           "--mu", fmt(scaling.mu), "--gen-years", fmt(scaling.gen_years), "--threads", str(threads), "--no-progress"]
     if psmc_out is not None:
         cmd += ["--psmc-out", str(psmc_out)]
     return cmd + [str(x) for x in extra]
@@ -670,9 +640,6 @@ def read_lock(path: Path = LOCK) -> Dict[str, str]:
 
 def lock_differences(path: Path = LOCK) -> List[str]:
     """How the running interpreter differs from the requirements lock (empty when it matches)."""
-    import platform
-    from importlib import metadata
-
     out = []
     for name, want in read_lock(path).items():
         if name == "python":

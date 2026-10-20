@@ -18,9 +18,8 @@ Modules:
 * :mod:`.metrics`     time grids and RMSE of log10 Ne;
 * :mod:`.provenance`  checksums and the provenance record of a job;
 * :mod:`.runner`      the resumable, detached job runner;
-* :mod:`.experiments` the experiments as runner jobs (E1, ...) and their tables.
+* :mod:`.inputprep`   E4's data steps, from a VCF and a callable mask to bins;
+* :mod:`.kg1000`      E7's data stage: the 1000 Genomes VCFs to psmcfa;
+* :mod:`.experiments` the experiments as runner jobs (E1, ...) and their tables;
+* :mod:`.figures`     the manuscript's figures, drawn from those tables.
 """
-
-__all__ = ["__version__"]
-
-__version__ = "1.0"
