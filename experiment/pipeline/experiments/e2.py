@@ -4,10 +4,10 @@ For every genome of :class:`.config.E2` (three turtle assemblies and the
 human NA12878's chr1-22, E7's psmcfa of that sample) the runner fits the
 packaged psmcfa (``experiment/real_data``, plain or gzip-compressed; both
 tools read either) with C psmc and with psmc-rs 0.2 (the identical file
-and settings), fits psmc-rs's C-compatible bootstrap, runs ``psmc-rs
-qc``, and then writes the tables
-(Figure 3 is drawn from them by ``figures/fig3.py``, job ``FIG/fig3_real_genomes``).
-Layout under ``<runs>/E2/``::
+and settings), fits psmc-rs's C-compatible bootstrap, runs ``psmc-rs qc``,
+and then writes the tables (Figure 3 is drawn from them by
+``figures/fig3.py``, job ``FIG/fig3_real_genomes``). Layout under
+``<runs>/E2/``::
 
     fits/<sample>.c.psmc                          C psmc, every round
     fits/<sample>.rs.json, <sample>.rs.psmc       psmc-rs 0.2, one thread (JSON and .psmc)
@@ -22,13 +22,12 @@ Layout under ``<runs>/E2/``::
     figures/fig3_real_genomes.{pdf,svg,png}       Figure 3 (experiment FIG)
     logs/                                         runner and job logs (not committed)
 
-Jobs per genome: ``fit-c`` (C psmc), ``fit-rs`` (psmc-rs 0.2),
+Jobs per genome: ``subset`` when the profile fits only the first bins of
+each genome, ``fit-c`` (C psmc), ``fit-rs`` (psmc-rs 0.2), for the turtles
+``fit-rs-split2`` and ``fit-rs-split1`` (the split-first-window check),
 ``boot-rs/trunk<B>`` (psmc-rs 0.2 with ``--bootstrap``, at the default
-trunks and, where they are few, at the fine trunks) and ``qc`` (``psmc-rs qc
---json``, with the default trunk size), plus ``subset`` when the profile
-fits only the first bins of each genome, and for the turtles
-``fit-rs-split2`` and ``fit-rs-split1`` (the split-first-window check); then
-``report``.
+trunks and, where they are few, at the fine trunks) and ``qc`` (``psmc-rs
+qc --json``, with the default trunk size); then ``report``.
 
 **Settings.** Both tools fit with the psmc README's human recipe
 (``-N25 -t15 -r5 -p "4+25*2+4+6"``; :class:`.config.Inference`). Curves are
@@ -66,26 +65,24 @@ again, then B replicates, each drawing splitfa trunks of T bins (default
 to plan the whole file with other settings), so that Fig 3a and Fig 7 show
 the identical band. psmc-rs's output does not depend on ``--threads``, so
 ``main.json`` must hold ``fit-rs``'s fit exactly: every field of
-:data:`MAIN_FIT_FIELDS` (parameters, log-likelihoods, iterations, pattern)
-equal. Its ``qc`` record may differ, since it describes the input as the
-run cut it (a bootstrap adds SHORT_SEQUENCES where sequences are shorter
-than its trunks). The report writes its tables and then fails when a main
-fit differs. A genome whose default trunks are fewer than ``few_trunks`` is
-bootstrapped a second time with trunks of ``fine_trunk_bins`` (5 Mb, a size
-E5 calibrates), seed stage ``bootstrap/trunk<B>``. No genome of the
-production run is (NA12878 forms 59 default trunks, the turtles 51 to
-1,220); the smoke and tiny profiles' prefixes are. E5 calibrates bootstraps
-of chromosome-scale sequences cut into trunks, as NA12878's are (its 22
-chromosomes cut at 50 Mb; only chr21, 1.6% of its bins, is shorter than a
-trunk); the turtles' default bootstraps resample whole scaffolds of very
-different lengths (``bins_below_trunk_fraction`` of ``E2_bootstrap.csv``:
-50%, 23% and 97% of their bins lie in scaffolds shorter than a trunk),
-which E5 does not calibrate. The job
-declares ``main.json`` and the summary only: psmc-rs skips a replicate
-whose fresh start is invalid, and the report reads exactly the replicates
-the summary names. The replicates' parameters (``replicate_NNN.json``) are
-committed and tabulated in ``tables/E2_bootstrap_replicates.csv``; their
-``.psmc`` files (every EM round, about 100 kB each) are not.
+:data:`MAIN_FIT_FIELDS` equal. The report writes its tables and then fails
+when a main fit differs. A genome whose default trunks are fewer than
+``few_trunks`` is bootstrapped a second time with trunks of
+``fine_trunk_bins`` (5 Mb, a size E5 calibrates), seed stage
+``bootstrap/trunk<B>``. No genome of the production run is (NA12878 forms
+59 default trunks, the turtles 51 to 1,220); the smoke and tiny profiles'
+prefixes are. E5 calibrates bootstraps of chromosome-scale sequences cut
+into trunks, as NA12878's are (its 22 chromosomes cut at 50 Mb; only chr21,
+1.6% of its bins, is shorter than a trunk); the turtles' default bootstraps
+resample whole scaffolds of very different lengths
+(``bins_below_trunk_fraction`` of ``E2_bootstrap.csv``: 50%, 23% and 97% of
+their bins lie in scaffolds shorter than a trunk), which E5 does not
+calibrate. The job declares ``main.json`` and the summary only: psmc-rs
+skips a replicate whose fresh start is invalid, and the report reads
+exactly the replicates the summary names. The replicates' parameters
+(``replicate_NNN.json``) are committed and tabulated in
+``tables/E2_bootstrap_replicates.csv``; their ``.psmc`` files (every EM
+round, about 100 kB each) are not.
 
 **Comparison window.** A real genome has no true Ne(t), so the informative
 window of :class:`.config.TimeGrid` is taken from the fitted model: the 1%
@@ -153,6 +150,7 @@ import functools
 import gzip
 import json
 import math
+import statistics
 import sys
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -161,7 +159,7 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import write_csv
+from .e1 import compare_tools, loglike_diffs, loglikes, read_fits, run_fields, run_record, step_rows, trace_rows, write_csv
 from .e5 import main_fit_difference, trunk_count
 
 NAME = "E2"
@@ -268,12 +266,10 @@ def input_shape(lengths: Sequence[int], max_bins: Optional[int] = None) -> Shape
 
 
 def write_psmcfa_prefix(src: Path, dst: Path, max_bins: int) -> Shape:
-    """Write the first ``max_bins`` bins of ``src`` to ``dst``, laid out as fq2psmcfa writes them.
+    """Write the first ``max_bins`` bins of ``src`` (plain or gzip) to the plain ``dst``, as fq2psmcfa lays them out.
 
-    ``src`` may be plain or gzip; ``dst`` is plain (the fits read it as
-    is). Records are kept in order with their headers; the last one is cut
-    and empty ones are left out (as :func:`prefix_lengths`). Written
-    atomically.
+    Records are kept in order with their headers; the last one is cut and
+    empty ones are left out (as :func:`prefix_lengths`). Written atomically.
     """
     if max_bins < 1:
         raise ValueError(f"max_bins must be >= 1, got {max_bins}")
@@ -350,7 +346,6 @@ class Layout:
         return self.root / "tables" / TABLES[key]
 
 
-
 def job_id(kind: str, sid: str) -> str:
     return f"{NAME}/{kind}/{sid}"
 
@@ -370,26 +365,20 @@ def split_kind(name: str) -> str:
     return f"fit-rs-{name}"
 
 
-def split_inference(cfg: config.E2, pattern: str) -> config.Inference:
-    """fit-rs's settings with another pattern."""
-    return replace(cfg.inference, pattern=pattern)
-
-
 def boot_kind(trunk: int) -> str:
     """The job kind (and provenance directory) of a bootstrap: ``boot-rs/trunk<B>``."""
     return f"boot-rs/trunk{trunk}"
 
 
-def bootstrap_stage(cfg: config.E2, trunk: int) -> str:
-    """The seed stage of a bootstrap: ``bootstrap`` at the default trunks, ``bootstrap/trunk<B>`` otherwise."""
-    return "bootstrap" if trunk == cfg.bootstrap_trunk_bins else f"bootstrap/trunk{trunk}"
-
-
 def bootstrap_seed(cfg: config.E2, genome: config.RealGenome, trunk: int) -> int:
-    """E2's seed of a bootstrap; at the default trunks, that of the experiment the genome shares its bootstrap with."""
-    stage = bootstrap_stage(cfg, trunk)
-    experiment = (genome.bootstrap_shared_with or NAME) if stage == "bootstrap" else NAME
-    return config.seed(experiment, genome.sample_id, 0, stage)
+    """The seed of a bootstrap: stage ``bootstrap`` at the default trunks, ``bootstrap/trunk<B>`` otherwise.
+
+    At the default trunks it is the seed of the experiment the genome shares
+    its bootstrap with, if any.
+    """
+    if trunk == cfg.bootstrap_trunk_bins:
+        return config.seed(genome.bootstrap_shared_with or NAME, genome.sample_id, 0, "bootstrap")
+    return config.seed(NAME, genome.sample_id, 0, f"bootstrap/trunk{trunk}")
 
 
 def shared_bootstrap_differences(profile: config.Profile, genome: config.RealGenome) -> Tuple[str, ...]:
@@ -432,11 +421,6 @@ def below_trunk_fraction(lengths: Sequence[int], trunk: int) -> float:
     return sum(n for n in lengths if n < trunk) / total if total else 0.0
 
 
-def rs_seconds(costs: config.Costs, mb: float, inference: config.Inference, parallel: int) -> float:
-    """Estimated seconds of one psmc-rs fit, or of one of ``parallel`` replicates fitted at once."""
-    return costs.rs02_seconds(mb, inference) / max(parallel, 1)
-
-
 def bootstrap_args(cfg: config.E2, genome: config.RealGenome, trunk: int, boot_dir: Path) -> List[str]:
     return [
         "--bootstrap", str(cfg.bootstrap_replicates),
@@ -447,163 +431,145 @@ def bootstrap_args(cfg: config.E2, genome: config.RealGenome, trunk: int, boot_d
     ]
 
 
-def jobs(ctx: Context) -> List[Job]:
-    cfg = ctx.profile.e2
-    costs = ctx.profile.costs
-    lay = Layout(ctx.exp_dir(NAME))
-    inference = asdict(cfg.inference)
-    n_iter = cfg.inference.n_iter
+def genome_jobs(ctx: Context, lay: Layout, g: config.RealGenome) -> Tuple[List[Job], List[Path]]:
+    """The jobs of one genome, and the files of theirs the report reads."""
+    cfg, costs = ctx.profile.e2, ctx.profile.costs
+    sid = g.sample_id
+    differing = shared_bootstrap_differences(ctx.profile, g) if cfg.max_bins is None else ()
+    if differing:
+        raise ValueError(f"E2 bootstraps {sid} with {g.bootstrap_shared_with}'s seed, but with other "
+                         f"{', '.join(differing)}: the two bands would differ")
+    src, inp = source(g), fit_input(lay, cfg, g)
+    lengths = input_lengths(cfg, g)
+    shape = input_shape(lengths)
     bin_mb = cfg.inference.bin_size / 1e6
+    mb, longest_mb = shape.bins * bin_mb, shape.longest * bin_mb
+    n_iter = cfg.inference.n_iter
     c_tool, rs_tool = ctx.c_psmc(), ctx.rs02()
     rs_ident = {rs_tool.name: rs_tool.identity}
+    scaling = asdict(g.scaling)
+
+    def rs_fit(kind: str, inference: config.Inference, out_json: Path, psmc_out: Path, description: str) -> Job:
+        return Job(
+            id=job_id(kind, sid),
+            command=tools.rs02_fit(rs_tool, inference, g.scaling, inp, out_json, threads=cfg.fit_threads,
+                                   psmc_out=psmc_out),
+            inputs=[inp],
+            outputs=[out_json, psmc_out],
+            cores=cfg.fit_threads,
+            mem_gb=costs.rs02_gb,
+            est_seconds=costs.rs02_seconds(mb, inference, min(cfg.fit_threads, shape.sequences)),
+            settings={"inference": asdict(inference), "scaling": scaling, "threads": cfg.fit_threads},
+            tools=rs_ident,
+            description=description,
+        )
+
+    out: List[Job] = []
+    if cfg.max_bins is not None:
+        out.append(Job(
+            id=job_id("subset", sid),
+            command=[paths.python(), "-m", MODULE, "subset", str(src), str(inp), "--max-bins", str(cfg.max_bins)],
+            inputs=[src],
+            outputs=[inp],
+            mem_gb=0.5,
+            est_seconds=2.0 + 0.5 * mb / 100,
+            settings={"max_bins": cfg.max_bins},
+            tools={"pipeline": provenance.python_identity(["experiments/e2.py", "simulate.py"])},
+            description=f"first {cfg.max_bins} bins of {g.label}",
+        ))
+    out.append(Job(
+        id=job_id("fit-c", sid),
+        command=tools.c_psmc_fit(c_tool, cfg.inference, inp, lay.c_psmc(sid)),
+        inputs=[inp],
+        outputs=[lay.c_psmc(sid)],
+        mem_gb=round(costs.c_psmc_gb_base + costs.c_psmc_gb_per_mb_longest * longest_mb, 2),
+        est_seconds=costs.c_psmc_s_per_mb_iter * mb * n_iter,
+        settings={"inference": asdict(cfg.inference)},
+        tools={c_tool.name: c_tool.identity},
+        description=f"C psmc on {g.label}",
+    ))
+    out.append(rs_fit("fit-rs", cfg.inference, lay.rs_json(sid), lay.rs_psmc(sid), f"psmc-rs 0.2 on {g.label}"))
+    report_inputs: List[Path] = []
+    if sid in cfg.split_genomes:
+        for name, pattern in cfg.split_patterns:
+            out.append(rs_fit(split_kind(name), replace(cfg.inference, pattern=pattern), lay.split_json(sid, name),
+                              lay.split_psmc(sid, name), f"psmc-rs 0.2 on {g.label}, pattern {pattern} (first window split)"))
+            report_inputs += [lay.split_json(sid, name), lay.split_psmc(sid, name), lay.record(split_kind(name), sid)]
+    boot_outputs: List[Path] = []
+    for trunk in trunk_sizes(cfg, lengths):
+        # psmc-rs skips a replicate whose fresh start is invalid (it gets no
+        # files); the report reads exactly the replicates summary.json names.
+        outputs = [lay.boot_main(sid, trunk), lay.boot_summary(sid, trunk, "json"), lay.boot_summary(sid, trunk, "tsv")]
+        boot_outputs += outputs
+        out.append(Job(
+            id=job_id(boot_kind(trunk), sid),
+            command=tools.rs02_fit(
+                rs_tool, cfg.inference, g.scaling, inp, lay.boot_main(sid, trunk),
+                threads=cfg.rs_threads, extra=bootstrap_args(cfg, g, trunk, lay.boot_dir(sid, trunk)),
+            ),
+            inputs=[inp],
+            outputs=outputs,
+            cores=cfg.rs_threads,
+            mem_gb=round(costs.rs02_gb * cfg.rs_threads, 2),  # one replicate per thread at once
+            # the main fit, then the replicates, rs_threads of them at once
+            est_seconds=costs.rs02_seconds(mb, cfg.inference, min(cfg.rs_threads, shape.sequences))
+            + cfg.bootstrap_replicates * (costs.rs02_seconds(mb, cfg.inference) / max(cfg.rs_threads, 1)),
+            settings={
+                "inference": asdict(cfg.inference),
+                "scaling": scaling,
+                "threads": cfg.rs_threads,
+                "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": trunk, "iterations": n_iter},
+            },
+            tools=rs_ident,
+            seeds={"bootstrap": bootstrap_seed(cfg, g, trunk)},
+            description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates, trunks of {trunk} "
+                        f"bins) on {g.label}",
+        ))
+        report_inputs.append(lay.record(boot_kind(trunk), sid))
+    out.append(Job(
+        id=job_id("qc", sid),
+        command=tools.rs02_qc(
+            rs_tool, inp, lay.qc_json(sid),
+            extra=["--bin-size", str(cfg.inference.bin_size), "--bootstrap-block-size", str(cfg.bootstrap_trunk_bins)],
+        ),
+        inputs=[inp],
+        outputs=[lay.qc_json(sid)],
+        stdout=lay.qc_txt(sid),
+        mem_gb=costs.rs02_gb,
+        est_seconds=2.0 + 0.002 * mb,
+        settings={"bin_size": cfg.inference.bin_size, "bootstrap_trunk_bins": cfg.bootstrap_trunk_bins},
+        tools=rs_ident,
+        description=f"psmc-rs qc on {g.label}",
+    ))
+    report_inputs += [
+        inp, lay.c_psmc(sid), lay.rs_json(sid), lay.rs_psmc(sid), *boot_outputs, lay.qc_json(sid),
+        lay.record("fit-c", sid), lay.record("fit-rs", sid),
+    ]
+    return out, report_inputs
+
+
+def jobs(ctx: Context) -> List[Job]:
+    cfg = ctx.profile.e2
+    lay = Layout(ctx.exp_dir(NAME))
     out: List[Job] = []
     report_inputs: List[Path] = []
     for g in cfg.genomes:
-        sid = g.sample_id
-        differing = shared_bootstrap_differences(ctx.profile, g) if cfg.max_bins is None else ()
-        if differing:
-            raise ValueError(f"E2 bootstraps {sid} with {g.bootstrap_shared_with}'s seed, but with other "
-                             f"{', '.join(differing)}: the two bands would differ")
-        src = source(g)
-        shape = input_shape(psmcfa_lengths(src), cfg.max_bins)
-        mb, longest_mb = shape.bins * bin_mb, shape.longest * bin_mb
-        inp = fit_input(lay, cfg, g)
-        scaling = asdict(g.scaling)
-        if cfg.max_bins is not None:
-            out.append(
-                Job(
-                    id=job_id("subset", sid),
-                    command=[paths.python(), "-m", MODULE, "subset", str(src), str(inp), "--max-bins", str(cfg.max_bins)],
-                    inputs=[src],
-                    outputs=[inp],
-                    mem_gb=0.5,
-                    est_seconds=2.0 + 0.5 * mb / 100,
-                    settings={"max_bins": cfg.max_bins},
-                    tools={"pipeline": provenance.python_identity(["experiments/e2.py", "simulate.py"])},
-                    description=f"first {cfg.max_bins} bins of {g.label}",
-                )
-            )
-        out.append(
-            Job(
-                id=job_id("fit-c", sid),
-                command=tools.c_psmc_fit(c_tool, cfg.inference, inp, lay.c_psmc(sid)),
-                inputs=[inp],
-                outputs=[lay.c_psmc(sid)],
-                mem_gb=round(costs.c_psmc_gb_base + costs.c_psmc_gb_per_mb_longest * longest_mb, 2),
-                est_seconds=costs.c_psmc_s_per_mb_iter * mb * n_iter,
-                settings={"inference": inference},
-                tools={c_tool.name: c_tool.identity},
-                description=f"C psmc on {g.label}",
-            )
-        )
-        out.append(
-            Job(
-                id=job_id("fit-rs", sid),
-                command=tools.rs02_fit(
-                    rs_tool, cfg.inference, g.scaling, inp, lay.rs_json(sid),
-                    threads=cfg.fit_threads, psmc_out=lay.rs_psmc(sid),
-                ),
-                inputs=[inp],
-                outputs=[lay.rs_json(sid), lay.rs_psmc(sid)],
-                cores=cfg.fit_threads,
-                mem_gb=costs.rs02_gb,
-                est_seconds=costs.rs02_seconds(mb, cfg.inference, min(cfg.fit_threads, shape.sequences)),
-                settings={"inference": inference, "scaling": scaling, "threads": cfg.fit_threads},
-                tools=rs_ident,
-                description=f"psmc-rs 0.2 on {g.label}",
-            )
-        )
-        if g.sample_id in cfg.split_genomes:
-            for name, pattern in cfg.split_patterns:
-                inf = split_inference(cfg, pattern)
-                out.append(
-                    Job(
-                        id=job_id(split_kind(name), sid),
-                        command=tools.rs02_fit(
-                            rs_tool, inf, g.scaling, inp, lay.split_json(sid, name),
-                            threads=cfg.fit_threads, psmc_out=lay.split_psmc(sid, name),
-                        ),
-                        inputs=[inp],
-                        outputs=[lay.split_json(sid, name), lay.split_psmc(sid, name)],
-                        cores=cfg.fit_threads,
-                        mem_gb=costs.rs02_gb,
-                        est_seconds=costs.rs02_seconds(mb, inf, min(cfg.fit_threads, shape.sequences)),
-                        settings={"inference": asdict(inf), "scaling": scaling, "threads": cfg.fit_threads},
-                        tools=rs_ident,
-                        description=f"psmc-rs 0.2 on {g.label}, pattern {pattern} (first window split)",
-                    )
-                )
-                report_inputs += [lay.split_json(sid, name), lay.split_psmc(sid, name),
-                                  lay.record(split_kind(name), sid)]
-        boot_outputs: List[Path] = []
-        for trunk in trunk_sizes(cfg, input_lengths(cfg, g)):
-            # psmc-rs skips a replicate whose fresh start is invalid (it gets no
-            # files); the report reads exactly the replicates summary.json names.
-            outputs = [lay.boot_main(sid, trunk), lay.boot_summary(sid, trunk, "json"),
-                       lay.boot_summary(sid, trunk, "tsv")]
-            boot_outputs += outputs
-            out.append(
-                Job(
-                    id=job_id(boot_kind(trunk), sid),
-                    command=tools.rs02_fit(
-                        rs_tool, cfg.inference, g.scaling, inp, lay.boot_main(sid, trunk),
-                        threads=cfg.rs_threads, extra=bootstrap_args(cfg, g, trunk, lay.boot_dir(sid, trunk)),
-                    ),
-                    inputs=[inp],
-                    outputs=outputs,
-                    cores=cfg.rs_threads,
-                    mem_gb=round(costs.rs02_gb * cfg.rs_threads, 2),  # one replicate per thread at once
-                    est_seconds=costs.rs02_seconds(mb, cfg.inference, min(cfg.rs_threads, shape.sequences))
-                    + cfg.bootstrap_replicates * rs_seconds(costs, mb, cfg.inference, cfg.rs_threads),
-                    settings={
-                        "inference": inference,
-                        "scaling": scaling,
-                        "threads": cfg.rs_threads,
-                        "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": trunk, "iterations": n_iter},
-                    },
-                    tools=rs_ident,
-                    seeds={"bootstrap": bootstrap_seed(cfg, g, trunk)},
-                    description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates, trunks of {trunk} "
-                                f"bins) on {g.label}",
-                )
-            )
-            report_inputs.append(lay.record(boot_kind(trunk), sid))
-        out.append(
-            Job(
-                id=job_id("qc", sid),
-                command=tools.rs02_qc(
-                    rs_tool, inp, lay.qc_json(sid),
-                    extra=["--bin-size", str(cfg.inference.bin_size), "--bootstrap-block-size", str(cfg.bootstrap_trunk_bins)],
-                ),
-                inputs=[inp],
-                outputs=[lay.qc_json(sid)],
-                stdout=lay.qc_txt(sid),
-                mem_gb=costs.rs02_gb,
-                est_seconds=2.0 + 0.002 * mb,
-                settings={"bin_size": cfg.inference.bin_size, "bootstrap_trunk_bins": cfg.bootstrap_trunk_bins},
-                tools=rs_ident,
-                description=f"psmc-rs qc on {g.label}",
-            )
-        )
-        report_inputs += [
-            inp, lay.c_psmc(sid), lay.rs_json(sid), lay.rs_psmc(sid), *boot_outputs, lay.qc_json(sid),
-            lay.record("fit-c", sid), lay.record("fit-rs", sid),
-        ]
-    out.append(
-        Job(
-            id=f"{NAME}/report",
-            command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
-            inputs=report_inputs,
-            outputs=[lay.table(k) for k in TABLES],
-            mem_gb=costs.report_gb,
-            est_seconds=costs.report_s,
-            settings={"e2": asdict(cfg)},
-            tools={"pipeline": provenance.python_identity(
-                ["experiments/e2.py", "experiments/e1.py", "results.py", "metrics.py", "demography.py"], ["numpy"]
-            )},
-            description="E2 tables",
-        )
-    )
+        genome_out, genome_inputs = genome_jobs(ctx, lay, g)
+        out += genome_out
+        report_inputs += genome_inputs
+    out.append(Job(
+        id=f"{NAME}/report",
+        command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
+        inputs=report_inputs,
+        outputs=[lay.table(k) for k in TABLES],
+        mem_gb=ctx.profile.costs.report_gb,
+        est_seconds=ctx.profile.costs.report_s,
+        settings={"e2": asdict(cfg)},
+        tools={"pipeline": provenance.python_identity(
+            ["experiments/e2.py", "experiments/e1.py", "results.py", "metrics.py", "demography.py"], ["numpy"]
+        )},
+        description="E2 tables",
+    ))
     return out
 
 
@@ -621,11 +587,8 @@ def fit_epochs(fit: results.Fit, mu: float, bin_size: int) -> List[demography.Ep
     """
     n0 = fit.n0(mu, bin_size)
     starts = [2.0 * n0 * t for t in fit.boundaries()]
-    eps = []
-    for k, lam in enumerate(fit.lambdas):
-        end = starts[k + 1] if k + 1 < len(starts) else math.inf
-        eps.append(demography.Epoch(starts[k], end, lam * n0, 0.0))
-    return eps
+    ends = starts[1:] + [math.inf]
+    return [demography.Epoch(s, e, lam * n0, 0.0) for s, e, lam in zip(starts, ends, fit.lambdas)]
 
 
 def fitted_window(fit: results.Fit, scaling: config.Scaling, bin_size: int, quantiles: Tuple[float, float]) -> Tuple[float, float]:
@@ -699,6 +662,7 @@ class GenomeResult:
     c: results.PsmcFile
     rs: results.PsmcFile
     rs_params: Dict
+    loglikes: Dict[str, Dict[int, float]]  # by tool, by iterations
     fits: Dict[str, results.Fit]
     curves: Dict[str, results.Curve]
     boots: Dict[int, Bootstrap]  # by trunk size, the default first
@@ -707,22 +671,9 @@ class GenomeResult:
     window: Tuple[float, float]
 
 
-def _run_record(path: Path) -> Dict:
-    try:
-        return json.loads(Path(path).read_text()).get("run", {})
-    except (OSError, ValueError):
-        return {}
-
-
 def load_genome(lay: Layout, cfg: config.E2, g: config.RealGenome) -> GenomeResult:
-    sid, n_iter, bin_size = g.sample_id, cfg.inference.n_iter, cfg.inference.bin_size
-    c = results.parse_psmc(lay.c_psmc(sid))
-    rs = results.parse_psmc(lay.rs_psmc(sid))
-    rs_params = results.read_rs_json(lay.rs_json(sid))
-    if c.last().round != n_iter:
-        raise ValueError(f"{lay.c_psmc(sid)}: last complete round {c.last().round}, expected {n_iter}")
-    if int(rs_params.get("n_iter", -1)) != n_iter or rs.last().round != n_iter:
-        raise ValueError(f"{lay.rs_json(sid)}: not a fit of {n_iter} iterations")
+    sid, bin_size = g.sample_id, cfg.inference.bin_size
+    c, rs, rs_params = read_fits(lay.c_psmc(sid), lay.rs_psmc(sid), lay.rs_json(sid), cfg.inference.n_iter)
     inp = rs_params.get("input", {})
     called = inp.get("bins", -1) - inp.get("missing_bins", 0)
     if not (c.header.get("sum_L") == called and c.header.get("sum_n") == inp.get("het_bins")):
@@ -732,10 +683,8 @@ def load_genome(lay: Layout, cfg: config.E2, g: config.RealGenome) -> GenomeResu
         )
     sc = g.scaling
     lengths = input_lengths(cfg, g)
-    boots = {trunk: load_bootstrap(lay, cfg, g, trunk) for trunk in trunk_sizes(cfg, lengths)}
+    boots = {trunk: load_bootstrap(lay, cfg, g, trunk, rs_params) for trunk in trunk_sizes(cfg, lengths)}
     fits = {"c": c.last().fit(), "rs": results.fit_from_rs(rs_params)}
-    curves = {k: f.curve(sc.mu, sc.gen_years, bin_size) for k, f in fits.items()}
-    runs = {kind: _run_record(lay.record(kind, sid)) for kind in ("fit-c", "fit-rs")}
     return GenomeResult(
         genome=g,
         input=fit_input(lay, cfg, g),
@@ -743,17 +692,21 @@ def load_genome(lay: Layout, cfg: config.E2, g: config.RealGenome) -> GenomeResu
         c=c,
         rs=rs,
         rs_params=rs_params,
+        loglikes=loglikes(c, rs_params),
         fits=fits,
-        curves=curves,
+        curves={k: f.curve(sc.mu, sc.gen_years, bin_size) for k, f in fits.items()},
         boots=boots,
         qc=json.loads(lay.qc_json(sid).read_text()),
-        runs=runs,
+        runs={kind: run_record(lay.record(kind, sid)) for kind in ("fit-c", "fit-rs")},
         window=fitted_window(fits["c"], sc, bin_size, cfg.grid.quantiles),
     )
 
 
-def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int) -> Bootstrap:
-    """One bootstrap run: checked to be the run the configuration asks for, its replicates as the summary names them."""
+def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int, fit: Dict) -> Bootstrap:
+    """One bootstrap run, checked to be the run the configuration asks for, with the replicates its summary names.
+
+    ``fit`` is fit-rs's JSON, which the run's main fit must equal.
+    """
     sid, sc = g.sample_id, g.scaling
     summary = json.loads(lay.boot_summary(sid, trunk).read_text())
     expect = {"block_size": trunk, "seed": bootstrap_seed(cfg, g, trunk)}
@@ -769,7 +722,7 @@ def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int
     if len(replicates) != summary.get("n_replicates"):
         raise ValueError(f"{sid} trunk{trunk}: {len(replicates)} replicate files, summary.json counts "
                          f"{summary.get('n_replicates')}")
-    main, fit = results.read_rs_json(lay.boot_main(sid, trunk)), results.read_rs_json(lay.rs_json(sid))
+    main = results.read_rs_json(lay.boot_main(sid, trunk))
     return Bootstrap(
         trunk=trunk,
         differing=main_fit_mismatch(main, fit),
@@ -777,7 +730,7 @@ def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int
         summary=summary,
         replicates=replicates,
         curves=[results.fit_from_rs(p).curve(sc.mu, sc.gen_years, cfg.inference.bin_size) for _, p in replicates],
-        run=_run_record(lay.record(boot_kind(trunk), sid)),
+        run=run_record(lay.record(boot_kind(trunk), sid)),
     )
 
 
@@ -794,84 +747,55 @@ def scope(qc: Dict) -> str:
     return f"{qc.get('n_sequences', len(seqs))} sequences"
 
 
-def loglikes(gr: GenomeResult) -> Dict[str, Dict[int, float]]:
-    """``{tool: {iterations: log-likelihood}}``."""
-    return {"c": gr.c.loglikes(), "rs": dict(enumerate(results.rs_loglikes(gr.rs_params)))}
-
-
-def _run_fields(run: Dict) -> Dict:
-    return {
-        "wall_seconds": run.get("wall_seconds"),
-        "peak_rss_mb": run.get("peak_rss_mb"),
-        "user_seconds": run.get("user_seconds"),
-        "loadavg_before_1m": (run.get("loadavg_before") or [None])[0],
-        "run_start": run.get("start"),
-    }
-
-
 def fit_summary_rows(gr: GenomeResult, cfg: config.E2) -> List[Dict]:
     g, n = gr.genome, cfg.inference.n_iter
-    ll = loglikes(gr)
-    inp = gr.rs_params.get("input", {})
+    hdr, inp = gr.c.header, gr.rs_params.get("input", {})
+    # what each tool read: sequences, called bins, heterozygous bins
+    counts = {"c": (hdr.get("n_seqs"), hdr.get("sum_L"), hdr.get("sum_n")),
+              "rs": (inp.get("sequences"), inp.get("bins", 0) - inp.get("missing_bins", 0), inp.get("het_bins"))}
     rows = []
     for tool, kind, threads in (("c", "fit-c", 1), ("rs", "fit-rs", cfg.fit_threads)):
         fit = gr.fits[tool]
         n0 = fit.n0(g.scaling.mu, cfg.inference.bin_size)
-        rows.append(
-            {
-                "sample_id": g.sample_id,
-                "species": g.species,
-                "label": g.label,
-                "scope": scope(gr.qc),
-                "mu": g.scaling.mu,
-                "gen_years": g.scaling.gen_years,
-                "scaling_source": g.scaling_source,
-                "scaling_cite": g.scaling_cite,
-                "tool": tool,
-                "sequences": gr.c.header.get("n_seqs") if tool == "c" else inp.get("sequences"),
-                "called_bins": gr.c.header.get("sum_L") if tool == "c" else inp.get("bins", 0) - inp.get("missing_bins", 0),
-                "het_bins": gr.c.header.get("sum_n") if tool == "c" else inp.get("het_bins"),
-                "n_iter": n,
-                "theta": fit.theta,
-                "rho": fit.rho,
-                "theta_rho_ratio": fit.theta / fit.rho,
-                "t_max": fit.t_max,
-                "n0": n0,
-                "ne_recent": fit.lambdas[0] * n0,
-                "ne_oldest": fit.lambdas[-1] * n0,
-                "loglike_common": ll[tool].get(n - 1),
-                "loglike_final": ll[tool].get(n),
-                "threads": threads,
-                **_run_fields(gr.runs[kind]),
-            }
-        )
+        sequences, called, het = counts[tool]
+        rows.append({
+            "sample_id": g.sample_id,
+            "species": g.species,
+            "label": g.label,
+            "scope": scope(gr.qc),
+            "mu": g.scaling.mu,
+            "gen_years": g.scaling.gen_years,
+            "scaling_source": g.scaling_source,
+            "scaling_cite": g.scaling_cite,
+            "tool": tool,
+            "sequences": sequences,
+            "called_bins": called,
+            "het_bins": het,
+            "n_iter": n,
+            "theta": fit.theta,
+            "rho": fit.rho,
+            "theta_rho_ratio": fit.theta / fit.rho,
+            "t_max": fit.t_max,
+            "n0": n0,
+            "ne_recent": fit.lambdas[0] * n0,
+            "ne_oldest": fit.lambdas[-1] * n0,
+            "loglike_common": gr.loglikes[tool].get(n - 1),
+            "loglike_final": gr.loglikes[tool].get(n),
+            "threads": threads,
+            **run_fields(gr.runs[kind]),
+        })
     return rows
 
 
 def pair_row(gr: GenomeResult, cfg: config.E2) -> Dict:
-    n = cfg.inference.n_iter
-    ll = loglikes(gr)
-    common = sorted(i for i in set(ll["c"]) & set(ll["rs"]) if ll["c"][i])
-    rel = {i: abs(ll["rs"][i] - ll["c"][i]) / abs(ll["c"][i]) for i in common}
-    fc, fr = gr.fits["c"], gr.fits["rs"]
-    rs_c, c_c = gr.curves["rs"], gr.curves["c"]
-    diff = metrics.interval_diff(rs_c, c_c, gr.window)
+    ll = loglike_diffs(gr.loglikes, cfg.inference.n_iter)
     return {
         "sample_id": gr.genome.sample_id,
         "label": gr.genome.label,
-        "window_lo_years": gr.window[0],
-        "window_hi_years": gr.window[1],
-        "intervals_in_window": len(diff.interval),
-        "rmse_log10_ne_rs_vs_c_per_interval": diff.rmse,
-        "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(rs_c, c_c, cfg.grid.fixed_years),
-        "max_abs_log10_ne_rs_vs_c_per_interval": diff.max_abs,
-        "max_abs_log10_ne_rs_vs_c_any_interval": diff.max_abs_any,
-        "theta_rel_diff": fr.theta / fc.theta - 1.0,
-        "rho_rel_diff": fr.rho / fc.rho - 1.0,
-        "t_max_rel_diff": fr.t_max / fc.t_max - 1.0,
-        "loglike_iteration0_rel_diff": rel.get(0),
-        "loglike_max_rel_diff": max(rel.values()) if rel else None,
-        "loglike_common_diff": (ll["rs"][n - 1] - ll["c"][n - 1]) if (n - 1) in common else None,
+        **compare_tools(gr.fits, gr.curves, gr.window, cfg.grid.fixed_years),
+        "loglike_iteration0_rel_diff": ll["loglike_iteration0_rel_diff"],
+        "loglike_max_rel_diff": ll["loglike_max_rel_diff"],
+        "loglike_common_diff": ll["loglike_common_diff"],
         "bootstrap_main_identical": all(b.identical for b in gr.boots.values()),
     }
 
@@ -914,7 +838,7 @@ def bootstrap_row(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> Dict:
         "main_fit_max_abs_diff": boot.max_abs_diff,
         "main_fit_fields_differing": ";".join(boot.differing),
         "threads": cfg.rs_threads,
-        **_run_fields(boot.run),
+        **run_fields(boot.run),
     }
 
 
@@ -936,10 +860,8 @@ def replicate_rows(gr: GenomeResult, boot: Bootstrap) -> List[Dict]:
 
 
 def band_rows(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> List[Dict]:
-    import numpy as np
-
     lo_y, hi_y, npts = cfg.display_years
-    years = np.logspace(math.log10(lo_y), math.log10(hi_y), int(npts))
+    years = metrics.log_grid(lo_y, hi_y, int(npts))
     lo, med, hi = band(boot.curves, years, (cfg.band[0], 0.5, cfg.band[1]))
     c_ne, rs_ne = gr.curves["c"].at(years), gr.curves["rs"].at(years)
     w_lo, w_hi = gr.window
@@ -957,36 +879,6 @@ def band_rows(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> List[Dict]:
         }
         for t, a, b, x, m, y in zip(years, c_ne, rs_ne, lo, med, hi)
     ]
-
-
-def curve_rows(gr: GenomeResult) -> List[Dict]:
-    rows = []
-    for tool in TOOLS:
-        fit, curve = gr.fits[tool], gr.curves[tool]
-        for k, (t, y, lam, ne) in enumerate(zip(fit.boundaries(), curve.years, fit.lambdas, curve.ne)):
-            rows.append(
-                {"sample_id": gr.genome.sample_id, "tool": tool, "interval": k,
-                 "t_2n0": t, "years": y, "lambda": lam, "ne": ne}
-            )
-    return rows
-
-
-def trace_rows(gr: GenomeResult, cfg: config.E2) -> List[Dict]:
-    ll = loglikes(gr)
-    rows = []
-    for tool, psmc in (("c", gr.c), ("rs", gr.rs)):
-        by_round = {r.round: r for r in psmc.complete_rounds()}
-        for i in range(cfg.inference.n_iter + 1):
-            rd = by_round.get(i)
-            rows.append(
-                {
-                    "sample_id": gr.genome.sample_id, "tool": tool, "iteration": i,
-                    "loglike": ll[tool].get(i),
-                    "theta": rd.theta if rd else None, "rho": rd.rho if rd else None,
-                    "t_max": rd.t_max if rd else None,
-                }
-            )
-    return rows
 
 
 def _codes(findings: Sequence[Dict], warnings: bool) -> str:
@@ -1080,7 +972,7 @@ def load_split(lay: Layout, cfg: config.E2, gr: GenomeResult, name: str, pattern
     fit = results.fit_from_rs(params)
     sc = g.scaling
     return SplitFit(name, pattern, params, fit, fit.curve(sc.mu, sc.gen_years, cfg.inference.bin_size),
-                    _run_record(lay.record(split_kind(name), g.sample_id)))
+                    run_record(lay.record(split_kind(name), g.sample_id)))
 
 
 def split_fits(lay: Layout, cfg: config.E2, gr: GenomeResult) -> List[SplitFit]:
@@ -1098,8 +990,6 @@ def recent_shape(curve: results.Curve, recent: int, peak_ratio: float) -> Dict:
     after the first interval and is at least ``peak_ratio`` times both the
     first interval's Ne and the plateau.
     """
-    import statistics
-
     ne = curve.ne
     if len(ne) < 2 * recent:
         raise ValueError(f"{len(ne)} intervals, fewer than twice the {recent} recent ones")
@@ -1129,72 +1019,63 @@ def split_rows(gr: GenomeResult, cfg: config.E2, fits: Sequence[SplitFit]) -> Li
     for sf in fits:
         ratio = metrics.interval_log10_ratio(sf.curve, default.curve)
         ll = results.rs_loglikes(sf.params)
-        rows.append(
-            {
-                "sample_id": g.sample_id,
-                "label": g.label,
-                "mu": g.scaling.mu,
-                "gen_years": g.scaling.gen_years,
-                "pattern_name": sf.name,
-                "pattern": sf.pattern,
-                "free_lambdas": results.pattern_free(sf.pattern),
-                "n_iter": n,
-                "theta": sf.fit.theta,
-                "rho": sf.fit.rho,
-                "t_max": sf.fit.t_max,
-                "n0": sf.fit.n0(g.scaling.mu, cfg.inference.bin_size),
-                "loglike_final": ll[n] if len(ll) > n else None,
-                "loglike_gain_vs_default": ll[n] - ll_default[n] if len(ll) > n and len(ll_default) > n else None,
-                "window_lo_years": gr.window[0],
-                "window_hi_years": gr.window[1],
-                "recent_intervals": recent,
-                **recent_shape(sf.curve, recent, cfg.split_peak_ratio),
-                "max_abs_log10_ne_vs_default_recent": float(max(abs(x) for x in ratio[:recent])),
-                "rmse_log10_ne_vs_default_older": (
-                    metrics.interval_diff(sf.curve, default.curve, older).rmse if older[0] < older[1] else None
-                ),
-                **_run_fields(sf.run),
-            }
-        )
-    return rows
-
-
-def split_curve_rows(gr: GenomeResult, fits: Sequence[SplitFit]) -> List[Dict]:
-    rows = []
-    for sf in fits:
-        for k, (t, y, lam, ne) in enumerate(zip(sf.fit.boundaries(), sf.curve.years, sf.fit.lambdas, sf.curve.ne)):
-            rows.append(
-                {"sample_id": gr.genome.sample_id, "pattern_name": sf.name, "pattern": sf.pattern, "interval": k,
-                 "t_2n0": t, "years": y, "lambda": lam, "ne": ne}
-            )
+        rows.append({
+            "sample_id": g.sample_id,
+            "label": g.label,
+            "mu": g.scaling.mu,
+            "gen_years": g.scaling.gen_years,
+            "pattern_name": sf.name,
+            "pattern": sf.pattern,
+            "free_lambdas": results.pattern_free(sf.pattern),
+            "n_iter": n,
+            "theta": sf.fit.theta,
+            "rho": sf.fit.rho,
+            "t_max": sf.fit.t_max,
+            "n0": sf.fit.n0(g.scaling.mu, cfg.inference.bin_size),
+            "loglike_final": ll[n] if len(ll) > n else None,
+            "loglike_gain_vs_default": ll[n] - ll_default[n] if len(ll) > n and len(ll_default) > n else None,
+            "window_lo_years": gr.window[0],
+            "window_hi_years": gr.window[1],
+            "recent_intervals": recent,
+            **recent_shape(sf.curve, recent, cfg.split_peak_ratio),
+            "max_abs_log10_ne_vs_default_recent": float(max(abs(x) for x in ratio[:recent])),
+            "rmse_log10_ne_vs_default_older": (
+                metrics.interval_diff(sf.curve, default.curve, older).rmse if older[0] < older[1] else None
+            ),
+            **run_fields(sf.run),
+        })
     return rows
 
 
 def report(ctx: Context) -> Dict[str, Path]:
     """Write every E2 table from the outputs; returns the paths written."""
     cfg = ctx.profile.e2
+    n = cfg.inference.n_iter
     lay = Layout(ctx.exp_dir(NAME))
     rows: Dict[str, List[Dict]] = {k: [] for k in TABLES}
     for g in cfg.genomes:
         gr = load_genome(lay, cfg, g)
+        sid = g.sample_id
         rows["fit_summary"] += fit_summary_rows(gr, cfg)
         rows["pairs"].append(pair_row(gr, cfg))
         for boot in gr.boots.values():
             rows["bootstrap"].append(bootstrap_row(gr, cfg, boot))
             rows["replicates"] += replicate_rows(gr, boot)
             rows["bands"] += band_rows(gr, cfg, boot)
-        rows["curves"] += curve_rows(gr)
-        rows["traces"] += trace_rows(gr, cfg)
+        for tool in TOOLS:
+            rows["curves"] += step_rows(gr.fits[tool], gr.curves[tool], sample_id=sid, tool=tool)
+        for tool, psmc in (("c", gr.c), ("rs", gr.rs)):
+            rows["traces"] += trace_rows(psmc, gr.loglikes[tool], n, sample_id=sid, tool=tool)
         rows["qc"].append(qc_row(gr))
         rows["qc_findings"] += qc_finding_rows(gr)
-        if g.sample_id in cfg.split_genomes:
+        if sid in cfg.split_genomes:
             fits = split_fits(lay, cfg, gr)
             rows["split"] += split_rows(gr, cfg, fits)
-            rows["split_curves"] += split_curve_rows(gr, fits)
-    written = {}
+            for sf in fits:
+                rows["split_curves"] += step_rows(sf.fit, sf.curve, sample_id=sid, pattern_name=sf.name,
+                                                  pattern=sf.pattern)
     for key, table in rows.items():
         write_csv(lay.table(key), table)
-        written[key] = lay.table(key)
     differ = [r for r in rows["bootstrap"] if not r["main_identical_to_fit"]]
     if differ:
         raise ValueError(
@@ -1202,7 +1083,7 @@ def report(ctx: Context) -> Dict[str, Path]:
             "--threads): " + "; ".join(f"{r['sample_id']} trunk{r['trunk_bins']}: {r['main_fit_fields_differing']} "
                                        f"(largest difference {r['main_fit_max_abs_diff']:.3g})" for r in differ)
         )
-    return written
+    return {key: lay.table(key) for key in rows}
 
 
 # ---------------------------------------------------------------------------
@@ -1230,7 +1111,7 @@ if __name__ == "__main__":
 __all__ = [
     "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "below_trunk_fraction",
     "boot_kind", "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "is_gzip", "jobs",
-    "load_genome", "load_split", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "recent_shape", "report",
-    "shared_bootstrap_differences", "split_curve_rows", "split_fits", "split_inference", "split_kind", "split_rows",
+    "load_genome", "load_split", "main_fit_mismatch", "prefix_lengths", "psmcfa_lengths", "read_psmcfa",
+    "recent_shape", "report", "shared_bootstrap_differences", "split_fits", "split_kind", "split_rows",
     "summary_difference", "trunk_sizes", "write_psmcfa_prefix",
 ]
