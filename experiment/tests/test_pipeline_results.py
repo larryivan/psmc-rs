@@ -73,10 +73,10 @@ class CReference(unittest.TestCase):
                 self.assertAlmostEqual(t, t_k, delta=5e-7)
                 self.assertAlmostEqual(lam / lam_k, 1.0, delta=1e-5)
 
-    def test_rounds_table(self):
-        rows = results.rounds_table(self.psmc)
-        self.assertEqual(rows[0]["lk"], None)
-        self.assertEqual(rows[0]["t_max"], 15.0)
+    def test_round_zero_is_the_start(self):
+        first = self.psmc.complete_rounds()[0]
+        self.assertEqual((first.round, first.t_max), (0, 15.0))
+        self.assertNotIn(-1, self.psmc.loglikes())  # its LK is a placeholder, not a log-likelihood
 
 
 class RsJson(unittest.TestCase):

@@ -73,8 +73,7 @@ def epochs(model: config.DemographicModel) -> List[Epoch]:
         if change.time <= start:
             raise ValueError(f"{model.name}: size changes must be at increasing times > 0")
         out.append(Epoch(start, float(change.time), size, rate))
-        reached = size * math.exp(-rate * (change.time - start))
-        size = float(change.size) if change.size is not None else reached
+        size = float(change.size) if change.size is not None else out[-1].end_size
         rate = float(change.growth_rate)
         start = float(change.time)
     out.append(Epoch(start, math.inf, size, rate))
@@ -97,7 +96,8 @@ def to_msprime(model: config.DemographicModel):
     return demography
 
 
-def _epoch_index(eps: Sequence[Epoch], t: float) -> int:
+def epoch_index(eps: Sequence[Epoch], t: float) -> int:
+    """The index of the epoch holding ``t`` (the oldest one beyond the last end)."""
     for i, e in enumerate(eps):
         if t < e.end:
             return i
@@ -108,7 +108,7 @@ def ne_at(eps: Sequence[Epoch], t: float) -> float:
     """The true (diploid) size ``t`` generations ago."""
     if t < 0:
         raise ValueError("time must be >= 0")
-    return eps[_epoch_index(eps, t)].size_at(t)
+    return eps[epoch_index(eps, t)].size_at(t)
 
 
 def cumulative_hazard(eps: Sequence[Epoch], t: float) -> float:

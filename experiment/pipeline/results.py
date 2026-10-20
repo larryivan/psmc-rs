@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -35,13 +36,9 @@ def pattern_groups(pattern: str) -> List[Tuple[int, int]]:
     out = []
     for part in pattern.split("+"):
         part = part.strip()
-        if not part:
-            continue
-        if "*" in part:
-            a, b = part.split("*", 1)
-            out.append((int(a), int(b)))
-        else:
-            out.append((1, int(part)))
+        if part:
+            a, star, b = part.partition("*")
+            out.append((int(a), int(b)) if star else (1, int(a)))
     if not out:
         raise ValueError(f"empty pattern {pattern!r}")
     return out
@@ -62,15 +59,10 @@ def expand_lambdas(free: Sequence[float], pattern: Optional[str], n_intervals: i
         if len(free) != n_intervals:
             raise ValueError(f"{len(free)} lambdas for {n_intervals} intervals")
         return free
-    groups = pattern_groups(pattern)
-    if len(free) != sum(a for a, _ in groups):
-        raise ValueError(f"{len(free)} lambdas for pattern {pattern} ({pattern_free(pattern)} free)")
-    out: List[float] = []
-    i = 0
-    for a, b in groups:
-        for _ in range(a):
-            out.extend([free[i]] * b)
-            i += 1
+    widths = [b for a, b in pattern_groups(pattern) for _ in range(a)]
+    if len(free) != len(widths):
+        raise ValueError(f"{len(free)} lambdas for pattern {pattern} ({len(widths)} free)")
+    out = [lam for lam, width in zip(free, widths) for _ in range(width)]
     if len(out) != n_intervals:
         raise ValueError(f"pattern {pattern} gives {len(out)} intervals, expected {n_intervals}")
     return out
@@ -99,6 +91,8 @@ class Curve:
 
 @dataclass(frozen=True)
 class Fit:
+    """A PSMC model in C psmc's parametrisation (see the module documentation)."""
+
     theta: float
     rho: float
     t_max: float
@@ -133,13 +127,12 @@ def fit_from_rs(params: Dict) -> Fit:
     """The model of a psmc-rs (0.1 or 0.2) parameter JSON."""
     n = int(params["n_steps"])
     pattern = params.get("pattern")
-    lam = expand_lambdas(params["lam"], pattern, n + 1)
     return Fit(
         theta=float(params["theta"]),
         rho=float(params["rho"]),
         t_max=float(params["t_max"]),
         n=n,
-        lambdas=tuple(lam),
+        lambdas=tuple(expand_lambdas(params["lam"], pattern, n + 1)),
         pattern=pattern,
         free_lambdas=tuple(float(x) for x in params["lam"]),
     )
@@ -179,13 +172,12 @@ class Round:
         pattern = self.pa["pattern"]
         n_intervals = pattern_intervals(pattern) if pattern else len(self.rs)
         free = self.pa["lambdas"]
-        lam = expand_lambdas(free, pattern, n_intervals)
         return Fit(
             theta=self.pa["theta"],
             rho=self.pa["rho"],
             t_max=self.pa["t_max"],
             n=n_intervals - 1,
-            lambdas=tuple(lam),
+            lambdas=tuple(expand_lambdas(free, pattern, n_intervals)),
             pattern=pattern,
             free_lambdas=tuple(free),
         )
@@ -210,53 +202,44 @@ class PsmcFile:
         return {r.round - 1: r.lk for r in self.complete_rounds() if r.round >= 1 and r.lk is not None}
 
 
-_HEADER_PATTERNS = {
-    "version": r"^Version:\s*(.+)$",
-    "pattern": r"^pattern:([^,]*), n:(\d+), n_free_lambdas:(\d+)",
-    "iterations": r"^n_iterations:(\d+), skip:(\d+), max_t:([^,]+), theta/rho:(\S+)",
-    "seqs": r"^n_seqs:(\d+), sum_L:(\d+), sum_n:(\d+)",
-}
+# The MM lines of the header, before the first round: each pattern and the header fields of its match.
+_HEADER = (
+    (re.compile(r"^Version:\s*(.+)$"), lambda m: {"version": m.group(1).strip()}),
+    (re.compile(r"^pattern:([^,]*), n:(\d+), n_free_lambdas:(\d+)"),
+     lambda m: {"pattern": m.group(1), "n": int(m.group(2)), "n_free": int(m.group(3))}),
+    (re.compile(r"^n_iterations:(\d+), skip:(\d+), max_t:([^,]+), theta/rho:(\S+)"),
+     lambda m: {"n_iterations": int(m.group(1)), "max_t": float(m.group(3)), "tr_ratio": float(m.group(4))}),
+    (re.compile(r"^n_seqs:(\d+), sum_L:(\d+), sum_n:(\d+)"),
+     lambda m: {"n_seqs": int(m.group(1)), "sum_L": int(m.group(2)), "sum_n": int(m.group(3))}),
+)
+_C_PI = re.compile(r"C_pi:\s*([^,]+),\s*n_recomb:\s*(\S+)")
 
 
-def _parse_pa(fields: List[str]) -> Dict:
-    # "PA\t<pattern> theta rho max_t lambda... [divergence]"
-    parts = fields[1].split() if len(fields) == 2 else " ".join(fields[1:]).split()
-    pattern = parts[0]
-    numbers = [float(x) for x in parts[1:]]
-    n_free = pattern_free(pattern)
+def _parse_pa(rest: str) -> Dict:
+    """``<pattern> theta rho max_t lambda... [divergence]``: the fields of a PA line after its tag."""
+    pattern, *numbers = rest.split()
+    numbers = [float(x) for x in numbers]
     return {
         "pattern": pattern,
         "theta": numbers[0],
         "rho": numbers[1],
         "t_max": numbers[2],
-        "lambdas": numbers[3 : 3 + n_free],
+        "lambdas": numbers[3 : 3 + pattern_free(pattern)],
     }
 
 
 def parse_psmc(path: Path) -> PsmcFile:
     """Every round of a ``.psmc`` file: LK, QD, RI, TR, MT, C_pi/n_recomb, RS and PA lines."""
-    import re
-
     header: Dict = {}
     rounds: List[Round] = []
     cur: Optional[Round] = None
     for line in Path(path).read_text().splitlines():
         tag, _, rest = line.partition("\t")
         if tag == "MM" and cur is None:
-            for key, pat in _HEADER_PATTERNS.items():
-                m = re.match(pat, rest)
-                if not m:
-                    continue
-                if key == "version":
-                    header["version"] = m.group(1).strip()
-                elif key == "pattern":
-                    header.update(pattern=m.group(1), n=int(m.group(2)), n_free=int(m.group(3)))
-                elif key == "iterations":
-                    header.update(
-                        n_iterations=int(m.group(1)), max_t=float(m.group(3)), tr_ratio=float(m.group(4))
-                    )
-                elif key == "seqs":
-                    header.update(n_seqs=int(m.group(1)), sum_L=int(m.group(2)), sum_n=int(m.group(3)))
+            for pat, fields in _HEADER:
+                m = pat.match(rest)
+                if m:
+                    header.update(fields(m))
         elif tag == "RD":
             cur = Round(round=int(rest))
             rounds.append(cur)
@@ -275,31 +258,14 @@ def parse_psmc(path: Path) -> PsmcFile:
         elif tag == "MT":
             cur.t_max = float(rest)
         elif tag == "MM":
-            m = re.match(r"C_pi:\s*([^,]+),\s*n_recomb:\s*(\S+)", rest)
+            m = _C_PI.match(rest)
             if m:
                 cur.c_pi, cur.n_recomb = float(m.group(1)), float(m.group(2))
         elif tag == "RS":
             f = rest.split("\t")
             cur.rs.append((int(f[0]), float(f[1]), float(f[2]), float(f[3]), float(f[4]), float(f[5])))
         elif tag == "PA":
-            cur.pa = _parse_pa(line.split("\t"))
+            cur.pa = _parse_pa(rest)
         elif line.startswith("//"):
             cur.complete = True
     return PsmcFile(header=header, rounds=rounds)
-
-
-def rounds_table(psmc: PsmcFile) -> List[Dict]:
-    """One row per complete round: iteration, theta, rho, t_max, n_recomb, and the LK it prints."""
-    rows = []
-    for r in psmc.complete_rounds():
-        rows.append(
-            {
-                "round": r.round,
-                "theta": r.theta,
-                "rho": r.rho,
-                "t_max": r.t_max,
-                "n_recomb": r.n_recomb,
-                "lk": r.lk if r.round >= 1 else None,
-            }
-        )
-    return rows

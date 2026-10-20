@@ -81,73 +81,31 @@ def rmse_vs_truth(curve: Curve, epochs: Sequence[demography.Epoch], years, gen_y
 def rmse_between(a: Curve, b: Curve, years) -> float:
     """RMSE of log10 Ne between two fitted curves on ``years``.
 
-    A fixed time that falls between two nearly equal boundaries picks up a
-    whole step of the curve, so on a grid of a few hundred times the RMSE
-    of two close fits is noisy by a large share of itself. Compare two
-    fits of the same time pattern, whose boundaries differ only by a hair,
-    with :func:`interval_rmse`, and fits whose boundaries differ by
-    percents (their theta, and so their N0, does) with
-    :func:`log_time_diff`, which integrates exactly.
+    Noisy for two close fits: a time between two nearly equal boundaries
+    picks up a whole step of one curve. Compare fits of the same pattern with
+    :func:`interval_rmse`, and fits whose time scales differ with
+    :func:`log_time_diff`.
     """
     return rmse_log10(a.at(years), b.at(years))
 
 
-@dataclass(frozen=True)
-class LogTimeDiff:
-    """log10(Ne_a / Ne_b) on the pieces between both curves' boundaries in a window (see :func:`log_time_diff`)."""
-
-    log10_ratio: Tuple[float, ...]  # one per piece, where both curves are constant
-    weight: Tuple[float, ...]  # ln(end / start) of the piece
-
-    @property
-    def rmse(self) -> float:
-        """Root of the mean over log time of the squared difference on the window."""
-        total = sum(self.weight)
-        return math.sqrt(sum(w * d * d for w, d in zip(self.weight, self.log10_ratio)) / total)
-
-    @property
-    def max_abs(self) -> float:
-        """Largest |difference| on the window, a sliver between two near boundaries included."""
-        return max(abs(d) for d in self.log10_ratio)
-
-
-def log_time_diff(a: Curve, b: Curve, window: Tuple[float, float]) -> LogTimeDiff:
-    """Two step curves compared exactly over log time on ``window`` (years).
-
-    Between consecutive boundaries of either curve both are constant, so
-    the mean over log time of the squared difference of log10 Ne is a sum
-    over those pieces, each weighted by ln(end / start). This is the limit
-    :func:`rmse_between` approaches on an ever denser log-spaced grid,
-    without its sampling noise: a piece between two near boundaries counts
-    by its width, not by whether a grid time happens to fall in it. Suits
-    fits whose time scales differ (by percents in theta), where matching
-    intervals (:func:`interval_diff`) would compare different times.
-    """
+def log10_bias(curve: Curve, epochs: Sequence[demography.Epoch], years, gen_years: float):
+    """log10(fitted Ne / true Ne) at each time of ``years``."""
     import numpy as np
 
-    lo, hi = float(window[0]), float(window[1])
-    if not 0 < lo < hi:
-        raise ValueError(f"bad window [{lo}, {hi}]")
-    knots = sorted({lo, hi, *(float(t) for t in (*a.years, *b.years) if lo < t < hi)})
-    starts = knots[:-1]
-    diffs = np.log10(a.at(starts)) - np.log10(b.at(starts))
-    weights = [math.log(e / s) for s, e in zip(knots[:-1], knots[1:])]
-    return LogTimeDiff(tuple(float(d) for d in diffs), tuple(weights))
+    return np.log10(curve.at(years)) - np.log10(truth_on_grid(epochs, years, gen_years))
 
 
 # ---------------------------------------------------------------------------
-# Two fits of the same time pattern, interval by interval
+# Two fitted curves compared over log time on a window
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class IntervalDiff:
-    """log10(Ne_a / Ne_b) per PSMC interval of two fits of the same pattern (see :func:`interval_diff`)."""
+class _WeightedDiff:
+    """log10(Ne_a / Ne_b) on pieces of a window, each weighted by the log time it spans."""
 
-    interval: Tuple[int, ...]  # the intervals overlapping the window
-    log10_ratio: Tuple[float, ...]  # log10(Ne_a,k / Ne_b,k)
-    weight: Tuple[float, ...]  # ln of the part of b's interval k inside the window (ln(end / start))
-    all_log10_ratio: Tuple[float, ...]  # every interval, inside the window or not
+    log10_ratio: Tuple[float, ...]
+    weight: Tuple[float, ...]
 
     @property
     def rmse(self) -> float:
@@ -157,13 +115,58 @@ class IntervalDiff:
 
     @property
     def max_abs(self) -> float:
-        """Largest |difference| of an interval overlapping the window."""
+        """Largest |difference| on the window, a sliver between two near boundaries included."""
         return max(abs(d) for d in self.log10_ratio)
+
+
+@dataclass(frozen=True)
+class LogTimeDiff(_WeightedDiff):
+    """The pieces between both curves' boundaries in a window (see :func:`log_time_diff`)."""
+
+    log10_ratio: Tuple[float, ...]  # one per piece, where both curves are constant
+    weight: Tuple[float, ...]  # ln(end / start) of the piece
+
+
+@dataclass(frozen=True)
+class IntervalDiff(_WeightedDiff):
+    """The PSMC intervals of two fits of the same pattern (see :func:`interval_diff`)."""
+
+    interval: Tuple[int, ...]  # the intervals overlapping the window
+    log10_ratio: Tuple[float, ...]  # log10(Ne_a,k / Ne_b,k)
+    weight: Tuple[float, ...]  # ln of the part of b's interval k inside the window (ln(end / start))
+    all_log10_ratio: Tuple[float, ...]  # every interval, inside the window or not
 
     @property
     def max_abs_any(self) -> float:
         """Largest |difference| of any interval, outside the window too (a runaway first lambda)."""
         return max(abs(d) for d in self.all_log10_ratio)
+
+
+def _window(window: Tuple[float, float]) -> Tuple[float, float]:
+    lo, hi = float(window[0]), float(window[1])
+    if not 0 < lo < hi:
+        raise ValueError(f"bad window [{lo}, {hi}]")
+    return lo, hi
+
+
+def log_time_diff(a: Curve, b: Curve, window: Tuple[float, float]) -> LogTimeDiff:
+    """Two step curves compared exactly over log time on ``window`` (years).
+
+    Between consecutive boundaries of either curve both are constant, so
+    the mean over log time of the squared difference of log10 Ne is a sum
+    over those pieces, each weighted by ln(end / start): the limit of
+    :func:`rmse_between` on an ever denser log grid, without its sampling
+    noise. Suits fits whose time scales differ (by percents in theta), where
+    matching intervals (:func:`interval_diff`) would compare different times.
+    """
+    import numpy as np
+
+    lo, hi = _window(window)
+    knots = sorted({lo, hi, *(float(t) for t in (*a.years, *b.years) if lo < t < hi)})
+    starts = knots[:-1]
+    diffs = np.log10(a.at(starts)) - np.log10(b.at(starts))
+    weights = [math.log(e / s) for s, e in zip(knots[:-1], knots[1:])]
+    return LogTimeDiff(tuple(float(d) for d in diffs), tuple(weights))
 
 
 def interval_log10_ratio(a: Curve, b: Curve):
@@ -186,34 +189,26 @@ def interval_diff(a: Curve, b: Curve, window: Tuple[float, float]) -> IntervalDi
     Why intervals and not times: the two fits' boundaries are the same
     function of t_max in units of 2 N0, and differ in years only through
     their N0 (theta) and t_max, by 1e-4 to 1e-3 between psmc-rs and C psmc.
-    A fixed time that falls between two such nearly equal boundaries reads
-    the next step of one curve and the previous step of the other, a
-    difference of a whole step (up to 2 in log10 Ne) that says nothing about
-    how well the two fits agree. Integrating the squared difference exactly
-    over log time on the union of the boundaries would weigh such a sliver
-    by its width, which is better, but still mixes the small shift of the
-    time scale into the difference of the sizes. Matching the intervals
-    compares what each fit estimated, lambda_k * N0, directly; the
-    difference of the time scales is reported separately (theta, t_max).
+    A fixed time between two such nearly equal boundaries reads a different
+    step of each curve, a difference of up to 2 in log10 Ne that says nothing
+    about how well the fits agree; integrating over log time
+    (:func:`log_time_diff`) weighs such a sliver by its width, but still
+    mixes the shift of the time scale into the difference of the sizes.
+    Matching the intervals compares what each fit estimated, lambda_k * N0,
+    directly; the time scales are reported separately (theta, t_max).
 
     Why weighted by log time: the RMSE is then the RMSE over log time on the
-    window, the quantity the RMSE against the truth on a log-spaced grid
-    measures (each grid point stands for the same width of log time), so
-    the two can be read side by side; and an interval that only reaches
-    into the window (a recent first lambda) counts only by its part inside.
-    Within the window PSMC's intervals are close to log-spaced anyway, so
-    the weights are nearly equal except at the window's edges.
+    window, which the RMSE against the truth on a log-spaced grid also
+    measures, so the two read side by side; and an interval that only
+    reaches into the window (a recent first lambda) counts by its part inside.
     """
-    lo, hi = float(window[0]), float(window[1])
-    if not 0 < lo < hi:
-        raise ValueError(f"bad window [{lo}, {hi}]")
+    lo, hi = _window(window)
     ratio = interval_log10_ratio(a, b)
     starts = list(b.years)
     idx, diffs, weights = [], [], []
     for k, d in enumerate(ratio):
-        start = starts[k]
         end = starts[k + 1] if k + 1 < len(starts) else math.inf
-        s, e = max(start, lo), min(end, hi)
+        s, e = max(starts[k], lo), min(end, hi)
         if e > s:
             idx.append(k)
             diffs.append(float(d))
@@ -224,15 +219,8 @@ def interval_diff(a: Curve, b: Curve, window: Tuple[float, float]) -> IntervalDi
 
 
 def interval_rmse(a: Curve, b: Curve, window: Tuple[float, float]) -> float:
-    """Log-time-weighted RMSE of log10 Ne between two fits of the same pattern, interval by interval (:func:`interval_diff`)."""
+    """The RMSE of :func:`interval_diff`."""
     return interval_diff(a, b, window).rmse
-
-
-def log10_bias(curve: Curve, epochs: Sequence[demography.Epoch], years, gen_years: float):
-    """log10(fitted Ne / true Ne) at each time of ``years``."""
-    import numpy as np
-
-    return np.log10(curve.at(years)) - np.log10(truth_on_grid(epochs, years, gen_years))
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +275,7 @@ def _survival_integral(epochs: Sequence[demography.Epoch], a: float, b: float, p
     knots = sorted({a, b, *(e.start for e in epochs if a < e.start < b)})
     total = 0.0
     for lo, hi in zip(knots[:-1], knots[1:]):
-        e = epochs[demography._epoch_index(epochs, lo)]
+        e = epochs[demography.epoch_index(epochs, lo)]
         s_lo = math.exp(-(demography.cumulative_hazard(epochs, lo) - h_a))
         if e.growth_rate == 0:  # exactly: S falls exponentially at rate 1 / (2 N)
             total += s_lo * 2.0 * e.start_size * -math.expm1(-(hi - lo) / (2.0 * e.start_size))
@@ -329,8 +317,7 @@ def projected_truth(fit: Fit, epochs: Sequence[demography.Epoch], mu: float, gen
     the truth by the pattern's steps, which no estimator with the pattern
     can remove.
     """
-    curve = fit.curve(mu, gen_years, bin_size)
-    starts = list(curve.years)
+    starts = list(fit.curve(mu, gen_years, bin_size).years)
     years: List[float] = []
     ne: List[float] = []
     for first, end in free_spans(fit):
