@@ -230,42 +230,40 @@ pub const DEFAULT_BOOTSTRAP_TRUNK: usize = 500_000;
 /// If `trunk_size` is 0 (`splitfa` would loop forever).
 pub fn split_for_bootstrap(seqs: &[Vec<u8>], trunk_size: usize) -> Vec<Vec<u8>> {
     assert!(trunk_size > 0, "bootstrap trunk_size must be > 0");
-    split_trunks(seqs, trunk_size)
-}
-
-/// [`split_for_bootstrap`] for sequences with the callable bases of their
-/// bins: the counts are cut at the same bins as the symbols, so each trunk
-/// keeps the counts of its bins. The sequences must be valid
-/// ([`Sequences::validate`]).
-///
-/// # Panics
-///
-/// If `trunk_size` is 0.
-pub fn split_sequences_for_bootstrap(seqs: &Sequences, trunk_size: usize) -> Sequences {
-    assert!(trunk_size > 0, "bootstrap trunk_size must be > 0");
-    debug_assert!(seqs.validate().is_ok(), "invalid bootstrap input");
-    Sequences {
-        bins: split_trunks(&seqs.bins, trunk_size),
-        callable: seqs.callable.as_ref().map(|c| split_counts(c, trunk_size)),
-    }
-}
-
-/// The trunks of [`split_for_bootstrap`].
-fn split_trunks(seqs: &[Vec<u8>], trunk_size: usize) -> Vec<Vec<u8>> {
     seqs.iter()
         .flat_map(|seq| trunk_ranges(seq.len(), trunk_size).map(|r| seq[r].to_vec()))
         .collect()
 }
 
-/// The callable bases of the trunks of [`split_for_bootstrap`], cut from
-/// those of the sequences.
-fn split_counts(callable: &CallableBases, trunk_size: usize) -> CallableBases {
-    let trunks = callable
-        .rows()
-        .iter()
-        .flat_map(|seq| trunk_ranges(seq.len(), trunk_size).map(|r| seq.slice(r)))
-        .collect();
-    callable.with_rows(trunks)
+/// [`split_for_bootstrap`] for sequences with the callable bases of their
+/// bins: the counts are cut at the same bins, so each trunk keeps the counts
+/// of its bins. The sequences must be valid ([`Sequences::validate`]).
+///
+/// # Panics
+///
+/// If `trunk_size` is 0.
+pub fn split_sequences_for_bootstrap(seqs: &Sequences, trunk_size: usize) -> Sequences {
+    debug_assert!(seqs.validate().is_ok(), "invalid bootstrap input");
+    split_with_counts(&seqs.bins, seqs.callable.as_ref(), trunk_size)
+}
+
+/// The trunks of [`split_for_bootstrap`], with the callable bases of their
+/// bins cut from `callable`.
+fn split_with_counts(
+    seqs: &[Vec<u8>],
+    callable: Option<&CallableBases>,
+    trunk_size: usize,
+) -> Sequences {
+    Sequences {
+        bins: split_for_bootstrap(seqs, trunk_size),
+        callable: callable.map(|c| {
+            let trunks = c
+                .rows()
+                .iter()
+                .flat_map(|row| trunk_ranges(row.len(), trunk_size).map(|r| row.slice(r)));
+            c.with_rows(trunks.collect())
+        }),
+    }
 }
 
 /// Bin ranges of the trunks [`split_for_bootstrap`] cuts a sequence of `len`
@@ -434,23 +432,16 @@ fn checked_sequence_rows(rows: &[Vec<u8>], row_starts: &[bool]) -> Result<Vec<Ra
     if !row_starts[0] {
         bail!("row_starts[0] must be true");
     }
-
     let mut seqs = Vec::<Range<usize>>::new();
-    for (i, row) in rows.iter().enumerate() {
+    for (i, (row, &starts)) in rows.iter().zip(row_starts).enumerate() {
         if row.is_empty() {
             bail!("row {i} is empty");
         }
-        if row_starts[i] {
-            seqs.push(i..i + 1);
-        } else {
-            match seqs.last_mut() {
-                Some(seq) => seq.end = i + 1,
-                None => bail!("row {i} continues a sequence but no previous sequence exists"),
-            }
+        // Row 0 starts a sequence, so every later row has one to continue.
+        match seqs.last_mut() {
+            Some(seq) if !starts => seq.end = i + 1,
+            _ => seqs.push(i..i + 1),
         }
-    }
-    if seqs.is_empty() {
-        bail!("no sequences reconstructed from rows");
     }
     Ok(seqs)
 }
@@ -488,20 +479,15 @@ pub fn sample_sequences_block_bootstrap(
         bail!("input sequences are empty");
     }
 
-    let mut out = Vec::<Vec<u8>>::with_capacity(seqs.len());
+    let mut out = Vec::with_capacity(seqs.len());
     for (seq_id, seq) in seqs.iter().enumerate() {
         if seq.is_empty() {
             bail!("sequence {seq_id} is empty");
         }
         let blocks: Vec<&[u8]> = seq.chunks(block_size).collect();
-        if blocks.is_empty() {
-            bail!("sequence {seq_id} produced no bootstrap blocks");
-        }
-        let draw_n = seq.len().div_ceil(block_size);
-        let mut sampled = Vec::<u8>::with_capacity(seq.len() + block_size);
-        for _ in 0..draw_n {
-            let idx = uniform_index(rng, blocks.len());
-            sampled.extend_from_slice(blocks[idx]);
+        let mut sampled = Vec::with_capacity(seq.len() + block_size);
+        for _ in 0..blocks.len() {
+            sampled.extend_from_slice(blocks[uniform_index(rng, blocks.len())]);
         }
         sampled.truncate(seq.len());
         out.push(sampled);
@@ -650,10 +636,7 @@ fn invalid_starts(
 fn negative_transitions(model: &PsmcModel) -> Result<Option<NegativeTransitions>> {
     match model.check_transitions() {
         Ok(()) => Ok(None),
-        Err(e) => match e.downcast::<NegativeTransitions>() {
-            Ok(negative) => Ok(Some(negative)),
-            Err(e) => Err(e),
-        },
+        Err(e) => e.downcast().map(Some),
     }
 }
 
@@ -861,8 +844,7 @@ impl BootstrapReplicate {
             .as_ref()
             .map(|c| bin_callable_line(CALLABLE_LENGTH_MODEL, None, c));
         let rounds = psmc_rounds(&self.model, &self.history, d.sum_l)?;
-        write_psmc(w, &info, &rounds)?;
-        Ok(())
+        Ok(write_psmc(w, &info, &rounds)?)
     }
 }
 
@@ -932,93 +914,84 @@ fn run_replicates(
         skip_invalid_starts,
     } = opts;
     match start {
-        Some(start) => {
-            if (start.n_steps, start.lam.len()) != (template.n_steps, template.lam.len()) {
-                bail!(
-                    "the bootstrap start has n_steps {} and {} free lambdas, the template {} and \
-                     {}",
-                    start.n_steps,
-                    start.lam.len(),
-                    template.n_steps,
-                    template.lam.len()
-                );
-            }
-        }
+        Some(s) if (s.n_steps, s.lam.len()) != (template.n_steps, template.lam.len()) => bail!(
+            "the bootstrap start has n_steps {} and {} free lambdas, the template {} and {}",
+            s.n_steps,
+            s.lam.len(),
+            template.n_steps,
+            template.lam.len()
+        ),
+        Some(_) => {}
         None => check_fresh_start(cfg.t_max, cfg.tr_ratio)?,
     }
-    let chunks = Sequences {
-        bins: split_for_bootstrap(seqs, cfg.trunk_size),
-        callable: callable.map(|c| split_counts(c, cfg.trunk_size)),
-    };
+    let chunks = split_with_counts(seqs, callable, cfg.trunk_size);
     if let Some(dir) = &cfg.out_dir {
         fs::create_dir_all(dir)
             .with_context(|| format!("failed to create bootstrap directory {dir:?}"))?;
     }
-
     let mut rep_cfg = mstep_cfg.clone();
     rep_cfg.progress = false;
-    let is_cancelled = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
+
+    // `None` for a replicate left out (`skip_invalid_starts`).
+    let fit = |rep: usize| -> Result<Option<BootstrapReplicate>> {
+        let sampled = resample_sequences(&chunks, &mut replicate_rng(cfg.seed, rep));
+        let data = ReplicateData::of(&sampled.bins);
+        let callable = sampled
+            .callable
+            .as_ref()
+            .map(|c| CallableSummary::of(&sampled.bins, c));
+        let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
+        let mut model = match start {
+            Some(start) => start.clone(),
+            None => {
+                let model = replicate_initial_model_with_callable(
+                    template,
+                    &obs.rows,
+                    obs.callable.as_ref(),
+                    cfg.t_max,
+                    cfg.tr_ratio,
+                )?;
+                if skip_invalid_starts && negative_transitions(&model)?.is_some() {
+                    return Ok(None);
+                }
+                model
+            }
+        };
+        let em_opts = EmOptions {
+            on_progress: None,
+            cancel,
+            thread_pool,
+            callable: obs.callable.as_ref(),
+        };
+        let history = em_train_with_options(
+            &mut model,
+            &obs.rows,
+            &obs.row_starts,
+            cfg.em_iters,
+            &rep_cfg,
+            em_opts,
+        )?;
+        model.param_recalculate()?;
+        if let Some(dir) = &cfg.out_dir {
+            model.save_params(&replicate_json_path(dir, rep + 1))?;
+        }
+        Ok(Some(BootstrapReplicate {
+            index: rep,
+            model,
+            history,
+            data,
+            callable,
+        }))
+    };
     // Count and report under one lock so calls arrive in order: with a
     // separate atomic counter, the worker holding count n + 1 could report
     // before the one holding n, and a progress display would step backwards.
     let finished = Mutex::new(0usize);
-
-    // `None` for a replicate left out (`skip_invalid_starts`).
     let fit_replicate = |rep: usize| -> Result<Option<BootstrapReplicate>> {
-        if is_cancelled() {
+        if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
             return Err(Cancelled.into());
         }
-        let fit = || -> Result<Option<BootstrapReplicate>> {
-            let sampled = resample_sequences(&chunks, &mut replicate_rng(cfg.seed, rep));
-            let data = ReplicateData::of(&sampled.bins);
-            let callable = sampled
-                .callable
-                .as_ref()
-                .map(|c| CallableSummary::of(&sampled.bins, c));
-            let obs = chunk_sequences(sampled, cfg.batch_size, "resampled data is empty")?;
-            let mut model = match start {
-                Some(start) => start.clone(),
-                None => {
-                    let model = replicate_initial_model_with_callable(
-                        template,
-                        &obs.rows,
-                        obs.callable.as_ref(),
-                        cfg.t_max,
-                        cfg.tr_ratio,
-                    )?;
-                    if skip_invalid_starts && negative_transitions(&model)?.is_some() {
-                        return Ok(None);
-                    }
-                    model
-                }
-            };
-            let em_opts = EmOptions {
-                on_progress: None,
-                cancel,
-                thread_pool,
-                callable: obs.callable.as_ref(),
-            };
-            let history = em_train_with_options(
-                &mut model,
-                &obs.rows,
-                &obs.row_starts,
-                cfg.em_iters,
-                &rep_cfg,
-                em_opts,
-            )?;
-            model.param_recalculate()?;
-            if let Some(dir) = &cfg.out_dir {
-                model.save_params(&replicate_json_path(dir, rep + 1))?;
-            }
-            Ok(Some(BootstrapReplicate {
-                index: rep,
-                model,
-                history,
-                data,
-                callable,
-            }))
-        };
-        let replicate = fit().with_context(|| format!("bootstrap replicate {}", rep + 1))?;
+        let replicate = fit(rep).with_context(|| format!("bootstrap replicate {}", rep + 1))?;
         let mut n = finished.lock().unwrap_or_else(PoisonError::into_inner);
         *n += 1;
         if let Some(on_done) = on_done {
@@ -1084,24 +1057,16 @@ fn step_lookup(xs: &[f64], ys: &[f64], x: f64) -> f64 {
     ys[pos.max(1) - 1]
 }
 
-fn quantile(vals: &mut [f64], q: f64) -> f64 {
-    if vals.is_empty() {
-        return f64::NAN;
-    }
-    vals.sort_by(|a, b| a.total_cmp(b));
-    let qq = q.clamp(0.0, 1.0);
-    let n = vals.len();
-    if n == 1 {
-        return vals[0];
-    }
-    let pos = qq * (n - 1) as f64;
-    let lo = pos.floor() as usize;
-    let hi = pos.ceil() as usize;
+/// The `q` quantile (in `[0, 1]`) of the non-empty `sorted`, interpolated
+/// linearly between ranks.
+fn quantile(sorted: &[f64], q: f64) -> f64 {
+    let pos = q * (sorted.len() - 1) as f64;
+    let (lo, hi) = (pos.floor() as usize, pos.ceil() as usize);
     if lo == hi {
-        vals[lo]
+        sorted[lo]
     } else {
         let w = pos - lo as f64;
-        vals[lo] * (1.0 - w) + vals[hi] * w
+        sorted[lo] * (1.0 - w) + sorted[hi] * w
     }
 }
 
@@ -1122,34 +1087,30 @@ pub fn summarize_bootstrap_models(
         bail!("bootstrap model list is empty");
     }
     let (x_main, y_main) = model_curve(main_model, bin_size, gen_years)?;
-    let n_points = x_main.len();
-    let n_boot = bootstrap_models.len();
-
-    let mut sample_mat = vec![vec![0.0f64; n_boot]; n_points];
-    for (r, model) in bootstrap_models.iter().enumerate() {
-        let (x_rep, y_rep) = step_curve(model, bin_size, gen_years)?;
-        for i in 0..n_points {
-            sample_mat[i][r] = step_lookup(&x_rep, &y_rep, x_main[i]);
-        }
-    }
-
-    let mut points = Vec::<BootstrapCurvePoint>::with_capacity(n_points);
-    for i in 0..n_points {
-        let mut qbuf = sample_mat[i].clone();
-        let q025 = quantile(&mut qbuf, 0.025);
-        let q500 = quantile(&mut qbuf, 0.5);
-        let q975 = quantile(&mut qbuf, 0.975);
-        points.push(BootstrapCurvePoint {
-            x_years: x_main[i],
-            ne_main: y_main[i],
-            ne_q025: q025,
-            ne_q500: q500,
-            ne_q975: q975,
-        });
-    }
-
+    let curves = bootstrap_models
+        .iter()
+        .map(|model| step_curve(model, bin_size, gen_years))
+        .collect::<Result<Vec<_>>>()?;
+    let points = x_main
+        .iter()
+        .zip(&y_main)
+        .map(|(&x, &y)| {
+            let mut ne: Vec<f64> = curves
+                .iter()
+                .map(|(xs, ys)| step_lookup(xs, ys, x))
+                .collect();
+            ne.sort_by(f64::total_cmp);
+            BootstrapCurvePoint {
+                x_years: x,
+                ne_main: y,
+                ne_q025: quantile(&ne, 0.025),
+                ne_q500: quantile(&ne, 0.5),
+                ne_q975: quantile(&ne, 0.975),
+            }
+        })
+        .collect();
     Ok(BootstrapSummary {
-        n_replicates: n_boot,
+        n_replicates: bootstrap_models.len(),
         skipped_replicates: Vec::new(),
         block_size,
         seed,
@@ -1157,9 +1118,8 @@ pub fn summarize_bootstrap_models(
     })
 }
 
-/// Write the summary's points as TSV: `x_years`, `ne_main` and the three
-/// quantiles, in `%.8e`.
-pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> Result<()> {
+/// A buffered writer to a new file at `path`, creating its directory.
+fn create_summary_file(path: &Path) -> Result<BufWriter<File>> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -1167,7 +1127,13 @@ pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> R
             .with_context(|| format!("failed to create bootstrap summary dir {parent:?}"))?;
     }
     let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
-    let mut w = BufWriter::new(file);
+    Ok(BufWriter::new(file))
+}
+
+/// Write the summary's points as TSV: `x_years`, `ne_main` and the three
+/// quantiles, in `%.8e`.
+pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> Result<()> {
+    let mut w = create_summary_file(path)?;
     w.write_all(b"x_years\tne_main\tne_q025\tne_q500\tne_q975\n")?;
     for p in &summary.points {
         writeln!(
@@ -1182,15 +1148,6 @@ pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> R
 
 /// Write the summary as pretty-printed JSON.
 pub fn write_bootstrap_summary_json(path: &Path, summary: &BootstrapSummary) -> Result<()> {
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create bootstrap summary dir {parent:?}"))?;
-    }
-    let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
-    let writer = BufWriter::new(file);
-    serde_json::to_writer_pretty(writer, summary)
-        .with_context(|| format!("failed to write {path:?}"))?;
-    Ok(())
+    serde_json::to_writer_pretty(create_summary_file(path)?, summary)
+        .with_context(|| format!("failed to write {path:?}"))
 }
