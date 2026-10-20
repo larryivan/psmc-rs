@@ -111,7 +111,9 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import csv
+import dataclasses
 import gzip
 import hashlib
 import http.client
@@ -130,10 +132,11 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple, TypeVar
 
 from . import config, paths, provenance, tools
 
+T = TypeVar("T")
 NAME = "E7"
 MANIFEST_ID = "psmc-rs-manuscript/E7/inputs/1"
 TMP_ENV = "PSMC_E7_TMPDIR"
@@ -141,8 +144,6 @@ LOCAL_TMP_ENV = "PSMC_E7_LOCAL_TMPDIR"
 NONPASS_EXPR = 'FILTER="PASS" || FILTER="."'  # excluded: what psmc-rs reads as PASS
 SPLIT_EXPR = 'GT="het" || GT="mis"'
 FETCH_ROOM = 1.25  # node-local space a downloaded VCF needs, per byte: the copy, its chunks and their split files
-SAMPLE_COLUMNS = ("sample_id", "population", "superpopulation", "sex", "is_parent", "admixed", "raw_bases",
-                  "raw_depth", "default", "selection", "split_check", "bootstrap", "giab")
 QC_COLUMNS = ("sample_id", "chrom", "bins", "t_bins", "k_bins", "missing_bins", "called_bins", "partial_bins",
               "called_bases", "het_sites", "length_bases", "vcf_bytes", "psmcfa_bytes", "psmcfa_sha256")
 # Summed over the chromosomes of a sample in qc/samples.tsv; psmcfa_bytes is then the size of its psmcfa.gz
@@ -187,10 +188,10 @@ class Layout:
         return self.meta("stream_samples.txt")
 
     def batch(self, k: int) -> Path:
-        return self.inputs / "meta" / "batches" / f"batch_{k:02d}.txt"
+        return self.meta("batches") / f"batch_{k:02d}.txt"
 
     def tbi(self, chrom: str) -> Path:
-        return self.inputs / "meta" / "tbi" / f"{chrom}.vcf.gz.tbi"
+        return self.meta("tbi") / f"{chrom}.vcf.gz.tbi"
 
     def mask(self, chrom: str) -> Path:
         return self.inputs / "mask" / f"{chrom}.bed"
@@ -226,24 +227,28 @@ class Layout:
         return self.inputs / "qc" / "samples.tsv"
 
     @property
+    def records(self) -> Path:
+        return self.inputs / "records"
+
+    @property
     def record_setup(self) -> Path:
-        return self.inputs / "records" / "setup.json"
+        return self.records / "setup.json"
 
     def record_chunk(self, chrom: str, i: int) -> Path:
-        return self.inputs / "records" / "chunks" / f"{chrom}_{i:03d}.json"
+        return self.records / "chunks" / f"{chrom}_{i:03d}.json"
 
     def record_chrom(self, chrom: str) -> Path:
-        return self.inputs / "records" / "chromosomes" / f"{chrom}.json"
+        return self.records / "chromosomes" / f"{chrom}.json"
 
     def record_fetch(self, chrom: str) -> Path:
-        return self.inputs / "records" / "fetches" / f"{chrom}.json"
+        return self.records / "fetches" / f"{chrom}.json"
 
     def record_pilot(self, chrom: str) -> Path:
-        return self.inputs / "records" / f"pilot_{chrom}.json"
+        return self.records / f"pilot_{chrom}.json"
 
     @property
     def record_samples(self) -> Path:
-        return self.inputs / "records" / "samples.json"
+        return self.records / "samples.json"
 
     @property
     def manifest(self) -> Path:
@@ -256,10 +261,6 @@ class Layout:
     @property
     def giab_bed(self) -> Path:
         return self.meta("giab.bed")
-
-    @property
-    def fixture(self) -> Path:
-        return self.root / "fixture"
 
 
 def layout(runs_dir: Path) -> Layout:
@@ -285,6 +286,63 @@ def temp_dirs(lay: Layout, tmp_dir: Optional[Path] = None, local_tmp_dir: Option
     shared = Path(tmp_dir or os.environ.get(TMP_ENV) or lay.root / "tmp")
     local = Path(local_tmp_dir or os.environ.get(LOCAL_TMP_ENV) or shared)
     return Dirs(shared.expanduser().resolve(), local.expanduser().resolve())
+
+
+# ---------------------------------------------------------------------------
+# Files: every output is written to a .partial file and renamed when complete
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def replacing(path: Path) -> Iterator[Path]:
+    """``path.partial`` (its directory made), renamed to ``path`` when the block succeeds."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".partial")
+    yield tmp
+    os.replace(tmp, path)
+
+
+def write_atomic(path: Path, data: bytes) -> None:
+    with replacing(path) as tmp:
+        tmp.write_bytes(data)
+
+
+def concat_files(parts: Sequence[Path], dest: Path) -> None:
+    """``cat parts > dest``, atomically."""
+    with replacing(dest) as tmp, open(tmp, "wb") as out:
+        for p in parts:
+            with open(p, "rb") as f:
+                shutil.copyfileobj(f, out, 1 << 20)
+
+
+def gzip_bytes(data: bytes) -> bytes:
+    """``data`` gzip-compressed with no name or time in the header (the same bytes every time)."""
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0, filename="") as g:
+        g.write(data)
+    return buf.getvalue()
+
+
+def write_json(path: Path, obj) -> None:
+    provenance.write_json_atomic(Path(path), obj)
+
+
+def read_json(path: Path) -> Dict:
+    return json.loads(Path(path).read_text())
+
+
+def write_tsv(path: Path, rows: Sequence[Dict], columns: Sequence[str]) -> None:
+    with replacing(path) as tmp, open(tmp, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(columns), delimiter="\t", lineterminator="\n")
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k) for k in columns})
+
+
+def read_tsv(path: Path) -> List[Dict[str, str]]:
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f, delimiter="\t"))
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +407,20 @@ def _request(url: str, method: str = "GET", headers: Optional[Dict[str, str]] = 
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+def _retry(what: str, call: Callable[[], T], attempts: int, wait: float) -> T:
+    """``call()``, tried ``attempts`` times, ``wait`` seconds after the first failure, 2 ``wait`` after the second..."""
+    last: Optional[Exception] = None
+    for attempt in range(attempts):
+        try:
+            return call()
+        except OSError as exc:  # urllib's URLError too
+            last = exc
+            time.sleep(wait * (attempt + 1))
+    raise StageError(f"{what} failed: {last}")
+
+
 S3_MD5_RE = re.compile(r"(?:^|/)md5:([0-9a-f]{32})(?:/|$)")
+MD5_RE = re.compile(r"[0-9a-f]{32}")
 
 
 def head(url: str, attempts: int = 3) -> Dict:
@@ -358,18 +429,15 @@ def head(url: str, attempts: int = 3) -> Dict:
         st = Path(url).stat()
         return {"source": url, "content_length": st.st_size, "etag": None,
                 "last_modified": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(st.st_mtime)), "s3_md5": None}
-    last: Optional[Exception] = None
-    for attempt in range(attempts):
-        try:
-            with _request(url, "HEAD") as r:
-                h = r.headers
-                m = S3_MD5_RE.search(h.get("x-amz-meta-s3cmd-attrs", "") or "")
-                return {"source": url, "content_length": int(h.get("Content-Length", -1)), "etag": h.get("ETag"),
-                        "last_modified": h.get("Last-Modified"), "s3_md5": m.group(1) if m else None}
-        except (urllib.error.URLError, OSError) as exc:
-            last = exc
-            time.sleep(2.0 * (attempt + 1))
-    raise StageError(f"HEAD {url} failed: {last}")
+
+    def once() -> Dict:
+        with _request(url, "HEAD") as r:
+            h = r.headers
+        m = S3_MD5_RE.search(h.get("x-amz-meta-s3cmd-attrs", "") or "")
+        return {"source": url, "content_length": int(h.get("Content-Length", -1)), "etag": h.get("ETag"),
+                "last_modified": h.get("Last-Modified"), "s3_md5": m.group(1) if m else None}
+
+    return _retry(f"HEAD {url}", once, attempts, 2.0)
 
 
 def file_digests(path: Path) -> Dict[str, object]:
@@ -384,23 +452,15 @@ def file_digests(path: Path) -> Dict[str, object]:
 def fetch(source: str, dest: Path, attempts: int = 3) -> Dict:
     """Download (or copy) ``source`` to ``dest`` atomically; returns its size, MD5 and SHA-256."""
     dest = Path(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".partial")
-    if "://" not in source:
-        shutil.copyfile(source, tmp)
-    else:
-        last: Optional[Exception] = None
-        for attempt in range(attempts):
-            try:
+    with replacing(dest) as tmp:
+        if "://" not in source:
+            shutil.copyfile(source, tmp)
+        else:
+            def once() -> None:
                 with _request(source, timeout=300.0) as r, open(tmp, "wb") as out:
                     shutil.copyfileobj(r, out, 1 << 20)
-                break
-            except (urllib.error.URLError, OSError) as exc:
-                last = exc
-                time.sleep(5.0 * (attempt + 1))
-        else:
-            raise StageError(f"downloading {source} failed: {last}")
-    os.replace(tmp, dest)
+
+            _retry(f"downloading {source}", once, attempts, 5.0)
     return {"source": source, "path": str(dest), **file_digests(dest)}
 
 
@@ -409,12 +469,10 @@ def parse_manifest(text: str) -> Dict[str, Dict]:
     out: Dict[str, Dict] = {}
     for line in text.splitlines():
         fields = line.split()
-        md5 = next((f for f in fields if re.fullmatch(r"[0-9a-f]{32}", f)), None)
-        name = next((basename(f) for f in fields if "." in f and not re.fullmatch(r"[0-9a-f]{32}", f)), None)
-        if md5 is None or name is None:
-            continue
-        size = next((int(f) for f in fields if f.isdigit()), None)
-        out[name] = {"bytes": size, "md5": md5}
+        md5 = next((f for f in fields if MD5_RE.fullmatch(f)), None)
+        name = next((basename(f) for f in fields if "." in f and not MD5_RE.fullmatch(f)), None)
+        if md5 is not None and name is not None:
+            out[name] = {"bytes": next((int(f) for f in fields if f.isdigit()), None), "md5": md5}
     return out
 
 
@@ -440,7 +498,16 @@ class Sample:
     giab: bool
 
     def row(self) -> Dict[str, object]:
-        return {k: getattr(self, k) for k in SAMPLE_COLUMNS}
+        return asdict(self)
+
+
+SAMPLE_COLUMNS = tuple(f.name for f in dataclasses.fields(Sample))
+_PARSE = {"str": str, "int": int, "float": float, "bool": lambda v: v == "True"}
+
+
+def read_samples(path: Path) -> List[Sample]:
+    """The sample table setup wrote (each column parsed by its field's type)."""
+    return [Sample(**{f.name: _PARSE[f.type](r[f.name]) for f in dataclasses.fields(Sample)}) for r in read_tsv(path)]
 
 
 def read_index(text: str) -> Dict[str, Dict]:
@@ -449,16 +516,15 @@ def read_index(text: str) -> Dict[str, Dict]:
     Column 10 is the sample (its blanks removed: one name ends in a space),
     11 its population and 21 BASE_COUNT, summed over a sample's runs.
     """
-    header: Optional[List[str]] = None
+    col: Dict[str, int] = {}
     out: Dict[str, Dict] = {}
     for line in text.splitlines():
         if line.startswith("##") or not line.strip():
             continue
         fields = line.rstrip("\r\n").split("\t")
         if line.startswith("#"):
-            header = [f.lstrip("#").strip() for f in fields]
+            col = {f.lstrip("#").strip(): i for i, f in enumerate(fields)}
             continue
-        col = {name: i for i, name in enumerate(header or [])}
         name = fields[col.get("SAMPLE_NAME", 9)].strip()
         pop = fields[col.get("POPULATION", 10)].strip()
         try:
@@ -516,11 +582,10 @@ def select_samples(cfg: config.E7, index: Dict[str, Dict], ped: Dict[str, Dict],
             default[s] = "pinned" if s in cfg.pinned else "drawn"
         if chosen:
             split.add(chosen[0])
-    keep = sorted(index) if cfg.cohort == "unrelated2504" else sorted(default)
     if cfg.cohort not in (None, "unrelated2504"):
         raise StageError(f"E7.cohort must be 'unrelated2504' or None, not {cfg.cohort!r}")
     out = []
-    for s in keep:
+    for s in sorted(index) if cfg.cohort == "unrelated2504" else sorted(default):
         p = ped[s]
         bases = int(index[s]["raw_bases"])
         out.append(Sample(
@@ -529,36 +594,6 @@ def select_samples(cfg: config.E7, index: Dict[str, Dict], ped: Dict[str, Dict],
             raw_depth=round(bases / cfg.raw_depth_genome_bp, 3), default=s in default,
             selection=default.get(s, "cohort"), split_check=s in split,
             bootstrap=s in default and s in cfg.bootstrap_samples, giab=s == "NA12878" and s in default and cfg.giab,
-        ))
-    return out
-
-
-def write_tsv(path: Path, rows: Sequence[Dict], columns: Sequence[str]) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".partial")
-    with open(tmp, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(columns), delimiter="\t", lineterminator="\n")
-        w.writeheader()
-        for r in rows:
-            w.writerow({k: r.get(k) for k in columns})
-    os.replace(tmp, path)
-
-
-def read_tsv(path: Path) -> List[Dict[str, str]]:
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f, delimiter="\t"))
-
-
-def read_samples(path: Path) -> List[Sample]:
-    """The sample table setup wrote."""
-    out = []
-    for r in read_tsv(path):
-        out.append(Sample(
-            sample_id=r["sample_id"], population=r["population"], superpopulation=r["superpopulation"], sex=r["sex"],
-            is_parent=r["is_parent"] == "True", admixed=r["admixed"] == "True", raw_bases=int(r["raw_bases"]),
-            raw_depth=float(r["raw_depth"]), default=r["default"] == "True", selection=r["selection"],
-            split_check=r["split_check"] == "True", bootstrap=r["bootstrap"] == "True", giab=r["giab"] == "True",
         ))
     return out
 
@@ -639,19 +674,14 @@ def write_masks(cfg: config.E7, lay: Layout, bed: Path) -> Dict[str, int]:
             if b > a:
                 rows[p[0]].append((a, b))
     bases = {}
-    lay.mask_all.parent.mkdir(parents=True, exist_ok=True)
-    tmp_all = lay.mask_all.with_name(lay.mask_all.name + ".partial")
-    with open(tmp_all, "w") as out_all:
+    with replacing(lay.mask_all) as tmp_all, open(tmp_all, "w") as out_all:
         for chrom in cfg.chromosomes:
             text = "".join(f"{chrom}\t{a}\t{b}\n" for a, b in rows[chrom])
             if not text:
                 raise StageError(f"the strict mask has no callable bases on {chrom}")
-            tmp = lay.mask(chrom).with_name(lay.mask(chrom).name + ".partial")
-            tmp.write_text(text)
-            os.replace(tmp, lay.mask(chrom))
+            write_atomic(lay.mask(chrom), text.encode())
             out_all.write(text)
             bases[chrom] = sum(b - a for a, b in rows[chrom])
-    os.replace(tmp_all, lay.mask_all)
     return bases
 
 
@@ -708,30 +738,6 @@ def portable_cmd(cmd: Sequence[str], lay: Layout, dirs: Optional[Dirs] = None) -
 
 def _quote(s: str) -> str:
     return s if re.fullmatch(r"[A-Za-z0-9_./:=,+@%<>#-]+", s) else "'" + s.replace("'", "'\\''") + "'"
-
-
-def gzip_bytes(data: bytes) -> bytes:
-    """``data`` gzip-compressed with no name or time in the header (the same bytes every time)."""
-    buf = io.BytesIO()
-    with gzip.GzipFile(fileobj=buf, mode="wb", mtime=0, filename="") as g:
-        g.write(data)
-    return buf.getvalue()
-
-
-def write_atomic(path: Path, data: bytes) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".partial")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
-
-
-def write_json(path: Path, obj) -> None:
-    provenance.write_json_atomic(Path(path), obj)
-
-
-def read_json(path: Path) -> Dict:
-    return json.loads(Path(path).read_text())
 
 
 def where() -> Dict:
@@ -1226,17 +1232,6 @@ def pilot(cfg: config.E7, lay: Layout, dirs: Dirs, chrom: str, samples: Optional
 # ---------------------------------------------------------------------------
 
 
-def concat_files(parts: Sequence[Path], dest: Path) -> None:
-    """``cat parts > dest``, atomically."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_name(dest.name + ".partial")
-    with open(tmp, "wb") as out:
-        for p in parts:
-            with open(p, "rb") as f:
-                shutil.copyfileobj(f, out, 1 << 20)
-    os.replace(tmp, dest)
-
-
 def assemble_samples(cfg: config.E7, lay: Layout, jobs: int = 1, prune: bool = False, log=print) -> Dict:
     """Every sample's chromosomes in one psmcfa (and VCF), the summed QC and ``MANIFEST.json``."""
     t0 = time.time()
@@ -1411,14 +1406,9 @@ def fetch_ranges(url: str, dest: Path, size: int, parts: int, attempts: int, wai
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(ranges)) as pool:
         for f in [pool.submit(_fetch_range, url, p, s, e, attempts, wait) for (s, e), p in zip(ranges, part_files)]:
             f.result()
-    tmp = dest.with_name(dest.name + ".partial")
-    with open(tmp, "wb") as out:
-        for p in part_files:
-            with open(p, "rb") as f:
-                shutil.copyfileobj(f, out, 1 << 22)
+    concat_files(part_files, dest)
     for p in part_files:
         p.unlink()
-    os.replace(tmp, dest)
     return file_digests(dest)
 
 
