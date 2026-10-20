@@ -185,7 +185,9 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 /// character per haplotype, and `generate_multihetsep.py` widens the row of an
 /// indel (it joins multi-character VCF alleles), which would shift the pair.
 pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
-    let (seqs, _) = read_mhs_seqs(path, opts, false)?;
+    check_options(opts)?;
+    let (seqs, _) =
+        read_mhs_seqs_from(open_reader(path)?, path, opts, false).map_err(|e| e.error)?;
     let (bins, counts): (_, Vec<_>) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
     let seqs = Sequences {
         bins,
@@ -241,6 +243,24 @@ struct MhsChrom {
 }
 
 impl MhsChrom {
+    fn new(name: &str, bin_size: usize, collect_het: bool) -> Self {
+        Self {
+            name: name.to_string(),
+            binner: Binner::new(bin_size),
+            prev_pos: 0,
+            called: 0,
+            n_het: 0,
+            het: HetTracker::new(collect_het),
+        }
+    }
+
+    /// `n` sites called for the pair, not heterozygous.
+    fn add_called(&mut self, n: u64) {
+        self.binner.add_called(n);
+        self.het.called(n);
+        self.called += n;
+    }
+
     fn finish(mut self) -> MhsSeq {
         let (bins, callable) = self.binner.finish_with_callable();
         MhsSeq {
@@ -253,19 +273,6 @@ impl MhsChrom {
             het_sites: self.het.take(),
         }
     }
-}
-
-/// Read every chromosome of a multihetsep file as [`read_mhs_with`] does,
-/// without chunking. With `collect_het`, each sequence carries the sites
-/// where the pair is heterozygous, with `nr_called` counted over the sites
-/// binned as called for the pair.
-pub(crate) fn read_mhs_seqs(
-    path: &Path,
-    opts: &MhsOptions,
-    collect_het: bool,
-) -> Result<(Vec<MhsSeq>, MhsSummary)> {
-    check_options(opts)?;
-    read_mhs_seqs_from(open_reader(path)?, path, opts, collect_het).map_err(|e| e.error)
 }
 
 fn check_options(opts: &MhsOptions) -> Result<()> {
@@ -295,7 +302,11 @@ pub(crate) struct MhsReadError {
     pub maybe_other_format: bool,
 }
 
-/// [`read_mhs_seqs`] over an opened input; `path` names it in messages.
+/// Read every chromosome of a multihetsep input as [`read_mhs_with`] does,
+/// without chunking; `path` names the input in messages. With
+/// `collect_het`, each sequence carries the sites where the pair is
+/// heterozygous, with `nr_called` counted over the sites binned as called
+/// for the pair.
 pub(crate) fn read_mhs_seqs_from(
     reader: impl BufRead,
     path: &Path,
@@ -353,11 +364,14 @@ fn read_rows(
         // A row without four columns may be a file of another format,
         // wherever it is.
         *maybe_other_format = true;
-        let cols: Vec<&str> = trimmed.split_whitespace().take(4).collect();
-        let &[chrom, pos_str, called_str, alleles] = cols.as_slice() else {
-            let missing = ["chrom", "pos", "nr_called", "alleles"][cols.len()];
-            bail!("invalid mhs row {row_no}: missing {missing}");
-        };
+        let mut cols = trimmed.split_whitespace();
+        let mut fields = [""; 4];
+        for (field, name) in fields.iter_mut().zip(["chrom", "pos", "nr_called", "alleles"]) {
+            *field = cols
+                .next()
+                .with_context(|| format!("invalid mhs row {row_no}: missing {name}"))?;
+        }
+        let [chrom, pos_str, called_str, alleles] = fields;
         // From here on, an error in any row but the first is one of a
         // multihetsep file.
         *maybe_other_format = summary.rows == 0;
@@ -388,14 +402,7 @@ fn read_rows(
                      sort -k1,1 -k2,2n)"
                 );
             }
-            cur = Some(MhsChrom {
-                name: chrom.to_string(),
-                binner: Binner::new(bin_size),
-                prev_pos: 0,
-                called: 0,
-                n_het: 0,
-                het: HetTracker::new(collect_het),
-            });
+            cur = Some(MhsChrom::new(chrom, bin_size, collect_het));
         }
         let c = cur.as_mut().expect("chromosome state was just set");
 
@@ -413,9 +420,7 @@ fn read_rows(
         // Of the `delta` sites up to and including this row, `called` are
         // callable; the uncalled ones go first (see the doc comment).
         c.binner.add_missing(delta - called);
-        c.binner.add_called(called - 1);
-        c.het.called(called - 1);
-        c.called += called - 1;
+        c.add_called(called - 1);
         summary.uncalled_sites += delta - called;
         match call {
             PairCall::Het => {
@@ -426,9 +431,7 @@ fn read_rows(
                 summary.het_rows += 1;
             }
             PairCall::Hom => {
-                c.binner.add_called(1);
-                c.het.called(1);
-                c.called += 1;
+                c.add_called(1);
                 summary.hom_rows += 1;
             }
             PairCall::Missing => {

@@ -29,13 +29,14 @@ use std::path::{Path, PathBuf};
 use crate::io::callable::join_counts;
 use crate::io::common::{HetCall, chunk_sequences, open_reader, reopen_reader};
 use crate::io::consensus::{
-    ConsensusFilters, ConsensusOptions, ConsensusSummary, DepthBounds, DepthThresholds,
-    ensure_rereadable, info_has_fq, read_consensus_from, scan_depth_from,
+    ConsensusFilters, ConsensusOptions, ConsensusSeq, ConsensusSummary, DepthBounds,
+    DepthThresholds, ensure_rereadable, info_has_fq, read_consensus_from, scan_depth_from,
 };
-use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
-use crate::io::psmcfa::parse_psmcfa_with_stats;
+use crate::io::mhs::{MhsOptions, MhsSeq, MhsSummary, read_mhs_seqs_from};
+use crate::io::psmcfa::{PsmcfaRecord, parse_psmcfa_with_stats};
 use crate::io::vcf::{
-    VcfOptions, VcfSummary, gvcf_block_end_of, no_het_snp_message, read_vcf_seqs_from,
+    VcfOptions, VcfSeq, VcfSummary, gvcf_block_end_of, list_names, no_het_snp_message,
+    read_vcf_seqs_from,
 };
 use crate::io::{BinCounts, CallableBases, Observations, Sequences};
 
@@ -204,7 +205,7 @@ pub const MODE_DETECTION_RECORDS: u64 = 10_000;
 pub const MODE_DETECTION_BYTES: usize = 64 << 20;
 
 /// The mode a VCF is read in, and why.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct VcfModeChoice {
     /// `Consensus` or `Mask`, never `Auto`.
     pub mode: VcfMode,
@@ -314,15 +315,13 @@ fn inspect_records(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         span += hi - lo + 1;
     }
     Ok(VcfModeChoice {
-        mode: VcfMode::Auto,
-        forced: false,
-        reason: String::new(),
         inspected,
         alt_dot,
         alt_dot_with_fq: with_fq,
         records_with_fq,
         span,
         gvcf_blocks,
+        ..VcfModeChoice::default()
     })
 }
 
@@ -781,19 +780,13 @@ impl Dataset {
             .filter(|d| matches!(d.reason, DropReason::Filter { .. }))
             .collect();
         if let (Some(filter), false) = (&self.filter, filtered.is_empty()) {
-            let shown: Vec<String> = filtered
-                .iter()
-                .take(5)
-                .map(|d| d.describe(filter))
-                .collect();
-            let more = if filtered.len() > 5 { "; ..." } else { "" };
             out.push(format!(
                 "{} sequence(s) dropped because fewer than {} of their positions, or less than \
-                 {}% of them, are called (fq2psmcfa's output filter): {}{more}",
+                 {}% of them, are called (fq2psmcfa's output filter): {}",
                 filtered.len(),
                 filter.min_good_bases,
                 filter.min_good_fraction * 100.0,
-                shown.join("; ")
+                describe_dropped(filtered.iter().copied(), filter)
             ));
         }
         if !self.obs.rows.is_empty() && self.het_bins() == 0 {
@@ -810,25 +803,18 @@ impl Dataset {
                 "no sequence of the {} input is left to analyse",
                 self.source.format().name()
             );
-            if let Some(filter) = &self.filter {
-                let shown: Vec<String> = self
-                    .dropped
-                    .iter()
-                    .take(5)
-                    .map(|d| d.describe(filter))
-                    .collect();
-                if !shown.is_empty() {
-                    let more = if self.dropped.len() > 5 { "; ..." } else { "" };
-                    msg.push_str(&format!(
-                        ": the output filter (at least {} called positions making up at least \
-                         {}% of the sequence, as in fq2psmcfa) dropped {} sequence(s) ({}{more}); \
-                         lower or disable it for small test data",
-                        filter.min_good_bases,
-                        filter.min_good_fraction * 100.0,
-                        self.dropped.len(),
-                        shown.join("; "),
-                    ));
-                }
+            if let Some(filter) = &self.filter
+                && !self.dropped.is_empty()
+            {
+                msg.push_str(&format!(
+                    ": the output filter (at least {} called positions making up at least {}% of \
+                     the sequence, as in fq2psmcfa) dropped {} sequence(s) ({}); lower or disable \
+                     it for small test data",
+                    filter.min_good_bases,
+                    filter.min_good_fraction * 100.0,
+                    self.dropped.len(),
+                    describe_dropped(self.dropped.iter(), filter),
+                ));
             }
             bail!("{msg}");
         }
@@ -849,6 +835,20 @@ impl Dataset {
         }
         Ok(())
     }
+}
+
+/// Up to five of `dropped`, described ([`DroppedSeq::describe`]) and
+/// separated by `; `, then `...` if there are more.
+fn describe_dropped<'a>(
+    dropped: impl ExactSizeIterator<Item = &'a DroppedSeq>,
+    filter: &SeqFilter,
+) -> String {
+    let n = dropped.len();
+    let mut shown: Vec<String> = dropped.take(5).map(|d| d.describe(filter)).collect();
+    if n > 5 {
+        shown.push("...".to_string());
+    }
+    shown.join("; ")
 }
 
 /// The rows of the first `n` sequences of rows chained by `row_starts`
@@ -878,6 +878,62 @@ struct RawSeq {
     called: Option<u64>,
     het: Option<u64>,
     het_sites: Vec<HetCall>,
+}
+
+impl From<PsmcfaRecord> for RawSeq {
+    fn from(r: PsmcfaRecord) -> Self {
+        Self {
+            name: r.name,
+            bins: r.seq,
+            callable: None,
+            extent: None,
+            called: None,
+            het: None,
+            het_sites: Vec::new(),
+        }
+    }
+}
+
+impl From<MhsSeq> for RawSeq {
+    fn from(s: MhsSeq) -> Self {
+        Self {
+            name: s.name,
+            bins: s.bins,
+            callable: s.callable,
+            extent: Some(s.extent),
+            called: Some(s.called),
+            het: Some(s.n_het),
+            het_sites: s.het_sites,
+        }
+    }
+}
+
+impl From<ConsensusSeq> for RawSeq {
+    fn from(s: ConsensusSeq) -> Self {
+        Self {
+            name: s.name,
+            bins: s.bins,
+            callable: s.callable,
+            extent: Some(s.bases),
+            called: Some(s.good_bases),
+            het: Some(s.het_bases),
+            het_sites: s.het_sites,
+        }
+    }
+}
+
+impl From<VcfSeq> for RawSeq {
+    fn from(s: VcfSeq) -> Self {
+        Self {
+            name: s.name,
+            bins: s.bins,
+            callable: s.callable,
+            extent: Some(s.extent),
+            called: Some(s.called),
+            het: Some(s.n_het),
+            het_sites: s.het_sites,
+        }
+    }
 }
 
 /// Read `path` into a [`Dataset`]; see the module docs.
@@ -928,18 +984,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
                         e.error
                             .context(format!("failed to read multihetsep {path:?}{guessed}"))
                     })?;
-            let raw = seqs
-                .into_iter()
-                .map(|s| RawSeq {
-                    name: s.name,
-                    bins: s.bins,
-                    callable: s.callable,
-                    extent: Some(s.extent),
-                    called: Some(s.called),
-                    het: Some(s.n_het),
-                    het_sites: s.het_sites,
-                })
-                .collect();
+            let raw = seqs.into_iter().map(RawSeq::from).collect();
             (raw, SourceSummary::Mhs(summary), Some(opts.filter))
         }
         InputFormat::Vcf => {
@@ -1045,15 +1090,7 @@ fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)
             summary.bins += r.seq.len() as u64;
             summary.called_bins += r.n_called() as u64;
             summary.het_bins += r.n_het() as u64;
-            RawSeq {
-                name: r.name,
-                bins: r.seq,
-                callable: None,
-                extent: None,
-                called: None,
-                het: None,
-                het_sites: Vec::new(),
-            }
+            RawSeq::from(r)
         })
         .collect();
     Ok((raw, summary))
@@ -1062,25 +1099,19 @@ fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)
 /// Why consensus mode refuses a VCF with several `samples`; `selected` is
 /// the sample asked for, if any.
 fn pooled_samples_message(samples: &[String], selected: Option<&str>) -> String {
-    let shown = samples
-        .iter()
-        .take(5)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let more = if samples.len() > 5 { ", ..." } else { "" };
     let selected = selected
         .map(|name| format!(" (it cannot read sample '{name}' alone)"))
         .unwrap_or_default();
     format!(
-        "the VCF has {} samples ({shown}{more}), but consensus mode, like vcfutils.pl vcf2fq, \
+        "the VCF has {} samples ({}), but consensus mode, like vcfutils.pl vcf2fq, \
          reads only the INFO fields FQ, AF1, DP and MQ, which bcftools computes over all \
          samples together, so it would bin a consensus of the pooled samples, in which any \
          site that segregates among them looks heterozygous{selected}. Call the sample on its \
          own (bcftools mpileup with only its alignments, or with -s NAME, then bcftools call \
          -c), or read that sample's genotypes in mask mode (--vcf-mode mask --vcf-sample NAME) \
          with a callable mask (--vcf-mask)",
-        samples.len()
+        samples.len(),
+        list_names(samples)
     )
 }
 
@@ -1106,12 +1137,7 @@ fn load_vcf(
             mode: VcfMode::Consensus,
             forced: true,
             reason: "consensus mode was requested".to_string(),
-            inspected: 0,
-            alt_dot: 0,
-            alt_dot_with_fq: 0,
-            records_with_fq: 0,
-            span: 0,
-            gvcf_blocks: 0,
+            ..VcfModeChoice::default()
         },
     };
     if choice.mode == VcfMode::Consensus {
@@ -1154,19 +1180,7 @@ fn load_vcf(
             }
         };
         let read = read_consensus_from(reader, path, &copts, bounds).with_context(context)?;
-        let raw = read
-            .seqs
-            .into_iter()
-            .map(|s| RawSeq {
-                name: s.name,
-                bins: s.bins,
-                callable: s.callable,
-                extent: Some(s.bases),
-                called: Some(s.good_bases),
-                het: Some(s.het_bases),
-                het_sites: s.het_sites,
-            })
-            .collect();
+        let raw = read.seqs.into_iter().map(RawSeq::from).collect();
         let summary = VcfInputSummary {
             mode: choice,
             details: VcfDetails::Consensus(read.summary),
@@ -1184,25 +1198,11 @@ fn load_vcf(
         to_contig_end: opts.to_contig_end,
         gvcf: choice.gvcf_blocks > 0,
     };
-    let (seqs, mut summary) =
+    let (seqs, summary) =
         read_vcf_seqs_from(input.into_reader(), path, &vopts, opts.collect_het_sites)
             .with_context(|| format!("failed to read VCF {path:?} in mask mode"))?;
-    summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
-    summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
-    let raw = seqs
-        .into_iter()
-        .map(|s| RawSeq {
-            name: s.name,
-            bins: s.bins,
-            callable: s.callable,
-            extent: Some(s.extent),
-            called: Some(s.called),
-            het: Some(s.n_het),
-            het_sites: s.het_sites,
-        })
-        .collect();
     Ok((
-        raw,
+        seqs.into_iter().map(RawSeq::from).collect(),
         VcfInputSummary {
             mode: choice,
             details: VcfDetails::Mask(summary),
