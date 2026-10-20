@@ -219,12 +219,7 @@ check kinds "$out/dry_run.txt" "$out/names.qc.json"
 
 # Roman numerals: in a stickleback-like reference chrX is chromosome 10 and
 # is kept; in a C. elegans-like one (I to V, X) X is the sex chromosome.
-fai_of() { # name... > .fai lines
-  local n
-  for n in "$@"; do
-    printf '%s\t4\t0\t4\t5\n' "$n"
-  done
-}
+fai_of() { printf '%s\t4\t0\t4\t5\n' "$@"; } # name... > .fai lines
 called_in() { # dry-run output: the chromosomes to call, on one line
   awk '/^Chromosomes to call/ { on = 1; next } /^[^ ]/ { on = 0 } on { print $1 }' "$1" |
     tr '\n' ' '
