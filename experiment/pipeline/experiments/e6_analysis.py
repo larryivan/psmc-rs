@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import math
 import statistics
-from collections import OrderedDict
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -86,16 +86,14 @@ def trace_rows(
             row[f"theta_{tool}"] = rd.theta if rd else None
             row[f"rho_{tool}"] = rd.rho if rd else None
             row[f"t_max_{tool}"] = rd.t_max if rd else None
-        row["loglike_rel_diff"] = rel_diff(row["loglike_rs"], row["loglike_c"])
-        row["theta_rel_diff"] = rel_diff(row["theta_rs"], row["theta_c"])
-        row["rho_rel_diff"] = rel_diff(row["rho_rs"], row["rho_c"])
-        row["t_max_rel_diff"] = rel_diff(row["t_max_rs"], row["t_max_c"])
+        for key in ("loglike", "theta", "rho", "t_max"):
+            row[f"{key}_rel_diff"] = rel_diff(row[f"{key}_rs"], row[f"{key}_c"])
         rows.append(row)
     return rows
 
 
 def _by_replicate(rows: Sequence[Mapping]) -> Dict[int, List[Mapping]]:
-    out: Dict[int, List[Mapping]] = OrderedDict()
+    out: Dict[int, List[Mapping]] = {}
     for r in rows:
         out.setdefault(int(r["replicate"]), []).append(r)
     for v in out.values():
@@ -190,9 +188,9 @@ def agreement_summary(model: str, rows: Sequence[Mapping], n_iter: int) -> Dict:
 # ---------------------------------------------------------------------------
 
 
-def read_psmcfa(path: Path) -> "OrderedDict[str, str]":
+def read_psmcfa(path: Path) -> Dict[str, str]:
     """The records of a psmcfa file, ``{name: bins}`` in file order (name: header up to the first space)."""
-    out: "OrderedDict[str, str]" = OrderedDict()
+    out: Dict[str, str] = {}
     name: Optional[str] = None
     parts: List[str] = []
     with open(path, encoding="ascii") as f:
@@ -208,11 +206,6 @@ def read_psmcfa(path: Path) -> "OrderedDict[str, str]":
     if name is not None:
         out[name] = "".join(parts)
     return out
-
-
-def last_het_bin(bins: str) -> int:
-    """Index of the last ``K`` bin, -1 when there is none."""
-    return bins.rfind("K")
 
 
 def compare_bins(model: str, fmt: str, ref: Mapping[str, str], other: Mapping[str, str]) -> List[Dict]:
@@ -231,7 +224,7 @@ def compare_bins(model: str, fmt: str, ref: Mapping[str, str], other: Mapping[st
         n = min(len(a), len(b))
         av = np.frombuffer(a[:n].encode("ascii"), dtype=np.uint8)
         bv = np.frombuffer(b[:n].encode("ascii"), dtype=np.uint8)
-        after_last = len(a) - (last_het_bin(a) + 1)
+        after_last = len(a) - (a.rfind("K") + 1)  # bins after the last heterozygous one
         missing_end = max(len(a) - len(b), 0)
         rows.append(
             {
@@ -267,7 +260,7 @@ class FormatFit:
     fmt: str
     params: Mapping
 
-    @property
+    @cached_property
     def fit(self) -> results.Fit:
         return results.fit_from_rs(self.params)
 
@@ -643,7 +636,6 @@ def finding_rows(sample_id: str, qc: Mapping) -> List[Dict]:
 
 __all__ = [
     "Decoded", "FormatFit", "agreement_summary", "align", "bin_tmrca", "calibration_rows", "compare_bins",
-    "convergence_summary", "curve_rows", "density_rows", "finding_rows", "fit_rows",
-    "last_het_bin", "qc_row", "read_psmcfa", "state_mismatches", "state_of",
-    "tmrca_summary", "trace_rows", "track_rows", "truth_rows",
+    "convergence_summary", "curve_rows", "density_rows", "finding_rows", "fit_rows", "qc_row", "read_psmcfa",
+    "state_mismatches", "state_of", "tmrca_summary", "trace_rows", "track_rows", "truth_rows",
 ]
