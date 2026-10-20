@@ -210,7 +210,8 @@ fn validate(
     Ok(())
 }
 
-/// One pass's model and observations, laid out for the per-sequence passes.
+/// The model and observations of one pass (E-step, log-likelihood or
+/// decoding), laid out for the per-sequence engine.
 struct Pass<'a> {
     rows: &'a [Vec<u8>],
     callable: Option<&'a CallableBases>,
@@ -220,7 +221,7 @@ struct Pass<'a> {
 }
 
 impl<'a> Pass<'a> {
-    /// Checks the shapes and, with callable bases, that they fit the rows
+    /// Checks the shapes, and that the callable bases fit the rows
     /// ([`ObsTable::counted`], run in `pool` when given).
     fn new(
         pi: &[f64],
