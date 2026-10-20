@@ -3,8 +3,8 @@
 //!
 //! The objective is `f(x) = -Q(x) + lambda * penalty(x)`: `Q` is C psmc's
 //! expected complete-data log-likelihood of the transitions and emissions
-//! (with the `ln(p + 1e-300)` guard and the skipped zero counts of the
-//! forward-mode code it replaces), or with callable bases that of the
+//! (with the `ln(p + 1e-300)` guard, and zero counts skipped, as in the
+//! forward-mode test oracle, `opt/dual.rs`), or with callable bases that of the
 //! callable-length model ([`EmissionCounts`]), at the parameters
 //! `p_i = lo_i + (hi_i - lo_i) sigmoid(x_i)` (θ, ρ, t_max, then the free λ),
 //! whose HMM is C `psmc_update_hmm` as [`PsmcModel::param_recalculate`]
@@ -30,11 +30,9 @@
 //! callable bases, the `K` bins of each count add an exponential, a
 //! logarithm and a division per state (a `K` bin holds `ceil(s / 10)` to
 //! `s` callable bases, so there are at most `s - ceil(s / 10) + 1` counts,
-//! 91 for bins of 100 bases).
-//! Forward-mode differentiation, which this replaces, carried the
-//! derivatives with respect to every parameter through each of the
-//! states² transition probabilities, at O(states² × parameters) time and
-//! memory and a heap allocation per arithmetic operation.
+//! 91 for bins of 100 bases). Forward mode would carry the derivatives
+//! with respect to every parameter through each transition probability,
+//! at O(states² × parameters) time and memory.
 //!
 //! The objective is `+inf` where the HMM computed in f64 is not one: where a
 //! transition or emission probability is negative or not a number, or where
@@ -58,6 +56,15 @@ use crate::model::{GRID_ALPHA, PsmcModel, T_INF};
 
 /// The guard added to each probability before its logarithm is taken.
 const LN_GUARD: f64 = 1e-300;
+
+/// Adds the term `c ln(p + LN_GUARD)` of `c` expected transitions of
+/// probability `p` to `q`; returns its derivative with respect to `p`.
+#[inline]
+fn add_log_count(q: &mut f64, p: f64, c: f64) -> f64 {
+    let guarded = p + LN_GUARD;
+    *q += guarded.ln() * c;
+    c / guarded
+}
 
 /// The most a row of transition probabilities may deviate from summing to
 /// 1 before the objective calls the point infeasible. Rows of valid HMMs
@@ -475,9 +482,7 @@ impl<'a> Objective<'a> {
                 valid &= p >= 0.0;
                 let c = row[m];
                 if c != 0.0 {
-                    let guarded = p + LN_GUARD;
-                    q_sum += guarded.ln() * c;
-                    let bar_p = c / guarded;
+                    let bar_p = add_log_count(&mut q_sum, p, c);
                     bar_tmp3 += bar_p * q;
                     let bar_q = bar_p * tmp3;
                     bar_tmp += bar_q * q_aux[m];
@@ -489,9 +494,7 @@ impl<'a> Objective<'a> {
             valid &= p >= 0.0;
             let c = row[k];
             if c != 0.0 {
-                let guarded = p + LN_GUARD;
-                q_sum += guarded.ln() * c;
-                let bar_p = c / guarded;
+                let bar_p = add_log_count(&mut q_sum, p, c);
                 bar_tmp3 += bar_p * (qk - 1.0);
                 bar_qk = bar_p * tmp3;
             }
@@ -502,9 +505,7 @@ impl<'a> Objective<'a> {
                 valid &= p >= 0.0;
                 let c = row[m];
                 if c != 0.0 {
-                    let guarded = p + LN_GUARD;
-                    q_sum += guarded.ln() * c;
-                    let bar_p = c / guarded;
+                    let bar_p = add_log_count(&mut q_sum, p, c);
                     bar_tmp3 += bar_p * q;
                     let bar_q = bar_p * tmp3;
                     bar_tmp2 += bar_q * dalpha[m];

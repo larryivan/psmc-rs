@@ -13,7 +13,7 @@
 //! convergence, as C psmc's Hooke-Jeeves search does;
 //! [`MStepConfig::max_iters`] only caps it.
 
-use anyhow::{Result, bail};
+use anyhow::{Result, bail, ensure};
 
 use crate::hmm::SufficientStats;
 use crate::model::PsmcModel;
@@ -127,46 +127,39 @@ pub struct MStepProgress {
     pub total: usize,
 }
 
+/// The bounds of the M-step's parameters, in their order: θ, ρ, t_max,
+/// then one per free λ of `model`.
 pub fn bounds_from_config(model: &PsmcModel, config: &MStepConfig) -> Vec<Bounds> {
-    let mut bounds = Vec::new();
-    bounds.push(Bounds {
-        lo: config.theta_lo,
-        hi: config.theta_hi,
-    }); // theta
-    bounds.push(Bounds {
-        lo: config.rho_lo,
-        hi: config.rho_hi,
-    }); // rho
-    bounds.push(Bounds {
-        lo: config.tmax_lo,
-        hi: config.tmax_hi,
-    }); // t_max
-    for _ in 0..model.lam.len() {
-        bounds.push(Bounds {
-            lo: config.lam_lo,
-            hi: config.lam_hi,
-        });
-    }
-    bounds
+    let bounds = |lo, hi| Bounds { lo, hi };
+    [
+        bounds(config.theta_lo, config.theta_hi),
+        bounds(config.rho_lo, config.rho_hi),
+        bounds(config.tmax_lo, config.tmax_hi),
+    ]
+    .into_iter()
+    .chain(std::iter::repeat_n(
+        bounds(config.lam_lo, config.lam_hi),
+        model.lam.len(),
+    ))
+    .collect()
 }
 
+/// The M-step's parameters of `model`: θ, ρ, t_max, then the free λ.
 pub(crate) fn pack_params(model: &PsmcModel) -> Vec<f64> {
-    let mut params = Vec::with_capacity(3 + model.lam.len());
-    params.push(model.theta);
-    params.push(model.rho);
-    params.push(model.t_max);
-    params.extend_from_slice(&model.lam);
-    params
+    [model.theta, model.rho, model.t_max]
+        .into_iter()
+        .chain(model.lam.iter().copied())
+        .collect()
 }
 
+/// Sets `model`'s parameters to `params` ([`pack_params`]), without
+/// recomputing its HMM.
 pub(crate) fn unpack_params(model: &mut PsmcModel, params: &[f64]) -> Result<()> {
-    if params.len() != 3 + model.lam.len() {
-        bail!("param length mismatch");
-    }
+    ensure!(params.len() == 3 + model.lam.len(), "param length mismatch");
     model.theta = params[0];
     model.rho = params[1];
     model.t_max = params[2];
-    model.lam.clone_from_slice(&params[3..]);
+    model.lam.copy_from_slice(&params[3..]);
     Ok(())
 }
 
@@ -176,28 +169,20 @@ pub(crate) fn unpack_params(model: &mut PsmcModel, params: &[f64]) -> Result<()>
 const BOUND_MARGIN: f64 = 1e-12;
 
 fn to_unconstrained(params: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
-    if params.len() != bounds.len() {
-        bail!("bounds length mismatch");
-    }
-    let mut out = Vec::with_capacity(params.len());
-    for (x, b) in params.iter().zip(bounds.iter()) {
-        let z = (x - b.lo) / (b.hi - b.lo);
-        let z = z.clamp(BOUND_MARGIN, 1.0 - BOUND_MARGIN);
-        out.push(logit(z));
-    }
-    Ok(out)
+    ensure!(params.len() == bounds.len(), "bounds length mismatch");
+    Ok(params
+        .iter()
+        .zip(bounds)
+        .map(|(x, b)| logit(((x - b.lo) / (b.hi - b.lo)).clamp(BOUND_MARGIN, 1.0 - BOUND_MARGIN)))
+        .collect())
 }
 
 fn from_unconstrained(p: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
-    if p.len() != bounds.len() {
-        bail!("bounds length mismatch");
-    }
-    let mut out = Vec::with_capacity(p.len());
-    for (v, b) in p.iter().zip(bounds.iter()) {
-        let z = sigmoid(*v);
-        out.push(b.lo + (b.hi - b.lo) * z);
-    }
-    Ok(out)
+    ensure!(p.len() == bounds.len(), "bounds length mismatch");
+    Ok(p.iter()
+        .zip(bounds)
+        .map(|(&v, b)| b.lo + (b.hi - b.lo) * sigmoid(v))
+        .collect())
 }
 
 pub fn m_step_lbfgs(
@@ -303,14 +288,14 @@ pub fn m_step_lbfgs_with_outcome(
         .then(|| progress::bar(config.max_iters as u64, "M", "L-BFGS"));
     let total = config.max_iters;
     if let Some(cb) = on_progress.as_mut() {
-        (*cb)(MStepProgress { done: 0, total });
+        cb(MStepProgress { done: 0, total });
     }
     let mut on_iteration = |done: usize| {
         if let Some(pb) = &pb {
             pb.set_position(done as u64);
         }
         if let Some(cb) = on_progress.as_mut() {
-            (*cb)(MStepProgress { done, total });
+            cb(MStepProgress { done, total });
         }
     };
     let settings = lbfgs::Settings {
@@ -332,7 +317,7 @@ pub fn m_step_lbfgs_with_outcome(
         pb.finish_with_message("M-step done");
     }
     if let Some(cb) = on_progress.as_mut() {
-        (*cb)(MStepProgress { done, total: done });
+        cb(MStepProgress { done, total: done });
     }
 
     // Without an iteration the result is the start itself, not its round
@@ -350,6 +335,7 @@ pub fn m_step_lbfgs_with_outcome(
         stop: minimum.stop,
     })
 }
+
 #[cfg(test)]
 mod tests {
     use super::dual::{Dd, Dual, Real, compute_params_dual, eval_dual_in, expand_lam_dual};
