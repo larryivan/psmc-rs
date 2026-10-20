@@ -2,40 +2,28 @@
 
 from __future__ import annotations
 
-import importlib.util
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import REGISTRY, Context, e1, fig, jobs_for  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import assert_ignore_rules, fake_ctx, has_modules, in_git_work_tree  # noqa: E402
 
-HAS_PLOTTING = all(importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "matplotlib"))
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-
-
-def fake_ctx(runs: Path) -> Context:
-    return Context(config.SMOKE, runs, _tools={"c": FAKE_C, "rs02": FAKE_RS})
+from experiment.pipeline import config, runner  # noqa: E402
+from experiment.pipeline.experiments import REGISTRY, Context, e1, fig, jobs_for  # noqa: E402
 
 
-@unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
+@unittest.skipUnless(has_modules("numpy", "pandas", "matplotlib"), "numpy, pandas and matplotlib are needed")
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
-        self.ctx = fake_ctx(self.runs)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.ctx = fake_ctx(config.SMOKE, self.runs, log=lambda _msg: None)
+
+    def ids(self) -> set:
+        return {j.id for j in fig.jobs(self.ctx)}
 
     def test_registered(self):
         self.assertEqual(REGISTRY["FIG"], "fig")
@@ -43,37 +31,34 @@ class Jobs(unittest.TestCase):
     def test_figures_of_implemented_experiments_only(self):
         from experiment.pipeline import figures
 
-        ids = {j.id for j in fig.jobs(self.ctx)}
         want = {f"FIG/{fs.name}" for fs in figures.FIGURES
                 if all(e in REGISTRY for e in fs.sources) and "E7" not in fs.sources}
-        self.assertEqual(ids, want)
-        self.assertIn("FIG/fig1_workflow", ids)
-        self.assertIn("FIG/fig2_simulated_accuracy", ids)
+        self.assertEqual(self.ids(), want)
+        self.assertIn("FIG/fig1_workflow", want)
+        self.assertIn("FIG/fig2_simulated_accuracy", want)
 
     def test_e7s_figures_once_its_data_stage_has_finished(self):
         from experiment.pipeline import kg1000
 
         e7_figs = {"FIG/fig7_1000_genomes", "FIG/figS5_1000g_populations", "FIG/figS6_1000g_checks"}
-        self.assertFalse(e7_figs & {j.id for j in fig.jobs(self.ctx)})
+        self.assertFalse(e7_figs & self.ids())
         kg1000.write_json(kg1000.layout(self.runs).manifest, {})
-        self.assertTrue(e7_figs <= {j.id for j in fig.jobs(self.ctx)})
+        self.assertTrue(e7_figs <= self.ids())
 
     def test_e7s_figures_from_its_tables_without_its_inputs(self):
         # Committed runs hold E7's tables but not the data stage's inputs (MANIFEST.json among them).
         from experiment.pipeline import figures
         from experiment.pipeline.figures.schemas import SCHEMAS
 
-        fs = figures.spec("fig7")
-        self.assertNotIn("FIG/fig7_1000_genomes", {j.id for j in fig.jobs(self.ctx)})
-        for key in fs.tables:
+        self.assertNotIn("FIG/fig7_1000_genomes", self.ids())
+        for key in figures.spec("fig7").tables:
             p = SCHEMAS[key].path(self.runs)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text("x\n")
-        self.assertIn("FIG/fig7_1000_genomes", {j.id for j in fig.jobs(self.ctx)})
+        self.assertIn("FIG/fig7_1000_genomes", self.ids())
 
     def test_a_figure_runs_after_the_tables_it_reads(self):
-        jobs = e1.jobs(self.ctx) + fig.jobs(self.ctx)
-        g = runner.Graph(jobs, self.runs)
+        g = runner.Graph(e1.jobs(self.ctx) + fig.jobs(self.ctx), self.runs)
         self.assertEqual(g.deps["FIG/fig2_simulated_accuracy"], ["E1/report"])
         self.assertEqual(g.deps["FIG/figS1_em_convergence"], ["E1/report"])
         self.assertEqual(g.deps["FIG/fig1_workflow"], [])
@@ -101,43 +86,27 @@ class Jobs(unittest.TestCase):
         self.assertEqual(figures.missing_tables(figures.spec("art2_performance"), self.runs), [fits.path(self.runs)])
         fits.path(self.runs).parent.mkdir(parents=True)
         shutil.copy(fits.path(tiny_runs.runs_dir()), fits.path(self.runs))
-        ctx = Context(config.TINY, self.runs, log=lambda _msg: None)
-        written = fig.report(ctx)
+        written = fig.report(Context(config.TINY, self.runs, log=lambda _msg: None))
         self.assertEqual(set(written), {"art2_performance", "fig1_workflow", "fig4_performance", "figS4_thread_scaling"})
         self.assertTrue(all(p.exists() for p in written.values()))
 
     def test_every_figure_has_one_owner(self):
         # No experiment job writes a figure; FIG's outputs do not collide with any other job's.
-        ctx = Context(config.SMOKE, self.runs, _tools={"c": FAKE_C, "rs02": FAKE_RS, "rs01": FAKE_RS,
-                                                     "fq2psmcfa": FAKE_C, "generate_multihetsep.py": FAKE_C},
-                      log=lambda _msg: None)
-        jobs = jobs_for(ctx, [e for e in REGISTRY if e != "FIG"])
+        jobs = jobs_for(self.ctx, [e for e in REGISTRY if e != "FIG"])
         self.assertFalse([j.id for j in jobs if any("figures" in p.parts for p in j.outputs)])
-        runner.Graph(jobs + fig.jobs(ctx), self.runs)  # no output is declared twice
-
-
-def in_git_work_tree() -> bool:
-    if shutil.which("git") is None:
-        return False
-    res = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
-    return res.returncode == 0 and res.stdout.strip() == "true"
+        runner.Graph(jobs + fig.jobs(self.ctx), self.runs)  # no output is declared twice
 
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class Layout(unittest.TestCase):
-    def ignored(self, rel: str) -> bool:
-        return subprocess.run(["git", "check-ignore", "-q", "--no-index", rel], cwd=ROOT).returncode == 0
-
-    def test_figures_and_their_records_are_tracked(self):
-        for p in ("experiment/runs/E1/figures/fig2_simulated_accuracy.pdf",
-                  "experiment/runs/E1/figures/fig2_simulated_accuracy.svg",
-                  "experiment/runs/E1/figures/fig2_simulated_accuracy.png",
-                  "experiment/runs/FIG/figures/fig1_workflow.pdf",
-                  "experiment/runs/FIG/provenance/fig2_simulated_accuracy.json"):
-            self.assertFalse(self.ignored(p), p)
-
-    def test_partial_figures_are_ignored(self):
-        self.assertTrue(self.ignored("experiment/runs/E1/figures/fig2_simulated_accuracy.pdf.partial"))
+    def test_figures_and_their_records_are_tracked_and_partial_figures_ignored(self):
+        assert_ignore_rules(self, kept=(
+            "experiment/runs/E1/figures/fig2_simulated_accuracy.pdf",
+            "experiment/runs/E1/figures/fig2_simulated_accuracy.svg",
+            "experiment/runs/E1/figures/fig2_simulated_accuracy.png",
+            "experiment/runs/FIG/figures/fig1_workflow.pdf",
+            "experiment/runs/FIG/provenance/fig2_simulated_accuracy.json",
+        ), ignored=("experiment/runs/E1/figures/fig2_simulated_accuracy.pdf.partial",))
 
 
 if __name__ == "__main__":
