@@ -11,30 +11,23 @@ multihetsep.
 
 from __future__ import annotations
 
+import functools
+import json
 import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, paths, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, e1, e2, e5, e6, jobs_for  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import fake_ctx, option  # noqa: E402
 
-FAKE = {
-    "c": tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64}),
-    "rs01": tools.Tool("psmc-rs-0.1", Path("/x/psmc-rs-0.1"), {"version": "psmc-rs 0.1.0", "commit": "e" * 40}),
-    "rs02": tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40}),
-    "fq2psmcfa": tools.Tool("fq2psmcfa", Path("/x/fq2psmcfa"), {"sha256": "1" * 64}),
-    "generate_multihetsep.py": tools.Tool("generate_multihetsep.py", Path("/x/gm.py"), {"sha256": "2" * 64}),
-}
+from experiment.pipeline import config, paths  # noqa: E402
+from experiment.pipeline.experiments import e1, e2, e5, e6, jobs_for  # noqa: E402
+
 COUNTED_SUFFIXES = (".vcf", ".vcf.gz", ".multihetsep", ".mhs")  # inputs whose bins carry callable bases
+EXPERIMENTS = ("E1", "E2", "E3", "E4", "E5", "E6")  # E7 has no jobs before its data stage
 
 
 def default_mstep_iters() -> int:
@@ -49,29 +42,31 @@ class Fit:
 
     def __init__(self, job, command):
         self.id, self.inputs, self.command = job.id, job.inputs, command
+        self.experiment = job.id.split("/")[0]
 
 
-def rs02_fits(profile: config.Profile, experiments, runs: Path):
-    """The fits of ``experiments`` with psmc-rs 0.2 (not its convert or qc subcommands)."""
-    ctx = Context(profile, runs, _tools=dict(FAKE), log=lambda msg: None)
-    rs = str(FAKE["rs02"].path)
+@functools.lru_cache(maxsize=None)
+def _all_fits(profile_name: str) -> tuple:
     out = []
-    for j in jobs_for(ctx, experiments):
-        cmd = [str(c) for c in j.command]
-        if rs in cmd:
-            own = cmd[cmd.index(rs):]
-            if own[1] not in ("convert", "qc"):
-                out.append(Fit(j, own))
-    return out
+    with tempfile.TemporaryDirectory() as runs:
+        ctx = fake_ctx(config.get_profile(profile_name), Path(runs), log=lambda msg: None)
+        rs = str(ctx.rs02().path)
+        for j in jobs_for(ctx, EXPERIMENTS):
+            cmd = [str(c) for c in j.command]
+            if rs in cmd:
+                own = cmd[cmd.index(rs):]
+                if own[1] not in ("convert", "qc"):
+                    out.append(Fit(j, own))
+    return tuple(out)
+
+
+def rs02_fits(profile: config.Profile, experiments) -> list:
+    """The fits of ``experiments`` with psmc-rs 0.2 (not its convert or qc subcommands); E1-E6's made once."""
+    return [f for f in _all_fits(profile.name) if f.experiment in experiments]
 
 
 def by_experiment(fits):
-    return {f.id.split("/")[0] for f in fits}
-
-
-def flag(command, name):
-    command = [str(c) for c in command]
-    return command[command.index(name) + 1] if name in command else None
+    return {f.experiment for f in fits}
 
 
 class MStep(unittest.TestCase):
@@ -92,37 +87,33 @@ class MStep(unittest.TestCase):
 
     def test_every_fit_passes_the_cap(self):
         default = str(default_mstep_iters())
-        with tempfile.TemporaryDirectory() as d:
-            for p in (config.PRODUCTION, config.SMOKE):
-                jobs = rs02_fits(p, ("E1", "E2", "E3", "E4", "E5", "E6"), Path(d))
-                self.assertEqual(by_experiment(jobs), {"E1", "E2", "E3", "E4", "E5", "E6"})
-                for j in jobs:
-                    with self.subTest(profile=p.name, job=j.id):
-                        self.assertEqual(flag(j.command, "--mstep-iters"), default)
+        for p in (config.PRODUCTION, config.SMOKE):
+            jobs = rs02_fits(p, EXPERIMENTS)
+            self.assertEqual(by_experiment(jobs), set(EXPERIMENTS))
+            for j in jobs:
+                with self.subTest(profile=p.name, job=j.id):
+                    self.assertEqual(option(j.command, "--mstep-iters"), default)
 
 
 class CallableBases(unittest.TestCase):
     def test_psmcfa_experiments_fit_psmcfa_only(self):
-        with tempfile.TemporaryDirectory() as d:
-            for p in (config.PRODUCTION, config.SMOKE):
-                jobs = rs02_fits(p, ("E1", "E2", "E3", "E5"), Path(d))
-                self.assertEqual(by_experiment(jobs), {"E1", "E2", "E3", "E5"})
-                for j in jobs:
-                    with self.subTest(profile=p.name, job=j.id):
-                        counted = [str(x) for x in j.inputs if str(x).endswith(COUNTED_SUFFIXES)]
-                        self.assertEqual(counted, [])
-                        # E2's NA12878 is the packaged gzip psmcfa, read as it is.
-                        self.assertTrue(str(j.command[1]).endswith((".psmcfa", ".psmcfa.gz")), j.command[1])
-                        self.assertNotIn("--bin-callable", [str(c) for c in j.command])
-                        self.assertIn(flag(j.command, "--input-format"), (None, "psmcfa"))
+        for p in (config.PRODUCTION, config.SMOKE):
+            jobs = rs02_fits(p, ("E1", "E2", "E3", "E5"))
+            self.assertEqual(by_experiment(jobs), {"E1", "E2", "E3", "E5"})
+            for j in jobs:
+                with self.subTest(profile=p.name, job=j.id):
+                    counted = [str(x) for x in j.inputs if str(x).endswith(COUNTED_SUFFIXES)]
+                    self.assertEqual(counted, [])
+                    # E2's NA12878 is the packaged gzip psmcfa, read as it is.
+                    self.assertTrue(j.command[1].endswith((".psmcfa", ".psmcfa.gz")), j.command[1])
+                    self.assertNotIn("--bin-callable", j.command)
+                    self.assertIn(option(j.command, "--input-format"), (None, "psmcfa"))
 
     def test_only_e4_and_e6_read_counted_input(self):
-        with tempfile.TemporaryDirectory() as d:
-            jobs = rs02_fits(config.PRODUCTION, ("E4", "E6"), Path(d))
-        self.assertEqual(by_experiment(j for j in jobs if str(j.command[1]).endswith(COUNTED_SUFFIXES)),
-                         {"E4", "E6"})
+        jobs = rs02_fits(config.PRODUCTION, ("E4", "E6"))
+        self.assertEqual(by_experiment(j for j in jobs if j.command[1].endswith(COUNTED_SUFFIXES)), {"E4", "E6"})
         e4 = [j for j in jobs if j.id.startswith("E4/fit/")]
-        self.assertTrue(all(flag(j.command, "--bin-callable") in ("auto", "ignore") for j in e4))
+        self.assertTrue(all(option(j.command, "--bin-callable") in ("auto", "ignore") for j in e4))
 
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
@@ -131,8 +122,6 @@ class EndToEnd(unittest.TestCase):
 
     @staticmethod
     def bin_callable(path: Path):
-        import json
-
         return json.loads(Path(path).read_text()).get("bin_callable")
 
     def test_psmcfa_fits_are_c_psmcs_model(self):
