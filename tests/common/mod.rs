@@ -214,6 +214,7 @@ pub fn gunzipped(path: impl AsRef<Path>) -> Vec<u8> {
     out
 }
 
+/// The JSON of a file.
 pub fn json(path: &Path) -> Value {
     serde_json::from_str(&read(path)).unwrap()
 }
@@ -277,6 +278,7 @@ pub struct OptionSet {
     pub bin_size: String,
 }
 
+/// The rows of `route_a/expected/option_sets.tsv`.
 pub fn route_a_option_sets() -> Vec<OptionSet> {
     let flags = |text: &str, tool: &str| -> Vec<(char, String)> {
         let words: Vec<&str> = text
