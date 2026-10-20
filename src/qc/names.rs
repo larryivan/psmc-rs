@@ -69,29 +69,23 @@ pub fn classify_name(name: &str) -> Option<SeqKind> {
         return Some(kind);
     }
 
-    let (rest, prefixed) = ["chromosome", "chrom", "chr"]
+    let (rest, prefixed) = match ["chromosome", "chrom", "chr"]
         .iter()
         .find_map(|p| lower.strip_prefix(p))
-        .map_or((lower.as_str(), false), |r| (r, true));
-    let rest = if prefixed {
-        rest.strip_prefix(['_', '-', '.']).unwrap_or(rest)
-    } else {
-        rest
+    {
+        Some(rest) => (rest.strip_prefix(['_', '-', '.']).unwrap_or(rest), true),
+        None => (lower.as_str(), false),
     };
-    let end = rest
-        .find(|c: char| !c.is_ascii_alphanumeric())
-        .unwrap_or(rest.len());
-    let token = &rest[..end];
-
-    let mut chars = token.chars();
-    let first = chars.next()?;
-    let tail = chars.as_str();
-    if matches!(first, 'x' | 'y' | 'z' | 'w') && tail.bytes().all(|b| b.is_ascii_digit()) {
-        return Some(SeqKind::Sex);
-    }
-    match token {
-        "m" | "mt" | "mito" | "mtdna" | "pt" | "cp" => Some(SeqKind::Organelle),
-        "c" if prefixed => Some(SeqKind::Organelle),
+    let token = rest
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .next()
+        .unwrap_or_default();
+    match token.as_bytes() {
+        [b'x' | b'y' | b'z' | b'w', digits @ ..] if digits.iter().all(u8::is_ascii_digit) => {
+            Some(SeqKind::Sex)
+        }
+        b"m" | b"mt" | b"mito" | b"mtdna" | b"pt" | b"cp" => Some(SeqKind::Organelle),
+        b"c" if prefixed => Some(SeqKind::Organelle),
         _ => None,
     }
 }

@@ -18,6 +18,15 @@ pub fn theta0_per_bin(t_bins: u64, k_bins: u64) -> Option<f64> {
     Some(-(1.0 - k_bins as f64 / called as f64).ln() + 0.0)
 }
 
+/// `n / total`, or 0 when `total` is 0.
+pub(crate) fn fraction(n: u64, total: u64) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        n as f64 / total as f64
+    }
+}
+
 /// C psmc's `n_recomb` at round 0: the expected number of recombinations in
 /// `called_bins` non-missing bins under its starting model (λ = 1,
 /// ρ0 = θ0 / `tr_ratio`).

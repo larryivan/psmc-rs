@@ -43,6 +43,7 @@
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::ops::Range;
 
 use crate::io::{BinCounts, CallableBases, CallableSummary};
@@ -55,19 +56,8 @@ mod stats;
 mod text;
 
 pub(crate) use checks::callable_distribution;
+use stats::fraction;
 
-/// What the reports add to the callable bases of the called bins when they
-/// follow multihetsep's placement of the uncalled sites, which
-/// [`QcCode::ApproxMissingPlacement`] describes (that finding is given for
-/// every multihetsep input); empty otherwise.
-pub(crate) fn approximate_counts_note(r: &QcReport) -> &'static str {
-    if r.callable.is_some() && r.finding(QcCode::ApproxMissingPlacement).is_some() {
-        " (approximate: they follow multihetsep's placement of the uncalled sites, see \
-         APPROX_MISSING_PLACEMENT)"
-    } else {
-        ""
-    }
-}
 pub use checks::{
     APPROX_PLACEMENT_WARN_FRACTION, Finding, HEMIZYGOUS_MAX_RATIO,
     HEMIZYGOUS_MIN_EXPECTED_HET_BINS, HET_OUTLIER_MADS, HET_OUTLIER_MIN_FOLD,
@@ -83,6 +73,19 @@ pub use stats::{
     bootstrap_trunks_of, het_per_site, initial_recombinations, largest_trunk_within,
     max_bin_size_for_share, multi_het_share, n50, theta0_per_bin,
 };
+
+/// What the reports add to the callable bases of the called bins when they
+/// follow multihetsep's placement of the uncalled sites, which
+/// [`QcCode::ApproxMissingPlacement`] describes (that finding is given for
+/// every multihetsep input); empty otherwise.
+pub(crate) fn approximate_counts_note(r: &QcReport) -> &'static str {
+    if r.callable.is_some() && r.finding(QcCode::ApproxMissingPlacement).is_some() {
+        " (approximate: they follow multihetsep's placement of the uncalled sites, see \
+         APPROX_MISSING_PLACEMENT)"
+    } else {
+        ""
+    }
+}
 
 /// Share of `K` bins holding two or more heterozygous sites
 /// ([`Saturation::multi_het_share`]) above which bins are saturated.
@@ -596,11 +599,7 @@ impl DepthReport {
                 .map(|f| FilterShare {
                     name: f.name.clone(),
                     bases: f.bases,
-                    fraction: if c.total_bases == 0 {
-                        0.0
-                    } else {
-                        f.bases as f64 / c.total_bases as f64
-                    },
+                    fraction: fraction(f.bases, c.total_bases),
                 })
                 .collect(),
         }
@@ -882,45 +881,36 @@ impl Counts {
         Ok(out)
     }
 
-    /// Add `other` (a further sequence) to these totals.
-    fn add(&mut self, other: &Counts) {
-        self.t += other.t;
-        self.k += other.k;
-        self.n += other.n;
-        self.next_to_missing += other.next_to_missing;
-        self.longest_run = self.longest_run.max(other.longest_run);
-        self.length_bases += other.length_bases;
-        self.called_bases = self
-            .called_bases
-            .zip(other.called_bases)
-            .map(|(a, b)| a + b);
-        self.het_sites = self.het_sites.zip(other.het_sites).map(|(a, b)| a + b);
-        match (&mut self.theta, &other.theta) {
-            (Some(a), Some(b)) => a.add(b),
-            (a @ None, Some(b)) => *a = Some(b.clone()),
-            _ => {}
+    /// The totals of several sequences, except for `longest_run_start`: the
+    /// loader's site counts only when every one has them, and none at all
+    /// without sequences.
+    fn sum<'a>(counts: impl IntoIterator<Item = &'a Counts>) -> Self {
+        let mut counts = counts.into_iter();
+        let Some(mut total) = counts.next().cloned() else {
+            return Self::default();
+        };
+        for c in counts {
+            total.t += c.t;
+            total.k += c.k;
+            total.n += c.n;
+            total.next_to_missing += c.next_to_missing;
+            total.longest_run = total.longest_run.max(c.longest_run);
+            total.length_bases += c.length_bases;
+            total.called_bases = total.called_bases.zip(c.called_bases).map(|(a, b)| a + b);
+            total.het_sites = total.het_sites.zip(c.het_sites).map(|(a, b)| a + b);
+            match (&mut total.theta, &c.theta) {
+                (Some(a), Some(b)) => a.add(b),
+                (a @ None, Some(b)) => *a = Some(b.clone()),
+                _ => {}
+            }
+            total.callable_sum += c.callable_sum;
         }
-        self.callable_sum += other.callable_sum;
-    }
-
-    /// Neutral start for [`Counts::add`].
-    fn empty_total() -> Self {
-        Self {
-            called_bases: Some(0),
-            het_sites: Some(0),
-            ..Self::default()
-        }
+        total
     }
 
     fn stats(&self, bin_size: usize) -> BinStats {
         let bins = self.bins();
-        let frac = |x: u64| {
-            if bins == 0 {
-                0.0
-            } else {
-                x as f64 / bins as f64
-            }
-        };
+        let frac = |x: u64| fraction(x, bins);
         let called = self.t + self.k;
         let theta0 = theta0_per_bin(self.t, self.k);
         let theta_bp = theta0.map(|t| t / bin_size as f64);
@@ -1100,27 +1090,14 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
             Ok(c)
         })
         .collect::<Result<_>>()?;
+    let totals = Counts::sum(&counts).stats(bin_size);
 
-    let mut total = Counts::empty_total();
-    counts.iter().for_each(|c| total.add(c));
-    if counts.is_empty() {
-        total.called_bases = None;
-        total.het_sites = None;
-    }
-    let totals = total.stats(bin_size);
-
-    // The first sequence wins ties.
+    // min_by_key keeps the first sequence of the longest run.
     let longest_missing_run = counts
         .iter()
         .zip(&spans)
-        .fold(
-            None,
-            |best: Option<(&Counts, &Span)>, (c, span)| match best {
-                Some((b, _)) if b.longest_run >= c.longest_run => best,
-                _ if c.longest_run > 0 => Some((c, span)),
-                _ => best,
-            },
-        )
+        .min_by_key(|(c, _)| Reverse(c.longest_run))
+        .filter(|(c, _)| c.longest_run > 0)
         .map(|(c, span)| MissingRun {
             sequence: span.name.to_string(),
             start_bin: c.longest_run_start,
@@ -1172,40 +1149,36 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
     report.findings = findings;
 
     let shown = rows_to_show(&counts, &named, MAX_SEQUENCE_ROWS);
+    let omitted = shown.iter().filter(|&&s| !s).count();
+    report.omitted = (omitted > 0).then(|| OmittedSequences {
+        sequences: omitted,
+        stats: Counts::sum(
+            counts
+                .iter()
+                .zip(&shown)
+                .filter(|(_, s)| !**s)
+                .map(|(c, _)| c),
+        )
+        .stats(bin_size),
+    });
     let reference = report.het_reference.as_ref().map(|r| r.theta0_per_bin);
-    report.sequences = shown
-        .iter()
-        .map(|&i| {
-            let info = &infos[i];
-            SequenceRow {
-                index: i,
-                name: info.name.clone(),
-                kind: info.kind,
-                het_vs_reference: info
-                    .stats
-                    .theta0_comparable()
-                    .zip(reference)
-                    .filter(|&(_, r)| r > 0.0)
-                    .map(|(t, r)| t / r),
-                stats: info.stats.clone(),
-            }
+    report.sequences = infos
+        .into_iter()
+        .zip(shown)
+        .filter(|&(_, shown)| shown)
+        .map(|(info, _)| SequenceRow {
+            index: info.index,
+            name: info.name,
+            kind: info.kind,
+            het_vs_reference: info
+                .stats
+                .theta0_comparable()
+                .zip(reference)
+                .filter(|&(_, r)| r > 0.0)
+                .map(|(t, r)| t / r),
+            stats: info.stats,
         })
         .collect();
-    report.omitted = (shown.len() < counts.len()).then(|| {
-        let mut rest = Counts::empty_total();
-        let mut keep = shown.iter().peekable();
-        for (i, c) in counts.iter().enumerate() {
-            if keep.peek() == Some(&&i) {
-                keep.next();
-            } else {
-                rest.add(c);
-            }
-        }
-        OmittedSequences {
-            sequences: counts.len() - shown.len(),
-            stats: rest.stats(bin_size),
-        }
-    });
     Ok(report)
 }
 
@@ -1218,22 +1191,16 @@ fn het_reference(infos: &[SeqInfo], counts: &[Counts], bin_size: usize) -> Optio
         .filter_map(|(s, _)| s.stats.theta0_comparable())
         .collect();
     let (theta, sequences, method) = if long.is_empty() {
-        let (mut t, mut k, mut n) = (0, 0, 0);
-        let mut pooled: Option<ThetaCounts> = None;
-        for (s, c) in autosomes().filter(|(s, _)| s.stats.t_bins + s.stats.k_bins > 0) {
-            (t, k, n) = (t + s.stats.t_bins, k + s.stats.k_bins, n + 1);
-            if let Some(theta) = &c.theta {
-                match &mut pooled {
-                    Some(p) => p.add(theta),
-                    None => pooled = Some(theta.clone()),
-                }
-            }
-        }
-        let theta = match pooled {
+        let called: Vec<&Counts> = autosomes()
+            .map(|(_, c)| c)
+            .filter(|c| c.t + c.k > 0)
+            .collect();
+        let pooled = Counts::sum(called.iter().copied());
+        let theta = match &pooled.theta {
             Some(p) => p.theta0().ok()?,
-            None => theta0_per_bin(t, k)?,
+            None => theta0_per_bin(pooled.t, pooled.k)?,
         };
-        (theta, n, ReferenceMethod::Pooled)
+        (theta, called.len(), ReferenceMethod::Pooled)
     } else {
         let n = long.len();
         (stats::median(&mut long), n, ReferenceMethod::Median)
@@ -1253,15 +1220,11 @@ fn length_stats(counts: &[Counts], trunk: u64, total_bins: u64) -> LengthStats {
         let (sequences, bins) = counts
             .iter()
             .filter(|c| below(c))
-            .fold((0usize, 0u64), |(n, b), c| (n + 1, b + c.bins()));
+            .fold((0, 0), |(n, b), c| (n + 1, b + c.bins()));
         ShortShare {
             sequences,
             bins,
-            fraction: if total_bins == 0 {
-                0.0
-            } else {
-                bins as f64 / total_bins as f64
-            },
+            fraction: fraction(bins, total_bins),
         }
     };
     LengthStats {
@@ -1280,19 +1243,20 @@ fn length_stats(counts: &[Counts], trunk: u64, total_bins: u64) -> LengthStats {
     }
 }
 
-/// Indices (ascending) of the sequences that get their own row: all of them
-/// up to `cap`, otherwise those in `named` (ascending; the first `cap` of
-/// them) and then the most bins (earlier first on ties).
-fn rows_to_show(counts: &[Counts], named: &[usize], cap: usize) -> Vec<usize> {
+/// Which sequences get their own row: all of them up to `cap`, otherwise
+/// those in `named` (ascending; the first `cap` of them) and then those with
+/// the most bins (earlier first on ties).
+fn rows_to_show(counts: &[Counts], named: &[usize], cap: usize) -> Vec<bool> {
     if counts.len() <= cap {
-        return (0..counts.len()).collect();
+        return vec![true; counts.len()];
     }
     let mut keep = vec![false; counts.len()];
-    let mut order: Vec<usize> = named.iter().copied().take(cap).collect();
-    order.iter().for_each(|&i| keep[i] = true);
+    let named = &named[..named.len().min(cap)];
+    named.iter().for_each(|&i| keep[i] = true);
     let mut rest: Vec<usize> = (0..counts.len()).filter(|&i| !keep[i]).collect();
-    rest.sort_by(|&a, &b| counts[b].bins().cmp(&counts[a].bins()).then(a.cmp(&b)));
-    order.extend(rest.into_iter().take(cap - order.len()));
-    order.sort_unstable();
-    order
+    rest.sort_by_key(|&i| (Reverse(counts[i].bins()), i));
+    rest.into_iter()
+        .take(cap - named.len())
+        .for_each(|i| keep[i] = true);
+    keep
 }
