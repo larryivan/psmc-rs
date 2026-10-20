@@ -45,6 +45,8 @@ from typing import Dict, List, Sequence, Tuple
 from . import style
 
 SUP_MARKERS = ("o", "s", "^", "D", "v")  # by config.E7.superpopulations (c)
+SUP_MARK = {"linestyle": "none", "markersize": 3.4, "markeredgewidth": 0.6, "markeredgecolor": style.INK2}  # c
+CROSS = {"linestyle": "none", "marker": "x", "markersize": 3.4, "markeredgewidth": 0.7, "color": style.INK}  # c
 FIRST_WINDOW = 4  # intervals of the default pattern's first free lambda, split by the check (as e7.split_row)
 LAMBDA_HI = 1e4  # psmc-rs's upper bound on a free lambda (src/opt.rs), Ne = 1e4 N0
 AT_BOUND = 1e-6  # within this share of the bound, a lambda is at it (as psmc-rs's run report)
@@ -56,7 +58,7 @@ EDGE_MM = 2.0  # the least distance between d's route labels and the figure's le
 
 
 def jitter(n: int, width: float = STRIP_WIDTH) -> List[float]:
-    """``n`` sideways offsets spread evenly over ``[-width, width]`` (a low-discrepancy sequence: no seed, no clumps)."""
+    """``n`` sideways offsets spread evenly over ``[-width, width]`` (low-discrepancy: no seed, no clumps)."""
     phi = (math.sqrt(5.0) - 1.0) / 2.0
     return [width * (2.0 * ((k * phi) % 1.0) - 1.0) for k in range(n)]
 
@@ -100,60 +102,42 @@ def _strip(ax, groups: Sequence[str], values: Dict[str, Sequence[float]], size: 
     ax.set_xlim(-0.6, len(groups) - 0.4)
     ax.set_xticks(range(len(groups)))
     ax.tick_params(axis="x", length=0)
+    style.value_grid(ax)
 
 
-def draw(src):
-    import numpy as np
-    from matplotlib.lines import Line2D
-
-    cfg = src.profile.e7
-    sups = list(cfg.superpopulations)
-    inputs = src.table("E7_inputs")
-    shift = src.table("E7_route_shift")
-    split = src.table("E7_split")
-    fits = src.table("E7_fits")
-    curves = src.table("E7_curves")
-    giab = src.table("E7_giab")
-    thr = src.table("E7_throughput")
-
-    fig = style.figure("double", 110.0)
-    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=3.0, top_mm=5.0, bottom_mm=9.0, wspace_mm=12.0, hspace_mm=15.0)
-    a, b, c = (fig.add_subplot(gs[0, i]) for i in range(3))
-    d = fig.add_subplot(gs[1, 0:2])
-    f = fig.add_subplot(gs[1, 2])
-
-    # a: het/kb by superpopulation, and its rank correlation with depth.
-    _strip(a, sups, {s: inputs[inputs.superpopulation == s].het_per_callable_kb for s in sups}, size=1.2,
+def _het_panel(ax, inputs, sups: List[str]) -> None:
+    """a: het/kb by superpopulation, and its rank correlation with depth."""
+    _strip(ax, sups, {s: inputs[inputs.superpopulation == s].het_per_callable_kb for s in sups}, size=1.2,
            alpha=0.35)
     ticks = []
     for s in sups:
         g = inputs[inputs.superpopulation == s]
         rho = g.het_per_callable_kb.corr(g.raw_depth, method="spearman") if len(g) > 2 else float("nan")
         ticks.append(s if math.isnan(rho) else f"{s}\nρ = {rho:.2f}".replace("-", "−"))
-    a.set_xticklabels(ticks)
-    a.set_ylabel("Heterozygous SNVs per callable kb")
-    a.set_xlabel("ρ: Spearman's, with raw depth")
-    a.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+    ax.set_xticklabels(ticks)
+    ax.set_ylabel("Heterozygous SNVs per callable kb")
+    ax.set_xlabel("ρ: Spearman's, with raw depth")
 
-    # b: the VCF route's theta over the psmcfa route's, by superpopulation.
-    _strip(b, sups, {s: 100.0 * shift[shift.superpopulation == s].theta_rel_vcf_vs_psmcfa for s in sups}, size=7.0,
-           alpha=0.8)
-    b.set_xticklabels(sups)
-    style.ref_line(b, y=0.0)
-    top = float(100.0 * shift.theta_rel_vcf_vs_psmcfa.max()) if not shift.empty else 1.0
-    b.set_ylim(min(0.0, float(100.0 * shift.theta_rel_vcf_vs_psmcfa.min()) * 1.1) if not shift.empty else 0.0,
-               max(top, 0.0) * 1.12 + 0.2)
-    b.set_ylabel(r"$\theta_\mathrm{VCF}$ / $\theta_\mathrm{psmcfa}$ $-$ 1 (%)")
-    b.set_xlabel(f"Superpopulation ({len(shift)} genomes)")
-    b.grid(True, which="major", axis="y", color=style.GRID, linewidth=style.LW_HAIR)
+
+def _shift_panel(ax, shift, sups: List[str]) -> None:
+    """b: the VCF route's theta over the psmcfa route's, by superpopulation."""
+    rel = 100.0 * shift.theta_rel_vcf_vs_psmcfa
+    _strip(ax, sups, {s: rel[shift.superpopulation == s] for s in sups}, size=7.0, alpha=0.8)
+    ax.set_xticklabels(sups)
+    style.ref_line(ax, y=0.0)
+    top = float(rel.max()) if not shift.empty else 1.0
+    ax.set_ylim(min(0.0, float(rel.min()) * 1.1) if not shift.empty else 0.0, max(top, 0.0) * 1.12 + 0.2)
+    ax.set_ylabel(r"$\theta_\mathrm{VCF}$ / $\theta_\mathrm{psmcfa}$ $-$ 1 (%)")
+    ax.set_xlabel(f"Superpopulation ({len(shift)} genomes)")
     if not shift.empty:
         lo, hi = 100.0 * shift.missing_share_of_called_bins.min(), 100.0 * shift.missing_share_of_called_bins.max()
         share = f"{lo:.1f}%" if round(lo, 1) == round(hi, 1) else f"{lo:.1f}-{hi:.1f}%"
-        style.note(b, 0.5, 0.06, f"Bases missing in the called bins:\n{share} of each genome's", ha="center",
+        style.note(ax, 0.5, 0.06, f"Bases missing in the called bins:\n{share} of each genome's", ha="center",
                    va="bottom", linespacing=1.25)
 
-    # c: the split-first-window check, on a square of shared limits.
-    robust = split_first_window(split, fits, curves)
+
+def _split_panel(ax, split, robust: Dict[str, Tuple[bool, float]], sups: List[str]) -> None:
+    """c: the split-first-window check, on a square of shared limits."""
     if not split.empty:
         x, y = split.log10_first_vs_next_default, split.log10_first_vs_next_split
         rob = [v for _, v in robust.values() if not math.isnan(v)]
@@ -161,37 +145,35 @@ def draw(src):
         hi = float(max(x.max(), y.max(), *rob))
         pad = 0.08 * max(hi - lo, 0.1)
         lim = (lo - pad, hi + 2.0 * pad)
-        c.plot(lim, lim, color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, zorder=1)
+        ax.plot(lim, lim, color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, zorder=1)
         for r in split.itertuples():
-            top = min(float(r.log10_first_vs_next_split_hi), lim[1])
-            c.vlines(r.log10_first_vs_next_default, r.log10_first_vs_next_split_lo, top, color=style.REF,
-                     linewidth=style.LW_THIN, zorder=2)
+            x0 = r.log10_first_vs_next_default
+            ax.vlines(x0, r.log10_first_vs_next_split_lo, min(float(r.log10_first_vs_next_split_hi), lim[1]),
+                      color=style.REF, linewidth=style.LW_THIN, zorder=2)
             if r.log10_first_vs_next_split_hi > lim[1]:  # the range runs past the top
-                c.annotate("", xy=(r.log10_first_vs_next_default, lim[1]),
-                           xytext=(r.log10_first_vs_next_default, lim[1] - 0.06 * (lim[1] - lim[0])),
-                           arrowprops={"arrowstyle": "-|>,head_length=0.35,head_width=0.18", "color": style.REF,
-                                       "linewidth": style.LW_THIN, "shrinkA": 0.0, "shrinkB": 0.0}, zorder=2)
+                ax.annotate("", xy=(x0, lim[1]), xytext=(x0, lim[1] - 0.06 * (lim[1] - lim[0])),
+                            arrowprops={"arrowstyle": "-|>,head_length=0.35,head_width=0.18", "color": style.REF,
+                                        "linewidth": style.LW_THIN, "shrinkA": 0.0, "shrinkB": 0.0}, zorder=2)
         for sup, m in zip(sups, SUP_MARKERS):
-            dd = split[split.superpopulation == sup]
-            for r in dd.itertuples():
+            for r in split[split.superpopulation == sup].itertuples():
                 at_bound, mean = robust.get(r.sample_id, (False, float("nan")))
-                c.plot(r.log10_first_vs_next_default, r.log10_first_vs_next_split, linestyle="none", marker=m,
-                       markersize=3.4, markeredgewidth=0.6, markeredgecolor=style.INK2,
-                       markerfacecolor=style.INK2 if at_bound else style.SURFACE, zorder=4)
+                ax.plot(r.log10_first_vs_next_default, r.log10_first_vs_next_split, **SUP_MARK, marker=m,
+                        markerfacecolor=style.INK2 if at_bound else style.SURFACE, zorder=4)
                 if at_bound and not math.isnan(mean):
-                    c.plot(r.log10_first_vs_next_default, mean, linestyle="none", marker="x", markersize=3.4,
-                           markeredgewidth=0.7, color=style.INK, zorder=5)
-        c.set_xlim(*lim)
-        c.set_ylim(*lim)
-        c.set_aspect("equal", adjustable="box", anchor="W")
-    c.set_xlabel(r"log$_{10}$ first / next window $N_\mathrm{e}$, default")
-    c.set_ylabel(r"log$_{10}$ first / next window $N_\mathrm{e}$, split")
+                    ax.plot(r.log10_first_vs_next_default, mean, **CROSS, zorder=5)
+        ax.set_xlim(*lim)
+        ax.set_ylim(*lim)
+        ax.set_aspect("equal", adjustable="box", anchor="W")
+    ax.set_xlabel(r"log$_{10}$ first / next window $N_\mathrm{e}$, default")
+    ax.set_ylabel(r"log$_{10}$ first / next window $N_\mathrm{e}$, split")
 
-    # d: time per fit, linear from zero, in minutes.
+
+def _time_panel(fig, ax, thr, replicates: int) -> None:
+    """d: time per fit, linear from zero, in minutes."""
     routes = [r for r in ROUTE_ORDER if r in set(thr.route)] + sorted(set(thr.route) - set(ROUTE_ORDER))
     by = {r.route: r for r in thr.itertuples()}
     minutes, notes = [], []
-    reps = int(cfg.bootstrap_replicates) + 1  # a run fits the data once, then each replicate
+    reps = replicates + 1  # a run fits the data once, then each replicate
     for route in routes:
         r = by[route]
         if route == "boot-rs":
@@ -207,41 +189,44 @@ def draw(src):
         notes[k] += f"; {float(by['c'].wall_median_s) / float(by['rs-psmcfa'].wall_median_s):.1f}x psmc-rs (psmcfa)"
     ypos = list(range(len(routes)))[::-1]
     colors = [style.ORANGE if by[r].tool == "c" else style.BLUE for r in routes]
-    d.barh(ypos, minutes, color=colors, height=0.62, zorder=3)
-    d.set_yticks(ypos)
-    d.set_yticklabels([ROUTE_LABELS.get(r, r) for r in routes])
-    d.tick_params(axis="y", length=0)
+    ax.barh(ypos, minutes, color=colors, height=0.62, zorder=3)
+    ax.set_yticks(ypos)
+    ax.set_yticklabels([ROUTE_LABELS.get(r, r) for r in routes])
+    ax.tick_params(axis="y", length=0)
     # The route labels are wider than the figure's left margin: move the panel right until they clear the edge.
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
-    labels_x0 = min(t.get_window_extent(renderer).x0 for t in d.get_yticklabels()) / fig.bbox.width
+    labels_x0 = min(t.get_window_extent(renderer).x0 for t in ax.get_yticklabels()) / fig.bbox.width
     need = EDGE_MM / style.WIDTH_MM["double"] - labels_x0
     if need > 0:
-        pos = d.get_position()
-        d.set_position([pos.x0 + need, pos.y0, pos.width - need, pos.height])
-    d.set_xlim(0.0, max(minutes or [1.0]) * 1.02)
-    d.set_xlabel("Time per fit (min): median wall time on one thread; bootstrap: core time per fit")
-    d.grid(True, which="major", axis="x", color=style.GRID, linewidth=style.LW_HAIR)
-    span = d.get_xlim()[1]
+        pos = ax.get_position()
+        ax.set_position([pos.x0 + need, pos.y0, pos.width - need, pos.height])
+    ax.set_xlim(0.0, max(minutes or [1.0]) * 1.02)
+    ax.set_xlabel("Time per fit (min): median wall time on one thread; bootstrap: core time per fit")
+    style.value_grid(ax, "x")
+    span = ax.get_xlim()[1]
     for yy, m, text in zip(ypos, minutes, notes):
         inside = m > 0.6 * span
-        d.text(m - 0.01 * span if inside else m + 0.01 * span, yy, text, va="center", ha="right" if inside else "left",
-               fontsize=style.TEXT_PT, color=style.SURFACE if inside else style.INK2, zorder=4)
+        ax.text(m - 0.01 * span if inside else m + 0.01 * span, yy, text, va="center",
+                ha="right" if inside else "left", fontsize=style.TEXT_PT, color=style.SURFACE if inside else style.INK2,
+                zorder=4)
 
-    # f: the key to c, and the GIAB comparison.
-    f.axis("off")
-    handles: List = [Line2D([], [], linestyle="none", marker=m, markersize=3.4, markeredgewidth=0.6,
-                            markeredgecolor=style.INK2, markerfacecolor=style.SURFACE, label=s)
+
+def _key_panel(ax, giab, sups: List[str]) -> None:
+    """The key to c, and the GIAB comparison."""
+    from matplotlib.lines import Line2D
+
+    ax.axis("off")
+    handles: List = [Line2D([], [], **SUP_MARK, marker=m, markerfacecolor=style.SURFACE, label=s)
                      for s, m in zip(sups, SUP_MARKERS)]
     handles += [
-        Line2D([], [], linestyle="none", marker="o", markersize=3.4, markeredgewidth=0.6, markeredgecolor=style.INK2,
-               markerfacecolor=style.INK2, label=r"An interval at psmc-rs's bound ($\lambda$ = 10$^4$)"),
-        Line2D([], [], linestyle="none", marker="x", markersize=3.4, markeredgewidth=0.7, color=style.INK,
-               label="Mean of the other intervals"),
+        Line2D([], [], **SUP_MARK, marker="o", markerfacecolor=style.INK2,
+               label=r"An interval at psmc-rs's bound ($\lambda$ = 10$^4$)"),
+        Line2D([], [], **CROSS, label="Mean of the other intervals"),
         Line2D([], [], color=style.REF, linewidth=style.LW_THIN, label="Range of the four split intervals"),
         Line2D([], [], color=style.REF, linewidth=style.LW_THIN, linestyle=style.DOT, label="No change (diagonal)"),
     ]
-    style.legend(f, handles, loc="upper left", bbox_to_anchor=(0.0, 1.04), title="c: superpopulation and keys",
+    style.legend(ax, handles, loc="upper left", bbox_to_anchor=(0.0, 1.04), title="c: superpopulation and keys",
                  handlelength=1.6, alignment="left")
     lines = []
     for r in giab.itertuples():
@@ -249,8 +234,24 @@ def draw(src):
         size = f"{mb:,.0f} Mb" if mb >= 10 else f"{mb:.2g} Mb"
         lines += [f"{r.sample_id} against GIAB HG001 v4.2.1:", f"{int(r.truth_het_snvs):,} het SNVs in {size};",
                   f"precision {float(r.precision):.4f}, recall {float(r.recall):.4f}"]
-    style.note(f, 0.0, 0.0, "\n".join(lines) if lines else "No GIAB comparison", va="bottom", color=style.INK,
+    style.note(ax, 0.0, 0.0, "\n".join(lines) if lines else "No GIAB comparison", va="bottom", color=style.INK,
                linespacing=1.3)
+
+
+def draw(src):
+    cfg = src.profile.e7
+    sups = list(cfg.superpopulations)
+    split = src.table("E7_split")
+    fig = style.figure("double", 110.0)
+    gs = style.grid(fig, 2, 3, left_mm=13.0, right_mm=3.0, top_mm=5.0, bottom_mm=9.0, wspace_mm=12.0, hspace_mm=15.0)
+    a, b, c = (fig.add_subplot(gs[0, i]) for i in range(3))
+    d = fig.add_subplot(gs[1, 0:2])
+    f = fig.add_subplot(gs[1, 2])
+    _het_panel(a, src.table("E7_inputs"), sups)
+    _shift_panel(b, src.table("E7_route_shift"), sups)
+    _split_panel(c, split, split_first_window(split, src.table("E7_fits"), src.table("E7_curves")), sups)
+    _time_panel(fig, d, src.table("E7_throughput"), int(cfg.bootstrap_replicates))
+    _key_panel(f, src.table("E7_giab"), sups)
     style.panel_letters(fig, [a, b, c, d])
     return fig
 
