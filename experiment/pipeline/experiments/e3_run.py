@@ -446,7 +446,7 @@ def machine() -> Dict:
     return info
 
 
-def tree_rss(proc, pids: Optional[set] = None) -> int:
+def tree_rss(proc, pids: set) -> int:
     """Resident set size of a psutil process and all its descendants, in bytes; their pids are added to ``pids``."""
     import psutil
 
@@ -454,8 +454,7 @@ def tree_rss(proc, pids: Optional[set] = None) -> int:
         procs = [proc, *proc.children(recursive=True)]
     except psutil.Error:
         return 0
-    if pids is not None:
-        pids.update(p.pid for p in procs)
+    pids.update(p.pid for p in procs)
     total = 0
     for p in procs:
         try:
@@ -694,20 +693,25 @@ def unclean(res: Dict, protocol: config.TimingProtocol) -> Optional[str]:
     return None
 
 
+# The ``measure`` options of the protocol's numbers: (option, config.TimingProtocol field, help).
+# Its last field, require_ac_power, is ``--require-ac``/``--no-require-ac``.
+PROTOCOL_OPTIONS = (
+    ("--settle", "settle_seconds", "seconds to wait first"),
+    ("--quiet-cpu", "quiet_cpu_percent", "quiet: CPU use at most this %% of all cores"),
+    ("--quiet-max-cores", "quiet_max_cores", "quiet: and at most this many cores"),
+    ("--quiet-window", "quiet_window_seconds", "seconds over which CPU use is measured"),
+    ("--max-wait", "max_wait_seconds", "run anyway after waiting this long"),
+    ("--sample", "rss_sample_seconds", "seconds between RSS samples"),
+    ("--max-other-cpu", "max_other_cpu_share", "clean: other processes used at most this share of all cores during the run"),
+    ("--max-other-cores", "max_other_cores", "clean: and kept at most this many cores busy on average"),
+    ("--max-sleep", "max_sleep_seconds", "clean: the machine slept at most this many seconds during the run"),
+)
+
+
 def measure_args(protocol: config.TimingProtocol) -> List[str]:
     """The ``measure`` options of ``protocol``, each given explicitly."""
-    return [
-        "--settle", f"{protocol.settle_seconds:g}",
-        "--quiet-cpu", f"{protocol.quiet_cpu_percent:g}",
-        "--quiet-max-cores", f"{protocol.quiet_max_cores:g}",
-        "--quiet-window", f"{protocol.quiet_window_seconds:g}",
-        "--max-wait", f"{protocol.max_wait_seconds:g}",
-        "--sample", f"{protocol.rss_sample_seconds:g}",
-        "--max-other-cpu", f"{protocol.max_other_cpu_share:g}",
-        "--max-other-cores", f"{protocol.max_other_cores:g}",
-        "--max-sleep", f"{protocol.max_sleep_seconds:g}",
-        "--require-ac" if protocol.require_ac_power else "--no-require-ac",
-    ]
+    words = [w for option, field, _ in PROTOCOL_OPTIONS for w in (option, f"{getattr(protocol, field):g}")]
+    return [*words, "--require-ac" if protocol.require_ac_power else "--no-require-ac"]
 
 
 # ---------------------------------------------------------------------------
@@ -729,18 +733,8 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--out", type=Path, required=True, help="the timing record (JSON) to write")
     m.add_argument("--runs-dir", type=Path, help="runs directory, written as <runs> in the record")
     m.add_argument("--threads", type=int, help="the tool's threads: not run on fewer usable CPUs")
-    m.add_argument("--settle", type=float, default=d.settle_seconds, help="seconds to wait first")
-    m.add_argument("--quiet-cpu", type=float, default=d.quiet_cpu_percent, help="quiet: CPU use at most this %% of all cores")
-    m.add_argument("--quiet-max-cores", type=float, default=d.quiet_max_cores, help="quiet: and at most this many cores")
-    m.add_argument("--quiet-window", type=float, default=d.quiet_window_seconds, help="seconds over which CPU use is measured")
-    m.add_argument("--max-wait", type=float, default=d.max_wait_seconds, help="run anyway after waiting this long")
-    m.add_argument("--sample", type=float, default=d.rss_sample_seconds, help="seconds between RSS samples")
-    m.add_argument("--max-other-cpu", type=float, default=d.max_other_cpu_share,
-                   help="clean: other processes used at most this share of all cores during the run")
-    m.add_argument("--max-other-cores", type=float, default=d.max_other_cores,
-                   help="clean: and kept at most this many cores busy on average")
-    m.add_argument("--max-sleep", type=float, default=d.max_sleep_seconds,
-                   help="clean: the machine slept at most this many seconds during the run")
+    for option, field, text in PROTOCOL_OPTIONS:
+        m.add_argument(option, type=float, default=getattr(d, field), help=text)
     m.add_argument("--require-ac", action=argparse.BooleanOptionalAction, default=d.require_ac_power,
                    help="clean: on AC power and not in Low Power Mode (macOS)")
     return p
@@ -761,15 +755,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not cmd:
         raise SystemExit("measure needs the command to run after --")
     protocol = config.TimingProtocol(
-        settle_seconds=args.settle,
-        quiet_cpu_percent=args.quiet_cpu,
-        quiet_max_cores=args.quiet_max_cores,
-        quiet_window_seconds=args.quiet_window,
-        max_wait_seconds=args.max_wait,
-        rss_sample_seconds=args.sample,
-        max_other_cpu_share=args.max_other_cpu,
-        max_other_cores=args.max_other_cores,
-        max_sleep_seconds=args.max_sleep,
+        # each option's value, under argparse's name for it (--quiet-cpu: quiet_cpu)
+        **{field: getattr(args, option[2:].replace("-", "_")) for option, field, _ in PROTOCOL_OPTIONS},
         require_ac_power=args.require_ac,
     )
     return measure(cmd, args.out, protocol, runs_dir=args.runs_dir, threads=args.threads)
