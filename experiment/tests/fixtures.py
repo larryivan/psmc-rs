@@ -6,8 +6,10 @@ import, as the stand-in tools below import it at every call: the pipeline is imp
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import importlib.util
+import io
 import json
 import math
 import shutil
@@ -30,6 +32,14 @@ def has_modules(*names: str) -> bool:
 def read_csv(path: Path) -> List[dict]:
     with open(path, newline="", encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def quiet() -> contextlib.ExitStack:
+    """Silence what the code under test prints, on stdout and stderr."""
+    stack = contextlib.ExitStack()
+    stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+    stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+    return stack
 
 
 # Stand-ins for the tools a Context identifies (Context._tools): their identities enter the jobs, but no job runs.

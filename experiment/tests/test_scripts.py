@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import csv
 import importlib.util
 import io
 import json
@@ -24,22 +23,12 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = ROOT / "experiment" / "scripts"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fixtures  # noqa: E402
+from fixtures import C_REF, ROOT, has_modules, quiet, read_csv  # noqa: E402
 
-
-def has_module(name: str) -> bool:
-    return importlib.util.find_spec(name) is not None
-
-
-HAS_PLOT_DEPS = all(has_module(m) for m in ("numpy", "pandas", "matplotlib"))
-
-
-def read_csv(path: Path):
-    with path.open(newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
+SCRIPTS = ROOT / "experiment" / "scripts"
+HAS_PLOT_DEPS = has_modules("numpy", "pandas", "matplotlib")
 
 
 def is_finite_number(value: str) -> bool:
@@ -59,25 +48,16 @@ class FakeToolsCase(unittest.TestCase):
     N_ITER = 5
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._tmp.name).resolve()
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
         self.psmc_rs, self.c_psmc = fixtures.make_fake_tools(self.tmp / "bin")
         self.calls_log = self.tmp / "calls.log"
-        env = mock.patch.dict(os.environ, {"N_ITER": str(self.N_ITER), "FAKE_TOOL_LOG": str(self.calls_log)})
-        env.start()
-        self.addCleanup(env.stop)
-        self.addCleanup(self._tmp.cleanup)
+        env = {"N_ITER": str(self.N_ITER), "FAKE_TOOL_LOG": str(self.calls_log)}
+        self.enterContext(mock.patch.dict(os.environ, env))
 
     def calls(self, tool: str, output_name: str):
         """Logged calls of ``tool`` whose output starts with ``output_name`` (staged names too)."""
-        if not self.calls_log.exists():
-            return []
-        out = []
-        for ln in self.calls_log.read_text().splitlines():
-            t, name, _ = ln.split()
-            if t == tool and name.startswith(output_name):
-                out.append(ln)
-        return out
+        lines = self.calls_log.read_text().splitlines() if self.calls_log.exists() else []
+        return [ln for ln in lines if ln.split()[0] == tool and ln.split()[1].startswith(output_name)]
 
 
 def load_module(path: Path, name: str):
@@ -90,14 +70,8 @@ def load_module(path: Path, name: str):
 
 
 def run_script(script: Path, *args: str, cwd: Path, env=None) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, str(script), *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=300,
-    )
+    return subprocess.run([sys.executable, str(script), *args], cwd=str(cwd), capture_output=True, text=True,
+                          env=env, timeout=300)
 
 
 class ScriptsAreLocationIndependent(unittest.TestCase):
@@ -198,18 +172,15 @@ class SharedHelpers(unittest.TestCase):
             self.assertEqual(self.ec.c_psmc_loglikes(p), [(1, -12345.6), (2, -12345.6), (3, -12345.6)])
 
     def test_c_header_is_read_as_c_psmc_writes_it(self):
-        real = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
-        self.assertEqual(
-            self.ec.c_psmc_header(real), {"pattern": "4+25*2+4+6", "n_iter": 5, "t_max": 15.0, "tr_ratio": 4.0}
-        )
+        self.assertEqual(self.ec.c_psmc_header(C_REF),
+                         {"pattern": "4+25*2+4+6", "n_iter": 5, "t_max": 15.0, "tr_ratio": 4.0})
         settings = self.ec.MatchedSettings(n_iter=5)
-        self.assertIsNone(self.ec.c_psmc_stale(real, settings))
+        self.assertIsNone(self.ec.c_psmc_stale(C_REF, settings))
         other = self.ec.MatchedSettings(n_iter=5, pattern="4+5*3+4", t_max=20.0, rho_t_ratio=5)
-        self.assertEqual(
-            self.ec.c_psmc_stale(real, other),
-            "was made with -p 4+25*2+4+6 (PATTERN is 4+5*3+4), -t15 (T_MAX is 20), -r4 (RHO_T_RATIO is 5)",
-        )
-        self.assertIn("not a finished 4-iteration run (6 rounds)", self.ec.c_psmc_stale(real, self.ec.MatchedSettings(n_iter=4)))
+        self.assertEqual(self.ec.c_psmc_stale(C_REF, other),
+                         "was made with -p 4+25*2+4+6 (PATTERN is 4+5*3+4), -t15 (T_MAX is 20), -r4 (RHO_T_RATIO is 5)")
+        self.assertIn("not a finished 4-iteration run (6 rounds)",
+                      self.ec.c_psmc_stale(C_REF, self.ec.MatchedSettings(n_iter=4)))
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(self.ec.c_psmc_stale(Path(tmp) / "none.psmc", settings), "does not exist")
 
@@ -237,12 +208,9 @@ class SharedHelpers(unittest.TestCase):
             self.ec.record_psmc_rs_run(out, cmd)
             self.assertIsNone(self.ec.psmc_rs_stale(out, cmd))
             other = self.ec.MatchedSettings(n_iter=3, t_max=20.0, mstep_iters=50).rust_cmd(
-                Path("psmc-rs"), Path("in"), out, mu=1e-8
-            )
-            self.assertEqual(
-                self.ec.psmc_rs_stale(out, other),
-                "was made with --t-max 15.0, --mstep-iters 1000 (now --t-max 20.0, --mstep-iters 50)",
-            )
+                Path("psmc-rs"), Path("in"), out, mu=1e-8)
+            self.assertEqual(self.ec.psmc_rs_stale(out, other),
+                             "was made with --t-max 15.0, --mstep-iters 1000 (now --t-max 20.0, --mstep-iters 50)")
             more = self.ec.MatchedSettings(n_iter=4).rust_cmd(Path("psmc-rs"), Path("in"), out, mu=1e-8)
             self.assertIn("finished 4-iteration", self.ec.psmc_rs_stale(out, more))
 
@@ -316,18 +284,23 @@ class SharedHelpers(unittest.TestCase):
 
 
 class RealDataRunner(unittest.TestCase):
+    """The fit summary of run_real_data.py, from stand-in outputs of every sample."""
+
+    def setUp(self):
+        self.rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_t")
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        self.outputs = self.root / "experiment" / "runs" / "real_data" / "outputs"
+        for s in self.rd.SAMPLES:
+            fixtures.write_rust_json(self.outputs / f"{s.sid}.rust.json")
+            fixtures.write_c_psmc(self.outputs / f"{s.sid}.c.psmc")
+
+    def fit_summary(self) -> dict:
+        with quiet():
+            path = self.rd.write_fit_summary(self.outputs.parent, root=self.root)
+        return {r["sample_id"]: r for r in read_csv(path)}
+
     def test_fit_summary_is_repo_relative_and_labels_papuan_as_chr1(self):
-        rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_t")
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            out_dir = root / "experiment" / "runs" / "real_data"
-            for s in rd.SAMPLES:
-                fixtures.write_rust_json(out_dir / "outputs" / f"{s.sid}.rust.json")
-                fixtures.write_c_psmc(out_dir / "outputs" / f"{s.sid}.c.psmc")
-            with contextlib.redirect_stdout(io.StringIO()):
-                path = rd.write_fit_summary(out_dir, root=root)
-            with path.open(newline="") as f:
-                rows = {r["sample_id"]: r for r in csv.DictReader(f)}
+        rows = self.fit_summary()
         self.assertEqual(set(rows), {"HLemySub1", "HLhydTec1", "HLpelCas1", "HomoSapiens"})
         for sid, r in rows.items():
             self.assertEqual(r["rust_json"], f"experiment/runs/real_data/outputs/{sid}.rust.json")
@@ -338,23 +311,12 @@ class RealDataRunner(unittest.TestCase):
     def test_fit_summary_update_keeps_the_rows_of_other_samples(self):
         # As after `run_real_data.py --samples HomoSapiens` in a clone that
         # has the committed summary but not the other samples' outputs.
-        rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_merge")
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp).resolve()
-            out_dir = root / "experiment" / "runs" / "real_data"
-            for s in rd.SAMPLES:
-                fixtures.write_rust_json(out_dir / "outputs" / f"{s.sid}.rust.json")
-                fixtures.write_c_psmc(out_dir / "outputs" / f"{s.sid}.c.psmc")
-            with contextlib.redirect_stdout(io.StringIO()):
-                path = rd.write_fit_summary(out_dir, root=root)
-            before = {r["sample_id"]: r for r in read_csv(path)}
-            for s in rd.SAMPLES[:-1]:
-                (out_dir / "outputs" / f"{s.sid}.rust.json").unlink()
-                (out_dir / "outputs" / f"{s.sid}.c.psmc").unlink()
-            fixtures.write_rust_json(out_dir / "outputs" / "HomoSapiens.rust.json", scale=10.0)
-            with contextlib.redirect_stdout(io.StringIO()):
-                rd.write_fit_summary(out_dir, root=root)
-            after = {r["sample_id"]: r for r in read_csv(path)}
+        before = self.fit_summary()
+        for s in self.rd.SAMPLES[:-1]:
+            (self.outputs / f"{s.sid}.rust.json").unlink()
+            (self.outputs / f"{s.sid}.c.psmc").unlink()
+        fixtures.write_rust_json(self.outputs / "HomoSapiens.rust.json", scale=10.0)
+        after = self.fit_summary()
         self.assertEqual(set(after), set(before))
         for sid in ("HLemySub1", "HLhydTec1", "HLpelCas1"):
             self.assertEqual(after[sid], before[sid])
@@ -377,7 +339,7 @@ class InterruptedRuns(FakeToolsCase):
         self.c_out = self.rd.c_psmc_path(self.out, self.sample)
 
     def run_real_data(self):
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             self.rd.run_samples([self.sample], self.out, str(self.psmc_rs), str(self.c_psmc), False, self.inputs)
 
     def test_failed_c_run_leaves_no_output_behind(self):
@@ -410,10 +372,10 @@ class InterruptedRuns(FakeToolsCase):
         runner = mt.Runner(out, str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
         runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
         c_out = out / "outputs" / "constant.c.main.psmc"
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             runner.main_runs(["constant"], force=False)
         fixtures.write_c_psmc(c_out, rounds=range(2), n_iter=self.N_ITER)
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             runner.main_runs(["constant"], force=False)
         self.assertEqual(c_rounds(c_out), self.N_ITER + 1)
         self.assertEqual(len(self.calls("c", c_out.name)), 2)
@@ -466,7 +428,7 @@ class InterruptedRuns(FakeToolsCase):
         self.assertEqual(record.name, "HomoSapiens.rust.settings.json")
         self.assertTrue(record.exists())
         cmd = self.ec.MatchedSettings.from_env().rust_cmd(self.psmc_rs, self.inputs / self.sample.file, self.r_out, mu=1e-8)
-        with mock.patch.dict(os.environ, {"FAKE_PRE_0_2": "1"}), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.dict(os.environ, {"FAKE_PRE_0_2": "1"}), quiet():
             with self.assertRaises(RuntimeError):
                 self.ec.run_psmc_rs(cmd, self.r_out, log_path=self.tmp / "log.jsonl")
         self.assertFalse(record.exists())
@@ -478,10 +440,10 @@ class InterruptedRuns(FakeToolsCase):
         rs.C_PSMC_BIN = self.c_psmc
         out = self.tmp / "supp" / "s2_em" / "outputs" / "constant.c.trace.psmc"
         with mock.patch.dict(os.environ, {"FAKE_C_ROUNDS": "2", "FAKE_C_EXIT": "1"}):
-            with self.assertRaises(RuntimeError), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError), quiet():
                 rs.run_c(self.inputs / self.sample.file, out, n_iter=self.N_ITER)
         self.assertFalse(out.exists())
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             rs.run_c(self.inputs / self.sample.file, out, n_iter=self.N_ITER)
         self.assertEqual(c_rounds(out), self.N_ITER + 1)
         self.assertEqual(list(out.parent.glob("*.partial")), [])
@@ -499,7 +461,7 @@ class SupplementaryConvergence(FakeToolsCase):
             self.rs.shared_input_path(key, self.rs.SIM_LENGTH_BP).write_text(">chr1\nTTTTKTTTTK\n")
 
     def rows(self):
-        with contextlib.redirect_stdout(io.StringIO()):
+        with quiet():
             return self.rs.s2_trace_rows()
 
     def test_rows_pair_the_rounds_of_both_tools(self):
@@ -511,9 +473,7 @@ class SupplementaryConvergence(FakeToolsCase):
             rust = {r["iter"]: r["loglike"] for r in rows if r["model"] == key and r["tool"] == "rust"}
             # Row k: the log-likelihood after k - 1 iterations, not the line printed after k.
             self.assertEqual(rust, {k: fixtures.rust_loglike(k - 1) for k in range(1, self.N_ITER + 1)})
-            self.assertEqual(
-                [ln.split()[2] for ln in self.calls("psmc-rs", f"{key}.rust")], [str(self.N_ITER)], key
-            )
+            self.assertEqual([ln.split()[2] for ln in self.calls("psmc-rs", f"{key}.rust")], [str(self.N_ITER)], key)
 
     def test_a_finished_trace_is_reused_and_another_n_iter_is_run_again(self):
         self.rows()
@@ -537,7 +497,7 @@ class RhoRatioGuard(FakeToolsCase):
         rd = load_module(SCRIPTS / "run_real_data.py", "run_real_data_ratio")
         sample = rd.SAMPLES[-1]
         (self.inputs / sample.file).write_text(">chr1\nTTTTKTTTTK\n")
-        with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.dict(os.environ, env), quiet():
             rd.run_samples([sample], self.tmp / "out", str(self.psmc_rs), str(self.c_psmc), False, self.inputs)
 
     def comparison_runs(self):
@@ -572,7 +532,7 @@ class RhoRatioGuard(FakeToolsCase):
         runner = mt.Runner(self.tmp / "main", str(self.psmc_rs), str(self.c_psmc), self.tmp / "unused_sim.py")
         runner.input_path("constant").write_text(">chr1\nTTTTKTTTTK\n")
         fixtures.write_rust_json(runner.outputs / "constant.rust.main.json")
-        with mock.patch.dict(os.environ, {"FAKE_RHO_RATIO": "5"}), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.dict(os.environ, {"FAKE_RHO_RATIO": "5"}), quiet():
             with self.assertRaises(SystemExit):
                 runner.main_runs(["constant"], force=False)
         self.assertEqual(self.comparison_runs(), [])
@@ -581,7 +541,7 @@ class RhoRatioGuard(FakeToolsCase):
         rs = load_module(SCRIPTS / "run_supplementary.py", "run_supplementary_ratio")
         rs.configure_paths(self.tmp / "supp")
         rs.configure_tools(str(self.psmc_rs), str(self.c_psmc), None)
-        with mock.patch.dict(os.environ, {"FAKE_RHO_RATIO": "5"}), contextlib.redirect_stdout(io.StringIO()):
+        with mock.patch.dict(os.environ, {"FAKE_RHO_RATIO": "5"}), quiet():
             self.assertTrue(rs.ensure_tools(require_c=False))  # S4, S5: psmc-rs only
             with self.assertRaises(SystemExit):
                 rs.ensure_tools(require_c=True)  # S1-S3
@@ -597,9 +557,8 @@ class MainTextRunner(unittest.TestCase):
             for rep, w in ((1, 1.0), (2, 3.0))
         ]
         out = mt.summarise_perf(rows)
-        self.assertEqual([(r["model"], r["tool"]) for r in out], [
-            ("constant", "c"), ("constant", "rust"), ("zigzag", "c"), ("zigzag", "rust")
-        ])
+        self.assertEqual([(r["model"], r["tool"]) for r in out],
+                         [("constant", "c"), ("constant", "rust"), ("zigzag", "c"), ("zigzag", "rust")])
         self.assertAlmostEqual(out[0]["wall_sec_mean"], 2.0)
         self.assertAlmostEqual(out[0]["wall_sec_std"], 2 ** 0.5)
         self.assertEqual(out[0]["peak_rss_mb_std"], 0.0)
@@ -620,9 +579,9 @@ class SimulationScriptLookup(unittest.TestCase):
             tmp = Path(tmp).resolve()
             fake = tmp / "fake_sim.py"
             fake.write_text(self.FAKE_SIM)
-            stubs = {m: type(sys)(m) for m in ("stdpopsim", "msprime") if not has_module(m)}
+            stubs = {m: type(sys)(m) for m in ("stdpopsim", "msprime") if not has_modules(m)}
             with mock.patch.dict(os.environ, {"SIM_SCRIPT": str(fake)}), mock.patch.dict(sys.modules, stubs):
-                with contextlib.redirect_stdout(io.StringIO()):
+                with quiet():
                     mt.main(["--steps", "simulate", "--models", "constant", "--out-dir", str(tmp / "out")])
             self.assertEqual((tmp / "out" / "inputs" / "constant.psmcfa").read_text(), ">fake\nTTTK\n")
 
@@ -654,9 +613,9 @@ class MainTextPerf(FakeToolsCase):
         table_2.write_text(committed.read_text())
         before = read_csv(table_2)
         # The perf step needs psutil only for peak RSS; a stand-in is enough here.
-        stub = {} if has_module("psutil") else {"psutil": type(sys)("psutil")}
+        stub = {} if has_modules("psutil") else {"psutil": type(sys)("psutil")}
         with mock.patch.object(mt, "PERF_REPEATS", 1), mock.patch.dict(sys.modules, stub):
-            with contextlib.redirect_stdout(io.StringIO()):
+            with quiet():
                 runner.perf_runs(["constant"])
         after = read_csv(table_2)
         self.assertEqual([(r["model"], r["tool"]) for r in after], [(r["model"], r["tool"]) for r in before])
@@ -671,34 +630,20 @@ class MainTextPerf(FakeToolsCase):
 @unittest.skipUnless(HAS_PLOT_DEPS, "numpy/pandas/matplotlib not installed")
 class SupplementaryRunner(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.tmp = Path(self._tmp.name).resolve()
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
         self.psmc_rs, self.c_psmc = fixtures.make_fake_tools(self.tmp / "bin")
         self.out = self.tmp / "supp"
-        self.env = dict(os.environ, N_ITER="2", MPLCONFIGDIR=str(self.tmp / "mpl"))
 
-    def tearDown(self):
-        self._tmp.cleanup()
+    def run_steps(self, steps: str, **env: str) -> subprocess.CompletedProcess:
+        # The script's matplotlib keeps this process's configuration: in a new MPLCONFIGDIR it would
+        # build its font cache again, which takes most of a run's time.
+        return run_script(SCRIPTS / "run_supplementary.py", "--steps", steps, "--out-dir", str(self.out),
+                          "--psmc-rs", str(self.psmc_rs), "--c-psmc", str(self.c_psmc), cwd=self.tmp,
+                          env=dict(os.environ, N_ITER="2", **env))
 
-    def run_steps(self, steps: str, env) -> subprocess.CompletedProcess:
-        return run_script(
-            SCRIPTS / "run_supplementary.py",
-            "--steps",
-            steps,
-            "--out-dir",
-            str(self.out),
-            "--psmc-rs",
-            str(self.psmc_rs),
-            "--c-psmc",
-            str(self.c_psmc),
-            cwd=self.tmp,
-            env=env,
-        )
-
-    @unittest.skipUnless(has_module("msprime"), "msprime not installed")
+    @unittest.skipUnless(has_modules("msprime"), "msprime not installed")
     def test_s5_records_the_bins_only_the_psmcfa_has(self):
-        env = dict(self.env, SIM_LENGTH_BP="200000")
-        res = self.run_steps("S5", env)
+        res = self.run_steps("S5", SIM_LENGTH_BP="200000")
         self.assertEqual(res.returncode, 0, res.stderr[-3000:])
         rows = {r["model"]: r for r in read_csv(self.out / "tables" / "S5_format_consistency.csv")}
         self.assertEqual(sorted(rows), sorted(["constant", "bottleneck", "expansion", "zigzag"]))
@@ -713,9 +658,8 @@ class SupplementaryRunner(unittest.TestCase):
         inp = self.out / "shared_inputs" / "constant.1000000bp.psmcfa"
         inp.parent.mkdir(parents=True)
         inp.write_text(">chr1\nTTTTKTTTTK\n")
-        env = dict(self.env, S3_LENGTHS_MB="1", S3_REPEATS="2")
         for attempt in (1, 2):
-            res = self.run_steps("S3", env)
+            res = self.run_steps("S3", S3_LENGTHS_MB="1", S3_REPEATS="2")
             self.assertEqual(res.returncode, 0, f"run {attempt}:\n{res.stderr[-3000:]}")
             rows = read_csv(self.out / "tables" / "S3_memory_scaling_summary.csv")
             self.assertEqual(sorted(r["tool"] for r in rows), ["c", "rust"])
@@ -723,21 +667,13 @@ class SupplementaryRunner(unittest.TestCase):
                 self.assertTrue(is_finite_number(r["wall_sec_mean"]), f"run {attempt}: {r}")
 
 
-@unittest.skipUnless(has_module("msprime"), "msprime not installed")
+@unittest.skipUnless(has_modules("msprime"), "msprime not installed")
 class MhsSimulationSmoke(unittest.TestCase):
     def test_tiny_simulation_writes_valid_multihetsep(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "sub" / "tiny.mhs"
-            res = run_script(
-                SCRIPTS / "simulate_msprime_to_mhs.py",
-                "--out",
-                str(out),
-                "--length",
-                "200000",
-                "--seed",
-                "7",
-                cwd=Path(tmp),
-            )
+            res = run_script(SCRIPTS / "simulate_msprime_to_mhs.py", "--out", str(out), "--length", "200000",
+                             "--seed", "7", cwd=Path(tmp))
             self.assertEqual(res.returncode, 0, res.stderr)
             rows = [ln.split("\t") for ln in out.read_text().splitlines()]
             self.assertGreater(len(rows), 0)
