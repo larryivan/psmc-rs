@@ -3,49 +3,50 @@
 Experiments declare :class:`Job` objects: a command, its input and output
 files, the cores and memory it needs, an estimated duration, whether it must
 run alone (``exclusive``), and the settings, tool identities and seeds that
-determine its outputs. Dependencies follow from the files: a job that reads
-a file another job writes runs after it (make-like).
+determine its outputs. A job that reads a file another job writes runs after
+it (make-like). A job is *done* when its outputs exist with a matching
+provenance record (:mod:`.provenance`).
 
-A job is *done* when its outputs exist with a matching provenance record
-(:mod:`.provenance`). ``start`` runs every job that is not done, as a daemon
-that survives the session that started it: it detaches into its own session
-(``start_new_session``), writes ``<runs>/_runner/runner.pid``, holds
-``runner.lock`` while it lives and logs to ``<runs>/_runner/runner.log`` and
-``<runs>/<experiment>/logs/``. It keeps the running jobs within a budget of
-cores and memory (default 7 cores, 12 GB) and runs exclusive jobs only when
-nothing else runs, in order of their ``rank`` (E3 interleaves the repeats
-of its timing runs); an exclusive job must fit the memory budget, not the
-cores. Runners of other runs directories (or worktrees) on
-the same machine coordinate through a machine-wide lock (:class:`MachineLock`):
-a runner holds it shared while it runs ordinary jobs and exclusively while
-it runs an exclusive one, so an exclusive job never overlaps another
-runner's jobs. ``stop`` ends it cleanly (``--drain``: after the running
-jobs finish): SIGTERM (or SIGINT) terminates the running jobs, which stay
-pending, also when they die of the signal first, as under SLURM, which
-signals every process of a job; SIGUSR1 drains. ``stop`` refuses a runner
-that ``runner.host`` places on another host. A failed job is recorded
-(``logs/attempts.jsonl`` and its log file) and blocks the jobs that need its
-outputs; the next ``start`` retries it. A job that exits with status 75
-(``EX_TEMPFAIL``: E3's timing wrapper when the machine is not quiet) is
-deferred instead: it runs again after :data:`DEFER_SECONDS`. ``status``
-prints done/running/failed/pending per experiment with an ETA.
+``start`` runs every job that is not done, as a daemon in a session of its
+own, which outlives the one that started it: it writes
+``<runs>/_runner/runner.pid``, holds ``runner.lock`` while it lives and logs
+to ``<runs>/_runner/runner.log`` and ``<runs>/<experiment>/logs/``. The
+running jobs stay within a budget of cores and memory (default 7 cores,
+12 GB). Exclusive jobs run only when nothing else runs, in order of their
+``rank`` (E3 interleaves the repeats of its timing runs), and must fit the
+memory budget but not the cores. Runners of other runs directories (or
+worktrees) on the same machine coordinate through a machine-wide lock
+(:class:`MachineLock`), held shared for ordinary jobs and exclusively for an
+exclusive one, so that an exclusive job never overlaps another runner's jobs.
+
+``stop`` sends SIGTERM (SIGINT does the same): the running jobs are
+terminated and stay pending, also when they die of the signal first, as
+under SLURM, which signals every process of a job. ``stop --drain`` sends
+SIGUSR1: no new job starts, and the runner exits when the running ones
+finish. ``stop`` refuses a runner that ``runner.host`` places on another
+host. A failed job is recorded (``logs/attempts.jsonl`` and its log file)
+and blocks the jobs that need its outputs; the next ``start`` retries it. A
+job that exits with status 75 (``EX_TEMPFAIL``: E3's timing wrapper when the
+machine is not quiet) is deferred instead: it runs again after
+:data:`DEFER_SECONDS`. ``status`` prints done/running/failed/pending per
+experiment with an ETA.
 
 Every attempt records its wall time, the peak RSS of its process tree
 (psutil, sampled every 50 ms or ``$PSMC_EXP_SAMPLE_SECONDS``, plus the main
 process's ``ru_maxrss`` from ``wait4``), its exit status, the host (and
-SLURM job) it ran on and the machine's load average before and after;
-exclusive jobs also record the busiest other processes before they start,
+SLURM job) it ran on and the machine's load average before and after.
+Exclusive jobs also record the busiest other processes before they start,
 and are not sampled (their own wrapper measures them; a sampler would take
 CPU from the run).
 
-The jobs run the executables of this checkout (``target/release/psmc-rs``,
-the tools directory's binaries) and its pipeline code, which development
-may change while a long run goes on. The runner records the SHA-256 of the
-pipeline's Python files and of every executable a job names when it starts
-(:class:`Watch`), records the executables' checksums with every attempt,
-and starts no further job once one of them changes: it waits for the
-running jobs and exits, so that no record claims an identity its job did
-not run with. The next ``start`` identifies the tools afresh.
+The jobs run this checkout's executables (``target/release/psmc-rs``, the
+tools directory's binaries) and pipeline code, which development may change
+during a long run. The runner records the SHA-256 of the pipeline's Python
+files and of every executable a job names when it starts (:class:`Watch`),
+and the executables' checksums with every attempt. Once one of them changes
+it starts no further job: it waits for the running ones and exits, so that
+no record claims an identity its job did not run with. The next ``start``
+identifies the tools afresh.
 """
 
 from __future__ import annotations
@@ -63,6 +64,7 @@ import sys
 import threading
 import time
 import traceback
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -70,17 +72,15 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from . import config, paths, provenance
 
 DONE, READY, PENDING, RUNNING, FAILED, BLOCKED = "done", "ready", "pending", "running", "failed", "blocked"
+DEFERRED, INTERRUPTED = "deferred", "interrupted"  # attempts after which the job runs again
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+=-]*(/[A-Za-z0-9_.+=-]+)+$")
 SAMPLE_SECONDS_ENV = "PSMC_EXP_SAMPLE_SECONDS"
+MIN_SAMPLE_SECONDS = 0.01
 EXIT_POLL_SECONDS = 0.05  # how often a job's exit is checked: the resolution of its wall time
 POLL_SECONDS = 0.25
 EX_TEMPFAIL = 75  # a job's "not now": deferred, not failed
 DEFER_SECONDS = 60.0
-DEFERRED = "deferred"
 MACHINE_LOCK_ENV = "PSMC_EXP_MACHINE_LOCK"
-
-
-MIN_SAMPLE_SECONDS = 0.01
 
 
 def sample_seconds(environ: Optional[Dict[str, str]] = None) -> float:
@@ -229,15 +229,14 @@ class Graph:
                 if key in producer:
                     raise GraphError(f"{p} is an output of both {producer[key]} and {j.id}")
                 producer[key] = j.id
-        self.producer = producer
         self.deps: Dict[str, List[str]] = {}
-        self.static_inputs: Dict[str, List[Path]] = {}
+        self.static_inputs: Dict[str, List[Path]] = {}  # the inputs no job makes
         for j in jobs:
             deps, static = [], []
             for p in j.inputs:
                 pid = producer.get(path_key(p))
                 if pid is None:
-                    static.append(Path(p))
+                    static.append(p)
                 elif pid == j.id:
                     raise GraphError(f"{j.id} reads its own output {p}")
                 elif pid not in deps:
@@ -274,16 +273,12 @@ class Graph:
         """Estimated seconds from a job's start to the end of its longest chain of dependents."""
         out: Dict[str, float] = {}
         for jid in reversed(self.order):
-            tail = max((out[d] for d in self.dependents[jid]), default=0.0)
-            out[jid] = self.jobs[jid].est_seconds + tail
+            out[jid] = self.jobs[jid].est_seconds + max((out[d] for d in self.dependents[jid]), default=0.0)
         return out
 
     def experiments(self) -> List[str]:
-        seen: List[str] = []
-        for j in self.jobs.values():
-            if j.experiment not in seen:
-                seen.append(j.experiment)
-        return seen
+        """The experiments of the jobs, in the order of their first jobs."""
+        return list(dict.fromkeys(j.experiment for j in self.jobs.values()))
 
 
 # ---------------------------------------------------------------------------
@@ -331,10 +326,15 @@ def busiest_processes(limit: int = 5, interval: float = 0.5) -> List[Dict]:
     return [{"cpu_percent": round(c, 1), "pid": pid, "name": name} for c, pid, name in usage[:limit]]
 
 
+def _repo_on_pythonpath(env: Dict[str, str]) -> Dict[str, str]:
+    """``env`` with the repository first on PYTHONPATH (``python -m experiment.pipeline`` from anywhere)."""
+    env["PYTHONPATH"] = str(paths.ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    return env
+
+
 def job_environment(job: Job) -> Dict[str, str]:
     """The job's environment: ours, the repository on PYTHONPATH, thread pools capped at its cores."""
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(paths.ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    env = _repo_on_pythonpath(dict(os.environ))
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "VECLIB_MAXIMUM_THREADS", "RAYON_NUM_THREADS"):
         env[var] = str(job.cores)
     env.update(job.env)
@@ -372,13 +372,11 @@ class Execution(threading.Thread):
             self.result = {"status": FAILED, "error": f"{type(exc).__name__}: {exc}", "traceback": traceback.format_exc()}
 
     def _run(self) -> Dict:
-        import psutil
-
         job = self.job
         for p in job.outputs:
-            Path(p).parent.mkdir(parents=True, exist_ok=True)
-            if Path(p).exists():
-                Path(p).unlink()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if p.exists():
+                p.unlink()
         record = job.record_path(self.runs_dir)
         if record.exists():
             record.unlink()
@@ -391,37 +389,7 @@ class Execution(threading.Thread):
         start_wall = time.time()
         # Appending: the command's output and the closing line share the file.
         with open(log, "ab") as logf:
-            out = open(job.stdout, "wb") if job.stdout else logf
-            try:
-                t0 = time.perf_counter()
-                self.proc = subprocess.Popen(
-                    job.command,
-                    cwd=paths.ROOT,
-                    env=job_environment(job),
-                    stdin=subprocess.DEVNULL,
-                    stdout=out,
-                    stderr=logf,
-                    start_new_session=True,
-                )
-                try:
-                    ps = psutil.Process(self.proc.pid)
-                except psutil.Error:
-                    ps = None
-                peak = 0
-                sample = ps is not None and not job.exclusive
-                next_sample = t0
-                while True:
-                    pid, status, rusage = os.wait4(self.proc.pid, os.WNOHANG)
-                    if pid != 0:
-                        break
-                    if sample and time.perf_counter() >= next_sample:
-                        peak = max(peak, tree_rss(ps))
-                        next_sample = time.perf_counter() + self.sample_every
-                    time.sleep(min(self.sample_every, EXIT_POLL_SECONDS))
-                wall = time.perf_counter() - t0
-            finally:
-                if job.stdout:
-                    out.close()
+            wall, status, rusage, peak = self._execute(logf)
             exit_code = os.waitstatus_to_exitcode(status)
             self.proc.returncode = exit_code
             logf.write(f"\n# exit {exit_code} after {wall:.1f} s\n".encode())
@@ -449,15 +417,43 @@ class Execution(threading.Thread):
         if busiest is not None:
             run["busiest_processes_before"] = busiest
         if self._kill.is_set():
-            return {"status": "interrupted", "run": run}
+            return {"status": INTERRUPTED, "run": run}
         if exit_code == EX_TEMPFAIL:
             return {"status": DEFERRED, "run": run, "error": f"exit status {exit_code}: not now", "log_tail": tail(log)}
         if exit_code != 0:
             return {"status": FAILED, "run": run, "error": f"exit status {exit_code}", "log_tail": tail(log)}
-        missing = [str(p) for p in job.outputs if not Path(p).exists()]
+        missing = [str(p) for p in job.outputs if not p.exists()]
         if missing:
             return {"status": FAILED, "run": run, "error": f"declared outputs missing: {missing}", "log_tail": tail(log)}
         return {"status": DONE, "run": run}
+
+    def _execute(self, logf) -> Tuple[float, int, object, int]:
+        """Run the command to its end: its wall seconds, wait status, rusage and tree's peak RSS (bytes)."""
+        import psutil
+
+        job = self.job
+        out = open(job.stdout, "wb") if job.stdout else logf
+        try:
+            t0 = time.perf_counter()
+            self.proc = subprocess.Popen(job.command, cwd=paths.ROOT, env=job_environment(job),
+                                         stdin=subprocess.DEVNULL, stdout=out, stderr=logf, start_new_session=True)
+            try:
+                ps = psutil.Process(self.proc.pid)
+            except psutil.Error:
+                ps = None
+            sample = ps is not None and not job.exclusive
+            peak, next_sample = 0, t0
+            while True:
+                pid, status, rusage = os.wait4(self.proc.pid, os.WNOHANG)
+                if pid != 0:
+                    return time.perf_counter() - t0, status, rusage, peak
+                if sample and time.perf_counter() >= next_sample:
+                    peak = max(peak, tree_rss(ps))
+                    next_sample = time.perf_counter() + self.sample_every
+                time.sleep(min(self.sample_every, EXIT_POLL_SECONDS))
+        finally:
+            if job.stdout:
+                out.close()
 
 
 def tail(path: Path, lines: int = 20) -> str:
@@ -532,7 +528,8 @@ def fits_budget(job: Job, budget: config.Budget) -> Optional[str]:
     return None
 
 
-def pick(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget, priority: Dict[str, float], now: float) -> List[Job]:
+def pick(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget, priority: Dict[str, float],
+         now: float) -> List[Job]:
     """The ready jobs to start now.
 
     Non-exclusive jobs start in priority order (longest chain of dependent
@@ -553,16 +550,9 @@ def pick(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget, p
     head_blocked_until: Optional[float] = None
     for j in normal:
         fits = j.cores <= free_cores and j.mem_gb <= free_mem + 1e-9
-        if head_blocked_until is None:
-            if fits:
-                chosen.append(j)
-                free_cores -= j.cores
-                free_mem -= j.mem_gb
-                continue
-            ends = sorted(s.remaining(now) for s in running)
-            head_blocked_until = ends[0] if ends else 0.0
-            continue
-        if fits and j.est_seconds <= head_blocked_until:
+        if head_blocked_until is None and not fits:
+            head_blocked_until = min((s.remaining(now) for s in running), default=0.0)
+        elif fits and (head_blocked_until is None or j.est_seconds <= head_blocked_until):
             chosen.append(j)
             free_cores -= j.cores
             free_mem -= j.mem_gb
@@ -624,6 +614,22 @@ def runner_dir(runs_dir: Path) -> Path:
     return Path(runs_dir) / "_runner"
 
 
+def read_state(runs_dir: Path) -> Dict:
+    """The ``state.json`` that the running (or else the last) runner of ``runs_dir`` wrote, or {}."""
+    return provenance.read_json(runner_dir(runs_dir) / "state.json")
+
+
+def try_flock(fd: int, flag: int) -> bool:
+    """``flock(fd, flag)`` without waiting; False if another process holds a lock in the way."""
+    try:
+        fcntl.flock(fd, flag | fcntl.LOCK_NB)
+    except OSError as exc:
+        if exc.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+            return False
+        raise
+    return True
+
+
 class Lock:
     """An exclusive ``flock`` on ``<runs>/_runner/runner.lock``, held by the daemon while it lives."""
 
@@ -635,12 +641,13 @@ class Lock:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o644)
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
+            locked = try_flock(fd, fcntl.LOCK_EX)
+        except OSError:
             os.close(fd)
-            if exc.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
-                return False
             raise
+        if not locked:
+            os.close(fd)
+            return False
         self.fd = fd
         return True
 
@@ -665,9 +672,10 @@ def default_machine_lock(platform: str = sys.platform, host: Optional[str] = Non
 
 
 class MachineLock:
-    """A machine-wide ``flock`` that every runner holds while it runs jobs: shared for ordinary jobs, exclusive for exclusive ones.
+    """A machine-wide ``flock`` that every runner holds while it runs jobs.
 
-    The file is ``$PSMC_EXP_MACHINE_LOCK`` or :func:`default_machine_lock`.
+    Shared for ordinary jobs, exclusive for exclusive ones. The file is
+    ``$PSMC_EXP_MACHINE_LOCK`` or :func:`default_machine_lock`.
     Locks are taken without blocking: a runner that cannot take the mode it
     needs starts nothing and tries again at its next poll.
     """
@@ -685,13 +693,8 @@ class MachineLock:
         if self.fd is None:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o644)
-        flag = fcntl.LOCK_EX if mode == "exclusive" else fcntl.LOCK_SH
-        try:
-            fcntl.flock(self.fd, flag | fcntl.LOCK_NB)
-        except OSError as exc:
-            if exc.errno in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
-                return False
-            raise
+        if not try_flock(self.fd, fcntl.LOCK_EX if mode == "exclusive" else fcntl.LOCK_SH):
+            return False
         self.mode = mode
         return True
 
@@ -739,6 +742,8 @@ def runner_host(runs_dir: Path) -> Optional[str]:
 
 
 class Logger:
+    """Timestamped lines in ``<runs>/_runner/runner.log`` and, about an experiment's jobs, in its ``logs/``."""
+
     def __init__(self, runs_dir: Path):
         self.runs_dir = Path(runs_dir)
         self.main = runner_dir(runs_dir) / "runner.log"
@@ -906,47 +911,47 @@ class Daemon:
         ex.start()
 
     def reap(self) -> bool:
+        """Settle the jobs whose threads have ended; whether there were any."""
         changed = False
         for jid, ex in list(self.running.items()):
-            if ex.is_alive():
-                continue
-            changed = True
-            del self.running[jid]
-            job = ex.job
-            res = ex.result or {"status": FAILED, "error": "no result"}
-            status = res.get("status")
-            if status == FAILED and self.stop_now.is_set() and res.get("run", {}).get("exit_status", 0) != 0:
-                # SLURM signals every process of a job (at its time limit, on scancel), so the
-                # jobs often die of the runner's SIGTERM before it terminates them itself.
-                res = {**res, "status": "interrupted"}
-                status = "interrupted"
-            if status == DONE:
-                try:
-                    provenance.write_record(job, self.runs_dir, self.cache, self.keys[jid], res["run"])
-                    self.cache.save()
-                except Exception as exc:  # noqa: BLE001
-                    res = {**res, "status": FAILED, "error": f"recording provenance failed: {exc}"}
-                    status = FAILED
-            append_attempt(self.runs_dir, job, res)
-            run = res.get("run", {})
-            if status == DONE:
-                self.state[jid] = DONE
-                self.log(f"done {jid} in {run.get('wall_seconds', 0):.1f} s, peak RSS {run.get('peak_rss_mb', 0):.0f} MB", job.experiment)
-            elif status == "interrupted":
-                self.state[jid] = PENDING
-                self.log(f"interrupted {jid}", job.experiment)
-            elif status == DEFERRED:
-                self.state[jid] = READY
-                self.not_before[jid] = time.time() + DEFER_SECONDS
-                self.deferrals[jid] = self.deferrals.get(jid, 0) + 1
-                why = (res.get("log_tail") or "").strip().splitlines()
-                self.reason[jid] = f"deferred: {why[-2] if len(why) > 1 else 'not now'}"
-                self.log(f"deferred {jid} ({self.reason[jid]}); again in {DEFER_SECONDS:.0f} s", job.experiment)
-            else:
-                self.state[jid] = FAILED
-                self.reason[jid] = res.get("error", "failed")
-                self.log(f"FAILED {jid}: {self.reason[jid]} (log: {job.log_path(self.runs_dir)})", job.experiment)
+            if not ex.is_alive():
+                del self.running[jid]
+                self.settle(ex.job, ex.result or {"status": FAILED, "error": "no result"})
+                changed = True
         return changed
+
+    def settle(self, job: Job, res: Dict) -> None:
+        """Record an attempt of ``job`` and move the job on: done, pending again, deferred or failed."""
+        jid = job.id
+        if res.get("status") == FAILED and self.stop_now.is_set() and res.get("run", {}).get("exit_status", 0) != 0:
+            # SLURM signals every process of a job (at its time limit, on scancel), so the
+            # jobs often die of the runner's SIGTERM before it terminates them itself.
+            res = {**res, "status": INTERRUPTED}
+        if res.get("status") == DONE:
+            try:
+                provenance.write_record(job, self.runs_dir, self.cache, self.keys[jid], res["run"])
+                self.cache.save()
+            except Exception as exc:  # noqa: BLE001
+                res = {**res, "status": FAILED, "error": f"recording provenance failed: {exc}"}
+        append_attempt(self.runs_dir, job, res)
+        status, run = res.get("status"), res.get("run", {})
+        if status == DONE:
+            self.state[jid] = DONE
+            self.log(f"done {jid} in {run.get('wall_seconds', 0):.1f} s, peak RSS {run.get('peak_rss_mb', 0):.0f} MB", job.experiment)
+        elif status == INTERRUPTED:
+            self.state[jid] = PENDING
+            self.log(f"interrupted {jid}", job.experiment)
+        elif status == DEFERRED:
+            self.state[jid] = READY
+            self.not_before[jid] = time.time() + DEFER_SECONDS
+            self.deferrals[jid] = self.deferrals.get(jid, 0) + 1
+            why = (res.get("log_tail") or "").strip().splitlines()
+            self.reason[jid] = f"deferred: {why[-2] if len(why) > 1 else 'not now'}"
+            self.log(f"deferred {jid} ({self.reason[jid]}); again in {DEFER_SECONDS:.0f} s", job.experiment)
+        else:
+            self.state[jid] = FAILED
+            self.reason[jid] = res.get("error", "failed")
+            self.log(f"FAILED {jid}: {self.reason[jid]} (log: {job.log_path(self.runs_dir)})", job.experiment)
 
     def terminate_all(self, timeout: float = 20.0) -> None:
         for ex in self.running.values():
@@ -980,26 +985,9 @@ class Daemon:
                 break
             if changed:
                 self.refresh()
-            started = False
             if not self.running:
                 self.machine.release()
-            if not self.drain.is_set():
-                now = time.time()
-                ready = [self.graph.jobs[j] for j in self.graph.order
-                         if self.state[j] == READY and self.not_before.get(j, 0.0) <= now]
-                slots = [Slot(ex.job, ex.started) for ex in self.running.values()]
-                chosen = pick(ready, slots, self.budget, self.graph.priority, now)
-                if chosen and self.code_or_tools_changed():
-                    chosen = []
-                if chosen and not self.machine.hold("exclusive" if any(j.exclusive for j in chosen) else "shared"):
-                    if now - self._waiting_logged > 600:
-                        self.log(f"waiting: another runner on this machine holds {self.machine.path}")
-                        self._waiting_logged = now
-                    chosen = []
-                for job in chosen:
-                    self.not_before.pop(job.id, None)
-                    self.launch(job)
-                    started = True
+            started = not self.drain.is_set() and self.start_ready()
             # Rewrite the state when it changed, once the processes of new jobs
             # exist (their PIDs let a later runner stop them if this one is
             # killed), and every 10 s.
@@ -1007,25 +995,48 @@ class Daemon:
             if changed or started or pids != recorded_pids or time.time() - last_write > 10:
                 self.write_state()
                 recorded_pids, last_write = pids, time.time()
-            if not self.running:
-                if self.drain.is_set() or not any(s == READY for s in self.state.values()):
-                    break
+            if not self.running and (self.drain.is_set() or READY not in self.state.values()):
+                break
             time.sleep(POLL_SECONDS)
         self.machine.release()
         self.cache.save()
         self.write_state()
-        counts = {s: sum(1 for v in self.state.values() if v == s) for s in (DONE, FAILED, BLOCKED, PENDING, READY)}
-        self.log("runner finished: " + ", ".join(f"{v} {k}" for k, v in counts.items() if v))
+        counts = Counter(self.state.values())
+        self.log("runner finished: " + ", ".join(f"{counts[s]} {s}" for s in (DONE, FAILED, BLOCKED, PENDING, READY)
+                                                 if counts[s]))
         if self.halted:
             self.log(f"runner halted: {self.halted}")
         return 1 if counts[FAILED] or counts[BLOCKED] or self.halted else 0
+
+    def start_ready(self) -> bool:
+        """Start the ready jobs that :func:`pick` chooses; whether any started.
+
+        None starts once a watched file has changed, or while another
+        runner's machine lock is in the way.
+        """
+        now = time.time()
+        ready = [self.graph.jobs[j] for j in self.graph.order
+                 if self.state[j] == READY and self.not_before.get(j, 0.0) <= now]
+        slots = [Slot(ex.job, ex.started) for ex in self.running.values()]
+        chosen = pick(ready, slots, self.budget, self.graph.priority, now)
+        if not chosen or self.code_or_tools_changed():
+            return False
+        if not self.machine.hold("exclusive" if any(j.exclusive for j in chosen) else "shared"):
+            if now - self._waiting_logged > 600:
+                self.log(f"waiting: another runner on this machine holds {self.machine.path}")
+                self._waiting_logged = now
+            return False
+        for job in chosen:
+            self.not_before.pop(job.id, None)
+            self.launch(job)
+        return True
 
     def code_or_tools_changed(self) -> bool:
         """Whether a watched file changed; if so, start nothing more (drain) and say why."""
         changed = self.watch.changed()
         if not changed:
             return False
-        names = ", ".join(paths.portable(str(p), self.runs_dir) for p in changed[:3]) + ("..." if len(changed) > 3 else "")
+        names = ", ".join(provenance.portable(changed[:3], self.runs_dir)) + ("..." if len(changed) > 3 else "")
         self.halted = (f"{names} changed since the runner started; no further job starts (running ones finish). "
                        "Start the runner again to rerun what the change affects")
         self.log(self.halted)
@@ -1092,10 +1103,7 @@ def kill_orphans(runs_dir: Path, log: Callable[[str], None]) -> None:
     """
     import psutil
 
-    try:
-        state = json.loads((runner_dir(runs_dir) / "state.json").read_text())
-    except (OSError, ValueError):
-        return
+    state = read_state(runs_dir)
     host = state.get("host")
     if on_another_host(host):
         if state.get("running"):
@@ -1124,20 +1132,10 @@ def spawn_daemon(argv: Sequence[str], runs_dir: Path, wait: float = 60.0) -> int
     runs_dir = Path(runs_dir)
     rdir = runner_dir(runs_dir)
     rdir.mkdir(parents=True, exist_ok=True)
-    out = open(rdir / "daemon.out", "ab")
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(paths.ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    proc = subprocess.Popen(
-        list(argv),
-        cwd=paths.ROOT,
-        stdin=subprocess.DEVNULL,
-        stdout=out,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-        env=env,
-        close_fds=True,
-    )
-    out.close()
+    with open(rdir / "daemon.out", "ab") as out:
+        proc = subprocess.Popen(list(argv), cwd=paths.ROOT, stdin=subprocess.DEVNULL, stdout=out,
+                                stderr=subprocess.STDOUT, start_new_session=True,
+                                env=_repo_on_pythonpath(dict(os.environ)), close_fds=True)
     deadline = time.time() + wait
     while time.time() < deadline:
         if proc.poll() is not None:
@@ -1201,13 +1199,8 @@ def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None)
     runs_dir = Path(runs_dir)
     cache = provenance.ChecksumCache(runner_dir(runs_dir) / "checksums.json")
     alive = (daemon_pid if daemon_pid is not None else daemon_alive(runs_dir)) is not None
-    state: Dict = {}
-    if alive:
-        try:
-            state = json.loads((runner_dir(runs_dir) / "state.json").read_text())
-        except (OSError, ValueError):
-            state = {}
-    running = state.get("running", {}) if alive else {}
+    state = read_state(runs_dir) if alive else {}
+    running, deferred, blocked = (state.get(k, {}) for k in ("running", "deferred", "blocked"))
     attempts = last_attempts(runs_dir, graph.experiments())
     out: List[JobStatus] = []
     for jid in graph.order:
@@ -1215,13 +1208,13 @@ def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None)
         if jid in running:
             out.append(JobStatus(job, RUNNING, elapsed=time.time() - running[jid]["start"]))
             continue
-        absent = [p for p in graph.static_inputs[jid] if not Path(p).exists()]
+        absent = [p for p in graph.static_inputs[jid] if not p.exists()]
         if absent:  # no job of this graph makes it: waiting would be forever
             out.append(JobStatus(job, BLOCKED, f"input missing, and no job makes it: {absent[0]}"))
             continue
-        missing = [p for p in job.inputs if not Path(p).exists()]
+        missing = [p for p in job.inputs if not p.exists()]
         if missing:
-            done, why = False, f"waiting for {Path(missing[0]).name}"
+            done, why = False, f"waiting for {missing[0].name}"
         else:
             done, why = provenance.check_done(job, runs_dir, cache)
         if done:
@@ -1230,11 +1223,11 @@ def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None)
         last = attempts.get(jid)
         if last and last.get("status") == FAILED:
             out.append(JobStatus(job, FAILED, last.get("error", "")))
-        elif alive and jid in state.get("deferred", {}):
-            d = state["deferred"][jid]
+        elif jid in deferred:
+            d = deferred[jid]
             out.append(JobStatus(job, PENDING, f"{d.get('why') or 'deferred'} ({d.get('times', 1)} time(s))"))
-        elif alive and jid in state.get("blocked", {}):
-            out.append(JobStatus(job, BLOCKED, state["blocked"][jid]))
+        elif jid in blocked:
+            out.append(JobStatus(job, BLOCKED, blocked[jid]))
         else:
             over = fits_budget(job, config.Budget(**state["budget"])) if state.get("budget") else None
             out.append(JobStatus(job, BLOCKED if over else PENDING, over or why))
@@ -1290,13 +1283,12 @@ def plan(graph: Graph, budget: config.Budget) -> Dict[str, Dict[str, float]]:
     out: Dict[str, Dict[str, float]] = {}
     for exp in graph.experiments():
         jobs = [j for j in graph.jobs.values() if j.experiment == exp]
+        sub = Graph(jobs, graph.runs_dir)
+        alone = simulate_schedule(sub, list(sub.jobs), budget, {})
         out[exp] = {
             "jobs": len(jobs),
             "cpu_hours": sum(j.est_seconds * j.cores for j in jobs) / 3600,
-            "wall_hours_alone": 0.0,
+            "wall_hours_alone": max(alone.values()) / 3600,
             "finish_hours": max(finish[j.id] for j in jobs) / 3600,
         }
-        sub = Graph(jobs, graph.runs_dir)
-        alone = simulate_schedule(sub, list(sub.jobs), budget, {})
-        out[exp]["wall_hours_alone"] = max(alone.values()) / 3600
     return out

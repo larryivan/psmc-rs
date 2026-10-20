@@ -26,7 +26,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from . import config, demography, paths, runner, tools
+from . import config, demography, paths, provenance, runner, tools
 from .experiments import Context, available, jobs_for, module
 
 
@@ -46,14 +46,15 @@ def _regex(text: str) -> str:
     return text
 
 
-def _only_arg(p: argparse.ArgumentParser) -> None:
+def _job_args(p: argparse.ArgumentParser, budget: bool = True) -> None:
+    """The arguments of the commands that make the jobs' graph: ``--only`` and, with ``budget``, the budget."""
+    _common(p)
     p.add_argument("--only", type=_regex, metavar="REGEX",
                    help="keep only the jobs whose id matches REGEX (re.search), e.g. 'E3/(sim/|run/.*/rep2$)'; "
                         "a kept job whose input only a dropped job makes runs if the file exists and is blocked "
                         "otherwise")
-
-
-def _budget_args(p: argparse.ArgumentParser) -> None:
+    if not budget:
+        return
     b = config.Budget()
     p.add_argument("--cores", type=int, default=b.cores,
                    help=f"cores the jobs may use at once (default {b.cores}; E2's bootstraps need "
@@ -69,18 +70,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
     p = sub.add_parser("start", help="run every job that is not done, as a detached daemon")
-    _common(p)
-    _only_arg(p)
-    _budget_args(p)
+    _job_args(p)
     p.add_argument("--foreground", action="store_true", help="run in this process instead of detaching")
     p.add_argument("--keep-awake", action=argparse.BooleanOptionalAction, default=True,
                    help="macOS: keep the machine from idle sleep while the runner lives (caffeinate -i -w PID; "
                         "default on: a sleep would stretch a timing run's wall time)")
 
     p = sub.add_parser("status", help="done/running/failed/pending jobs per experiment, with an ETA")
-    _common(p)
-    _only_arg(p)
-    _budget_args(p)
+    _job_args(p)
     p.add_argument("--jobs", action="store_true", help="also list pending jobs and why they are not done")
 
     p = sub.add_parser("stop", help="stop the runner (running jobs are terminated and stay pending)")
@@ -89,13 +86,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--wait", type=float, default=120.0, help="seconds to wait for the runner to exit")
 
     p = sub.add_parser("plan", help="estimated CPU hours and wall time of experiments run from scratch")
-    _common(p)
-    _only_arg(p)
-    _budget_args(p)
+    _job_args(p)
 
     p = sub.add_parser("list", help="list the jobs with their commands")
-    _common(p)
-    _only_arg(p)
+    _job_args(p, budget=False)
 
     p = sub.add_parser("report", help="write an experiment's tables (a runner job)")
     _common(p, experiments=False)
@@ -114,9 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("simulate", help="simulate one genome (a runner job; see --help)", add_help=False)
 
     p = sub.add_parser("_daemon")  # internal: the detached runner started by `start`
-    _common(p)
-    _only_arg(p)
-    _budget_args(p)
+    _job_args(p)
     sub._choices_actions = [a for a in sub._choices_actions if a.dest != "_daemon"]
     return parser
 
@@ -125,28 +117,39 @@ def runs_dir_of(args) -> Path:
     return (args.runs_dir or paths.default_runs_dir(args.profile)).resolve()
 
 
+def _budget(args) -> config.Budget:
+    return config.Budget(cores=args.cores, mem_gb=args.mem_gb)
+
+
+def _meta(args, runs_dir: Path, budget: config.Budget, experiments: List[str]) -> dict:
+    """How a runner was started, which its state records (``status`` reads it back)."""
+    return {
+        "profile": args.profile,
+        "experiments": experiments,
+        "budget": asdict(budget),
+        "runs_dir": str(runs_dir),
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "jobs_file": str(args.jobs_file) if args.jobs_file else None,
+        "only": args.only,
+    }
+
+
 def _last_meta(runs_dir: Path, profile: str) -> dict:
     """The state the running (or else the last) runner of ``runs_dir`` wrote, if it ran ``profile``."""
-    try:
-        state = json.loads((runner.runner_dir(runs_dir) / "state.json").read_text())
-    except (OSError, ValueError):
-        return {}
+    state = runner.read_state(runs_dir)
     return state if state.get("profile") in (None, profile) else {}
 
 
 def make_graph(args, runs_dir: Path, build_tools: bool) -> runner.Graph:
     """The graph of the jobs of ``args`` (experiments or jobs file), of those ``--only`` keeps."""
-    if getattr(args, "jobs_file", None):
-        specs = json.loads(Path(args.jobs_file).read_text())
-        jobs = [runner.Job.from_dict(d) for d in specs]
+    if args.jobs_file:
+        jobs = [runner.Job.from_dict(d) for d in json.loads(Path(args.jobs_file).read_text())]
     else:
-        exps = args.experiments or available()
         ctx = Context(config.get_profile(args.profile), runs_dir, build_tools=build_tools)
-        jobs = jobs_for(ctx, exps)
-    only = getattr(args, "only", None)
-    kept = runner.select(jobs, only)
+        jobs = jobs_for(ctx, args.experiments or available())
+    kept = runner.select(jobs, args.only)
     if not kept and jobs:
-        raise SystemExit(f"--only {only!r} matches none of the {len(jobs)} jobs")
+        raise SystemExit(f"--only {args.only!r} matches none of the {len(jobs)} jobs")
     return runner.Graph(kept, runs_dir)
 
 
@@ -162,23 +165,15 @@ def cmd_start(args) -> int:
         runner.sample_seconds()  # here, not in the daemon, whose log nobody reads at once
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
-    budget = config.Budget(cores=args.cores, mem_gb=args.mem_gb)
+    budget = _budget(args)
     for d in tools.lock_differences():
         print(f"warning: {d} (experiment/pipeline/requirements.lock); simulations may not reproduce the "
               "committed ones", file=sys.stderr)
     graph = make_graph(args, runs_dir, build_tools=True)  # fail here, not in the daemon
     exps = graph.experiments()
-    meta = {
-        "profile": args.profile,
-        "experiments": exps,
-        "budget": asdict(budget),
-        "runs_dir": str(runs_dir),
-        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "jobs_file": str(args.jobs_file) if args.jobs_file else None,
-        "only": args.only,
-    }
     if args.foreground:
-        return runner.daemon_main(lambda: make_graph(args, runs_dir, build_tools=False), runs_dir, budget, meta)
+        return runner.daemon_main(lambda: make_graph(args, runs_dir, build_tools=False), runs_dir, budget,
+                                  _meta(args, runs_dir, budget, exps))
     argv = [paths.python(), "-m", "experiment.pipeline", "_daemon", "--profile", args.profile,
             "--runs-dir", str(runs_dir), "--cores", str(args.cores), "--mem-gb", str(args.mem_gb)]
     argv += ["--only", args.only] if args.only is not None else []
@@ -198,17 +193,9 @@ def cmd_start(args) -> int:
 
 def cmd_daemon(args) -> int:
     runs_dir = runs_dir_of(args)
-    budget = config.Budget(cores=args.cores, mem_gb=args.mem_gb)
-    meta = {
-        "profile": args.profile,
-        "experiments": args.experiments or available(),
-        "budget": asdict(budget),
-        "runs_dir": str(runs_dir),
-        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "jobs_file": str(args.jobs_file) if args.jobs_file else None,
-        "only": args.only,
-    }
-    return runner.daemon_main(lambda: make_graph(args, runs_dir, build_tools=True), runs_dir, budget, meta)
+    budget = _budget(args)
+    return runner.daemon_main(lambda: make_graph(args, runs_dir, build_tools=True), runs_dir, budget,
+                              _meta(args, runs_dir, budget, args.experiments or available()))
 
 
 def cmd_status(args) -> int:
@@ -224,7 +211,7 @@ def cmd_status(args) -> int:
         if args.only is None:
             args.only = meta.get("only")
             inherited = args.only is not None
-    budget = config.Budget(**meta["budget"]) if meta.get("budget") else config.Budget(args.cores, args.mem_gb)
+    budget = config.Budget(**meta["budget"]) if meta.get("budget") else _budget(args)
     graph = make_graph(args, runs_dir, build_tools=False)
     pid = runner.daemon_alive(runs_dir)
     statuses = runner.job_statuses(graph, runs_dir, daemon_pid=pid)
@@ -257,7 +244,7 @@ def cmd_stop(args) -> int:
 
 def cmd_plan(args) -> int:
     runs_dir = runs_dir_of(args)
-    budget = config.Budget(cores=args.cores, mem_gb=args.mem_gb)
+    budget = _budget(args)
     graph = make_graph(args, runs_dir, build_tools=False)
     est = runner.plan(graph, budget)
     print(f"profile {args.profile}, budget {budget.cores} cores, {budget.mem_gb:g} GB (estimates from config.Costs)")
@@ -284,7 +271,7 @@ def cmd_list(args) -> int:
     for jid in graph.order:
         j = graph.jobs[jid]
         flags = f"{j.cores} core(s), {j.mem_gb:g} GB, ~{runner.fmt_duration(j.est_seconds)}" + (", exclusive" if j.exclusive else "")
-        print(f"{jid}  [{flags}]\n    {' '.join(paths.portable(c, runs_dir) for c in j.command)}")
+        print(f"{jid}  [{flags}]\n    {' '.join(provenance.portable(j.command, runs_dir))}")
     return 0
 
 
