@@ -24,11 +24,8 @@ use std::ops::Range;
 use std::path::Path;
 use std::sync::Mutex;
 
-use super::fb::{self, Ctx, DecodeCheckpoints, Progress, SeqObs, Workspace};
-use super::kernel::Kernel;
-use super::obs::ObsTable;
-use super::sched::Plan;
-use super::{AlphaCacheBudget, CHECKPOINT_STRIDE, TmrcaReportData, obs_table, seq_obs, validate};
+use super::fb::{self, Ctx, DecodeCheckpoints, Progress, Workspace};
+use super::{AlphaCacheBudget, CHECKPOINT_STRIDE, Pass, TmrcaReportData};
 use crate::io::CallableBases;
 use crate::progress;
 
@@ -161,26 +158,23 @@ fn push_sci8(out: &mut String, v: f64) {
     push_usize(out, e10.unsigned_abs() as usize);
 }
 
-/// Output sink: plain text, or gzip when the path ends in `.gz`.
-enum Sink {
-    Plain(BufWriter<File>),
-    /// Units are compressed in parallel into independent gzip members and
-    /// concatenated (a valid multi-member gzip file, like bgzip output).
-    Gzip(BufWriter<File>),
+/// Output sink: plain text, or gzip when the path ends in `.gz`, in which
+/// case units are compressed in parallel into independent gzip members and
+/// concatenated (a valid multi-member gzip file, like bgzip output).
+struct Sink {
+    file: BufWriter<File>,
+    gzip: bool,
 }
 
 impl Sink {
     fn create(path: &Path) -> Result<Self> {
         let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
-        let w = BufWriter::new(file);
-        let gz = path
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("gz"));
-        Ok(if gz { Self::Gzip(w) } else { Self::Plain(w) })
-    }
-
-    fn is_gzip(&self) -> bool {
-        matches!(self, Self::Gzip(_))
+        Ok(Self {
+            file: BufWriter::new(file),
+            gzip: path
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("gz")),
+        })
     }
 
     /// Bytes ready to append: the text itself, or a gzip member of it.
@@ -194,17 +188,11 @@ impl Sink {
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<()> {
-        match self {
-            Self::Plain(w) | Self::Gzip(w) => w.write_all(bytes)?,
-        }
-        Ok(())
+        Ok(self.file.write_all(bytes)?)
     }
 
-    fn finish(self) -> Result<()> {
-        match self {
-            Self::Plain(mut w) | Self::Gzip(mut w) => w.flush()?,
-        }
-        Ok(())
+    fn finish(mut self) -> Result<()> {
+        Ok(self.file.flush()?)
     }
 }
 
@@ -422,13 +410,12 @@ impl<'a> UnitWriter<'a> {
     }
 }
 
+/// Checkpoints of a long sequence that continues into the next window.
+type Carried = Option<(usize, DecodeCheckpoints)>;
+
 /// Everything the parallel decoding tasks share.
 struct Decoder<'a> {
-    kernel: Kernel,
-    rows: &'a [Vec<u8>],
-    callable: Option<&'a CallableBases>,
-    table: ObsTable,
-    plan: Plan,
+    pass: Pass<'a>,
     /// First site of each sequence in the input; the last entry is the total.
     seq_start: Vec<usize>,
     years: StateYears<'a>,
@@ -440,40 +427,37 @@ struct Decoder<'a> {
 }
 
 impl Decoder<'_> {
-    fn seq(&self, i: usize) -> SeqObs<'_> {
-        seq_obs(
-            self.rows,
-            self.callable,
-            &self.table,
-            self.plan.seqs[i].clone(),
-        )
+    fn checkpoints(&self, seq: usize) -> Result<DecodeCheckpoints> {
+        fb::decode_checkpoints(&self.pass.kernel, &self.pass.seq(seq), &self.ctx)
     }
 
     fn with_workspace<R>(&self, f: impl FnOnce(&mut Workspace) -> R) -> R {
         let pop = self.free.lock().unwrap_or_else(|e| e.into_inner()).pop();
-        let mut ws = pop.unwrap_or_else(|| Workspace::new(self.kernel.np()));
+        let mut ws = pop.unwrap_or_else(|| Workspace::new(self.pass.kernel.np()));
         let r = f(&mut ws);
         self.free.lock().unwrap_or_else(|e| e.into_inner()).push(ws);
         r
     }
 
     fn decode_unit(&self, unit: &Unit, ckpts: &[DecodeCheckpoints]) -> Result<UnitOut> {
-        let (k, np) = (&self.kernel, self.kernel.np());
+        let k = &self.pass.kernel;
+        let np = k.np();
         let sites = match unit {
             Unit::Short { seqs } => self.seq_start[seqs.end] - self.seq_start[seqs.start],
             Unit::Long { segs, .. } => segs.len() * CHECKPOINT_STRIDE,
         };
-        let mut out = UnitWriter::new(&self.years, self.table.classes(), self.stride, sites);
+        let classes = self.pass.table.classes();
+        let mut out = UnitWriter::new(&self.years, classes, self.stride, sites);
         self.with_workspace(|ws| -> Result<()> {
             match unit {
                 Unit::Short { seqs } => {
                     for i in seqs.clone() {
-                        let (obs, post) = fb::sequence_posteriors(k, &self.seq(i), ws)?;
+                        let (obs, post) = fb::sequence_posteriors(k, &self.pass.seq(i), ws)?;
                         out.sites(i, 0, self.seq_start[i], obs, post, np);
                     }
                 }
                 Unit::Long { seq, ckpt, segs } => {
-                    let seq_obs = self.seq(*seq);
+                    let seq_obs = self.pass.seq(*seq);
                     for s in segs.clone() {
                         let (obs, post) =
                             fb::segment_posteriors(k, &seq_obs, &ckpts[*ckpt], s, ws)?;
@@ -492,12 +476,7 @@ impl Decoder<'_> {
     /// checkpoints of a sequence continued from the previous window. Returns
     /// the units' output and the checkpoints of the sequence that continues
     /// into the next window, if any.
-    #[allow(clippy::type_complexity)]
-    fn decode_window(
-        &self,
-        window: &Window,
-        carried: Option<(usize, DecodeCheckpoints)>,
-    ) -> Result<(Vec<UnitOut>, Option<(usize, DecodeCheckpoints)>)> {
+    fn decode_window(&self, window: &Window, carried: Carried) -> Result<(Vec<UnitOut>, Carried)> {
         let mut ckpts: Vec<Option<DecodeCheckpoints>> =
             window.ckpt_seqs.iter().map(|_| None).collect();
         if let Some((seq, c)) = carried
@@ -510,11 +489,7 @@ impl Decoder<'_> {
             .zip(&window.ckpt_seqs)
             .try_for_each(|(slot, &seq)| -> Result<()> {
                 if slot.is_none() {
-                    *slot = Some(fb::decode_checkpoints(
-                        &self.kernel,
-                        &self.seq(seq),
-                        &self.ctx,
-                    )?);
+                    *slot = Some(self.checkpoints(seq)?);
                 }
                 Ok(())
             })?;
@@ -550,7 +525,7 @@ impl Decoder<'_> {
         &self,
         cursor: &mut Cursor,
         stop: usize,
-        carried: &mut Option<(usize, DecodeCheckpoints)>,
+        carried: &mut Carried,
         output: &mut Output,
         decoded: &mut Option<(Vec<UnitOut>, usize)>,
     ) -> Result<()> {
@@ -660,8 +635,7 @@ pub fn write_tmrca_posterior_tsv_with_options(
         max_points,
         callable,
     } = opts;
-    validate(pi, a, em, rows, row_starts)?;
-    let table = obs_table(rows, callable, None)?;
+    let pass = Pass::new(pi, a, em, rows, row_starts, callable, None)?;
     let n_states = pi.len();
     if tmrca_years.len() != n_states {
         bail!(
@@ -670,13 +644,13 @@ pub fn write_tmrca_posterior_tsv_with_options(
             n_states
         );
     }
-    let plan = Plan::new(rows, row_starts);
-    let total_sites = plan.total_sites as usize;
-    let mut seq_start = Vec::with_capacity(plan.seqs.len() + 1);
+    let total_sites = pass.plan.total_sites as usize;
+    let n_seqs = pass.plan.seqs.len();
+    let mut seq_start = Vec::with_capacity(n_seqs + 1);
     seq_start.push(0);
-    for r in &plan.seqs {
+    for r in &pass.plan.seqs {
         let len: usize = rows[r.clone()].iter().map(Vec::len).sum();
-        seq_start.push(seq_start.last().copied().unwrap_or(0) + len);
+        seq_start.push(seq_start[seq_start.len() - 1] + len);
     }
     let stride = if max_points == 0 {
         1
@@ -686,14 +660,10 @@ pub fn write_tmrca_posterior_tsv_with_options(
     let progress = Progress::default();
     let budget = AlphaCacheBudget::new(0);
     let mut sink = Sink::create(out_path)?;
-    let gzip = sink.is_gzip();
+    let gzip = sink.gzip;
     sink.write(&Sink::encode(gzip, HEADER.to_string())?)?;
     let dec = Decoder {
-        kernel: Kernel::new(pi, a, em, &table),
-        rows,
-        callable,
-        table,
-        plan,
+        pass,
         seq_start,
         years: StateYears::new(tmrca_years),
         stride,
@@ -716,20 +686,15 @@ pub fn write_tmrca_posterior_tsv_with_options(
     // The output is decoded in spans that end at each sequence longer than a
     // window; the checkpoint passes of that sequence run alongside the span.
     // At most two such sequences have checkpoints in memory.
-    let n_seqs = dec.plan.seqs.len();
     let mut cursor = Cursor::default();
-    let mut carried: Option<(usize, DecodeCheckpoints)> = None;
+    let mut carried: Carried = None;
     let mut decoded = None;
     loop {
         let ready = carried.as_ref().is_some_and(|(s, _)| *s == cursor.seq);
         let stop = dec.next_big(cursor.seq + usize::from(ready));
         let (span, ahead) = rayon::join(
             || dec.run_span(&mut cursor, stop, &mut carried, &mut output, &mut decoded),
-            || -> Result<_> {
-                (stop < n_seqs)
-                    .then(|| fb::decode_checkpoints(&dec.kernel, &dec.seq(stop), &dec.ctx))
-                    .transpose()
-            },
+            || (stop < n_seqs).then(|| dec.checkpoints(stop)).transpose(),
         );
         span?;
         match ahead? {
@@ -751,15 +716,17 @@ pub fn write_tmrca_posterior_tsv_with_options(
         pb.finish_with_message("TMRCA done");
     }
 
+    // Each sample is the bin, then the mean, MAP and 2.5% and 97.5% quantiles.
+    let sampled = |col: usize| samples.iter().map(|s| [s[0], s[col]]).collect();
     Ok(TmrcaReportData {
-        sampled_mean: samples.iter().map(|s| [s[0], s[1]]).collect(),
-        sampled_map: samples.iter().map(|s| [s[0], s[2]]).collect(),
-        sampled_lo: samples.iter().map(|s| [s[0], s[3]]).collect(),
-        sampled_hi: samples.iter().map(|s| [s[0], s[4]]).collect(),
+        sampled_mean: sampled(1),
+        sampled_map: sampled(2),
+        sampled_lo: sampled(3),
+        sampled_hi: sampled(4),
         state_mass,
         state_years: tmrca_years.to_vec(),
         total_sites,
-        seq_count: dec.plan.seqs.len(),
+        seq_count: n_seqs,
     })
 }
 

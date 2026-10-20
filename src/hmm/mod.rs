@@ -210,40 +210,97 @@ fn validate(
     Ok(())
 }
 
-/// The observation table of `rows` with the callable bases `callable`
-/// ([`ObsTable::counted`], which checks them against the rows, in `pool`
-/// when given), or of the symbols alone without them.
-fn obs_table(
-    rows: &[Vec<u8>],
-    callable: Option<&CallableBases>,
-    pool: Option<&ThreadPool>,
-) -> Result<ObsTable> {
-    let Some(callable) = callable else {
-        return Ok(ObsTable::plain());
-    };
-    let build = || ObsTable::counted(rows, callable);
-    match pool {
-        Some(p) => p.install(build),
-        None => build(),
-    }
-}
-
-/// The observations of sequence `seq` (a range of rows) for a pass over
-/// `rows` with the counts `callable` and its table.
-fn seq_obs<'a>(
+/// One pass's model and observations, laid out for the per-sequence passes.
+struct Pass<'a> {
     rows: &'a [Vec<u8>],
     callable: Option<&'a CallableBases>,
-    table: &'a ObsTable,
-    seq: std::ops::Range<usize>,
-) -> SeqObs<'a> {
-    let counts = callable.map(|c| &c.rows()[seq.clone()]);
-    SeqObs::new(&rows[seq], counts, table)
+    table: ObsTable,
+    kernel: Kernel,
+    plan: Plan,
 }
 
-fn budget_or_global(budget: Option<&AlphaCacheBudget>) -> &AlphaCacheBudget {
-    match budget {
-        Some(b) => b,
-        None => AlphaCacheBudget::global(),
+impl<'a> Pass<'a> {
+    /// Checks the shapes and, with callable bases, that they fit the rows
+    /// ([`ObsTable::counted`], run in `pool` when given).
+    fn new(
+        pi: &[f64],
+        a: &Array2<f64>,
+        em: &Array2<f64>,
+        rows: &'a [Vec<u8>],
+        row_starts: &[bool],
+        callable: Option<&'a CallableBases>,
+        pool: Option<&ThreadPool>,
+    ) -> Result<Self> {
+        validate(pi, a, em, rows, row_starts)?;
+        let table = match (callable, pool) {
+            (None, _) => ObsTable::plain(),
+            (Some(c), None) => ObsTable::counted(rows, c)?,
+            (Some(c), Some(p)) => p.install(|| ObsTable::counted(rows, c))?,
+        };
+        Ok(Self {
+            rows,
+            callable,
+            kernel: Kernel::new(pi, a, em, &table),
+            table,
+            plan: Plan::new(rows, row_starts),
+        })
+    }
+
+    /// The observations of sequence `i`.
+    fn seq(&self, i: usize) -> SeqObs<'_> {
+        let rows = self.plan.seqs[i].clone();
+        let counts = self.callable.map(|c| &c.rows()[rows.clone()]);
+        SeqObs::new(&self.rows[rows], counts, &self.table)
+    }
+
+    /// Runs `per_seq` over every sequence: serially within a work item, into
+    /// an accumulator from `zero`, and the items in parallel, merged into
+    /// `zero()` with `merge` in item order ([`sched::fold_in_order`]), so
+    /// the result does not depend on the thread count. Reports the forward
+    /// progress, and the backward progress when `with_backward`.
+    fn fold<A: Send>(
+        &self,
+        opts: EStepOptions<'_>,
+        with_backward: bool,
+        zero: impl Fn() -> A + Sync,
+        per_seq: impl Fn(&SeqObs<'_>, &mut Workspace, &mut A, &Ctx<'_>) -> Result<()> + Sync,
+        merge: impl Fn(&mut A, A) + Sync,
+    ) -> Result<A> {
+        let progress = Progress::default();
+        let budget = opts
+            .alpha_cache
+            .unwrap_or_else(|| AlphaCacheBudget::global());
+        let ctx = Ctx {
+            cancel: opts.cancel,
+            progress: &progress,
+            budget,
+        };
+        let mut reporter = Reporter::new(
+            self.plan.total_sites,
+            with_backward,
+            opts.progress_bars,
+            opts.label,
+            opts.on_progress,
+        );
+        let total = sched::fold_in_order(
+            self.plan.items.len(),
+            opts.thread_pool,
+            &mut reporter,
+            &progress,
+            |item| {
+                let mut ws = Workspace::new(self.kernel.np());
+                let mut acc = zero();
+                for seq in self.plan.items[item].clone() {
+                    ctx.check_cancel()?;
+                    per_seq(&self.seq(seq), &mut ws, &mut acc, &ctx)?;
+                }
+                Ok(acc)
+            },
+            zero(),
+            merge,
+        )?;
+        reporter.finish(&progress);
+        Ok(total)
     }
 }
 
@@ -307,48 +364,16 @@ pub fn e_step_with_options(
     row_starts: &[bool],
     opts: EStepOptions<'_>,
 ) -> Result<EStepResult> {
-    validate(pi, a, em, rows, row_starts)?;
-    let table = obs_table(rows, opts.callable, opts.thread_pool)?;
-    let kernel = Kernel::new(pi, a, em, &table);
+    let pass = Pass::new(pi, a, em, rows, row_starts, opts.callable, opts.thread_pool)?;
+    let (kernel, table) = (&pass.kernel, &pass.table);
     let np = kernel.np();
-    let plan = Plan::new(rows, row_starts);
-    let progress = Progress::default();
-    let ctx = Ctx {
-        cancel: opts.cancel,
-        progress: &progress,
-        budget: budget_or_global(opts.alpha_cache),
-    };
-    let mut reporter = Reporter::new(
-        plan.total_sites,
+    let total = pass.fold(
+        opts,
         true,
-        opts.progress_bars,
-        opts.label,
-        opts.on_progress,
-    );
-    let callable = opts.callable;
-    // Each work item's sums are merged into the total in item order as soon
-    // as the items before it are, so that they are not all held at once:
-    // with callable bases there is one row of sums per observation index.
-    let total = sched::fold_in_order(
-        plan.items.len(),
-        opts.thread_pool,
-        &mut reporter,
-        &progress,
-        |item| {
-            let mut ws = Workspace::new(np);
-            let mut acc = Partial::new(table.len(), np);
-            for seq in &plan.seqs[plan.items[item].clone()] {
-                ctx.check_cancel()?;
-                let obs = seq_obs(rows, callable, &table, seq.clone());
-                fb::e_step(&kernel, &obs, &mut ws, &mut acc, &ctx)?;
-            }
-            Ok(acc)
-        },
-        Partial::new(table.len(), np),
+        || Partial::new(table.len(), np),
+        |seq, ws, acc, ctx| fb::e_step(kernel, seq, ws, acc, ctx),
         |total, p| total.merge(&p),
     )?;
-    sched::finish(&mut reporter, &progress);
-
     let (gobs, callable) = table.reduce(&total.g, kernel.n_states(), np);
     Ok(EStepResult {
         stats: SufficientStats {
@@ -387,43 +412,15 @@ pub fn log_likelihood_with_options(
     row_starts: &[bool],
     opts: EStepOptions<'_>,
 ) -> Result<f64> {
-    validate(pi, a, em, rows, row_starts)?;
-    let table = obs_table(rows, opts.callable, opts.thread_pool)?;
-    let kernel = Kernel::new(pi, a, em, &table);
-    let np = kernel.np();
-    let plan = Plan::new(rows, row_starts);
-    let progress = Progress::default();
-    let ctx = Ctx {
-        cancel: opts.cancel,
-        progress: &progress,
-        budget: budget_or_global(opts.alpha_cache),
-    };
-    let mut reporter = Reporter::new(
-        plan.total_sites,
+    let pass = Pass::new(pi, a, em, rows, row_starts, opts.callable, opts.thread_pool)?;
+    pass.fold(
+        opts,
         false,
-        opts.progress_bars,
-        opts.label,
-        opts.on_progress,
-    );
-    let callable = opts.callable;
-    let total = sched::fold_in_order(
-        plan.items.len(),
-        opts.thread_pool,
-        &mut reporter,
-        &progress,
-        |item| {
-            let mut ws = Workspace::new(np);
-            let mut loglike = 0.0;
-            for seq in &plan.seqs[plan.items[item].clone()] {
-                ctx.check_cancel()?;
-                let obs = seq_obs(rows, callable, &table, seq.clone());
-                loglike += fb::log_likelihood(&kernel, &obs, &mut ws, &ctx)?;
-            }
-            Ok(loglike)
+        || 0.0,
+        |seq, ws, loglike, ctx| {
+            *loglike += fb::log_likelihood(&pass.kernel, seq, ws, ctx)?;
+            Ok(())
         },
-        0.0,
         |total: &mut f64, p| *total += p,
-    )?;
-    sched::finish(&mut reporter, &progress);
-    Ok(total)
+    )
 }

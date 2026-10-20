@@ -141,7 +141,8 @@ impl<'a> Reporter<'a> {
         }
     }
 
-    fn finish(&mut self, progress: &Progress) {
+    /// Final progress events after successful work.
+    pub(crate) fn finish(&mut self, progress: &Progress) {
         self.update(progress);
         if let Some(bar) = self.bar.take() {
             let phase = if self.with_backward {
@@ -270,24 +271,16 @@ where
                 .deposit(i, result, &merge);
         }
     };
-    let workers = |threads: usize| threads.clamp(1, n_items.max(1));
-
+    let threads = pool.map_or_else(rayon::current_num_threads, ThreadPool::current_num_threads);
+    let n_workers = threads.clamp(1, n_items.max(1));
     if reporter.active() {
+        let pump = |scope: &_| spawn_and_pump(scope, n_workers, &worker, reporter, progress);
         match pool {
-            Some(p) => {
-                let n = workers(p.current_num_threads());
-                p.in_place_scope(|scope| spawn_and_pump(scope, n, &worker, reporter, progress))
-            }
-            None => {
-                let n = workers(rayon::current_num_threads());
-                rayon::in_place_scope(|scope| spawn_and_pump(scope, n, &worker, reporter, progress))
-            }
+            Some(p) => p.in_place_scope(pump),
+            None => rayon::in_place_scope(pump),
         }
     } else {
-        let all = || {
-            let n = workers(rayon::current_num_threads());
-            (0..n).into_par_iter().for_each(|_| worker());
-        };
+        let all = || (0..n_workers).into_par_iter().for_each(|_| worker());
         match pool {
             Some(p) => p.install(all),
             None => all(),
@@ -340,11 +333,6 @@ fn spawn_and_pump<'scope, W>(
         }
         reporter.update(progress);
     }
-}
-
-/// Final progress events after successful work.
-pub(crate) fn finish(reporter: &mut Reporter<'_>, progress: &Progress) {
-    reporter.finish(progress);
 }
 
 #[cfg(test)]
