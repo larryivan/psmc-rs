@@ -23,32 +23,29 @@ model in each. All panels share one log axis of log-likelihood differences:
 
 y is shared (tick labels and its label on panel a only), and so is x, with
 one label under the row; the key (C psmc, psmc-rs) is one line at the top.
-The y hairlines are at the labelled decades inside the axes only (one at the
-top limit would read as a rule under the titles, and the bottom one would
-lie under the spine), and they span the data only: from the y axis to where
-the lines' ink ends, just right of the last iteration, so the column of the
-arrows is free of grid and no hairline runs into an arrowhead.
+The y hairlines lie at the labelled decades strictly inside the axes (one at
+the top would read as a rule under the titles, the bottom one would lie under
+the spine) and span the data only, so the arrows' column is free of grid.
 
 Panel a names the bundle (just above it) and the grey line (just below it)
-in place, both names starting at iteration 1; the key names the programs.
-Iteration i counts completed EM iterations: C psmc's LK of round i + 1 and
-psmc-rs's ``loglike[i]`` are both the log-likelihood after i iterations.
-C psmc prints none after its last iteration, so both programs are drawn up
-to the last iteration both give. Iteration 0 (the same starting model in
-both, agreeing to C psmc's printed precision), the sign of the difference
-and theta and rho are left to the caption.
+in place, both names starting at iteration 1. Iteration i counts completed
+EM iterations: C psmc's LK of round i + 1 and psmc-rs's ``loglike[i]`` are
+both the log-likelihood after i iterations. C psmc prints none after its
+last iteration, so both programs are drawn up to the last iteration both
+give. Iteration 0 (the same starting model in both, agreeing to C psmc's
+printed precision), the sign of the difference and theta and rho are left
+to the caption.
 
 :func:`series`, :func:`ratio_floor` and :func:`ratio_label` compute what
-the panels draw. They are public so that the manuscript's numbers
-(make_numbers.py) can be computed with them too, and the caption's bound
-(the smallest :func:`ratio_floor` of the arrows' ratios) cannot drift from
-the arrows'.
+the panels draw; the manuscript's numbers (make_numbers.py) use them too, so
+the caption's bound (the smallest :func:`ratio_floor` of the arrows' ratios)
+cannot drift from the arrows'.
 """
 
 from __future__ import annotations
 
 import math
-from typing import Dict, List
+from typing import Dict
 
 from . import style
 from .data import Source
@@ -74,6 +71,11 @@ GAIN_LABEL_RISE = 1.6  # panel a: the bundle's name, this factor above its highe
 # the line, near enough to read as its name and still clear of the 10^-2 hairline the line runs along.
 GAP_LABEL_DROP = 2.0
 LABEL_DECADES = 0.6  # the height of a 6 pt label on the y axis, in decades, with room to spare
+LINE = {"solid_joinstyle": "round"}  # round joins: no miter spikes where the 2.4 pt underlay bends sharply
+# Round caps on the underlays only: ten 2.4 pt butt ends cut across lines of different slopes leave a notched
+# edge and pale tabs at i = 1; round ones close the rim around the blue ribbon's ends (0.42 mm past the first and
+# last iteration, clear of the arrow).
+UNDER = dict(LINE, solid_capstyle="round")
 
 
 def ratio_floor(r: float) -> float:
@@ -99,10 +101,10 @@ def series(df) -> Dict[str, Dict]:
     ``(gain_c, gain_rs)`` pair of Series per genome), ``gmin`` and ``gmax``
     (the smallest and largest gain of any genome and either program, per
     iteration), ``env`` (the largest |LL_rs - LL_c| over the genomes per
-    iteration, NaN where it is 0), ``reps`` (the genomes drawn) and ``arrow``
-    (``k``, the iteration where gmin / env is lowest, ``ratio`` and ``label``;
-    None when no difference is positive). A genome lacking either program is
-    left out; a model without any genome with both is absent.
+    iteration, NaN where it is 0) and ``arrow`` (``k``, the iteration where
+    gmin / env is lowest, ``ratio`` and ``label``; None when no difference is
+    positive). A genome lacking either program is left out; a model without
+    any genome with both is absent.
     """
     import numpy as np
     import pandas as pd
@@ -110,8 +112,7 @@ def series(df) -> Dict[str, Dict]:
     df = df.sort_values(["model", "replicate", "tool", "iteration"])
     out: Dict[str, Dict] = {}
     for m, sub in df.groupby("model", sort=False):
-        gains: List = []
-        gc_cols, gr_cols, gap_cols, reps = {}, {}, {}, []
+        gc_cols, gr_cols, gap_cols = {}, {}, {}
         for rep, rsub in sub.groupby("replicate"):
             by = {t: s.set_index("iteration")["loglike"].astype(float) for t, s in rsub.groupby("tool")}
             if "c" not in by or "rs" not in by:
@@ -120,18 +121,14 @@ def series(df) -> Dict[str, Dict]:
             common = by["c"].dropna().index.intersection(by["rs"].dropna().index).sort_values()
             if len(common) < 2:
                 continue
-            pair = []
-            for tool in ("c", "rs"):
+            for tool, cols in (("c", gc_cols), ("rs", gr_cols)):
                 g = by[tool].loc[common].diff().iloc[1:]  # the gain of each iteration after the first given
                 bad = g[~(g > 0)]
                 if len(bad):  # a log axis would silently drop it
                     raise ValueError(f"log-likelihood fell: {m} replicate {rep} {tool} iteration {int(bad.index[0])}")
-                pair.append(g)
-            gains.append(tuple(pair))
-            gc_cols[rep], gr_cols[rep] = pair
+                cols[rep] = g
             gap_cols[rep] = (by["rs"].loc[common] - by["c"].loc[common]).abs().iloc[1:]
-            reps.append(rep)
-        if not gains:
+        if not gc_cols:
             continue
         gc, gr, gaps = (pd.DataFrame(c).sort_index() for c in (gc_cols, gr_cols, gap_cols))
         it = gc.index
@@ -144,8 +141,8 @@ def series(df) -> Dict[str, Dict]:
         if ratio.notna().any():
             k = ratio.idxmin()
             arrow = {"k": int(k), "ratio": float(ratio.loc[k]), "label": ratio_label(float(ratio.loc[k]))}
-        out[m] = {"it": it, "N": int(it.max()), "gains": gains, "gmin": gmin, "gmax": gmax, "env": env,
-                  "reps": reps, "arrow": arrow}
+        out[m] = {"it": it, "N": int(it.max()), "gains": [(gc_cols[r], gr_cols[r]) for r in gc_cols], "gmin": gmin,
+                  "gmax": gmax, "env": env, "arrow": arrow}
     return out
 
 
@@ -202,6 +199,33 @@ def _name_in_place(ax, text: str, values, *, above: bool, x_bound: float, ylim) 
             t.set_verticalalignment("bottom")
 
 
+def _panel(ax, p: Dict, title: str, x_max: float, per_mm: float) -> float:
+    """One model's gains, grey line and arrow; return where names in the panel must end (left of the arrow)."""
+    # The underlay rule: every C psmc line pale and wide beneath, every psmc-rs line thin on top.
+    for gc, _ in p["gains"]:
+        ax.plot(gc.index, gc.values, **style.underlay_kw(style.C_PSMC, **UNDER))
+    for _, gr in p["gains"]:
+        ax.plot(gr.index, gr.values, **style.overlay_kw(style.RS02, linewidth=style.LW_THIN, **LINE))
+    # The difference between the programs in INK2, its colour in every figure of the set.
+    ax.plot(p["it"], p["env"].values, color=style.INK2, linewidth=style.LW_DATA, solid_capstyle="butt",
+            zorder=style.Z_DATA + 1, **LINE)
+    bound = x_max
+    a = p["arrow"]
+    if a is not None:
+        k = a["k"]
+        lo, hi = float(p["env"].loc[k]), float(p["gmin"].loc[k])
+        x = k + ARROW_DX_MM * per_mm
+        ax.annotate("", xy=(x, hi), xytext=(x, lo),
+                    arrowprops=dict(style.ARROW_PROPS, shrinkA=ARROW_SHRINK_PT, shrinkB=ARROW_SHRINK_PT))
+        left = k / per_mm > 8.0  # the label left of the arrow where it fits inside the axes
+        dx = LABEL_DX_MM * per_mm
+        style.direct_label(ax, x - dx if left else x + dx, math.sqrt(lo * hi), a["label"],
+                           ha="right" if left else "left", zorder=style.Z_TEXT)
+        bound = x - dx  # names never cross the arrow
+    style.panel_title(ax, title)
+    return bound
+
+
 def draw(src: Source):
     import numpy as np
     from matplotlib.ticker import FixedLocator, FuncFormatter, NullFormatter, NullLocator
@@ -230,37 +254,7 @@ def draw(src: Source):
     x_max = n_it / (1.0 - X_PAD_MM / pw)
     per_mm = x_max / pw  # iterations per mm
     step = 6 if n_it >= 12 else max(1, math.ceil(n_it / 4))
-
-    line = {"solid_joinstyle": "round"}  # round joins: no miter spikes where the 2.4 pt underlay bends sharply
-    # Round caps on the underlays only: ten 2.4 pt butt ends cut across lines of different slopes leave a
-    # notched edge and pale tabs at i = 1; round ones close the rim around the blue ribbon's ends (0.42 mm
-    # past the first and last iteration, clear of the arrow).
-    under = dict(line, solid_capstyle="round")
-    label_x = {}  # per model: where names in the panel must end, left of the arrow (or the axes' edge)
-    for ax, m in zip(axes, models):
-        p = per[m]
-        # The underlay rule: every C psmc line pale and wide beneath, every psmc-rs line thin on top.
-        for gc, _ in p["gains"]:
-            ax.plot(gc.index, gc.values, **style.underlay_kw(style.C_PSMC.color, share=style.C_PSMC.halo, **under))
-        for _, gr in p["gains"]:
-            ax.plot(gr.index, gr.values, **style.overlay_kw(style.RS02.color, linewidth=style.LW_THIN, **line))
-        # The difference between the programs in INK2, its colour in every figure of the set.
-        ax.plot(p["it"], p["env"].values, color=style.INK2, linewidth=style.LW_DATA, solid_capstyle="butt",
-                zorder=style.Z_DATA + 1, **line)
-        a = p["arrow"]
-        label_x[m] = x_max
-        if a is not None:
-            k = a["k"]
-            lo, hi = float(p["env"].loc[k]), float(p["gmin"].loc[k])
-            x = k + ARROW_DX_MM * per_mm
-            ax.annotate("", xy=(x, hi), xytext=(x, lo),
-                        arrowprops=dict(style.ARROW_PROPS, shrinkA=ARROW_SHRINK_PT, shrinkB=ARROW_SHRINK_PT))
-            left = k / per_mm > 8.0  # the label left of the arrow where it fits inside the axes
-            dx = LABEL_DX_MM * per_mm
-            style.direct_label(ax, x - dx if left else x + dx, math.sqrt(lo * hi), a["label"],
-                               ha="right" if left else "left", zorder=style.Z_TEXT)
-            label_x[m] = x - dx  # names never cross the arrow
-        style.panel_title(ax, MODEL_LABEL.get(m, m))
+    bounds = [_panel(ax, per[m], MODEL_LABEL.get(m, m), x_max, per_mm) for ax, m in zip(axes, models)]
 
     # The y hairlines: at the labelled decades strictly inside the axes, from the y axis to where the lines'
     # ink ends (the underlay's round cap, half its width right of the last iteration), so they never reach the
@@ -290,15 +284,13 @@ def draw(src: Source):
     if models:
         p, ax = per[models[0]], axes[0]
         ylim = (10.0 ** dlo, 10.0 ** dhi)
-        bound = label_x[models[0]]
-        _name_in_place(ax, r"Gain in iteration $\mathit{i}$", p["gmax"], above=True, x_bound=bound, ylim=ylim)
-        _name_in_place(ax, "Largest gap between programs", p["env"], above=False, x_bound=bound, ylim=ylim)
+        _name_in_place(ax, r"Gain in iteration $\mathit{i}$", p["gmax"], above=True, x_bound=bounds[0], ylim=ylim)
+        _name_in_place(ax, "Largest gap between programs", p["env"], above=False, x_bound=bounds[0], ylim=ylim)
 
     style.row_xlabel(fig, axes, r"EM iteration, $\mathit{i}$")
     # The key's psmc-rs line is LW_DATA, not the 0.5 pt drawn: ten coinciding 0.5 pt lines read as one line
-    # at least that wide (and it matches Fig 1's psmc-rs key). Labels are literal: the names of the programs.
-    handles = [style.handle(style.C_PSMC, kind="underlay"), style.handle(style.RS02)]
-    style.top_legend(fig, handles, ["C psmc", "psmc-rs"], ax=axes[0])
+    # at least that wide (and it matches Fig 1's psmc-rs key).
+    style.top_legend(fig, [style.handle(style.C_PSMC, kind="underlay"), style.handle(style.RS02)])
     style.panel_letters(fig, axes)
     fig.set_dpi(dpi0)
     return fig
