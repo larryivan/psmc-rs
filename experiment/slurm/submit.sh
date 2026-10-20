@@ -38,6 +38,8 @@ if [ "$what" != build ] && [ -f "$LOGS/build.jobid" ]; then
   if squeue -h -j "$b" -o %i 2> /dev/null | grep -q .; then deps+=("afterok:$b"); fi
 fi
 dependency() { local IFS=,; [ $# -gt 0 ] && echo "--dependency=$*"; }
+# prod, e3-report and each E3 repeat: one job of a name at a time, after the build.
+singleton=$(dependency singleton ${deps[@]+"${deps[@]}"})
 
 common=(--account="$ACCOUNT" --partition="$PARTITION" --chdir="$PROD" --nodes=1 --ntasks=1 --parsable)
 # sbatch options, then the extra ones (which override them), then the script:
@@ -50,7 +52,7 @@ case $what in
         --time=02:00:00 --output="$LOGS/%x-%j.out" --export=ALL,PSMC_SLURM_DIR="$DIR" "$DIR/build.sbatch")
     echo "$id" > "$LOGS/build.jobid" ;;
   prod)
-    id=$(run --job-name=psmcrs-runs $(dependency singleton ${deps[@]+"${deps[@]}"}) \
+    id=$(run --job-name=psmcrs-runs $singleton \
         --constraint="$PROD_CONSTRAINT" --cpus-per-task="$PROD_CPUS" --mem="$PROD_MEM" --time="$PROD_TIME" \
         --output="$LOGS/psmcrs-prod-%j.out" --export=ALL,PSMC_SLURM_DIR="$DIR" "$DIR/prod.sbatch") ;;
   e3)
@@ -76,12 +78,12 @@ EOF
 )
       pin=()
       [ -n "$host" ] && pin=(--nodelist="$host") && echo "repeat $r: back to $host"
-      id+="$(run --job-name="psmcrs-e3-rep$r" $(dependency singleton ${deps[@]+"${deps[@]}"}) ${pin[@]+"${pin[@]}"} \
+      id+="$(run --job-name="psmcrs-e3-rep$r" $singleton ${pin[@]+"${pin[@]}"} \
           --constraint="$E3_CONSTRAINT" --exclusive --mem=0 --no-requeue --time="$E3_TIME" \
           --output="$LOGS/%x-%j.out" --export=ALL,PSMC_SLURM_DIR="$DIR",E3_REPEAT="$r" "$DIR/e3.sbatch") "
     done ;;
   e3-report)
-    id=$(run --job-name=psmcrs-runs $(dependency singleton ${deps[@]+"${deps[@]}"}) \
+    id=$(run --job-name=psmcrs-runs $singleton \
         --cpus-per-task=2 --mem=16G --time=01:00:00 \
         --output="$LOGS/psmcrs-e3-report-%j.out" --export=ALL,PSMC_SLURM_DIR="$DIR" "$DIR/e3_report.sbatch") ;;
   e7-prep)
