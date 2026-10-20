@@ -319,44 +319,89 @@ pub(crate) struct HetCall {
     pub alleles: [u8; 2],
 }
 
-/// Follows the called sites of one sequence, in position order, and records
-/// its heterozygous sites with their `nr_called` when `collect` is set.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct HetTracker {
-    collect: bool,
-    called_since: u64,
-    sites: Vec<HetCall>,
+/// One sequence as a reader of per-site calls binned it ([`SeqBuilder`]).
+#[derive(Debug, Clone)]
+pub(crate) struct BinnedSeq {
+    pub name: String,
+    pub bins: Vec<u8>,
+    /// The callable bases of each bin ([`Binner::finish_with_callable`]);
+    /// `None` for bins too large to count.
+    pub callable: Option<BinCounts>,
+    /// Positions `1..=extent` make up the sequence.
+    pub extent: u64,
+    /// Positions binned as called (heterozygous or not).
+    pub called: u64,
+    /// Heterozygous positions.
+    pub n_het: u64,
+    /// The heterozygous sites, when they were collected.
+    pub het_sites: Vec<HetCall>,
 }
 
-impl HetTracker {
-    pub fn new(collect: bool) -> Self {
+/// Bins the sites of one sequence, given in position order ([`Binner`]),
+/// counts the called and heterozygous ones and, when collecting, records
+/// the heterozygous sites with their `nr_called`.
+#[derive(Debug, Clone)]
+pub(crate) struct SeqBuilder {
+    binner: Binner,
+    collect_het: bool,
+    /// Called sites since the last heterozygous one.
+    called_since_het: u64,
+    het_sites: Vec<HetCall>,
+    called: u64,
+    n_het: u64,
+}
+
+impl SeqBuilder {
+    pub fn new(bin_size: usize, collect_het: bool) -> Self {
         Self {
-            collect,
-            ..Self::default()
+            binner: Binner::new(bin_size),
+            collect_het,
+            called_since_het: 0,
+            het_sites: Vec::new(),
+            called: 0,
+            n_het: 0,
         }
     }
 
     /// `n` called sites that are not heterozygous.
     pub fn called(&mut self, n: u64) {
-        self.called_since += n;
+        self.binner.add_called(n);
+        self.called_since_het += n;
+        self.called += n;
     }
 
-    /// One called heterozygous site.
+    /// `n` missing sites.
+    pub fn missing(&mut self, n: u64) {
+        self.binner.add_missing(n);
+    }
+
+    /// One called heterozygous site, at `pos`.
     pub fn het(&mut self, pos: u64, alleles: [u8; 2]) {
-        if self.collect {
-            self.sites.push(HetCall {
+        self.binner.add_het();
+        if self.collect_het {
+            self.het_sites.push(HetCall {
                 pos,
-                nr_called: self.called_since + 1,
+                nr_called: self.called_since_het + 1,
                 alleles,
             });
         }
-        self.called_since = 0;
+        self.called_since_het = 0;
+        self.called += 1;
+        self.n_het += 1;
     }
 
-    /// The recorded sites; the tracker starts over for the next sequence.
-    pub fn take(&mut self) -> Vec<HetCall> {
-        self.called_since = 0;
-        std::mem::take(&mut self.sites)
+    /// The sequence `name`, whose sites are positions `1..=extent`.
+    pub fn finish(mut self, name: String, extent: u64) -> BinnedSeq {
+        let (bins, callable) = self.binner.finish_with_callable();
+        BinnedSeq {
+            name,
+            bins,
+            callable,
+            extent,
+            called: self.called,
+            n_het: self.n_het,
+            het_sites: self.het_sites,
+        }
     }
 }
 

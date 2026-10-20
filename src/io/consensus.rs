@@ -51,9 +51,10 @@
 //! and bases outside the IUPAC table (`N`, `-`, ...) are missing; two-base
 //! IUPAC codes (`K`, `M`, `R`, `S`, `W`, `Y`) are heterozygous; `A`, `C`, `G`,
 //! `T` and the three-base codes are called homozygous. Bins follow
-//! [`Binner`]: missing when more than 90% of the bases are, else heterozygous
-//! when one base is. Each bin's callable bases ([`ConsensusSeq::callable`])
-//! are the bin size minus its missing bases: the good bases of a full bin.
+//! [`Binner`](crate::io::common::Binner): missing when more than 90% of the
+//! bases are, else heterozygous when one base is. Each bin's callable bases
+//! ([`ConsensusSeq::callable`]) are the bin size minus its missing bases: the
+//! good bases of a full bin.
 //!
 //! # Differences from the Perl and C tools
 //!
@@ -93,7 +94,7 @@ use std::path::{Path, PathBuf};
 
 use crate::io::BinCounts;
 use crate::io::common::{
-    Binner, DepthCounter, HetCall, HetTracker, is_regular_file, open_reader, reopen_reader,
+    DepthCounter, HetCall, SeqBuilder, is_regular_file, open_reader, reopen_reader,
 };
 pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
 use crate::io::vcf::{
@@ -767,11 +768,8 @@ struct Chrom {
     /// Whether a record has been read, i.e. `last_pos` is a real position.
     started: bool,
     uncallable: Uncallable,
-    binner: Binner,
-    good: u64,
-    het_bases: u64,
+    seq: SeqBuilder,
     lost: LostBases,
-    het: HetTracker,
 }
 
 impl Chrom {
@@ -787,11 +785,8 @@ impl Chrom {
             last_window: None,
             started: false,
             uncallable,
-            binner: Binner::new(bin_size),
-            good: 0,
-            het_bases: 0,
+            seq: SeqBuilder::new(bin_size, collect_het),
             lost: LostBases::default(),
-            het: HetTracker::new(collect_het),
         }
     }
 
@@ -870,20 +865,13 @@ impl Chrom {
                 base = Base::Lost(LossReason::OutsideMask);
             }
             match base {
-                Base::Hom => {
-                    self.binner.add_called(take);
-                    self.het.called(take);
-                    self.good += take;
-                }
+                Base::Hom => self.seq.called(take),
                 Base::Het(alleles) => {
                     debug_assert_eq!(take, 1);
-                    self.binner.add_het();
-                    self.het.het(pos, alleles);
-                    self.good += 1;
-                    self.het_bases += 1;
+                    self.seq.het(pos, alleles);
                 }
                 Base::Lost(r) => {
-                    self.binner.add_missing(take);
+                    self.seq.missing(take);
                     *self.lost.slot(r) += take;
                 }
             }
@@ -903,16 +891,16 @@ impl Chrom {
             );
         }
         self.commit(self.len);
-        let (bins, callable) = self.binner.finish_with_callable();
+        let seq = self.seq.finish(self.name, self.len);
         Ok(ConsensusSeq {
-            name: self.name,
-            bins,
-            callable,
-            bases: self.len,
-            good_bases: self.good,
-            het_bases: self.het_bases,
+            name: seq.name,
+            bins: seq.bins,
+            callable: seq.callable,
+            bases: seq.extent,
+            good_bases: seq.called,
+            het_bases: seq.n_het,
             lost: self.lost,
-            het_sites: self.het.take(),
+            het_sites: seq.het_sites,
         })
     }
 }

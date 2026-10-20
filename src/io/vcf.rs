@@ -4,7 +4,7 @@
 //! produces from a per-base consensus of the selected sample: every position
 //! of a chromosome is classified as a called homozygous site, a heterozygous
 //! SNP or missing, and the positions are binned with the `fq2psmcfa` rule
-//! (see [`Binner`]).
+//! (see [`Binner`](crate::io::common::Binner)).
 //!
 //! A position is missing if it lies outside the callable set (see
 //! [`VcfOptions::masks`]), if one of its records leaves the genotype unknown,
@@ -59,10 +59,10 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use crate::io::common::{
-    Binner, DepthCounter, DepthStats, HetCall, HetTracker, chunk_sequences, open_reader,
+    BinnedSeq, DepthCounter, DepthStats, SeqBuilder, chunk_sequences, open_reader,
 };
 use crate::io::consensus::utf8_chrom;
-use crate::io::{BinCounts, CallableBases, Observations, Sequences};
+use crate::io::{CallableBases, Observations, Sequences};
 
 pub(crate) type Interval = (u64, u64); // inclusive [start, end], 1-based
 
@@ -1024,11 +1024,11 @@ struct Pending {
 }
 
 /// Streams the per-base states of one chromosome, in position order, into a
-/// [`Binner`]. Positions before `cursor` are binned; the records at `pending`
-/// may still be joined by further records at the same POS.
+/// [`SeqBuilder`]. Positions before `cursor` are binned; the records at
+/// `pending` may still be joined by further records at the same POS.
 struct ChromBuilder {
     name: Vec<u8>,
-    binner: Binner,
+    seq: SeqBuilder,
     uncallable: Uncallable,
     cursor: u64,
     /// Positions up to here are missing because of an earlier REF span or
@@ -1046,10 +1046,6 @@ struct ChromBuilder {
     last_block_end: u64,
     /// Where the sequence ends when it does not end at the last record.
     contig_len: Option<u64>,
-    /// Missing positions emitted so far.
-    missing: u64,
-    het: HetTracker,
-    n_het: u64,
 }
 
 impl ChromBuilder {
@@ -1062,7 +1058,7 @@ impl ChromBuilder {
     ) -> Self {
         Self {
             name: name.to_vec(),
-            binner: Binner::new(opts.bin_size),
+            seq: SeqBuilder::new(opts.bin_size, collect_het),
             uncallable: Uncallable::new(uncallable),
             cursor: 1,
             miss_until: 0,
@@ -1072,21 +1068,12 @@ impl ChromBuilder {
             last_pos: 0,
             last_block_end: 0,
             contig_len,
-            missing: 0,
-            het: HetTracker::new(collect_het),
-            n_het: 0,
         }
     }
 
     fn missing(&mut self, n: u64, s: &mut VcfSummary) {
-        self.binner.add_missing(n);
-        self.missing += n;
+        self.seq.missing(n);
         s.missing_sites += n;
-    }
-
-    fn called(&mut self, n: u64) {
-        self.binner.add_called(n);
-        self.het.called(n);
     }
 
     /// Emit the positions `cursor..=to`, none of which has a record.
@@ -1128,7 +1115,7 @@ impl ChromBuilder {
             match self.uncallable.seek(a) {
                 Some((us, ue)) if us <= to => {
                     if us > a {
-                        self.called(us - a);
+                        self.seq.called(us - a);
                         a = us;
                     }
                     let e = min(ue, to);
@@ -1136,7 +1123,7 @@ impl ChromBuilder {
                     a = e + 1;
                 }
                 _ => {
-                    self.called(to - a + 1);
+                    self.seq.called(to - a + 1);
                     break;
                 }
             }
@@ -1163,13 +1150,11 @@ impl ChromBuilder {
         match site {
             Site::Missing => self.missing(1, s),
             Site::Het => {
-                self.binner.add_het();
                 let alleles = p.alleles.expect("a heterozygous site has SNP alleles");
-                self.het.het(p.pos, alleles);
-                self.n_het += 1;
+                self.seq.het(p.pos, alleles);
                 s.het_snps += 1;
             }
-            Site::Hom => self.called(1),
+            Site::Hom => self.seq.called(1),
         }
         self.cursor = p.pos + 1;
     }
@@ -1209,44 +1194,18 @@ impl ChromBuilder {
         self.last_pos = pos;
     }
 
-    /// Emit everything up to the end of the sequence and return it.
-    fn finish(mut self, s: &mut VcfSummary) -> VcfSeq {
+    /// Emit everything up to the end of the sequence and return it, with
+    /// the callable bases of each bin: the bin size minus the bin's
+    /// positions classified missing ([`crate::io::callable`]).
+    fn finish(mut self, s: &mut VcfSummary) -> BinnedSeq {
         let end = self
             .contig_len
             .unwrap_or(max(self.last_pos, self.last_block_end));
         self.flush_pending(s);
         self.fill_gap(end, s);
         s.sites += end;
-        let (bins, callable) = self.binner.finish_with_callable();
-        VcfSeq {
-            name: lossy(&self.name).into_owned(),
-            bins,
-            callable,
-            extent: end,
-            called: end - self.missing,
-            n_het: self.n_het,
-            het_sites: self.het.take(),
-        }
+        self.seq.finish(lossy(&self.name).into_owned(), end)
     }
-}
-
-/// One chromosome as read by [`read_vcf_seqs`].
-#[derive(Debug, Clone)]
-pub(crate) struct VcfSeq {
-    pub name: String,
-    pub bins: Vec<u8>,
-    /// The callable bases of each bin: the bin size minus the bin's
-    /// positions classified missing ([`crate::io::callable`]); `None` for
-    /// bins too large to count.
-    pub callable: Option<BinCounts>,
-    /// Positions `1..=extent` make up the sequence.
-    pub extent: u64,
-    /// Positions classified as called (heterozygous or homozygous).
-    pub called: u64,
-    /// Heterozygous SNP positions.
-    pub n_het: u64,
-    /// The heterozygous sites, when they were asked for.
-    pub het_sites: Vec<HetCall>,
 }
 
 /// `(ID, length)` of a `##contig=<ID=...,length=...,...>` header line. A
@@ -1349,7 +1308,7 @@ pub(crate) fn read_vcf_seqs_from(
     path: &Path,
     opts: &VcfOptions,
     collect_het: bool,
-) -> Result<(Vec<VcfSeq>, VcfSummary)> {
+) -> Result<(Vec<BinnedSeq>, VcfSummary)> {
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
     }
@@ -1369,7 +1328,7 @@ pub(crate) fn read_vcf_seqs_from(
     let mut contig_lens = HashMap::<Vec<u8>, u64>::new();
     let mut finished_chroms = HashSet::<Vec<u8>>::new();
     let mut cur: Option<ChromBuilder> = None;
-    let mut seqs = Vec::<VcfSeq>::new();
+    let mut seqs = Vec::<BinnedSeq>::new();
 
     loop {
         line.clear();

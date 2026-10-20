@@ -6,8 +6,8 @@ use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::Path;
 
-use crate::io::common::{Binner, HetCall, HetTracker, chunk_sequences, open_reader};
-use crate::io::{BinCounts, CallableBases, Observations, Sequences};
+use crate::io::common::{BinnedSeq, SeqBuilder, chunk_sequences, open_reader};
+use crate::io::{CallableBases, Observations, Sequences};
 
 /// Options for [`read_mhs_with`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,66 +213,15 @@ pub struct MhsSummary {
     pub uncalled_sites: u64,
 }
 
-/// One chromosome of a multihetsep file, binned for the selected pair.
-#[derive(Debug, Clone)]
-pub(crate) struct MhsSeq {
-    pub name: String,
-    pub bins: Vec<u8>,
-    /// The callable bases of each bin: the bin size minus the bin's sites
-    /// missing for the pair, with the uncalled sites placed at the start of
-    /// each interval ([`read_mhs_with`]); `None` for bins too large to
-    /// count.
-    pub callable: Option<BinCounts>,
-    /// Position of the last row: the sequence covers `1..=extent`.
-    pub extent: u64,
-    /// Sites binned as called for the pair.
-    pub called: u64,
-    /// Rows where the pair is heterozygous.
-    pub n_het: u64,
-    /// The heterozygous sites, when they were asked for.
-    pub het_sites: Vec<HetCall>,
-}
-
+/// The rows of one chromosome so far.
 struct MhsChrom {
     name: String,
-    binner: Binner,
+    /// The sites binned for the pair; the callable bases of each bin are the
+    /// bin size minus its sites missing for the pair, with the uncalled sites
+    /// placed at the start of each interval ([`read_mhs_with`]).
+    seq: SeqBuilder,
+    /// Position of the last row, where the sequence ends.
     prev_pos: u64,
-    called: u64,
-    n_het: u64,
-    het: HetTracker,
-}
-
-impl MhsChrom {
-    fn new(name: &str, bin_size: usize, collect_het: bool) -> Self {
-        Self {
-            name: name.to_string(),
-            binner: Binner::new(bin_size),
-            prev_pos: 0,
-            called: 0,
-            n_het: 0,
-            het: HetTracker::new(collect_het),
-        }
-    }
-
-    /// `n` sites called for the pair, not heterozygous.
-    fn add_called(&mut self, n: u64) {
-        self.binner.add_called(n);
-        self.het.called(n);
-        self.called += n;
-    }
-
-    fn finish(mut self) -> MhsSeq {
-        let (bins, callable) = self.binner.finish_with_callable();
-        MhsSeq {
-            name: self.name,
-            bins,
-            callable,
-            extent: self.prev_pos,
-            called: self.called,
-            n_het: self.n_het,
-            het_sites: self.het.take(),
-        }
-    }
 }
 
 fn check_options(opts: &MhsOptions) -> Result<()> {
@@ -312,7 +261,7 @@ pub(crate) fn read_mhs_seqs_from(
     path: &Path,
     opts: &MhsOptions,
     collect_het: bool,
-) -> Result<(Vec<MhsSeq>, MhsSummary), MhsReadError> {
+) -> Result<(Vec<BinnedSeq>, MhsSummary), MhsReadError> {
     let mut maybe_other_format = false;
     read_rows(reader, path, opts, collect_het, &mut maybe_other_format).map_err(|error| {
         MhsReadError {
@@ -330,14 +279,14 @@ fn read_rows(
     opts: &MhsOptions,
     collect_het: bool,
     maybe_other_format: &mut bool,
-) -> Result<(Vec<MhsSeq>, MhsSummary)> {
+) -> Result<(Vec<BinnedSeq>, MhsSummary)> {
     check_options(opts)?;
     let MhsOptions { bin_size, pair, .. } = *opts;
     let mut line = String::new();
     let mut row_no = 0usize;
     let mut summary = MhsSummary::default();
 
-    let mut seqs: Vec<MhsSeq> = Vec::new();
+    let mut seqs = Vec::new();
     let mut cur: Option<MhsChrom> = None;
     let mut finished = HashSet::<String>::new();
     let mut file_haps = None;
@@ -392,7 +341,7 @@ fn read_rows(
         if cur.as_ref().is_none_or(|c| c.name != chrom) {
             if let Some(done) = cur.take() {
                 finished.insert(done.name.clone());
-                seqs.push(done.finish());
+                seqs.push(done.seq.finish(done.name, done.prev_pos));
             }
             if finished.contains(chrom) {
                 bail!(
@@ -402,7 +351,11 @@ fn read_rows(
                      sort -k1,1 -k2,2n)"
                 );
             }
-            cur = Some(MhsChrom::new(chrom, bin_size, collect_het));
+            cur = Some(MhsChrom {
+                name: chrom.to_string(),
+                seq: SeqBuilder::new(bin_size, collect_het),
+                prev_pos: 0,
+            });
         }
         let c = cur.as_mut().expect("chromosome state was just set");
 
@@ -419,23 +372,20 @@ fn read_rows(
 
         // Of the `delta` sites up to and including this row, `called` are
         // callable; the uncalled ones go first (see the doc comment).
-        c.binner.add_missing(delta - called);
-        c.add_called(called - 1);
+        c.seq.missing(delta - called);
+        c.seq.called(called - 1);
         summary.uncalled_sites += delta - called;
         match call {
             PairCall::Het => {
-                c.binner.add_het();
-                c.het.het(pos, pair_alleles);
-                c.called += 1;
-                c.n_het += 1;
+                c.seq.het(pos, pair_alleles);
                 summary.het_rows += 1;
             }
             PairCall::Hom => {
-                c.add_called(1);
+                c.seq.called(1);
                 summary.hom_rows += 1;
             }
             PairCall::Missing => {
-                c.binner.add_missing(1);
+                c.seq.missing(1);
                 summary.missing_rows += 1;
             }
         }
@@ -449,7 +399,7 @@ fn read_rows(
         bail!("no valid mhs rows found in input");
     }
     if let Some(done) = cur.take() {
-        seqs.push(done.finish());
+        seqs.push(done.seq.finish(done.name, done.prev_pos));
     }
     summary.haplotypes = file_haps.map_or(0, |(n, _)| n);
     Ok((seqs, summary))

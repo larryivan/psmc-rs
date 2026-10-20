@@ -27,15 +27,15 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use crate::io::callable::join_counts;
-use crate::io::common::{HetCall, chunk_sequences, open_reader, reopen_reader};
+use crate::io::common::{BinnedSeq, HetCall, chunk_sequences, open_reader, reopen_reader};
 use crate::io::consensus::{
     ConsensusFilters, ConsensusOptions, ConsensusSeq, ConsensusSummary, DepthBounds,
     DepthThresholds, ensure_rereadable, info_has_fq, read_consensus_from, scan_depth_from,
 };
-use crate::io::mhs::{MhsOptions, MhsSeq, MhsSummary, read_mhs_seqs_from};
+use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
 use crate::io::psmcfa::{PsmcfaRecord, parse_psmcfa_with_stats};
 use crate::io::vcf::{
-    VcfOptions, VcfSeq, VcfSummary, gvcf_block_end_of, list_names, no_het_snp_message,
+    VcfOptions, VcfSummary, gvcf_block_end_of, list_names, no_het_snp_message,
     read_vcf_seqs_from,
 };
 use crate::io::{BinCounts, CallableBases, Observations, Sequences};
@@ -894,8 +894,8 @@ impl From<PsmcfaRecord> for RawSeq {
     }
 }
 
-impl From<MhsSeq> for RawSeq {
-    fn from(s: MhsSeq) -> Self {
+impl From<BinnedSeq> for RawSeq {
+    fn from(s: BinnedSeq) -> Self {
         Self {
             name: s.name,
             bins: s.bins,
@@ -917,20 +917,6 @@ impl From<ConsensusSeq> for RawSeq {
             extent: Some(s.bases),
             called: Some(s.good_bases),
             het: Some(s.het_bases),
-            het_sites: s.het_sites,
-        }
-    }
-}
-
-impl From<VcfSeq> for RawSeq {
-    fn from(s: VcfSeq) -> Self {
-        Self {
-            name: s.name,
-            bins: s.bins,
-            callable: s.callable,
-            extent: Some(s.extent),
-            called: Some(s.called),
-            het: Some(s.n_het),
             het_sites: s.het_sites,
         }
     }
