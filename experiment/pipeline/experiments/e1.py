@@ -60,12 +60,15 @@ log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap the window,
 the RMSE weighted by each interval's log-time width inside the window and
 the largest absolute value; ``max_abs_log10_ne_rs_vs_c_any_interval`` is the
 largest over every interval, also outside the window, where a first lambda
-the data barely constrain can run away (in expansion replicate 5 both
-tools' first lambda did: psmc-rs's stopped at its bound on every free
-lambda, 1e4, C psmc's reached about 1.1e6, so that this column gives the
-gap the bound sets).
-Sampling both step curves at fixed times would instead read whole steps
-wherever a time falls between two nearly equal boundaries.
+the data barely constrain can run away (in expansion replicate 5 psmc-rs's
+stopped at its bound on every free lambda, 1e4, C psmc's reached about
+1.1e6, so this column gives the gap the bound sets). Sampling both step
+curves at fixed times would instead read whole steps wherever a time falls
+between two nearly equal boundaries.
+
+The helpers of the tables that E2 shares (both tools on one input) are here
+too: :func:`read_fits`, :func:`compare_tools`, :func:`step_rows`,
+:func:`trace_rows` and :func:`run_fields`.
 """
 
 from __future__ import annotations
@@ -76,14 +79,13 @@ import math
 import statistics
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import config, demography, metrics, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
 
 NAME = "E1"
-TOOLS = ("c", "rs")
 TABLES = {
     "table1": "E1_table1.csv",
     "replicates": "E1_replicates.csv",
@@ -150,13 +152,11 @@ def default_inference(cfg: config.E1) -> Optional[config.Inference]:
 
 
 def jobs(ctx: Context) -> List[Job]:
-    cfg = ctx.profile.e1
-    costs = ctx.profile.costs
+    cfg, costs = ctx.profile.e1, ctx.profile.costs
     lay = Layout(ctx.exp_dir(NAME))
-    genome_mb = cfg.genome.length / 1e6
-    chrom_mb = cfg.genome.chromosome_length / 1e6
-    inference = asdict(cfg.inference)
-    scaling = asdict(cfg.scaling)
+    genome_mb, chrom_mb = cfg.genome.length / 1e6, cfg.genome.chromosome_length / 1e6
+    inference, scaling = asdict(cfg.inference), asdict(cfg.scaling)
+    default = default_inference(cfg)
     sim_tools = {
         "pipeline": provenance.python_identity(
             ["simulate.py", "demography.py"], ["msprime", "tskit", "numpy", "stdpopsim"]
@@ -164,106 +164,93 @@ def jobs(ctx: Context) -> List[Job]:
         "htslib": tools.htslib_versions(),
     }
     c_tool, rs_tool = ctx.c_psmc(), ctx.rs02()
+    rs_ident = {rs_tool.name: rs_tool.identity}
     out: List[Job] = []
-    for model in cfg.models:
-        for r in range(1, cfg.replicates + 1):
-            psmcfa = lay.psmcfa(model, r)
-            out.append(
-                Job(
-                    id=job_id("sim", model, r),
-                    command=ctx.pipeline_cmd(
-                        "simulate", "--profile", ctx.profile.name, "--experiment", NAME, "--model", model,
-                        "--replicate", str(r), "--out-dir", str(lay.sim_dir(model, r)), "--truth", str(lay.truth(model, r)),
-                    ),
-                    outputs=[psmcfa, lay.vcf(model, r), Path(f"{lay.vcf(model, r)}.tbi"), lay.truth(model, r)],
-                    mem_gb=costs.simulate_gb,
-                    est_seconds=costs.simulate_s_base + costs.simulate_s_per_mb * genome_mb,
-                    settings={
-                        "model": asdict(config.MODELS[model]),
-                        "genome": asdict(cfg.genome),
-                        "simulation": asdict(cfg.simulation),
-                    },
-                    tools=sim_tools,
-                    seeds={c: simulate.seeds_for(NAME, model, r, c) for c in cfg.genome.names()},
-                    description=f"simulate {model} replicate {r}",
-                )
-            )
-            out.append(
-                Job(
-                    id=job_id("fit-c", model, r),
-                    command=tools.c_psmc_fit(c_tool, cfg.inference, psmcfa, lay.c_psmc(model, r)),
-                    inputs=[psmcfa],
-                    outputs=[lay.c_psmc(model, r)],
-                    mem_gb=round(costs.c_psmc_gb_base + costs.c_psmc_gb_per_mb_longest * chrom_mb, 2),
-                    est_seconds=costs.c_psmc_s_per_mb_iter * genome_mb * cfg.inference.n_iter,
-                    settings={"inference": inference},
-                    tools={c_tool.name: c_tool.identity},
-                    description=f"C psmc on {model} replicate {r}",
-                )
-            )
-            out.append(
-                Job(
-                    id=job_id("fit-rs", model, r),
-                    command=tools.rs02_fit(
-                        rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.rs_json(model, r),
-                        threads=cfg.rs_threads, psmc_out=lay.rs_psmc(model, r),
-                    ),
-                    inputs=[psmcfa],
-                    outputs=[lay.rs_json(model, r), lay.rs_psmc(model, r)],
-                    cores=cfg.rs_threads,
-                    mem_gb=costs.rs02_gb,
-                    est_seconds=costs.rs02_seconds(genome_mb, cfg.inference, cfg.rs_threads),
-                    settings={"inference": inference, "scaling": scaling, "threads": cfg.rs_threads},
-                    tools={rs_tool.name: rs_tool.identity},
-                    description=f"psmc-rs 0.2 on {model} replicate {r}",
-                )
-            )
-            default = default_inference(cfg)
-            if default is not None:
-                out.append(
-                    Job(
-                        id=job_id("fit-rs-default", model, r),
-                        command=tools.rs02_fit(rs_tool, default, cfg.scaling, psmcfa, lay.rs_default_json(model, r),
-                                               threads=cfg.rs_threads),
-                        inputs=[psmcfa],
-                        outputs=[lay.rs_default_json(model, r)],
-                        cores=cfg.rs_threads,
-                        mem_gb=costs.rs02_gb,
-                        est_seconds=costs.rs02_seconds(genome_mb, default, cfg.rs_threads),
-                        settings={"inference": asdict(default), "scaling": scaling, "threads": cfg.rs_threads},
-                        tools={rs_tool.name: rs_tool.identity},
-                        description=f"psmc-rs 0.2, M-steps capped at {default.mstep_iters}, on {model} replicate {r}",
-                    )
-                )
     report_inputs: List[Path] = []
     for model in cfg.models:
         for r in range(1, cfg.replicates + 1):
+            psmcfa, vcf, truth = lay.psmcfa(model, r), lay.vcf(model, r), lay.truth(model, r)
+            out.append(Job(
+                id=job_id("sim", model, r),
+                command=ctx.pipeline_cmd(
+                    "simulate", "--profile", ctx.profile.name, "--experiment", NAME, "--model", model,
+                    "--replicate", str(r), "--out-dir", str(lay.sim_dir(model, r)), "--truth", str(truth),
+                ),
+                outputs=[psmcfa, vcf, Path(f"{vcf}.tbi"), truth],
+                mem_gb=costs.simulate_gb,
+                est_seconds=costs.simulate_s_base + costs.simulate_s_per_mb * genome_mb,
+                settings={
+                    "model": asdict(config.MODELS[model]),
+                    "genome": asdict(cfg.genome),
+                    "simulation": asdict(cfg.simulation),
+                },
+                tools=sim_tools,
+                seeds={c: simulate.seeds_for(NAME, model, r, c) for c in cfg.genome.names()},
+                description=f"simulate {model} replicate {r}",
+            ))
+            out.append(Job(
+                id=job_id("fit-c", model, r),
+                command=tools.c_psmc_fit(c_tool, cfg.inference, psmcfa, lay.c_psmc(model, r)),
+                inputs=[psmcfa],
+                outputs=[lay.c_psmc(model, r)],
+                mem_gb=round(costs.c_psmc_gb_base + costs.c_psmc_gb_per_mb_longest * chrom_mb, 2),
+                est_seconds=costs.c_psmc_s_per_mb_iter * genome_mb * cfg.inference.n_iter,
+                settings={"inference": inference},
+                tools={c_tool.name: c_tool.identity},
+                description=f"C psmc on {model} replicate {r}",
+            ))
+            out.append(Job(
+                id=job_id("fit-rs", model, r),
+                command=tools.rs02_fit(
+                    rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.rs_json(model, r),
+                    threads=cfg.rs_threads, psmc_out=lay.rs_psmc(model, r),
+                ),
+                inputs=[psmcfa],
+                outputs=[lay.rs_json(model, r), lay.rs_psmc(model, r)],
+                cores=cfg.rs_threads,
+                mem_gb=costs.rs02_gb,
+                est_seconds=costs.rs02_seconds(genome_mb, cfg.inference, cfg.rs_threads),
+                settings={"inference": inference, "scaling": scaling, "threads": cfg.rs_threads},
+                tools=rs_ident,
+                description=f"psmc-rs 0.2 on {model} replicate {r}",
+            ))
             report_inputs += [
-                lay.truth(model, r), lay.c_psmc(model, r), lay.rs_json(model, r), lay.rs_psmc(model, r),
+                truth, lay.c_psmc(model, r), lay.rs_json(model, r), lay.rs_psmc(model, r),
                 lay.record("fit-c", model, r), lay.record("fit-rs", model, r),
             ]
-            if default_inference(cfg) is not None:
+            if default is not None:
+                out.append(Job(
+                    id=job_id("fit-rs-default", model, r),
+                    command=tools.rs02_fit(rs_tool, default, cfg.scaling, psmcfa, lay.rs_default_json(model, r),
+                                           threads=cfg.rs_threads),
+                    inputs=[psmcfa],
+                    outputs=[lay.rs_default_json(model, r)],
+                    cores=cfg.rs_threads,
+                    mem_gb=costs.rs02_gb,
+                    est_seconds=costs.rs02_seconds(genome_mb, default, cfg.rs_threads),
+                    settings={"inference": asdict(default), "scaling": scaling, "threads": cfg.rs_threads},
+                    tools=rs_ident,
+                    description=f"psmc-rs 0.2, M-steps capped at {default.mstep_iters}, on {model} replicate {r}",
+                ))
                 report_inputs += [lay.rs_default_json(model, r), lay.record("fit-rs-default", model, r)]
-    out.append(
-        Job(
-            id=f"{NAME}/report",
-            command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
-            inputs=report_inputs,
-            outputs=[lay.table(k) for k in TABLES],
-            mem_gb=costs.report_gb,
-            est_seconds=costs.report_s,
-            settings={"e1": asdict(cfg)},
-            tools={"pipeline": provenance.python_identity(
-                ["experiments/e1.py", "results.py", "metrics.py", "demography.py"], ["numpy"]
-            )},
-            description="E1 tables",
-        )
-    )
+    out.append(Job(
+        id=f"{NAME}/report",
+        command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
+        inputs=report_inputs,
+        outputs=[lay.table(k) for k in TABLES],
+        mem_gb=costs.report_gb,
+        est_seconds=costs.report_s,
+        settings={"e1": asdict(cfg)},
+        tools={"pipeline": provenance.python_identity(
+            ["experiments/e1.py", "results.py", "metrics.py", "demography.py"], ["numpy"]
+        )},
+        description="E1 tables",
+    ))
     return out
 
 
 # ---------------------------------------------------------------------------
-# Tables
+# Tables (the helpers from write_csv to run_fields serve E2 and the others too)
 # ---------------------------------------------------------------------------
 
 
@@ -276,6 +263,7 @@ def _num(x) -> str:
 
 
 def write_csv(path: Path, rows: Sequence[Dict], fields: Optional[Sequence[str]] = None) -> None:
+    """Write ``rows`` atomically, with the columns ``fields`` (default: the first row's keys); None is empty."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = list(fields or (rows[0].keys() if rows else []))
     tmp = path.with_name(path.name + ".partial")
@@ -285,6 +273,87 @@ def write_csv(path: Path, rows: Sequence[Dict], fields: Optional[Sequence[str]] 
         for row in rows:
             w.writerow({k: _num(row.get(k)) for k in fields})
     tmp.replace(path)
+
+
+def read_fits(c_path: Path, rs_psmc: Path, rs_json: Path, n_iter: int) -> Tuple[results.PsmcFile, results.PsmcFile, Dict]:
+    """C psmc's ``.psmc``, psmc-rs's ``.psmc`` and its JSON, checked to be fits of ``n_iter`` iterations."""
+    c, rs, rs_params = results.parse_psmc(c_path), results.parse_psmc(rs_psmc), results.read_rs_json(rs_json)
+    if c.last().round != n_iter:
+        raise ValueError(f"{c_path}: last complete round {c.last().round}, expected {n_iter}")
+    if int(rs_params.get("n_iter", -1)) != n_iter or rs.last().round != n_iter:
+        raise ValueError(f"{rs_json}: not a fit of {n_iter} iterations")
+    return c, rs, rs_params
+
+
+def loglikes(c: results.PsmcFile, rs_params: Dict) -> Dict[str, Dict[int, float]]:
+    """``{tool: {iterations: log-likelihood}}``."""
+    return {"c": c.loglikes(), "rs": dict(enumerate(results.rs_loglikes(rs_params)))}
+
+
+def loglike_diffs(ll: Dict[str, Dict[int, float]], n_iter: int) -> Dict:
+    """psmc-rs's log-likelihoods against C psmc's: after ``n_iter - 1`` iterations, the largest relative, the first."""
+    common = sorted(i for i in set(ll["c"]) & set(ll["rs"]) if ll["c"][i])
+    rel = {i: abs(ll["rs"][i] - ll["c"][i]) / abs(ll["c"][i]) for i in common}
+    return {
+        "loglike_common_diff": ll["rs"][n_iter - 1] - ll["c"][n_iter - 1] if (n_iter - 1) in common else None,
+        "loglike_max_rel_diff": max(rel.values()) if rel else None,
+        "loglike_iteration0_rel_diff": rel.get(0),
+    }
+
+
+def compare_tools(fits: Dict[str, results.Fit], curves: Dict[str, results.Curve], window: Tuple[float, float],
+                  fixed: Tuple[float, float]) -> Dict:
+    """psmc-rs's fit against C psmc's: interval by interval on ``window`` and ``fixed`` (years), and the parameters."""
+    fc, fr = fits["c"], fits["rs"]
+    diff = metrics.interval_diff(curves["rs"], curves["c"], window)
+    return {
+        "window_lo_years": window[0],
+        "window_hi_years": window[1],
+        "intervals_in_window": len(diff.interval),
+        "rmse_log10_ne_rs_vs_c_per_interval": diff.rmse,
+        "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(curves["rs"], curves["c"], fixed),
+        "max_abs_log10_ne_rs_vs_c_per_interval": diff.max_abs,
+        "max_abs_log10_ne_rs_vs_c_any_interval": diff.max_abs_any,
+        "theta_rel_diff": fr.theta / fc.theta - 1.0,
+        "rho_rel_diff": fr.rho / fc.rho - 1.0,
+        "t_max_rel_diff": fr.t_max / fc.t_max - 1.0,
+    }
+
+
+def step_rows(fit: results.Fit, curve: results.Curve, **ids) -> List[Dict]:
+    """A fit's step curve, one row per interval (``ids`` first): its start in 2N0 units and in years, lambda and Ne."""
+    return [{**ids, "interval": k, "t_2n0": t, "years": y, "lambda": lam, "ne": ne}
+            for k, (t, y, lam, ne) in enumerate(zip(fit.boundaries(), curve.years, fit.lambdas, curve.ne))]
+
+
+def trace_rows(psmc: results.PsmcFile, ll: Dict[int, float], n_iter: int, **ids) -> List[Dict]:
+    """A fit's log-likelihood, theta, rho and t_max after 0 to ``n_iter`` EM iterations (empty where it has none)."""
+    by_round = {r.round: r for r in psmc.complete_rounds()}
+    rows = []
+    for i in range(n_iter + 1):
+        rd = by_round.get(i)
+        rows.append({**ids, "iteration": i, "loglike": ll.get(i), "theta": rd.theta if rd else None,
+                     "rho": rd.rho if rd else None, "t_max": rd.t_max if rd else None})
+    return rows
+
+
+def run_record(path: Path) -> Dict:
+    """How a job ran (its provenance record's ``run``); empty when there is no record."""
+    try:
+        return json.loads(Path(path).read_text()).get("run", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def run_fields(run: Dict) -> Dict:
+    """The columns of how a fit ran (recorded, not used for timing claims)."""
+    return {
+        "wall_seconds": run.get("wall_seconds"),
+        "peak_rss_mb": run.get("peak_rss_mb"),
+        "user_seconds": run.get("user_seconds"),
+        "loadavg_before_1m": (run.get("loadavg_before") or [None])[0],
+        "run_start": run.get("start"),
+    }
 
 
 @dataclass
@@ -308,14 +377,8 @@ class Replicate:
 def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default: bool = True) -> Replicate:
     """The fits of one genome, read back and checked; ``with_default``: also psmc-rs's capped M-step fit."""
     truth = json.loads(lay.truth(model, r).read_text())
-    c = results.parse_psmc(lay.c_psmc(model, r))
-    rs = results.parse_psmc(lay.rs_psmc(model, r))
-    rs_params = results.read_rs_json(lay.rs_json(model, r))
     n_iter = cfg.inference.n_iter
-    if c.last().round != n_iter:
-        raise ValueError(f"{lay.c_psmc(model, r)}: last complete round {c.last().round}, expected {n_iter}")
-    if int(rs_params.get("n_iter", -1)) != n_iter or rs.last().round != n_iter:
-        raise ValueError(f"{lay.rs_json(model, r)}: not a fit of {n_iter} iterations")
+    c, rs, rs_params = read_fits(lay.c_psmc(model, r), lay.rs_psmc(model, r), lay.rs_json(model, r), n_iter)
     het_bins = sum(ch["het_bins"] for ch in truth["chromosomes"])
     bins = sum(ch["bins"] for ch in truth["chromosomes"])
     inp = rs_params.get("input", {})
@@ -325,110 +388,52 @@ def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default
             f"(truth {bins} bins/{het_bins} het, C {c.header.get('sum_L')}/{c.header.get('sum_n')}, "
             f"psmc-rs {inp.get('bins')}/{inp.get('het_bins')})"
         )
+    sc, bin_size = cfg.scaling, cfg.inference.bin_size
     fits = {"c": c.last().fit(), "rs": results.fit_from_rs(rs_params)}
-    sc = cfg.scaling
-    curves = {k: f.curve(sc.mu, sc.gen_years, cfg.inference.bin_size) for k, f in fits.items()}
-    runs = {}
-    for tool, kind in (("c", "fit-c"), ("rs", "fit-rs"), ("rs-default", "fit-rs-default")):
-        try:
-            runs[tool] = json.loads(lay.record(kind, model, r).read_text()).get("run", {})
-        except (OSError, ValueError):
-            runs[tool] = {}
+    curves = {k: f.curve(sc.mu, sc.gen_years, bin_size) for k, f in fits.items()}
+    runs = {tool: run_record(lay.record(kind, model, r)) for tool, kind in (("c", "fit-c"), ("rs", "fit-rs"))}
     default_params = default_curve = None
     if with_default and default_inference(cfg) is not None:
         default_params = results.read_rs_json(lay.rs_default_json(model, r))
         if int(default_params.get("n_iter", -1)) != n_iter:
             raise ValueError(f"{lay.rs_default_json(model, r)}: not a fit of {n_iter} iterations")
-        default_curve = results.fit_from_rs(default_params).curve(sc.mu, sc.gen_years, cfg.inference.bin_size)
+        default_curve = results.fit_from_rs(default_params).curve(sc.mu, sc.gen_years, bin_size)
+        runs["rs-default"] = run_record(lay.record("fit-rs-default", model, r))
     return Replicate(
         model, r, truth, demography.epochs_from_record(truth["truth"]), c, rs_params, rs, fits, curves, runs,
         default_params, default_curve,
     )
 
 
-def loglikes(rp: Replicate) -> Dict[str, Dict[int, float]]:
-    """``{tool: {iterations: log-likelihood}}``."""
-    return {
-        "c": rp.c.loglikes(),
-        "rs": {i: v for i, v in enumerate(results.rs_loglikes(rp.rs_params))},
-    }
-
-
 def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, List[Dict]]:
-    g = cfg.scaling.gen_years
-    n = cfg.inference.n_iter
-    ll = loglikes(rp)
-    rows: Dict[str, List[Dict]] = {"replicates": [], "pairs": [], "traces": [], "curves": [], "mstep": []}
+    """One replicate's rows of E1_replicates, _rs_vs_c, _traces, _curves and _mstep."""
+    g, n = cfg.scaling.gen_years, cfg.inference.n_iter
     sc, bin_size = cfg.scaling, cfg.inference.bin_size
-    for tool in TOOLS:
-        fit, curve, run = rp.fits[tool], rp.curves[tool], rp.runs[tool]
+    ll = loglikes(rp.c, rp.rs_params)
+    ids = {"model": rp.model, "replicate": rp.replicate}
+    rows: Dict[str, List[Dict]] = {"replicates": [], "pairs": [], "traces": [], "curves": [], "mstep": []}
+    for tool, psmc in (("c", rp.c), ("rs", rp.rs)):
+        fit, curve = rp.fits[tool], rp.curves[tool]
         projected = metrics.projected_truth(fit, rp.epochs, sc.mu, g, bin_size)
-        rows["replicates"].append(
-            {
-                "model": rp.model,
-                "replicate": rp.replicate,
-                "tool": tool,
-                "theta": fit.theta,
-                "rho": fit.rho,
-                "t_max": fit.t_max,
-                "n0": fit.n0(cfg.scaling.mu, cfg.inference.bin_size),
-                "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, rp.epochs, window, g),
-                "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(curve, rp.epochs, fixed, g),
-                "rmse_log10_ne_vs_projected_truth": metrics.rmse_vs_projected_truth(curve, projected, window),
-                "rmse_log10_projected_truth_vs_truth": metrics.rmse_vs_truth(projected, rp.epochs, window, g),
-                "loglike_common": ll[tool].get(n - 1),
-                "loglike_final": ll[tool].get(n),
-                "wall_seconds": run.get("wall_seconds"),
-                "peak_rss_mb": run.get("peak_rss_mb"),
-                "user_seconds": run.get("user_seconds"),
-                "loadavg_before_1m": (run.get("loadavg_before") or [None])[0],
-                "run_start": run.get("start"),
-            }
-        )
-        boundaries = fit.boundaries()
-        for k, (t, y, lam, ne) in enumerate(zip(boundaries, curve.years, fit.lambdas, curve.ne)):
-            rows["curves"].append(
-                {"model": rp.model, "replicate": rp.replicate, "tool": tool, "interval": k,
-                 "t_2n0": t, "years": y, "lambda": lam, "ne": ne}
-            )
-    psmc_files = {"c": rp.c, "rs": rp.rs}
-    for tool in TOOLS:
-        by_round = {r.round: r for r in psmc_files[tool].complete_rounds()}
-        for i in range(0, n + 1):
-            rd = by_round.get(i)
-            rows["traces"].append(
-                {
-                    "model": rp.model, "replicate": rp.replicate, "tool": tool, "iteration": i,
-                    "loglike": ll[tool].get(i),
-                    "theta": rd.theta if rd else None, "rho": rd.rho if rd else None,
-                    "t_max": rd.t_max if rd else None,
-                }
-            )
-    common = sorted(i for i in set(ll["c"]) & set(ll["rs"]) if ll["c"][i])
-    rel = {i: abs(ll["rs"][i] - ll["c"][i]) / abs(ll["c"][i]) for i in common}
-    fc, fr = rp.fits["c"], rp.fits["rs"]
-    diff_w = metrics.interval_diff(rp.curves["rs"], rp.curves["c"], (window[0], window[-1]))
-    rows["pairs"].append(
-        {
-            "model": rp.model,
-            "replicate": rp.replicate,
-            "window_lo_years": float(window[0]),
-            "window_hi_years": float(window[-1]),
-            "intervals_in_window": len(diff_w.interval),
-            "rmse_log10_ne_rs_vs_c_per_interval": diff_w.rmse,
-            "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(
-                rp.curves["rs"], rp.curves["c"], (fixed[0], fixed[-1])
-            ),
-            "max_abs_log10_ne_rs_vs_c_per_interval": diff_w.max_abs,
-            "max_abs_log10_ne_rs_vs_c_any_interval": diff_w.max_abs_any,
-            "theta_rel_diff": fr.theta / fc.theta - 1.0,
-            "rho_rel_diff": fr.rho / fc.rho - 1.0,
-            "t_max_rel_diff": fr.t_max / fc.t_max - 1.0,
-            "loglike_common_diff": (ll["rs"].get(n - 1) - ll["c"].get(n - 1)) if (n - 1) in common else None,
-            "loglike_max_rel_diff": max(rel.values()) if rel else None,
-            "loglike_iteration0_rel_diff": rel.get(0),
-        }
-    )
+        rows["replicates"].append({
+            **ids,
+            "tool": tool,
+            "theta": fit.theta,
+            "rho": fit.rho,
+            "t_max": fit.t_max,
+            "n0": fit.n0(sc.mu, bin_size),
+            "rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, rp.epochs, window, g),
+            "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(curve, rp.epochs, fixed, g),
+            "rmse_log10_ne_vs_projected_truth": metrics.rmse_vs_projected_truth(curve, projected, window),
+            "rmse_log10_projected_truth_vs_truth": metrics.rmse_vs_truth(projected, rp.epochs, window, g),
+            "loglike_common": ll[tool].get(n - 1),
+            "loglike_final": ll[tool].get(n),
+            **run_fields(rp.runs[tool]),
+        })
+        rows["curves"] += step_rows(fit, curve, **ids, tool=tool)
+        rows["traces"] += trace_rows(psmc, ll[tool], n, **ids, tool=tool)
+    w = (float(window[0]), float(window[-1]))
+    rows["pairs"].append({**ids, **compare_tools(rp.fits, rp.curves, w, (fixed[0], fixed[-1])), **loglike_diffs(ll, n)})
     if rp.default_params is not None:
         rows["mstep"].append(mstep_row(rp, cfg, window))
     return rows
@@ -450,9 +455,7 @@ def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
     d, c, rs = rp.default_curve, rp.curves["c"], rp.curves["rs"]
     w = (window[0], window[-1])
     d_c = metrics.interval_diff(d, c, w)
-    fd = results.fit_from_rs(rp.default_params)
     ll_d, ll_rs = results.rs_loglikes(rp.default_params), results.rs_loglikes(rp.rs_params)
-    run_d, run_rs = rp.runs.get("rs-default", {}), rp.runs.get("rs", {})
     return {
         "model": rp.model,
         "replicate": rp.replicate,
@@ -464,33 +467,44 @@ def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
         "rmse_log10_ne_default_vs_rs_per_interval": metrics.interval_rmse(d, rs, w),
         "rmse_log10_ne_default_vs_truth": metrics.rmse_vs_truth(d, rp.epochs, window, g),
         "rmse_log10_ne_rs_vs_truth": metrics.rmse_vs_truth(rs, rp.epochs, window, g),
-        "theta_default_rel_c": fd.theta / rp.fits["c"].theta - 1.0,
+        "theta_default_rel_c": results.fit_from_rs(rp.default_params).theta / rp.fits["c"].theta - 1.0,
         "loglike_final_default": ll_d[-1] if ll_d else None,
         "loglike_final_rs": ll_rs[-1] if ll_rs else None,
-        "wall_seconds_default": run_d.get("wall_seconds"),
-        "wall_seconds_rs": run_rs.get("wall_seconds"),
+        "wall_seconds_default": rp.runs["rs-default"].get("wall_seconds"),
+        "wall_seconds_rs": rp.runs["rs"].get("wall_seconds"),
     }
 
 
-def _mean_sd(xs: Sequence[float]):
+def seed_rows(rp: Replicate) -> List[Dict]:
+    return [
+        {"model": rp.model, "replicate": rp.replicate, "chromosome": ch["name"],
+         "ancestry_seed": ch["seeds"]["ancestry"], "mutation_seed": ch["seeds"]["mutations"],
+         "het_sites": ch["het_sites"], "het_bins": ch["het_bins"], "trees": ch.get("trees"),
+         "longest_het_gap_bp": ch.get("longest_het_gap_bp"), "longest_het_gap_start": ch.get("longest_het_gap_start"),
+         "longest_hetfree_bins": ch.get("longest_hetfree_bins")}
+        for ch in rp.truth["chromosomes"]
+    ]
+
+
+def _mean_sd(xs: Sequence[Optional[float]]):
     xs = [x for x in xs if x is not None]
     if not xs:
         return None, None
     return statistics.fmean(xs), (statistics.stdev(xs) if len(xs) > 1 else 0.0)
 
 
-def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: Sequence[Dict] = ()) -> Dict:
+def _median(xs: Sequence[float]) -> Optional[float]:
+    return statistics.median(xs) if xs else None
+
+
+def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: Sequence[Dict]) -> Dict:
     def col(tool: str, key: str) -> List[float]:
         return [r[key] for r in reps if r["tool"] == tool]
 
-    c_mean, c_sd = _mean_sd(col("c", "rmse_log10_ne_vs_truth"))
-    r_mean, r_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_truth"))
-    median = lambda xs: statistics.median(xs) if xs else None  # noqa: E731
-    cf_mean, cf_sd = _mean_sd(col("c", "rmse_log10_ne_vs_truth_fixed"))
-    rf_mean, rf_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_truth_fixed"))
-    cp_mean, cp_sd = _mean_sd(col("c", "rmse_log10_ne_vs_projected_truth"))
-    rp_mean, rp_sd = _mean_sd(col("rs", "rmse_log10_ne_vs_projected_truth"))
-    pattern_mean, _ = _mean_sd(col("c", "rmse_log10_projected_truth_vs_truth"))
+    def mean_sd(prefix: str, key: str) -> Dict:
+        (c_mean, c_sd), (rs_mean, rs_sd) = _mean_sd(col("c", key)), _mean_sd(col("rs", key))
+        return {f"{prefix}_c_mean": c_mean, f"{prefix}_c_sd": c_sd, f"{prefix}_rs_mean": rs_mean, f"{prefix}_rs_sd": rs_sd}
+
     d = [p["rmse_log10_ne_rs_vs_c_per_interval"] for p in pairs]
     capped = [m["rmse_log10_ne_default_vs_c_per_interval"] for m in msteps]
     return {
@@ -498,23 +512,14 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
         "replicates": len(pairs),
         "window_lo_years": float(window[0]),
         "window_hi_years": float(window[-1]),
-        "rmse_truth_c_mean": c_mean,
-        "rmse_truth_c_sd": c_sd,
-        "rmse_truth_rs_mean": r_mean,
-        "rmse_truth_rs_sd": r_sd,
-        "rmse_truth_c_median": median(col("c", "rmse_log10_ne_vs_truth")),
-        "rmse_truth_rs_median": median(col("rs", "rmse_log10_ne_vs_truth")),
-        "rmse_truth_fixed_c_mean": cf_mean,
-        "rmse_truth_fixed_c_sd": cf_sd,
-        "rmse_truth_fixed_rs_mean": rf_mean,
-        "rmse_truth_fixed_rs_sd": rf_sd,
-        "rmse_projected_c_mean": cp_mean,
-        "rmse_projected_c_sd": cp_sd,
-        "rmse_projected_rs_mean": rp_mean,
-        "rmse_projected_rs_sd": rp_sd,
-        "rmse_pattern_vs_truth_mean": pattern_mean,
+        **mean_sd("rmse_truth", "rmse_log10_ne_vs_truth"),
+        "rmse_truth_c_median": _median(col("c", "rmse_log10_ne_vs_truth")),
+        "rmse_truth_rs_median": _median(col("rs", "rmse_log10_ne_vs_truth")),
+        **mean_sd("rmse_truth_fixed", "rmse_log10_ne_vs_truth_fixed"),
+        **mean_sd("rmse_projected", "rmse_log10_ne_vs_projected_truth"),
+        "rmse_pattern_vs_truth_mean": _mean_sd(col("c", "rmse_log10_projected_truth_vs_truth"))[0],
         "rmse_rs_vs_c_per_interval_mean": statistics.fmean(d) if d else None,
-        "rmse_rs_vs_c_per_interval_median": median(d),
+        "rmse_rs_vs_c_per_interval_median": _median(d),
         "rmse_rs_vs_c_per_interval_max": max(d) if d else None,
         "max_abs_rs_vs_c_per_interval": max((p["max_abs_log10_ne_rs_vs_c_per_interval"] for p in pairs), default=None),
         "max_abs_rs_vs_c_any_interval": max((p["max_abs_log10_ne_rs_vs_c_any_interval"] for p in pairs), default=None),
@@ -528,50 +533,33 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
 
 def report(ctx: Context) -> Dict[str, Path]:
     """Write every E1 table from the fits; returns the paths written."""
-    import numpy as np
-
     cfg = ctx.profile.e1
     lay = Layout(ctx.exp_dir(NAME))
     fixed = metrics.fixed_grid(cfg.grid)
-    all_rows: Dict[str, List[Dict]] = {k: [] for k in ("replicates", "pairs", "traces", "curves", "mstep")}
-    table1: List[Dict] = []
-    truth_rows: List[Dict] = []
-    seed_rows: List[Dict] = []
-    lo, hi, npts = config.TRUTH_TABLE_YEARS
-    dense = np.logspace(math.log10(lo), math.log10(hi), npts)
+    dense = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
     g = cfg.scaling.gen_years
+    tables: Dict[str, List[Dict]] = {k: [] for k in ("table1", "truth", "seeds", "replicates", "pairs", "traces",
+                                                     "curves", "mstep")}
     for model in cfg.models:
-        reps_rows: List[Dict] = []
-        pair_rows: List[Dict] = []
-        mstep_rows: List[Dict] = []
-        window = None
-        for r in range(1, cfg.replicates + 1):
-            rp = load_replicate(lay, cfg, model, r)
-            if window is None:
-                window = metrics.model_grid(rp.epochs, cfg.grid, g)
-                for t, ne in zip(dense, metrics.truth_on_grid(rp.epochs, dense, g)):
-                    truth_rows.append({"model": model, "years": float(t), "ne": float(ne)})
-            rows = replicate_rows(rp, cfg, window, fixed)
-            for k, v in rows.items():
-                all_rows[k].extend(v)
-            reps_rows += rows["replicates"]
-            pair_rows += rows["pairs"]
-            mstep_rows += rows["mstep"]
-            for ch in rp.truth["chromosomes"]:
-                seed_rows.append(
-                    {"model": model, "replicate": r, "chromosome": ch["name"],
-                     "ancestry_seed": ch["seeds"]["ancestry"], "mutation_seed": ch["seeds"]["mutations"],
-                     "het_sites": ch["het_sites"], "het_bins": ch["het_bins"], "trees": ch.get("trees"),
-                     "longest_het_gap_bp": ch.get("longest_het_gap_bp"),
-                     "longest_het_gap_start": ch.get("longest_het_gap_start"),
-                     "longest_hetfree_bins": ch.get("longest_hetfree_bins")}
-                )
-        table1.append(table1_row(model, window, reps_rows, pair_rows, mstep_rows))
-    written = {}
-    for key, rows in (("table1", table1), ("truth", truth_rows), ("seeds", seed_rows), *all_rows.items()):
+        reps = [load_replicate(lay, cfg, model, r) for r in range(1, cfg.replicates + 1)]
+        epochs = reps[0].epochs
+        window = metrics.model_grid(epochs, cfg.grid, g)
+        tables["truth"] += [{"model": model, "years": float(t), "ne": float(ne)}
+                            for t, ne in zip(dense, metrics.truth_on_grid(epochs, dense, g))]
+        rows: Dict[str, List[Dict]] = {k: [] for k in ("replicates", "pairs", "traces", "curves", "mstep")}
+        for rp in reps:
+            for k, v in replicate_rows(rp, cfg, window, fixed).items():
+                rows[k] += v
+            tables["seeds"] += seed_rows(rp)
+        tables["table1"].append(table1_row(model, window, rows["replicates"], rows["pairs"], rows["mstep"]))
+        for k, v in rows.items():
+            tables[k] += v
+    for key, rows in tables.items():
         write_csv(lay.table(key), rows, MSTEP_FIELDS if key == "mstep" else None)
-        written[key] = lay.table(key)
-    return written
+    return {key: lay.table(key) for key in tables}
 
 
-__all__ = ["Layout", "NAME", "TABLES", "jobs", "report"]
+__all__ = [
+    "Layout", "NAME", "TABLES", "compare_tools", "jobs", "load_replicate", "loglike_diffs", "loglikes", "read_fits",
+    "rep", "report", "run_fields", "run_record", "step_rows", "trace_rows", "write_csv",
+]
