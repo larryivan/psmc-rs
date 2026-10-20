@@ -120,7 +120,7 @@ manuscript places them at 100%, never scaled).
   step of it where the mark is below 4.3:1 on white), because there the
   colour is the key.
 
-  psmc-rs 0.1 (:data:`RS01`, :data:`AQUA`), band alpha
+  psmc-rs 0.1 (:data:`RS01`, :data:`AQUA`), :data:`YELLOW`, band alpha
   (:data:`BAND_ALPHA`) and outside-window shading (:func:`shade_outside`)
   serve the pipeline-only modules (fig1-fig4, figs2-figs6 and figs_turtle,
   which are not in the paper); no article figure uses them.
@@ -256,6 +256,10 @@ LETTER_TITLE_GAP_MM = 1.0  # least space between a letter and its panel's title
 NE_ASPECT = (1.3, 1.8)  # width : height of an N_e(t) panel
 SPAN_125 = 1.5  # decades below which a plain log axis is labelled at 1, 2 and 5
 
+# ---------------------------------------------------------------------------
+# Colour follows the entity
+# ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Entity:
@@ -273,27 +277,19 @@ class Entity:
 
     def line(self, **kw) -> Dict:
         """Keyword arguments of ``ax.plot`` for this entity's line (:data:`LW_DATA`)."""
-        out = {"color": self.color, "linestyle": self.linestyle, "linewidth": LW_DATA, "label": self.label}
-        out.update(kw)
-        return out
+        return {"color": self.color, "linestyle": self.linestyle, "linewidth": LW_DATA, "label": self.label, **kw}
 
     def points(self, **kw) -> Dict:
-        """Keyword arguments of ``ax.plot`` for this entity's markers alone (no edge when filled)."""
-        out = {
-            "color": self.color,
-            "linestyle": "none",
-            "marker": self.marker,
-            "markersize": MARKER_MS,
-            "markeredgewidth": 0.0 if self.filled else LW_THIN,
-            "markerfacecolor": self.color if self.filled else SURFACE,
-            "markeredgecolor": self.color,
-            "label": self.label,
-        }
-        out.update(kw)
-        return out
+        """Keyword arguments of ``ax.plot`` for this entity's markers alone."""
+        return {"color": self.color, "linestyle": "none", **self._marker(), "label": self.label, **kw}
+
+    def _marker(self) -> Dict:
+        """Its marker: filled without an edge, or open with a :data:`LW_THIN` edge."""
+        return {"marker": self.marker, "markersize": MARKER_MS, "markeredgewidth": 0.0 if self.filled else LW_THIN,
+                "markerfacecolor": self.color if self.filled else SURFACE, "markeredgecolor": self.color}
 
 
-# Palette (dataviz reference palette, light mode).
+# The dataviz reference palette, light mode.
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 BLUE_650 = "#104281"
 # Sequential blue (magnitude, e.g. counts of a 2-D histogram), steps 100-700 of the ramp.
@@ -380,10 +376,15 @@ def blue_cmap():
 # ---------------------------------------------------------------------------
 
 
-def _color_share(what: Union[Entity, str], share: Optional[float]) -> Tuple[str, float]:
+def _coinciding_kw(what: Union[Entity, str], share: Optional[float], linewidth: float, zorder: float,
+                   kw: Dict) -> Dict:
+    """``ax.plot`` arguments of one of two coinciding curves: solid, in ``what``'s colour (or its tint ``share``)."""
+    color = what.color if isinstance(what, Entity) else what
+    out = {"color": color if share is None else tint(color, share), "linewidth": linewidth, "linestyle": "-",
+           "solid_capstyle": "butt", "solid_joinstyle": "miter", "zorder": zorder}
     if isinstance(what, Entity):
-        return what.color, what.halo if share is None else share
-    return what, UNDERLAY_SHARE if share is None else share
+        out["label"] = what.label
+    return {**out, **kw}
 
 
 def underlay_kw(what: Union[Entity, str], share: Optional[float] = None, **kw) -> Dict:
@@ -392,46 +393,53 @@ def underlay_kw(what: Union[Entity, str], share: Optional[float] = None, **kw) -
     ``what`` is an entity (its ``halo`` share: :data:`C_HALO` for C psmc) or
     a colour (:data:`UNDERLAY_SHARE`); ``share`` overrides either.
     """
-    color, s = _color_share(what, share)
-    out = {"color": tint(color, s), "linewidth": UNDERLAY_LW, "linestyle": "-", "solid_capstyle": "butt",
-           "solid_joinstyle": "miter", "zorder": Z_UNDERLAY}
-    if isinstance(what, Entity):
-        out["label"] = what.label
-    out.update(kw)
-    return out
+    if share is None:
+        share = what.halo if isinstance(what, Entity) else UNDERLAY_SHARE
+    return _coinciding_kw(what, share, UNDERLAY_LW, Z_UNDERLAY, kw)
 
 
 def overlay_kw(what: Union[Entity, str], **kw) -> Dict:
     """``ax.plot`` arguments of the tested one of two coinciding curves: thin, saturated, on top."""
-    color = what.color if isinstance(what, Entity) else what
-    out = {"color": color, "linewidth": LW_DATA, "linestyle": "-", "solid_capstyle": "butt",
-           "solid_joinstyle": "miter", "zorder": Z_DATA}
-    if isinstance(what, Entity):
-        out["label"] = what.label
-    out.update(kw)
-    return out
+    return _coinciding_kw(what, None, LW_DATA, Z_DATA, kw)
 
 
 def truth_kw(**kw) -> Dict:
     """``ax.plot`` arguments of the truth: 0.75 pt ink, :data:`DASH`, on top of the fits."""
-    out = {"color": INK, "linewidth": LW_DATA, "linestyle": DASH, "dash_capstyle": "butt", "zorder": Z_TRUTH,
-           "label": TRUTH.label}
-    out.update(kw)
-    return out
+    return {"color": INK, "linewidth": LW_DATA, "linestyle": DASH, "dash_capstyle": "butt", "zorder": Z_TRUTH,
+            "label": TRUTH.label, **kw}
 
 
 def band_kw(color: str = BLUE, share: float = BAND_SHARE, **kw) -> Dict:
     """``fill_between`` arguments of an entity's band: an opaque tint (:data:`RS_BAND` for psmc-rs)."""
-    out = {"color": tint(color, share), "linewidth": 0.0, "zorder": Z_BAND}
-    out.update(kw)
-    return out
+    return {"color": tint(color, share), "linewidth": 0.0, "zorder": Z_BAND, **kw}
 
 
 def step_line(ax, years: Sequence[float], ne: Sequence[float], **kw):
     """Draw a PSMC step curve (every N_e(t) curve, summaries included)."""
-    style = {"drawstyle": "steps-post", "solid_capstyle": "butt", "solid_joinstyle": "miter"}
-    style.update(kw)
-    return ax.plot(years, ne, **style)
+    return ax.plot(years, ne, **{"drawstyle": "steps-post", "solid_capstyle": "butt", "solid_joinstyle": "miter", **kw})
+
+
+def step_xy(years: Sequence[float], ne: Sequence[float], xlim: Tuple[float, float]):
+    """Coordinates of a PSMC step curve for ``drawstyle='steps-post'`` within ``xlim``.
+
+    ``ne[k]`` holds from ``years[k]`` to ``years[k + 1]``; the first interval
+    starts at the left edge of the axis and the last one runs to its right
+    edge.
+    """
+    import numpy as np
+
+    years = np.asarray(years, dtype=float)
+    ne = np.asarray(ne, dtype=float)
+    lo, hi = xlim
+    starts = years.copy()
+    starts[0] = lo
+    keep = starts < hi
+    keep[0] = True
+    x = np.append(np.maximum(starts[keep], lo), hi)
+    y = np.append(ne[keep], ne[keep][-1])
+    # Intervals that end before the left edge collapse onto it; keep the last of them.
+    first = np.searchsorted(x, lo, side="right") - 1
+    return x[first:], y[first:]
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +452,8 @@ def rc_params() -> Dict:
     from cycler import cycler
 
     family = list(FONT_FAMILY)
+    ticks = {"labelsize": TICK_PT, "direction": "out", "color": AXIS, "labelcolor": INK, "major.width": LW_THIN,
+             "minor.width": LW_HAIR, "major.size": 2.0, "minor.size": 1.2, "major.pad": 1.5, "minor.pad": 1.5}
     return {
         "font.family": "sans-serif",
         "font.sans-serif": family,
@@ -456,8 +466,6 @@ def rc_params() -> Dict:
         "axes.titlepad": TITLE_RISE_MM * PT_PER_MM,
         "axes.titley": 1.0,  # the title's baseline stays TITLE_RISE_MM above the axes
         "legend.fontsize": TEXT_PT,
-        "xtick.labelsize": TICK_PT,
-        "ytick.labelsize": TICK_PT,
         "text.color": INK,
         "axes.labelcolor": INK,
         "axes.edgecolor": AXIS,
@@ -474,24 +482,7 @@ def rc_params() -> Dict:
         "grid.color": GRID,
         "grid.linewidth": LW_HAIR,
         "grid.linestyle": "-",
-        "xtick.direction": "out",
-        "ytick.direction": "out",
-        "xtick.color": AXIS,
-        "ytick.color": AXIS,
-        "xtick.labelcolor": INK,
-        "ytick.labelcolor": INK,
-        "xtick.major.width": LW_THIN,
-        "ytick.major.width": LW_THIN,
-        "xtick.minor.width": LW_HAIR,
-        "ytick.minor.width": LW_HAIR,
-        "xtick.major.size": 2.0,
-        "ytick.major.size": 2.0,
-        "xtick.minor.size": 1.2,
-        "ytick.minor.size": 1.2,
-        "xtick.major.pad": 1.5,
-        "ytick.major.pad": 1.5,
-        "xtick.minor.pad": 1.5,
-        "ytick.minor.pad": 1.5,
+        **{f"{xy}tick.{key}": value for xy in "xy" for key, value in ticks.items()},
         "axes.prop_cycle": cycler(color=[BLUE, ORANGE, BLUE_650, INK2]),  # an unstyled line is never off-palette
         "lines.linewidth": LW_DATA,
         "lines.markersize": MARKER_MS,
@@ -525,36 +516,26 @@ def rc_params() -> Dict:
 
 
 def apply() -> None:
-    """Use the Agg backend and this module's settings (idempotent)."""
+    """Use the Agg backend, this module's settings and its script size (idempotent).
+
+    mathtext reads its private ``SHRINK_FACTOR`` each time it sets a script;
+    the parses it has cached at another size are dropped.
+    """
     import matplotlib
 
     matplotlib.use("Agg", force=True)
+    import matplotlib._mathtext
+    import matplotlib.mathtext
     import matplotlib.pyplot as plt
 
     plt.rcdefaults()
     plt.rcParams.update(rc_params())
-    _set_math_shrink(MATH_SHRINK)
-
-
-def _set_math_shrink(factor: float) -> None:
-    """Set mathtext's superscript and subscript size to ``factor`` of their text.
-
-    mathtext reads the module constant each time it lays out a script; the
-    parses it has cached at another factor are dropped.
-    """
-    import matplotlib._mathtext as mt
-    import matplotlib.mathtext
-    import matplotlib.text
-
-    if not isinstance(getattr(mt, "SHRINK_FACTOR", None), float):
+    if not isinstance(getattr(matplotlib._mathtext, "SHRINK_FACTOR", None), float):
         raise RuntimeError("matplotlib._mathtext.SHRINK_FACTOR is gone: the figures' superscripts would be "
                            "below 5 pt (check the pinned matplotlib, experiment/pipeline/requirements.lock)")
-    if mt.SHRINK_FACTOR != factor:
-        mt.SHRINK_FACTOR = factor
+    if matplotlib._mathtext.SHRINK_FACTOR != MATH_SHRINK:
+        matplotlib._mathtext.SHRINK_FACTOR = MATH_SHRINK
         matplotlib.mathtext.MathTextParser._parse_cached.cache_clear()
-        cached = getattr(matplotlib.text, "_get_text_metrics_with_cache_impl", None)
-        if cached is not None:
-            cached.cache_clear()
 
 
 def figure(width: Union[str, float], height_mm: float):
@@ -570,40 +551,19 @@ def _fig_mm(fig) -> Tuple[float, float]:
     return fig.get_figwidth() / MM, fig.get_figheight() / MM
 
 
-def grid(
-    fig,
-    nrows: int,
-    ncols: int,
-    *,
-    left_mm: float = LEFT_MM,
-    right_mm: float = RIGHT_MM,
-    top_mm: float = TOP_MM,
-    bottom_mm: float = BOTTOM_MM,
-    wspace_mm: float = GUTTER_MM,
-    hspace_mm: float = ROW_GAP_MM,
-    width_ratios: Optional[Sequence[float]] = None,
-    height_ratios: Optional[Sequence[float]] = None,
-):
+def grid(fig, nrows: int, ncols: int, *, left_mm: float = LEFT_MM, right_mm: float = RIGHT_MM, top_mm: float = TOP_MM,
+         bottom_mm: float = BOTTOM_MM, wspace_mm: float = GUTTER_MM, hspace_mm: float = ROW_GAP_MM,
+         width_ratios: Optional[Sequence[float]] = None, height_ratios: Optional[Sequence[float]] = None):
     """A GridSpec whose margins and gaps are given in millimetres (the house layout by default)."""
     w_mm, h_mm = _fig_mm(fig)
-    plot_w = w_mm - left_mm - right_mm
-    plot_h = h_mm - top_mm - bottom_mm
-    wr = list(width_ratios or [1.0] * ncols)
-    hr = list(height_ratios or [1.0] * nrows)
-    mean_w = (plot_w - wspace_mm * (ncols - 1)) / ncols
-    mean_h = (plot_h - hspace_mm * (nrows - 1)) / nrows
-    return fig.add_gridspec(
-        nrows,
-        ncols,
-        left=left_mm / w_mm,
-        right=1.0 - right_mm / w_mm,
-        bottom=bottom_mm / h_mm,
-        top=1.0 - top_mm / h_mm,
-        wspace=wspace_mm / mean_w if ncols > 1 else 0.0,
-        hspace=hspace_mm / mean_h if nrows > 1 else 0.0,
-        width_ratios=wr,
-        height_ratios=hr,
-    )
+    # matplotlib takes the gaps as fractions of the mean panel's width and height.
+    mean_w = (w_mm - left_mm - right_mm - wspace_mm * (ncols - 1)) / ncols
+    mean_h = (h_mm - top_mm - bottom_mm - hspace_mm * (nrows - 1)) / nrows
+    return fig.add_gridspec(nrows, ncols, left=left_mm / w_mm, right=1.0 - right_mm / w_mm, bottom=bottom_mm / h_mm,
+                            top=1.0 - top_mm / h_mm, wspace=wspace_mm / mean_w if ncols > 1 else 0.0,
+                            hspace=hspace_mm / mean_h if nrows > 1 else 0.0,
+                            width_ratios=list(width_ratios or [1.0] * ncols),
+                            height_ratios=list(height_ratios or [1.0] * nrows))
 
 
 def axes_mm(fig, x: float, y: float, w: float, h: float):
@@ -615,9 +575,7 @@ def axes_mm(fig, x: float, y: float, w: float, h: float):
 def fig_text(fig, x_mm: float, y_mm: float, text: str, **kw):
     """Text at ``x_mm`` right of and ``y_mm`` down from the figure's top-left corner (7 pt ink by default)."""
     fw, fh = _fig_mm(fig)
-    opts = {"fontsize": TEXT_PT, "color": INK}
-    opts.update(kw)
-    return fig.text(x_mm / fw, 1.0 - y_mm / fh, text, **opts)
+    return fig.text(x_mm / fw, 1.0 - y_mm / fh, text, **{"fontsize": TEXT_PT, "color": INK, **kw})
 
 
 def ink_left_mm(ax, renderer) -> float:
@@ -668,7 +626,7 @@ def narrow_log_span(lo: float, hi: float) -> bool:
     return math.log10(hi / lo) < SPAN_125 or powers < 2
 
 
-def _log_ticks():
+def _log_locator():
     """A major locator of a plain-number log axis: decades, or 1, 2 and 5 where :func:`narrow_log_span`."""
     import numpy as np
     from matplotlib.ticker import LogLocator
@@ -700,7 +658,7 @@ def log_axis(ax, which: str = "x", grid: bool = False, *, fmt: str = "pow10",
         axis.set_major_locator(LogLocator(base=10.0, numticks=12))
         axis.set_major_formatter(LogFormatterMathtext(base=10.0))
     elif fmt in ("thousands", "plain"):
-        axis.set_major_locator(_log_ticks())
+        axis.set_major_locator(_log_locator())
         axis.set_major_formatter(thousands_formatter() if fmt == "thousands" else plain_formatter())
     else:
         raise ValueError(f"unknown log-axis format {fmt!r}")
@@ -793,9 +751,7 @@ def legend(ax_or_fig, handles: Sequence, labels: Optional[Sequence[str]] = None,
     """A frameless legend in 7 pt ink."""
     if labels is None:
         labels = [h.get_label() for h in handles]
-    opts = dict(LEGEND_KW)
-    opts.update(kw)
-    return ax_or_fig.legend(list(handles), list(labels), **opts)
+    return ax_or_fig.legend(list(handles), list(labels), **{**LEGEND_KW, **kw})
 
 
 def top_legend(fig, handles: Sequence, labels: Optional[Sequence[str]] = None, *, ax=None,
@@ -813,11 +769,10 @@ def top_legend(fig, handles: Sequence, labels: Optional[Sequence[str]] = None, *
         x = ref.get_position().x0
     else:
         x = x_mm / fw
-    opts = dict(LEGEND_KW)
-    opts.update(loc="upper left", bbox_to_anchor=(x, 1.0 - top_mm / fh), bbox_transform=fig.transFigure,
-                ncol=len(handles), borderaxespad=0.0, borderpad=0.0)
-    opts.update(kw)
-    return fig.legend(list(handles), list(labels), **opts)
+    return fig.legend(list(handles), list(labels),
+                      **{**LEGEND_KW, "loc": "upper left", "bbox_to_anchor": (x, 1.0 - top_mm / fh),
+                         "bbox_transform": fig.transFigure, "ncol": len(handles), "borderaxespad": 0.0,
+                         "borderpad": 0.0, **kw})
 
 
 def handle(entity: Entity, kind: str = "line", **kw):
@@ -828,18 +783,14 @@ def handle(entity: Entity, kind: str = "line", **kw):
         style = entity.line()
     elif kind == "points":
         style = entity.points()
+    elif kind == "both":
+        style = {**entity.line(), **entity._marker()}
     elif kind == "underlay":
         style = underlay_kw(entity)
-        style.pop("zorder")
-    elif kind == "both":
-        style = entity.line()
-        style.update(marker=entity.marker, markersize=MARKER_MS,
-                     markeredgewidth=0.0 if entity.filled else LW_THIN,
-                     markerfacecolor=entity.color if entity.filled else SURFACE, markeredgecolor=entity.color)
+        del style["zorder"]
     else:
         raise ValueError(f"unknown handle kind {kind!r}")
-    style.update(kw)
-    return Line2D([], [], **style)
+    return Line2D([], [], **{**style, **kw})
 
 
 # ---------------------------------------------------------------------------
@@ -853,17 +804,14 @@ def panel_title(ax, text: str, **kw):
     7 pt :data:`INK`, its baseline :data:`TITLE_RISE_MM` above the axes top
     (the same rise :func:`panel_letters` gives the letters).
     """
-    opts = {"loc": "left", "pad": TITLE_RISE_MM * PT_PER_MM, "y": 1.0, "fontsize": TEXT_PT, "color": INK,
-            "fontweight": "normal"}
-    opts.update(kw)
-    return ax.set_title(text, **opts)
+    return ax.set_title(text, **{"loc": "left", "pad": TITLE_RISE_MM * PT_PER_MM, "y": 1.0, "fontsize": TEXT_PT,
+                                 "color": INK, "fontweight": "normal", **kw})
 
 
 def panel_letter(fig, x_mm: float, baseline_mm: float, letter: str, **kw):
     """One panel letter placed by hand: 8 pt bold ink, its baseline ``baseline_mm`` below the figure's top."""
-    opts = {"fontsize": PANEL_PT, "fontweight": "bold", "color": INK, "ha": "left", "va": "baseline"}
-    opts.update(kw)
-    return fig_text(fig, x_mm, baseline_mm, letter, **opts)
+    return fig_text(fig, x_mm, baseline_mm, letter,
+                    **{"fontsize": PANEL_PT, "fontweight": "bold", "color": INK, "ha": "left", "va": "baseline", **kw})
 
 
 def panel_letters(fig, axes: Sequence, letters: Optional[Sequence[str]] = None, *, align_cols: bool = True) -> List:
@@ -977,26 +925,3 @@ def small_text(svg: Union[str, Path]) -> List[Tuple[float, str]]:
             if size < MIN_TEXT_PT - 1e-6:
                 out.append((size, text))
     return out
-
-
-def step_xy(years: Sequence[float], ne: Sequence[float], xlim: Tuple[float, float]):
-    """Coordinates of a PSMC step curve for ``drawstyle='steps-post'`` within ``xlim``.
-
-    ``ne[k]`` holds from ``years[k]`` to ``years[k + 1]``; the first interval
-    starts at the left edge of the axis and the last one runs to its right
-    edge.
-    """
-    import numpy as np
-
-    years = np.asarray(years, dtype=float)
-    ne = np.asarray(ne, dtype=float)
-    lo, hi = xlim
-    starts = years.copy()
-    starts[0] = lo
-    keep = starts < hi
-    keep[0] = True
-    x = np.append(np.maximum(starts[keep], lo), hi)
-    y = np.append(ne[keep], ne[keep][-1])
-    # Intervals that end before the left edge collapse onto it; keep the last of them.
-    first = np.searchsorted(x, lo, side="right") - 1
-    return x[first:], y[first:]
