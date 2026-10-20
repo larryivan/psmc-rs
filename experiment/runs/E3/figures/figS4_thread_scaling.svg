@@ -982,84 +982,28 @@ L 513.070866 56.069291
     <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="513.070866" y="62.929134" transform="rotate(-0 513.070866 62.929134)">1</text>
    </g>
    <g id="text_51">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="374.733565" y="75.401575" transform="rotate(-0 374.733565 75.401575)">psmc-rs 0.1 (1-30)</text>
+    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="374.733565" y="75.401575" transform="rotate(-0 374.733565 75.401575)">psmc-rs 0.2 (1-30)</text>
    </g>
    <g id="text_52">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="468.80293" y="75.401575" transform="rotate(-0 468.80293 75.401575)">60</text>
+    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="468.80293" y="75.401575" transform="rotate(-0 468.80293 75.401575)">75</text>
    </g>
    <g id="text_53">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="513.070866" y="75.401575" transform="rotate(-0 513.070866 75.401575)">1-2</text>
+    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="513.070866" y="75.401575" transform="rotate(-0 513.070866 75.401575)">1</text>
    </g>
    <g id="text_54">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="374.733565" y="87.874016" transform="rotate(-0 374.733565 87.874016)">psmc-rs 0.2 (1-30)</text>
-   </g>
-   <g id="text_55">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="468.80293" y="87.874016" transform="rotate(-0 468.80293 87.874016)">75</text>
-   </g>
-   <g id="text_56">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: end; fill: #1a1a1a" x="513.070866" y="87.874016" transform="rotate(-0 513.070866 87.874016)">1</text>
-   </g>
-   <g id="text_57">
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #595959" transform="translate(374.733565 103.8618)">1: all runs at a size wrote the same bytes</text>
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #595959" transform="translate(374.733565 110.372445)">2: psmc-rs 0.1 at 300 Mb and above:</text>
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #595959" transform="translate(374.733565 116.840433)">1 thread wrote different bytes from 8 and</text>
-    <!-- 30 threads (parameters within 2.5$\times$10$^{-5}$ -->
-    <g style="fill: #595959" transform="translate(374.733565 123.983422)">
-     <text>
-      <tspan x="0" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">3</tspan>
-      <tspan x="3.336914" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">0</tspan>
-      <tspan x="6.673828" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959"> </tspan>
-      <tspan x="8.34082" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">t</tspan>
-      <tspan x="10.007812" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">h</tspan>
-      <tspan x="13.344727" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">r</tspan>
-      <tspan x="15.342773" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">e</tspan>
-      <tspan x="18.679688" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">a</tspan>
-      <tspan x="22.016602" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">d</tspan>
-      <tspan x="25.353516" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">s</tspan>
-      <tspan x="28.353516" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959"> </tspan>
-      <tspan x="30.020508" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">(</tspan>
-      <tspan x="32.018555" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">p</tspan>
-      <tspan x="35.355469" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">a</tspan>
-      <tspan x="38.692383" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">r</tspan>
-      <tspan x="40.69043" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">a</tspan>
-      <tspan x="44.027344" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">m</tspan>
-      <tspan x="49.025391" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">e</tspan>
-      <tspan x="52.362305" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">t</tspan>
-      <tspan x="54.029297" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">e</tspan>
-      <tspan x="57.366211" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">r</tspan>
-      <tspan x="59.364258" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">s</tspan>
-      <tspan x="62.364258" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959"> </tspan>
-      <tspan x="64.03125" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">w</tspan>
-      <tspan x="68.364258" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">i</tspan>
-      <tspan x="69.697266" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">t</tspan>
-      <tspan x="71.364258" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">h</tspan>
-      <tspan x="74.701172" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">i</tspan>
-      <tspan x="76.03418" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">n</tspan>
-      <tspan x="79.371094" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959"> </tspan>
-      <tspan x="81.038086" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">2</tspan>
-      <tspan x="84.375" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">.</tspan>
-      <tspan x="86.041992" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">5</tspan>
-      <tspan x="89.378906" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">×</tspan>
-      <tspan x="92.882812" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">1</tspan>
-      <tspan x="96.219727" y="-0.266563" style="font-size: 6px; font-family: 'Arial'; fill: #595959">0</tspan>
-      <tspan x="99.621938" y="-2.443125" style="font-size: 5.04px; font-family: 'Arial'; fill: #595959">−</tspan>
-      <tspan x="102.565219" y="-2.443125" style="font-size: 5.04px; font-family: 'Arial'; fill: #595959">5</tspan>
-     </text>
-    </g>
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #595959" transform="translate(374.733565 129.79141)">relative); repeats at a thread count are</text>
-    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; fill: #595959" transform="translate(374.733565 136.826586)">identical</text>
+    <text style="font-size: 6px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #595959" x="374.733565" y="91.38936" transform="rotate(-0 374.733565 91.38936)">1: all runs at a size wrote the same bytes</text>
    </g>
   </g>
-  <g id="text_58">
+  <g id="text_55">
    <text style="font-weight: 700; font-size: 8px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="2.834646" y="21.259843" transform="rotate(-0 2.834646 21.259843)">a</text>
   </g>
-  <g id="text_59">
+  <g id="text_56">
    <text style="font-weight: 700; font-size: 8px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="130.815396" y="21.259843" transform="rotate(-0 130.815396 21.259843)">b</text>
   </g>
-  <g id="text_60">
+  <g id="text_57">
    <text style="font-weight: 700; font-size: 8px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="248.324379" y="21.259843" transform="rotate(-0 248.324379 21.259843)">c</text>
   </g>
-  <g id="text_61">
+  <g id="text_58">
    <text style="font-weight: 700; font-size: 8px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="374.733565" y="21.259843" transform="rotate(-0 374.733565 21.259843)">d</text>
   </g>
   <g id="legend_1">
@@ -1085,7 +1029,7 @@ z
      <use xlink:href="#m209d701d7d" x="239.340235" y="5.446191" style="fill: #2a78d6"/>
     </g>
    </g>
-   <g id="text_62">
+   <g id="text_59">
     <text style="font-size: 7px; font-family: 'Arial', 'Helvetica', 'DejaVu Sans', sans-serif; text-anchor: start; fill: #1a1a1a" x="249.140235" y="7.896191" transform="rotate(-0 249.140235 7.896191)">psmc-rs 0.2</text>
    </g>
   </g>
