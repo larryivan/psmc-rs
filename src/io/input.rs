@@ -263,13 +263,11 @@ fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
 /// at most [`MODE_DETECTION_RECORDS`] of them in [`MODE_DETECTION_BYTES`];
 /// the mode is left to [`choose_mode`].
 fn inspect_records(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
-    let (mut inspected, mut alt_dot, mut with_fq, mut records_with_fq) = (0u64, 0u64, 0u64, 0u64);
-    let mut gvcf_blocks = 0u64;
-    let mut span = 0u64;
+    let mut seen = VcfModeChoice::default();
     // The chromosome of the current block, and its lowest and highest POS.
     let mut block: Option<(Vec<u8>, u64, u64)> = None;
     let mut data_bytes = 0usize;
-    while inspected < MODE_DETECTION_RECORDS && data_bytes < MODE_DETECTION_BYTES {
+    while seen.inspected < MODE_DETECTION_RECORDS && data_bytes < MODE_DETECTION_BYTES {
         let Some(line) = input.next_line(path)? else {
             break;
         };
@@ -283,12 +281,12 @@ fn inspect_records(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         else {
             continue;
         };
-        inspected += 1;
+        seen.inspected += 1;
         let has_fq = info_has_fq(info);
-        records_with_fq += u64::from(has_fq);
+        seen.records_with_fq += u64::from(has_fq);
         if alt == b"." {
-            alt_dot += 1;
-            with_fq += u64::from(has_fq);
+            seen.alt_dot += 1;
+            seen.alt_dot_with_fq += u64::from(has_fq);
         }
         let Some(pos) = std::str::from_utf8(pos)
             .ok()
@@ -296,7 +294,7 @@ fn inspect_records(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
         else {
             continue;
         };
-        gvcf_blocks += u64::from(gvcf_block_end(pos, alt, info).is_some());
+        seen.gvcf_blocks += u64::from(gvcf_block_end(pos, alt, info).is_some());
         match &mut block {
             Some((c, lo, hi)) if c.as_slice() == chrom => {
                 *lo = (*lo).min(pos);
@@ -304,23 +302,15 @@ fn inspect_records(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
             }
             _ => {
                 if let Some((_, lo, hi)) = block.replace((chrom.to_vec(), pos, pos)) {
-                    span += hi - lo + 1;
+                    seen.span += hi - lo + 1;
                 }
             }
         }
     }
     if let Some((_, lo, hi)) = block {
-        span += hi - lo + 1;
+        seen.span += hi - lo + 1;
     }
-    Ok(VcfModeChoice {
-        inspected,
-        alt_dot,
-        alt_dot_with_fq: with_fq,
-        records_with_fq,
-        span,
-        gvcf_blocks,
-        ..VcfModeChoice::default()
-    })
+    Ok(seen)
 }
 
 /// The [`detect_vcf_mode`] rule applied to the counts of [`inspect_records`].
