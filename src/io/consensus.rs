@@ -545,6 +545,65 @@ fn split8(line: &[u8]) -> Option<[&[u8]; 8]> {
     Some(out)
 }
 
+/// A line of a VCF as vcf2fq reads it ([`Lines`]).
+enum Line<'a> {
+    /// A line starting with `#`.
+    Header(&'a [u8]),
+    /// The first eight fields of a data line ([`split8`]), and its number.
+    Record {
+        row_no: usize,
+        fields: [&'a [u8]; 8],
+    },
+}
+
+/// The lines of a VCF, read one at a time into one buffer.
+struct Lines<'p, R> {
+    reader: R,
+    /// Names the input in messages.
+    path: &'p Path,
+    line: Vec<u8>,
+    row_no: usize,
+}
+
+impl<'p, R: BufRead> Lines<'p, R> {
+    fn new(reader: R, path: &'p Path) -> Self {
+        Self {
+            reader,
+            path,
+            line: Vec::new(),
+            row_no: 0,
+        }
+    }
+
+    /// The next line that is not blank, or `None` at the end of the input.
+    /// A data line with fewer than 8 fields is an error.
+    fn next(&mut self) -> Result<Option<Line<'_>>> {
+        loop {
+            self.line.clear();
+            let path = self.path;
+            let n = self
+                .reader
+                .read_until(b'\n', &mut self.line)
+                .with_context(|| format!("failed to read VCF {path:?}"))?;
+            if n == 0 {
+                return Ok(None);
+            }
+            self.row_no += 1;
+            if !self.line.iter().all(|&b| is_perl_space(b)) {
+                break;
+            }
+        }
+        let row_no = self.row_no;
+        if self.line[0] == b'#' {
+            return Ok(Some(Line::Header(&self.line)));
+        }
+        match split8(&self.line) {
+            Some(fields) => Ok(Some(Line::Record { row_no, fields })),
+            None => bail!("invalid VCF row {row_no}: expected at least 8 fields"),
+        }
+    }
+}
+
 /// `$t[4] =~ /^([A-Za-z.])(,[A-Za-z])*$/`.
 fn alt_is_snp_or_ref(alt: &[u8]) -> bool {
     let Some((&first, rest)) = alt.split_first() else {
@@ -558,8 +617,12 @@ fn alt_is_snp_or_ref(alt: &[u8]) -> bool {
             .all(|&[comma, base]| comma == b',' && base.is_ascii_alphabetic())
 }
 
+fn is_digit(b: u8) -> bool {
+    b.is_ascii_digit()
+}
+
 fn is_num_char(b: u8) -> bool {
-    b.is_ascii_digit() || b == b'.'
+    is_digit(b) || b == b'.'
 }
 
 fn run_len(s: &[u8], ok: impl Fn(u8) -> bool) -> usize {
@@ -580,23 +643,17 @@ struct Info<'a> {
 
 fn scan_info(info: &[u8]) -> Info<'_> {
     let mut out = Info::default();
-    let n = info.len();
-    let mut i = 0;
-    while i + 3 <= n {
+    for i in 0..info.len().saturating_sub(2) {
         let rest = &info[i..];
+        // The value after a key of `key_len` bytes: its leading run of `ok`
+        // bytes, if not empty.
+        let value = |key_len: usize, ok: fn(u8) -> bool| {
+            let k = run_len(&rest[key_len..], ok);
+            (k > 0).then(|| &rest[key_len..key_len + k])
+        };
         match rest[0] {
-            b'D' if out.dp.is_none() && rest.starts_with(b"DP=") => {
-                let k = run_len(&rest[3..], |b| b.is_ascii_digit());
-                if k > 0 {
-                    out.dp = Some(&rest[3..3 + k]);
-                }
-            }
-            b'M' if out.mq.is_none() && rest.starts_with(b"MQ=") => {
-                let k = run_len(&rest[3..], |b| b.is_ascii_digit());
-                if k > 0 {
-                    out.mq = Some(&rest[3..3 + k]);
-                }
-            }
+            b'D' if out.dp.is_none() && rest.starts_with(b"DP=") => out.dp = value(3, is_digit),
+            b'M' if out.mq.is_none() && rest.starts_with(b"MQ=") => out.mq = value(3, is_digit),
             b'F' if out.fq.is_none() && rest.starts_with(b"FQ=") => {
                 let v = &rest[3..];
                 // `-?` takes a '-' when a number follows it. Otherwise there
@@ -608,15 +665,11 @@ fn scan_info(info: &[u8]) -> Info<'_> {
                 }
             }
             b'A' if out.af1.is_none() && rest.starts_with(b"AF1=") => {
-                let k = run_len(&rest[4..], is_num_char);
-                if k > 0 {
-                    out.af1 = Some(&rest[4..4 + k]);
-                }
+                out.af1 = value(4, is_num_char);
             }
             b'I' if !out.indel && rest.starts_with(b"INDEL") => out.indel = true,
             _ => {}
         }
-        i += 1;
     }
     out
 }
@@ -625,11 +678,11 @@ fn scan_info(info: &[u8]) -> Info<'_> {
 /// of the form `-?\d*(\.\d*)?`, or 0 when it has no digit.
 fn perl_num(s: &[u8]) -> f64 {
     let sign = usize::from(s.first() == Some(&b'-'));
-    let int = run_len(&s[sign..], |b| b.is_ascii_digit());
+    let int = run_len(&s[sign..], is_digit);
     let mut end = sign + int;
     let mut digits = int;
     if s.get(end) == Some(&b'.') {
-        let frac = run_len(&s[end + 1..], |b| b.is_ascii_digit());
+        let frac = run_len(&s[end + 1..], is_digit);
         end += 1 + frac;
         digits += frac;
     }
@@ -930,32 +983,15 @@ pub fn scan_depth(path: &Path) -> Result<DepthStats> {
 }
 
 /// [`scan_depth`] over an opened input; `path` names it in messages.
-pub(crate) fn scan_depth_from(mut reader: impl BufRead, path: &Path) -> Result<DepthStats> {
-    let mut line = Vec::new();
+pub(crate) fn scan_depth_from(reader: impl BufRead, path: &Path) -> Result<DepthStats> {
     let mut counter = DepthCounter::default();
-    let mut row_no = 0usize;
-    loop {
-        line.clear();
-        if reader
-            .read_until(b'\n', &mut line)
-            .with_context(|| format!("failed to read VCF {path:?}"))?
-            == 0
-        {
-            break;
-        }
-        row_no += 1;
-        if line.first() == Some(&b'#') {
-            continue;
-        }
-        let Some(f) = split8(&line) else {
-            if line.iter().all(|&b| is_perl_space(b)) {
-                continue;
+    let mut lines = Lines::new(reader, path);
+    while let Some(line) = lines.next()? {
+        if let Line::Record { fields: f, .. } = line {
+            let info = scan_info(f[7]);
+            if is_base_record(&f, &info) {
+                counter.add(info.dp.map(digits_u64));
             }
-            bail!("invalid VCF row {row_no}: expected at least 8 fields");
-        };
-        let info = scan_info(f[7]);
-        if is_base_record(&f, &info) {
-            counter.add(info.dp.map(digits_u64));
         }
     }
     Ok(counter.stats())
@@ -1040,7 +1076,7 @@ pub fn read_vcf_consensus(path: &Path, opts: &ConsensusOptions) -> Result<Consen
 /// chosen (`opts.filters.depth` is not used); `path` names the input in
 /// messages.
 pub(crate) fn read_consensus_from(
-    mut reader: impl BufRead,
+    reader: impl BufRead,
     path: &Path,
     opts: &ConsensusOptions,
     bounds: DepthBounds,
@@ -1068,35 +1104,22 @@ pub(crate) fn read_consensus_from(
     summary.masked = !opts.masks.is_empty() || !opts.negative_masks.is_empty();
     let l = filters.indel_window;
 
-    let mut line = Vec::new();
-    let mut row_no = 0usize;
     let mut depth = DepthCounter::default();
     let mut seen = HashSet::<Vec<u8>>::new();
     let mut repeated = HashSet::<Vec<u8>>::new();
     let mut seqs = Vec::new();
     let mut cur: Option<Chrom> = None;
 
-    loop {
-        line.clear();
-        if reader
-            .read_until(b'\n', &mut line)
-            .with_context(|| format!("failed to read VCF {path:?}"))?
-            == 0
-        {
-            break;
-        }
-        row_no += 1;
-        if line.first() == Some(&b'#') {
-            if line.starts_with(b"#CHROM") {
-                summary.samples = line.split(|&b| b == b'\t').count().saturating_sub(9);
-            }
-            continue;
-        }
-        let Some(f) = split8(&line) else {
-            if line.iter().all(|&b| is_perl_space(b)) {
+    let mut lines = Lines::new(reader, path);
+    while let Some(line) = lines.next()? {
+        let (row_no, f) = match line {
+            Line::Header(header) => {
+                if header.starts_with(b"#CHROM") {
+                    summary.samples = header.split(|&b| b == b'\t').count().saturating_sub(9);
+                }
                 continue;
             }
-            bail!("invalid VCF row {row_no}: expected at least 8 fields");
+            Line::Record { row_no, fields } => (row_no, fields),
         };
         summary.records += 1;
         let pos = parse_pos(f[1], row_no)?;
