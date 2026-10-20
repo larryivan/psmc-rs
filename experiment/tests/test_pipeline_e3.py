@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import csv
-import importlib.util
 import json
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,30 +11,18 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, provenance, results, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, e3  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import (C_REF, ROOT, assert_ignore_rules, c_ref_json, fake_ctx, fake_tools, in_git_work_tree,  # noqa: E402
+                      option, read_csv)
 
-C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
-FAKE_RS01 = tools.Tool("psmc-rs-0.1", Path("/x/psmc-rs-0.1"), {"version": "psmc-rs 0.1.0", "commit": "e" * 40})
-FAKE_RS02 = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-HAS_TOOLCHAIN = all(importlib.util.find_spec(m) is not None for m in ("msprime", "psutil", "numpy"))
-
-
-def read_csv(path: Path):
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
+from experiment.pipeline import config, provenance, runner  # noqa: E402
+from experiment.pipeline.experiments import Context, e3  # noqa: E402
 
 
-def fake_ctx(profile: config.Profile, runs: Path) -> Context:
-    return Context(profile, runs, _tools={"c": FAKE_C, "rs01": FAKE_RS01, "rs02": FAKE_RS02})
+def tool_command(job) -> list:
+    """The timed tool's own command: what follows ``--`` in the timing wrapper's."""
+    return job.command[job.command.index("--") + 1:]
 
 
 def setup_of(cfg, tool, size, threads):
@@ -100,9 +85,7 @@ class Plan(unittest.TestCase):
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
     def jobs(self, profile):
         return {j.id: j for j in e3.jobs(fake_ctx(profile, self.runs))}
@@ -125,30 +108,26 @@ class Jobs(unittest.TestCase):
 
     def test_commands_follow_the_recipe(self):
         jobs = self.jobs(config.PRODUCTION)
-        c = jobs["E3/run/c/300Mb/t1/rep1"].command
-        tool = c[c.index("--") + 1 :]
-        self.assertEqual(tool[:6], ["/x/psmc", "-N25", "-t15", "-r5", "-p", "4+25*2+4+6"])
-        self.assertIn("experiment.pipeline.experiments.e3_run", c)
+        c = jobs["E3/run/c/300Mb/t1/rep1"]
+        self.assertEqual(tool_command(c)[:6], ["/x/psmc", "-N25", "-t15", "-r5", "-p", "4+25*2+4+6"])
+        self.assertIn("experiment.pipeline.experiments.e3_run", c.command)
         rs01 = jobs["E3/run/rs01/1000Mb/t8/rep3"]
-        cmd = rs01.command[rs01.command.index("--") + 1 :]
+        cmd = tool_command(rs01)
         self.assertEqual(cmd[3], "25")
         self.assertNotIn("--tr-ratio", cmd)
         for opt, val in (("--pattern", "4+25*2+4+6"), ("--n-steps", "63"), ("--t-max", "15"),
                          ("--smooth-lambda", "0"), ("--mstep-iters", "1000"), ("--threads", "8")):
-            self.assertEqual(cmd[cmd.index(opt) + 1], val)
+            self.assertEqual(option(cmd, opt), val)
         self.assertEqual(rs01.env, {"RAYON_NUM_THREADS": "8"})
         self.assertEqual(rs01.cores, min(8, e3.machine_cores()))
         rs02 = jobs["E3/run/rs02/3000Mb/t2/rep1"]
-        cmd = rs02.command[rs02.command.index("--") + 1 :]
-        self.assertEqual(cmd[cmd.index("--tr-ratio") + 1], "5")
-        self.assertEqual(cmd[cmd.index("--threads") + 1], "2")
+        cmd = tool_command(rs02)
+        self.assertEqual([option(cmd, o) for o in ("--tr-ratio", "--threads", "--mstep-iters")], ["5", "2", "1000"])
         self.assertEqual(rs02.settings["repeat"], 1)
         self.assertEqual(set(rs02.tools), {"psmc-rs-0.2", "timing"})
-        self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "1000")
         capped = replace(config.PRODUCTION, e3=replace(config.PRODUCTION.e3, default_mstep_iters=5))
         default = self.jobs(capped)["E3/run/rs02-default/3000Mb/t8/rep1"]
-        cmd = default.command[default.command.index("--") + 1 :]
-        self.assertEqual(cmd[cmd.index("--mstep-iters") + 1], "5")
+        self.assertEqual(option(tool_command(default), "--mstep-iters"), "5")
         self.assertEqual(default.settings["inference"]["mstep_iters"], 5)
 
     def test_timing_jobs_get_their_threads_as_cores_up_to_the_machine(self):
@@ -160,11 +139,9 @@ class Jobs(unittest.TestCase):
                 jobs = self.jobs(config.PRODUCTION)
                 big = jobs["E3/run/rs02/3000Mb/t30/rep5"]
                 self.assertEqual(big.cores, min(30, machine))  # not capped at the laptop's budget of 7
-                cmd = big.command[big.command.index("--") + 1 :]
-                self.assertEqual((cmd[cmd.index("--threads") + 1], big.env), ("30", {"RAYON_NUM_THREADS": "30"}))
+                self.assertEqual((option(tool_command(big), "--threads"), big.env), ("30", {"RAYON_NUM_THREADS": "30"}))
                 # measure is told the threads, and refuses to time 30 threads on fewer cores
-                wrapper = big.command[: big.command.index("--")]
-                self.assertEqual(wrapper[wrapper.index("--threads") + 1], "30")
+                self.assertEqual(option(big.command[: big.command.index("--")], "--threads"), "30")
                 # The runs are exclusive: the default budget's 7 cores start them all. Its 12 GB do not
                 # start psmc-rs 0.1 on 30 threads (14.6 GB); E3 is started with --mem-gb 15.
                 runs = [j for j in jobs.values() if j.exclusive]
@@ -191,8 +168,7 @@ class Jobs(unittest.TestCase):
         self.assertIn("--size-mb", sim.command)
 
     def test_missing_rs01_build_does_not_stop_planning(self):
-        ctx = Context(config.SMOKE, self.runs, _tools={"c": FAKE_C, "rs02": FAKE_RS02})
-        tool = e3.rs01_tool(ctx)
+        tool = e3.rs01_tool(fake_ctx(config.SMOKE, self.runs, "c", "rs02"))
         self.assertEqual(tool.name, "psmc-rs-0.1")
 
 
@@ -200,15 +176,11 @@ class Report(unittest.TestCase):
     """The tables from stand-in runs: C psmc's reference output, and psmc-rs JSON made from it."""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
-        cfg = replace(config.TINY.e3, inference=replace(config.TINY.e3.inference, n_iter=5), repeats=2)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        cfg = self.cfg = replace(config.TINY.e3, inference=replace(config.TINY.e3.inference, n_iter=5), repeats=2)
         self.profile = replace(config.TINY, e3=cfg)
-        self.cfg = cfg
         lay = self.lay = e3.Layout(self.runs / "E3")
-        ref = results.parse_psmc(C_REF)
-        last = ref.last()
+        tools = fake_tools()
         truth = {"chromosomes": [
             {"name": "chr1", "bins": 100000, "het_bins": 5000, "het_sites": 5100, "seeds": {"ancestry": 1, "mutations": 2}},
             {"name": "chr2", "bins": 50947, "het_bins": 2373, "het_sites": 2400, "seeds": {"ancestry": 3, "mutations": 4}},
@@ -224,9 +196,7 @@ class Report(unittest.TestCase):
                 shutil.copy(C_REF, fit)
             else:
                 # psmc-rs 0.1 on 2 threads would differ; here rs02 on 2 threads repeat 2 does
-                scale = 1.001 if (u.tool == "rs02" and u.threads == 2 and run.repeat == 2) else 1.0
-                params = {"theta": last.pa["theta"], "rho": last.pa["rho"], "t_max": last.pa["t_max"], "n_steps": 63,
-                          "pattern": "4+25*2+4+6", "lam": [x * scale for x in last.pa["lambdas"]]}
+                params = c_ref_json(1.001 if (u.tool == "rs02" and u.threads == 2 and run.repeat == 2) else 1.0)
                 if u.tool in ("rs02", "rs02-default"):
                     params.update(n_iter=5, final_loglike=-25000.0, input={"bins": 150947, "het_bins": 7373})
                 fit.write_text(json.dumps(params))
@@ -242,9 +212,21 @@ class Report(unittest.TestCase):
             lay.timing(run).parent.mkdir(parents=True, exist_ok=True)
             lay.timing(run).write_text(json.dumps(timing))
             lay.record(run).parent.mkdir(parents=True, exist_ok=True)
-            tool = {"c": FAKE_C, "rs01": FAKE_RS01, "rs02": FAKE_RS02, "rs02-default": FAKE_RS02}[u.tool]
+            tool = tools["rs02" if u.tool == "rs02-default" else u.tool]
             lay.record(run).write_text(json.dumps({"key": {"tools": {tool.name: tool.identity}}}))
-        self.written = e3.report(Context(self.profile, self.runs))
+        self.written = self.report()
+
+    def report(self, **kw):
+        return e3.report(Context(self.profile, self.runs, **kw))
+
+    def timing(self, run) -> dict:
+        return json.loads(self.lay.timing(run).read_text())
+
+    def set_timing(self, run, timing: dict) -> None:
+        self.lay.timing(run).write_text(json.dumps(timing))
+
+    def environment(self) -> dict:
+        return {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
 
     def test_every_table_is_written(self):
         self.assertEqual(set(self.written), set(e3.TABLES))
@@ -290,35 +272,35 @@ class Report(unittest.TestCase):
         self.assertTrue(all(r["byte_identical"] == "True" for r in c))
 
     def test_environment(self):
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        env = self.environment()
         self.assertEqual((env["machine.cpu"], env["machine.cpu_count"]), ("Test CPU", "8"))
         self.assertEqual(env["tool.rs01.commit"], "e" * 40)
         self.assertEqual((env["runs_not_quiet"], env["runs_not_clean"]), ("0", "0"))
 
     def test_environment_lists_every_host_of_merged_shards(self):
         for run in e3.runs(self.cfg):
-            timing = json.loads(self.lay.timing(run).read_text())
+            timing = self.timing(run)
             timing["machine"]["hostname"] = f"cn{run.repeat}"  # repeat 2 ran on another node
-            self.lay.timing(run).write_text(json.dumps(timing))
-        e3.report(Context(self.profile, self.runs))
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+            self.set_timing(run, timing)
+        self.report()
+        env = self.environment()
         self.assertEqual((env["machine.hostname"], env["machine.cpu"]), ("cn1;cn2", "Test CPU"))
 
     def test_runs_on_two_kinds_of_cpu_are_flagged(self):
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        env = self.environment()
         self.assertEqual((env["clean_runs_on_mixed_machines"], env["clean_runs_machines"]),
                          ("False", "Test CPU (governor ?, boost ?)"))
         for run in e3.runs(self.cfg):
-            timing = json.loads(self.lay.timing(run).read_text())
+            timing = self.timing(run)
             rome = {"cpu": "AMD EPYC 7702 64-Core Processor", "cpu_governor": "performance", "cpu_boost": "1",
                     "cpus_allowed": 8, "hostname": "cn509-02-l", "slurm_job_id": "41000001"}
             turin = {**rome, "cpu": "AMD EPYC 9655 96-Core Processor", "hostname": "cn610-11-l",
                      "slurm_job_id": "41000002"}
             timing["machine"] = turin if run.repeat == 2 else rome  # repeat 2 ran on another kind of node
-            self.lay.timing(run).write_text(json.dumps(timing))
+            self.set_timing(run, timing)
         logged = []
-        e3.report(Context(self.profile, self.runs, log=logged.append))
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        self.report(log=logged.append)
+        env = self.environment()
         self.assertEqual(env["clean_runs_on_mixed_machines"], "True")
         self.assertEqual(env["clean_runs_machines"],
                          "AMD EPYC 7702 64-Core Processor (governor performance, boost 1);"
@@ -332,11 +314,11 @@ class Report(unittest.TestCase):
         # Only clean runs count: with repeat 2 not clean, the medians are of one kind of machine.
         for run in e3.runs(self.cfg):
             if run.repeat == 2:
-                timing = json.loads(self.lay.timing(run).read_text())
+                timing = self.timing(run)
                 timing["machine_before"]["quiet"] = False
-                self.lay.timing(run).write_text(json.dumps(timing))
-        e3.report(Context(self.profile, self.runs, log=logged.append))
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+                self.set_timing(run, timing)
+        self.report(log=logged.append)
+        env = self.environment()
         self.assertEqual(env["clean_runs_on_mixed_machines"], "False")
 
     def test_environment_says_how_c_psmc_was_built(self):
@@ -344,22 +326,22 @@ class Report(unittest.TestCase):
                  "cflags": "-g -Wall -O2 -Wno-unused-function", "ldflags": "", "libs": "-lm -lz",
                  "platform": "Linux-5.14.0-x86_64-with-glibc2.34", "built": "2026-10-06T12:00:00"}
         with mock.patch.object(e3.tools, "read_c_build", return_value=build):
-            e3.report(Context(self.profile, self.runs))
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+            self.report()
+        env = self.environment()
         self.assertIn("'-g -Wall -O2 -Wno-unused-function'", env["tool.c.build"])
         self.assertNotIn("-O1", env["tool.c.build"])
         self.assertEqual(env["cc"], build["compiler_version"])  # BUILD.json's, not today's cc
         self.assertEqual(env["tool.c.build_platform"], build["platform"])
         with mock.patch.object(e3.tools, "read_c_build", return_value=None), \
                 mock.patch.object(e3, "c_compiler", return_value="Apple clang version 17.0.0"):
-            e3.report(Context(self.profile, self.runs))
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+            self.report()
+        env = self.environment()
         self.assertEqual((env["tool.c.build"], env["cc"]), (e3.C_PSMC_BUILD, "Apple clang version 17.0.0"))
         self.assertNotIn("tool.c.build_platform", env)
 
     def test_a_run_with_other_work_beside_it_stays_out_of_the_medians(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "c" and r.repeat == 2)
-        timing = json.loads(self.lay.timing(run).read_text())
+        timing = self.timing(run)
         protocol = config.TimingProtocol()
         self.assertTrue(e3.is_clean(timing, protocol))
         # 1% of 192 cores is 1.9 cores of other work: within the share, not within the cores.
@@ -375,7 +357,7 @@ class Report(unittest.TestCase):
 
     def test_a_run_is_judged_by_its_own_measure_of_other_work(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02" and r.repeat == 1)
-        timing = json.loads(self.lay.timing(run).read_text())
+        timing = self.timing(run)
         protocol = config.TimingProtocol()
         # timing/3: the machine's busy CPU but the tool's, interrupts included (a 30-thread run on Ibex)
         timing["during"] = {"other_cpu_share": 0.0044, "other_cores": 0.56, "other_cpu_seconds": 56.0}
@@ -398,8 +380,8 @@ class Report(unittest.TestCase):
                     "other_process_cpu_share": None, "processes_unreadable": 155}
         self.assertFalse(e3.is_clean({**timing, "during": fallback}, protocol))
         self.assertTrue(e3.is_clean({**timing, "during": {**fallback, "other_cores": 0.4}}, protocol))
-        self.lay.timing(run).write_text(json.dumps(timing))
-        e3.report(Context(self.profile, self.runs))
+        self.set_timing(run, timing)
+        self.report()
         row = next(r for r in read_csv(self.lay.table("runs"))
                    if (r["tool"], r["threads"], r["repeat"]) == ("rs02", str(run.setup.threads), "1"))
         self.assertEqual((row["clean"], row["other_method"]), ("True", "processes"))
@@ -408,7 +390,7 @@ class Report(unittest.TestCase):
         self.assertEqual((row["process_cores_before"], row["other_processes_exited"]), ("0.2", "2"))
         old = next(r for r in read_csv(self.lay.table("runs")) if r["tool"] == "c")
         self.assertEqual((old["other_method"], old["kernel_thread_cores_during"]), ("machine", ""))
-        env = {r["key"]: r["value"] for r in read_csv(self.lay.table("environment"))}
+        env = self.environment()
         self.assertEqual(env["other_methods"], "machine;processes")
         # other_cores_during is a different quantity by method: summarised apart
         self.assertEqual(env["cores.other_cores_during.processes"], "median 0.200, max 0.200 over 1 runs")
@@ -421,15 +403,15 @@ class Report(unittest.TestCase):
 
     def test_a_run_with_more_threads_than_usable_cpus_is_not_clean(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02" and r.setup.threads == 2)
-        timing = json.loads(self.lay.timing(run).read_text())
+        timing = self.timing(run)
         protocol = config.TimingProtocol()
         self.assertTrue(e3.is_clean(timing, protocol))
         self.assertTrue(e3.is_clean({**timing, "threads": 30, "cpus_usable": 30}, protocol))
         self.assertFalse(e3.is_clean({**timing, "threads": 30, "cpus_usable": 16}, protocol))
         # a record without cpus_usable: the cpus_allowed of a Linux machine
         self.assertFalse(e3.is_clean({**timing, "threads": 30, "machine": {"cpus_allowed": 16}}, protocol))
-        self.lay.timing(run).write_text(json.dumps({**timing, "threads": 30, "cpus_usable": 16}))
-        e3.report(Context(self.profile, self.runs))
+        self.set_timing(run, {**timing, "threads": 30, "cpus_usable": 16})
+        self.report()
         row = next(r for r in read_csv(self.lay.table("runs"))
                    if (r["tool"], r["threads"], r["repeat"]) == ("rs02", "2", str(run.repeat)))
         self.assertEqual((row["clean"], row["cpus_usable"]), ("False", "16"))
@@ -440,14 +422,14 @@ class Report(unittest.TestCase):
         params["input"]["bins"] += 1
         self.lay.fit(run).write_text(json.dumps(params))
         with self.assertRaises(ValueError):
-            e3.report(Context(self.profile, self.runs))
+            self.report()
 
     def test_a_run_on_a_busy_machine_stays_out_of_the_medians(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "c" and r.repeat == 2)
-        timing = json.loads(self.lay.timing(run).read_text())
+        timing = self.timing(run)
         timing["machine_before"]["quiet"] = False
-        self.lay.timing(run).write_text(json.dumps(timing))
-        e3.report(Context(self.profile, self.runs))
+        self.set_timing(run, timing)
+        self.report()
         c = next(r for r in read_csv(self.lay.table("table2")) if r["tool"] == "c")
         self.assertEqual((c["status"], c["repeats"], c["repeats_measured"]), ("incomplete", "1", "2"))
         self.assertAlmostEqual(float(c["wall_median_s"]), 10.1)  # repeat 1 only
@@ -455,7 +437,7 @@ class Report(unittest.TestCase):
         self.assertEqual(sorted(r["clean"] for r in runs), ["False", "True"])
 
     def test_timing_runs_are_ranked_by_repeat(self):
-        jobs = e3.jobs(Context(self.profile, self.runs, _tools={"c": FAKE_C, "rs01": FAKE_RS01, "rs02": FAKE_RS02}))
+        jobs = e3.jobs(fake_ctx(self.profile, self.runs))
         runs = [j for j in jobs if j.exclusive]
         self.assertTrue(runs)
         self.assertTrue(all(j.rank == int(j.id.rsplit("rep", 1)[1]) for j in runs))
@@ -463,22 +445,10 @@ class Report(unittest.TestCase):
     def test_partial_results_are_reported_as_incomplete(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs01")
         self.lay.timing(run).unlink()
-        e3.report(Context(self.profile, self.runs))
+        self.report()
         row = next(r for r in read_csv(self.lay.table("table2")) if r["tool"] == "rs01")
         self.assertEqual(row["status"], "incomplete")
         self.assertEqual(row["repeats"], "1")
-
-
-def in_git_work_tree() -> bool:
-    if shutil.which("git") is None:
-        return False
-    res = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
-    return res.returncode == 0 and res.stdout.strip() == "true"
-
-
-def ignored(path: Path) -> bool:
-    rel = path.relative_to(ROOT).as_posix()
-    return subprocess.run(["git", "check-ignore", "-q", "--no-index", rel], cwd=ROOT).returncode == 0
 
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
@@ -489,11 +459,10 @@ class RunsLayout(unittest.TestCase):
         lay = e3.Layout(ROOT / "experiment" / "runs" / "E3")
         c = e3.Run(e3.Setup("c", 3000, 1), 3)
         rs = e3.Run(e3.Setup("rs02", 3000, 8), 1)
-        for p in (lay.fit(c), lay.fit(rs), lay.timing(rs), lay.record(rs), lay.truth(3000), lay.table("table2"),
-                  lay.root / "provenance" / "sim" / "3000Mb.json"):
-            self.assertFalse(ignored(p), p)
-        for p in (lay.psmcfa(3000), lay.fit(rs).with_suffix(".html"), lay.root / "logs" / "attempts.jsonl"):
-            self.assertTrue(ignored(p), p)
+        assert_ignore_rules(self, kept=(lay.fit(c), lay.fit(rs), lay.timing(rs), lay.record(rs), lay.truth(3000),
+                                        lay.table("table2"), lay.root / "provenance" / "sim" / "3000Mb.json"),
+                            ignored=(lay.psmcfa(3000), lay.fit(rs).with_suffix(".html"),
+                                     lay.root / "logs" / "attempts.jsonl"))
 
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
