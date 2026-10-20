@@ -3,28 +3,30 @@
 from __future__ import annotations
 
 import csv
-import importlib.util
 import math
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import ROOT, has_modules  # noqa: E402
 
 from experiment.pipeline import config, demography  # noqa: E402
+from experiment.pipeline.figures.schemas import SCHEMAS  # noqa: E402
 from experiment.pipeline.results import Curve  # noqa: E402
 
-HAS_PLOTTING = all(importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "matplotlib"))
+HAS_PLOTTING = has_modules("numpy", "pandas", "matplotlib")
+if HAS_PLOTTING:
+    import numpy as np
+    import pandas as pd
+
+    from experiment.pipeline.figures import data, fig1, fig4, fig5, fig6, figs4, style
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class Style(unittest.TestCase):
     def test_text_sizes_and_fonts(self):
-        from experiment.pipeline.figures import style
-
         rc = style.rc_params()
         self.assertEqual(rc["font.size"], 7.0)
         self.assertEqual(rc["xtick.labelsize"], 6.0)
@@ -36,8 +38,6 @@ class Style(unittest.TestCase):
 
     def test_neutral_chrome_and_line_weights(self):
         from matplotlib.colors import to_rgb
-
-        from experiment.pipeline.figures import style
 
         greys = {"INK": "#1a1a1a", "AXIS": "#404040", "INK2": "#595959", "REF": "#8c8c8c", "CONTEXT": "#c4c4c4",
                  "FILL": "#e8e8e8", "GRID": "#e6e6e6", "UNDERLAY_GREY": "#d9d9d9"}
@@ -60,8 +60,6 @@ class Style(unittest.TestCase):
         self.assertEqual((rc["legend.handlelength"], rc["legend.columnspacing"]), (1.8, 1.5))
 
     def test_entity_colours_are_fixed(self):
-        from experiment.pipeline.figures import style
-
         self.assertEqual(style.RS02.color, "#2a78d6")
         self.assertEqual(style.RS02.label, "psmc-rs")  # psmc-rs 0.1 is not in the paper
         self.assertEqual(style.C_PSMC.color, "#eb6834")
@@ -85,8 +83,6 @@ class Style(unittest.TestCase):
         self.assertEqual(set(style.SUPERPOP_COLORS), set(style.SUPERPOP_TEXT))
 
     def test_underlay_rule_truth_and_bands(self):
-        from experiment.pipeline.figures import style
-
         under = style.underlay_kw(style.C_PSMC)
         over = style.overlay_kw(style.RS02)
         self.assertEqual((under["color"], under["linewidth"]), (style.C_HALO, style.UNDERLAY_LW))
@@ -111,8 +107,6 @@ class Style(unittest.TestCase):
         self.assertEqual(style.C_PSMC.marker, "s")
 
     def test_thousands_log_axes(self):
-        from experiment.pipeline.figures import style
-
         fig = style.figure("double", 50)
         gs = style.grid(fig, 1, 3)
         a, b, c = (fig.add_subplot(gs[0, i]) for i in range(3))
@@ -139,8 +133,6 @@ class Style(unittest.TestCase):
         self.assertFalse(style.narrow_log_span(3e3, 3e6))
 
     def test_layout_constants(self):
-        from experiment.pipeline.figures import style
-
         self.assertEqual((style.MARGIN_MM, style.LEFT_MM, style.RIGHT_MM), (1.0, 11.0, 1.5))
         self.assertEqual((style.GUTTER_MM, style.GUTTER_SHARED_MM), (6.0, 3.0))
         self.assertEqual((style.ROW_GAP_MM, style.ROW_GAP_TITLED_MM), (9.0, 12.0))
@@ -164,9 +156,7 @@ class Style(unittest.TestCase):
         self.assertAlmostEqual(w - box.x1 / style.MM, style.RIGHT_MM, delta=0.05)
 
     def test_every_e4_route_has_a_style(self):
-        from experiment.pipeline import config
         from experiment.pipeline.experiments import e4
-        from experiment.pipeline.figures import fig5, style
 
         self.assertEqual(set(style.ROUTES), set(e4.ROUTES))
         self.assertEqual(set(style.ROUTE_ORDER), set(e4.ROUTES))
@@ -178,8 +168,6 @@ class Style(unittest.TestCase):
         self.assertEqual(fig5.FULL_FALLBACK, "mask_ignore")
 
     def test_figure_sizes(self):
-        from experiment.pipeline.figures import style
-
         fig = style.figure("double", 100)
         self.assertAlmostEqual(fig.get_figwidth() * 25.4, 183.0)
         self.assertAlmostEqual(fig.get_figheight() * 25.4, 100.0)
@@ -187,8 +175,6 @@ class Style(unittest.TestCase):
         self.assertAlmostEqual(fig.get_figwidth() * 25.4, 89.0)
 
     def test_step_coordinates(self):
-        from experiment.pipeline.figures import style
-
         x, y = style.step_xy([0.0, 10.0, 100.0, 1000.0], [1.0, 2.0, 3.0, 4.0], (50.0, 500.0))
         self.assertEqual(list(x), [50.0, 100.0, 500.0])
         self.assertEqual(list(y), [2.0, 3.0, 3.0])
@@ -197,8 +183,6 @@ class Style(unittest.TestCase):
         self.assertEqual(list(y), [1.0, 1.0])
 
     def test_save_writes_three_formats_reproducibly(self):
-        from experiment.pipeline.figures import style
-
         def draw():
             fig = style.figure("single", 40)
             ax = fig.add_subplot(111)
@@ -217,8 +201,6 @@ class Style(unittest.TestCase):
         self.assertIn(b"<text", first[1])  # text stays text in the SVG
 
     def test_three_type_sizes(self):
-        from experiment.pipeline.figures import style
-
         fig = style.figure("single", 40)
         ax = fig.add_subplot(111)
         note = style.note(ax, 0.5, 0.5, "a note")
@@ -235,8 +217,6 @@ class Style(unittest.TestCase):
 
     def test_no_text_below_5pt_superscripts_included(self):
         import matplotlib._mathtext as mt
-
-        from experiment.pipeline.figures import style
 
         fig = style.figure("single", 40)
         self.assertEqual(mt.SHRINK_FACTOR, style.MATH_SHRINK)
@@ -260,15 +240,11 @@ class Style(unittest.TestCase):
         self.assertIn("no text is below :data:`MIN_TEXT_PT` (5 pt)", " ".join(style.__doc__.split()))
 
     def test_tint_is_the_colour_at_replicate_opacity_over_white(self):
-        from experiment.pipeline.figures import style
-
         self.assertEqual(style.tint("#000000", 0.25), "#bfbfbf")
         self.assertEqual(style.tint(style.BLUE, 1.0), style.BLUE)
         self.assertEqual(style.tint(style.BLUE, 0.0), style.SURFACE)
 
     def test_panel_letters_align_columns(self):
-        from experiment.pipeline.figures import style
-
         fig = style.figure("double", 80)
         gs = style.grid(fig, 2, 2, left_mm=20.0)
         axes = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(2)]
@@ -292,8 +268,6 @@ class Style(unittest.TestCase):
         self.assertLess(b.get_position()[0], axes[1].get_position().x0)
 
     def test_panel_title_shares_its_letters_baseline(self):
-        from experiment.pipeline.figures import style
-
         fig = style.figure("double", 50)
         gs = style.grid(fig, 1, 2, wspace_mm=style.GUTTER_SHARED_MM)
         left, right = fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1])
@@ -317,8 +291,6 @@ class Style(unittest.TestCase):
         self.assertGreaterEqual(gap / fig.dpi / style.MM, style.LETTER_TITLE_GAP_MM - 0.01)
 
     def test_top_legend_is_one_line_at_the_first_spine(self):
-        from experiment.pipeline.figures import style
-
         fig = style.figure("double", 50)
         gs = style.grid(fig, 1, 2, top_mm=style.TOP_LEGEND_MM)
         axes = [fig.add_subplot(gs[0, i]) for i in range(2)]
@@ -336,8 +308,6 @@ class Style(unittest.TestCase):
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class Data(unittest.TestCase):
     def test_truth_line_has_exact_change_times(self):
-        from experiment.pipeline.figures import data
-
         x, y = data.truth_xy("bottleneck", 25.0, (1e3, 1e7))
         changes = [t * 4 * 20_000 * 25.0 for t, _ in config.BOTTLENECK.ms_events]
         for t in changes:
@@ -348,18 +318,11 @@ class Data(unittest.TestCase):
                 self.assertAlmostEqual(yi, demography.ne_at(eps, xi / 25.0))
 
     def test_truth_line_samples_growth(self):
-        from experiment.pipeline.figures import data
-
         x, y = data.truth_xy("zigzag", 25.0, (1e3, 1e7))
         self.assertGreater(len(x), 100)
         self.assertTrue(all(b >= a for a, b in zip(x, x[1:])))
 
     def test_truth_table_check(self):
-        import numpy as np
-        import pandas as pd
-
-        from experiment.pipeline.figures import data
-
         years = np.logspace(3, 7, 20)
         good = pd.DataFrame({"model": "expansion", "years": years, "ne": data.truth_at("expansion", years, 25.0)})
         data.check_truth_table(good, 25.0)
@@ -368,10 +331,6 @@ class Data(unittest.TestCase):
             data.check_truth_table(bad, 25.0)
 
     def test_quantiles_of_curves(self):
-        import numpy as np
-
-        from experiment.pipeline.figures import data
-
         cs = [Curve((0.0, 10.0), (float(k), float(k))) for k in (1, 10, 100)]
         grid = np.array([1.0, 20.0])
         med = data.median(cs, grid)
@@ -381,10 +340,6 @@ class Data(unittest.TestCase):
         self.assertTrue(np.allclose(data.log10_ratio(cs[1], cs[0], grid), 1.0))
 
     def test_curves_from_a_table(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import data
-
         df = pd.DataFrame({"model": ["a", "a", "b", "b"], "interval": [1, 0, 0, 1],
                            "years": [5.0, 0.0, 0.0, 7.0], "ne": [2.0, 1.0, 3.0, 4.0]})
         cs = data.curves(df, ["model"])
@@ -392,8 +347,6 @@ class Data(unittest.TestCase):
         self.assertEqual(cs[("a",)].ne, (1.0, 2.0))
 
     def test_formatting(self):
-        from experiment.pipeline.figures import data
-
         self.assertEqual(data.fmt_bp(50_000_000), "50 Mb")
         self.assertEqual(data.fmt_bp(500_000), "500 kb")
         self.assertEqual(data.fmt_bp(2_500_000), "2.5 Mb")
@@ -402,8 +355,6 @@ class Data(unittest.TestCase):
         self.assertEqual(data.decades(1.5e3, 6e5), (1e3, 1e6))
 
     def test_decades_never_add_an_empty_decade(self):
-        from experiment.pipeline.figures import data
-
         # More than a third of a decade from a power of ten: the next 1, 2 or 5.
         self.assertEqual(data.decades(3e3, 2e5), (2e3, 2e5))
         self.assertEqual(data.decades(769.2, 6.3e4), (500.0, 1e5))  # Fig 5d: not down to 10^2
@@ -427,14 +378,9 @@ class Schemas(unittest.TestCase):
     """The schemas against real tables are checked in test_figures_draw (the experiments' tiny runs)."""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
     def test_missing_table_and_columns_are_named(self):
-        from experiment.pipeline.figures import data
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
         with self.assertRaises(data.MissingTable):
             data.read(self.runs, "E2_rs_vs_c")
         path = SCHEMAS["E2_rs_vs_c"].path(self.runs)
@@ -447,7 +393,6 @@ class Schemas(unittest.TestCase):
 
     def test_every_schema_names_an_experiments_table(self):
         from experiment.pipeline.experiments import e1, e2, e3, e4, e5, e6, e7
-        from experiment.pipeline.figures.schemas import SCHEMAS
 
         written = {f"{m.NAME}/{name}" for m in (e1, e2, e3, e4, e5, e7) for name in m.TABLES.values()}
         written |= {f"E6/{name}" for part in e6.TABLES.values() for name in part.values()}
@@ -462,8 +407,6 @@ class FigureContent(unittest.TestCase):
     def test_fig1_shows_the_callable_length_model_and_the_fit_feeds_the_outputs(self):
         from matplotlib.colors import to_hex
         from matplotlib.patches import FancyBboxPatch
-
-        from experiment.pipeline.figures import fig1
 
         fig = fig1.draw()
         ax = fig.axes[0]
@@ -491,10 +434,6 @@ class FigureContent(unittest.TestCase):
         self.assertGreaterEqual(max(bus.get_ydata()), max(centres))
 
     def test_fig5_draws_the_bins_taken_as_full_once(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import fig5
-
         rows = [("dispersed30", r, rep, theta) for r, theta in (("fq2psmcfa", -0.35), ("mask_ignore", -0.35),
                                                                 ("mask_auto", -0.02)) for rep in (1, 2)]
         routes = pd.DataFrame(rows, columns=["mask", "route", "replicate", "theta_rel_complete"])
@@ -509,10 +448,6 @@ class FigureContent(unittest.TestCase):
             fig5.full_route(bad)
 
     def test_fig5_shows_the_median_genome_and_each_structure_from_the_control(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import fig5
-
         rmse = {1: 0.30, 2: 0.10, 3: 0.20, 4: 0.40}
         routes = pd.DataFrame([("dispersed30", "mask_auto", r, v) for r, v in rmse.items()],
                               columns=["mask", "route", "replicate", "rmse_log10_ne_vs_complete"])
@@ -530,10 +465,6 @@ class FigureContent(unittest.TestCase):
                          config.FIGURES.e4_example_mask)
 
     def test_fig6_recomputes_each_genomes_coverage_and_checks_it(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import fig6
-
         def summary(**kw):  # an E5_summary row, as fig6 reads it
             row = {"trunk_bins": 100, "trunks": 6, "sd_ratio_median": 0.934, "coverage_of_fit_mean_mean": 0.5,
                    "coverage_mean": 0.5}
@@ -564,8 +495,6 @@ class FigureContent(unittest.TestCase):
 
 class Readme(unittest.TestCase):
     def test_lists_every_table_and_column(self):
-        from experiment.pipeline.figures.schemas import SCHEMAS
-
         text = (ROOT / "experiment" / "pipeline" / "figures" / "README.md").read_text()
         for s in SCHEMAS.values():
             rows = [line for line in text.splitlines() if line.startswith(f"| `{s.experiment}/tables/{s.file}`")]
@@ -579,10 +508,6 @@ class Performance(unittest.TestCase):
     """Figs 4 and S4 (E3): thread counts and the ceiling of the thread scaling."""
 
     def test_fig4_draws_each_thread_count_of_a_tool_in_its_own_style(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import fig4
-
         cfg = config.PRODUCTION.e3
         # Table 2's rows: every size at 1, 8 and 30 threads, the thread-scaling size at 2, 4 and 16 too.
         rows = [("c", 1)] + [(tool, t) for tool in ("rs01", "rs02") for t in (1, 8, 30)] + [("rs02", t) for t in (2, 4, 16)]
@@ -597,10 +522,6 @@ class Performance(unittest.TestCase):
         self.assertEqual(len(fig4.series(table2)), 10)  # without the profile's counts: every one in the table
 
     def test_fig4_gives_each_size_its_chromosomes(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import fig4
-
         table2 = pd.DataFrame({"size_mb": [100, 100, 300, 3000], "chromosomes": [1, 1, 3, 30]})
         self.assertEqual(fig4.chromosome_counts(table2), {100: 1, 300: 3, 3000: 30})
         with self.assertRaises(ValueError):
@@ -608,10 +529,6 @@ class Performance(unittest.TestCase):
         self.assertIn("ceil(n / t)", " ".join(fig4.__doc__.split()))
 
     def test_figs4_names_the_runs_behind_more_than_one_output(self):
-        import pandas as pd
-
-        from experiment.pipeline.figures import figs4
-
         rows = []
         for size in (100, 300, 1000):
             for t in (1, 8, 30):
@@ -634,8 +551,6 @@ class Performance(unittest.TestCase):
         self.assertEqual(figs4.output_differences(det[det.tool == "c"]), [])
 
     def test_figs4_ceiling_of_whole_sequences_per_thread(self):
-        from experiment.pipeline.figures import figs4
-
         speedup = figs4.ceiling_speedup([1, 2, 4, 8, 16, 30, 60], 30)
         self.assertEqual([round(float(x), 6) for x in speedup], [1.0, 2.0, 3.75, 7.5, 15.0, 30.0, 30.0])
         self.assertEqual(float(figs4.ceiling_speedup(1, 30)), 1.0)
