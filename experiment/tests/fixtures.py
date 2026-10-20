@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import functools
 import importlib.util
 import io
 import json
@@ -65,6 +66,33 @@ def fake_ctx(profile, runs: Path, *keys: str, **kw):
     from experiment.pipeline.experiments import Context
 
     return Context(profile, runs, _tools=fake_tools(*keys), **kw)
+
+
+def option(command: Sequence, name: str) -> Optional[str]:
+    """The value ``command`` gives its option ``name`` (None without the option)."""
+    command = [str(c) for c in command]
+    return command[command.index(name) + 1] if name in command else None
+
+
+@functools.lru_cache(maxsize=None)
+def _c_ref():
+    from experiment.pipeline import results
+
+    return results.parse_psmc(C_REF)
+
+
+def c_ref_json(lam_scale: float = 1.0, **fields) -> dict:
+    """psmc-rs's JSON of C psmc's reference fit (its last round), the lambdas times ``lam_scale``, and ``fields``."""
+    pa = _c_ref().last().pa
+    return {"theta": pa["theta"], "rho": pa["rho"], "t_max": pa["t_max"], "n_steps": 63, "pattern": "4+25*2+4+6",
+            "lam": [x * lam_scale for x in pa["lambdas"]], **fields}
+
+
+def c_ref_loglikes(final: float = -25000.0) -> List[float]:
+    """psmc-rs's trace of the reference's 5 iterations: C psmc's log-likelihoods, then ``final`` (of the last model,
+    which C psmc never evaluates)."""
+    ll = _c_ref().loglikes()
+    return [ll[i] for i in range(5)] + [final]
 
 
 def in_git_work_tree() -> bool:

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import csv
-import importlib.util
 import json
 import math
 import shutil
@@ -13,37 +11,19 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, demography, results, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, e1  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import C_REF, c_ref_json, c_ref_loglikes, fake_ctx, fake_tools, has_modules, option, read_csv  # noqa: E402
 
-C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-HAS_NUMPY = importlib.util.find_spec("numpy") is not None
-HAS_MSPRIME = importlib.util.find_spec("msprime") is not None and importlib.util.find_spec("psutil") is not None
+from experiment.pipeline import config, demography, runner  # noqa: E402
+from experiment.pipeline.experiments import Context, e1  # noqa: E402
 
-
-def read_csv(path: Path):
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def fake_ctx(profile: config.Profile, runs: Path) -> Context:
-    return Context(profile, runs, _tools={"c": FAKE_C, "rs02": FAKE_RS})
+LOG2 = math.log10(2)
 
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.jobs = e1.jobs(fake_ctx(config.SMOKE, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
 
@@ -54,8 +34,7 @@ class Jobs(unittest.TestCase):
         self.assertIsNone(cfg.default_mstep_iters)
         self.assertEqual(len(self.jobs), len(cfg.models) * cfg.replicates * 3 + 1)
         self.assertFalse(any("fit-rs-default" in j.id for j in self.jobs))
-        main = self.by_id["E1/fit-rs/bottleneck/rep02"]
-        self.assertEqual(main.command[main.command.index("--mstep-iters") + 1], "1000")
+        self.assertEqual(option(self.by_id["E1/fit-rs/bottleneck/rep02"].command, "--mstep-iters"), "1000")
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E1/fit-c/bottleneck/rep02"], ["E1/sim/bottleneck/rep02"])
         self.assertEqual(g.deps["E1/fit-rs/bottleneck/rep02"], ["E1/sim/bottleneck/rep02"])
@@ -68,7 +47,7 @@ class Jobs(unittest.TestCase):
         cfg = profile.e1
         self.assertEqual(len(jobs), len(cfg.models) * cfg.replicates * 4 + 1)
         capped = {j.id: j for j in jobs}["E1/fit-rs-default/bottleneck/rep02"]
-        self.assertEqual(capped.command[capped.command.index("--mstep-iters") + 1], "5")
+        self.assertEqual(option(capped.command, "--mstep-iters"), "5")
         self.assertIn("capped at 5", capped.description)
 
     def test_fits_read_the_identical_psmcfa_with_identical_settings(self):
@@ -79,10 +58,10 @@ class Jobs(unittest.TestCase):
         self.assertEqual(rs.command[3], "3")
         self.assertIn("--psmc-out", rs.command)
         self.assertEqual(c.settings["inference"], rs.settings["inference"])
-        self.assertEqual(c.tools, {"c-psmc": FAKE_C.identity})
+        self.assertEqual(c.tools, {"c-psmc": fake_tools("c")["c"].identity})
 
     def test_simulation_seeds_are_recorded(self):
-        sim = self.by_id["E1/sim/zigzag/rep01"] if "E1/sim/zigzag/rep01" in self.by_id else self.by_id["E1/sim/bottleneck/rep01"]
+        sim = self.by_id.get("E1/sim/zigzag/rep01") or self.by_id["E1/sim/bottleneck/rep01"]
         model = sim.id.split("/")[2]
         self.assertEqual(sim.seeds["chr2"]["ancestry"], config.seed("E1", model, 1, "ancestry/chr2"))
         self.assertEqual(sim.settings["genome"]["chromosome_length"], config.SMOKE.e1.genome.chromosome_length)
@@ -98,21 +77,17 @@ class Jobs(unittest.TestCase):
         self.assertGreater(plan["E1"]["cpu_hours"], 1.0)
 
 
-@unittest.skipUnless(HAS_NUMPY, "numpy not installed")
+@unittest.skipUnless(has_modules("numpy"), "numpy not installed")
 class Tables(unittest.TestCase):
-    """The report on stand-in fits: C psmc's reference output for both tools."""
+    """The report on stand-in fits: C psmc's reference output for both tools, written once for the tests."""
 
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+    @classmethod
+    def setUpClass(cls):
+        runs = Path(cls.enterClassContext(tempfile.TemporaryDirectory()))
         inference = replace(config.INFERENCE, n_iter=5, tr_ratio=4.0)
-        self.profile = replace(
-            config.TINY, e1=replace(config.TINY.e1, models=("bottleneck",), replicates=2, inference=inference)
-        )
-        lay = e1.Layout(self.runs / "E1")
-        ref = results.parse_psmc(C_REF)
-        last = ref.last()
+        profile = replace(config.TINY, e1=replace(config.TINY.e1, models=("bottleneck",), replicates=2,
+                                                  inference=inference))
+        lay = cls.lay = e1.Layout(runs / "E1")
         for r in (1, 2):
             truth = {
                 "chromosomes": [{"name": "chr1", "bins": 150947, "het_bins": 7373, "het_sites": 7400,
@@ -124,35 +99,28 @@ class Tables(unittest.TestCase):
             lay.c_psmc("bottleneck", r).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(C_REF, lay.c_psmc("bottleneck", r))
             shutil.copy(C_REF, lay.rs_psmc("bottleneck", r))
-            scale = 1.0 if r == 1 else 2.0
-            params = {
-                "theta": last.pa["theta"], "rho": last.pa["rho"], "t_max": last.pa["t_max"], "n_steps": 63,
-                "pattern": "4+25*2+4+6", "lam": [x * scale for x in last.pa["lambdas"]], "n_iter": 5,
-                "loglike": [ref.loglikes()[i] for i in range(5)] + [-25000.0],
-                "input": {"bins": 150947, "het_bins": 7373},
-            }
+            params = c_ref_json(1.0 if r == 1 else 2.0, n_iter=5, loglike=c_ref_loglikes(),
+                                input={"bins": 150947, "het_bins": 7373})
             lay.rs_json("bottleneck", r).write_text(json.dumps(params))
             # psmc-rs with capped M-steps (TINY's cap, 5): 1.5 times the sizes of psmc-rs's fit
             default = dict(params, lam=[x * 1.5 for x in params["lam"]])
             lay.rs_default_json("bottleneck", r).write_text(json.dumps(default))
-        self.written = e1.report(Context(self.profile, self.runs))
-        self.lay = lay
+        cls.written = e1.report(Context(profile, runs))
 
     def test_identical_fits_agree_and_scaled_ones_differ_by_the_scale(self):
         pairs = read_csv(self.lay.table("pairs"))
         self.assertEqual(float(pairs[0]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.0)
-        self.assertAlmostEqual(float(pairs[1]["rmse_log10_ne_rs_vs_c_per_interval"]), math.log10(2), places=12)
-        self.assertAlmostEqual(float(pairs[1]["max_abs_log10_ne_rs_vs_c_per_interval"]), math.log10(2), places=12)
-        self.assertAlmostEqual(float(pairs[1]["max_abs_log10_ne_rs_vs_c_any_interval"]), math.log10(2), places=12)
+        for col in ("rmse_log10_ne_rs_vs_c_per_interval", "max_abs_log10_ne_rs_vs_c_per_interval",
+                    "max_abs_log10_ne_rs_vs_c_any_interval"):
+            self.assertAlmostEqual(float(pairs[1][col]), LOG2, places=12, msg=col)
         self.assertGreater(int(pairs[0]["intervals_in_window"]), 10)
         self.assertEqual(float(pairs[0]["loglike_max_rel_diff"]), 0.0)
         t1 = read_csv(self.lay.table("table1"))
         self.assertEqual(len(t1), 1)
         self.assertEqual(t1[0]["replicates"], "2")
-        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_per_interval_max"]), math.log10(2), places=12)
-        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_per_interval_mean"]), math.log10(2) / 2, places=12)
-        self.assertAlmostEqual(float(t1[0]["rmse_rs_vs_c_per_interval_median"]), math.log10(2) / 2, places=12)
-        self.assertAlmostEqual(float(t1[0]["max_abs_rs_vs_c_per_interval"]), math.log10(2), places=12)
+        for col, want in (("rmse_rs_vs_c_per_interval_max", LOG2), ("rmse_rs_vs_c_per_interval_mean", LOG2 / 2),
+                          ("rmse_rs_vs_c_per_interval_median", LOG2 / 2), ("max_abs_rs_vs_c_per_interval", LOG2)):
+            self.assertAlmostEqual(float(t1[0][col]), want, places=12, msg=col)
 
     def test_capped_m_steps_against_c_psmc(self):
         rows = read_csv(self.lay.table("mstep"))
