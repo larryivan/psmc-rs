@@ -464,8 +464,29 @@ for idx in "$bam.bai" "$bam.csi" "$bam.crai" "${bam%.*}.bai" "${bam%.*}.crai"; d
   fi
 done
 
+# The calls of one chromosome: mpileup, with its regions file and the
+# alignments after these options, piped to call, with the BCF file to write
+# after its own. A regions file, unlike -r, keeps a name with colons whole.
+where=-T
+[ "$indexed" -eq 0 ] || where=-R
+mpileup=("$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" -d "$max_depth"
+  -f "$ref" "$where")
+call=("$bcftools" call --no-version -c -Ob -o)
+
+# The calls as one command line, for the log and the dry run.
+mpileup_cmd() { # $1: regions file
+  printf '%s' "$(quoted "${mpileup[@]}" "$1" "$bam") | $(quoted "${call[@]}")"
+}
+
 common_input_opts=(--input-format vcf --vcf-mode consensus --depth "$depth"
   --min-qual "$min_qual" --bin-size "$bin_size")
+
+# Sets conv to the psmc-rs convert command writing the psmcfa $1 and, with
+# --multihetsep, the multihetsep files of prefix $2.
+convert_cmd() {
+  conv=("$psmc_rs" convert "$vcf" "${common_input_opts[@]}" -q --psmcfa "$1")
+  [ "$multihetsep" -eq 0 ] || conv+=(--multihetsep-per-chrom "$2")
+}
 
 # The inference run, with the options after --.
 fit=()
@@ -478,13 +499,6 @@ if [ -n "$run_iters" ]; then
   has_extra --no-progress || fit+=(--no-progress)
   fit+=(${extra[@]+"${extra[@]}"})
 fi
-
-mpileup_cmd() { # $1: regions file
-  local where=-T
-  [ "$indexed" -eq 0 ] || where=-R
-  printf '%s' "$(quoted "$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" \
-    -d "$max_depth" -f "$ref" "$where" "$1" "$bam") | $(quoted "$bcftools" call --no-version -c -Ob -o)"
-}
 
 if [ "$dry_run" -eq 1 ]; then
   echo "Chromosomes to call (${#selected[@]}):"
@@ -500,8 +514,7 @@ if [ "$dry_run" -eq 1 ]; then
   echo "  $(quoted "$bcftools" concat --no-version --threads "$threads" -Oz -o "$vcf" -f TMP/calls.txt)"
   echo "  $(quoted "$bcftools" index -t "$vcf")"
   echo "  $(quoted "$psmc_rs" qc "$vcf" "${common_input_opts[@]}" --json "$qc_json") > $(quoted "$qc_txt")"
-  conv=("$psmc_rs" convert "$vcf" "${common_input_opts[@]}" -q --psmcfa "$psmcfa")
-  [ "$multihetsep" -eq 0 ] || conv+=(--multihetsep-per-chrom "$out")
+  convert_cmd "$psmcfa" "$out"
   echo "  $(quoted "${conv[@]}")"
   [ -z "$run_iters" ] || echo "  $(quoted "${fit[@]}")"
   exit 0
@@ -526,7 +539,6 @@ done
 tmp=$(mktemp -d "$out_dir/.$base.tmp.XXXXXX") || die "cannot create a working directory in $out_dir"
 # The calling jobs running, and the step that run_step waits for.
 pids=()
-job_names=()
 child=""
 
 # On exit, and so on SIGINT and SIGTERM: stop what still runs, then remove
@@ -638,16 +650,13 @@ mkdir -p "$tmp/regions" "$tmp/calls"
 # FIFO rather than a pipe so that the job knows both process IDs: when
 # cleanup stops the job, its trap stops them too, with no need for pkill.
 call_one() { # $1: number of the job, $2: index into ref_names
-  local n=$1 i=$2 where=-T mp="" cl="" s=0
+  local n=$1 i=$2 mp="" cl="" s=0
   trap 'kill -TERM ${mp:+"$mp"} ${cl:+"$cl"} 2> /dev/null; exit 143' TERM
-  [ "$indexed" -eq 0 ] || where=-R
   printf '%s\t1\t%s\n' "${ref_names[$i]}" "${ref_lengths[$i]}" > "$tmp/regions/$n.txt"
   mkfifo "$tmp/calls/$n.fifo"
-  "$bcftools" mpileup --no-version -C50 -q "$min_mapq" -Q "$min_baseq" -d "$max_depth" \
-    -f "$ref" "$where" "$tmp/regions/$n.txt" "$bam" 2>> "$tmp/calls/$n.log" > "$tmp/calls/$n.fifo" &
+  "${mpileup[@]}" "$tmp/regions/$n.txt" "$bam" 2>> "$tmp/calls/$n.log" > "$tmp/calls/$n.fifo" &
   mp=$!
-  "$bcftools" call --no-version -c -Ob -o "$tmp/calls/$n.bcf" \
-    < "$tmp/calls/$n.fifo" 2>> "$tmp/calls/$n.log" &
+  "${call[@]}" "$tmp/calls/$n.bcf" < "$tmp/calls/$n.fifo" 2>> "$tmp/calls/$n.log" &
   cl=$!
   wait "$mp" || s=$?
   wait "$cl" || s=$?
@@ -655,18 +664,19 @@ call_one() { # $1: number of the job, $2: index into ref_names
   return "$s"
 }
 
-# Wait for the oldest job; stop everything if it failed.
+# Wait for the oldest job, number $called + 1 (the jobs are waited for in
+# the order they started); stop everything if it failed.
+called=0
 wait_oldest() {
-  local p=${pids[0]} name=${job_names[0]} n=${job_numbers[0]}
-  if ! wait "$p"; then
-    pids=("${pids[@]:1}")
+  local n=$((called + 1)) name=${ref_names[${selected[$called]}]} s=0
+  wait "${pids[0]}" || s=$?
+  pids=("${pids[@]:1}")
+  if [ "$s" -ne 0 ]; then
     cat "$tmp/calls/$n.log" >> "$log_file" 2> /dev/null || true
     die "calling $name failed: $(tail -n 3 "$tmp/calls/$n.log" 2> /dev/null | tr '\n' ' ')(full messages in $log_file)"
   fi
-  pids=("${pids[@]:1}")
-  job_names=("${job_names[@]:1}")
-  job_numbers=("${job_numbers[@]:1}")
   cat "$tmp/calls/$n.log" >> "$log_file"
+  called=$n
   if [ "$samples_checked" -eq 0 ]; then
     check_samples "$tmp/calls/$n.bcf"
     samples_checked=1
@@ -675,7 +685,6 @@ wait_oldest() {
 }
 
 log_cmd "$(mpileup_cmd "$tmp/regions/N.txt") $tmp/calls/N.bcf   # N = 1..${#selected[@]}"
-job_numbers=()
 n=0
 for i in "${selected[@]}"; do
   n=$((n + 1))
@@ -684,8 +693,6 @@ for i in "${selected[@]}"; do
   done
   call_one "$n" "$i" &
   pids+=("$!")
-  job_names+=("${ref_names[$i]}")
-  job_numbers+=("$n")
 done
 while [ "${#pids[@]}" -gt 0 ]; do
   wait_oldest
@@ -694,12 +701,9 @@ done
 # ---------------------------------------------------------------------------
 # 2. One all-sites VCF, bgzipped and indexed
 
-n=0
-: > "$tmp/calls.txt"
-for i in "${selected[@]}"; do
-  n=$((n + 1))
-  printf '%s\n' "$tmp/calls/$n.bcf" >> "$tmp/calls.txt"
-done
+for ((n = 1; n <= ${#selected[@]}; n++)); do
+  printf '%s\n' "$tmp/calls/$n.bcf"
+done > "$tmp/calls.txt"
 log_cmd "$(quoted "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" -f "$tmp/calls.txt")"
 run_step "$bcftools" concat --no-version --threads "$threads" -Oz -o "$tmp/all.vcf.gz" \
   -f "$tmp/calls.txt" 2>> "$log_file" || die "bcftools concat failed (see $log_file)"
@@ -747,8 +751,7 @@ mv -f "$tmp/qc.json" "$qc_json"
 # 4. psmcfa (and multihetsep)
 
 mkdir -p "$tmp/convert"
-conv=("$psmc_rs" convert "$vcf" "${common_input_opts[@]}" -q --psmcfa "$tmp/convert/out.psmcfa")
-[ "$multihetsep" -eq 0 ] || conv+=(--multihetsep-per-chrom "$tmp/convert/$base")
+convert_cmd "$tmp/convert/out.psmcfa" "$tmp/convert/$base"
 log_cmd "$(quoted "${conv[@]}")"
 if ! run_step "${conv[@]}" > "$tmp/convert.out" 2> "$tmp/convert.err"; then
   cat "$tmp/convert.err" >> "$log_file"
