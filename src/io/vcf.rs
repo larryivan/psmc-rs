@@ -54,7 +54,6 @@
 use anyhow::{Context, Result, bail};
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -152,12 +151,6 @@ impl IntervalAcc {
         merge_in_place(&mut self.xs);
         self.merged = true;
         self.compact_at = max(2 * self.xs.len(), Self::MIN_COMPACT);
-    }
-
-    fn append(&mut self, other: IntervalAcc) {
-        for x in other.xs {
-            self.push(x);
-        }
     }
 
     /// The sorted, merged intervals.
@@ -311,39 +304,26 @@ impl MaskAcc {
             match &mut cur {
                 Some((name, acc)) if name.as_bytes() == c0 => acc.push(interval),
                 _ => {
-                    let name = std::str::from_utf8(c0)
-                        .map_err(|_| {
-                            bad_row(
-                                row_no,
-                                &format!(
-                                    "the chromosome name '{}' is not valid UTF-8",
-                                    c0.escape_ascii()
-                                ),
-                            )
-                        })?
-                        .to_string();
+                    let name = std::str::from_utf8(c0).map_err(|_| {
+                        let what = format!(
+                            "the chromosome name '{}' is not valid UTF-8",
+                            c0.escape_ascii()
+                        );
+                        bad_row(row_no, &what)
+                    })?;
                     if let Some((done, acc)) = cur.take() {
-                        self.put_back(done, acc);
+                        self.by_chrom.insert(done, acc);
                     }
-                    let mut acc = self.by_chrom.remove(&name).unwrap_or_default();
+                    let mut acc = self.by_chrom.remove(name).unwrap_or_default();
                     acc.push(interval);
-                    cur = Some((name, acc));
+                    cur = Some((name.to_string(), acc));
                 }
             }
         }
         if let Some((done, acc)) = cur {
-            self.put_back(done, acc);
+            self.by_chrom.insert(done, acc);
         }
         Ok(())
-    }
-
-    fn put_back(&mut self, chrom: String, acc: IntervalAcc) {
-        match self.by_chrom.entry(chrom) {
-            Entry::Occupied(mut e) => e.get_mut().append(acc),
-            Entry::Vacant(e) => {
-                e.insert(acc);
-            }
-        }
     }
 
     fn finish(self) -> MaskFile {
@@ -386,10 +366,6 @@ impl MaskFile {
             Cow::Owned(merge_intervals([own, &self.global].concat()))
         }
     }
-}
-
-fn parse_mask_file(path: &Path) -> Result<MaskFile> {
-    MaskFile::union_from(std::slice::from_ref(&path.to_path_buf()))
 }
 
 /// The sorted, merged positions of one chromosome outside the callable set
@@ -463,7 +439,7 @@ pub(crate) fn outside_some_masks_hint(names: &[String]) -> Option<String> {
 
 /// Up to five names, comma-separated, then `...` if there are more.
 pub(crate) fn list_names(names: &[String]) -> String {
-    let shown = names.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+    let shown = names[..names.len().min(5)].join(", ");
     if names.len() > 5 {
         format!("{shown}, ...")
     } else {
@@ -481,14 +457,12 @@ pub(crate) struct MaskEngine {
 
 impl MaskEngine {
     pub(crate) fn new(mask_paths: &[PathBuf], negative_mask_paths: &[PathBuf]) -> Result<Self> {
-        let mut positives = Vec::<MaskFile>::new();
-        for p in mask_paths {
-            positives.push(parse_mask_file(p)?);
-        }
-        let negatives = MaskFile::union_from(negative_mask_paths)?;
         Ok(Self {
-            positives,
-            negatives,
+            positives: mask_paths
+                .iter()
+                .map(|p| MaskFile::union_from(std::slice::from_ref(p)))
+                .collect::<Result<_>>()?,
+            negatives: MaskFile::union_from(negative_mask_paths)?,
         })
     }
 
@@ -544,12 +518,10 @@ fn resolve_sample_index(header_fields: &[&str], sample_name: Option<&str>) -> Re
     }
     let samples = &header_fields[9..];
     if let Some(name) = sample_name {
-        for (i, s) in samples.iter().enumerate() {
-            if *s == name {
-                return Ok(i);
-            }
-        }
-        bail!("VCF sample '{}' not found in header", name);
+        return samples
+            .iter()
+            .position(|&s| s == name)
+            .with_context(|| format!("VCF sample '{name}' not found in header"));
     }
     if samples.len() == 1 {
         return Ok(0);
@@ -766,6 +738,13 @@ struct Record<'a> {
     sample: &'a [u8],
 }
 
+impl Record<'_> {
+    /// The last position of the REF allele.
+    fn ref_end(&self) -> u64 {
+        self.pos + max(self.ref_allele.len(), 1) as u64 - 1
+    }
+}
+
 /// Finds the sample's read depth for [`VcfSummary::depth`]. The FORMAT
 /// column rarely changes, so the position of its DP key is kept for the last
 /// FORMAT seen.
@@ -805,7 +784,7 @@ impl DepthReader {
     }
 }
 
-fn lossy(b: &[u8]) -> std::borrow::Cow<'_, str> {
+fn lossy(b: &[u8]) -> Cow<'_, str> {
     String::from_utf8_lossy(b)
 }
 
@@ -1030,8 +1009,7 @@ fn classify(
         // is unreliable for a model of point mutations.
         Genotype::HetOther => {
             s.het_non_snp_records += 1;
-            let ref_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
-            let span_end = max(ref_end, unusable_block(s).unwrap_or(0));
+            let span_end = max(rec.ref_end(), unusable_block(s).unwrap_or(0));
             class(Site::Missing, Some(span_end), None)
         }
     })
@@ -1319,12 +1297,13 @@ fn parse_contig_header(line: &[u8]) -> Option<(&[u8], u64)> {
 /// [`MAX_COUNTED_BIN_SIZE`](crate::io::MAX_COUNTED_BIN_SIZE) bases have
 /// none.
 pub fn read_vcf_with(path: &Path, opts: &VcfOptions) -> Result<VcfRead> {
-    let (seqs, mut summary) = read_vcf_seqs(path, opts, false)?;
+    if opts.bin_size == 0 {
+        bail!("vcf bin_size must be > 0");
+    }
+    let (seqs, summary) = read_vcf_seqs_from(open_reader(path)?, path, opts, false)?;
     if summary.het_snps == 0 {
         bail!("{}", no_het_snp_message(&summary, opts.keep_filtered));
     }
-    summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
-    summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
     let (bins, counts): (_, Vec<_>) = seqs.into_iter().map(|s| (s.bins, s.callable)).unzip();
     let seqs = Sequences {
         bins,
@@ -1361,22 +1340,10 @@ pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> S
     )
 }
 
-/// Read every chromosome of one sample of a VCF, as [`read_vcf_with`] does,
-/// without chunking, without the check for heterozygous SNPs, and without
-/// filling in [`VcfSummary::sequences`] and [`VcfSummary::bins`]. With
+/// Read every chromosome of one sample of a VCF from `reader`, as
+/// [`read_vcf_with`] does, without chunking and without the check for
+/// heterozygous SNPs; `path` names the input in messages. With
 /// `collect_het`, each sequence carries its heterozygous sites.
-pub(crate) fn read_vcf_seqs(
-    path: &Path,
-    opts: &VcfOptions,
-    collect_het: bool,
-) -> Result<(Vec<VcfSeq>, VcfSummary)> {
-    if opts.bin_size == 0 {
-        bail!("vcf bin_size must be > 0");
-    }
-    read_vcf_seqs_from(open_reader(path)?, path, opts, collect_het)
-}
-
-/// [`read_vcf_seqs`] over an opened input; `path` names it in messages.
 pub(crate) fn read_vcf_seqs_from(
     mut reader: impl BufRead,
     path: &Path,
@@ -1442,55 +1409,30 @@ pub(crate) fn read_vcf_seqs_from(
             }
             if finished_chroms.contains(rec.chrom) {
                 bail!(
-                    "invalid VCF row {}: chromosome '{}' appears again after another \
+                    "invalid VCF row {row_no}: chromosome '{}' appears again after another \
                      chromosome; the VCF must be sorted (e.g. with bcftools sort)",
-                    row_no,
                     lossy(rec.chrom)
                 );
             }
-            let name = utf8_chrom(rec.chrom, row_no)?;
-            match masks.coverage(name) {
-                MaskCoverage::Every => {}
-                MaskCoverage::SomeMasks => summary.chroms_outside_some_masks.push(name.to_string()),
-                MaskCoverage::NoMask => summary.chroms_outside_mask.push(name.to_string()),
-            }
-            let contig_len = if opts.to_contig_end {
-                contig_lens.get(rec.chrom).copied()
-            } else {
-                None
-            };
-            if let Some(len) = contig_len.filter(|&len| len > MAX_POS) {
-                bail!(
-                    "invalid VCF header: the ##contig length of '{}' ({}) is beyond the \
-                     supported maximum {}; correct the header, or end each sequence at its \
-                     last record instead of the contig length",
-                    name,
-                    if len == u64::MAX {
-                        "a number of 20 or more digits".to_string()
-                    } else {
-                        len.to_string()
-                    },
-                    MAX_POS
-                );
-            }
-            if contig_len.is_some() {
-                summary.contig_lengths_used.push(name.to_string());
-            }
-            let uncallable = masks.uncallable_for_chrom(name);
-            cur = Some(ChromBuilder::new(
+            let contig_len = opts
+                .to_contig_end
+                .then(|| contig_lens.get(rec.chrom).copied())
+                .flatten();
+            cur = Some(start_chrom(
                 rec.chrom,
-                uncallable,
                 contig_len,
+                row_no,
+                &masks,
                 opts,
                 collect_het,
-            ));
+                &mut summary,
+            )?);
         }
         let chrom = cur.as_mut().expect("chromosome state was just set");
         if rec.pos < chrom.last_pos {
             bail!(
-                "invalid VCF row {}: POS {} on '{}' comes after POS {}; the VCF must be \
+                "invalid VCF row {row_no}: POS {} on '{}' comes after POS {}; the VCF must be \
                  sorted by position (e.g. with bcftools sort)",
-                row_no,
                 rec.pos,
                 lossy(rec.chrom),
                 chrom.last_pos
@@ -1498,11 +1440,9 @@ pub(crate) fn read_vcf_seqs_from(
         }
         if let Some(len) = chrom.contig_len.filter(|&len| rec.pos > len) {
             bail!(
-                "invalid VCF row {}: POS {} on '{}' is beyond the ##contig length {}",
-                row_no,
+                "invalid VCF row {row_no}: POS {} on '{}' is beyond the ##contig length {len}",
                 rec.pos,
                 lossy(rec.chrom),
-                len
             );
         }
         // A block reaching past the contig (or past any real chromosome)
@@ -1510,14 +1450,52 @@ pub(crate) fn read_vcf_seqs_from(
         let block_end =
             gvcf_block_end(&rec).map(|end| end.min(chrom.contig_len.unwrap_or(MAX_POS)));
         let class = classify(&rec, opts.keep_filtered, block_end, row_no, &mut summary)?;
-        let ref_end = rec.pos + max(rec.ref_allele.len(), 1) as u64 - 1;
-        chrom.add_record(rec.pos, class, (ref_end, block_end), &mut summary);
+        chrom.add_record(rec.pos, class, (rec.ref_end(), block_end), &mut summary);
     }
     if let Some(done) = cur.take() {
         seqs.push(done.finish(&mut summary));
     }
     summary.depth = depth.stats();
+    summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
+    summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
     Ok((seqs, summary))
+}
+
+/// The builder of chromosome `chrom`, first met at row `row_no`, whose
+/// sequence ends at `contig_len` when given; notes in `summary` how the masks
+/// cover it and whether its contig length is used.
+fn start_chrom(
+    chrom: &[u8],
+    contig_len: Option<u64>,
+    row_no: usize,
+    masks: &MaskEngine,
+    opts: &VcfOptions,
+    collect_het: bool,
+    summary: &mut VcfSummary,
+) -> Result<ChromBuilder> {
+    let name = utf8_chrom(chrom, row_no)?;
+    match masks.coverage(name) {
+        MaskCoverage::Every => {}
+        MaskCoverage::SomeMasks => summary.chroms_outside_some_masks.push(name.to_string()),
+        MaskCoverage::NoMask => summary.chroms_outside_mask.push(name.to_string()),
+    }
+    if let Some(len) = contig_len {
+        if len > MAX_POS {
+            let len = if len == u64::MAX {
+                "a number of 20 or more digits".to_string()
+            } else {
+                len.to_string()
+            };
+            bail!(
+                "invalid VCF header: the ##contig length of '{name}' ({len}) is beyond the \
+                 supported maximum {MAX_POS}; correct the header, or end each sequence at its \
+                 last record instead of the contig length"
+            );
+        }
+        summary.contig_lengths_used.push(name.to_string());
+    }
+    let uncallable = masks.uncallable_for_chrom(name);
+    Ok(ChromBuilder::new(chrom, uncallable, contig_len, opts, collect_het))
 }
 
 /// [`read_vcf_with`] with the default options for everything not given here.
@@ -1608,7 +1586,7 @@ mod tests {
         let text = "# comment\nchr2\t10\t20\nchr1\t5\t6\nchr1\t0\t3\n\n\
                     chr2\t20\t30\n100\t100\nchr1\t3\t5\nchr2\t0\t1\n";
         std::fs::write(&path, text).unwrap();
-        let m = parse_mask_file(&path).unwrap();
+        let m = MaskFile::union_from(std::slice::from_ref(&path)).unwrap();
         assert_eq!(m.by_chrom["chr1"], [(1, 6)]);
         assert_eq!(m.by_chrom["chr2"], [(1, 1), (11, 30)]);
         assert_eq!(m.global, [(100, 100)]);
@@ -1623,7 +1601,9 @@ mod tests {
             ("chr1\t9\t9\n", "end must be > start"),
         ] {
             std::fs::write(&path, text).unwrap();
-            let err = parse_mask_file(&path).unwrap_err().to_string();
+            let err = MaskFile::union_from(std::slice::from_ref(&path))
+                .unwrap_err()
+                .to_string();
             assert!(err.contains(want), "{text:?}: {err}");
         }
         let _ = std::fs::remove_file(path);
