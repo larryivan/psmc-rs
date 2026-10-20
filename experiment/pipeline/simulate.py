@@ -36,7 +36,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
-from . import config, demography
+from . import config, demography, provenance
 
 PSMCFA_NAME = "genome.psmcfa"
 VCF_NAME = "genome.vcf.gz"
@@ -100,20 +100,14 @@ def simulate_chromosome(
     het: List[int] = []
     records: List[Tuple[int, str, str, str]] = []
     for var in mts.variants():
-        a, b = int(var.genotypes[0]), int(var.genotypes[1])
-        if a == 0 and b == 0:
-            continue  # the diploid carries the ancestral state (e.g. after a back mutation)
-        pos = int(var.site.position)
         ref = var.alleles[0]
-        alts: List[str] = []
-        for g in (a, b):
-            allele = var.alleles[g]
-            if g != 0 and allele != ref and allele not in alts:
-                alts.append(allele)
-        index = {ref: 0, **{al: i + 1 for i, al in enumerate(alts)}}
-        ga, gb = index[var.alleles[a]], index[var.alleles[b]]
-        if ga == 0 and gb == 0:
-            continue  # derived alleles equal to the ancestral one: nothing to record
+        pair = (var.alleles[int(var.genotypes[0])], var.alleles[int(var.genotypes[1])])
+        alts = list(dict.fromkeys(al for al in pair if al != ref))
+        if not alts:
+            continue  # the diploid carries the ancestral state (also after a back mutation)
+        index = {al: i for i, al in enumerate([ref, *alts])}
+        ga, gb = index[pair[0]], index[pair[1]]
+        pos = int(var.site.position)
         if ga != gb:
             het.append(pos)
         records.append((pos, ref, ",".join(alts), f"{ga}|{gb}"))
@@ -174,14 +168,6 @@ def bgzip_and_index(vcf: Path) -> Path:
     return gz
 
 
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def positions_digest(positions) -> str:
     """SHA-256 of the heterozygous positions (0-based, little-endian int64)."""
     import numpy as np
@@ -194,7 +180,8 @@ def tool_version(cmd: Sequence[str]) -> str:
         res = subprocess.run(list(cmd), capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.SubprocessError):
         return "unavailable"
-    return (res.stdout or res.stderr).splitlines()[0].strip() if (res.stdout or res.stderr) else "unknown"
+    out = res.stdout or res.stderr
+    return out.splitlines()[0].strip() if out else "unknown"
 
 
 def software_versions() -> Dict[str, str]:
@@ -246,21 +233,23 @@ def chromosome_summary(chrom: Chromosome, bin_size: int) -> Dict:
     can make a replicate an outlier; it is recorded so that such replicates
     can be explained without dropping seeds.
     """
-    het_bins = len(set((chrom.het_positions // bin_size).tolist())) if len(chrom.het_positions) else 0
-    gap, gap_start = longest_het_gap(chrom.het_positions, chrom.length)
+    import numpy as np
+
+    het = chrom.het_positions
+    gap, gap_start = longest_het_gap(het, chrom.length)
     return {
         "name": chrom.name,
         "length": chrom.length,
         "bins": n_bins(chrom.length, bin_size),
-        "het_sites": int(len(chrom.het_positions)),
-        "het_bins": het_bins,
-        "derived_hom_sites": len(chrom.records) - int(len(chrom.het_positions)),
+        "het_sites": len(het),
+        "het_bins": len(np.unique(het // bin_size)),
+        "derived_hom_sites": len(chrom.records) - len(het),
         "trees": chrom.trees,
-        "last_het_position": int(chrom.het_positions[-1]) if len(chrom.het_positions) else None,
+        "last_het_position": int(het[-1]) if len(het) else None,
         "longest_het_gap_bp": gap,
         "longest_het_gap_start": gap_start,
-        "longest_hetfree_bins": longest_hetfree_bins(chrom.het_positions, chrom.length, bin_size),
-        "het_positions_sha256": positions_digest(chrom.het_positions),
+        "longest_hetfree_bins": longest_hetfree_bins(het, chrom.length, bin_size),
+        "het_positions_sha256": positions_digest(het),
         "seeds": chrom.seeds,
     }
 
@@ -285,8 +274,6 @@ def simulate_genome(
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    truth_path = Path(truth_path)
-    truth_path.parent.mkdir(parents=True, exist_ok=True)
     psmcfa = out_dir / PSMCFA_NAME
     vcf_plain = out_dir / "genome.vcf"
     vcf_tmp = out_dir / "genome.vcf.partial"
@@ -308,7 +295,7 @@ def simulate_genome(
     os.replace(psmcfa_tmp, psmcfa)
 
     versions = software_versions()
-    files = {"psmcfa": {"name": PSMCFA_NAME, "sha256": sha256_file(psmcfa)}}
+    files = {"psmcfa": {"name": PSMCFA_NAME, "sha256": provenance.sha256_file(psmcfa)}}
     if write_vcf:
         source = f"psmc-rs experiment pipeline; msprime {versions['msprime']}, tskit {versions['tskit']}"
         with open(vcf_tmp, "w", encoding="ascii", newline="\n") as f:
@@ -317,7 +304,7 @@ def simulate_genome(
                 f.writelines(vcf_lines(chrom))
         os.replace(vcf_tmp, vcf_plain)
         gz = bgzip_and_index(vcf_plain)
-        files["vcf"] = {"name": gz.name, "sha256": sha256_file(gz)}
+        files["vcf"] = {"name": gz.name, "sha256": provenance.sha256_file(gz)}
 
     if tmrca_path is not None:
         write_tmrca_track(chroms, Path(tmrca_path))
@@ -340,7 +327,7 @@ def simulate_genome(
     }
     if model.name == config.ZIGZAG.name:
         record["stdpopsim_check"] = _zigzag_check()
-    _write_json(truth_path, record)
+    write_json(Path(truth_path), record)
     return record
 
 
@@ -351,9 +338,11 @@ def _zigzag_check() -> Dict:
         return {"passed": None, "reason": f"stdpopsim not importable: {exc}"}
 
 
-def _write_json(path: Path, obj: Dict) -> None:
+def write_json(path: Path, obj: Dict) -> None:
+    """Write ``obj`` as indented JSON, keys in their order, through a temporary file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".partial")
-    tmp.write_text(json.dumps(obj, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, path)
 
 
@@ -496,5 +485,5 @@ if __name__ == "__main__":
 __all__ = [
     "Chromosome", "PSMCFA_NAME", "VCF_NAME", "longest_het_gap", "longest_hetfree_bins", "n_bins", "psmcfa_bins",
     "psmcfa_record", "read_tmrca_track",
-    "seeds_for", "simulate_chromosome", "simulate_genome", "tmrca_intervals", "write_tmrca",
+    "seeds_for", "simulate_chromosome", "simulate_genome", "tmrca_intervals", "write_json", "write_tmrca",
 ]

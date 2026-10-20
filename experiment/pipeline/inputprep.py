@@ -39,13 +39,17 @@ from __future__ import annotations
 import gzip
 import hashlib
 import os
+import platform
+import re
 import subprocess
 import sys
+import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
-from . import config
+from . import config, provenance, simulate
 
 FASTA_LINE_WIDTH = 60
 SYMBOLS = ("T", "K", "N")  # the bins fq2psmcfa writes: called, heterozygous, missing
@@ -66,6 +70,12 @@ class Intervals:
 
     starts: "object"  # numpy int64 array
     ends: "object"
+
+    @classmethod
+    def empty(cls) -> "Intervals":
+        import numpy as np
+
+        return cls(np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64))
 
     def __len__(self) -> int:
         return len(self.starts)
@@ -123,9 +133,7 @@ def uncallable_runs(length: int, missing_fraction: float, mean_run_bp: float, rn
         starts.append(s[keep])
         ends.append(np.minimum(e[keep], length))
         pos = int(bounds[-1])
-    s = np.concatenate(starts) if starts else np.zeros(0, dtype=np.int64)
-    e = np.concatenate(ends) if ends else np.zeros(0, dtype=np.int64)
-    return Intervals(s, e)
+    return Intervals(np.concatenate(starts), np.concatenate(ends)) if starts else Intervals.empty()
 
 
 def complement(runs: Intervals, length: int) -> Intervals:
@@ -293,13 +301,14 @@ class Vcf:
 
     def contigs(self) -> List[Tuple[str, int]]:
         """``(name, length)`` of the ``##contig`` lines, in order."""
-        import re
+        matches = (re.match(r"##contig=<ID=([^,>]+),length=(\d+)", line) for line in self.header)
+        return [(m.group(1), int(m.group(2))) for m in matches if m]
 
-        out = []
-        for line in self.header:
-            m = re.match(r"##contig=<ID=([^,>]+),length=(\d+)", line)
-            if m:
-                out.append((m.group(1), int(m.group(2))))
+    def by_chrom(self) -> Dict[str, List[VcfRecord]]:
+        """The records of each chromosome, in file order."""
+        out: Dict[str, List[VcfRecord]] = {}
+        for rec in self.records:
+            out.setdefault(rec.chrom, []).append(rec)
         return out
 
 
@@ -329,10 +338,7 @@ def mask_vcf(vcf: Vcf, mask: Dict[str, Intervals], note: str) -> Tuple[Vcf, Dict
 
     kept: List[VcfRecord] = []
     removed = {"het": 0, "hom": 0}
-    by_chrom: Dict[str, List[VcfRecord]] = {}
-    for rec in vcf.records:
-        by_chrom.setdefault(rec.chrom, []).append(rec)
-    for chrom, recs in by_chrom.items():
+    for chrom, recs in vcf.by_chrom().items():
         iv = mask.get(chrom)
         ok = iv.contains(np.array([r.pos for r in recs])) if iv is not None else np.zeros(len(recs), dtype=bool)
         for rec, good in zip(recs, ok.tolist()):
@@ -415,18 +421,16 @@ def consensus_fasta(
     """``(chrom, FASTA record, counts)`` for every chromosome, in order."""
     import numpy as np
 
-    by_chrom: Dict[str, List[VcfRecord]] = {}
-    for rec in vcf.records:
-        by_chrom.setdefault(rec.chrom, []).append(rec)
+    by_chrom = vcf.by_chrom()
     for name, length in chromosomes:
-        rng = np.random.default_rng(reference_seed(model, replicate, name, experiment))
-        seq = consensus_sequence(length, by_chrom.get(name, []), mask[name], rng)
+        seed = reference_seed(model, replicate, name, experiment)
+        seq = consensus_sequence(length, by_chrom.get(name, []), mask[name], np.random.default_rng(seed))
         counts = {
             "name": name,
             "length": length,
             "n_sites": int(np.count_nonzero(seq == ord("N"))),
             "het_sites": int(np.isin(seq, np.frombuffer(b"MRWSYK", dtype=np.uint8)).sum()),
-            "reference_seed": reference_seed(model, replicate, name, experiment),
+            "reference_seed": seed,
         }
         yield name, fasta_record(name, seq), counts
 
@@ -462,15 +466,11 @@ def read_psmcfa(path: Path) -> Dict[str, bytes]:
     out: Dict[str, bytes] = {}
     for chunk in data.split(b">")[1:]:
         head, _, body = chunk.partition(b"\n")
-        name = head.split()[0].decode("ascii") if head.split() else ""
+        name = head.split()[0].decode("ascii") if head.strip() else ""
         if name in out:
             raise ValueError(f"{path}: sequence {name} appears twice")
         out[name] = body.replace(b"\n", b"").replace(b"\r", b"")
     return out
-
-
-def bin_counts(bins: bytes) -> Dict[str, int]:
-    return {s: bins.count(s.encode()) for s in SYMBOLS}
 
 
 def confusion(exact: bytes, other: bytes) -> Dict[str, int]:
@@ -531,10 +531,6 @@ def compare_bins(exact: Dict[str, bytes], other: Dict[str, bytes]) -> Dict:
     }
 
 
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 # ---------------------------------------------------------------------------
 # generate_multihetsep.py cross-check
 # ---------------------------------------------------------------------------
@@ -577,28 +573,8 @@ def first_difference(a: Sequence[str], b: Sequence[str]) -> Optional[Dict]:
 # ---------------------------------------------------------------------------
 
 
-def _write_json(path: Path, obj: Dict) -> None:
-    import json
-
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".partial")
-    tmp.write_text(json.dumps(obj, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
-
-
-def _sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def step_mask(args) -> int:
     """Draw a callable mask, write it as BED, and write the VCF of the callable records."""
-    from . import simulate
-
     if not str(args.vcf_out).endswith(".vcf.gz"):
         raise SystemExit("--vcf-out must end in .vcf.gz")
     vcf = read_vcf(Path(args.vcf))
@@ -619,7 +595,7 @@ def step_mask(args) -> int:
     plain = Path(str(args.vcf_out)[: -len(".gz")])
     write_vcf(plain, masked)
     gz = simulate.bgzip_and_index(plain)
-    _write_json(
+    simulate.write_json(
         Path(args.record),
         {
             "experiment": args.experiment,
@@ -633,8 +609,8 @@ def step_mask(args) -> int:
                              if spec else None) for name, _ in chroms},
             "summary": summary,
             "vcf": counts,
-            "files": {"bed": {"name": Path(args.bed_out).name, "sha256": _sha256(Path(args.bed_out))},
-                      "vcf": {"name": gz.name, "sha256": _sha256(gz)}},
+            "files": {"bed": {"name": Path(args.bed_out).name, "sha256": provenance.sha256_file(Path(args.bed_out))},
+                      "vcf": {"name": gz.name, "sha256": provenance.sha256_file(gz)}},
         },
     )
     print(f"[mask] {args.mask_name} rep{args.replicate}: missing fraction "
@@ -649,7 +625,7 @@ def step_consensus(args) -> int:
     mask = read_bed(Path(args.mask))
     chroms = vcf.contigs()
     for name, _ in chroms:
-        mask.setdefault(name, Intervals(*_np_empty()))  # no row: nothing callable
+        mask.setdefault(name, Intervals.empty())  # no row: nothing callable
     counts: List[Dict] = []
 
     def records() -> Iterator[bytes]:
@@ -658,7 +634,7 @@ def step_consensus(args) -> int:
             yield rec
 
     run_fq2psmcfa(Path(args.fq2psmcfa), records(), Path(args.out), args.bin_size)
-    _write_json(
+    simulate.write_json(
         Path(args.record),
         {
             "experiment": args.experiment,
@@ -667,7 +643,7 @@ def step_consensus(args) -> int:
             "fasta": "hom: base, het: IUPAC code, uncallable: N; other sites: uniform ACGT (seed reference/<chrom>)",
             "fq2psmcfa": [Path(args.fq2psmcfa).name, "-s", str(args.bin_size), "-"],
             "chromosomes": counts,
-            "files": {"psmcfa": {"name": Path(args.out).name, "sha256": _sha256(Path(args.out))}},
+            "files": {"psmcfa": {"name": Path(args.out).name, "sha256": provenance.sha256_file(Path(args.out))}},
         },
     )
     print(f"[consensus] rep{args.replicate}: {sum(c['n_sites'] for c in counts)} N sites, "
@@ -675,17 +651,12 @@ def step_consensus(args) -> int:
     return 0
 
 
-def _np_empty():
-    import numpy as np
-
-    return np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64)
-
-
 def step_bins(args) -> int:
     """Compare the bins of every route with the exact route's; fail when an asserted route differs."""
+    exact_bytes = Path(args.exact).read_bytes()
     exact = read_psmcfa(Path(args.exact))
     out: Dict = {
-        "exact": {"file": Path(args.exact).name, "counts": _totals(exact), "bins": sum(len(b) for b in exact.values())},
+        "exact": {"file": Path(args.exact).name, "counts": _bin_counts(exact), "bins": sum(len(b) for b in exact.values())},
         "routes": {},
         "asserted_identical": list(args.assert_identical or []),
     }
@@ -694,14 +665,14 @@ def step_bins(args) -> int:
         name, _, path = spec.partition("=")
         other = read_psmcfa(Path(path))
         comp = compare_bins(exact, other)
-        comp["counts"] = _totals(other)
+        comp["counts"] = _bin_counts(other)
         comp["file"] = Path(path).name
-        comp["bytes_identical"] = Path(path).read_bytes() == Path(args.exact).read_bytes()
+        comp["bytes_identical"] = Path(path).read_bytes() == exact_bytes
         out["routes"][name] = comp
         if name in out["asserted_identical"] and not comp["totals"]["identical"]:
             failed.append(name)
     out["assertions_passed"] = not failed
-    _write_json(Path(args.out), out)
+    simulate.write_json(Path(args.out), out)
     for name, comp in out["routes"].items():
         t = comp["totals"]
         print(f"[bins] {name}: {t['differing']} of {t['bins_exact']} bins differ from the exact route "
@@ -712,20 +683,18 @@ def step_bins(args) -> int:
     return 0
 
 
-def _totals(seqs: Dict[str, bytes]) -> Dict[str, int]:
-    total = {s: 0 for s in SYMBOLS}
-    for bins in seqs.values():
-        for k, v in bin_counts(bins).items():
-            total[k] += v
-    return total
+def _bin_counts(seqs: Dict[str, bytes]) -> Dict[str, int]:
+    """The bins of each symbol in all the sequences."""
+    return {s: sum(bins.count(s.encode()) for bins in seqs.values()) for s in SYMBOLS}
+
+
+def _rows_sha256(rows: Sequence[str]) -> str:
+    """SHA-256 of rows written as lines."""
+    return hashlib.sha256(("\n".join(rows) + "\n").encode()).hexdigest()
 
 
 def step_crosscheck(args) -> int:
     """Compare psmc-rs's multihetsep with generate_multihetsep.py's, chromosome by chromosome."""
-    import platform
-    import tempfile
-    import time
-
     vcf = read_vcf(Path(args.vcf))
     mask = read_bed(Path(args.mask))
     ours = multihetsep_rows(Path(args.multihetsep))
@@ -756,8 +725,8 @@ def step_crosscheck(args) -> int:
                     "rows_psmc_rs": len(mine),
                     "identical": diff is None,
                     "first_difference": diff,
-                    "sha256_generate_multihetsep": sha256_bytes(("\n".join(theirs) + "\n").encode()),
-                    "sha256_psmc_rs": sha256_bytes(("\n".join(mine) + "\n").encode()),
+                    "sha256_generate_multihetsep": _rows_sha256(theirs),
+                    "sha256_psmc_rs": _rows_sha256(mine),
                     "seconds": round(seconds, 2),
                 }
             )
@@ -765,11 +734,11 @@ def step_crosscheck(args) -> int:
                   f"psmc-rs, {'identical' if diff is None else 'DIFFERENT at row %d' % diff['row']}")
     extra = sorted(set(ours) - {c["name"] for c in chroms})
     ok = all(c["identical"] for c in chroms) and not extra
-    _write_json(
+    simulate.write_json(
         Path(args.out),
         {
             "script": Path(args.script).name,
-            "script_sha256": _sha256(Path(args.script)),
+            "script_sha256": provenance.sha256_file(Path(args.script)),
             "python": platform.python_version(),
             "command": ["python", Path(args.script).name, "--mask", "<chrom>.bed.gz", "<chrom>.vcf.gz"],
             "chromosomes": chroms,
@@ -844,7 +813,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "Intervals", "SYMBOLS", "Vcf", "VcfRecord", "bin_counts", "callable_mask", "compare_bins",
+    "Intervals", "SYMBOLS", "Vcf", "VcfRecord", "callable_mask", "compare_bins",
     "complement", "confusion", "consensus_fasta", "consensus_sequence", "differing", "fasta_record",
     "first_difference", "iupac", "mask_seed", "mask_summary", "mask_vcf", "multihetsep_rows", "read_bed",
     "read_psmcfa", "read_vcf", "reference_seed", "run_fq2psmcfa", "split_vcf_by_chrom", "uncallable_runs",
