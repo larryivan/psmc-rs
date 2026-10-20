@@ -101,15 +101,12 @@ impl VcfModeArg {
 /// `--bin-callable`.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum BinCallableArg {
-    /// Fit each called bin by its callable bases when the input counts them
-    /// exactly (VCF); every called bin as BIN_SIZE bases otherwise
+    /// Weigh each called bin by its callable bases when they are counted exactly (VCF)
     #[default]
     Auto,
     /// Treat every called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do
     Ignore,
-    /// As auto, and also fit multihetsep's approximate counts, which follow
-    /// the reader's placement of uncalled sites (worse than auto in the
-    /// validation)
+    /// As auto, and also weigh multihetsep's bins by their approximate counts
     Approximate,
 }
 
@@ -301,41 +298,47 @@ fn parse_fraction(s: &str) -> Result<f64, String> {
 #[derive(Args, Debug, Clone, PartialEq)]
 #[command(next_help_heading = "Input")]
 pub struct InputArgs {
-    /// Input format; auto recognises psmcfa, multihetsep and VCF from the
-    /// content
-    #[arg(long, value_enum, default_value_t = FormatArg::Auto)]
+    /// Input format; auto recognises it from the content
+    #[arg(long, value_enum, value_name = "FORMAT", default_value_t = FormatArg::Auto)]
     pub input_format: FormatArg,
 
-    /// Bases per bin: the bin size of VCF and multihetsep input (fq2psmcfa
-    /// -s), and the time and Ne scaling for every format (give the -s of a
-    /// psmcfa file)
+    /// Bases per bin: bins VCF and multihetsep input (fq2psmcfa -s), scales every format.
+    ///
+    /// The time and Ne scaling uses it for every format: for a psmcfa file,
+    /// give the -s it was made with.
     #[arg(long, value_name = "BP", default_value_t = DEFAULT_BIN_SIZE, alias = "mhs-bin-size", value_parser = positive_usize)]
     pub bin_size: usize,
 
-    /// Split each sequence into HMM rows of at most this many bins; the rows
-    /// of a sequence stay one HMM chain, so results do not change
+    /// Split sequences into HMM rows of at most BINS bins; results do not change.
+    ///
+    /// The rows of a sequence stay one HMM chain.
     #[arg(long, value_name = "BINS", value_parser = positive_usize)]
     pub batch_size: Option<usize>,
 
-    /// Multihetsep: the two haplotypes to compare, as 0-based positions in
-    /// the alleles column (0,1 is the first diploid sample)
+    /// Multihetsep: the two haplotypes, 0-based positions in the alleles column.
+    ///
+    /// 0,1 is the first diploid sample.
     #[arg(long, value_name = "I,J", default_value = "0,1", value_parser = parse_pair)]
     pub mhs_pair: (usize, usize),
 
-    /// VCF mask mode: the sample whose genotypes are read (required when the
-    /// VCF has several). Consensus mode reads INFO fields that bcftools
-    /// computes over all samples together, so give it a one-sample VCF
+    /// VCF mask mode: the sample to read; consensus mode needs a one-sample VCF.
+    ///
+    /// Mask mode reads this sample's genotypes; the name is required when
+    /// the VCF has several samples. Consensus mode reads INFO fields that
+    /// bcftools computes over all samples together, so give it a one-sample
+    /// VCF; the name is then only checked against that sample.
     #[arg(long, value_name = "NAME")]
     pub vcf_sample: Option<String>,
 
-    /// VCF: consensus mode reproduces `vcfutils.pl vcf2fq | fq2psmcfa` on an
+    /// VCF: consensus (vcf2fq | fq2psmcfa) or mask mode.
+    ///
+    /// Consensus mode reproduces `vcfutils.pl vcf2fq | fq2psmcfa` on an
     /// all-sites VCF from `bcftools call -c`; mask mode reads the sample's
-    /// genotypes with callable masks; auto picks one from the first records
-    #[arg(long, value_enum, default_value_t = VcfModeArg::Auto)]
+    /// genotypes with callable masks; auto picks one from the first records.
+    #[arg(long, value_enum, value_name = "MODE", default_value_t = VcfModeArg::Auto)]
     pub vcf_mode: VcfModeArg,
 
-    /// VCF: a BED of callable sites (repeatable; a site must be in every
-    /// one)
+    /// VCF: a BED of callable sites (repeatable; a site must be in every one)
     #[arg(long = "vcf-mask", value_name = "BED")]
     pub vcf_mask: Vec<PathBuf>,
 
@@ -343,19 +346,21 @@ pub struct InputArgs {
     #[arg(long = "vcf-negative-mask", value_name = "BED")]
     pub vcf_negative_mask: Vec<PathBuf>,
 
-    /// VCF mask mode: use records whose FILTER is not PASS or '.' (by
-    /// default they are treated as missing)
+    /// VCF mask mode: use records whose FILTER is not PASS or '.'.
+    ///
+    /// By default they are treated as missing.
     #[arg(long)]
     pub vcf_keep_filtered: bool,
 
-    /// VCF mask mode: end each sequence at its last VCF record instead of
-    /// the ##contig length
+    /// VCF mask mode: end sequences at their last record, not the ##contig length
     #[arg(long)]
     pub vcf_no_contig_end: bool,
 
-    /// VCF consensus mode: INFO/DP bounds of a called base (vcf2fq -d, -D).
-    /// auto uses a third and twice the mean depth (the psmc README), which reads
-    /// the file twice; vcf2fq's own defaults are 3:100000
+    /// VCF consensus mode: INFO/DP bounds (vcf2fq -d, -D); auto = a third and twice the mean.
+    ///
+    /// The bounds of the depth of a called base. auto, the psmc README's
+    /// choice, reads the file twice to find the mean depth; vcf2fq's own
+    /// defaults are 3:100000.
     #[arg(long, value_name = "auto|MIN:MAX", default_value = "auto", value_parser = parse_depth)]
     pub depth: DepthThresholds,
 
@@ -371,13 +376,17 @@ pub struct InputArgs {
     #[arg(long, value_name = "Q", default_value_t = DEFAULT_MIN_QUAL)]
     pub min_qual: u64,
 
-    /// VCF and multihetsep: drop a sequence with fewer called bases than
-    /// this (fq2psmcfa -g; 0 disables)
+    /// VCF and multihetsep: drop sequences with fewer called bases (fq2psmcfa -g; 0 disables).
+    ///
+    /// A sequence with fewer called bases than this is left out of the
+    /// analysis.
     #[arg(long, value_name = "BASES", default_value_t = DEFAULT_MIN_GOOD_BASES)]
     pub min_good_bases: u64,
 
-    /// VCF and multihetsep: drop a sequence whose called bases are less
-    /// than this share of its length (fq2psmcfa's fixed 0.2; 0 disables)
+    /// VCF and multihetsep: drop sequences whose called share is lower (0 disables).
+    ///
+    /// A sequence whose called bases are less than this share of its length
+    /// is left out of the analysis (fq2psmcfa's fixed 0.2).
     #[arg(long, value_name = "SHARE", default_value_t = DEFAULT_MIN_GOOD_FRACTION, value_parser = parse_fraction)]
     pub min_good_fraction: f64,
 }
@@ -596,11 +605,14 @@ pub struct Cli {
 /// The subcommands.
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    /// Write an input (VCF, multihetsep or psmcfa) as psmcfa or
-    /// multihetsep, read exactly as inference reads it
+    /// Write an input as psmcfa or multihetsep.
+    ///
+    /// The input (VCF, multihetsep or psmcfa) is read exactly as inference
+    /// reads it.
     Convert(ConvertArgs),
-    /// Report how suitable an input is for PSMC, read exactly as inference
-    /// reads it
+    /// Report how suitable an input is for PSMC.
+    ///
+    /// The input is read exactly as inference reads it.
     Qc(QcArgs),
 }
 
@@ -625,19 +637,22 @@ pub struct ConvertArgs {
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub psmcfa: Option<PathBuf>,
 
-    /// Write the heterozygous sites of every sequence as multihetsep, as
-    /// generate_multihetsep.py writes them (VCF and multihetsep input)
+    /// Write every sequence as multihetsep (VCF and multihetsep input).
+    ///
+    /// The heterozygous sites, as generate_multihetsep.py writes them.
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub multihetsep: Option<PathBuf>,
 
-    /// Write one multihetsep file per sequence, PREFIX.<name>.multihetsep
-    /// (with .gz added, gzip-compressed, when PREFIX ends in .gz), as MSMC2
-    /// takes them
+    /// Write one multihetsep file per sequence, PREFIX.<name>.multihetsep.
+    ///
+    /// With .gz added, gzip-compressed, when PREFIX ends in .gz; MSMC2 takes
+    /// one file per chromosome.
     #[arg(long, value_name = "PREFIX", help_heading = "Output")]
     pub multihetsep_per_chrom: Option<PathBuf>,
 
-    /// Write the input QC report as JSON ('-' for stdout; the result lines
-    /// then go to stderr)
+    /// Write the input QC report as JSON ('-' for stdout).
+    ///
+    /// With '-', the result lines go to stderr.
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub qc_json: Option<PathBuf>,
 
@@ -657,13 +672,15 @@ pub struct QcArgs {
     #[command(flatten)]
     pub input: InputArgs,
 
-    /// Also write the report as JSON ('-' for stdout; the text report then
-    /// goes to stderr)
+    /// Also write the report as JSON ('-' for stdout).
+    ///
+    /// With '-', the text report goes to stderr.
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub json: Option<PathBuf>,
 
-    /// Check the input for a bootstrap with trunks of this many bins (the
-    /// inference default is 500000)
+    /// Check the input for a bootstrap with trunks of BINS bins.
+    ///
+    /// Inference's default trunk is 500000 bins.
     #[arg(long, value_name = "BINS", value_parser = positive_usize, help_heading = "Report")]
     pub bootstrap_block_size: Option<usize>,
 
@@ -675,17 +692,17 @@ pub struct QcArgs {
 /// Inference: `psmc-rs INPUT OUTPUT N_ITER [options]`.
 #[derive(Args, Debug, Clone, PartialEq)]
 pub struct InferArgs {
-    /// Open the interactive interface (the other arguments fill its form)
+    /// Open the terminal interface; the other arguments fill its form
     #[arg(long)]
     pub tui: bool,
 
-    /// Input file: psmcfa, multihetsep or VCF (gzip/bgzip allowed); a
-    /// directory takes its first input file
+    /// Input file: psmcfa, multihetsep or VCF (gzip/bgzip allowed).
+    ///
+    /// A directory takes its first input file by name.
     #[arg(value_name = "INPUT", required_unless_present = "tui")]
     pub input_file: Option<PathBuf>,
 
-    /// Output JSON of the fitted parameters; the HTML report is written
-    /// next to it
+    /// Output JSON of the fitted parameters; the HTML report is written next to it
     #[arg(value_name = "OUTPUT", required_unless_present = "tui")]
     pub output_file: Option<PathBuf>,
 
@@ -697,24 +714,30 @@ pub struct InferArgs {
     #[command(flatten)]
     pub input: InputArgs,
 
-    /// Worker threads for the E-step (sequences in parallel), the
-    /// bootstrap and TMRCA decoding (default: one per core); results do not
-    /// depend on it
+    /// Worker threads (default: one per core); results do not depend on it.
+    ///
+    /// They run the E-step (sequences in parallel), the bootstrap and the
+    /// TMRCA decoding.
     #[arg(long, value_name = "N", value_parser = positive_usize, help_heading = "Run")]
     pub threads: Option<usize>,
 
-    /// Free-parameter pattern of the time intervals (C psmc -p); default
-    /// C psmc's 4+5*3+4, or one lambda per interval with --n-steps alone
+    /// Free-parameter pattern of the time intervals (C psmc -p; default 4+5*3+4).
+    ///
+    /// Without it, the model has C psmc's default pattern 4+5*3+4, or one
+    /// lambda per interval when --n-steps is given alone.
     #[arg(long, help_heading = "Model")]
     pub pattern: Option<String>,
 
-    /// Number of time intervals minus one (C psmc's n; 1 to 9999); taken
-    /// from --pattern, and checked against it when both are given
+    /// Number of time intervals minus one (C psmc's n; 1 to 9999; default: from --pattern).
+    ///
+    /// Taken from --pattern, and checked against it when both are given;
+    /// alone, it fits one lambda per interval.
     #[arg(long, value_name = "N", value_parser = parse_n_steps, help_heading = "Model")]
     pub n_steps: Option<usize>,
 
-    /// Initial t_max, in units of 2N0 generations (C psmc -t; 1 to 200, the
-    /// range the M-step searches)
+    /// Initial t_max, in units of 2N0 generations (C psmc -t; 1 to 200).
+    ///
+    /// 1 to 200 is the range the M-step searches.
     #[arg(long, default_value_t = DEFAULT_T_MAX, value_parser = parse_t_max, help_heading = "Model")]
     pub t_max: f64,
 
@@ -722,10 +745,12 @@ pub struct InferArgs {
     #[arg(long, value_name = "RATIO", default_value_t = DEFAULT_TR_RATIO, value_parser = positive_f64, help_heading = "Model")]
     pub tr_ratio: f64,
 
-    /// Initial theta0 per bin (default: -ln(1 - K/L) from the data, as C
-    /// psmc; when the fit uses the callable bases of each bin, see
-    /// --bin-callable, the theta0 at which the called bins' expected
-    /// heterozygous bins, the sum of 1 - exp(-theta0 c / BIN_SIZE), equal K)
+    /// Initial theta0 per bin (default: from the data, as C psmc).
+    ///
+    /// By default -ln(1 - K/L), as C psmc computes it; when the fit uses the
+    /// callable bases of each bin (see --bin-callable), the theta0 at which
+    /// the called bins' expected heterozygous bins, the sum of
+    /// 1 - exp(-theta0 c / BIN_SIZE), equal K.
     #[arg(long, value_parser = positive_f64, help_heading = "Model")]
     pub theta0: Option<f64>,
 
@@ -733,9 +758,10 @@ pub struct InferArgs {
     #[arg(long, value_parser = positive_f64, help_heading = "Model")]
     pub rho0: Option<f64>,
 
-    /// Start from the parameters saved in this JSON output of an earlier
-    /// run (C psmc -i), instead of from theta0, rho0, t_max and flat
-    /// lambdas; its pattern and n_steps are used unless given
+    /// Start from a saved fit, the JSON output of an earlier run (C psmc -i).
+    ///
+    /// Its parameters replace theta0, rho0, t_max and flat lambdas as the
+    /// start; its pattern and n_steps are used unless given.
     #[arg(long, value_name = "FILE", conflicts_with_all = ["theta0", "rho0", "t_max", "tr_ratio"], help_heading = "Model")]
     pub init_params: Option<PathBuf>,
 
@@ -743,36 +769,44 @@ pub struct InferArgs {
     #[arg(long, default_value = "2.5e-8", value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
-    /// How to model bins that are partly callable. A VCF read with its
-    /// callable mask counts exactly how many bases of each bin are
-    /// callable: auto fits each called bin by them (a bin of c callable
-    /// bases emits as c of BIN_SIZE bases), which removes most of the bias
-    /// that missing data scattered in short runs cause (theta, times and Ne
-    /// low by the missing share or more); ignore treats every called bin
-    /// as BIN_SIZE bases, as fq2psmcfa and C psmc do. Multihetsep does
-    /// not say which sites are uncalled, so its counts follow the reader's
-    /// placement of them and auto does not use them; approximate does,
-    /// which made the fit worse in the validation. Either way multihetsep
-    /// with missing data biases theta and Ne low (QC warns above 5% of the
-    /// sites uncalled): fit the VCF with its mask instead. psmcfa input
-    /// records no counts and is fitted as C psmc fits it in every mode
+    /// How to fit partly callable bins: by their callable bases (auto) or as full bins (ignore).
+    ///
+    /// A VCF read with its callable mask counts exactly how many bases of
+    /// each bin are callable: auto fits each called bin by them (a bin of c
+    /// callable bases emits as c of BIN_SIZE bases), which removes most of
+    /// the bias that missing data scattered in short runs cause (theta,
+    /// times and Ne low by the missing share or more); ignore treats every
+    /// called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do.
+    ///
+    /// Multihetsep does not say which sites are uncalled, so its counts
+    /// follow the reader's placement of them and auto does not use them;
+    /// approximate does, which made the fit worse in the validation. Either
+    /// way multihetsep with missing data biases theta and Ne low (QC warns
+    /// above 5% of the sites uncalled): fit the VCF with its mask instead.
+    ///
+    /// psmcfa input records no counts and is fitted as C psmc fits it in
+    /// every mode.
     #[arg(long, value_enum, value_name = "MODE", default_value_t = BinCallableArg::Auto, help_heading = "Model")]
     pub bin_callable: BinCallableArg,
 
-    /// Cap on the L-BFGS iterations of an M-step, which otherwise runs to
-    /// convergence, as C psmc's does (in 10 to 20 iterations with C psmc's
-    /// patterns, up to about 70 with one lambda per interval)
+    /// Cap on the L-BFGS iterations of an M-step, which otherwise runs to convergence.
+    ///
+    /// The M-step converges, as C psmc's does, in 10 to 20 iterations with
+    /// C psmc's patterns and up to about 70 with one lambda per interval.
     #[arg(long, value_name = "N", default_value_t = DEFAULT_MSTEP_ITERS, value_parser = positive_usize, help_heading = "Model")]
     pub mstep_iters: usize,
 
-    /// Weight of the M-step penalty on differences of log lambda between
-    /// neighbouring intervals (0 = C psmc's objective)
+    /// Weight of the M-step's penalty on log-lambda differences of neighbouring intervals.
+    ///
+    /// 0 is C psmc's objective.
     #[arg(long, value_name = "WEIGHT", default_value_t = 0.0, value_parser = non_negative_f64, help_heading = "Model")]
     pub smooth_lambda: f64,
 
-    /// Bootstrap replicates to fit (0: none). As C psmc's bootstrap, each
-    /// draws trunks of the input with replacement and is fitted from a fresh
-    /// start, or from the --init-params parameters when given (C psmc -i -b)
+    /// Bootstrap replicates to fit (0: none).
+    ///
+    /// As in C psmc's bootstrap, each draws trunks of the input with
+    /// replacement and is fitted from a fresh start, or from the
+    /// --init-params parameters when given (C psmc -i -b).
     #[arg(
         long,
         value_name = "N",
@@ -781,8 +815,9 @@ pub struct InferArgs {
     )]
     pub bootstrap: usize,
 
-    /// Bootstrap trunk size in bins (C splitfa; 500000 = 50 Mb at 100 bp
-    /// bins); it must leave the input at least two trunks
+    /// Bootstrap trunk size in bins (C splitfa; 500000 = 50 Mb at 100 bp bins).
+    ///
+    /// It must leave the input at least two trunks.
     #[arg(long, value_name = "BINS", default_value_t = DEFAULT_BOOTSTRAP_TRUNK, value_parser = positive_usize, alias = "bootstrap-trunk-size", help_heading = "Bootstrap")]
     pub bootstrap_block_size: usize,
 
@@ -799,10 +834,12 @@ pub struct InferArgs {
     #[arg(long, value_name = "N", help_heading = "Bootstrap")]
     pub bootstrap_iters: Option<usize>,
 
-    /// Directory of the replicate files (replicate_NNN.json and .psmc) and
-    /// the summary (default: OUTPUT with .bootstrap instead of .json); an
-    /// earlier bootstrap's replicate_NNN.* and summary.* files there are
-    /// removed first
+    /// Directory of the replicate and summary files (default: OUTPUT with .bootstrap).
+    ///
+    /// The replicates are written as replicate_NNN.json and .psmc, the
+    /// summary as summary.tsv and .json; the default directory is OUTPUT
+    /// with .bootstrap instead of .json. An earlier bootstrap's
+    /// replicate_NNN.* and summary.* files there are removed first.
     #[arg(long, value_name = "DIR", help_heading = "Bootstrap")]
     pub bootstrap_dir: Option<PathBuf>,
 
@@ -810,31 +847,38 @@ pub struct InferArgs {
     #[arg(long, help_heading = "Run")]
     pub no_progress: bool,
 
-    /// Print only results and warnings: no input description, model
-    /// summary or QC report (QC warnings are still listed)
+    /// Print only results and warnings.
+    ///
+    /// No input description, model summary or QC report; QC warnings are
+    /// still listed.
     #[arg(long, short = 'q', help_heading = "Run")]
     pub quiet: bool,
 
-    /// Write the input QC report as JSON ('-' for stdout; the result lines
-    /// then go to stderr)
+    /// Write the input QC report as JSON ('-' for stdout).
+    ///
+    /// With '-', the result lines go to stderr.
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub qc_json: Option<PathBuf>,
 
-    /// Also write C psmc's .psmc output (rounds 0 to N_ITER), for
-    /// psmc_plot.pl and other tools made for C psmc. The file does not
+    /// Also write C psmc's .psmc output (rounds 0 to N_ITER), for psmc_plot.pl.
+    ///
+    /// For psmc_plot.pl and other tools made for C psmc. The file does not
     /// record the bin size: plot it with psmc_plot.pl -s BIN_SIZE -u MU -g
-    /// GEN_YEARS -n N_ITER (its defaults are -s 100 -u 2.5e-8 -g 25 -n 20)
+    /// GEN_YEARS -n N_ITER (its defaults are -s 100 -u 2.5e-8 -g 25 -n 20).
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub psmc_out: Option<PathBuf>,
 
-    /// Write the posterior TMRCA of every bin as TSV (gzip when FILE ends in
-    /// .gz), each state at its average coalescent time in years; the HTML
-    /// report then shows the TMRCA panels
+    /// Write the posterior TMRCA of every bin as TSV (gzip when FILE ends in .gz).
+    ///
+    /// Each state is at its average coalescent time in years; the HTML
+    /// report then shows the TMRCA panels.
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub tmrca_out: Option<PathBuf>,
 
-    /// Years per generation, for the time axis of the Ne curve (report),
-    /// the bootstrap summary and the TMRCA output
+    /// Years per generation, for the time axes.
+    ///
+    /// The time axes of the Ne curve (report), the bootstrap summary and the
+    /// TMRCA output.
     #[arg(long, value_name = "YEARS", default_value_t = DEFAULT_GEN_YEARS, value_parser = positive_f64, alias = "tmrca-gen-years", help_heading = "Output")]
     pub gen_years: f64,
 }
@@ -1106,22 +1150,58 @@ mod tests {
         assert!(defaults.ignored_flags(InputFormat::Psmcfa, None).is_empty());
     }
 
+    /// Inference, `convert` and `qc` with their arguments.
+    fn commands_and_arguments() -> Vec<(String, clap::Arg)> {
+        use clap::CommandFactory;
+        let cmd = Cli::command();
+        std::iter::once(&cmd)
+            .chain(cmd.get_subcommands())
+            .flat_map(|c| {
+                c.get_arguments()
+                    .map(|a| (c.get_name().to_string(), a.clone()))
+            })
+            .collect()
+    }
+
+    /// `-h` lists each argument on one line, with the first paragraph of its
+    /// documentation; `--help` adds the rest.
+    #[test]
+    fn every_argument_has_a_one_line_summary() {
+        for (command, arg) in commands_and_arguments() {
+            let id = arg.get_id().to_string();
+            let help = arg.get_help().map(ToString::to_string);
+            let help = help.unwrap_or_else(|| panic!("{command} {id} has no help"));
+            assert!(
+                !help.contains('\n') && help.len() <= 90,
+                "{command} {id}: {help}"
+            );
+            if let Some(long) = arg.get_long_help() {
+                assert!(long.to_string().starts_with(&help), "{command} {id}");
+            }
+        }
+    }
+
     /// Only mask mode selects a sample: consensus mode reads INFO fields,
     /// which bcftools computes over every sample of the VCF.
     #[test]
     fn the_sample_help_names_the_mode_that_uses_it() {
-        use clap::CommandFactory;
-        let cmd = Cli::command();
-        for c in std::iter::once(&cmd).chain(cmd.get_subcommands()) {
-            let help = c
-                .get_arguments()
-                .find(|a| a.get_id() == "vcf_sample")
-                .and_then(|a| a.get_help())
-                .unwrap()
-                .to_string();
-            assert!(help.starts_with("VCF mask mode: the sample"), "{help}");
-            assert!(help.contains("Consensus mode reads INFO fields"), "{help}");
-            assert!(help.contains("one-sample VCF"), "{help}");
+        let sample: Vec<clap::Arg> = commands_and_arguments()
+            .into_iter()
+            .filter_map(|(_, a)| (a.get_id() == "vcf_sample").then_some(a))
+            .collect();
+        assert_eq!(sample.len(), 3, "inference, convert and qc");
+        for arg in sample {
+            let summary = arg.get_help().unwrap().to_string();
+            assert!(
+                summary.starts_with("VCF mask mode: the sample"),
+                "{summary}"
+            );
+            assert!(summary.contains("one-sample VCF"), "{summary}");
+            let details = arg.get_long_help().unwrap().to_string();
+            assert!(
+                details.contains("Consensus mode reads INFO fields"),
+                "{details}"
+            );
         }
     }
 

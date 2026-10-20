@@ -882,8 +882,8 @@ outputs under `tests/data/c_reference/` come with C psmc's license
 
 ## Option reference
 
-From `psmc-rs --help` (0.2.0), which gives the full text. Inference,
-`convert` and `qc` share the input options.
+The summaries of `psmc-rs -h` (0.2.0); `psmc-rs --help` gives the full text.
+Inference, `convert` and `qc` share the input options.
 
 **Input** (inference, `convert`, `qc`)
 
@@ -893,7 +893,7 @@ From `psmc-rs --help` (0.2.0), which gives the full text. Inference,
 | `--bin-size BP` | 100 | bases per bin: bins VCF and multihetsep input (fq2psmcfa `-s`), scales every format |
 | `--batch-size BINS` | none | split sequences into HMM rows of at most BINS bins; results do not change |
 | `--mhs-pair I,J` | `0,1` | multihetsep: the two haplotypes, 0-based positions in the alleles column |
-| `--vcf-sample NAME` | | VCF mask mode: the sample (required when there are several); consensus mode needs a one-sample VCF |
+| `--vcf-sample NAME` | | VCF mask mode: the sample to read (required when there are several); consensus mode needs a one-sample VCF |
 | `--vcf-mode auto\|consensus\|mask` | `auto` | VCF: consensus (`vcf2fq \| fq2psmcfa`) or mask mode |
 | `--vcf-mask BED` | | VCF: callable sites (repeatable; a site must be in every one) |
 | `--vcf-negative-mask BED` | | VCF: sites to exclude (repeatable) |
@@ -901,7 +901,7 @@ From `psmc-rs --help` (0.2.0), which gives the full text. Inference,
 | `--vcf-no-contig-end` | off | VCF mask mode: end sequences at their last record, not the `##contig` length |
 | `--depth auto\|MIN:MAX` | `auto` | VCF consensus mode: INFO/DP bounds (vcf2fq `-d`, `-D`); auto = a third and twice the mean |
 | `--min-mapq MQ` | 10 | VCF consensus mode: minimum INFO/MQ (vcf2fq `-Q`) |
-| `--indel-window BP` | 5 | VCF consensus mode: bases masked around indels (vcf2fq `-l`) |
+| `--indel-window BP` | 5 | VCF consensus mode: bases masked on each side of an indel (vcf2fq `-l`) |
 | `--min-qual Q` | 10 | VCF consensus mode: minimum base quality (fq2psmcfa `-q`) |
 | `--min-good-bases BASES` | 10000 | VCF and multihetsep: drop sequences with fewer called bases (fq2psmcfa `-g`; 0 disables) |
 | `--min-good-fraction SHARE` | 0.2 | VCF and multihetsep: drop sequences whose called share is lower (0 disables) |
