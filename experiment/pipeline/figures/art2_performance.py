@@ -1,38 +1,35 @@
 """The article's Fig 2: psmc-rs is fast and lean (E3, E7).
 
-One row of three panels that follow one rule: cost on the y axis, C psmc in
-orange high in the panel, psmc-rs in blue low. a and c show the advantage
-as a double arrow with a bold fold label ("8.6× faster"; 7 pt bold, 3 pt
-from its arrow, on two lines in c's narrow gap between the columns); b
-shows it as the empty height on a linear axis from zero. There is no
-legend: each program is named once per panel beside its data, in a text
-colour darker than its mark (:data:`.style.ORANGE_TEXT`,
-:data:`.style.BLUE_TEXT`), as one line of name and value ("C psmc  74 min"),
-and no grid: every number the text cites is printed on the data, to the
-precision that reproduces the printed folds (74 min over 8.65 min and over
-18.3 s give 8.6× and 243×; 104.3 min over 12.1 min, the text's medians,
-give 8.6×).
+One row of three panels on one rule: cost on the y axis, C psmc in orange
+high in the panel, psmc-rs in blue low. a and c show the advantage as a
+double arrow with a bold fold label ("8.6× faster"; 7 pt, 3 pt from its
+arrow, on two lines in c's narrow gap between the columns); b shows it as
+the empty height on a linear axis from zero. No legend and no grid: each
+program is named once per panel beside its data, in a text colour darker
+than its mark (:data:`.style.ORANGE_TEXT`, :data:`.style.BLUE_TEXT`), as
+one line of name and value ("C psmc  74 min"), and every number the text
+cites is printed on the data, to the precision that reproduces the printed
+folds (74 min over 8.65 min and over 18.3 s give 8.6× and 243×; 104.3 min
+over 12.1 min, the text's medians, give 8.6×).
 
 * a, b (E3, ``E3_table2``): the thread-scaling genome
   (``config.E3.thread_scaling_size_mb``: 3,000 Mb, 30 chromosomes of 100
   Mb in production), fitted for the recipe's EM iterations, each run alone
   on its machine; points are the medians of the repeats. The x axis is
   psmc-rs's threads (``config.E3.thread_scaling_threads``: 1, 2, 4, 8, 16
-  and 30), shared by a and b, which have the same width so that their
-  thread ticks line up. psmc-rs is 0.2 (``rs02``) with its default
-  settings, circles on a 1 pt line; C psmc is single-threaded, so it is its
-  one measurement (a square at one thread) drawn flat across the thread
-  counts. E3's runs of psmc-rs 0.1 (``rs01``) are not drawn.
+  and 30); a and b have the same width, so that their thread ticks line
+  up. psmc-rs 0.2 (``rs02``, default settings) is circles on a 1 pt line;
+  C psmc is single-threaded, so its one measurement (a square at one
+  thread) is drawn flat across the thread counts. E3's runs of psmc-rs 0.1
+  (``rs01``) are not drawn.
 
   * a: wall time (log scale). Two arrows give the speed-up over C psmc
     (``speedup_vs_c``) on one thread (per-core efficiency, 8.6×) and on
     the most threads (243× on 30; drawn when they are at least four times
     the fewest, so that the two labels have room), with C psmc's time and
-    psmc-rs's on one thread and on the most threads printed beside them
-    (the thread axis runs far enough past the most threads for that last
-    value to end inside it). The upper limit puts C psmc's line at the
-    same height of the axes as in b, so that the two orange lines of these
-    small multiples align.
+    psmc-rs's on one thread and on the most threads printed beside them.
+    The upper limit puts C psmc's line at the same height of the axes as in
+    b, so that the two orange lines of these small multiples align.
     psmc-rs fits each sequence on one thread, in parallel across
     sequences, so the speed-up on many threads needs as many sequences of
     similar length (for the caption to say).
@@ -47,14 +44,12 @@ give 8.6×).
   ``rs-psmcfa``, every genome; circles), jittered within their column in a
   fixed order (sorted by sample, a seeded generator), with ink bars at the
   medians (as wide as the jitter, so that the narrow psmc-rs band shows
-  around its bar rather than as a fringe of it), n under each name (on the
-  baseline of a's and b's x labels), each median printed by its cloud and
-  an arrow between the medians giving their ratio. The y axis runs a
-  tenth past its top tick, so that the tick clears the title row as a's
-  and b's do. The absolute times are not comparable with a's (a shared
-  node), the ratio is. Without ``E7_fits`` (or its ``wall_seconds``) a and
-  b take the row alone; the figure's spec must list ``E7_fits`` for the
-  pipeline to redraw it when the cohort changes.
+  around its bar), n under each name (on the baseline of a's and b's x
+  labels), each median printed by its cloud and an arrow between the
+  medians giving their ratio. The absolute times are not comparable with
+  a's (a shared node), the ratio is. Without ``E7_fits`` a and b take the
+  row alone; the figure's spec must list ``E7_fits`` for the pipeline to
+  redraw it when the cohort changes.
 
 C psmc's or psmc-rs's marks, labels and arrows are left out where their
 rows are missing (the small profiles time fewer threads and genomes).
@@ -220,7 +215,7 @@ def _panel_time(ax, th, wall, sp, c_wall: Optional[float], c_frac: Optional[floa
         _lab(ax, fmt_time(wall[-1]), (th[-1], wall[-1]), 3.5, 0, va="center", color=style.BLUE_TEXT)
 
 
-def _memory_limits(mem, c_mem: Optional[float]) -> Tuple[float, List[float], float]:
+def _memory_axis(mem, c_mem: Optional[float]) -> Tuple[float, List[float], float]:
     """b's y axis: its tick step, its ticks and its upper limit (the lower is zero)."""
     values = [v for v in list(mem) + ([c_mem] if c_mem is not None else []) if math.isfinite(v) and v > 0]
     top = max(values) * 1.13 if values else 1.0  # room above the highest line for its name
@@ -229,12 +224,11 @@ def _memory_limits(mem, c_mem: Optional[float]) -> Tuple[float, List[float], flo
     return step, ticks, max(q * round(top / q), max(values or [0]) * 1.08)
 
 
-def _panel_memory(ax, th, mem, c_mem: Optional[float]) -> None:
-    """b: peak memory against threads, on a linear axis from zero."""
+def _panel_memory(ax, th, mem, c_mem: Optional[float], step: float, ticks: List[float], top: float) -> None:
+    """b: peak memory against threads, on a linear axis from zero to ``top`` (:func:`_memory_axis`)."""
     from matplotlib.ticker import FixedLocator, FuncFormatter
 
     _thread_axis(ax, th)
-    step, ticks, top = _memory_limits(mem, c_mem)
     ax.set_ylim(0, top)
     ax.yaxis.set_major_locator(FixedLocator(ticks))
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: f"{v:,.0f}" if step >= 1 else f"{v:g}"))
@@ -257,21 +251,43 @@ def _cohort(src: Source):
     if not src.has("E7_fits"):
         return None
     f = src.table("E7_fits")
-    if "wall_seconds" not in f.columns:
-        return None
-    f = f[f.wall_seconds.notna() & (f.wall_seconds > 0)]
-    if "threads" in f.columns:
-        f = f[f.threads == 1]
+    f = f[f.wall_seconds.notna() & (f.wall_seconds > 0) & (f.threads == 1)]
     out = tuple(f[f.route == r].sort_values("sample_id").wall_seconds.to_numpy(dtype=float)
                 for r in (ROUTE_C, ROUTE_RS))
     return out if any(len(v) for v in out) else None
 
 
+def _column_names(ax, columns: Sequence[Tuple[float, str, int]]) -> None:
+    """Each ``(x, name, n)`` of c: the name on the baseline of a's and b's tick labels, n under it on their x labels'.
+
+    So the row ends on one line (two-line tick labels would set "C psmc"
+    lower than "psmc-rs", whose first line has no capital). matplotlib sets
+    a line of text at least as tall as "lp": a tick label's top is the
+    tick's length and pad below the spine, an x label's top labelpad below
+    the tick labels' bottom.
+    """
+    import matplotlib as mpl
+    from matplotlib.font_manager import FontProperties
+
+    renderer = ax.figure.canvas.get_renderer()
+
+    def lp(size: float) -> Tuple[float, float]:
+        _w, h, d = renderer.get_text_width_height_descent("lp", FontProperties(size=size), ismath=False)
+        return h * 72.0 / ax.figure.dpi, d * 72.0 / ax.figure.dpi
+
+    (h_tick, d_tick), (h_lab, d_lab) = lp(style.TICK_PT), lp(ax.xaxis.label.get_fontsize())
+    tick_top = mpl.rcParams["xtick.major.size"] + mpl.rcParams["xtick.major.pad"]
+    drops = (tick_top + h_tick - d_tick, tick_top + h_tick + mpl.rcParams["axes.labelpad"] + h_lab - d_lab)
+    for x, name, n in columns:
+        for s, drop in zip((name, f"({n:,})"), drops):
+            ax.annotate(s, xy=(x, 0), xycoords=ax.get_xaxis_transform(), xytext=(0, -drop),
+                        textcoords="offset points", ha="center", va="baseline", fontsize=style.TICK_PT,
+                        color=style.INK, annotation_clip=False)
+
+
 def _panel_cohort(ax, c_s, rs_s) -> None:
     """c: wall time per genome over the 1000 Genomes cohort, C psmc against psmc-rs, with the ratio of medians."""
-    import matplotlib as mpl
     import numpy as np
-    from matplotlib.font_manager import FontProperties
     from matplotlib.ticker import FixedLocator, FuncFormatter, MaxNLocator
 
     longest = max(float(np.max(v)) for v in (c_s, rs_s) if len(v))
@@ -295,26 +311,7 @@ def _panel_cohort(ax, c_s, rs_s) -> None:
                     linewidth=style.LW_DATA, solid_capstyle="butt", zorder=style.Z_DATA)
     ax.set_xlim(-0.55, 1.55)
     ax.set_xticks([])
-    # Each program's name on the baseline of a's and b's tick labels, and n under it on the baseline of
-    # their x labels, so that the row ends on one line (two-line tick labels would set "C psmc" lower than
-    # "psmc-rs", whose first line has no capital). matplotlib sets a line of text at least as tall as "lp":
-    # a tick label's top is the tick's length and pad below the spine, an x label's top labelpad below the
-    # tick labels' bottom.
-    renderer = ax.figure.canvas.get_renderer()
-
-    def lp(size: float) -> Tuple[float, float]:
-        _w, h, d = renderer.get_text_width_height_descent("lp", FontProperties(size=size), ismath=False)
-        return h * 72.0 / ax.figure.dpi, d * 72.0 / ax.figure.dpi
-
-    (h_tick, d_tick), (h_lab, d_lab) = lp(style.TICK_PT), lp(ax.xaxis.label.get_fontsize())
-    tick_top = mpl.rcParams["xtick.major.size"] + mpl.rcParams["xtick.major.pad"]
-    drops = (tick_top + h_tick - d_tick, tick_top + h_tick + mpl.rcParams["axes.labelpad"] + h_lab - d_lab)
-    for x, name, v in ((xc, "C psmc", cm), (xr, "psmc-rs", rm)):
-        if v.size:
-            for s, drop in zip((name, f"({v.size:,})"), drops):
-                ax.annotate(s, xy=(x, 0), xycoords=ax.get_xaxis_transform(), xytext=(0, -drop),
-                            textcoords="offset points", ha="center", va="baseline", fontsize=style.TICK_PT,
-                            color=style.INK, annotation_clip=False)
+    _column_names(ax, [(x, name, v.size) for x, name, v in ((xc, "C psmc", cm), (xr, "psmc-rs", rm)) if v.size])
     ticks = MaxNLocator(nbins=4, steps=[1, 1.5, 3, 5, 10]).tick_values(0, longest / scale)
     ticks = [t for t in ticks if t >= 0]
     ax.set_ylim(0, ticks[-1] * COHORT_HEAD)  # the top tick's label clear of the title, as in a and b
@@ -380,7 +377,7 @@ def draw(src: Source):
     sp = rs.speedup_vs_c.to_numpy(dtype=float)
     if c_wall is not None:
         sp = np.where(np.isfinite(sp), sp, c_wall / wall)
-    rows = c_rows if c_row is not None else rs
+    rows = rs if c_rows.empty else c_rows
     n_chrom = int(rows.chromosomes.iloc[0]) if not rows.empty else 0
     title = f"Simulated genome, {n_chrom} {style.TIMES} {size / n_chrom:g} Mb" if n_chrom else (
         f"Simulated genome, {size:,} Mb")
@@ -390,9 +387,10 @@ def draw(src: Source):
     ax_a = fig.add_axes((0.1, 0.2, 0.2, 0.6))
     ax_b = fig.add_axes((0.4, 0.2, 0.2, 0.6))
     axes, widths = [ax_a, ax_b], [None, None]
-    c_frac = c_mem / _memory_limits(mem, c_mem)[2] if c_mem is not None and math.isfinite(c_mem) else None
+    mem_axis = _memory_axis(mem, c_mem)
+    c_frac = c_mem / mem_axis[2] if c_mem is not None and math.isfinite(c_mem) else None
     _panel_time(ax_a, th, wall, sp, c_wall, c_frac)
-    _panel_memory(ax_b, th, mem, c_mem)
+    _panel_memory(ax_b, th, mem, c_mem, *mem_axis)
     style.panel_title(ax_a, title)
     style.panel_title(ax_b, title)  # the same genome: small multiples
     if cohort is not None:
