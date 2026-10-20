@@ -38,9 +38,10 @@ callable. The VCF route weighs each bin by its callable bases. Fig 7's
 population curves, the cohort spread and Fig S5 use the psmcfa fits of
 every genome (61 to 113 per population); Fig S5 adds the median of each
 population's default genomes' VCF fits, and ``E7_route_shift`` measures
-the difference between the routes on the default set. psmc-rs and C psmc are compared on the identical psmcfa
-(as E2: interval by interval on the window of 1% to 99% of coalescences
-under C psmc's fit, :func:`..metrics.interval_diff`).
+the difference between the routes on the default set. psmc-rs and C psmc
+are compared on the identical psmcfa (as E2: interval by interval on the
+window of 1% to 99% of coalescences under C psmc's fit,
+:func:`..metrics.interval_diff`).
 
 Tables (``tables/``):
 
@@ -76,6 +77,7 @@ import gzip
 import json
 import math
 import sys
+from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
@@ -89,7 +91,6 @@ from .e5 import main_fit_difference, trunk_count
 
 NAME = "E7"
 MODULE = "experiment.pipeline.experiments.e7"
-RS_ROUTES = ("rs-psmcfa", "rs-vcf", "rs-split")
 ROUTES = ("rs-psmcfa", "rs-vcf", "c", "rs-split")
 TABLES = {
     "samples": "E7_samples.csv",
@@ -106,6 +107,7 @@ TABLES = {
     "throughput": "E7_throughput.csv",
 }
 KIND_OF = {"rs-psmcfa": "fit-rs-psmcfa", "rs-vcf": "fit-rs-vcf", "rs-split": "fit-rs-split", "c": "fit-c"}
+SPLIT_INTERVALS = 4  # the intervals of the recipe's first window (its "4+"), each free in split_pattern
 
 
 # ---------------------------------------------------------------------------
@@ -209,91 +211,69 @@ def jobs(ctx: Context) -> List[Job]:
     fit_s = costs.rs02_seconds(mb, cfg.inference)
     out: List[Job] = []
     report_inputs: List[Path] = [data.samples, data.qc_samples, data.manifest]
+
+    def add(kind: str, sid: str, record: bool = True, **job) -> None:
+        """A job; the report reads its outputs and (``record``) its provenance record."""
+        out.append(Job(id=job_id(kind, sid), **job))
+        report_inputs.extend(out[-1].outputs + ([lay.record(kind, sid)] if record else []))
+
+    def rs_fit(route: str, s: kg1000.Sample, inputs: List[Path], what: str, inference_cfg=cfg.inference,
+               psmc_out: bool = True, extra: Sequence[str] = (), mem_gb: float = costs.rs02_gb,
+               est_seconds: float = fit_s, settings: Optional[Dict] = None) -> None:
+        """psmc-rs 0.2 on ``inputs[0]`` (the route's JSON, and its .psmc if ``psmc_out``)."""
+        sid = s.sample_id
+        psmc = lay.fit_psmc(route, sid) if psmc_out else None
+        add(KIND_OF[route], sid,
+            command=tools.rs02_fit(rs_tool, inference_cfg, cfg.scaling, inputs[0], lay.fit_json(route, sid),
+                                   threads=cfg.fit_threads, psmc_out=psmc, extra=extra),
+            inputs=inputs, outputs=[lay.fit_json(route, sid)] + ([psmc] if psmc else []), cores=cfg.fit_threads,
+            mem_gb=mem_gb, est_seconds=est_seconds,
+            settings={"inference": asdict(inference_cfg), "scaling": scaling, "threads": cfg.fit_threads,
+                      **(settings or {})},
+            tools=rs_ident, description=f"psmc-rs 0.2 on {sid}'s {what} ({s.population})")
+
     for s in samples:
         sid = s.sample_id
         psmcfa = data.psmcfa(sid)
-        route = "rs-psmcfa"
-        psmc_out = lay.fit_psmc(route, sid) if s.default else None
-        outputs = [lay.fit_json(route, sid)] + ([psmc_out] if psmc_out else [])
-        out.append(Job(
-            id=job_id(KIND_OF[route], sid),
-            command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.fit_json(route, sid),
-                                   threads=cfg.fit_threads, psmc_out=psmc_out),
-            inputs=[psmcfa], outputs=outputs, cores=cfg.fit_threads, mem_gb=costs.rs02_gb, est_seconds=fit_s,
-            settings={"inference": inference, "scaling": scaling, "threads": cfg.fit_threads},
-            tools=rs_ident, description=f"psmc-rs 0.2 on {sid}'s psmcfa ({s.population})",
-        ))
-        report_inputs += outputs + [lay.record(KIND_OF[route], sid)]
+        rs_fit("rs-psmcfa", s, [psmcfa], "psmcfa", psmc_out=s.default)
         if s.default:
-            vcf_inputs = [data.vcf(sid), data.mask_all, data.nonpass_all]
-            route = "rs-vcf"
-            outputs = [lay.fit_json(route, sid), lay.fit_psmc(route, sid)]
-            out.append(Job(
-                id=job_id(KIND_OF[route], sid),
-                command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, data.vcf(sid), lay.fit_json(route, sid),
-                                       threads=cfg.fit_threads, psmc_out=lay.fit_psmc(route, sid),
-                                       extra=vcf_fit_args(cfg, data)),
-                inputs=vcf_inputs, outputs=outputs, cores=cfg.fit_threads, mem_gb=e7c.vcf_fit_gb,
-                est_seconds=fit_s + 30.0,
-                settings={"inference": inference, "scaling": scaling, "threads": cfg.fit_threads,
-                          "vcf": {"min_good_fraction": cfg.min_good_fraction}},
-                tools=rs_ident, description=f"psmc-rs 0.2 on {sid}'s VCF with the strict mask ({s.population})",
-            ))
-            report_inputs += outputs + [lay.record(KIND_OF[route], sid)]
+            rs_fit("rs-vcf", s, [data.vcf(sid), data.mask_all, data.nonpass_all], "VCF with the strict mask",
+                   extra=vcf_fit_args(cfg, data), mem_gb=e7c.vcf_fit_gb, est_seconds=fit_s + 30.0,
+                   settings={"vcf": {"min_good_fraction": cfg.min_good_fraction}})
             if cfg.c_psmc:
-                out.append(Job(
-                    id=job_id("fit-c", sid),
+                add("fit-c", sid,
                     command=tools.c_psmc_fit(c_tool, cfg.inference, psmcfa, lay.fit_psmc("c", sid)),
                     inputs=[psmcfa], outputs=[lay.fit_psmc("c", sid)],
                     mem_gb=round(costs.c_psmc_gb_base + costs.c_psmc_gb_per_mb_longest * longest_mb, 2),
                     est_seconds=costs.c_psmc_s_per_mb_iter * mb * cfg.inference.n_iter,
                     settings={"inference": inference}, tools={c_tool.name: c_tool.identity},
-                    description=f"C psmc on {sid}'s psmcfa ({s.population})",
-                ))
-                report_inputs += [lay.fit_psmc("c", sid), lay.record("fit-c", sid)]
+                    description=f"C psmc on {sid}'s psmcfa ({s.population})")
         if s.bootstrap:
-            outputs = [lay.boot_main(sid), lay.boot_summary(sid, "json"), lay.boot_summary(sid, "tsv")]
-            out.append(Job(
-                id=job_id("boot-rs", sid),
+            add("boot-rs", sid,
                 command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.boot_main(sid),
                                        threads=cfg.bootstrap_threads,
                                        extra=bootstrap_args(cfg, sid, lay.boot_dir(sid))),
-                inputs=[psmcfa], outputs=outputs, cores=cfg.bootstrap_threads,
-                mem_gb=round(costs.rs02_gb * cfg.bootstrap_threads, 2),
+                inputs=[psmcfa],
+                outputs=[lay.boot_main(sid), lay.boot_summary(sid, "json"), lay.boot_summary(sid, "tsv")],
+                cores=cfg.bootstrap_threads, mem_gb=round(costs.rs02_gb * cfg.bootstrap_threads, 2),
                 est_seconds=fit_s + cfg.bootstrap_replicates * fit_s / max(cfg.bootstrap_threads, 1),
                 settings={"inference": inference, "scaling": scaling, "threads": cfg.bootstrap_threads,
                           "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": cfg.bootstrap_trunk_bins,
                                         "iterations": cfg.inference.n_iter}},
                 tools=rs_ident, seeds={"bootstrap": bootstrap_seed(sid)},
-                description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates) on {sid}",
-            ))
-            report_inputs += outputs + [lay.record("boot-rs", sid)]
+                description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates) on {sid}")
         if s.split_check:
-            route = "rs-split"
-            split = config.replace(cfg.inference, pattern=cfg.split_pattern)
-            outputs = [lay.fit_json(route, sid), lay.fit_psmc(route, sid)]
-            out.append(Job(
-                id=job_id(KIND_OF[route], sid),
-                command=tools.rs02_fit(rs_tool, split, cfg.scaling, psmcfa, lay.fit_json(route, sid),
-                                       threads=cfg.fit_threads, psmc_out=lay.fit_psmc(route, sid)),
-                inputs=[psmcfa], outputs=outputs, cores=cfg.fit_threads, mem_gb=costs.rs02_gb, est_seconds=fit_s,
-                settings={"inference": asdict(split), "scaling": scaling, "threads": cfg.fit_threads},
-                tools=rs_ident, description=f"psmc-rs 0.2 on {sid}'s psmcfa, first window split ({s.population})",
-            ))
-            report_inputs += outputs + [lay.record(KIND_OF[route], sid)]
+            rs_fit("rs-split", s, [psmcfa], "psmcfa, first window split",
+                   inference_cfg=config.replace(cfg.inference, pattern=cfg.split_pattern))
         if s.giab:
-            giab_inputs = [data.vcf(sid), data.giab_vcf, data.giab_bed, data.mask_all]
-            out.append(Job(
-                id=job_id("giab", sid),
+            add("giab", sid, record=False,
                 command=[paths.python(), "-m", MODULE, "giab", "--vcf", str(data.vcf(sid)), "--truth",
                          str(data.giab_vcf), "--truth-bed", str(data.giab_bed), "--mask", str(data.mask_all),
                          "--chromosomes", ",".join(cfg.chromosomes), "--sample", sid, "--out", str(lay.giab(sid))],
-                inputs=giab_inputs, outputs=[lay.giab(sid)], mem_gb=e7c.giab_gb, est_seconds=e7c.giab_s,
-                settings={"chromosomes": list(cfg.chromosomes)},
+                inputs=[data.vcf(sid), data.giab_vcf, data.giab_bed, data.mask_all], outputs=[lay.giab(sid)],
+                mem_gb=e7c.giab_gb, est_seconds=e7c.giab_s, settings={"chromosomes": list(cfg.chromosomes)},
                 tools={"pipeline": provenance.python_identity(["experiments/e7.py"])},
-                description=f"{sid}'s heterozygous SNVs against GIAB",
-            ))
-            report_inputs.append(lay.giab(sid))
+                description=f"{sid}'s heterozygous SNVs against GIAB")
     n_fits = sum(1 for j in out if "/fit-" in j.id)
     out.append(Job(
         id=f"{NAME}/report",
@@ -387,7 +367,7 @@ def vcf_records(path: Path, chromosomes: Sequence[str]) -> Iterator[Tuple[str, i
             if p[0] not in keep:
                 continue
             gt = p[9].split(":", 1)[0] if len(p) > 9 else "."
-            yield p[0], int(p[1]), p[3], p[4].split(","), p[6], [a for a in gt.replace("|", "/").split("/")]
+            yield p[0], int(p[1]), p[3], p[4].split(","), p[6], gt.replace("|", "/").split("/")
 
 
 def classify(ref: str, alts: List[str], gt: List[str]) -> Tuple[str, Optional[frozenset]]:
@@ -434,12 +414,8 @@ def giab_compare(vcf: Path, truth: Path, truth_bed: Path, mask: Path, chromosome
             truth_hets[(chrom, pos)] = alleles
     called = {k: a for k, (kind, a) in ours.items() if kind == "het-snv"}
     tp = sum(1 for k, a in called.items() if truth_hets.get(k) == a)
-    fn_kinds = {"nonpass": 0, "missing": 0, "het-other": 0, "hom": 0, "absent": 0, "het-snv": 0}
-    for k, a in truth_hets.items():
-        if called.get(k) == a:
-            continue
-        kind = ours.get(k, ("absent", None))[0]
-        fn_kinds[kind] += 1
+    # A missed truth site, by what the sample's VCF has there.
+    missed = Counter(ours.get(k, ("absent", None))[0] for k, a in truth_hets.items() if called.get(k) != a)
     fp, fn = len(called) - tp, len(truth_hets) - tp
     return {
         "sample_id": sample,
@@ -451,11 +427,11 @@ def giab_compare(vcf: Path, truth: Path, truth_bed: Path, mask: Path, chromosome
         "fn": fn,
         "precision": tp / len(called) if called else None,
         "recall": tp / len(truth_hets) if truth_hets else None,
-        "fn_nonpass": fn_kinds["nonpass"],
-        "fn_missing_gt": fn_kinds["missing"],
-        "fn_het_indel": fn_kinds["het-other"],
-        "fn_hom_or_absent": fn_kinds["hom"] + fn_kinds["absent"],
-        "fn_other_alleles": fn_kinds["het-snv"],
+        "fn_nonpass": missed["nonpass"],
+        "fn_missing_gt": missed["missing"],
+        "fn_het_indel": missed["het-other"],
+        "fn_hom_or_absent": missed["hom"] + missed["absent"],
+        "fn_other_alleles": missed["het-snv"],
     }
 
 
@@ -482,6 +458,11 @@ class SampleFits:
     windows: Dict[str, Tuple[float, float]]
     c: Optional[results.PsmcFile]
     runs: Dict[str, Dict]
+
+    @property
+    def routes(self) -> List[str]:
+        """The routes fitted, in the tables' order."""
+        return [r for r in ROUTES if r in self.fits]
 
 
 def load_sample(lay: Layout, cfg: config.E7, s: kg1000.Sample) -> SampleFits:
@@ -527,9 +508,7 @@ def _who(s: kg1000.Sample) -> Dict:
 def fit_rows(sf: SampleFits, cfg: config.E7) -> List[Dict]:
     n, bin_size = cfg.inference.n_iter, cfg.inference.bin_size
     rows = []
-    for route in ROUTES:
-        if route not in sf.fits:
-            continue
+    for route in sf.routes:
         fit = sf.fits[route]
         n0 = fit.n0(cfg.scaling.mu, bin_size)
         if route == "c":
@@ -552,22 +531,23 @@ def fit_rows(sf: SampleFits, cfg: config.E7) -> List[Dict]:
 
 
 def curve_rows(sf: SampleFits) -> List[Dict]:
-    rows = []
-    for route in ROUTES:
-        if route not in sf.curves:
-            continue
-        c = sf.curves[route]
-        for k, (y, ne) in enumerate(zip(c.years, c.ne)):
-            rows.append({"sample_id": sf.sample.sample_id, "route": route, "interval": k, "years": y, "ne": ne})
-    return rows
+    return [{"sample_id": sf.sample.sample_id, "route": route, "interval": k, "years": y, "ne": ne}
+            for route in sf.routes for k, (y, ne) in enumerate(zip(sf.curves[route].years, sf.curves[route].ne))]
+
+
+def display_grid(cfg: config.E7):
+    """The dense log grid of years of the population and bootstrap bands (``display_years``)."""
+    import numpy as np
+
+    lo_y, hi_y, npts = cfg.display_years
+    return np.logspace(math.log10(lo_y), math.log10(hi_y), int(npts))
 
 
 def pop_band_rows(fits: Sequence[SampleFits], cfg: config.E7) -> List[Dict]:
     """Per group (population, superpopulation, all) and rs route: median and spread across individuals."""
     import numpy as np
 
-    lo_y, hi_y, npts = cfg.display_years
-    years = np.logspace(math.log10(lo_y), math.log10(hi_y), int(npts))
+    years = display_grid(cfg)
     qs = (cfg.spread[0], 0.5, cfg.spread[1])
     groups: Dict[Tuple[str, str, str], List[SampleFits]] = {}
     for sf in fits:
@@ -635,13 +615,14 @@ def split_row(sf: SampleFits) -> Dict:
     fd, fs = sf.fits["rs-psmcfa"], sf.fits["rs-split"]
     window = sf.windows["rs-psmcfa"]
     diff = metrics.interval_diff(sf.curves["rs-split"], sf.curves["rs-psmcfa"], window)
+    k = SPLIT_INTERVALS
     cd, cs = sf.curves["rs-psmcfa"].ne, sf.curves["rs-split"].ne
-    first_split = cs[:4]
-    # The split fit's first window: its four intervals' log10 Ne averaged by their durations (comparable with the
-    # default pattern's single first lambda over the same span); the four intervals' range is reported too, since
-    # one genome barely constrains such short intervals and one of them can run away.
+    first_split = cs[:k]
+    # The split fit's first window: its intervals' log10 Ne averaged by their durations (comparable with the
+    # default pattern's single first lambda over the same span); their range is reported too, since one genome
+    # barely constrains such short intervals and one of them can run away.
     years = sf.curves["rs-split"].years
-    spans = [years[k + 1] - years[k] for k in range(4)]
+    spans = [years[i + 1] - years[i] for i in range(k)]
     first_split_mean = 10 ** (sum(w * math.log10(n) for w, n in zip(spans, first_split)) / sum(spans))
     return {
         **_who(sf.sample), "pattern_default": fd.pattern, "pattern_split": fs.pattern,
@@ -649,11 +630,11 @@ def split_row(sf: SampleFits) -> Dict:
         "rmse_log10_ne_split_vs_default_per_interval": diff.rmse,
         "max_abs_log10_ne_split_vs_default_per_interval": diff.max_abs,
         "ne_first_window_default": cd[0], "ne_first_window_split_min": min(first_split),
-        "ne_first_window_split_max": max(first_split), "ne_next_default": cd[4], "ne_next_split": cs[4],
-        "log10_first_vs_next_default": math.log10(cd[0] / cd[4]),
-        "log10_first_vs_next_split": math.log10(first_split_mean / cs[4]),
-        "log10_first_vs_next_split_lo": math.log10(min(first_split) / cs[4]),
-        "log10_first_vs_next_split_hi": math.log10(max(first_split) / cs[4]),
+        "ne_first_window_split_max": max(first_split), "ne_next_default": cd[k], "ne_next_split": cs[k],
+        "log10_first_vs_next_default": math.log10(cd[0] / cd[k]),
+        "log10_first_vs_next_split": math.log10(first_split_mean / cs[k]),
+        "log10_first_vs_next_split_lo": math.log10(min(first_split) / cs[k]),
+        "log10_first_vs_next_split_hi": math.log10(max(first_split) / cs[k]),
         "theta_rel_split_vs_default": fs.theta / fd.theta - 1.0,
     }
 
@@ -669,11 +650,11 @@ def bootstrap_rows(lay: Layout, cfg: config.E7, sf: SampleFits) -> Tuple[Dict, L
         if summary.get(key) != value:
             raise ValueError(f"{lay.boot_summary(sid)}: {key} {summary.get(key)}, expected {value}")
     skipped = set(summary.get("skipped_replicates", []))
-    reps = [(i, results.read_rs_json(lay.boot_replicate(sid, i)))
+    reps = [results.read_rs_json(lay.boot_replicate(sid, i))
             for i in range(1, cfg.bootstrap_replicates + 1) if i not in skipped]
     if len(reps) != summary.get("n_replicates"):
         raise ValueError(f"{sid}: {len(reps)} replicate files, summary.json counts {summary.get('n_replicates')}")
-    curves = [results.fit_from_rs(p).curve(sc.mu, sc.gen_years, bin_size) for _, p in reps]
+    curves = [results.fit_from_rs(p).curve(sc.mu, sc.gen_years, bin_size) for p in reps]
     main = results.read_rs_json(lay.boot_main(sid))
     differing = main_fit_mismatch(main, sf.params["rs-psmcfa"])
     window = sf.windows["c"] if "c" in sf.windows else sf.windows["rs-psmcfa"]
@@ -696,8 +677,7 @@ def bootstrap_rows(lay: Layout, cfg: config.E7, sf: SampleFits) -> Tuple[Dict, L
         "main_fit_fields_differing": ";".join(differing), "threads": cfg.bootstrap_threads,
         **_run_fields(run_record(lay.record("boot-rs", sid))),
     }
-    lo_y, hi_y, npts = cfg.display_years
-    years = np.logspace(math.log10(lo_y), math.log10(hi_y), int(npts))
+    years = display_grid(cfg)
     blo, bmed, bhi = band(curves, years, (cfg.band[0], 0.5, cfg.band[1]))
     rs_y = sf.curves["rs-psmcfa"].at(years)
     c_y = sf.curves["c"].at(years) if "c" in sf.curves else [None] * len(years)
@@ -758,7 +738,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     for s in samples:
         sf = load_sample(lay, cfg, s)
         fits.append(sf)
-        rows["samples"].append({**s.row(), "fit_routes": ";".join(r for r in ROUTES if r in sf.fits)})
+        rows["samples"].append({**s.row(), "fit_routes": ";".join(sf.routes)})
         rows["inputs"].append(input_row(s, qc[s.sample_id], nonpass, cfg))
         rows["fits"] += fit_rows(sf, cfg)
         rows["curves"] += curve_rows(sf)
@@ -776,16 +756,14 @@ def report(ctx: Context) -> Dict[str, Path]:
             rows["giab"].append(json.loads(lay.giab(s.sample_id).read_text()))
     rows["pop_bands"] = pop_band_rows(fits, cfg)
     rows["throughput"] = throughput_rows(fits, lay, cfg, [s.sample_id for s in samples if s.bootstrap])
-    written = {}
     for key, table in rows.items():
         write_csv(lay.table(key), table)
-        written[key] = lay.table(key)
     differ = [r for r in rows["bootstrap"] if not r["main_identical_to_fit"]]
     if differ:
         raise ValueError("the main fit of a bootstrap run differs from fit-rs-psmcfa's fit (psmc-rs's results must not "
                          "depend on --threads): " + "; ".join(f"{r['sample_id']}: {r['main_fit_fields_differing']}"
                                                              for r in differ))
-    return written
+    return {key: lay.table(key) for key in rows}
 
 
 # ---------------------------------------------------------------------------
