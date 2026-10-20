@@ -307,6 +307,7 @@ pub struct EmOptions<'a> {
     pub callable: Option<&'a CallableBases>,
 }
 
+/// [`em_train_with_options`] with the default options.
 pub fn em_train(
     model: &mut PsmcModel,
     rows: &[Vec<u8>],
@@ -322,21 +323,6 @@ pub fn em_train(
         config,
         EmOptions::default(),
     )
-}
-
-pub fn em_train_with_progress(
-    model: &mut PsmcModel,
-    rows: &[Vec<u8>],
-    row_starts: &[bool],
-    n_iter: usize,
-    config: &MStepConfig,
-    on_progress: Option<&mut dyn FnMut(EmProgressEvent)>,
-) -> Result<EmHistory> {
-    let opts = EmOptions {
-        on_progress,
-        ..EmOptions::default()
-    };
-    em_train_with_options(model, rows, row_starts, n_iter, config, opts)
 }
 
 fn cancelled_in(iter: usize, err: anyhow::Error) -> anyhow::Error {

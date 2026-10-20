@@ -18,7 +18,7 @@ use anyhow::{Result, bail, ensure};
 use crate::hmm::SufficientStats;
 use crate::model::PsmcModel;
 
-pub use crate::em::{EmHistory, EmProgressEvent, em_train, em_train_with_progress};
+pub use crate::em::{EmHistory, EmProgressEvent, em_train};
 use crate::progress;
 use crate::utils::{logit, sigmoid};
 
@@ -185,6 +185,7 @@ fn from_unconstrained(p: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
         .collect())
 }
 
+/// The M-step's new parameters ([`MStepOutcome::params`]).
 pub fn m_step_lbfgs(
     model: &PsmcModel,
     stats: &SufficientStats,
@@ -192,18 +193,7 @@ pub fn m_step_lbfgs(
     bounds: &[Bounds],
     config: &MStepConfig,
 ) -> Result<Vec<f64>> {
-    m_step_lbfgs_with_progress(model, stats, init_params, bounds, config, None)
-}
-
-pub fn m_step_lbfgs_with_progress(
-    model: &PsmcModel,
-    stats: &SufficientStats,
-    init_params: &[f64],
-    bounds: &[Bounds],
-    config: &MStepConfig,
-    on_progress: Option<&mut dyn FnMut(MStepProgress)>,
-) -> Result<Vec<f64>> {
-    m_step_lbfgs_with_outcome(model, stats, init_params, bounds, config, on_progress)
+    m_step_lbfgs_with_outcome(model, stats, init_params, bounds, config, None)
         .map(|outcome| outcome.params)
 }
 
@@ -248,9 +238,10 @@ pub struct MStepOutcome {
     pub stop: MStepStop,
 }
 
-/// [`m_step_lbfgs_with_progress`], also returning how many times the
-/// objective was evaluated, how many iterations ran and why the search
-/// stopped. See the [module documentation](self) for the search.
+/// The M-step from `init_params`, reporting its progress to `on_progress`:
+/// the new parameters, how many times the objective was evaluated, how
+/// many iterations ran and why the search stopped. See the [module
+/// documentation](self) for the search.
 pub fn m_step_lbfgs_with_outcome(
     model: &PsmcModel,
     stats: &SufficientStats,
