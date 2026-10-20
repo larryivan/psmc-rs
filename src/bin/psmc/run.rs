@@ -15,8 +15,8 @@ use psmc_rs::bootstrap::{
 };
 use psmc_rs::em::{EmHistory, EmOptions, EmProgressEvent, em_train_with_options};
 use psmc_rs::hmm::{
-    Cancelled, EStepOptions, EStepPhase, EStepProgress, TmrcaOptions, log_likelihood_with_options,
-    write_tmrca_posterior_tsv_with_options,
+    Cancelled, EStepOptions, EStepPhase, EStepProgress, TmrcaOptions, TmrcaReportData,
+    log_likelihood_with_options, write_tmrca_posterior_tsv_with_options,
 };
 use psmc_rs::io::input::{Dataset, SourceSummary};
 use psmc_rs::io::params::{
@@ -32,10 +32,10 @@ use psmc_rs::report::{
 };
 use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
-use crate::cli::{BinCallableArg, InferArgs, model_layout, usage_bail};
+use crate::cli::{BinCallableArg, InferArgs, InputArgs, model_layout, usage_bail};
 use crate::dataset::{
     callable_summary, counts_source, describe, ensure_usable, fit_uses_counts, ignored_options,
-    layout_model, load_input, loader_warnings, qc_report, resolve_input_path,
+    layout_model, load_input, loader_warnings, percent, qc_report, resolve_input_path,
 };
 use crate::output::{
     BOOTSTRAP_SUMMARY_FILES, FitRecord, check_destinations, is_stdout, save_fit,
@@ -135,6 +135,9 @@ struct BootstrapPlan {
     dir: PathBuf,
 }
 
+/// Trunk counts below this make coarse bootstrap bands.
+const FEW_TRUNKS: usize = 20;
+
 impl BootstrapPlan {
     /// The bootstrap of `cli`, if any, checked before any work is done;
     /// bootstrap options that cannot apply are usage errors.
@@ -170,10 +173,136 @@ impl BootstrapPlan {
                 .unwrap_or_else(|| default_bootstrap_dir(output)),
         }))
     }
+
+    /// The input as sequences to resample, with the number of trunks they
+    /// form, announced with what limits the bootstrap; an input too short
+    /// to vary is an error, before the main fit rather than after it.
+    fn resample(
+        &self,
+        obs: &Observations,
+        cli: &InferArgs,
+        sink: Sink,
+    ) -> Result<(Sequences, usize)> {
+        let seqs = observations_to_sequences(obs)?;
+        let trunks = bootstrap_trunk_count(&seqs.bins, self.trunk_size)
+            .context("--bootstrap-block-size is too large for this input")?;
+        sink(Event::Info(format!(
+            "Bootstrap: {} replicates of {} EM iterations, resampling {trunks} trunks of {} \
+             bins (seed {})",
+            self.replicates, self.em_iters, self.trunk_size, self.seed
+        )));
+        if let Some(path) = &cli.init_params {
+            sink(Event::Warning(format!(
+                "every bootstrap replicate starts from the parameters in {}, as the main fit \
+                 does (and C psmc -i -b); they were fitted to the whole input, so replicates \
+                 that run few EM iterations ({} here) stay close to them and the bands \
+                 understate the uncertainty further. For bands of the whole estimator, \
+                 bootstrap a fit from a fresh start",
+                path.display(),
+                self.em_iters
+            )));
+        }
+        if trunks < FEW_TRUNKS {
+            sink(Event::Warning(format!(
+                "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
+                 differ only in which of them they draw and the bands are coarse; a \
+                 smaller --bootstrap-block-size gives more trunks",
+                self.trunk_size
+            )));
+        }
+        Ok((seqs, trunks))
+    }
 }
 
-/// Trunk counts below this make coarse bootstrap bands.
-const FEW_TRUNKS: usize = 20;
+/// A bootstrap ready to run once the main start is known.
+struct Bootstrap {
+    plan: BootstrapPlan,
+    /// The input as sequences, to resample.
+    seqs: Sequences,
+    /// The number of trunks they form.
+    trunks: usize,
+    cfg: BootstrapConfig,
+    /// The saved parameters every replicate starts from (`--init-params`,
+    /// as C psmc -i -b); `None` for fresh starts.
+    start: Option<PsmcModel>,
+}
+
+impl Bootstrap {
+    /// Run the bootstrap of the fitted `model` and write its files: each
+    /// replicate's JSON and `.psmc` output, and the summary of the curves,
+    /// scaled by `(bin_size, gen_years)`.
+    fn run(
+        &self,
+        model: &PsmcModel,
+        mstep_config: &MStepConfig,
+        (bin_size, gen_years): (f64, f64),
+        cancel: &AtomicBool,
+        sink: Sink,
+        pool: &ThreadPool,
+    ) -> Result<BootstrapSummary> {
+        let cfg = &self.cfg;
+        let dir = self.plan.dir.as_path();
+        let progress = |done: usize| Event::Progress {
+            stage: Stage::Bootstrap,
+            done: done as u64,
+            total: cfg.replicates as u64,
+            iter: None,
+        };
+        if let Some(msg) = remove_earlier_bootstrap(dir, cfg.replicates)? {
+            sink(Event::Warning(msg));
+        }
+        sink(progress(0));
+        let on_done = |n: usize| sink(progress(n));
+        // A fresh start can be invalid for some replicates
+        // ([`invalid_replicates_warning`] named them); saved parameters are
+        // the main fit's start, checked before it.
+        let opts = BootstrapOptions {
+            cancel: Some(cancel),
+            thread_pool: Some(pool),
+            on_done: Some(&on_done),
+            start: self.start.as_ref(),
+            skip_invalid_starts: self.start.is_none(),
+        };
+        let replicates = run_bootstrap_sequences(&self.seqs, model, cfg, mstep_config, opts)?;
+        write_replicate_psmc(dir, &replicates)?;
+        let mut fitted = vec![false; cfg.replicates];
+        for r in &replicates {
+            fitted[r.index] = true;
+        }
+        let skipped: Vec<usize> = (1..=cfg.replicates).filter(|&n| !fitted[n - 1]).collect();
+        let models: Vec<PsmcModel> = replicates.into_iter().map(|r| r.model).collect();
+        let mut summary = summarize_bootstrap_models(
+            model,
+            &models,
+            bin_size,
+            gen_years,
+            cfg.trunk_size,
+            cfg.seed,
+        )?;
+        let skipped_note = if skipped.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; {} of {}, {} skipped",
+                summary.n_replicates,
+                cfg.replicates,
+                list_replicates(&skipped)
+            )
+        };
+        summary.skipped_replicates = skipped;
+        let (summary_tsv, summary_json) = write_bootstrap_summary(dir, &summary)?;
+        sink(Event::Output(format!(
+            "Bootstrap replicates (replicate_NNN.json, replicate_NNN.psmc{skipped_note}): {}",
+            dir.display()
+        )));
+        sink(Event::Output(format!(
+            "Bootstrap summary: {}, {}",
+            summary_tsv.display(),
+            summary_json.display()
+        )));
+        Ok(summary)
+    }
+}
 
 /// [`run_inference`] inside its pool.
 fn infer(
@@ -183,21 +312,23 @@ fn infer(
     progress_bars: bool,
     pool: &ThreadPool,
 ) -> Result<RunSummary> {
+    let missing = |what| anyhow!("missing {what}");
     let raw_input = cli
         .input_file
         .clone()
-        .ok_or_else(|| anyhow!("missing INPUT_FILE"))?;
+        .ok_or_else(|| missing("INPUT_FILE"))?;
     let output_file = cli
         .output_file
         .clone()
-        .ok_or_else(|| anyhow!("missing OUTPUT_FILE"))?;
-    let n_iter = cli.n_iter.ok_or_else(|| anyhow!("missing N_ITER"))?;
+        .ok_or_else(|| missing("OUTPUT_FILE"))?;
+    let n_iter = cli.n_iter.ok_or_else(|| missing("N_ITER"))?;
 
     // Settings that can be checked without the data fail first.
-    let saved = match &cli.init_params {
-        Some(path) => Some(saved_start(path, cli)?),
-        None => None,
-    };
+    let saved = cli
+        .init_params
+        .as_deref()
+        .map(|path| saved_start(path, cli))
+        .transpose()?;
     let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
     // The layout of the starting model: its free lambdas, and the time grid
     // on which QC checks the start.
@@ -205,7 +336,6 @@ fn infer(
         Some(model) => model.clone(),
         None => layout_model(cli.t_max, n_steps, pattern.clone(), cli.mu)?,
     };
-    let free_lambdas = layout.lam.len();
     let bootstrap = BootstrapPlan::of(cli, n_iter, &output_file)?;
 
     check_cancel(cancel)?;
@@ -224,106 +354,27 @@ fn infer(
         &report_html,
         bootstrap.as_ref(),
     )?;
-    let mut data = read_input(&input_file, cli, sink)?;
-    // Whether the fit weighs each bin by its callable bases.
-    let bin_callable = bin_callable_record(&data, cli.bin_callable);
-    for event in bin_callable_events(&bin_callable, &data, cli) {
-        sink(event);
-    }
-    let counted = bin_callable.model == CALLABLE_LENGTH_MODEL;
-
-    // Input QC, printed before the fit, also when no sequence is left (the
-    // report then says why). A QC error is only reported, so that it never
-    // stops a fit. It sees the counts whether or not the fit uses them.
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
-    let fit_counts = data.obs.callable.as_ref().filter(|_| counted);
-    let start = fit_start(cli, &layout, &data.obs.rows, fit_counts);
-    let qc = match qc_report(
-        &data,
-        cli.input.bin_size,
-        trunk,
-        Some(free_lambdas),
-        start,
-        cli.bin_callable,
-    ) {
-        Ok(report) => Some(report),
-        Err(e) => {
-            sink(qc_failed(e, cli.qc_json.as_deref()));
-            None
-        }
-    };
-    // Without the callable-length model the counts go, so that every pass
-    // (theta0, EM, the bootstrap, the decoding) fits C psmc's model.
-    if !counted {
-        data.obs.callable = None;
-    }
-    let data = data;
+    let (data, bin_callable, qc) = read_input(&input_file, cli, &layout, trunk, sink)?;
     let obs = &data.obs;
-    for line in loader_warnings(&data, qc.as_ref()) {
-        sink(Event::Warning(line));
-    }
-    if let Some(report) = &qc {
-        sink(qc_event(report));
-        if let Some(path) = &cli.qc_json {
-            write_qc_json(path, report)?;
-            if !is_stdout(path) {
-                sink(Event::Output(format!("QC report: {}", path.display())));
-            }
-        }
-    }
-    ensure_usable(&data)?;
-
-    // A bootstrap that cannot vary fails before the main fit, not after.
-    let boot_seqs = match &bootstrap {
-        Some(plan) => {
-            let seqs = observations_to_sequences(obs)?;
-            let trunks = bootstrap_trunk_count(&seqs.bins, plan.trunk_size)
-                .context("--bootstrap-block-size is too large for this input")?;
-            sink(Event::Info(format!(
-                "Bootstrap: {} replicates of {} EM iterations, resampling {trunks} trunks of {} \
-                 bins (seed {})",
-                plan.replicates, plan.em_iters, plan.trunk_size, plan.seed
-            )));
-            if let Some(path) = &cli.init_params {
-                sink(Event::Warning(format!(
-                    "every bootstrap replicate starts from the parameters in {}, as the main fit \
-                     does (and C psmc -i -b); they were fitted to the whole input, so replicates \
-                     that run few EM iterations ({} here) stay close to them and the bands \
-                     understate the uncertainty further. For bands of the whole estimator, \
-                     bootstrap a fit from a fresh start",
-                    path.display(),
-                    plan.em_iters
-                )));
-            }
-            if trunks < FEW_TRUNKS {
-                sink(Event::Warning(format!(
-                    "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
-                     differ only in which of them they draw and the bands are coarse; a \
-                     smaller --bootstrap-block-size gives more trunks",
-                    plan.trunk_size
-                )));
-            }
-            Some((seqs, trunks))
-        }
-        None => None,
-    };
+    let resampled = bootstrap
+        .as_ref()
+        .map(|plan| plan.resample(obs, cli, sink))
+        .transpose()?;
 
     let mut model = match saved {
-        Some(model) => {
-            sink(Event::Info(format!(
-                "Starting from the parameters in {}",
-                cli.init_params
-                    .as_deref()
-                    .unwrap_or(Path::new(""))
-                    .display()
-            )));
-            model
-        }
+        Some(model) => model,
         None => {
             let (theta0, rho0) = start_rates(cli, &obs.rows, obs.callable.as_ref())?;
             PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)?
         }
     };
+    if let Some(path) = &cli.init_params {
+        sink(Event::Info(format!(
+            "Starting from the parameters in {}",
+            path.display()
+        )));
+    }
     let (theta0, rho0) = (model.theta, model.rho);
     let tr_ratio = theta0 / rho0;
     sink(Event::Info(format!(
@@ -338,46 +389,25 @@ fn infer(
     // The replicates start where the main fit started, as C psmc does: from
     // a fresh start at its t_max and theta0/rho0 (-b), or from the saved
     // parameters (-i with -b).
-    let fresh_start = (model.t_max, tr_ratio);
-    let saved_start = cli.init_params.is_some().then(|| model.clone());
-    let boot = match (&bootstrap, &boot_seqs) {
-        (Some(plan), Some((seqs, trunks))) => {
-            let cfg = BootstrapConfig {
+    let boot = bootstrap
+        .zip(resampled)
+        .map(|(plan, (seqs, trunks))| Bootstrap {
+            cfg: BootstrapConfig {
                 replicates: plan.replicates,
                 trunk_size: plan.trunk_size,
                 seed: plan.seed,
                 em_iters: plan.em_iters,
-                t_max: fresh_start.0,
-                tr_ratio: fresh_start.1,
+                t_max: model.t_max,
+                tr_ratio,
                 batch_size: cli.input.batch_size,
                 out_dir: Some(plan.dir.clone()),
-            };
-            Some((plan, seqs, *trunks, cfg))
-        }
-        _ => None,
-    };
-    // A replicate's fresh start takes theta0 from its own resampled data,
-    // so it can be past the limit on rho when the main start is not. Such
-    // replicates are found now, before the main fit, and the bootstrap
-    // skips them.
-    let invalid_replicates = match &boot {
-        Some((_, seqs, _, cfg)) if saved_start.is_none() => {
-            invalid_replicate_starts_sequences(seqs, &model, cfg)?
-        }
-        _ => Vec::new(),
-    };
-    // EM would refuse a start it cannot move from; refuse it here, with
-    // advice in this run's options that fits the replicates too. With
-    // saved parameters, every bootstrap replicate starts from them, so
-    // they are checked even when the main fit runs no iteration.
-    if n_iter > 0 || (bootstrap.is_some() && saved_start.is_some()) {
-        check_start(&model, cli, replicates_tr_ratio(&invalid_replicates))?;
-    }
-    if let Some((_, _, _, cfg)) = &boot
-        && let Some(msg) = invalid_replicates_warning(cli, &model, cfg, &invalid_replicates)?
-    {
-        sink(Event::Warning(msg));
-    }
+            },
+            start: cli.init_params.is_some().then(|| model.clone()),
+            plan,
+            seqs,
+            trunks,
+        });
+    check_starts(&model, boot.as_ref(), n_iter, cli, sink)?;
 
     let mstep_config = MStepConfig {
         max_iters: cli.mstep_iters,
@@ -421,7 +451,7 @@ fn infer(
         "Parameters: {}",
         output_file.display()
     )));
-    if bootstrap.is_none() {
+    if boot.is_none() {
         let dir = default_bootstrap_dir(&output_file);
         if replicate_files(&dir).is_ok_and(|mut files| files.next().is_some()) {
             sink(Event::Warning(format!(
@@ -443,67 +473,40 @@ fn infer(
     }
 
     let bin_size = cli.input.bin_size as f64;
-    let mut boot_summary = None;
-    if let Some((plan, seqs, trunks, cfg)) = &boot {
-        let summary = bootstrap_stage(
-            seqs,
-            &model,
-            cfg,
-            saved_start.as_ref(),
-            &mstep_config,
-            (bin_size, cli.gen_years),
-            cancel,
-            sink,
-            pool,
-        )?;
-        boot_summary = Some((summary, *trunks));
-        if plan.em_iters != n_iter {
-            sink(Event::Warning(replicate_plot_warning(cli, n_iter, plan)));
+    let boot_summary = match &boot {
+        Some(b) => {
+            let scale = (bin_size, cli.gen_years);
+            let summary = b.run(&model, &mstep_config, scale, cancel, sink, pool)?;
+            if b.plan.em_iters != n_iter {
+                sink(Event::Warning(replicate_plot_warning(cli, n_iter, &b.plan)));
+            }
+            Some(summary)
         }
-    }
+        None => None,
+    };
 
     check_cancel(cancel)?;
-    let mut tmrca_report_data = None;
-    if let Some(tmrca_out) = &cli.tmrca_out {
-        // Each state's average coalescent time, the time of its emission
-        // (C psmc's TC column).
-        let tmrca_years = model.state_tmrca_years(bin_size, cli.gen_years);
-        // Decoded with the emissions the fit used, of each bin's count.
-        let tmrca = write_tmrca_posterior_tsv_with_options(
-            model.prior_matrix(),
-            model.transition_matrix(),
-            model.emission_matrix(),
-            &obs.rows,
-            &obs.row_starts,
-            &tmrca_years,
-            tmrca_out,
-            TmrcaOptions {
-                progress_bars,
-                max_points: 20_000,
-                callable: obs.callable.as_ref(),
-            },
-        )?;
-        sink(Event::Output(format!(
-            "TMRCA posterior: {}",
-            tmrca_out.display()
-        )));
-        tmrca_report_data = Some(tmrca);
-    }
+    let tmrca = match &cli.tmrca_out {
+        Some(path) => Some(decode_tmrca(&model, obs, path, cli, progress_bars, sink)?),
+        None => None,
+    };
 
-    let mut settings = vec![
-        ("Starting theta0/rho0".to_string(), format!("{tr_ratio}")),
+    let started_from = cli
+        .init_params
+        .as_ref()
+        .map(|path| path.display().to_string());
+    let settings = [
+        ("Starting theta0/rho0", Some(tr_ratio.to_string())),
+        ("Smoothness penalty", Some(cli.smooth_lambda.to_string())),
         (
-            "Smoothness penalty".to_string(),
-            format!("{}", cli.smooth_lambda),
+            "M-step iterations (at most)",
+            Some(cli.mstep_iters.to_string()),
         ),
-        (
-            "M-step iterations (at most)".to_string(),
-            cli.mstep_iters.to_string(),
-        ),
-    ];
-    if let Some(path) = &cli.init_params {
-        settings.push(("Started from".to_string(), path.display().to_string()));
-    }
+        ("Started from", started_from),
+    ]
+    .into_iter()
+    .filter_map(|(name, value)| Some((name.to_string(), value?)))
+    .collect();
     let report = ReportData {
         model: &model,
         bin_size,
@@ -516,15 +519,16 @@ fn infer(
         settings,
         qc: qc.as_ref(),
         bin_callable: Some(&bin_callable),
-        bootstrap: boot_summary.as_ref().zip(bootstrap.as_ref()).map(
-            |((summary, trunks), plan)| BootstrapReport {
+        bootstrap: boot
+            .as_ref()
+            .zip(boot_summary.as_ref())
+            .map(|(b, summary)| BootstrapReport {
                 summary,
-                em_iters: plan.em_iters,
-                trunks: Some(*trunks),
+                em_iters: b.plan.em_iters,
+                trunks: Some(b.trunks),
                 started_from: cli.init_params.as_deref(),
-            },
-        ),
-        tmrca: tmrca_report_data.as_ref(),
+            }),
+        tmrca: tmrca.as_ref(),
     };
     write_html_report(&report_html, &report)?;
     sink(Event::Output(format!(
@@ -536,9 +540,186 @@ fn infer(
         output_json: output_file,
         html_report: report_html,
         tmrca_out: cli.tmrca_out.clone(),
-        bootstrap_dir: bootstrap.map(|plan| plan.dir),
+        bootstrap_dir: boot.map(|b| b.plan.dir),
         final_loglike,
     })
+}
+
+/// Read the input as `cli` says, report how it was read and its QC, and
+/// keep the callable bases of its bins only when the fit uses them. QC
+/// checks the input for a start of `layout`'s free lambdas and time grid,
+/// and for a bootstrap of `trunk` bins (0 without one).
+fn read_input(
+    path: &Path,
+    cli: &InferArgs,
+    layout: &PsmcModel,
+    trunk: usize,
+    sink: Sink,
+) -> Result<(Dataset, BinCallableRecord, Option<QcReport>)> {
+    let io_total = fs::metadata(path).map(|m| m.len()).unwrap_or(1);
+    let io_progress = |done| Event::Progress {
+        stage: Stage::Io,
+        done,
+        total: io_total,
+        iter: None,
+    };
+    sink(io_progress(0));
+    let mut data = load_input(path, &cli.input.to_options())?;
+    sink(io_progress(io_total));
+    announce_input(&data, &cli.input, sink);
+    // Whether the fit weighs each bin by its callable bases.
+    let bin_callable = bin_callable_record(&data, cli.bin_callable);
+    if let Some(event) = bin_callable_event(&bin_callable, &data, cli) {
+        sink(event);
+    }
+    let counted = bin_callable.model == CALLABLE_LENGTH_MODEL;
+
+    // Input QC, printed before the fit, also when no sequence is left (the
+    // report then says why). A QC error is only reported, so that it never
+    // stops a fit. It sees the counts whether or not the fit uses them.
+    let fit_counts = data.obs.callable.as_ref().filter(|_| counted);
+    let start = fit_start(cli, layout, &data.obs.rows, fit_counts);
+    let report = qc_report(
+        &data,
+        cli.input.bin_size,
+        trunk,
+        Some(layout.lam.len()),
+        start,
+        cli.bin_callable,
+    );
+    let qc = report_qc(&data, report, cli.qc_json.as_deref(), sink)?;
+    // Without the callable-length model the counts go, so that every pass
+    // (theta0, EM, the bootstrap, the decoding) fits C psmc's model.
+    if !counted {
+        data.obs.callable = None;
+    }
+    ensure_usable(&data)?;
+    Ok((data, bin_callable, qc))
+}
+
+/// Say how the input was read: what it holds, and the options of `args`
+/// it does not use.
+pub fn announce_input(data: &Dataset, args: &InputArgs, sink: Sink) {
+    for line in describe(data) {
+        sink(Event::Info(line));
+    }
+    if let Some(line) = ignored_options(args, data) {
+        sink(Event::Warning(line));
+    }
+}
+
+/// Show the input QC `report` of `data`, or why it could not be made,
+/// after the loader's warnings that it does not repeat, and write it as
+/// JSON to `qc_json` when given. A failed report is only a warning, so that
+/// it never stops a run; it is returned as `None`.
+pub fn report_qc(
+    data: &Dataset,
+    report: Result<QcReport>,
+    qc_json: Option<&Path>,
+    sink: Sink,
+) -> Result<Option<QcReport>> {
+    let qc = match report {
+        Ok(report) => Some(report),
+        Err(e) => {
+            let unwritten = qc_json.map_or(String::new(), |path| {
+                format!(", so {} is not written", path.display())
+            });
+            sink(Event::Warning(format!("input QC failed{unwritten}: {e:#}")));
+            None
+        }
+    };
+    for line in loader_warnings(data, qc.as_ref()) {
+        sink(Event::Warning(line));
+    }
+    let Some(report) = &qc else {
+        return Ok(None);
+    };
+    sink(Event::Qc {
+        text: render_text(report),
+        warnings: report
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .map(|f| format!("QC {}: {}", f.code.as_str(), f.message))
+            .collect(),
+    });
+    if let Some(path) = qc_json {
+        write_qc_json(path, report)?;
+        if !is_stdout(path) {
+            sink(Event::Output(format!("QC report: {}", path.display())));
+        }
+    }
+    Ok(qc)
+}
+
+/// Check the starts before the main fit, given the bootstrap `boot` that
+/// follows it: replicates whose fresh start EM cannot fit are named and
+/// skipped (an error when that is all of them), and the main start
+/// `model` is refused as EM would refuse it, with advice that fits the
+/// replicates too.
+fn check_starts(
+    model: &PsmcModel,
+    boot: Option<&Bootstrap>,
+    n_iter: usize,
+    cli: &InferArgs,
+    sink: Sink,
+) -> Result<()> {
+    // A replicate's fresh start takes theta0 from its own resampled data,
+    // so it can be past the limit on rho when the main start is not. Such
+    // replicates are found now, before the main fit, and the bootstrap
+    // skips them.
+    let invalid = match boot {
+        Some(b) if b.start.is_none() => invalid_replicate_starts_sequences(&b.seqs, model, &b.cfg)?,
+        _ => Vec::new(),
+    };
+    // EM would refuse a start it cannot move from; refuse it here, with
+    // advice in this run's options that fits the replicates too. With
+    // saved parameters, every bootstrap replicate starts from them, so
+    // they are checked even when the main fit runs no iteration.
+    if n_iter > 0 || boot.is_some_and(|b| b.start.is_some()) {
+        check_start(model, cli, replicates_tr_ratio(&invalid))?;
+    }
+    if let Some(b) = boot
+        && let Some(msg) = invalid_replicates_warning(cli, model, &b.cfg, &invalid)?
+    {
+        sink(Event::Warning(msg));
+    }
+    Ok(())
+}
+
+/// Write the posterior TMRCA of every bin of `obs` under the fitted `model`
+/// to `path`, decoded with the emissions the fit used (of each bin's
+/// count), and return what the report shows of it.
+fn decode_tmrca(
+    model: &PsmcModel,
+    obs: &Observations,
+    path: &Path,
+    cli: &InferArgs,
+    progress_bars: bool,
+    sink: Sink,
+) -> Result<TmrcaReportData> {
+    // Each state's average coalescent time, the time of its emission
+    // (C psmc's TC column).
+    let tmrca_years = model.state_tmrca_years(cli.input.bin_size as f64, cli.gen_years);
+    let tmrca = write_tmrca_posterior_tsv_with_options(
+        model.prior_matrix(),
+        model.transition_matrix(),
+        model.emission_matrix(),
+        &obs.rows,
+        &obs.row_starts,
+        &tmrca_years,
+        path,
+        TmrcaOptions {
+            progress_bars,
+            max_points: 20_000,
+            callable: obs.callable.as_ref(),
+        },
+    )?;
+    sink(Event::Output(format!(
+        "TMRCA posterior: {}",
+        path.display()
+    )));
+    Ok(tmrca)
 }
 
 /// Check the files and directories the run will write before reading the
@@ -561,28 +742,26 @@ fn check_outputs(
             output.display()
         );
     }
-    let mut files = vec![("OUTPUT", output), ("the HTML report", report_html)];
-    for (what, path) in [
-        ("--psmc-out", &cli.psmc_out),
-        ("--tmrca-out", &cli.tmrca_out),
-    ] {
-        if let Some(path) = path.as_deref() {
-            files.push((what, path));
-        }
-    }
-    // Only the QC JSON can go to stdout.
-    if let Some(path) = cli.qc_json.as_deref().filter(|p| !is_stdout(p)) {
-        files.push(("--qc-json", path));
-    }
+    let files: Vec<(&str, &Path)> = [
+        ("OUTPUT", Some(output)),
+        ("the HTML report", Some(report_html)),
+        ("--psmc-out", cli.psmc_out.as_deref()),
+        ("--tmrca-out", cli.tmrca_out.as_deref()),
+        // Only the QC JSON can go to stdout.
+        (
+            "--qc-json",
+            cli.qc_json.as_deref().filter(|p| !is_stdout(p)),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(what, path)| Some((what, path?)))
+    .collect();
     let dir_name = match cli.bootstrap_dir {
         Some(_) => "--bootstrap-dir",
         None => "the bootstrap directory",
     };
-    let dirs: Vec<(&str, &Path)> = bootstrap
-        .map(|plan| (dir_name, plan.dir.as_path()))
-        .into_iter()
-        .collect();
-    check_destinations(input, &files, &dirs)?;
+    let dir = bootstrap.map(|plan| (dir_name, plan.dir.as_path()));
+    check_destinations(input, &files, dir.as_slice())?;
     check_echarts_bundle()
 }
 
@@ -653,8 +832,7 @@ fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecor
 /// What the run says about the callable bases of `data`'s bins: what they
 /// hold and how the fit uses them, or that a `--bin-callable` other than
 /// `auto` changes nothing for input without counts.
-fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -> Vec<Event> {
-    let percent = |x: f64| format!("{:.1}%", 100.0 * x);
+fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -> Option<Event> {
     let s = cli.input.bin_size;
     let mode = cli.bin_callable.name();
     let counted = b.model == CALLABLE_LENGTH_MODEL;
@@ -675,12 +853,12 @@ fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -
                      uses exact counts only, approximate would use these)"
                 )
             };
-            vec![Event::Info(format!(
+            Some(Event::Info(format!(
                 "Callable bases ({source} counts): multihetsep says how many sites between two \
                  rows are called but not which, so the counts of each bin follow the reader's \
                  placement of the uncalled sites at the start of each interval; {how}. For \
                  exact bins and counts, fit the VCF with its callable mask"
-            ))]
+            )))
         }
         (Some(c), Some(source)) => {
             let how = if counted {
@@ -693,12 +871,12 @@ fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -
                      (--bin-callable {mode})"
                 )
             };
-            vec![Event::Info(format!(
+            Some(Event::Info(format!(
                 "Callable bases ({source} counts): called bins hold {} of their {s} bases on \
                  average, and {} of them fewer than {s}; {how}",
                 percent(c.mean_fraction),
                 percent(c.partial_fraction())
-            ))]
+            )))
         }
         _ if cli.bin_callable != BinCallableArg::Auto => {
             let what = match &data.source {
@@ -711,17 +889,17 @@ fn bin_callable_events(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -
                     psmc_rs::io::MAX_COUNTED_BIN_SIZE
                 ),
             };
-            vec![Event::Warning(format!(
+            Some(Event::Warning(format!(
                 "--bin-callable {mode} changes nothing for {what}: every called bin is taken to \
                  hold {s} bases, as C psmc takes them"
-            ))]
+            )))
         }
-        _ if !matches!(data.source, SourceSummary::Psmcfa(_)) => vec![Event::Info(format!(
+        _ if !matches!(data.source, SourceSummary::Psmcfa(_)) => Some(Event::Info(format!(
             "Callable bases are counted for bins of at most {} bases; bins of {s} are fitted as \
              C psmc fits them, every called bin as {s} bases",
             psmc_rs::io::MAX_COUNTED_BIN_SIZE
-        ))],
-        _ => Vec::new(),
+        ))),
+        _ => None,
     }
 }
 
@@ -745,7 +923,7 @@ fn fit_start(
 }
 
 /// The warning about the bootstrap replicates of `cfg` whose fresh start
-/// is `invalid` ([`invalid_replicate_starts`]), which the bootstrap skips,
+/// is `invalid` ([`invalid_replicate_starts_sequences`]), which the bootstrap skips,
 /// with the start that lets every replicate be fitted; an error when that
 /// is all of them, before the main fit. `model` is the main fit's start.
 fn invalid_replicates_warning(
@@ -804,9 +982,7 @@ fn replicates_tr_ratio(invalid: &[InvalidReplicateStart]) -> Option<f64> {
     }
     invalid
         .iter()
-        .map(|r| r.start.min_tr_ratio())
-        .collect::<Option<Vec<f64>>>()
-        .map(|ratios| ratios.into_iter().fold(0.0, f64::max))
+        .try_fold(0.0, |max: f64, r| Some(max.max(r.start.min_tr_ratio()?)))
 }
 
 /// `x` rounded down to 6 significant digits, for a bound not to be passed.
@@ -926,49 +1102,6 @@ fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     Ok(model)
 }
 
-/// The warning of a QC report that could not be made, naming the QC JSON
-/// that is therefore not written.
-pub fn qc_failed(e: anyhow::Error, qc_json: Option<&Path>) -> Event {
-    let unwritten = qc_json.map_or(String::new(), |path| {
-        format!(", so {} is not written", path.display())
-    });
-    Event::Warning(format!("input QC failed{unwritten}: {e:#}"))
-}
-
-/// The QC report as an event: its text, and its warnings for `--quiet`.
-pub fn qc_event(report: &QcReport) -> Event {
-    Event::Qc {
-        text: render_text(report),
-        warnings: report
-            .findings
-            .iter()
-            .filter(|f| f.severity == Severity::Warning)
-            .map(|f| format!("QC {}: {}", f.code.as_str(), f.message))
-            .collect(),
-    }
-}
-
-/// Read the input as `cli` says and report how it was read.
-fn read_input(path: &Path, cli: &InferArgs, sink: Sink) -> Result<Dataset> {
-    let io_total = fs::metadata(path).map(|m| m.len()).unwrap_or(1);
-    let io_progress = |done| Event::Progress {
-        stage: Stage::Io,
-        done,
-        total: io_total,
-        iter: None,
-    };
-    sink(io_progress(0));
-    let data = load_input(path, &cli.input.to_options())?;
-    sink(io_progress(io_total));
-    for line in describe(&data) {
-        sink(Event::Info(line));
-    }
-    if let Some(line) = ignored_options(&cli.input, &data) {
-        sink(Event::Warning(line));
-    }
-    Ok(data)
-}
-
 /// `n_iter` EM iterations, reporting progress.
 fn fit(
     model: &mut PsmcModel,
@@ -1063,86 +1196,6 @@ fn model_loglike(
     )
 }
 
-/// Run the bootstrap and write its files: each replicate's JSON and
-/// `.psmc` output, and the summary of the curves. Replicates start from
-/// `start` when given, from the fresh start of `cfg` otherwise.
-#[allow(clippy::too_many_arguments)]
-fn bootstrap_stage(
-    seqs: &Sequences,
-    model: &PsmcModel,
-    cfg: &BootstrapConfig,
-    start: Option<&PsmcModel>,
-    mstep_config: &MStepConfig,
-    (bin_size, gen_years): (f64, f64),
-    cancel: &AtomicBool,
-    sink: Sink,
-    pool: &ThreadPool,
-) -> Result<BootstrapSummary> {
-    let progress = |done: usize| Event::Progress {
-        stage: Stage::Bootstrap,
-        done: done as u64,
-        total: cfg.replicates as u64,
-        iter: None,
-    };
-    let dir = cfg
-        .out_dir
-        .as_deref()
-        .expect("the CLI always writes the replicates");
-    if let Some(msg) = remove_earlier_bootstrap(dir, cfg.replicates)? {
-        sink(Event::Warning(msg));
-    }
-    sink(progress(0));
-    let on_done = |n: usize| sink(progress(n));
-    // A fresh start can be invalid for some replicates
-    // ([`invalid_replicates_warning`] named them); saved parameters are the
-    // main fit's start, checked before it.
-    let opts = BootstrapOptions {
-        cancel: Some(cancel),
-        thread_pool: Some(pool),
-        on_done: Some(&on_done),
-        start,
-        skip_invalid_starts: start.is_none(),
-    };
-    let replicates = run_bootstrap_sequences(seqs, model, cfg, mstep_config, opts)?;
-    write_replicate_psmc(dir, &replicates)?;
-    let mut fitted = vec![false; cfg.replicates];
-    for r in &replicates {
-        fitted[r.index] = true;
-    }
-    let skipped: Vec<usize> = (1..=cfg.replicates).filter(|&n| !fitted[n - 1]).collect();
-    let models: Vec<PsmcModel> = replicates.into_iter().map(|r| r.model).collect();
-    let mut summary = summarize_bootstrap_models(
-        model,
-        &models,
-        bin_size,
-        gen_years,
-        cfg.trunk_size,
-        cfg.seed,
-    )?;
-    let skipped_note = if skipped.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "; {} of {}, {} skipped",
-            summary.n_replicates,
-            cfg.replicates,
-            list_replicates(&skipped)
-        )
-    };
-    summary.skipped_replicates = skipped;
-    let (summary_tsv, summary_json) = write_bootstrap_summary(dir, &summary)?;
-    sink(Event::Output(format!(
-        "Bootstrap replicates (replicate_NNN.json, replicate_NNN.psmc{skipped_note}): {}",
-        dir.display()
-    )));
-    sink(Event::Output(format!(
-        "Bootstrap summary: {}, {}",
-        summary_tsv.display(),
-        summary_json.display()
-    )));
-    Ok(summary)
-}
-
 /// The replicate files in `dir` (`replicate_NNN.json` and
 /// `replicate_NNN.psmc`, as a bootstrap writes them) with their replicate
 /// numbers; none when `dir` does not exist.
@@ -1192,15 +1245,15 @@ fn remove_earlier_bootstrap(dir: &Path, replicates: usize) -> Result<Option<Stri
     for path in earlier.iter().map(|(_, path)| path.clone()).chain(summary) {
         fs::remove_file(&path).with_context(|| format!("failed to remove {}", path.display()))?;
     }
-    let mut stale: Vec<(usize, PathBuf)> = earlier
-        .into_iter()
-        .filter(|&(n, _)| n > replicates)
+    // One number per file: a replicate's JSON and .psmc count twice.
+    let stale: Vec<usize> = earlier
+        .iter()
+        .map(|&(n, _)| n)
+        .filter(|&n| n > replicates)
         .collect();
-    if stale.is_empty() {
+    let (Some(&first), Some(&last)) = (stale.iter().min(), stale.iter().max()) else {
         return Ok(None);
-    }
-    stale.sort();
-    let (first, last) = (stale[0].0, stale[stale.len() - 1].0);
+    };
     let which = if first == last {
         format!("replicate {first}")
     } else {
@@ -1233,25 +1286,26 @@ fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {
 /// A warning when fitted parameters sit on the M-step's bounds, saying
 /// what that means for each kind (the CLI has no option to move them).
 fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
-    let bounds = bounds_from_config(model, cfg);
-    let mut vals: Vec<(String, f64)> = Vec::with_capacity(3 + model.lam.len());
-    vals.push(("theta".to_string(), model.theta));
-    vals.push(("rho".to_string(), model.rho));
-    vals.push(("t_max".to_string(), model.t_max));
-    for (i, v) in model.lam.iter().enumerate() {
-        vals.push((format!("lam[{i}]"), *v));
-    }
-
+    // The parameters in the order of their bounds: theta, rho, t_max, then
+    // the lambdas.
+    let names = ["theta", "rho", "t_max"].map(String::from).into_iter();
+    let names = names.chain((0..model.lam.len()).map(|i| format!("lam[{i}]")));
+    let values = [model.theta, model.rho, model.t_max].into_iter();
+    let values = values.chain(model.lam.iter().copied());
     let (mut lam_hi, mut lam_lo, mut others) = (Vec::new(), Vec::new(), Vec::new());
-    for (i, ((name, v), b)) in vals.iter().zip(&bounds).enumerate() {
-        let (is_lo, is_hi) = near(*v, b.lo, b.hi);
+    for (i, ((name, v), b)) in names
+        .zip(values)
+        .zip(&bounds_from_config(model, cfg))
+        .enumerate()
+    {
+        let (is_lo, is_hi) = near(v, b.lo, b.hi);
         if !(is_lo || is_hi) {
             continue;
         }
         let bound = if is_lo { b.lo } else { b.hi };
         match (i >= 3, is_hi) {
-            (true, true) => lam_hi.push(name.clone()),
-            (true, false) => lam_lo.push(name.clone()),
+            (true, true) => lam_hi.push(name),
+            (true, false) => lam_lo.push(name),
             (false, _) => others.push(format!("{name} = {bound:e}")),
         }
     }

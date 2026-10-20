@@ -353,6 +353,11 @@ pub fn ensure_usable(data: &Dataset) -> Result<()> {
     })
 }
 
+/// A fraction as a percentage with one decimal.
+pub fn percent(x: f64) -> String {
+    format!("{:.1}%", 100.0 * x)
+}
+
 fn share(n: u64, total: u64) -> String {
     if total == 0 {
         "0.0%".to_string()

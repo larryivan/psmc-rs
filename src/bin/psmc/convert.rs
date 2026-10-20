@@ -12,11 +12,10 @@ use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use crate::cli::{BinCallableArg, ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
 use crate::dataset::{
-    callable_summary, counts_source, default_start, describe, ignored_options, load_input,
-    loader_warnings, qc_report,
+    callable_summary, counts_source, default_start, load_input, percent, qc_report,
 };
-use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir, write_qc_json};
-use crate::run::{Event, qc_event, qc_failed};
+use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir};
+use crate::run::{Event, announce_input, report_qc};
 
 const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
                         whether each holds a heterozygous site, not where. Convert the VCF or \
@@ -60,40 +59,19 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
         );
         check_destinations(&args.input_file, &files, &[])?;
     }
-    for line in describe(&data) {
-        sink(Event::Info(line));
-    }
-    if let Some(line) = ignored_options(&args.input, &data) {
-        sink(Event::Warning(line));
-    }
+    announce_input(&data, &args.input, &sink);
 
     // Also when no sequence is left: the report then says why.
-    let qc = match qc_report(
+    let start = default_start(&data);
+    let report = qc_report(
         &data,
         args.input.bin_size,
         0,
         None,
-        default_start(&data),
+        start,
         BinCallableArg::Auto,
-    ) {
-        Ok(report) => Some(report),
-        Err(e) => {
-            sink(qc_failed(e, args.qc_json.as_deref()));
-            None
-        }
-    };
-    for line in loader_warnings(&data, qc.as_ref()) {
-        sink(Event::Warning(line));
-    }
-    if let Some(report) = &qc {
-        sink(qc_event(report));
-        if let Some(path) = &args.qc_json {
-            write_qc_json(path, report)?;
-            if !json_to_stdout {
-                sink(Event::Output(format!("QC report: {}", path.display())));
-            }
-        }
-    }
+    );
+    let qc = report_qc(&data, report, args.qc_json.as_deref(), &sink)?;
     if data.obs.rows.is_empty() {
         // fq2psmcfa writes an empty file too; the outputs say so.
         sink(Event::Warning(
@@ -130,31 +108,28 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
             .filter(|&u| u > 0.0)
     {
         sink(Event::Info(format!(
-            "multihetsep records how many sites between two rows are called, not which ({:.1}% \
+            "multihetsep records how many sites between two rows are called, not which ({} \
              of the sites here are uncalled); psmc-rs reads the uncalled sites of each interval \
              back at its start, which biases theta and Ne low whatever --bin-callable (QC's \
              APPROX_MISSING_PLACEMENT on the multihetsep says how much), so to fit with psmc-rs, \
              fit the VCF itself",
-            100.0 * uncalled
+            percent(uncalled)
         )));
     }
-    if let Some(path) = &args.multihetsep {
-        write_multihetsep(path, &data, &MultihetsepOptions::default())?;
-        sink(Event::Output(format!(
-            "multihetsep: {} ({} heterozygous sites)",
-            path.display(),
-            het_sites(&data, None)
-        )));
-    }
-    for (name, path) in &per_chrom {
+    // The whole input, then each sequence on its own.
+    let whole = args.multihetsep.as_deref().map(|path| (path, None));
+    let each = per_chrom
+        .iter()
+        .map(|(name, path)| (path.as_path(), Some(name.as_str())));
+    for (path, sequence) in whole.into_iter().chain(each) {
         let opts = MultihetsepOptions {
-            sequence: Some(name.clone()),
+            sequence: sequence.map(str::to_string),
         };
         write_multihetsep(path, &data, &opts)?;
         sink(Event::Output(format!(
             "multihetsep: {} ({} heterozygous sites)",
             path.display(),
-            het_sites(&data, Some(name))
+            het_sites(&data, sequence)
         )));
     }
     Ok(ExitCode::SUCCESS)
@@ -172,14 +147,12 @@ fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<
         return None;
     }
     let c = callable_summary(data).filter(|c| c.partial_bins > 0)?;
-    let percent = |x: f64| format!("{:.1}%", 100.0 * x);
-    let input = "the VCF";
     Some(format!(
         "{} of called bins are partly callable (they hold {} of their {bin_size} bases on \
          average), and psmcfa cannot record that: a fit of {} takes every called bin as \
          {bin_size} bases, as C psmc does, which biases theta, the times and Ne low by about \
          the missing share or more ({} here). To fit with the callable bases of each bin, fit \
-         {input} itself (psmc-rs does with --bin-callable auto, its default)",
+         the VCF itself (psmc-rs does with --bin-callable auto, its default)",
         percent(c.partial_fraction()),
         percent(c.mean_fraction),
         path.display(),
@@ -201,20 +174,18 @@ fn recognised_as_psmcfa(args: &ConvertArgs) -> bool {
 /// The files `convert` writes whose names are known before the input is
 /// read, as `(flag, path)`; a QC JSON on stdout is not a file.
 fn output_files(args: &ConvertArgs) -> Vec<(&'static str, &Path)> {
-    let mut files = Vec::new();
-    for (what, path) in [
-        ("--psmcfa", &args.psmcfa),
-        ("--multihetsep", &args.multihetsep),
-    ] {
-        if let Some(path) = path.as_deref() {
-            files.push((what, path));
-        }
-    }
-    // Only the QC JSON can go to stdout.
-    if let Some(path) = args.qc_json.as_deref().filter(|p| !is_stdout(p)) {
-        files.push(("--qc-json", path));
-    }
-    files
+    [
+        ("--psmcfa", args.psmcfa.as_deref()),
+        ("--multihetsep", args.multihetsep.as_deref()),
+        // Only the QC JSON can go to stdout.
+        (
+            "--qc-json",
+            args.qc_json.as_deref().filter(|p| !is_stdout(p)),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(what, path)| Some((what, path?)))
+    .collect()
 }
 
 /// Check the files `convert` will write before reading the input (see

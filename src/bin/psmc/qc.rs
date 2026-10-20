@@ -7,11 +7,9 @@ use psmc_rs::qc::render_text;
 
 use crate::cli::{BinCallableArg, QcArgs};
 use crate::console::{Console, print_err, print_out};
-use crate::dataset::{
-    default_start, describe, ignored_options, load_input, loader_warnings, qc_report,
-};
+use crate::dataset::{default_start, load_input, loader_warnings, qc_report};
 use crate::output::{check_destinations, is_stdout, write_qc_json};
-use crate::run::Event;
+use crate::run::{Event, announce_input};
 
 /// The exit status of `qc --strict` when the report has a warning.
 pub const STRICT_FAILURE: u8 = 2;
@@ -27,12 +25,7 @@ pub fn run(args: &QcArgs) -> Result<ExitCode> {
         check_destinations(&args.input_file, &[("--json", path)], &[])?;
     }
     let data = load_input(&args.input_file, &args.input.to_options())?;
-    for line in describe(&data) {
-        sink(Event::Info(line));
-    }
-    if let Some(line) = ignored_options(&args.input, &data) {
-        sink(Event::Warning(line));
-    }
+    announce_input(&data, &args.input, &sink);
     let report = qc_report(
         &data,
         args.input.bin_size,
