@@ -163,7 +163,6 @@ from .e1 import compare_tools, loglike_diffs, loglikes, read_fits, run_fields, r
 from .e5 import main_fit_difference, trunk_count
 
 NAME = "E2"
-TOOLS = ("c", "rs")
 MODULE = "experiment.pipeline.experiments.e2"
 TABLES = {
     "fit_summary": "E2_fit_summary.csv",
@@ -1062,9 +1061,8 @@ def report(ctx: Context) -> Dict[str, Path]:
             rows["bootstrap"].append(bootstrap_row(gr, cfg, boot))
             rows["replicates"] += replicate_rows(gr, boot)
             rows["bands"] += band_rows(gr, cfg, boot)
-        for tool in TOOLS:
-            rows["curves"] += step_rows(gr.fits[tool], gr.curves[tool], sample_id=sid, tool=tool)
         for tool, psmc in (("c", gr.c), ("rs", gr.rs)):
+            rows["curves"] += step_rows(gr.fits[tool], gr.curves[tool], sample_id=sid, tool=tool)
             rows["traces"] += trace_rows(psmc, gr.loglikes[tool], n, sample_id=sid, tool=tool)
         rows["qc"].append(qc_row(gr))
         rows["qc_findings"] += qc_finding_rows(gr)
