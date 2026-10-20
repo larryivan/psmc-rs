@@ -57,6 +57,40 @@ pub(crate) struct ObsTable {
 /// * (s + 1) + c]`.
 type Seen = Vec<bool>;
 
+/// The pairs that occur in row `i`, `symbols` with the callable bases
+/// `counts` of bins of `s` bases; errors unless they fit the row.
+fn seen_in_row(i: usize, symbols: &[u8], counts: &BinCounts, s: usize) -> Result<Seen> {
+    if counts.bin_size() != s {
+        bail!(
+            "row {i} has callable bases of bins of {} bases, in counts of bins of {s}",
+            counts.bin_size()
+        );
+    }
+    if counts.len() != symbols.len() {
+        bail!(
+            "row {i} has {} bins but callable bases for {}",
+            symbols.len(),
+            counts.len()
+        );
+    }
+    let mut seen = vec![false; 3 * (s + 1)];
+    for (j, (&symbol, count)) in symbols.iter().zip(counts).enumerate() {
+        let count = usize::from(count);
+        // fq2psmcfa's rule: N when more than 90% of the bases are missing.
+        let missing = 10 * count < s;
+        let class = match symbol {
+            0 | 1 if count <= s && !missing => symbol,
+            2 if missing => 2,
+            _ => bail!(
+                "row {i}, bin {j}: symbol {symbol} with {count} callable bases of {s} \
+                 (see Observations::validate)"
+            ),
+        };
+        seen[usize::from(class) * (s + 1) + count] = true;
+    }
+    Ok(seen)
+}
+
 impl ObsTable {
     /// The table of input without callable bases: the three symbol classes.
     pub(crate) fn plain() -> Self {
@@ -87,39 +121,12 @@ impl ObsTable {
             );
         }
         let width = s + 1;
-        let scan = |(i, (row, c)): (usize, (&Vec<u8>, &BinCounts))| -> Result<Seen> {
-            if c.bin_size() != s {
-                bail!(
-                    "row {i} has callable bases of bins of {} bases, in counts of bins of {s}",
-                    c.bin_size()
-                );
-            }
-            if c.len() != row.len() {
-                bail!(
-                    "row {i} has {} bins but callable bases for {}",
-                    row.len(),
-                    c.len()
-                );
-            }
-            let mut seen = vec![false; 3 * width];
-            for (j, (&symbol, count)) in row.iter().zip(c).enumerate() {
-                let count = usize::from(count);
-                // fq2psmcfa's rule: N when more than 90% of the bases are missing.
-                let missing = 10 * count < s;
-                let class = match symbol {
-                    0 | 1 if count <= s && !missing => symbol,
-                    2 if missing => 2,
-                    _ => bail!(
-                        "row {i}, bin {j}: symbol {symbol} with {count} callable bases of {s} \
-                         (see Observations::validate)"
-                    ),
-                };
-                seen[usize::from(class) * width + count] = true;
-            }
-            Ok(seen)
-        };
-        let per_row: Vec<Result<Seen>> =
-            rows.par_iter().zip(counts).enumerate().map(scan).collect();
+        let per_row: Vec<Result<Seen>> = rows
+            .par_iter()
+            .zip(counts)
+            .enumerate()
+            .map(|(i, (row, c))| seen_in_row(i, row, c, s))
+            .collect();
         let mut seen = vec![false; 3 * width];
         for row in per_row {
             for (a, b) in seen.iter_mut().zip(row?) {
