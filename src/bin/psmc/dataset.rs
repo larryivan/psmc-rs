@@ -255,10 +255,7 @@ pub fn ignored_options(args: &InputArgs, data: &Dataset) -> Option<String> {
             if flags.len() == 1 { "was" } else { "were" }
         ));
     }
-    if args
-        .checked_only_flags(format, vcf_mode)
-        .contains(&"--vcf-sample")
-    {
+    if args.sample_only_checked(format, vcf_mode) {
         parts.push(
             "--vcf-sample selects no sample in consensus mode, which reads the INFO fields that \
              bcftools computes over all samples together; it was only checked against the \

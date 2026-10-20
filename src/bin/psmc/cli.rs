@@ -72,21 +72,8 @@ impl FormatArg {
 
     /// The name on the command line.
     pub fn name(self) -> &'static str {
-        match self {
-            FormatArg::Auto => "auto",
-            FormatArg::Psmcfa => "psmcfa",
-            FormatArg::Mhs => "mhs",
-            FormatArg::Vcf => "vcf",
-        }
+        self.format().map_or("auto", InputFormat::name)
     }
-
-    /// Every value, in the order the TUI cycles through them.
-    pub const ALL: [FormatArg; 4] = [
-        FormatArg::Auto,
-        FormatArg::Psmcfa,
-        FormatArg::Mhs,
-        FormatArg::Vcf,
-    ];
 }
 
 /// `--vcf-mode`.
@@ -108,10 +95,6 @@ impl VcfModeArg {
             VcfModeArg::Consensus => VcfMode::Consensus,
             VcfModeArg::Mask => VcfMode::Mask,
         }
-    }
-
-    fn name(self) -> &'static str {
-        self.mode().name()
     }
 }
 
@@ -152,6 +135,30 @@ impl BinCallableArg {
         }
     }
 }
+
+/// C psmc's default pattern (`-p`).
+pub const DEFAULT_PATTERN: &str = "4+5*3+4";
+
+/// C psmc's default initial t_max (`-t`).
+pub const DEFAULT_T_MAX: f64 = 15.0;
+
+/// C psmc's default initial θ0/ρ0 (`-r`).
+pub const DEFAULT_TR_RATIO: f64 = 4.0;
+
+/// The default mutation rate per base pair per generation (`--mu`).
+pub const DEFAULT_MU: f64 = 2.5e-8;
+
+// The defaults of the other options; the consensus filters are vcf2fq's
+// and fq2psmcfa's.
+const DEFAULT_BIN_SIZE: usize = 100;
+const DEFAULT_MHS_PAIR: (usize, usize) = (0, 1);
+const DEFAULT_MIN_MAPQ: u64 = 10;
+const DEFAULT_INDEL_WINDOW: u64 = 5;
+const DEFAULT_MIN_QUAL: u64 = 10;
+const DEFAULT_MIN_GOOD_BASES: u64 = 10_000;
+const DEFAULT_MIN_GOOD_FRACTION: f64 = 0.2;
+const DEFAULT_BOOTSTRAP_SEED: u64 = 42;
+const DEFAULT_GEN_YEARS: f64 = 25.0;
 
 /// A positive integer.
 fn positive_usize(s: &str) -> Result<usize, String> {
@@ -246,18 +253,6 @@ fn parse_n_steps(s: &str) -> Result<usize, String> {
     Ok(n)
 }
 
-/// C psmc's default pattern (`-p`).
-pub const DEFAULT_PATTERN: &str = "4+5*3+4";
-
-/// C psmc's default initial t_max (`-t`).
-pub const DEFAULT_T_MAX: f64 = 15.0;
-
-/// C psmc's default initial θ0/ρ0 (`-r`).
-pub const DEFAULT_TR_RATIO: f64 = 4.0;
-
-/// The default mutation rate per base pair per generation (`--mu`).
-pub const DEFAULT_MU: f64 = 2.5e-8;
-
 /// The model layout `(n_steps, pattern)` that `--pattern` and `--n-steps`
 /// give: C psmc's default pattern without either, `n_steps` from the
 /// pattern without `--n-steps`, and one free lambda per interval with
@@ -314,7 +309,7 @@ pub struct InputArgs {
     /// Bases per bin: the bin size of VCF and multihetsep input (fq2psmcfa
     /// -s), and the time and Ne scaling for every format (give the -s of a
     /// psmcfa file)
-    #[arg(long, value_name = "BP", default_value_t = 100, alias = "mhs-bin-size", value_parser = positive_usize)]
+    #[arg(long, value_name = "BP", default_value_t = DEFAULT_BIN_SIZE, alias = "mhs-bin-size", value_parser = positive_usize)]
     pub bin_size: usize,
 
     /// Split each sequence into HMM rows of at most this many bins; the rows
@@ -365,25 +360,25 @@ pub struct InputArgs {
     pub depth: DepthThresholds,
 
     /// VCF consensus mode: minimum INFO/MQ (vcf2fq -Q)
-    #[arg(long, value_name = "MQ", default_value_t = 10)]
+    #[arg(long, value_name = "MQ", default_value_t = DEFAULT_MIN_MAPQ)]
     pub min_mapq: u64,
 
     /// VCF consensus mode: bases masked on each side of an indel (vcf2fq -l)
-    #[arg(long, value_name = "BP", default_value_t = 5)]
+    #[arg(long, value_name = "BP", default_value_t = DEFAULT_INDEL_WINDOW)]
     pub indel_window: u64,
 
     /// VCF consensus mode: minimum base quality (fq2psmcfa -q)
-    #[arg(long, value_name = "Q", default_value_t = 10)]
+    #[arg(long, value_name = "Q", default_value_t = DEFAULT_MIN_QUAL)]
     pub min_qual: u64,
 
     /// VCF and multihetsep: drop a sequence with fewer called bases than
     /// this (fq2psmcfa -g; 0 disables)
-    #[arg(long, value_name = "BASES", default_value_t = 10_000)]
+    #[arg(long, value_name = "BASES", default_value_t = DEFAULT_MIN_GOOD_BASES)]
     pub min_good_bases: u64,
 
     /// VCF and multihetsep: drop a sequence whose called bases are less
     /// than this share of its length (fq2psmcfa's fixed 0.2; 0 disables)
-    #[arg(long, value_name = "SHARE", default_value_t = 0.2, value_parser = parse_fraction)]
+    #[arg(long, value_name = "SHARE", default_value_t = DEFAULT_MIN_GOOD_FRACTION, value_parser = parse_fraction)]
     pub min_good_fraction: f64,
 }
 
@@ -418,7 +413,7 @@ impl InputArgs {
     /// The flags given a value other than their default that do not apply
     /// to input of `format` (read in `vcf_mode`, for VCF), as they are
     /// spelt on the command line. `--vcf-sample` is not among them in
-    /// consensus mode, which checks it ([`InputArgs::checked_only_flags`]).
+    /// consensus mode, which checks it ([`InputArgs::sample_only_checked`]).
     pub fn ignored_flags(
         &self,
         format: InputFormat,
@@ -440,22 +435,26 @@ impl InputArgs {
             ("--vcf-keep-filtered", self.vcf_keep_filtered, mask),
             ("--vcf-no-contig-end", self.vcf_no_contig_end, mask),
             ("--depth", self.depth != DepthThresholds::Auto, consensus),
-            ("--min-mapq", self.min_mapq != 10, consensus),
-            ("--indel-window", self.indel_window != 5, consensus),
-            ("--min-qual", self.min_qual != 10, consensus),
+            ("--min-mapq", self.min_mapq != DEFAULT_MIN_MAPQ, consensus),
+            (
+                "--indel-window",
+                self.indel_window != DEFAULT_INDEL_WINDOW,
+                consensus,
+            ),
+            ("--min-qual", self.min_qual != DEFAULT_MIN_QUAL, consensus),
             (
                 "--mhs-pair",
-                self.mhs_pair != (0, 1),
+                self.mhs_pair != DEFAULT_MHS_PAIR,
                 format == InputFormat::Mhs,
             ),
             (
                 "--min-good-bases",
-                self.min_good_bases != 10_000,
+                self.min_good_bases != DEFAULT_MIN_GOOD_BASES,
                 seq_filter,
             ),
             (
                 "--min-good-fraction",
-                self.min_good_fraction != 0.2,
+                self.min_good_fraction != DEFAULT_MIN_GOOD_FRACTION,
                 seq_filter,
             ),
         ]
@@ -465,83 +464,93 @@ impl InputArgs {
         .collect()
     }
 
-    /// The flags given that input of `format` (read in `vcf_mode`, for VCF)
-    /// only checks, without their selecting anything: `--vcf-sample` in
-    /// consensus mode. That mode reads the INFO fields, which bcftools
-    /// computes over all samples together, so it needs a one-sample VCF;
-    /// the name must be that sample's, but it selects nothing.
-    pub fn checked_only_flags(
-        &self,
-        format: InputFormat,
-        vcf_mode: Option<VcfMode>,
-    ) -> Vec<&'static str> {
-        let consensus = format == InputFormat::Vcf && vcf_mode == Some(VcfMode::Consensus);
-        if consensus && self.vcf_sample.is_some() {
-            vec!["--vcf-sample"]
-        } else {
-            Vec::new()
-        }
+    /// Whether `--vcf-sample` is given for input of `format` (read in
+    /// `vcf_mode`, for VCF) that only checks it: consensus mode reads the
+    /// INFO fields, which bcftools computes over all samples together, so it
+    /// needs a one-sample VCF; the name must be that sample's, but it
+    /// selects nothing.
+    pub fn sample_only_checked(&self, format: InputFormat, vcf_mode: Option<VcfMode>) -> bool {
+        format == InputFormat::Vcf
+            && vcf_mode == Some(VcfMode::Consensus)
+            && self.vcf_sample.is_some()
     }
 
-    /// The arguments that give these options; defaults are left out.
-    pub fn to_args(&self) -> Vec<String> {
-        let mut args = Vec::new();
-        let mut push = |flag: &str, value: String| {
-            args.push(flag.to_string());
-            args.push(value);
+    /// Add the arguments that give these options; defaults are left out.
+    fn push_args(&self, args: &mut ArgList) {
+        let pair = (self.mhs_pair != DEFAULT_MHS_PAIR)
+            .then(|| format!("{},{}", self.mhs_pair.0, self.mhs_pair.1));
+        let depth = match self.depth {
+            DepthThresholds::Fixed { min, max } => Some(format!("{min}:{max}")),
+            DepthThresholds::Auto => None,
         };
-        if self.input_format != FormatArg::Auto {
-            push("--input-format", self.input_format.name().to_string());
+        let input_format = self.input_format.name();
+        args.unless("--input-format", input_format, FormatArg::Auto.name())
+            .unless("--bin-size", self.bin_size, DEFAULT_BIN_SIZE)
+            .each("--batch-size", self.batch_size)
+            .each("--mhs-pair", pair)
+            .each("--vcf-sample", &self.vcf_sample)
+            .unless(
+                "--vcf-mode",
+                self.vcf_mode.mode().name(),
+                VcfMode::Auto.name(),
+            )
+            .each("--vcf-mask", self.vcf_mask.iter().map(|p| p.display()))
+            .each(
+                "--vcf-negative-mask",
+                self.vcf_negative_mask.iter().map(|p| p.display()),
+            )
+            .each("--depth", depth)
+            .unless("--min-mapq", self.min_mapq, DEFAULT_MIN_MAPQ)
+            .unless("--indel-window", self.indel_window, DEFAULT_INDEL_WINDOW)
+            .unless("--min-qual", self.min_qual, DEFAULT_MIN_QUAL)
+            .unless(
+                "--min-good-bases",
+                self.min_good_bases,
+                DEFAULT_MIN_GOOD_BASES,
+            )
+            .unless(
+                "--min-good-fraction",
+                self.min_good_fraction,
+                DEFAULT_MIN_GOOD_FRACTION,
+            )
+            .switch("--vcf-keep-filtered", self.vcf_keep_filtered)
+            .switch("--vcf-no-contig-end", self.vcf_no_contig_end);
+    }
+}
+
+/// Command-line arguments, rebuilt from parsed ones.
+#[derive(Default)]
+struct ArgList(Vec<String>);
+
+impl ArgList {
+    /// `flag value` for each of `values` (none, one or several).
+    fn each<T: fmt::Display>(
+        &mut self,
+        flag: &str,
+        values: impl IntoIterator<Item = T>,
+    ) -> &mut Self {
+        for value in values {
+            self.0.extend([flag.to_string(), value.to_string()]);
         }
-        if self.bin_size != 100 {
-            push("--bin-size", self.bin_size.to_string());
+        self
+    }
+
+    /// `flag value`, unless `value` is the default.
+    fn unless<T: PartialEq + fmt::Display>(
+        &mut self,
+        flag: &str,
+        value: T,
+        default: T,
+    ) -> &mut Self {
+        self.each(flag, (value != default).then_some(value))
+    }
+
+    /// `flag` alone, if `on`.
+    fn switch(&mut self, flag: &str, on: bool) -> &mut Self {
+        if on {
+            self.0.push(flag.to_string());
         }
-        if let Some(v) = self.batch_size {
-            push("--batch-size", v.to_string());
-        }
-        if self.mhs_pair != (0, 1) {
-            push(
-                "--mhs-pair",
-                format!("{},{}", self.mhs_pair.0, self.mhs_pair.1),
-            );
-        }
-        if let Some(v) = &self.vcf_sample {
-            push("--vcf-sample", v.clone());
-        }
-        if self.vcf_mode != VcfModeArg::Auto {
-            push("--vcf-mode", self.vcf_mode.name().to_string());
-        }
-        for p in &self.vcf_mask {
-            push("--vcf-mask", p.display().to_string());
-        }
-        for p in &self.vcf_negative_mask {
-            push("--vcf-negative-mask", p.display().to_string());
-        }
-        if let DepthThresholds::Fixed { min, max } = self.depth {
-            push("--depth", format!("{min}:{max}"));
-        }
-        if self.min_mapq != 10 {
-            push("--min-mapq", self.min_mapq.to_string());
-        }
-        if self.indel_window != 5 {
-            push("--indel-window", self.indel_window.to_string());
-        }
-        if self.min_qual != 10 {
-            push("--min-qual", self.min_qual.to_string());
-        }
-        if self.min_good_bases != 10_000 {
-            push("--min-good-bases", self.min_good_bases.to_string());
-        }
-        if self.min_good_fraction != 0.2 {
-            push("--min-good-fraction", self.min_good_fraction.to_string());
-        }
-        if self.vcf_keep_filtered {
-            args.push("--vcf-keep-filtered".to_string());
-        }
-        if self.vcf_no_contig_end {
-            args.push("--vcf-no-contig-end".to_string());
-        }
-        args
+        self
     }
 }
 
@@ -781,7 +790,7 @@ pub struct InferArgs {
     #[arg(
         long,
         value_name = "SEED",
-        default_value_t = 42,
+        default_value_t = DEFAULT_BOOTSTRAP_SEED,
         help_heading = "Bootstrap"
     )]
     pub bootstrap_seed: u64,
@@ -826,7 +835,7 @@ pub struct InferArgs {
 
     /// Years per generation, for the time axis of the Ne curve (report),
     /// the bootstrap summary and the TMRCA output
-    #[arg(long, value_name = "YEARS", default_value_t = 25.0, value_parser = positive_f64, alias = "tmrca-gen-years", help_heading = "Output")]
+    #[arg(long, value_name = "YEARS", default_value_t = DEFAULT_GEN_YEARS, value_parser = positive_f64, alias = "tmrca-gen-years", help_heading = "Output")]
     pub gen_years: f64,
 }
 
@@ -834,99 +843,52 @@ impl InferArgs {
     /// The arguments that reproduce this inference run on the command line
     /// (without `--tui`), as the TUI shows and runs it.
     pub fn to_args(&self) -> Vec<String> {
-        let mut args = Vec::new();
-        if let Some(v) = &self.input_file {
-            args.push(v.display().to_string());
-        }
-        if let Some(v) = &self.output_file {
-            args.push(v.display().to_string());
-        }
-        if let Some(v) = self.n_iter {
-            args.push(v.to_string());
-        }
-        args.extend(self.input.to_args());
-        let mut push = |flag: &str, value: String| {
-            args.push(flag.to_string());
-            args.push(value);
-        };
-        if let Some(v) = &self.pattern {
-            push("--pattern", v.clone());
-        }
-        if let Some(v) = self.n_steps {
-            push("--n-steps", v.to_string());
-        }
-        if self.t_max != DEFAULT_T_MAX {
-            push("--t-max", self.t_max.to_string());
-        }
-        if self.tr_ratio != DEFAULT_TR_RATIO {
-            push("--tr-ratio", self.tr_ratio.to_string());
-        }
-        if let Some(v) = self.theta0 {
-            push("--theta0", v.to_string());
-        }
-        if let Some(v) = self.rho0 {
-            push("--rho0", v.to_string());
-        }
-        if let Some(v) = &self.init_params {
-            push("--init-params", v.display().to_string());
-        }
-        if self.mu != DEFAULT_MU {
-            push("--mu", self.mu.to_string());
-        }
-        if self.bin_callable != BinCallableArg::Auto {
-            push("--bin-callable", self.bin_callable.name().to_string());
-        }
-        if self.mstep_iters != DEFAULT_MSTEP_ITERS {
-            push("--mstep-iters", self.mstep_iters.to_string());
-        }
-        if self.smooth_lambda != 0.0 {
-            push("--smooth-lambda", self.smooth_lambda.to_string());
-        }
-        if let Some(v) = self.threads {
-            push("--threads", v.to_string());
-        }
-        if self.gen_years != 25.0 {
-            push("--gen-years", self.gen_years.to_string());
-        }
+        let path = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
+        let positional = [
+            path(&self.input_file),
+            path(&self.output_file),
+            self.n_iter.map(|n| n.to_string()),
+        ];
+        let mut args = ArgList(positional.into_iter().flatten().collect());
+        self.input.push_args(&mut args);
+        args.each("--pattern", &self.pattern)
+            .each("--n-steps", self.n_steps)
+            .unless("--t-max", self.t_max, DEFAULT_T_MAX)
+            .unless("--tr-ratio", self.tr_ratio, DEFAULT_TR_RATIO)
+            .each("--theta0", self.theta0)
+            .each("--rho0", self.rho0)
+            .each("--init-params", path(&self.init_params))
+            .unless("--mu", self.mu, DEFAULT_MU)
+            .unless(
+                "--bin-callable",
+                self.bin_callable.name(),
+                BinCallableArg::Auto.name(),
+            )
+            .unless("--mstep-iters", self.mstep_iters, DEFAULT_MSTEP_ITERS)
+            .unless("--smooth-lambda", self.smooth_lambda, 0.0)
+            .each("--threads", self.threads)
+            .unless("--gen-years", self.gen_years, DEFAULT_GEN_YEARS);
         if self.bootstrap > 0 {
-            args.push("--bootstrap".to_string());
-            args.push(self.bootstrap.to_string());
-            if self.bootstrap_block_size != DEFAULT_BOOTSTRAP_TRUNK {
-                args.push("--bootstrap-block-size".to_string());
-                args.push(self.bootstrap_block_size.to_string());
-            }
-            if self.bootstrap_seed != 42 {
-                args.push("--bootstrap-seed".to_string());
-                args.push(self.bootstrap_seed.to_string());
-            }
+            args.each("--bootstrap", [self.bootstrap])
+                .unless(
+                    "--bootstrap-block-size",
+                    self.bootstrap_block_size,
+                    DEFAULT_BOOTSTRAP_TRUNK,
+                )
+                .unless(
+                    "--bootstrap-seed",
+                    self.bootstrap_seed,
+                    DEFAULT_BOOTSTRAP_SEED,
+                );
         }
-        if let Some(v) = self.bootstrap_iters {
-            args.push("--bootstrap-iters".to_string());
-            args.push(v.to_string());
-        }
-        if let Some(v) = &self.bootstrap_dir {
-            args.push("--bootstrap-dir".to_string());
-            args.push(v.display().to_string());
-        }
-        if let Some(v) = &self.psmc_out {
-            args.push("--psmc-out".to_string());
-            args.push(v.display().to_string());
-        }
-        if let Some(v) = &self.qc_json {
-            args.push("--qc-json".to_string());
-            args.push(v.display().to_string());
-        }
-        if let Some(v) = &self.tmrca_out {
-            args.push("--tmrca-out".to_string());
-            args.push(v.display().to_string());
-        }
-        if self.quiet {
-            args.push("--quiet".to_string());
-        }
-        if self.no_progress {
-            args.push("--no-progress".to_string());
-        }
-        args
+        args.each("--bootstrap-iters", self.bootstrap_iters)
+            .each("--bootstrap-dir", path(&self.bootstrap_dir))
+            .each("--psmc-out", path(&self.psmc_out))
+            .each("--qc-json", path(&self.qc_json))
+            .each("--tmrca-out", path(&self.tmrca_out))
+            .switch("--quiet", self.quiet)
+            .switch("--no-progress", self.no_progress);
+        args.0
     }
 }
 
@@ -934,24 +896,32 @@ impl InferArgs {
 mod tests {
     use super::*;
 
-    /// The inference arguments of a command line.
-    fn parse<I, T>(argv: I) -> Result<InferArgs, clap::Error>
-    where
-        I: IntoIterator<Item = T>,
-        T: Into<std::ffi::OsString> + Clone,
-    {
-        Cli::try_parse_from(argv).map(|c| c.infer)
+    /// The inference arguments of `psmc-rs in out 1` followed by `args`,
+    /// given as one string split at whitespace.
+    fn parse(args: &str) -> Result<InferArgs, clap::Error> {
+        let argv = ["psmc-rs", "in", "out", "1"].into_iter();
+        Cli::try_parse_from(argv.chain(args.split_whitespace())).map(|c| c.infer)
     }
 
-    fn input(args: &[&str]) -> InputArgs {
-        let mut argv = vec!["psmc-rs", "in", "out", "1"];
-        argv.extend_from_slice(args);
-        parse(argv).unwrap().input
+    fn parse_err(args: &str) -> String {
+        parse(args).unwrap_err().to_string()
     }
+
+    fn input(args: &str) -> InputArgs {
+        parse(args).unwrap().input
+    }
+
+    /// Every input flag with a value other than its default, except
+    /// `--input-format`, `--bin-size` and `--batch-size`, in the order that
+    /// [`InputArgs::ignored_flags`] lists them.
+    const OTHER_FORMAT_FLAGS: &str = "--vcf-sample s1 --vcf-mode mask --vcf-mask a.bed \
+        --vcf-negative-mask c.bed --vcf-keep-filtered --vcf-no-contig-end --depth 3:100000 \
+        --min-mapq 20 --indel-window 7 --min-qual 0 --mhs-pair 2,3 --min-good-bases 0 \
+        --min-good-fraction 0";
 
     #[test]
     fn input_defaults_follow_the_classic_pipeline() {
-        let o = input(&[]).to_options();
+        let o = input("").to_options();
         assert_eq!(o.format, None);
         assert_eq!(o.bin_size, 100);
         assert_eq!(o.mhs_pair, (0, 1));
@@ -972,40 +942,9 @@ mod tests {
 
     #[test]
     fn every_input_flag_reaches_the_loader_and_back() {
-        let args = [
-            "--input-format",
-            "vcf",
-            "--bin-size",
-            "50",
-            "--batch-size",
-            "1000",
-            "--mhs-pair",
-            "2,3",
-            "--vcf-sample",
-            "s1",
-            "--vcf-mode",
-            "mask",
-            "--vcf-mask",
-            "a.bed",
-            "--vcf-mask",
-            "b.bed",
-            "--vcf-negative-mask",
-            "c.bed",
-            "--vcf-keep-filtered",
-            "--vcf-no-contig-end",
-            "--depth",
-            "3:100000",
-            "--min-mapq",
-            "20",
-            "--indel-window",
-            "7",
-            "--min-qual",
-            "0",
-            "--min-good-bases",
-            "0",
-            "--min-good-fraction",
-            "0",
-        ];
+        let args = format!(
+            "--input-format vcf --bin-size 50 --batch-size 1000 {OTHER_FORMAT_FLAGS} --vcf-mask b.bed"
+        );
         let a = input(&args);
         let o = a.to_options();
         assert_eq!(o.format, Some(InputFormat::Vcf));
@@ -1030,10 +969,13 @@ mod tests {
         );
         assert_eq!(o.filter, SeqFilter::DISABLED);
 
-        let back = a.to_args();
-        let back: Vec<&str> = back.iter().map(String::as_str).collect();
-        assert_eq!(input(&back), a);
-        assert_eq!(input(&[]).to_args(), Vec::<String>::new());
+        let to_args = |a: &InputArgs| {
+            let mut args = ArgList::default();
+            a.push_args(&mut args);
+            args.0
+        };
+        assert_eq!(input(&to_args(&a).join(" ")), a);
+        assert_eq!(to_args(&input("")), Vec::<String>::new());
     }
 
     #[test]
@@ -1069,7 +1011,7 @@ mod tests {
 
     #[test]
     fn the_defaults_are_c_psmcs() {
-        let args = parse(["psmc-rs", "in", "out", "1"]).unwrap();
+        let args = parse("").unwrap();
         assert_eq!(
             (args.t_max, args.tr_ratio, args.mu),
             (DEFAULT_T_MAX, DEFAULT_TR_RATIO, DEFAULT_MU)
@@ -1078,11 +1020,10 @@ mod tests {
         assert_eq!(DEFAULT_TR_RATIO, psmc_rs::qc::DEFAULT_TR_RATIO);
         // The callable bases of each bin are fitted when the input has them.
         assert_eq!(args.bin_callable, BinCallableArg::Auto);
-        let ignore = parse(["psmc-rs", "in", "out", "1", "--bin-callable", "ignore"]).unwrap();
-        assert_eq!(ignore.bin_callable, BinCallableArg::Ignore);
-        let approx = parse(["psmc-rs", "in", "out", "1", "--bin-callable", "approximate"]).unwrap();
-        assert_eq!(approx.bin_callable, BinCallableArg::Approximate);
-        assert!(parse(["psmc-rs", "in", "out", "1", "--bin-callable", "x"]).is_err());
+        let mode = |name: &str| parse(&format!("--bin-callable {name}")).map(|a| a.bin_callable);
+        assert_eq!(mode("ignore").unwrap(), BinCallableArg::Ignore);
+        assert_eq!(mode("approximate").unwrap(), BinCallableArg::Approximate);
+        assert!(mode("x").is_err());
         // auto fits exact counts only; approximate also multihetsep's.
         use BinCallableArg::*;
         let uses =
@@ -1094,76 +1035,40 @@ mod tests {
 
     #[test]
     fn saved_parameters_replace_the_starting_values() {
-        let with_saved = |args: &[&str]| {
-            let mut argv = vec!["psmc-rs", "in", "out", "1", "--init-params", "fit.json"];
-            argv.extend_from_slice(args);
-            parse(argv)
-        };
-        assert!(with_saved(&[]).is_ok());
-        assert!(with_saved(&["--pattern", "4+5*3+4", "--mu", "1e-8"]).is_ok());
+        let with_saved = |args: &str| parse(&format!("--init-params fit.json {args}"));
+        assert!(with_saved("").is_ok());
+        assert!(with_saved("--pattern 4+5*3+4 --mu 1e-8").is_ok());
         for flag in ["--theta0", "--rho0", "--t-max", "--tr-ratio"] {
-            let err = with_saved(&[flag, "5"]).unwrap_err().to_string();
+            let err = with_saved(&format!("{flag} 5")).unwrap_err().to_string();
             assert!(err.contains("cannot be used with"), "{flag}: {err}");
         }
     }
 
     #[test]
     fn model_values_are_checked() {
-        let bad = |args: &[&str]| {
-            let mut argv = vec!["psmc-rs", "in", "out", "1"];
-            argv.extend_from_slice(args);
-            parse(argv).unwrap_err().to_string()
-        };
         for t_max in ["1000", "900", "200.5", "0.5"] {
-            let err = bad(&["--t-max", t_max]);
+            let err = parse_err(&format!("--t-max {t_max}"));
             assert!(
                 err.contains("must be between 1 and 200, the range the M-step searches"),
                 "{t_max}: {err}"
             );
         }
-        assert!(bad(&["--t-max", "0"]).contains("positive"));
+        assert!(parse_err("--t-max 0").contains("positive"));
         for n in ["0", "10000", "100000"] {
-            let err = bad(&["--n-steps", n]);
+            let err = parse_err(&format!("--n-steps {n}"));
             assert!(err.contains("must be between 1 and 9999"), "{n}: {err}");
         }
-        assert!(bad(&["--n-steps", "x"]).contains("not a whole number"));
-        assert!(bad(&["--tr-ratio=-4"]).contains("positive"));
-        assert!(bad(&["--smooth-lambda=-1"]).contains("0 or more"));
-        assert!(bad(&["--mstep-iters", "0"]).contains("at least 1"));
+        assert!(parse_err("--n-steps x").contains("not a whole number"));
+        assert!(parse_err("--tr-ratio=-4").contains("positive"));
+        assert!(parse_err("--smooth-lambda=-1").contains("0 or more"));
+        assert!(parse_err("--mstep-iters 0").contains("at least 1"));
     }
 
     #[test]
     fn options_of_another_format_are_found() {
-        let all = [
-            "--vcf-sample",
-            "s1",
-            "--vcf-mode",
-            "mask",
-            "--vcf-mask",
-            "a.bed",
-            "--vcf-negative-mask",
-            "b.bed",
-            "--vcf-keep-filtered",
-            "--vcf-no-contig-end",
-            "--depth",
-            "3:100000",
-            "--min-mapq",
-            "20",
-            "--indel-window",
-            "7",
-            "--min-qual",
-            "0",
-            "--mhs-pair",
-            "2,3",
-            "--min-good-bases",
-            "0",
-            "--min-good-fraction",
-            "0",
-        ];
-        let a = input(&all);
-        let flags: Vec<&str> = all
-            .iter()
-            .copied()
+        let a = input(OTHER_FORMAT_FLAGS);
+        let flags: Vec<&str> = OTHER_FORMAT_FLAGS
+            .split_whitespace()
             .filter(|f| f.starts_with("--"))
             .collect();
         assert_eq!(a.ignored_flags(InputFormat::Psmcfa, None), flags);
@@ -1187,24 +1092,17 @@ mod tests {
             ["--vcf-keep-filtered", "--vcf-no-contig-end", "--mhs-pair"]
         );
         // Consensus mode only checks the sample; mask mode selects it.
-        assert_eq!(
-            a.checked_only_flags(InputFormat::Vcf, Some(VcfMode::Consensus)),
-            ["--vcf-sample"]
-        );
+        assert!(a.sample_only_checked(InputFormat::Vcf, Some(VcfMode::Consensus)));
         for (format, mode) in [
             (InputFormat::Vcf, Some(VcfMode::Mask)),
             (InputFormat::Psmcfa, None),
             (InputFormat::Mhs, None),
         ] {
-            assert!(a.checked_only_flags(format, mode).is_empty());
+            assert!(!a.sample_only_checked(format, mode));
         }
-        assert!(
-            input(&[])
-                .checked_only_flags(InputFormat::Vcf, Some(VcfMode::Consensus))
-                .is_empty()
-        );
+        assert!(!input("").sample_only_checked(InputFormat::Vcf, Some(VcfMode::Consensus)));
         // Defaults are never reported, even when spelt out.
-        let defaults = input(&["--depth", "auto", "--mhs-pair", "0,1", "--min-qual", "10"]);
+        let defaults = input("--depth auto --mhs-pair 0,1 --min-qual 10");
         assert!(defaults.ignored_flags(InputFormat::Psmcfa, None).is_empty());
     }
 
@@ -1214,9 +1112,7 @@ mod tests {
     fn the_sample_help_names_the_mode_that_uses_it() {
         use clap::CommandFactory;
         let cmd = Cli::command();
-        let mut commands = vec![&cmd];
-        commands.extend(cmd.get_subcommands());
-        for c in commands {
+        for c in std::iter::once(&cmd).chain(cmd.get_subcommands()) {
             let help = c
                 .get_arguments()
                 .find(|a| a.get_id() == "vcf_sample")
@@ -1231,141 +1127,83 @@ mod tests {
 
     #[test]
     fn the_old_bin_size_flag_still_works() {
-        assert_eq!(input(&["--mhs-bin-size", "40"]).bin_size, 40);
+        assert_eq!(input("--mhs-bin-size 40").bin_size, 40);
     }
 
     #[test]
     fn the_old_generation_time_flag_still_works() {
-        let cli = parse(["psmc-rs", "in", "out", "1", "--tmrca-gen-years", "29"]);
-        assert_eq!(cli.unwrap().gen_years, 29.0);
+        assert_eq!(parse("--tmrca-gen-years 29").unwrap().gen_years, 29.0);
     }
 
     #[test]
     fn invalid_input_values_are_rejected() {
-        let bad = |args: &[&str]| {
-            let mut argv = vec!["psmc-rs", "in", "out", "1"];
-            argv.extend_from_slice(args);
-            parse(argv).unwrap_err().to_string()
-        };
-        assert!(bad(&["--mhs-pair", "1,1"]).contains("must differ"));
-        assert!(bad(&["--mhs-pair", "1"]).contains("I,J"));
-        assert!(bad(&["--depth", "10:5"]).contains("above the maximum"));
-        assert!(bad(&["--depth", "lots"]).contains("MIN:MAX"));
-        assert!(bad(&["--bin-size", "0"]).contains("at least 1"));
-        assert!(bad(&["--min-good-fraction", "1.5"]).contains("between 0 and 1"));
+        assert!(parse_err("--mhs-pair 1,1").contains("must differ"));
+        assert!(parse_err("--mhs-pair 1").contains("I,J"));
+        assert!(parse_err("--depth 10:5").contains("above the maximum"));
+        assert!(parse_err("--depth lots").contains("MIN:MAX"));
+        assert!(parse_err("--bin-size 0").contains("at least 1"));
+        assert!(parse_err("--min-good-fraction 1.5").contains("between 0 and 1"));
     }
 
     /// The TUI shows and runs `to_args`, so it must give back every
     /// setting.
     #[test]
     fn to_args_round_trips_every_inference_setting() {
-        let argv = [
-            "psmc-rs",
-            "in.vcf",
-            "out.json",
-            "7",
-            "--input-format",
-            "vcf",
-            "--bin-size",
-            "50",
-            "--vcf-mask",
-            "m.bed",
-            "--depth",
-            "5:60",
-            "--pattern",
-            "4+25*2+4+6",
-            "--n-steps",
-            "63",
-            "--t-max",
-            "20",
-            "--tr-ratio",
-            "5",
-            "--theta0",
-            "0.01",
-            "--rho0",
-            "0.002",
-            "--mu",
-            "1.25e-8",
-            "--bin-callable",
-            "ignore",
-            "--mstep-iters",
-            "300",
-            "--smooth-lambda",
-            "0.5",
-            "--threads",
-            "3",
-            "--gen-years",
-            "29",
-            "--bootstrap",
-            "20",
-            "--bootstrap-block-size",
-            "100000",
-            "--bootstrap-seed",
-            "7",
-            "--bootstrap-iters",
-            "5",
-            "--bootstrap-dir",
-            "boot",
-            "--psmc-out",
-            "out.psmc",
-            "--qc-json",
-            "qc.json",
-            "--tmrca-out",
-            "t.tsv.gz",
-            "--quiet",
-            "--no-progress",
-        ];
-        let args = parse(argv).unwrap();
-        let mut again = vec!["psmc-rs".to_string()];
-        again.extend(args.to_args());
-        assert_eq!(parse(again).unwrap(), args);
-
-        let saved = parse(["psmc-rs", "in", "out", "1", "--init-params", "fit.json"]).unwrap();
-        let mut again = vec!["psmc-rs".to_string()];
-        again.extend(saved.to_args());
-        assert_eq!(parse(again).unwrap(), saved);
+        let round_trip = |argv: &str| {
+            let args = Cli::try_parse_from(argv.split_whitespace()).unwrap().infer;
+            let again = std::iter::once("psmc-rs".to_string()).chain(args.to_args());
+            assert_eq!(Cli::try_parse_from(again).unwrap().infer, args);
+        };
+        round_trip(
+            "psmc-rs in.vcf out.json 7 --input-format vcf --bin-size 50 --vcf-mask m.bed \
+             --depth 5:60 --pattern 4+25*2+4+6 --n-steps 63 --t-max 20 --tr-ratio 5 \
+             --theta0 0.01 --rho0 0.002 --mu 1.25e-8 --bin-callable ignore --mstep-iters 300 \
+             --smooth-lambda 0.5 --threads 3 --gen-years 29 --bootstrap 20 \
+             --bootstrap-block-size 100000 --bootstrap-seed 7 --bootstrap-iters 5 \
+             --bootstrap-dir boot --psmc-out out.psmc --qc-json qc.json --tmrca-out t.tsv.gz \
+             --quiet --no-progress",
+        );
+        round_trip("psmc-rs in out 1 --init-params fit.json");
     }
 
     #[test]
     fn subcommands_take_their_own_arguments() {
-        let cli = Cli::try_parse_from([
-            "psmc-rs",
-            "convert",
-            "in.vcf.gz",
-            "--psmcfa",
-            "out.psmcfa",
-            "--bin-size",
-            "50",
-        ])
-        .unwrap();
-        let Some(Command::Convert(c)) = cli.command else {
+        let cli = |argv: &str| Cli::try_parse_from(argv.split_whitespace());
+        let Some(Command::Convert(c)) =
+            cli("psmc-rs convert in.vcf.gz --psmcfa out.psmcfa --bin-size 50")
+                .unwrap()
+                .command
+        else {
             panic!("not convert")
         };
         assert_eq!(c.input_file, PathBuf::from("in.vcf.gz"));
         assert_eq!(c.input.bin_size, 50);
 
-        let cli = Cli::try_parse_from(["psmc-rs", "qc", "in.psmcfa", "--strict"]).unwrap();
-        let Some(Command::Qc(q)) = cli.command else {
+        let Some(Command::Qc(q)) = cli("psmc-rs qc in.psmcfa --strict").unwrap().command else {
             panic!("not qc")
         };
         assert!(q.strict && q.json.is_none() && q.bootstrap_block_size.is_none());
 
         // Inference still takes its three positional arguments.
-        let cli = Cli::try_parse_from(["psmc-rs", "in", "out", "5"]).unwrap();
-        assert!(cli.command.is_none());
-        assert_eq!(cli.infer.n_iter, Some(5));
-        assert!(Cli::try_parse_from(["psmc-rs", "--tui"]).is_ok());
-        assert!(Cli::try_parse_from(["psmc-rs", "in", "out"]).is_err());
+        let infer = cli("psmc-rs in out 5").unwrap();
+        assert!(infer.command.is_none());
+        assert_eq!(infer.infer.n_iter, Some(5));
+        assert!(cli("psmc-rs --tui").is_ok());
+        assert!(cli("psmc-rs in out").is_err());
     }
 
     #[test]
     fn invalid_subcommand_uses_are_rejected() {
-        let err = |argv: &[&str]| Cli::try_parse_from(argv).unwrap_err().to_string();
+        let err = |argv: &str| {
+            Cli::try_parse_from(argv.split_whitespace())
+                .unwrap_err()
+                .to_string()
+        };
         // convert needs an output.
-        assert!(err(&["psmc-rs", "convert", "in.vcf"]).contains("--psmcfa"));
+        assert!(err("psmc-rs convert in.vcf").contains("--psmcfa"));
         // Inference options do not apply to a subcommand: before it, the
         // subcommand's name is read as the inference input.
-        assert!(err(&["psmc-rs", "--threads", "4", "qc", "in.vcf"]).contains("N_ITER"));
-        assert!(err(&["psmc-rs", "qc", "in.vcf", "--threads", "4"]).contains("--threads"));
+        assert!(err("psmc-rs --threads 4 qc in.vcf").contains("N_ITER"));
+        assert!(err("psmc-rs qc in.vcf --threads 4").contains("--threads"));
     }
 }

@@ -2,6 +2,7 @@
 //! progress of the shared inference pipeline, and the results.
 
 use anyhow::{Context, Result, anyhow, bail};
+use clap::ValueEnum;
 use crossterm::event::{self, Event as TermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -289,8 +290,9 @@ impl App {
     fn toggle_input_format(&mut self) {
         let next = match parse_input_format_field(self.field_value(FIELD_INPUT_FORMAT)) {
             Ok(f) => {
-                let i = FormatArg::ALL.iter().position(|&x| x == f).unwrap_or(0);
-                FormatArg::ALL[(i + 1) % FormatArg::ALL.len()]
+                let all = FormatArg::value_variants();
+                let i = all.iter().position(|&x| x == f).unwrap_or(0);
+                all[(i + 1) % all.len()]
             }
             Err(_) => FormatArg::Auto,
         };
@@ -402,11 +404,8 @@ fn parse_non_negative_f64(name: &str, v: &str) -> Result<f64> {
 }
 
 fn parse_input_format_field(v: &str) -> Result<FormatArg> {
-    let s = v.trim().to_ascii_lowercase();
-    FormatArg::ALL
-        .into_iter()
-        .find(|f| f.name() == s)
-        .ok_or_else(|| anyhow!("Input fmt must be auto, psmcfa, mhs or vcf"))
+    FormatArg::from_str(v.trim(), true)
+        .map_err(|_| anyhow!("Input fmt must be auto, psmcfa, mhs or vcf"))
 }
 
 fn build_cli_from_form(app: &App) -> Result<InferArgs> {
