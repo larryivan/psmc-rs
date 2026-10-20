@@ -117,7 +117,7 @@ so that it can be turned into the caption. The article numbers its figures in it
   and Cousins et al. 2025). Sensitivity: Ne and time scale as 1/mu, and
   time also scales with g. Plausible turtle values (mu 3.0-7.9 x 10^-9 per
   generation, from the range of the *C. picta* trios up to the crocodilian
-  rate the psmc-rs 0.1 runs used, Green et al. 2014; g 12-20 years) span a
+  rate of Green et al. 2014; g 12-20 years) span a
   factor of about 2.6 on both axes, and a further factor of 0.8-1.33 on
   the time axis. The human genome is NA12878 (CEU; GIAB's HG001), chr1-22 of
   the 1000 Genomes 30x NYGC joint call with the GRCh38 strict mask and every

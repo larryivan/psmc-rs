@@ -18,9 +18,7 @@ E3 (performance: Fig 2, Table 2), E4 (partly callable bins: Fig S2), E5
 text) and E7 (the 1000 Genomes 30x genomes: Fig 3, Fig 1, Table 1); FIG
 draws every figure. The pipeline names most figure files after an earlier
 plan of the article, and draws some that the article leaves out; section
-3 maps them. `experiment/scripts/`, `experiment/run.py`, the notebook and
-`experiment/runs/{main_text, real_data,supplementary}/` are an earlier
-pipeline and make none of the manuscript's results.
+3 maps them.
 
 ## 1) What the repository holds
 
@@ -29,7 +27,7 @@ production runs of E1 to E7 and FIG:
 
 | item | where |
 | --- | --- |
-| real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's `MANIFEST.json` and `config.RealGenome.sha256`) | `experiment/real_data/{HLemySub1,HLhydTec1,HLpelCas1}_diploid.psmcfa`, `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (`Papuan_highlands_diploid.psmcfa`, a chromosome 1, serves the README's benchmarks, the Rust tests and the earlier pipeline's `experiment/scripts/run_real_data.py`; E2 does not read it) |
+| real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's `MANIFEST.json` and `config.RealGenome.sha256`) | `experiment/real_data/{HLemySub1,HLhydTec1,HLpelCas1}_diploid.psmcfa`, `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (`Papuan_highlands_diploid.psmcfa`, a chromosome 1, serves the README's benchmarks and the Rust tests; E2 does not read it) |
 | truth records of the simulated genomes (settings, seeds, software versions, per-chromosome counts and checksums, the true Ne(t)) | `runs/<EXP>/truth/` |
 | every fit: psmc-rs JSON and `.psmc`, C psmc `.psmc` | `runs/<EXP>/fits/` |
 | bootstrap runs: main fit, every replicate's JSON, `summary.json` and `summary.tsv` | `runs/E2/bootstrap/`, `runs/E5/boot/`, `runs/E7/boot/` |

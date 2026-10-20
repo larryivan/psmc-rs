@@ -856,10 +856,8 @@ tables); [experiment/pipeline/README.md](experiment/pipeline/README.md)
 describes it, and
 [Supplementary Note 1](experiment/Supplementary_Note_1_Reproducibility.md)
 how to reproduce the results on a laptop or a SLURM cluster. Its results
-go to `experiment/runs/E1` to `E6` and `FIG`. The scripts, notebook and
-results described in
-[experiment/README.md](experiment/README.md) are the earlier pipeline of
-0.1.
+go to `experiment/runs/E1` to `E7` and `FIG`;
+[experiment/README.md](experiment/README.md) gives an overview.
 
 ## Citing
 

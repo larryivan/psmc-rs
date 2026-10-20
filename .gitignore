@@ -2,40 +2,6 @@
 .DS_Store
 __pycache__/
 
-# Experiment runtime artifacts (regenerable, large or machine-specific)
-/experiment/runs/**/inputs/*
-/experiment/runs/**/shared_inputs/*
-/experiment/runs/**/outputs/*
-/experiment/runs/**/perf/*
-/experiment/runs/**/logs/*
-/experiment/runs/**/bootstrap/*
-/experiment/runs/**/diagnostic_figures/
-# .tsv/.md copies of the CSV tables
-/experiment/runs/**/tables/*.tsv
-/experiment/runs/**/tables/*.md
-!/experiment/runs/**/inputs/.gitkeep
-# E7's data stage ran on the cluster; its manifest and records (how each
-# chromosome was read, the pilot) are the provenance of its inputs
-!/experiment/runs/E7/inputs/MANIFEST.json
-!/experiment/runs/E7/inputs/records/
-!/experiment/runs/**/shared_inputs/.gitkeep
-!/experiment/runs/**/outputs/.gitkeep
-!/experiment/runs/**/perf/.gitkeep
-!/experiment/runs/**/logs/.gitkeep
-!/experiment/runs/**/bootstrap/.gitkeep
-
-# Inference outputs (psmc-rs JSON, C .psmc, S2 log-likelihood stamps) are
-# small text files the figures and tables are computed from: they are part of
-# the reproduction package and must be committed. HTML reports, TMRCA tables
-# and bootstrap directories next to them stay ignored.
-!/experiment/runs/**/outputs/*.json
-!/experiment/runs/**/outputs/*.psmc
-!/experiment/runs/**/outputs/*.loglike.txt
-# Except the S3/S4 timing repeats: only their timings, kept in the tables, are
-# used, and they are re-run every time.
-/experiment/runs/supplementary/s3_memory/outputs/*
-/experiment/runs/supplementary/s4_threads/outputs/*
-
 # The experiment pipeline (python -m experiment.pipeline) writes
 # experiment/runs/<experiment>/. Simulated genomes (psmcfa, VCF, masks, tree
 # sequences, TMRCA tracks) are large and regenerated exactly from the seeds
@@ -48,8 +14,15 @@ __pycache__/
 /experiment/runs/_runner/
 /experiment/runs/**/*.html
 /experiment/runs/**/*.partial
+# The inputs E2 and E7 prepare (the smaller profiles' prefixes of E2's
+# genomes; E7's psmcfa, masks and VCFs) are regenerable. E7's data stage ran
+# on the cluster; its manifest and records (how each chromosome was read,
+# the pilot) are the provenance of its inputs.
+/experiment/runs/**/inputs/*
+!/experiment/runs/E7/inputs/MANIFEST.json
+!/experiment/runs/E7/inputs/records/
 # Runs of the pipeline's smoke profile, and the tools it builds or finds
-# (C psmc and its utilities, psmc-rs 0.1 built from e50d69d).
+# (C psmc and its utilities).
 /experiment/.runs-smoke/
 /experiment/.tools/
 # E5 (bootstrap calibration) keeps every bootstrap replicate's parameters
@@ -57,9 +30,7 @@ __pycache__/
 # (every EM round, about 0.1 MB each, a thousand of them) are not kept.
 /experiment/runs/E5/boot/**/replicate_*.psmc
 # E2 keeps the same of its bootstraps (main.json, replicate_NNN.json,
-# summary.json and summary.tsv), not the replicates' .psmc files; its
-# bootstrap/ directory is not the earlier pipeline's ignored one.
-!/experiment/runs/E2/bootstrap/*
+# summary.json and summary.tsv), not the replicates' .psmc files.
 /experiment/runs/E2/bootstrap/**/replicate_*.psmc
 
 # Site settings of the SLURM scripts (account, paths)

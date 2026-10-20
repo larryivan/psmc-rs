@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 C psmc in its defaults, and adds the `qc` and `convert` commands. **Results
 are not comparable with 0.1 runs that relied on the defaults** (first part
 of *Changed*); the manuscript's results are made again with 0.2 by the
-new pipeline in `experiment/pipeline/` (`experiment/runs/E1` to `E6`,
-committed with the release), and those of the earlier scripts (`experiment/runs/main_text`, `real_data` and
-`supplementary`) are 0.1's.
+new pipeline in `experiment/pipeline/` (`experiment/runs/E1` to `E7` and
+`FIG`, committed with the release), which replaces 0.1's reproduction
+package (*Removed*).
 
 ### Changed
 
@@ -300,30 +300,9 @@ Library API:
 
 Reproduction package (`experiment/`):
 
-- The scripts pass every setting that shapes a fit to psmc-rs explicitly
-  (`--pattern`, `--t-max`, `--tr-ratio`, `--smooth-lambda`,
-  `--mstep-iters`) and compare it with C psmc at `-r4`; the 0.1 results
-  used 5 on both sides. Before the first run compared with C they check,
-  with a zero-iteration run of those options, that the binary starts from
-  `theta0/RHO_T_RATIO`, and refuse a 0.1 build, which has no `--tr-ratio`.
-  `--n-steps` and `N_STEPS` are gone (the pattern sets the intervals, as in
-  C psmc), `--batch-size` is passed only when `BATCH_SIZE` is set, and
-  `MSTEP_ITERS` sets the M-step cap.
-- S2 reads the psmc-rs log-likelihood trace from one run's JSON
-  (`loglike`) instead of running psmc-rs once per iteration count and
-  parsing `Last EM loglike`, which now belongs to C psmc's next round; row
-  `iter` k holds both tools' log-likelihood after k - 1 iterations (C's
-  round k).
-- S5 reads the VCF in mask mode, and `--bin-size` is passed for every
-  format.
-- `run_supplementary.py` writes its quick-look figures to
-  `diagnostic_figures/` instead of next to the manuscript figures, runs
-  S2-S5 by default (S1, the smoothing ablation, on request) and simulates
-  only the constant model for the S3 length series.
-- `experiment/README.md` and Supplementary Note 1 document the whole
-  pipeline (building lh3/psmc with `-O1`, simulation, matched runs, tables,
-  figures) and state which results are packaged and which must be
-  regenerated.
+- `experiment/README.md` and Supplementary Note 1 describe the pipeline
+  of `experiment/pipeline/` and how to reproduce the manuscript's results:
+  from the committed runs, on one machine or on a SLURM cluster.
 
 ### Added
 
@@ -447,11 +426,11 @@ Reproduction package (`experiment/`):
   and `vcfutils.pl` and with `fq2psmcfa` built from lh3/psmc 0.6.5-r74, and
   runs the ignored tests that compare consensus and mask mode with those
   tools.
-- Reproduction package: the simulation scripts and the supplementary-table
-  runner deleted in 79ac364 are restored under `experiment/scripts/`, with
-  new runners `run_main_text.py` and `run_real_data.py`;
-  `experiment/requirements.txt`; `experiment/run.py --keep-going`; Python
-  tests (`python3 -m unittest discover -s experiment/tests`).
+- Reproduction package: the experiment pipeline (`experiment/pipeline/`,
+  `python -m experiment.pipeline`), which makes the manuscript's
+  experiments, tables and figures with C psmc and psmc-rs 0.2, the scripts
+  that ran it on a SLURM cluster (`experiment/slurm/`), and Python tests
+  (`python3 -m unittest discover -s experiment/tests`).
 - `CONTRIBUTING.md`, issue and pull-request templates, `CITATION.cff` and
   this changelog.
 
@@ -559,24 +538,6 @@ Reproduction package (`experiment/`):
   glibc 2.34 (RHEL and Rocky 8, Ubuntu 20.04, Debian 11) and printed a
   `GLIBC_2.39` warning on every run before 2.39. The release checks the
   binary in CentOS 7, Rocky Linux 8 and Ubuntu 22.04 before publishing it.
-- Reproduction package: `run.py` no longer re-executes a hardcoded personal
-  interpreter and explains how to regenerate missing results; the
-  notebook and every script work from any directory and clone; small
-  inference outputs are no longer ignored by git; personal paths are gone
-  from tables and docs; the Papuan sample is labelled chromosome 1 only.
-- Reproduction package: S3 re-ran nothing on a second invocation and wrote
-  empty timings; an interrupted C psmc run left a partial output that was
-  reused; `--models` and `--samples` subsets dropped the other rows of
-  Table 2 and of the fit summary; `run_main_text.py` ignored `$SIM_SCRIPT`.
-- Reproduction package: S2 plotted C psmc's round 0, whose LK is a
-  placeholder 0.
-- Reproduction package: cached outputs were reused whatever settings made
-  them (a C psmc output only needed `N_ITER + 1` rounds, a psmc-rs output
-  only had to parse), so a rerun over the 0.1 outputs compared new psmc-rs
-  fits with C psmc runs made at `-r5`. An output is now reused only when C
-  psmc's header, or the record the scripts keep next to a psmc-rs JSON
-  (`<name>.settings.json`), shows the current settings; otherwise the
-  script says why and runs it again.
 - The documented minimum Rust version is 1.88, which the locked
   dependencies of `ratatui` 0.30 need.
 
@@ -678,28 +639,11 @@ Reproduction package (`experiment/`):
 
 - `psmc_rs::utils::logsumexp` (unused).
 - The CLI's within-sequence bootstrap (the library function remains).
-- Reproduction package: the `N_STEPS` variable and the per-iteration S2 runs
-  (`*.rust.iterNN.json`, `*.loglike.txt`).
-
-### Known issues
-
-- The earlier pipeline's results (`experiment/runs/main_text`,
-  `real_data` and `supplementary`) were produced with 0.1. The manuscript's
-  results are the 0.2 pipeline's, committed in `experiment/runs/E1` to `E7`
-  and `FIG`; the items below concern the earlier pipeline's files.
-- The packaged S2 table and Supplementary Figure S1 include C psmc's round
-  0, whose LK is a placeholder 0, which squeezes the curves into a line;
-  the regenerated table leaves it out.
-- The zigzag row of `S5_format_consistency.csv` is exactly zero in every
-  column. This is not an artefact: with 0.1, S5's inputs differed only in
-  the homozygous bins after the last heterozygous site, and the zigzag
-  simulation has none. With 0.2 the VCF input gives exactly the psmcfa's
-  bins, so a regenerated table has zero VCF columns for every model. The
-  caption of Supplementary Figure S2 should say what S5 measures;
-  `run_supplementary.py` records the count in `psmcfa_bins_after_last_het`.
-- The committed Figure 3 files still show the old Papuan panel title, and
-  the screenshots behind Supplementary Figure S3 (`experiment/assets/ui/`)
-  show the 0.1 terminal interface and report.
+- Reproduction package: 0.1's (`experiment/run.py`, the notebook that drew
+  its figures, its results in `experiment/runs/main_text`, `real_data` and
+  `supplementary`, and the interface screenshots in `experiment/assets/ui/`),
+  which the pipeline replaces; it stays in the v0.1.x tags and the git
+  history.
 
 ## [0.1.2] - 2026-02-24
 

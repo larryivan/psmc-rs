@@ -161,6 +161,9 @@ def ms_model(name: str, n0: float, events: Tuple[Tuple[float, float], ...], sour
     return DemographicModel(name, float(n0), changes, source, ms_n0=float(n0), ms_events=tuple(events))
 
 
+# The models' settings, and so every simulation's truth record and job key,
+# hold this text: it names the earlier pipeline's script, which the
+# repository keeps in its git history only.
 _MS_SOURCE = (
     "ms-style model of the psmc-rs 0.1 manuscript pipeline "
     "(experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"

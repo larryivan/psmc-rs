@@ -8,8 +8,7 @@ and equivalence, Fig 2, Table 1, Fig S1), E2 (real genomes, Fig 3), E3
 (performance, Fig 4, Table 2, Fig S4), E4 (input preparation, Fig 5), E5
 (bootstrap calibration, Fig 6), E6 (supplementary analyses, Figs S2 and S3,
 Table S5), E7 (1000 Genomes, Fig 7, Figs S5 and S6) and FIG (every figure,
-Fig 1 included). `experiment/scripts/`
-holds the earlier pipeline of psmc-rs 0.1's runs.
+Fig 1 included).
 
 Run it from the repository root with the experiment's environment
 (`experiment/.venv` with the exact versions of
@@ -99,9 +98,10 @@ runs' fits record what is said here.
 the Hudson coalescent and a discrete genome for one diploid individual,
 then `sim_mutations` with JC69; mutation rate 2.5e-8, recombination rate
 1e-8. Chromosomes are unlinked and simulated independently. The models
-`constant`, `bottleneck` and `expansion` are the ms models of the earlier
-pipeline (time in 4*N0 generations, size relative to N0), converted exactly
-(`config.ms_model`); `zigzag` is stdpopsim 0.3.0's `HomSap/Zigzag_1S14`,
+`constant`, `bottleneck` and `expansion` are ms models (time in 4*N0
+generations, size relative to N0), those of psmc-rs 0.1's manuscript, whose
+simulation script the truth records name (it is in the git history),
+converted exactly (`config.ms_model`); `zigzag` is stdpopsim 0.3.0's `HomSap/Zigzag_1S14`,
 recorded in `config.py` and checked against stdpopsim epoch by epoch
 (`$PY -m experiment.pipeline check-models`). Each replicate writes a psmcfa
 (one record per chromosome, laid out as fq2psmcfa writes it, `K` where a
@@ -295,12 +295,9 @@ settings (`fit-c`, `fit-rs-psmcfa`), and E2's bootstrap of it is E7's
 identical band.
 `real_data/Papuan_highlands_diploid.psmcfa`, the chromosome 1 of a Papuan
 Highlands human that E2 fitted before, stays for the top-level README's
-benchmarks, the Rust tests and the psmc-rs 0.1 scripts
-(`experiment/scripts/run_real_data.py`); E2 does not read it.
+benchmarks and the Rust tests; E2 does not read it.
 `config.RealGenome.scaling_source` gives the citations in full, and
-`E2_fit_summary.csv` repeats them. The psmc-rs 0.1 runs used mu 7.9e-9 for
-the turtles, a crocodilian rate (Green et al. 2014), and g 25 for the
-Papuan chromosome 1. Per genome: `fit-c` (C
+`E2_fit_summary.csv` repeats them. Per genome: `fit-c` (C
 psmc), `fit-rs` (psmc-rs 0.2, the identical file and settings),
 `boot-rs/trunk500000` (psmc-rs 0.2 with `--bootstrap 100` on the default
 trunks of 500,000 bins, splitfa's 50 Mb; seed `seed("E2", sample, 0,

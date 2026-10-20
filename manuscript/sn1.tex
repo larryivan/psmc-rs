@@ -19,9 +19,7 @@ E3 (performance: Fig 2, Table 2), E4 (partly callable bins: Fig S2), E5
 text) and E7 (the 1000 Genomes 30x genomes: Fig 3, Fig 1, Table 1); FIG
 draws every figure. The pipeline names most figure files after an earlier
 plan of the article, and draws some that the article leaves out; section
-3 maps them. \texttt{experiment/\allowbreak{}scripts/\allowbreak{}}, \texttt{experiment/\allowbreak{}run.py}, the notebook and
-\texttt{experiment/\allowbreak{}runs/\allowbreak{}\{main\_\allowbreak{}text,\allowbreak{}\ real\_\allowbreak{}data,\allowbreak{}supplementary\}/\allowbreak{}} are an earlier
-pipeline and make none of the manuscript's results.
+3 maps them.
 
 \subsection{1) What the repository holds}\label{what-the-repository-holds}
 
@@ -42,7 +40,7 @@ where
 \endhead
 \bottomrule\noalign{}
 \endlastfoot
-real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's \texttt{MANIFEST.json} and \texttt{config.RealGenome.sha256}) & \texttt{experiment/\allowbreak{}real\_\allowbreak{}data/\allowbreak{}\{HLemySub1,\allowbreak{}HLhydTec1,\allowbreak{}HLpelCas1\}\_\allowbreak{}diploid.psmcfa}, \texttt{experiment/\allowbreak{}real\_\allowbreak{}data/\allowbreak{}NA12878\_\allowbreak{}1kGP30x\_\allowbreak{}diploid.psmcfa.gz} (\texttt{Papuan\_\allowbreak{}highlands\_\allowbreak{}diploid.psmcfa}, a chromosome 1, serves the README's benchmarks, the Rust tests and the earlier pipeline's \texttt{experiment/\allowbreak{}scripts/\allowbreak{}run\_\allowbreak{}real\_\allowbreak{}data.py}; E2 does not read it) \\
+real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's \texttt{MANIFEST.json} and \texttt{config.RealGenome.sha256}) & \texttt{experiment/\allowbreak{}real\_\allowbreak{}data/\allowbreak{}\{HLemySub1,\allowbreak{}HLhydTec1,\allowbreak{}HLpelCas1\}\_\allowbreak{}diploid.psmcfa}, \texttt{experiment/\allowbreak{}real\_\allowbreak{}data/\allowbreak{}NA12878\_\allowbreak{}1kGP30x\_\allowbreak{}diploid.psmcfa.gz} (\texttt{Papuan\_\allowbreak{}highlands\_\allowbreak{}diploid.psmcfa}, a chromosome 1, serves the README's benchmarks and the Rust tests; E2 does not read it) \\
 truth records of the simulated genomes (settings, seeds, software versions, per-chromosome counts and checksums, the true Ne(t)) & \texttt{runs/\allowbreak{}\textless{}EXP\textgreater{}/\allowbreak{}truth/\allowbreak{}} \\
 every fit: psmc-rs JSON and \texttt{.psmc}, C psmc \texttt{.psmc} & \texttt{runs/\allowbreak{}\textless{}EXP\textgreater{}/\allowbreak{}fits/\allowbreak{}} \\
 bootstrap runs: main fit, every replicate's JSON, \texttt{summary.json} and \texttt{summary.tsv} & \texttt{runs/\allowbreak{}E2/\allowbreak{}bootstrap/\allowbreak{}}, \texttt{runs/\allowbreak{}E5/\allowbreak{}boot/\allowbreak{}}, \texttt{runs/\allowbreak{}E7/\allowbreak{}boot/\allowbreak{}} \\
