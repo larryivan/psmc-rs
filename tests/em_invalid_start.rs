@@ -4,9 +4,12 @@
 //! EM cannot move from such a start (C psmc stays at it and reports a flat
 //! history), so it must refuse it and say how far rho has to come down.
 
-use psmc_rs::model::{NegativeTransitions, n_steps_for_pattern};
+mod common;
+
+use common::{e_step, model, mstep, params};
+use psmc_rs::initial_theta;
+use psmc_rs::model::NegativeTransitions;
 use psmc_rs::opt::{MStepConfig, bounds_from_config, em_train, m_step_lbfgs_with_outcome};
-use psmc_rs::{PsmcModel, initial_theta};
 
 /// `n_seqs` sequences of `len` bins, each heterozygous with probability
 /// `p_het`, from a fixed xorshift stream.
@@ -24,16 +27,10 @@ fn rows(p_het: f64, n_seqs: usize, len: usize) -> (Vec<Vec<u8>>, Vec<bool>) {
     (rows, vec![true; n_seqs])
 }
 
-fn model(pattern: &str, theta: f64, rho: f64) -> PsmcModel {
-    let n_steps = n_steps_for_pattern(pattern).unwrap();
-    PsmcModel::new(15.0, n_steps, theta, rho, 2.5e-8, Some(pattern.into())).unwrap()
-}
-
 fn config() -> MStepConfig {
     MStepConfig {
-        progress: false,
         max_iters: 30,
-        ..MStepConfig::default()
+        ..mstep()
     }
 }
 
@@ -115,24 +112,13 @@ fn the_limit_is_where_transitions_turn_negative() {
 fn m_step_refuses_a_start_where_its_objective_is_infeasible() {
     let (rows, starts) = rows(0.3, 1, 20_000);
     let valid = model("4+5*3+4", 0.36, 0.09);
-    let stats = psmc_rs::hmm::e_step_streaming(
-        valid.prior_matrix(),
-        valid.transition_matrix(),
-        valid.emission_matrix(),
-        &rows,
-        &starts,
-        false,
-        "E",
-    )
-    .unwrap()
-    .stats;
+    let stats = e_step(&valid, &rows, &starts).stats;
     let invalid = model("4+5*3+4", 0.9, 0.3);
-    let mut params = vec![invalid.theta, invalid.rho, invalid.t_max];
-    params.extend_from_slice(&invalid.lam);
     let config = config();
     let bounds = bounds_from_config(&invalid, &config);
+    let start = params(&invalid);
     let err =
-        m_step_lbfgs_with_outcome(&invalid, &stats, &params, &bounds, &config, None).unwrap_err();
+        m_step_lbfgs_with_outcome(&invalid, &stats, &start, &bounds, &config, None).unwrap_err();
     // Negative transition probabilities: no HMM, so the objective is +inf.
     assert!(err.to_string().contains("objective is inf"), "{err}");
 }

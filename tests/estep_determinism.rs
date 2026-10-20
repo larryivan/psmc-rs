@@ -5,8 +5,10 @@
 //! the AVX2 and FMA kernels must agree to a relative 1e-12, and to the bit
 //! with the dense kernels.
 
+mod common;
+
+use common::{model, pool};
 use ndarray::Array2;
-use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
     AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, SimdPath, TmrcaReportData,
     e_step_streaming, e_step_with_options, log_likelihood, set_force_portable, simd_path,
@@ -35,10 +37,9 @@ struct Input {
 }
 
 /// `lens[i]` sites for sequence `i`, every other sequence split into chained rows.
-fn input(seed: u64, pattern: &str, n_steps: usize, lens: &[usize]) -> Input {
+fn input(seed: u64, pattern: &str, lens: &[usize]) -> Input {
     let mut rng = SmallRng::seed_from_u64(seed);
-    let model =
-        PsmcModel::new(15.0, n_steps, 2e-3, 4e-4, 2.5e-8, Some(pattern.to_string())).unwrap();
+    let model = model(pattern, 2e-3, 4e-4);
     let mut rows = Vec::new();
     let mut row_starts = Vec::new();
     for (i, &len) in lens.iter().enumerate() {
@@ -116,18 +117,18 @@ fn run(inp: &Input) -> EStepResult {
     .unwrap()
 }
 
-fn pool(threads: usize) -> rayon::ThreadPool {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build()
-        .unwrap()
+fn run_with(inp: &Input, opts: EStepOptions<'_>) -> EStepResult {
+    e_step_with_options(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts, opts).unwrap()
+}
+
+fn log_likelihood_of(inp: &Input) -> f64 {
+    log_likelihood(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts).unwrap()
 }
 
 fn standard_input() -> Input {
     input(
         11,
         "4+25*2+4+6",
-        63,
         &[
             9000,
             4 * CHECKPOINT_STRIDE + 3,
@@ -190,7 +191,7 @@ fn many_sequences_are_reduced_deterministically() {
     let _path = one_path();
     // More sequences than work items, so sequences are grouped.
     let lens: Vec<usize> = (0..700).map(|i| 1 + (i * 37) % 300).collect();
-    let inp = input(5, "4+5*3+4", 22, &lens);
+    let inp = input(5, "4+5*3+4", &lens);
     let reference = bits(&run(&inp));
     for threads in [1, 3, 8] {
         let e = pool(threads).install(|| run(&inp));
@@ -209,18 +210,11 @@ fn alpha_cache_budget_does_not_change_results() {
         let budget = AlphaCacheBudget::new(limit);
         for threads in [1, 4] {
             let e = pool(threads).install(|| {
-                e_step_with_options(
-                    &inp.pi,
-                    &inp.a,
-                    &inp.em,
-                    &inp.rows,
-                    &inp.row_starts,
-                    EStepOptions {
-                        alpha_cache: Some(&budget),
-                        ..EStepOptions::default()
-                    },
-                )
-                .unwrap()
+                let opts = EStepOptions {
+                    alpha_cache: Some(&budget),
+                    ..EStepOptions::default()
+                };
+                run_with(&inp, opts)
             });
             assert_eq!(budget.used_bytes(), 0, "reservations must be released");
             assert!(budget.peak_bytes() <= limit);
@@ -249,36 +243,22 @@ fn progress_callback_and_explicit_pool_do_not_change_results() {
         let p = pool(threads);
         let mut events = 0usize;
         let mut cb = |_: psmc_rs::hmm::EStepProgress| events += 1;
-        let e = e_step_with_options(
-            &inp.pi,
-            &inp.a,
-            &inp.em,
-            &inp.rows,
-            &inp.row_starts,
-            EStepOptions {
-                on_progress: Some(&mut cb),
-                thread_pool: Some(&p),
-                ..EStepOptions::default()
-            },
-        )
-        .unwrap();
+        let opts = EStepOptions {
+            on_progress: Some(&mut cb),
+            thread_pool: Some(&p),
+            ..EStepOptions::default()
+        };
+        let e = run_with(&inp, opts);
         assert!(events >= 2);
         assert_same(&e, &reference, &format!("{threads} threads with callback"));
         // The same with the callback pumped from inside a pool worker.
         let e = p.install(|| {
             let mut cb = |_: psmc_rs::hmm::EStepProgress| {};
-            e_step_with_options(
-                &inp.pi,
-                &inp.a,
-                &inp.em,
-                &inp.rows,
-                &inp.row_starts,
-                EStepOptions {
-                    on_progress: Some(&mut cb),
-                    ..EStepOptions::default()
-                },
-            )
-            .unwrap()
+            let opts = EStepOptions {
+                on_progress: Some(&mut cb),
+                ..EStepOptions::default()
+            };
+            run_with(&inp, opts)
         });
         assert_same(
             &e,
@@ -294,9 +274,7 @@ fn log_likelihood_is_deterministic_and_matches_e_step() {
     let inp = standard_input();
     let e = run(&inp);
     for threads in [1, 2, 8] {
-        let ll = pool(threads).install(|| {
-            log_likelihood(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts).unwrap()
-        });
+        let ll = pool(threads).install(|| log_likelihood_of(&inp));
         assert_eq!(ll.to_bits(), e.loglike.to_bits(), "{threads} threads");
     }
 }
@@ -310,7 +288,7 @@ fn psmc_models_recompute_instead_of_caching_rows() {
         alpha_cache: Some(&budget),
         ..EStepOptions::default()
     };
-    e_step_with_options(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts, opts).unwrap();
+    run_with(&inp, opts);
     assert_eq!(budget.peak_bytes(), 0);
 }
 
@@ -413,7 +391,7 @@ fn simd_paths_agree() {
         set_force_portable(path == SimdPath::Portable);
         assert_eq!(simd_path(), path);
         let e_step = run(inp);
-        let loglike = log_likelihood(&inp.pi, &inp.a, &inp.em, &inp.rows, &inp.row_starts).unwrap();
+        let loglike = log_likelihood_of(inp);
         let years: Vec<f64> = (0..inp.pi.len()).map(|k| 1000.0 * k as f64).collect();
         let tsv = dir.join(format!("simd_{}_{}.tsv", std::process::id(), path));
         let tmrca = write_tmrca_posterior_tsv(

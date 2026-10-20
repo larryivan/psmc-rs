@@ -9,11 +9,13 @@
 //!   the fit recovers θ, which C psmc's model underestimates by about the
 //!   missing share.
 
+mod common;
+
+use common::{bits, full_bins, model, mstep};
 use psmc_rs::em::{EmHistory, EmOptions, em_train_with_options, hmm_q, hmm_q0};
 use psmc_rs::hmm::{EStepOptions, SufficientStats, e_step_with_options};
 use psmc_rs::io::CallableBases;
 use psmc_rs::model::ThetaCounts;
-use psmc_rs::opt::MStepConfig;
 use psmc_rs::{PsmcModel, initial_theta, initial_theta_with_callable};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -23,7 +25,7 @@ const PATTERN: &str = "4+5*3+4";
 
 /// A PSMC model with a bottleneck-like history.
 fn true_model(theta: f64) -> PsmcModel {
-    let mut m = PsmcModel::new(15.0, 22, theta, theta / 4.0, 2.5e-8, Some(PATTERN.into())).unwrap();
+    let mut m = model(PATTERN, theta, theta / 4.0);
     m.lam.copy_from_slice(&[2.0, 0.3, 0.5, 1.0, 1.5, 2.0, 2.0]);
     m.param_recalculate().unwrap();
     m
@@ -115,43 +117,31 @@ fn dispersed(missing: f64) -> impl FnMut(&mut SmallRng) -> u16 {
     move |rng| (0..S).filter(|_| !rng.gen_bool(missing)).count() as u16
 }
 
-fn config() -> MStepConfig {
-    MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    }
-}
-
 fn fit(
     rows: &[Vec<u8>],
     callable: Option<&CallableBases>,
     n_iter: usize,
 ) -> (PsmcModel, EmHistory) {
     let theta0 = initial_theta_with_callable(rows, callable).unwrap();
-    let mut model =
-        PsmcModel::new(15.0, 22, theta0, theta0 / 4.0, 2.5e-8, Some(PATTERN.into())).unwrap();
+    let mut m = model(PATTERN, theta0, theta0 / 4.0);
     let starts = vec![true; rows.len()];
     let opts = EmOptions {
         callable,
         ..EmOptions::default()
     };
-    let history =
-        em_train_with_options(&mut model, rows, &starts, n_iter, &config(), opts).unwrap();
-    (model, history)
+    let history = em_train_with_options(&mut m, rows, &starts, n_iter, &mstep(), opts).unwrap();
+    (m, history)
 }
 
 /// Every value of an EM history as bits.
 fn history_bits(h: &EmHistory) -> Vec<u64> {
-    let mut v = Vec::new();
-    for &(a, b) in &h.loglike {
-        v.extend([a.to_bits(), b.to_bits()]);
-    }
-    for p in h.params.iter().chain(&h.post_sigma) {
-        v.extend(p.iter().map(|x| x.to_bits()));
-    }
-    for &(a, b) in &h.q {
-        v.extend([a.to_bits(), b.to_bits()]);
-    }
+    let pairs = |v: &[(f64, f64)]| -> Vec<f64> { v.iter().flat_map(|&(a, b)| [a, b]).collect() };
+    let values: Vec<f64> = pairs(&h.loglike)
+        .into_iter()
+        .chain(h.params.iter().chain(&h.post_sigma).flatten().copied())
+        .chain(pairs(&h.q))
+        .collect();
+    let mut v = bits(&values);
     v.extend(h.mstep_evaluations.iter().map(|&n| n as u64));
     v
 }
@@ -253,17 +243,7 @@ fn full_bins_fit_as_c_psmc_to_the_bit() {
     let truth = true_model(0.02);
     let (rows, partial) = simulate(&truth, 4, 3000, 3, dispersed(0.3));
     // The same bins, every called one full.
-    let counts = rows
-        .iter()
-        .zip(partial.to_counts())
-        .map(|(r, c)| {
-            r.iter()
-                .zip(c)
-                .map(|(&v, c)| if v == 2 { c } else { S })
-                .collect()
-        })
-        .collect();
-    let full = CallableBases::from_counts(100, counts).unwrap();
+    let full = full_bins(&rows, &partial);
     let (m_plain, h_plain) = fit(&rows, None, 3);
     let (m_full, h_full) = fit(&rows, Some(&full), 3);
     assert_eq!(history_bits(&h_full), history_bits(&h_plain));

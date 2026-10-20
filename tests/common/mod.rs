@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 pub mod psmc_text;
+pub mod reference_hmm;
 
 use psmc_rs::hmm::{EStepResult, e_step_streaming};
 use psmc_rs::io::psmcfa::{read_psmcfa, read_psmcfa_records};

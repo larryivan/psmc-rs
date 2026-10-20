@@ -1,48 +1,29 @@
 //! Posterior TMRCA decoding: the bounded-memory writer must agree with the
-//! previous full-row implementation (copied below as the reference), write
-//! gzip when the path ends in `.gz`, and not depend on the thread count.
+//! previous full-row implementation (copied below as the reference, its
+//! forward pass in `tests/common/reference_hmm.rs`), write gzip when the
+//! path ends in `.gz`, and not depend on the thread count.
 
-use anyhow::{Result, bail};
-use flate2::read::MultiGzDecoder;
+mod common;
+
+use anyhow::Result;
+use common::reference_hmm::{forward_fill_row, obs_to_idx, row_major};
+use common::{TempDir, gunzipped, pool};
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{CHECKPOINT_STRIDE, TmrcaReportData, write_tmrca_posterior_tsv};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::fs::File;
-use std::io::{BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
 // ---- reference implementation (ac53c53, src/hmm.rs) ------------------------
 
-#[inline]
-fn obs_to_idx(v: u8) -> usize {
-    if v == 0 {
-        0
-    } else if v == 1 {
-        1
-    } else {
-        2
-    }
-}
-
-#[inline]
 fn obs_to_char(v: u8) -> char {
-    if v == 0 {
-        'T'
-    } else if v == 1 {
-        'K'
-    } else {
-        'N'
-    }
+    ['T', 'K', 'N'][obs_to_idx(v)]
 }
 
-#[inline]
 fn quantile_from_probs(probs: &[f64], state_years: &[f64], q: f64) -> f64 {
-    debug_assert_eq!(probs.len(), state_years.len());
-    if probs.is_empty() {
-        return 0.0;
-    }
     let target = q.clamp(0.0, 1.0);
     let mut cdf = 0.0;
     for (k, p) in probs.iter().enumerate() {
@@ -54,77 +35,30 @@ fn quantile_from_probs(probs: &[f64], state_years: &[f64], q: f64) -> f64 {
     state_years.last().copied().unwrap_or(0.0)
 }
 
-#[inline]
-fn matvec_row_major(src: &[f64], a_row: &[f64], dst: &mut [f64]) {
-    let n_states = src.len();
-    debug_assert_eq!(dst.len(), n_states);
-    dst.fill(0.0);
-    for i in 0..n_states {
-        let s = src[i];
-        let row = &a_row[i * n_states..(i + 1) * n_states];
-        let mut k = 0usize;
-        while k + 4 <= n_states {
-            dst[k] += s * row[k];
-            dst[k + 1] += s * row[k + 1];
-            dst[k + 2] += s * row[k + 2];
-            dst[k + 3] += s * row[k + 3];
-            k += 4;
-        }
-        while k < n_states {
-            dst[k] += s * row[k];
-            k += 1;
-        }
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn forward_fill_row(
-    pi: &[f64],
+/// One step of the backward pass from bin `t` of a row, whose emission row
+/// is `em_obs` and normaliser `norm_t`: `beta` becomes that of bin `t - 1`.
+fn backward_step(
     a_row: &[f64],
-    em_rows: &[Vec<f64>; 3],
-    obs_row: &[u8],
-    start_prev: Option<&[f64]>,
-    alpha_row: &mut [f64],
-    c_norm: &mut [f64],
-    tmp: &mut [f64],
-) -> Result<()> {
-    let s_max = obs_row.len();
-    let n_states = pi.len();
-    for t in 0..s_max {
-        let obs = obs_to_idx(obs_row[t]);
-        let em_obs = &em_rows[obs];
-
-        let mut norm = 0.0f64;
-        if t == 0 && start_prev.is_none() {
-            for k in 0..n_states {
-                let v = pi[k] * em_obs[k];
-                tmp[k] = v;
-                norm += v;
-            }
-        } else {
-            let src = if t == 0 {
-                start_prev.expect("checked is_some above")
-            } else {
-                &alpha_row[(t - 1) * n_states..t * n_states]
-            };
-            matvec_row_major(src, a_row, tmp);
-            for k in 0..n_states {
-                let v = tmp[k] * em_obs[k];
-                tmp[k] = v;
-                norm += v;
-            }
-        }
-
-        if norm <= 0.0 {
-            bail!("normalization factor is zero in forward pass");
-        }
-        c_norm[t] = norm;
-        let alpha_t = &mut alpha_row[t * n_states..(t + 1) * n_states];
-        for k in 0..n_states {
-            alpha_t[k] = tmp[k] / norm;
-        }
+    em_obs: &[f64],
+    norm_t: f64,
+    beta: &mut Vec<f64>,
+    beta_new: &mut Vec<f64>,
+    emit_beta: &mut [f64],
+) {
+    let n_states = beta.len();
+    let inv_norm_t = 1.0 / norm_t;
+    for j in 0..n_states {
+        emit_beta[j] = em_obs[j] * beta[j];
     }
-    Ok(())
+    for i in 0..n_states {
+        let a_i = &a_row[i * n_states..(i + 1) * n_states];
+        let mut acc = 0.0;
+        for j in 0..n_states {
+            acc += a_i[j] * emit_beta[j];
+        }
+        beta_new[i] = acc * inv_norm_t;
+    }
+    std::mem::swap(beta, beta_new);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -140,34 +74,6 @@ fn reference_tmrca(
 ) -> Result<TmrcaReportData> {
     let n_rows = rows.len();
     let n_states = pi.len();
-    if n_rows == 0 {
-        bail!("empty input rows for TMRCA posterior");
-    }
-    if row_starts.len() != n_rows {
-        bail!("row_starts length mismatch");
-    }
-    if !row_starts[0] {
-        bail!("row_starts[0] must be true");
-    }
-    if a.nrows() != n_states || a.ncols() != n_states {
-        bail!("transition matrix shape mismatch");
-    }
-    if em.nrows() < 3 || em.ncols() != n_states {
-        bail!("emission matrix shape mismatch");
-    }
-    if tmrca_years.len() != n_states {
-        bail!(
-            "tmrca_years length {} != n_states {}",
-            tmrca_years.len(),
-            n_states
-        );
-    }
-    for (i, row) in rows.iter().enumerate() {
-        if row.is_empty() {
-            bail!("empty observation row at index {i}");
-        }
-    }
-
     let total_sites: usize = rows.iter().map(Vec::len).sum();
     let max_row_len = rows.iter().map(Vec::len).max().unwrap_or(0);
     let mut alpha_row_buf = vec![0.0f64; max_row_len * n_states];
@@ -177,15 +83,8 @@ fn reference_tmrca(
     let mut beta_new = vec![0.0f64; n_states];
     let mut emit_beta = vec![0.0f64; n_states];
 
-    let mut a_row = vec![0.0f64; n_states * n_states];
-    for i in 0..n_states {
-        for j in 0..n_states {
-            a_row[i * n_states + j] = a[(i, j)];
-        }
-    }
+    let a_row = row_major(a);
     let em_rows = [em.row(0).to_vec(), em.row(1).to_vec(), em.row(2).to_vec()];
-
-    let pb_prep: Option<indicatif::ProgressBar> = None;
 
     let mut row_prev_alpha: Vec<Option<Vec<f64>>> = vec![None; n_rows];
     let mut prev_end = vec![0.0f64; n_states];
@@ -197,19 +96,12 @@ fn reference_tmrca(
             row_prev_alpha[r] = Some(prev_end.clone());
         }
         let start_prev = row_prev_alpha[r].as_deref();
+        let em_at = |t: usize| em_rows[obs_to_idx(obs_row[t])].as_slice();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
-        )?;
+            pi, &a_row, s_max, em_at, start_prev, alpha_row, c_norm, &mut tmp,
+        );
         prev_end.copy_from_slice(&alpha_row[(s_max - 1) * n_states..s_max * n_states]);
-        if let Some(pb) = &pb_prep {
-            pb.inc(s_max as u64);
-        }
     }
-    if let Some(pb) = pb_prep {
-        pb.finish_with_message("TMRCA prep done");
-    }
-
-    let pb_back: Option<indicatif::ProgressBar> = None;
 
     let mut row_end_beta: Vec<Vec<f64>> = vec![vec![1.0f64; n_states]; n_rows];
     beta.fill(1.0);
@@ -222,42 +114,30 @@ fn reference_tmrca(
         let alpha_row = &mut alpha_row_buf[..s_max * n_states];
         let c_norm = &mut c_norm_buf[..s_max];
         let start_prev = row_prev_alpha[r].as_deref();
+        let em_at = |t: usize| em_rows[obs_to_idx(obs_row[t])].as_slice();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
-        )?;
+            pi, &a_row, s_max, em_at, start_prev, alpha_row, c_norm, &mut tmp,
+        );
 
         for t_rev in 0..s_max {
             let t = s_max - 1 - t_rev;
             if t == 0 && row_starts[r] {
                 continue;
             }
-            let obs = obs_to_idx(obs_row[t]);
-            let norm_t = c_norm[t];
-            let inv_norm_t = 1.0 / norm_t;
-            let em_obs = &em_rows[obs];
-            for j in 0..n_states {
-                emit_beta[j] = em_obs[j] * beta[j];
-            }
-            for i in 0..n_states {
-                let a_i = &a_row[i * n_states..(i + 1) * n_states];
-                let mut acc = 0.0;
-                for j in 0..n_states {
-                    acc += a_i[j] * emit_beta[j];
-                }
-                beta_new[i] = acc * inv_norm_t;
-            }
-            std::mem::swap(&mut beta, &mut beta_new);
+            let em_obs = &em_rows[obs_to_idx(obs_row[t])];
+            backward_step(
+                &a_row,
+                em_obs,
+                c_norm[t],
+                &mut beta,
+                &mut beta_new,
+                &mut emit_beta,
+            );
         }
 
         if row_starts[r] {
             beta.fill(1.0);
         }
-        if let Some(pb) = &pb_back {
-            pb.inc(s_max as u64);
-        }
-    }
-    if let Some(pb) = pb_back {
-        pb.finish_with_message("TMRCA backward done");
     }
 
     let mut row_seq_id = vec![0usize; n_rows];
@@ -280,8 +160,6 @@ fn reference_tmrca(
         row_seq_offset[r] = seq_offset;
         seq_offset += rows[r].len();
     }
-
-    let pb_out: Option<indicatif::ProgressBar> = None;
 
     let file = File::create(out_path)?;
     let mut writer = BufWriter::new(file);
@@ -306,9 +184,10 @@ fn reference_tmrca(
         let alpha_row = &mut alpha_row_buf[..s_max * n_states];
         let c_norm = &mut c_norm_buf[..s_max];
         let start_prev = row_prev_alpha[r].as_deref();
+        let em_at = |t: usize| em_rows[obs_to_idx(obs_row[t])].as_slice();
         forward_fill_row(
-            pi, &a_row, &em_rows, obs_row, start_prev, alpha_row, c_norm, &mut tmp,
-        )?;
+            pi, &a_row, s_max, em_at, start_prev, alpha_row, c_norm, &mut tmp,
+        );
         beta.copy_from_slice(&row_end_beta[r]);
 
         let mut mean_years = vec![0.0f64; s_max];
@@ -330,9 +209,10 @@ fn reference_tmrca(
                 tmp[k] = g;
                 gamma_norm += g;
             }
-            if gamma_norm <= 0.0 {
-                bail!("normalization factor is zero in TMRCA posterior");
-            }
+            assert!(
+                gamma_norm > 0.0,
+                "normalization factor is zero in TMRCA posterior"
+            );
             let inv_gamma_norm = 1.0 / gamma_norm;
 
             let mut mean = 0.0f64;
@@ -363,21 +243,14 @@ fn reference_tmrca(
             if t == 0 && row_starts[r] {
                 continue;
             }
-            let norm_t = c_norm[t];
-            let inv_norm_t = 1.0 / norm_t;
-            let em_obs = &em_rows[obs];
-            for j in 0..n_states {
-                emit_beta[j] = em_obs[j] * beta[j];
-            }
-            for i in 0..n_states {
-                let a_i = &a_row[i * n_states..(i + 1) * n_states];
-                let mut acc = 0.0;
-                for j in 0..n_states {
-                    acc += a_i[j] * emit_beta[j];
-                }
-                beta_new[i] = acc * inv_norm_t;
-            }
-            std::mem::swap(&mut beta, &mut beta_new);
+            backward_step(
+                &a_row,
+                &em_rows[obs],
+                c_norm[t],
+                &mut beta,
+                &mut beta_new,
+                &mut emit_beta,
+            );
         }
 
         for t in 0..s_max {
@@ -407,16 +280,8 @@ fn reference_tmrca(
             }
             global_bin += 1;
         }
-
-        if let Some(pb) = &pb_out {
-            pb.inc(s_max as u64);
-        }
     }
     writer.flush()?;
-
-    if let Some(pb) = pb_out {
-        pb.finish_with_message("TMRCA write done");
-    }
 
     Ok(TmrcaReportData {
         sampled_mean,
@@ -510,10 +375,6 @@ fn input_with_lengths(seed: u64, lens: &[usize]) -> Input {
     }
 }
 
-fn tmp_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("psmc_rs_estep_tmrca_{}_{name}", std::process::id()))
-}
-
 fn write_new(inp: &Input, path: &Path) -> TmrcaReportData {
     write_tmrca_posterior_tsv(
         inp.model.prior_matrix(),
@@ -527,19 +388,6 @@ fn write_new(inp: &Input, path: &Path) -> TmrcaReportData {
         500,
     )
     .unwrap()
-}
-
-fn read_text(path: &Path) -> String {
-    let bytes = std::fs::read(path).unwrap();
-    let mut text = String::new();
-    if bytes.starts_with(&[0x1f, 0x8b]) {
-        MultiGzDecoder::new(&bytes[..])
-            .read_to_string(&mut text)
-            .unwrap();
-    } else {
-        text = String::from_utf8(bytes).unwrap();
-    }
-    text
 }
 
 fn rel(a: f64, b: f64) -> f64 {
@@ -562,10 +410,8 @@ fn assert_points_close(got: &[[f64; 2]], want: &[[f64; 2]], tol: f64, what: &str
 
 /// The writer's output agrees with the reference implementation's.
 fn assert_matches_reference(inp: &Input, what: &str) {
-    let (p_new, p_ref) = (
-        tmp_path(&format!("{what}_new.tsv")),
-        tmp_path(&format!("{what}_ref.tsv")),
-    );
+    let dir = TempDir::new("estep_tmrca_reference");
+    let (p_new, p_ref) = (dir.path("new.tsv"), dir.path("ref.tsv"));
     let got = write_new(inp, &p_new);
     let want = reference_tmrca(
         inp.model.prior_matrix(),
@@ -578,9 +424,7 @@ fn assert_matches_reference(inp: &Input, what: &str) {
         500,
     )
     .unwrap();
-    let (t_new, t_ref) = (read_text(&p_new), read_text(&p_ref));
-    let _ = std::fs::remove_file(&p_new);
-    let _ = std::fs::remove_file(&p_ref);
+    let (t_new, t_ref) = (common::read(&p_new), common::read(&p_ref));
 
     let (l_new, l_ref): (Vec<&str>, Vec<&str>) = (t_new.lines().collect(), t_ref.lines().collect());
     assert_eq!(l_new.len(), l_ref.len(), "{what}: line count");
@@ -622,6 +466,20 @@ fn matches_reference_implementation() {
     }
 }
 
+/// The writer's bytes and report data with each of `threads` thread counts
+/// are the same.
+fn assert_same_for_threads(inp: &Input, threads: [usize; 2]) {
+    let dir = TempDir::new("estep_tmrca_threads");
+    let [a, b] = threads.map(|n| {
+        let path = dir.path(&format!("threads{n}.tsv"));
+        let data = pool(n).install(|| write_new(inp, &path));
+        (std::fs::read(&path).unwrap(), data)
+    });
+    assert!(a.0 == b.0, "output bytes differ");
+    assert_eq!(a.1.state_mass, b.1.state_mass);
+    assert_eq!(a.1.sampled_mean, b.1.sampled_mean);
+}
+
 /// Short sequences are decoded whole, several per task, and a long one in
 /// blocks from checkpoints carried across windows of tasks; both must agree
 /// with the reference and give the same bytes for any thread count.
@@ -630,53 +488,23 @@ fn many_sequences_match_reference_for_any_thread_count() {
     let inp = many_sequences_input(3);
     assert!(inp.row_starts.iter().filter(|s| **s).count() > 250);
     assert_matches_reference(&inp, "many");
-    let mut outputs = Vec::new();
-    for threads in [1, 3] {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
-        let path = tmp_path(&format!("many_threads{threads}.tsv"));
-        let data = pool.install(|| write_new(&inp, &path));
-        outputs.push((std::fs::read(&path).unwrap(), data));
-        let _ = std::fs::remove_file(&path);
-    }
-    assert!(outputs[0].0 == outputs[1].0, "output bytes differ");
-    assert_eq!(outputs[0].1.state_mass, outputs[1].1.state_mass);
-    assert_eq!(outputs[0].1.sampled_mean, outputs[1].1.sampled_mean);
+    assert_same_for_threads(&inp, [1, 3]);
 }
 
 #[test]
 fn gz_path_writes_gzip_with_the_same_content() {
     let inp = input(7);
-    let (plain, gz) = (tmp_path("out.tsv"), tmp_path("out.tsv.gz"));
+    let dir = TempDir::new("estep_tmrca_gz");
+    let (plain, gz) = (dir.path("out.tsv"), dir.path("out.tsv.gz"));
     let a = write_new(&inp, &plain);
     let b = write_new(&inp, &gz);
-    let gz_bytes = std::fs::read(&gz).unwrap();
-    let (t_plain, t_gz) = (read_text(&plain), read_text(&gz));
-    let _ = std::fs::remove_file(&plain);
-    let _ = std::fs::remove_file(&gz);
-    assert!(gz_bytes.starts_with(&[0x1f, 0x8b]), "not gzip");
-    assert_eq!(t_gz, t_plain);
+    // `gunzipped` checks the gzip magic of a `.gz` path.
+    assert_eq!(gunzipped(&gz), gunzipped(&plain));
     assert_eq!(a.state_mass, b.state_mass);
     assert_eq!(a.sampled_mean, b.sampled_mean);
 }
 
 #[test]
 fn output_does_not_depend_on_thread_count() {
-    let inp = input(11);
-    let mut outputs = Vec::new();
-    for threads in [1, 4] {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
-        let path = tmp_path(&format!("threads{threads}.tsv"));
-        let data = pool.install(|| write_new(&inp, &path));
-        outputs.push((std::fs::read(&path).unwrap(), data));
-        let _ = std::fs::remove_file(&path);
-    }
-    assert_eq!(outputs[0].0, outputs[1].0);
-    assert_eq!(outputs[0].1.state_mass, outputs[1].1.state_mass);
-    assert_eq!(outputs[0].1.sampled_mean, outputs[1].1.sampled_mean);
+    assert_same_for_threads(&input(11), [1, 4]);
 }

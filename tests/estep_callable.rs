@@ -11,6 +11,9 @@
 //! `tests/estep_oracle.rs` checks the counted E-step against a brute-force
 //! reference.
 
+mod common;
+
+use common::{TempDir, full_bins, model, pool};
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
@@ -22,8 +25,6 @@ use psmc_rs::io::{CallableBases, Observations, Sequences};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 const S: u16 = 100;
 
@@ -35,7 +36,7 @@ struct Model {
 
 fn psmc(seed: u64) -> (Model, PsmcModel) {
     let mut rng = SmallRng::seed_from_u64(seed);
-    let mut m = PsmcModel::new(15.0, 63, 3e-3, 6e-4, 2.5e-8, Some("4+25*2+4+6".into())).unwrap();
+    let mut m = model("4+25*2+4+6", 3e-3, 6e-4);
     for l in m.lam.iter_mut() {
         *l = rng.gen_range(0.2..5.0);
     }
@@ -119,21 +120,9 @@ fn observations(seqs: &Sequences, batch: Option<usize>) -> Observations {
 
 /// The same bins with every called bin full (N bins keep their counts).
 fn all_full(seqs: &Sequences) -> Sequences {
-    let c = seqs.callable.as_ref().unwrap();
-    let counts = seqs
-        .bins
-        .iter()
-        .zip(c.to_counts())
-        .map(|(b, c)| {
-            b.iter()
-                .zip(c)
-                .map(|(&v, c)| if v == 2 { c } else { S })
-                .collect()
-        })
-        .collect();
     Sequences {
         bins: seqs.bins.clone(),
-        callable: Some(CallableBases::from_counts(usize::from(S), counts).unwrap()),
+        callable: Some(full_bins(&seqs.bins, seqs.callable.as_ref().unwrap())),
     }
 }
 
@@ -170,18 +159,10 @@ fn bits(e: &EStepResult) -> Vec<u64> {
     v
 }
 
-fn temp_path(name: &str) -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "psmc_rs_estep_callable_{name}_{}_{n}.tsv",
-        std::process::id()
-    ))
-}
-
 /// The TMRCA TSV of `m` on `obs` (with its counts when `counted`).
 fn tmrca(m: &Model, years: &[f64], obs: &Observations, counted: bool) -> Vec<u8> {
-    let path = temp_path("tmrca");
+    let dir = TempDir::new("estep_callable_tmrca");
+    let path = dir.path("tmrca.tsv");
     let opts = TmrcaOptions {
         progress_bars: false,
         max_points: 100,
@@ -198,16 +179,7 @@ fn tmrca(m: &Model, years: &[f64], obs: &Observations, counted: bool) -> Vec<u8>
         opts,
     )
     .unwrap();
-    let out = std::fs::read(&path).unwrap();
-    let _ = std::fs::remove_file(&path);
-    out
-}
-
-fn pool(threads: usize) -> rayon::ThreadPool {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build()
-        .unwrap()
+    std::fs::read(&path).unwrap()
 }
 
 #[test]

@@ -1,7 +1,9 @@
 //! Progress events of the E-step: forward events first, then backward
 //! events, `done` never decreasing within a phase and ending at `total`.
 
-use psmc_rs::PsmcModel;
+mod common;
+
+use common::{model, pool};
 use psmc_rs::hmm::{EStepPhase, EStepProgress, e_step_streaming_with_progress};
 
 fn check_events(events: &[EStepProgress], total: u64) {
@@ -30,7 +32,7 @@ fn check_events(events: &[EStepProgress], total: u64) {
 
 #[test]
 fn progress_is_monotonic_and_complete() {
-    let model = PsmcModel::new(15.0, 22, 2e-3, 4e-4, 2.5e-8, Some("4+5*3+4".into())).unwrap();
+    let model = model("4+5*3+4", 2e-3, 4e-4);
     let lens = [5000usize, 1, 3000, 129, 8000];
     let rows: Vec<Vec<u8>> = lens
         .iter()
@@ -40,13 +42,9 @@ fn progress_is_monotonic_and_complete() {
     let row_starts = vec![true; rows.len()];
     let total: u64 = lens.iter().map(|&l| l as u64).sum();
     for threads in [1, 4] {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
         let mut events = Vec::new();
         let mut cb = |e: EStepProgress| events.push(e);
-        pool.install(|| {
+        pool(threads).install(|| {
             e_step_streaming_with_progress(
                 model.prior_matrix(),
                 model.transition_matrix(),

@@ -1,10 +1,11 @@
 //! The per-iteration quantities EmHistory records for C-style `.psmc`
 //! output: post_sigma, Q before and after the M-step, M-step evaluations.
 
+mod common;
+
+use common::{c_start, e_step, model_at, mstep};
 use psmc_rs::em::{hmm_q, hmm_q0, posterior_sigma};
-use psmc_rs::hmm::{SufficientStats, e_step_streaming};
 use psmc_rs::opt::{MStepConfig, MStepStop, em_train};
-use psmc_rs::{PsmcModel, initial_theta};
 
 fn data() -> (Vec<Vec<u8>>, Vec<bool>) {
     let rows: Vec<Vec<u8>> = (0..3)
@@ -21,53 +22,14 @@ fn data() -> (Vec<Vec<u8>>, Vec<bool>) {
     (rows, vec![true, false, true])
 }
 
-fn initial_model(rows: &[Vec<u8>]) -> PsmcModel {
-    let theta0 = initial_theta(rows).unwrap();
-    PsmcModel::new(
-        15.0,
-        22,
-        theta0,
-        theta0 / 4.0,
-        2.5e-8,
-        Some("4+5*3+4".into()),
-    )
-    .unwrap()
-}
-
-/// The template model with parameters `params` (θ, ρ, t_max, λ...).
-fn model_at(template: &PsmcModel, params: &[f64]) -> PsmcModel {
-    let mut m = template.clone();
-    m.theta = params[0];
-    m.rho = params[1];
-    m.t_max = params[2];
-    m.lam.copy_from_slice(&params[3..]);
-    m.param_recalculate().unwrap();
-    m
-}
-
-fn e_step(model: &PsmcModel, rows: &[Vec<u8>], starts: &[bool]) -> SufficientStats {
-    e_step_streaming(
-        model.prior_matrix(),
-        model.transition_matrix(),
-        model.emission_matrix(),
-        rows,
-        starts,
-        false,
-        "E",
-    )
-    .unwrap()
-    .stats
-}
-
 fn check(lambda: f64) {
     let (rows, starts) = data();
-    let template = initial_model(&rows);
+    let template = c_start(&rows, "4+5*3+4", 4.0);
     let mut model = template.clone();
     let config = MStepConfig {
-        progress: false,
         max_iters: 30,
         lambda,
-        ..MStepConfig::default()
+        ..mstep()
     };
     let n_iter = 4;
     let history = em_train(&mut model, &rows, &starts, n_iter, &config).unwrap();
@@ -82,7 +44,7 @@ fn check(lambda: f64) {
         // leaves params[i + 1].
         let entering = model_at(&template, &history.params[i]);
         let leaving = model_at(&template, &history.params[i + 1]);
-        let stats = e_step(&entering, &rows, &starts);
+        let stats = e_step(&entering, &rows, &starts).stats;
         let q0 = hmm_q0(&stats);
         let q_before = hmm_q(
             entering.transition_matrix(),
@@ -146,12 +108,8 @@ fn q_excludes_the_smoothing_penalty() {
 #[test]
 fn zero_iterations_record_nothing() {
     let (rows, starts) = data();
-    let mut model = initial_model(&rows);
-    let config = MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    };
-    let history = em_train(&mut model, &rows, &starts, 0, &config).unwrap();
+    let mut model = c_start(&rows, "4+5*3+4", 4.0);
+    let history = em_train(&mut model, &rows, &starts, 0, &mstep()).unwrap();
     assert!(history.post_sigma.is_empty());
     assert!(history.q.is_empty());
     assert!(history.mstep_evaluations.is_empty());

@@ -9,14 +9,12 @@
 //! 1.014 and its Q exceeds what any HMM reaches; EM's next E-step lowered
 //! the log-likelihood by 367 and the fit never left that point.
 
-use psmc_rs::em::{hmm_q, hmm_q0};
-use psmc_rs::hmm::e_step_streaming;
-use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::opt::{EmHistory, MStepConfig, em_train};
-use psmc_rs::{PsmcModel, initial_theta};
-use std::path::Path;
+mod common;
 
-const INPUT: &str = "tests/data/sim_bottleneck/bottleneck_5mb.psmcfa.gz";
+use common::{c_start_free, e_step, fixture_obs, model_at, mstep};
+use psmc_rs::PsmcModel;
+use psmc_rs::em::{hmm_q, hmm_q0};
+use psmc_rs::opt::{EmHistory, MStepConfig, em_train};
 
 /// The largest deviation of a row of `model`'s transition matrix from
 /// summing to 1, and whether every probability is in [0, 1].
@@ -37,20 +35,13 @@ fn validity(model: &PsmcModel) -> (f64, bool) {
 /// --tr-ratio 5` runs it, with the M-step settings of `config`; checks
 /// every iteration and returns the history.
 fn fit_and_check(n_iter: usize, config: &MStepConfig) -> EmHistory {
-    let obs = read_psmcfa(Path::new(INPUT), None).unwrap();
-    let theta0 = initial_theta(&obs.rows).unwrap();
-    let mut model = PsmcModel::new(15.0, 63, theta0, theta0 / 5.0, 2.5e-8, None).unwrap();
-    let template = model.clone();
+    let obs = fixture_obs("sim_bottleneck/bottleneck_5mb.psmcfa.gz");
+    let template = c_start_free(&obs.rows, 63, 5.0);
+    let mut model = template.clone();
     let history = em_train(&mut model, &obs.rows, &obs.row_starts, n_iter, config).unwrap();
 
     for (i, params) in history.params.iter().enumerate().skip(1) {
-        let mut at = template.clone();
-        at.theta = params[0];
-        at.rho = params[1];
-        at.t_max = params[2];
-        at.lam.copy_from_slice(&params[3..]);
-        at.param_recalculate().unwrap();
-        let (deviation, valid) = validity(&at);
+        let (deviation, valid) = validity(&model_at(&template, params));
         assert!(
             valid && deviation <= 1e-9,
             "iteration {i}: rows sum to 1 within {deviation:e} (probabilities in [0, 1]: \
@@ -77,17 +68,8 @@ fn fit_and_check(n_iter: usize, config: &MStepConfig) -> EmHistory {
     }
 
     // The fitted model is the last one evaluated.
-    let e = e_step_streaming(
-        model.prior_matrix(),
-        model.transition_matrix(),
-        model.emission_matrix(),
-        &obs.rows,
-        &obs.row_starts,
-        false,
-        "E",
-    )
-    .unwrap();
-    let q = hmm_q(model.transition_matrix(), model.emission_matrix(), &e.stats) - hmm_q0(&e.stats);
+    let stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
+    let q = hmm_q(model.transition_matrix(), model.emission_matrix(), &stats) - hmm_q0(&stats);
     assert!(q <= 0.0, "Q - Q0 = {q} at the fitted model");
     history
 }
@@ -97,9 +79,8 @@ fn em_keeps_a_valid_hmm_with_lambda_up_to_1e6() {
     // The bounds under which the M-step left the HMMs (lam_hi 1e6): their
     // 8th iteration did, from round 7's statistics.
     let config = MStepConfig {
-        progress: false,
         lam_hi: 1e6,
-        ..MStepConfig::default()
+        ..mstep()
     };
     fit_and_check(10, &config);
 }
@@ -111,11 +92,7 @@ fn em_keeps_improving_with_one_lambda_per_interval() {
     // failing among the infeasible points around its start. With the
     // default bound the fit improves every round, as C psmc's does
     // (`psmc -N40 -t15 -r5 -p 64*1`: -8445.3196 in round 40).
-    let config = MStepConfig {
-        progress: false,
-        ..MStepConfig::default()
-    };
-    let history = fit_and_check(40, &config);
+    let history = fit_and_check(40, &mstep());
     for (i, &(before, after)) in history.loglike.iter().enumerate().skip(1) {
         assert!(after > before, "iteration {}: {before} -> {after}", i + 1);
     }
