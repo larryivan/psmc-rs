@@ -5,7 +5,6 @@ from __future__ import annotations
 import collections
 import contextlib
 import functools
-import importlib.util
 import io
 import json
 import os
@@ -19,15 +18,13 @@ from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import has_modules, option  # noqa: E402
 
 from experiment.pipeline import config, simulate  # noqa: E402
 from experiment.pipeline.experiments import e3_run  # noqa: E402
 
-HAS_PSUTIL = importlib.util.find_spec("psutil") is not None
-HAS_MSPRIME = importlib.util.find_spec("msprime") is not None
+HAS_PSUTIL = has_modules("psutil")
 NO_WAIT = replace(config.QUICK_TIMING, quiet_window_seconds=0.05, rss_sample_seconds=0.01)
 
 # A child that allocates and touches MB megabytes, optionally in a grandchild,
@@ -58,11 +55,9 @@ class Genomes(unittest.TestCase):
 
     def test_measure_args_spell_out_the_protocol(self):
         args = e3_run.measure_args(config.TimingProtocol())
-        self.assertEqual(args[args.index("--settle") + 1], "10")
-        self.assertEqual(args[args.index("--quiet-cpu") + 1], "10")
-        self.assertEqual(args[args.index("--max-wait") + 1], "180")
-        self.assertEqual(args[args.index("--quiet-max-cores") + 1], "1")
-        self.assertEqual(args[args.index("--max-other-cores") + 1], "0.5")
+        for opt, value in (("--settle", "10"), ("--quiet-cpu", "10"), ("--max-wait", "180"), ("--quiet-max-cores", "1"),
+                           ("--max-other-cores", "0.5")):
+            self.assertEqual(option(args, opt), value, opt)
         parsed = e3_run.build_parser().parse_args(["measure", "--out", "x.json", *args])
         self.assertEqual(parsed.max_wait, config.TimingProtocol().max_wait_seconds)
         self.assertEqual((parsed.quiet_max_cores, parsed.max_other_cores), (1.0, 0.5))
@@ -120,8 +115,6 @@ class Quiet(unittest.TestCase):
     """The quiet check of a machine of many cores and of a laptop, with psutil's counters made up."""
 
     def quiet(self, cpus: int, busy_cores: float) -> dict:
-        import collections
-
         import psutil
 
         times = collections.namedtuple("scputimes", "user system idle")
@@ -155,6 +148,8 @@ def proc(pid: int, ppid: int, cpu: float, created: float = 1.0, name: str = "p",
     """A process as psutil.process_iter(attrs) gives it; ``reaped``: its waited-for children's CPU."""
     return types.SimpleNamespace(pid=pid, info={"ppid": ppid, "name": name, "create_time": created,
                                                 "cpu_times": PROC_TIMES(cpu * 0.75, cpu * 0.25, reaped / 2, reaped / 2)})
+
+
 LINUX_METHOD = functools.partial(e3_run.process_method, platform="linux")
 
 
@@ -341,7 +336,7 @@ class OtherProcesses(unittest.TestCase):
         self.assertEqual(act["busiest"][0], {"pid": 900, "name": "wekanode", "cpu_percent": 20.0})
 
 
-@unittest.skipUnless(HAS_MSPRIME, "msprime not installed")
+@unittest.skipUnless(has_modules("msprime"), "msprime not installed")
 class SimulateSize(unittest.TestCase):
     def test_tiny_genome_uses_the_e3_seeds(self):
         with tempfile.TemporaryDirectory() as d:
@@ -358,9 +353,7 @@ class SimulateSize(unittest.TestCase):
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
 class Measure(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.tmp = Path(self._tmp.name).resolve()
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
         self.child = self.tmp / "child.py"
         self.child.write_text(CHILD)
         self.out = self.tmp / "runs" / "timing.json"
