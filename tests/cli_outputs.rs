@@ -369,7 +369,7 @@ fn the_psmc_plot_options_are_printed() {
     let err = bootstrap("3");
     assert!(
         err.contains(&format!(
-            "Warning: the bootstrap replicates ran 3 EM iterations and the main fit 2; \
+            "warning: the bootstrap replicates ran 3 EM iterations and the main fit 2; \
              psmc_plot.pl -n takes the same round of every run it reads, so do not plot the \
              replicates in one file with the main fit's .psmc output, but on their own: \
              psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 3 PREFIX {}",
@@ -397,7 +397,7 @@ fn bootstrap_writes_replicates_and_summary() {
     .stderr;
     // 3 sequences of 3 trunks: few enough for a warning.
     assert!(
-        stderr.contains("Warning: the input forms only 9 bootstrap trunks of 1000 bins"),
+        stderr.contains("warning: the input forms only 9 bootstrap trunks of 1000 bins"),
         "{stderr}"
     );
     let boot = dir.path("fit.bootstrap");
@@ -455,7 +455,7 @@ fn a_rerun_bootstrap_leaves_no_earlier_replicates() {
     let second = run("2", &["--bootstrap", "2", "--bootstrap-seed", "7"]);
     assert!(
         second.contains(&format!(
-            "Warning: {} held replicates 3 to 4 of an earlier bootstrap, beyond this run's 2; \
+            "warning: {} held replicates 3 to 4 of an earlier bootstrap, beyond this run's 2; \
              their 4 files were removed",
             boot.display()
         )),
@@ -477,7 +477,7 @@ fn a_rerun_bootstrap_leaves_no_earlier_replicates() {
     let third = run("1", &[]);
     assert!(
         third.contains(&format!(
-            "Warning: {} holds the bootstrap of an earlier run, not of this fit",
+            "warning: {} holds the bootstrap of an earlier run, not of this fit",
             boot.display()
         )),
         "{third}"
@@ -561,7 +561,7 @@ fn replicates_with_an_invalid_start_are_skipped_and_reported() {
     // With the QC JSON on stdout, every message and result goes to stderr,
     // in order.
     let stderr = outcome(argv("1", &["--qc-json", "-"])).ok().stderr;
-    let warning = "Warning: bootstrap replicates 2, 3 and 7 (3 of 8) would start from negative \
+    let warning = "warning: bootstrap replicates 2, 3 and 7 (3 of 8) would start from negative \
                    transition probabilities (rho0 up to ";
     let at = stderr.find(warning).unwrap_or_else(|| panic!("{stderr}"));
     // Before the main fit.
@@ -609,7 +609,7 @@ fn replicates_with_an_invalid_start_are_skipped_and_reported() {
     let err = run_err(argv("0", &["--tr-ratio", "2"]));
     assert!(
         err.contains(
-            "Error: every one of the 8 bootstrap replicates would start from negative \
+            "error: every one of the 8 bootstrap replicates would start from negative \
              transition probabilities"
         ) && err.contains("start from --tr-ratio 4.41 or more"),
         "{err}"
@@ -868,7 +868,7 @@ fn qc_text_is_printed_unless_quiet() {
     assert!(!quiet.stderr.contains("Input QC"), "{}", quiet.stderr);
     assert!(!quiet.stderr.contains("Model:"), "{}", quiet.stderr);
     assert!(
-        quiet.stderr.contains("Warning: QC TOO_SHORT: Only "),
+        quiet.stderr.contains("warning: QC TOO_SHORT: Only "),
         "{}",
         quiet.stderr
     );

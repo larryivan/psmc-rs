@@ -332,12 +332,15 @@ does.
 | `psmc-rs convert INPUT --psmcfa FILE` | write the input, as read, as psmcfa and/or multihetsep |
 | `psmc-rs qc INPUT` | report how suitable an input is, without fitting |
 
-Exit status: 0 on success, 1 on an error (stderr gets `Error: ...` with its
-causes), 2 on a usage error and for `qc --strict` when the report has a
-warning. Usage errors are options that are invalid alone or together,
-also when they are found after parsing (a `--pattern` that does not parse,
-outputs that name the same file, `--psmc-out -`); a file that cannot be
-read or written is an error. The full option reference is under
+Exit status: 0 on success, 1 on an error (stderr gets `error: ...` with its
+causes, as for clap's own errors; warnings are `warning: ...`), 2 on a
+usage error and for `qc --strict` when the report has a warning. Usage
+errors are options that are invalid alone or together, also when they are
+found after parsing (a `--pattern` that does not parse, outputs that name
+the same file, `--psmc-out -`); a file that cannot be read or written is
+an error. Without arguments, `psmc-rs`, `psmc-rs convert` and `psmc-rs qc`
+print their help, with status 2. `-h` gives a one-line summary of each
+option; the full option reference is under
 [Option reference](#option-reference) and in `psmc-rs --help`,
 `psmc-rs convert --help` and `psmc-rs qc --help`.
 

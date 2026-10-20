@@ -1,7 +1,7 @@
 //! Loading the input as inference, `convert` and `qc` all do, and describing
 //! what was read.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -266,23 +266,25 @@ pub fn ignored_options(args: &InputArgs, data: &Dataset) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join("; "))
 }
 
-/// Whether the file name of `path` has an extension of `fmt` input (any
-/// supported extension for auto).
+/// The file name endings of `fmt` input (of every format for auto), each
+/// also with `.gz` after it.
+fn extensions(fmt: FormatArg) -> &'static [&'static str] {
+    match fmt {
+        FormatArg::Auto => &[".psmcfa", ".mhs", ".multihetsep", ".vcf"],
+        FormatArg::Psmcfa => &[".psmcfa"],
+        FormatArg::Mhs => &[".mhs", ".multihetsep"],
+        FormatArg::Vcf => &[".vcf"],
+    }
+}
+
+/// Whether the file name of `path` has an extension of `fmt` input.
 pub fn is_supported_input_file(path: &Path, fmt: FormatArg) -> bool {
     let name = path
         .file_name()
         .map(|s| s.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let name = name.strip_suffix(".gz").unwrap_or(&name);
-    let psmcfa = name.ends_with(".psmcfa");
-    let mhs = name.ends_with(".mhs") || name.ends_with(".multihetsep");
-    let vcf = name.ends_with(".vcf");
-    match fmt {
-        FormatArg::Auto => psmcfa || mhs || vcf,
-        FormatArg::Psmcfa => psmcfa,
-        FormatArg::Mhs => mhs,
-        FormatArg::Vcf => vcf,
-    }
+    extensions(fmt).iter().any(|ext| name.ends_with(ext))
 }
 
 /// `path`, or for a directory the first input file in it by name.
@@ -298,22 +300,30 @@ pub fn resolve_input_path(path: &Path, fmt: FormatArg) -> Result<PathBuf> {
         }
     }
     files.into_iter().min().ok_or_else(|| {
-        let what = match fmt {
-            FormatArg::Auto => "psmcfa, multihetsep or VCF",
-            f => f.name(),
-        };
+        let names: Vec<String> = extensions(fmt)
+            .iter()
+            .map(|ext| format!("*{ext}"))
+            .collect();
         anyhow!(
-            "directory {} does not contain a {what} input file",
-            path.display()
+            "directory {} holds no {} file ({}, with or without .gz)",
+            path.display(),
+            fmt.label(),
+            names.join(", ")
         )
     })
 }
 
-/// [`load`] with the path in the error, and the option to use when the
-/// automatic depth bounds cannot read a pipe twice.
+/// [`load`], naming the input in the error unless the reader's error does,
+/// and with the option to use when the automatic depth bounds cannot read
+/// a pipe twice.
 pub fn load_input(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     load(path, opts).map_err(|e| {
-        let e = e.context(format!("failed to read the input {}", path.display()));
+        let shown = path.display().to_string();
+        let e = if e.chain().any(|cause| cause.to_string().contains(&shown)) {
+            e
+        } else {
+            e.context(format!("failed to read the input {shown}"))
+        };
         let two_passes = opts.consensus.depth == DepthThresholds::Auto
             && !path.is_file()
             && format!("{e:#}").contains("automatic depth thresholds need two passes");
@@ -328,20 +338,22 @@ pub fn load_input(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     })
 }
 
-/// [`Dataset::ensure_usable`], naming the options that keep sequences the
-/// output filter dropped.
+/// [`Dataset::ensure_usable`], with the options that keep the sequences
+/// when the output filter left none; the loader's warning before the error
+/// lists them.
 pub fn ensure_usable(data: &Dataset) -> Result<()> {
-    data.ensure_usable().map_err(|e| {
-        let filtered = data
-            .dropped
-            .iter()
-            .any(|d| matches!(d.reason, DropReason::Filter { .. }));
-        if data.obs.rows.is_empty() && filtered {
-            anyhow!("{e:#}. To keep every sequence, pass --min-good-bases 0 --min-good-fraction 0")
-        } else {
-            e
-        }
-    })
+    let filtered = data
+        .dropped
+        .iter()
+        .any(|d| matches!(d.reason, DropReason::Filter { .. }));
+    if data.obs.rows.is_empty() && filtered {
+        bail!(
+            "fq2psmcfa's output filter left no sequence to analyse (see the warning above); \
+             lower --min-good-bases or --min-good-fraction, or pass --min-good-bases 0 \
+             --min-good-fraction 0 to keep every sequence"
+        );
+    }
+    data.ensure_usable()
 }
 
 /// A fraction as a percentage with one decimal.
@@ -469,7 +481,10 @@ mod tests {
         let err = resolve_input_path(&dir, FormatArg::Mhs)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("does not contain a mhs input file"), "{err}");
+        assert!(
+            err.ends_with("holds no multihetsep file (*.mhs, *.multihetsep, with or without .gz)"),
+            "{err}"
+        );
         let file = dir.join("notes.txt");
         assert_eq!(resolve_input_path(&file, FormatArg::Auto).unwrap(), file);
         let _ = fs::remove_dir_all(dir);

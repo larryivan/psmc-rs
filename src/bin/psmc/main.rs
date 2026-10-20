@@ -39,7 +39,7 @@ fn main() -> ExitCode {
     match result {
         Ok(code) => code,
         Err(e) => {
-            console::print_err(&format!("Error: {e:#}\n"));
+            console::print_error(&e);
             if UsageError::is_in(&e) {
                 ExitCode::from(USAGE_EXIT)
             } else {

@@ -21,6 +21,14 @@ pub fn print_err(text: &str) {
     let _ = io::stderr().lock().write_all(text.as_bytes());
 }
 
+/// Print `e` with its causes on stderr as clap prints its own errors, after
+/// `error: ` (coloured on a terminal).
+pub fn print_error(e: &anyhow::Error) {
+    use clap::CommandFactory;
+    let error = clap::Error::raw(clap::error::ErrorKind::Io, format!("{e:#}\n"));
+    let _ = error.with_cmd(&crate::cli::Cli::command()).print();
+}
+
 /// Prints [`Event`]s for the command line.
 pub struct Console {
     quiet: bool,
@@ -80,10 +88,10 @@ impl Console {
         match ev {
             Event::Info(_) if self.quiet => {}
             Event::Info(line) => self.line(print_err, &line),
-            Event::Warning(line) => self.line(print_err, &format!("Warning: {line}")),
+            Event::Warning(line) => self.line(print_err, &format!("warning: {line}")),
             Event::Qc { warnings, .. } if self.quiet => {
                 for w in warnings {
-                    self.line(print_err, &format!("Warning: {w}"));
+                    self.line(print_err, &format!("warning: {w}"));
                 }
             }
             Event::Qc { text, .. } => self.line(print_err, text.trim_end()),

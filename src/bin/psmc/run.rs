@@ -1082,7 +1082,8 @@ fn start_advice(
 /// (a mismatch is a usage error), and `--mu` for scaling.
 fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     let what = || format!("--init-params {}", path.display());
-    let saved = load_params(path).with_context(what)?;
+    // The reader's errors name the file.
+    let saved = load_params(path).context("--init-params")?;
     let mut model = PsmcModel::from_params_file(&saved).with_context(what)?;
     if cli.pattern.is_some() || cli.n_steps.is_some() {
         let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;

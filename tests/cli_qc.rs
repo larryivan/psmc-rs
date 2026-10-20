@@ -174,7 +174,7 @@ fn options_of_the_other_vcf_mode_are_reported() {
     let err = stderr(&[]);
     assert!(
         err.contains(
-            "Warning: --vcf-keep-filtered does not apply to a VCF read in consensus mode and \
+            "warning: --vcf-keep-filtered does not apply to a VCF read in consensus mode and \
              was ignored"
         ),
         "{err}"
@@ -187,7 +187,7 @@ fn options_of_the_other_vcf_mode_are_reported() {
     let err = stderr(&["--vcf-sample", "aln.sam"]);
     assert!(
         err.contains(
-            "Warning: --vcf-keep-filtered does not apply to a VCF read in consensus mode and \
+            "warning: --vcf-keep-filtered does not apply to a VCF read in consensus mode and \
              was ignored; --vcf-sample selects no sample in consensus mode, which reads the \
              INFO fields that bcftools computes over all samples together; it was only checked \
              against the VCF's one sample"

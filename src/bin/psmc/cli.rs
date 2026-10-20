@@ -75,6 +75,17 @@ impl FormatArg {
     pub fn name(self) -> &'static str {
         self.format().map_or("auto", InputFormat::name)
     }
+
+    /// The format as users know it: psmcfa, multihetsep, VCF, or any of
+    /// them for auto.
+    pub fn label(self) -> &'static str {
+        match self {
+            FormatArg::Auto => "psmcfa, multihetsep or VCF",
+            FormatArg::Psmcfa => "psmcfa",
+            FormatArg::Mhs => "multihetsep",
+            FormatArg::Vcf => "VCF",
+        }
+    }
 }
 
 /// `--vcf-mode`.
@@ -272,6 +283,12 @@ pub fn model_layout(
     };
     let derived = match n_steps_for_pattern(pattern) {
         Ok(n) => n,
+        // A term that is not a number gives the parser's bare "invalid
+        // digit found in string".
+        Err(e) if e.is::<std::num::ParseIntError>() => usage_bail!(
+            "invalid --pattern '{pattern}': its terms, joined by '+', are each L or R*L in whole \
+             numbers (R free lambdas of L intervals each), as in 4+5*3+4"
+        ),
         Err(e) => usage_bail!("invalid --pattern '{pattern}': {e:#}"),
     };
     match n_steps {

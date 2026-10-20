@@ -211,7 +211,7 @@ fn init_params_bootstrap_replicates_start_from_the_saved_fit() {
     .stderr;
     assert!(
         stderr.contains(&format!(
-            "Warning: every bootstrap replicate starts from the parameters in {}",
+            "warning: every bootstrap replicate starts from the parameters in {}",
             saved.display()
         )),
         "{stderr}"
@@ -323,7 +323,7 @@ fn options_of_another_format_are_reported() {
     .stderr;
     assert!(
         stderr.contains(
-            "Warning: --vcf-sample, --vcf-mask, --depth and --mhs-pair do not apply to psmcfa \
+            "warning: --vcf-sample, --vcf-mask, --depth and --mhs-pair do not apply to psmcfa \
              input and were ignored"
         ),
         "{stderr}"
@@ -354,6 +354,48 @@ fn qc_json_is_written_when_nothing_is_left_to_fit() {
     assert_eq!(qc["n_sequences"], 0);
     assert!(finding_codes(&qc).contains(&"DROPPED_SEQUENCES".to_string()));
     assert!(!dir.path("fit.json").exists());
+}
+
+/// Errors start with clap's `error: ` and name each file once, with what
+/// went wrong.
+#[test]
+fn errors_name_the_file_once() {
+    let dir = TempDir::new("error_style");
+    let input = dir.path("in.psmcfa");
+    small_psmcfa(&input, 2000);
+    let missing = dir.path("missing.psmcfa");
+    let saved = dir.write("saved.json", "{}");
+    for (args, file, what) in [
+        (
+            args![missing, dir.path("a.json"), "1"],
+            &missing,
+            "failed to open",
+        ),
+        (
+            args![input, dir.path("b.json"), "1", "--init-params", saved],
+            &saved,
+            "--init-params: failed to parse",
+        ),
+    ] {
+        let stderr = outcome(args).exits(1);
+        assert!(stderr.starts_with("error: "), "{stderr}");
+        assert!(stderr.contains(what), "{stderr}");
+        let name = file.display().to_string();
+        assert_eq!(stderr.matches(&name).count(), 1, "{stderr}");
+    }
+    let empty_dir = dir.path("empty");
+    std::fs::create_dir(&empty_dir).unwrap();
+    let stderr = run_err(args![
+        empty_dir,
+        dir.path("c.json"),
+        "1",
+        "--input-format",
+        "mhs"
+    ]);
+    assert!(
+        stderr.ends_with("holds no multihetsep file (*.mhs, *.multihetsep, with or without .gz)\n"),
+        "{stderr}"
+    );
 }
 
 /// The JSON of psmc-rs 0.1, without run metadata, is a valid start.
@@ -471,11 +513,11 @@ fn an_invalid_start_is_refused_with_advice_the_run_can_follow() {
         assert!(!out.exists(), "{stderr}");
         stderr
             .lines()
-            .find(|l| l.starts_with("Error: "))
+            .find(|l| l.starts_with("error: "))
             .unwrap_or_else(|| panic!("{stderr}"))
             .to_string()
     };
-    let begins = "Error: EM cannot start from these parameters: the transition probabilities are \
+    let begins = "error: EM cannot start from these parameters: the transition probabilities are \
                   negative";
     let err = fit_err(&[]);
     assert!(err.contains(begins), "{err}");
