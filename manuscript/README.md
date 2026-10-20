@@ -20,8 +20,8 @@ and pandoc.
   NA12878's bootstrap, `experiment/crossplatform` and the README's
   diagnostic of the residual difference from C psmc. The text quotes no
   result that is not one of these macros, and the generator checks with
-  assertions the claims the text makes in words (for example, that no fit of
-  the 1000 Genomes cohort reached the bound on lambda).
+  assertions the claims the text makes in words (for example, that
+  splitting the turtles' first time window removed their recent peaks in every fit).
 - `make_sn1.py` converts `experiment/Supplementary_Note_1_Reproducibility.md`
   into `sn1.tex`.
 - `references.bib` was fetched from doi.org, its years checked against
