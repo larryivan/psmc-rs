@@ -526,20 +526,11 @@ fn is_perl_space(b: u8) -> bool {
 /// The first eight whitespace-separated fields of a line, as Perl's `split`.
 fn split8(line: &[u8]) -> Option<[&[u8]; 8]> {
     let mut out: [&[u8]; 8] = [&[]; 8];
-    let mut i = 0;
-    let n = line.len();
+    let mut rest = line;
     for slot in out.iter_mut() {
-        while i < n && is_perl_space(line[i]) {
-            i += 1;
-        }
-        if i == n {
-            return None;
-        }
-        let start = i;
-        while i < n && !is_perl_space(line[i]) {
-            i += 1;
-        }
-        *slot = &line[start..i];
+        let start = rest.iter().position(|&b| !is_perl_space(b))?;
+        rest = &rest[start..];
+        (*slot, rest) = rest.split_at(run_len(rest, |b| !is_perl_space(b)));
     }
     Some(out)
 }
@@ -640,38 +631,44 @@ struct Info<'a> {
     dp: Option<&'a [u8]>,
 }
 
+/// [`Info`] of an INFO column. Every key but INDEL ends with an `=`, so the
+/// leftmost match of each is found at the first `=` it ends at.
 fn scan_info(info: &[u8]) -> Info<'_> {
     let mut out = Info::default();
-    for i in 0..info.len().saturating_sub(2) {
-        let rest = &info[i..];
-        // The value after a key of `key_len` bytes: its leading run of `ok`
-        // bytes, if not empty.
-        let value = |key_len: usize, ok: fn(u8) -> bool| {
-            let k = run_len(&rest[key_len..], ok);
-            (k > 0).then(|| &rest[key_len..key_len + k])
-        };
-        match rest[0] {
-            b'D' if out.dp.is_none() && rest.starts_with(b"DP=") => out.dp = value(3, is_digit),
-            b'M' if out.mq.is_none() && rest.starts_with(b"MQ=") => out.mq = value(3, is_digit),
-            b'F' if out.fq.is_none() && rest.starts_with(b"FQ=") => {
-                let v = &rest[3..];
-                // `-?` takes a '-' when a number follows it. Otherwise there
-                // is no match here: `[\d.]+` cannot start at the '-' either.
-                let sign = usize::from(v.first() == Some(&b'-'));
-                let k = run_len(&v[sign..], is_num_char);
-                if k > 0 {
-                    out.fq = Some(&v[..sign + k]);
-                }
+    for (i, &b) in info.iter().enumerate() {
+        if b == b'I' {
+            out.indel |= info[i..].starts_with(b"INDEL");
+        }
+        if b != b'=' {
+            continue;
+        }
+        // The value after the key: its leading run of `ok` bytes, if not
+        // empty.
+        let (key, v) = info.split_at(i + 1);
+        let value = |ok: fn(u8) -> bool| Some(&v[..run_len(v, ok)]).filter(|v| !v.is_empty());
+        if key.ends_with(b"DP=") {
+            out.dp = out.dp.or_else(|| value(is_digit));
+        } else if key.ends_with(b"MQ=") {
+            out.mq = out.mq.or_else(|| value(is_digit));
+        } else if key.ends_with(b"AF1=") {
+            out.af1 = out.af1.or_else(|| value(is_num_char));
+        } else if key.ends_with(b"FQ=") && out.fq.is_none() {
+            // `-?` takes a '-' when a number follows it. Otherwise there
+            // is no match here: `[\d.]+` cannot start at the '-' either.
+            let sign = usize::from(v.first() == Some(&b'-'));
+            let k = run_len(&v[sign..], is_num_char);
+            if k > 0 {
+                out.fq = Some(&v[..sign + k]);
             }
-            b'A' if out.af1.is_none() && rest.starts_with(b"AF1=") => {
-                out.af1 = value(4, is_num_char);
-            }
-            b'I' if !out.indel && rest.starts_with(b"INDEL") => out.indel = true,
-            _ => {}
         }
     }
     out
 }
+
+/// `10^k` for `k` up to 15, each exact.
+const POW10: [f64; 16] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+];
 
 /// Perl's numeric value of a string matching `-?[\d.]+`: the longest prefix
 /// of the form `-?\d*(\.\d*)?`, or 0 when it has no digit.
@@ -687,6 +684,19 @@ fn perl_num(s: &[u8]) -> f64 {
     }
     if digits == 0 {
         return 0.0;
+    }
+    // With at most 15 digits, the digits as an integer and the power of ten
+    // they are divided by are exact doubles, so the one rounding of the
+    // division gives the correctly rounded value, as the parser below does
+    // (Clinger's fast path), in a fraction of its time: FQ is read for
+    // every record.
+    if digits <= 15 {
+        let m = s[sign..end]
+            .iter()
+            .filter(|&&b| b != b'.')
+            .fold(0u64, |m, &b| 10 * m + u64::from(b - b'0'));
+        let v = m as f64 / POW10[digits - int];
+        return if sign == 1 { -v } else { v };
     }
     // Only ASCII digits, '-' and '.', so this is valid UTF-8 and a valid
     // float literal once a lone trailing '.' is accepted (Rust accepts it).
@@ -1211,4 +1221,92 @@ fn end_chrom(
     }
     seqs.push(c.finish()?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// xorshift64, enough for random test strings.
+    struct Rng(u64);
+
+    impl Rng {
+        fn below(&mut self, n: usize) -> usize {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 % n as u64) as usize
+        }
+    }
+
+    #[test]
+    fn perl_num_reads_as_the_float_parser_does() {
+        // Digit strings of up to 17 digits (the short ones take the fast
+        // path), with a decimal point anywhere or none, and either sign.
+        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+        for len in 1..=17 {
+            for _ in 0..2000 {
+                let mut s: String = (0..len)
+                    .map(|_| char::from(b'0' + rng.below(10) as u8))
+                    .collect();
+                let dot = rng.below(len + 2);
+                if dot <= len {
+                    s.insert(dot, '.');
+                }
+                if rng.below(2) == 1 {
+                    s.insert(0, '-');
+                }
+                let want: f64 = s.parse().unwrap();
+                assert_eq!(perl_num(s.as_bytes()).to_bits(), want.to_bits(), "{s}");
+            }
+        }
+        assert_eq!(perl_num(b"-29.9905"), -29.9905);
+        assert_eq!(perl_num(b"-0").to_bits(), (-0.0f64).to_bits());
+        assert_eq!(perl_num(b"1.2.3"), 1.2);
+        assert_eq!(perl_num(b"-."), 0.0);
+    }
+
+    /// What a regular expression `key(value)` captures in `info`: the
+    /// value at the leftmost `key` where `value` matches `len` bytes, more
+    /// than 0.
+    fn leftmost<'a>(info: &'a [u8], key: &[u8], len: fn(&[u8]) -> usize) -> Option<&'a [u8]> {
+        (0..info.len()).find_map(|i| {
+            let v = info[i..].strip_prefix(key)?;
+            Some(&v[..len(v)]).filter(|v| !v.is_empty())
+        })
+    }
+
+    #[test]
+    fn info_values_are_the_leftmost_matches_of_vcf2fq_patterns() {
+        let digits: fn(&[u8]) -> usize = |v| run_len(v, is_digit);
+        let number: fn(&[u8]) -> usize = |v| run_len(v, is_num_char);
+        // `-?[\d.]+`: the '-' only before a number.
+        let signed: fn(&[u8]) -> usize = |v| {
+            let sign = usize::from(v.first() == Some(&b'-'));
+            match run_len(&v[sign..], is_num_char) {
+                0 => 0,
+                k => sign + k,
+            }
+        };
+        let tokens: [&[u8]; 16] = [
+            b"DP=", b"MQ=", b"FQ=", b"AF1=", b"INDEL", b"IND", b"EL", b"A", b"D", b"F", b"=", b"-",
+            b".", b"7", b"42", b";",
+        ];
+        let mut rng = Rng(7);
+        for _ in 0..50_000 {
+            let n = rng.below(12);
+            let info: Vec<u8> = (0..n)
+                .flat_map(|_| tokens[rng.below(tokens.len())])
+                .copied()
+                .collect();
+            let got = scan_info(&info);
+            let text = String::from_utf8_lossy(&info);
+            assert_eq!(got.dp, leftmost(&info, b"DP=", digits), "{text}");
+            assert_eq!(got.mq, leftmost(&info, b"MQ=", digits), "{text}");
+            assert_eq!(got.af1, leftmost(&info, b"AF1=", number), "{text}");
+            assert_eq!(got.fq, leftmost(&info, b"FQ=", signed), "{text}");
+            let indel = info.windows(5).any(|w| w == b"INDEL");
+            assert_eq!(got.indel, indel, "{text}");
+        }
+    }
 }

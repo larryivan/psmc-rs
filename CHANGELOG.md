@@ -613,6 +613,11 @@ Reproduction package (`experiment/`):
   mode in 12.8 s instead of 19.0 s, and a bgzip SNP VCF with a callable
   mask and a bgzip negative mask of a million rows in 0.13 s instead of
   0.20 s, for the same CPU time.
+- Consensus mode reads FQ without the general float parser (to the same
+  double, for values of up to 15 digits) and finds the INFO keys at their
+  `=` instead of at every byte: on that VCF, uncompressed (2.7 GB), it
+  takes 5.8 s of CPU instead of 7.2 s with given depth bounds, and 10.3 s
+  instead of 11.8 s with `--depth auto`, which reads the file twice.
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through
