@@ -86,23 +86,17 @@ of bases at quality 10, and 0.3% sequencing errors.
 - Run 2, the same reads as bgzipped SAM with a CSI index (`tabix -C -p
   sam`), so each job reads its chromosome by region, 1 job, the same prefix:
   every output, the HTML report included, is byte-identical to run 1.
+- Run 3, `--chroms` from a file that adds chrX: the script warns, the psmcfa
+  again equals vcf2fq | fq2psmcfa, and QC gives a SEX_OR_ORGANELLE warning
+  calling chrX hemizygous.
 - Reruns with one prefix: a rerun that makes the same psmcfa keeps the
   earlier fit and multihetsep files; one that makes another psmcfa removes
   those it does not write again, with a warning (with `--run`, the fit's
   files are simply written again), and reports a `PREFIX.bootstrap`
   directory and the working directory of a killed run.
-- Run 3, `--chroms` from a file that adds chrX: the script warns, the psmcfa
-  again equals vcf2fq | fq2psmcfa, and QC gives a SEX_OR_ORGANELLE warning
-  calling chrX hemizygous.
 - Run 4, chr3 renamed `HLA-A*01:01:01:01`: called from the plain and the
   indexed SAM, the name survives (`bcftools mpileup -r` would read the
   colons as a range) and both give the same psmcfa.
-- High depth: chr1 simulated at 140x with 200x of paralog reads in the
-  collapsed repeat (`simulate.py --depth 140 --paralog-depth 200 --chroms
-  chr1`). The automatic upper bound is about 280, above mpileup's default
-  cap of 250 reads; with the script's `-d 10000`, at most half of the
-  repeat's bins may be `K` (mpileup's default made 20 of 25 `K`), and the
-  psmcfa again equals vcf2fq | fq2psmcfa.
 - Route B of `docs/preprocessing.md` on the same reads, with the guide's
   commands: its `autosomes.txt` (chr1 to chr3 here) restricts `bcftools
   mpileup -R` on the indexed reads, a gVCF from `bcftools call -m -g`
@@ -110,6 +104,12 @@ of bases at quality 10, and 0.3% sequencing errors.
   records as the VCF. Without the mask, QC warns
   VARIANTS_ONLY_NO_MASK; with it, the warning is gone and recovery, `K` and
   `N` bins and the multihetsep rows meet the same thresholds as run 1.
+- High depth: chr1 simulated at 140x with 200x of paralog reads in the
+  collapsed repeat (`simulate.py --depth 140 --paralog-depth 200 --chroms
+  chr1`). The automatic upper bound is about 280, above mpileup's default
+  cap of 250 reads; with the script's `-d 10000`, at most half of the
+  repeat's bins may be `K` (mpileup's default made 20 of 25 `K`), and the
+  psmcfa again equals vcf2fq | fq2psmcfa.
 - Failures: no read passing `--min-mapq 255`, two samples in one file, and
   a `--max-depth` below twice the automatic upper bound each end with an
   error and leave only the log (no output file, no working directory);

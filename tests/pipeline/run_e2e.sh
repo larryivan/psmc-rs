@@ -75,7 +75,7 @@ fi
 printf 'work directory: %s\n' "$work"
 # $BASH_VERSION is that of the bash running the script.
 # shellcheck disable=SC2016
-printf 'tools: %s; %s; psmc-rs %s; vcfutils.pl %s; fq2psmcfa %s\n' \
+printf 'tools: %s; %s; %s; vcfutils.pl %s; fq2psmcfa %s\n' \
   "$(bcftools --version | sed -n 1p)" "$("${E2E_BASH:-bash}" -c 'echo bash $BASH_VERSION')" \
   "$("$PSMC_RS" --version)" "$VCFUTILS" "$FQ2PSMCFA"
 
@@ -219,7 +219,7 @@ awk 'BEGIN { off = 0 }
   { printf "%s\t%d\t%d\t%d\t%d\n", name, length($0), off, length($0), length($0) + 1
     off += length($0) + 1 }' "$out/names.fa" > "$out/names.fa.fai"
 run_script --bam "$out/empty.bam" --ref "$out/names.fa" --out "$out/names" --dry-run \
-  > "$out/dry_run.txt"
+  > "$out/dry_run.txt" 2> "$out/dry_run.err"
 "$PSMC_RS" qc "$out/names.psmcfa" --json "$out/names.qc.json" > /dev/null 2>&1
 check kinds "$out/dry_run.txt" "$out/names.qc.json"
 
@@ -450,7 +450,7 @@ awk -v OFS='\t' '$1 ~ /^chr([1-9]|1[0-9]|2[0-2])$/ { print $1, 1, $2 }' "$sim/re
 bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -R "$b/autosomes.txt" -f "$sim/ref.fa" \
   "$sim/aln.sam.gz" 2> /dev/null |
   bcftools call -m -g "$dmin,$((dmax + 1))" -Oz -o "$b/sample.g.vcf.gz" 2> /dev/null
-contigs=$(bcftools query -f '%CHROM\n' "$b/sample.g.vcf.gz" | uniq | tr '\n' ' ')
+contigs=$(bcftools query -f '%CHROM\n' "$b/sample.g.vcf.gz" 2> /dev/null | uniq | tr '\n' ' ')
 [ "$contigs" = "chr1 chr2 chr3 " ] || fail "the gVCF holds $contigs"
 bcftools query -i "FMT/DP>=$dmin && FMT/DP<=$dmax" -f '%CHROM\t%POS0\t%END\n' \
   "$b/sample.g.vcf.gz" > "$b/callable.bed" 2> /dev/null
@@ -514,7 +514,8 @@ awk 'BEGIN { OFS = "\t" }
   { if (NR % 2) sub(/RG:Z:run1$/, "RG:Z:run2"); print }' "$sim/aln.sam" > "$work/two.sam"
 expect_failure two "the alignments hold 2 samples" \
   --bam "$work/two.sam" --ref "$sim/ref.fa" --chroms chr3
-ok "two samples: error"
+only_log_left two
+ok "two samples: error, only two.log written"
 
 # With an index, the samples are checked before any chromosome is called.
 bgzip -c "$work/two.sam" > "$work/two.sam.gz"
