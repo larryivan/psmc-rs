@@ -714,7 +714,7 @@ def row_xlabel(fig, axes: Sequence, text: str = YEARS_LABEL):
     """One x label centred under a row of panels, where a panel's own x label would sit."""
     import matplotlib as mpl
 
-    fig.canvas.draw()
+    fig.draw_without_rendering()
     renderer = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
     bottoms = [ax.get_position().y0 for ax in axes]
@@ -870,7 +870,7 @@ def panel_letters(fig, axes: Sequence, letters: Optional[Sequence[str]] = None, 
     positions.
     """
     letters = list(letters or string.ascii_lowercase[: len(axes)])
-    fig.canvas.draw()
+    fig.draw_without_rendering()
     renderer = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
     fw, fh = _fig_mm(fig)

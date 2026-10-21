@@ -195,7 +195,7 @@ def _time_panel(fig, ax, thr, replicates: int) -> None:
     ax.set_yticklabels([ROUTE_LABELS.get(r, r) for r in routes])
     ax.tick_params(axis="y", length=0)
     # The route labels are wider than the figure's left margin: move the panel right until they clear the edge.
-    fig.canvas.draw()
+    fig.draw_without_rendering()
     renderer = fig.canvas.get_renderer()
     labels_x0 = min(t.get_window_extent(renderer).x0 for t in ax.get_yticklabels()) / fig.bbox.width
     need = EDGE_MM / style.WIDTH_MM["double"] - labels_x0

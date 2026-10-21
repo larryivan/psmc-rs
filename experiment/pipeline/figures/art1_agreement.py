@@ -340,7 +340,7 @@ def _layout_top(fig, axs, drawn: Sequence[bool]) -> Tuple[List[float], float]:
     empty column keeps the nominal share.
     """
     fw = fig.get_figwidth() / style.MM
-    fig.canvas.draw()
+    fig.draw_without_rendering()
     renderer = fig.canvas.get_renderer()
     labels, overhang = [], []
     for ax, shown in zip(axs, drawn):
@@ -564,7 +564,7 @@ def draw(src: Source):
         xlab = style.row_xlabel(fig, drawn)
         if (1.0 - xlab.get_position()[1]) * H_MM < XLAB_TOP_MM:  # a little clear of the tick labels
             xlab.set_y(1.0 - XLAB_TOP_MM / H_MM)
-    fig.canvas.draw()
+    fig.draw_without_rendering()
     renderer = fig.canvas.get_renderer()
     off = leg.get_window_extent(renderer).x0 / fig.dpi / style.MM - L_MM
     if abs(off) > 0.05:  # the first handle starts right above a's left spine

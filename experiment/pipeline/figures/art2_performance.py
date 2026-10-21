@@ -330,7 +330,7 @@ def _place(fig, axes: Sequence, widths: Sequence[Optional[float]]) -> None:
     y0 = style.BOTTOM_MM / fh
     h = (fh - style.TOP_MM - style.BOTTOM_MM) / fh
     for _ in range(3):  # labels anchored to the data move a little with the widths
-        fig.canvas.draw()
+        fig.draw_without_rendering()
         renderer = fig.canvas.get_renderer()
         ext = []  # ink left of the left spine, right of the right one (mm)
         for ax in axes:
