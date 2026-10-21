@@ -276,7 +276,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E3/tables/E3_table2.csv` | tool, thread count and genome size (Table 2) | `tool`, `threads`, `size_mb`, `chromosomes`, `status`, `note`, `wall_median_s`, `peak_rss_median_mb`, `speedup_vs_c` |
 | `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
 | `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
-| `E3/tables/E3_determinism.csv` | run, against its tool's reference at the same size | `tool`, `size_mb`, `threads`, `sha256` |
+| `E3/tables/E3_determinism.csv` | run, against its tool's reference at the same size | `tool`, `size_mb`, `threads`, `sha256`, `max_rel_diff_params` |
 | `E4/tables/E4_routes.csv` | mask, route and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `rmse_log10_ne_vs_truth`, `rmse_log10_ne_vs_complete` |
 | `E4/tables/E4_curves.csv` | mask, route, replicate and interval | `mask`, `route`, `replicate`, `interval`, `years`, `ne` |
 | `E5/tables/E5_summary.csv` | trunk size and window | `trunk_bins`, `trunk_mb`, `trunks`, `window`, `sd_ratio_median`, `coverage_mean`, `coverage_mean_ci_lo`, `coverage_mean_ci_hi`, `coverage_of_fit_mean_mean`, `coverage_projected_mean`, `coverage_projected_mean_ci_lo`, `coverage_projected_mean_ci_hi` |

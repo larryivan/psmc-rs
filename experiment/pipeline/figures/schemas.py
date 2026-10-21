@@ -202,6 +202,7 @@ _add("E3_determinism", "E3", "run, against its tool's reference at the same size
     "size_mb": "genome size (Mb)",
     "threads": "threads",
     "sha256": "SHA-256 of the output",
+    "max_rel_diff_params": "largest relative difference of its theta, rho, t_max and lambdas from the reference's",
 })
 
 # ---------------------------------------------------------------------------
