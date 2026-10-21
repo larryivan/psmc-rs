@@ -9,6 +9,7 @@ use psmc_rs::io::CallableSummary;
 use psmc_rs::io::consensus::{ConsensusSummary, DepthThresholds, LossReason};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
 use psmc_rs::io::vcf::VcfSummary;
+use psmc_rs::qc::fmt::{count, counted, pct};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
     QcReport, QcSeq, try_analyze,
@@ -365,41 +366,14 @@ pub fn ensure_usable(data: &Dataset) -> Result<()> {
     data.ensure_usable()
 }
 
-/// A fraction as a percentage with one decimal.
-pub fn percent(x: f64) -> String {
-    format!("{:.1}%", 100.0 * x)
-}
-
-/// `n` of `total` as a percentage with one decimal (0.0% of nothing).
+/// `n` of `total` as a percentage, as the QC report gives shares (0.0% of
+/// nothing).
 fn share(n: u64, total: u64) -> String {
-    percent(if total == 0 {
+    pct(if total == 0 {
         0.0
     } else {
         n as f64 / total as f64
     })
-}
-
-/// `n` with thousands separators, as the QC report writes counts:
-/// `1234567` -> `1,234,567`.
-pub fn thousands(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// `n` and `one` or `many` after it: `1 sequence`, `3 sequences`.
-pub fn counted(n: usize, one: &str, many: &str) -> String {
-    format!(
-        "{} {}",
-        thousands(n as u64),
-        if n == 1 { one } else { many }
-    )
 }
 
 /// Lines telling the user how the input was read: what the input QC report
@@ -426,10 +400,10 @@ pub fn describe(data: &Dataset) -> Vec<String> {
              between rows)",
             counted(m.rows as usize, "row", "rows"),
             m.haplotypes,
-            thousands(m.het_rows),
-            thousands(m.hom_rows),
-            thousands(m.missing_rows),
-            thousands(m.uncalled_sites)
+            count(m.het_rows),
+            count(m.hom_rows),
+            count(m.missing_rows),
+            count(m.uncalled_sites)
         )],
         SourceSummary::Vcf(v) => {
             let mode = v.mode.mode.name();
@@ -453,7 +427,7 @@ fn describe_consensus(c: &ConsensusSummary) -> Vec<String> {
     let losses: Vec<String> = LossReason::ALL
         .iter()
         .filter(|&&r| c.lost.get(r) > 0)
-        .map(|&r| format!("{} {}", r.label(), thousands(c.lost.get(r))))
+        .map(|&r| format!("{} {}", r.label(), count(c.lost.get(r))))
         .collect();
     vec![
         format!(
@@ -467,8 +441,8 @@ fn describe_consensus(c: &ConsensusSummary) -> Vec<String> {
         ),
         format!(
             "consensus: {} of {} bases called; missing: {}",
-            thousands(c.good_bases),
-            thousands(c.bases),
+            count(c.good_bases),
+            count(c.bases),
             if losses.is_empty() {
                 "none".to_string()
             } else {
@@ -489,7 +463,7 @@ fn describe_mask(m: &VcfSummary) -> String {
             m.contig_lengths_used.join(", ")
         )
     };
-    let n = |count: u64, one, many| counted(count as usize, one, many);
+    let n = |k: u64, one, many| counted(k as usize, one, many);
     format!(
         "VCF: {}, among them {} ({} SNPs used), {}, {} filtered and {} without a genotype; {} \
          with several records; {} of {} sites missing{extended}",
@@ -499,17 +473,17 @@ fn describe_mask(m: &VcfSummary) -> String {
             "heterozygous SNP record",
             "heterozygous SNP records"
         ),
-        thousands(m.het_snps),
+        count(m.het_snps),
         n(
             m.het_non_snp_records,
             "heterozygous non-SNP",
             "heterozygous non-SNPs"
         ),
-        thousands(m.filtered_records),
-        thousands(m.missing_genotypes),
+        count(m.filtered_records),
+        count(m.missing_genotypes),
         n(m.multi_record_positions, "position", "positions"),
-        thousands(m.missing_sites),
-        thousands(m.sites)
+        count(m.missing_sites),
+        count(m.sites)
     )
 }
 
@@ -522,7 +496,7 @@ pub fn totals(data: &Dataset) -> String {
     format!(
         "Input: {} kept, {} left out; {} ({} heterozygous, {} missing)",
         counted(data.seqs.len(), "sequence", "sequences"),
-        thousands(data.dropped.len() as u64),
+        count(data.dropped.len() as u64),
         counted(bins as usize, "bin", "bins"),
         share(het, bins),
         share(missing, bins)
@@ -574,16 +548,6 @@ mod tests {
         }
         assert!(!yes("a.txt", FormatArg::Auto));
         assert!(!yes("a.gz", FormatArg::Auto));
-    }
-
-    #[test]
-    fn counts_are_written_as_the_qc_report_writes_them() {
-        assert_eq!(thousands(0), "0");
-        assert_eq!(thousands(999), "999");
-        assert_eq!(thousands(1_000), "1,000");
-        assert_eq!(thousands(28_750_027), "28,750,027");
-        assert_eq!(counted(1, "record", "records"), "1 record");
-        assert_eq!(counted(10_000, "record", "records"), "10,000 records");
     }
 
     /// The psmcfa line gives C psmc's counts as its MM line writes them,

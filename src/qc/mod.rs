@@ -50,7 +50,8 @@ use crate::io::{BinCounts, CallableBases, CallableSummary, sequence_ranges};
 use crate::model::{PsmcModel, ThetaCounts};
 
 mod checks;
-pub(crate) mod fmt;
+#[doc(hidden)]
+pub mod fmt;
 mod names;
 mod stats;
 mod text;

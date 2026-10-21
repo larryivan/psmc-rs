@@ -22,6 +22,7 @@ use psmc_rs::io::params::{
     BinCallableRecord, CALLABLE_LENGTH_MODEL, FULL_BINS_MODEL, InputSummary,
 };
 use psmc_rs::opt::MStepConfig;
+use psmc_rs::qc::fmt::{count, counted};
 use psmc_rs::qc::{QcReport, Severity, render_text};
 use psmc_rs::report::{
     BootstrapReport, ReportData, check_echarts_bundle, default_html_path, write_html_report,
@@ -32,9 +33,8 @@ use self::fit::{decode_tmrca, fit, model_loglike, near_bounds_warning};
 use self::start::{check_starts, fit_start, saved_start, starting_model};
 use crate::cli::{BinCallableArg, InferArgs, InputArgs, model_layout, usage_bail};
 use crate::dataset::{
-    callable_summary, counted, counts_source, describe, ensure_usable, fit_uses_counts,
-    ignored_options, layout_model, load_input, loader_warnings, qc_report, resolve_input_path,
-    thousands, totals,
+    callable_summary, counts_source, describe, ensure_usable, fit_uses_counts, ignored_options,
+    layout_model, load_input, loader_warnings, qc_report, resolve_input_path, totals,
 };
 use crate::output::{
     FitRecord, check_destinations, is_stdout, save_fit, write_main_psmc, write_qc_json,
@@ -652,7 +652,7 @@ fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) ->
     let s = cli.input.bin_size;
     let mode = cli.bin_callable.name();
     let counted = b.model == CALLABLE_LENGTH_MODEL;
-    let max_counted = thousands(MAX_COUNTED_BIN_SIZE as u64);
+    let max_counted = count(MAX_COUNTED_BIN_SIZE as u64);
     match (&b.callable, b.counts.as_deref()) {
         // Multihetsep's counts follow the reader's placement of the
         // uncalled sites, which QC's APPROX_MISSING_PLACEMENT describes.

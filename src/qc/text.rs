@@ -4,7 +4,7 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use super::fmt::{bases, count, pct, plural, sig};
+use super::fmt::{bases, count, counted, pct, plural, sig};
 use super::{
     DepthReport, Finding, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE, SequenceRow, Severity,
 };
@@ -66,9 +66,8 @@ fn headline(out: &mut String, r: &QcReport) {
         .map_or(String::new(), |f| format!(" ({f})"));
     let _ = writeln!(
         out,
-        "Input QC{format}: {} {}, {} bins of {} bp",
-        count(r.n_sequences as u64),
-        plural(r.n_sequences, "sequence", "sequences"),
+        "Input QC{format}: {}, {} bins of {} bp",
+        counted(r.n_sequences, "sequence", "sequences"),
         count(r.totals.bins),
         r.bin_size
     );

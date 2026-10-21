@@ -8,12 +8,11 @@ use std::process::ExitCode;
 
 use psmc_rs::io::input::{Dataset, InputFormat};
 use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
+use psmc_rs::qc::fmt::{counted, pct};
 
 use crate::cli::{BinCallableArg, ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
-use crate::dataset::{
-    callable_summary, counted, counts_source, default_start, load_input, percent, qc_report,
-};
+use crate::dataset::{callable_summary, counts_source, default_start, load_input, qc_report};
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir};
 use crate::run::{Event, Sink, announce_input, report_qc};
 
@@ -70,7 +69,7 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
              back at its start, which biases theta and Ne low whatever --bin-callable (QC's \
              APPROX_MISSING_PLACEMENT on the multihetsep says how much), so to fit with psmc-rs, \
              fit the VCF itself",
-            percent(uncalled)
+            pct(uncalled)
         )));
     }
     // The whole input, then each sequence on its own.
@@ -163,10 +162,10 @@ fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<
          {bin_size} bases, as C psmc does, which biases theta, the times and Ne low by about \
          the missing share or more ({} here). To fit with the callable bases of each bin, fit \
          the VCF itself (psmc-rs does with --bin-callable auto, its default)",
-        percent(c.partial_fraction()),
-        percent(c.mean_fraction),
+        pct(c.partial_fraction()),
+        pct(c.mean_fraction),
         path.display(),
-        percent(1.0 - c.mean_fraction)
+        pct(1.0 - c.mean_fraction)
     ))
 }
 

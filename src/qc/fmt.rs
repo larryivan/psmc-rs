@@ -1,7 +1,8 @@
-//! Number formatting shared by the QC messages and the text report.
+//! Number formatting shared by the QC messages, the reports and the
+//! program's messages.
 
 /// `1234567` -> `"1,234,567"`.
-pub(crate) fn count(n: u64) -> String {
+pub fn count(n: u64) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, c) in digits.chars().enumerate() {
@@ -30,7 +31,7 @@ pub(crate) fn sig(v: f64, digits: usize) -> String {
 
 /// A fraction as a percentage: one decimal, or two significant digits below
 /// 0.1% so that small non-zero shares do not print as `0.0%`.
-pub(crate) fn pct(fraction: f64) -> String {
+pub fn pct(fraction: f64) -> String {
     let p = 100.0 * fraction;
     if p > 0.0 && p < 0.1 {
         format!("{}%", sig(p, 2))
@@ -40,8 +41,13 @@ pub(crate) fn pct(fraction: f64) -> String {
 }
 
 /// `one` for a count of 1, else `many`.
-pub(crate) fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
+pub fn plural<'a>(n: usize, one: &'a str, many: &'a str) -> &'a str {
     if n == 1 { one } else { many }
+}
+
+/// `n` and `one` or `many` after it: `1 sequence`, `1,234 sequences`.
+pub fn counted(n: usize, one: &str, many: &str) -> String {
+    format!("{} {}", count(n as u64), plural(n, one, many))
 }
 
 /// A length in bases with a unit and three significant digits: `850 bp`,
@@ -94,6 +100,8 @@ mod tests {
         assert_eq!(pct(0.0), "0.0%");
         assert_eq!(pct(0.00042), "0.042%");
         assert_eq!(pct(1.0), "100.0%");
+        assert_eq!(counted(1, "record", "records"), "1 record");
+        assert_eq!(counted(10_000, "record", "records"), "10,000 records");
         assert_eq!(bases(850), "850 bp");
         assert_eq!(bases(12_345), "12.3 kb");
         assert_eq!(bases(1_000_000), "1.00 Mb");

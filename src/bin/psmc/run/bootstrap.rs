@@ -13,10 +13,10 @@ use psmc_rs::bootstrap::{
 };
 use psmc_rs::io::{Observations, Sequences};
 use psmc_rs::opt::MStepConfig;
+use psmc_rs::qc::fmt::{count, counted};
 
 use super::{Context, Event, Stage, psmc_plot_command};
 use crate::cli::{InferArgs, usage_bail};
-use crate::dataset::{counted, thousands};
 use crate::output::{BOOTSTRAP_SUMMARY_FILES, write_bootstrap_summary, write_replicate_psmc};
 
 /// Trunk counts below this make coarse bootstrap bands.
@@ -84,7 +84,7 @@ impl BootstrapPlan {
             counted(self.replicates, "replicate", "replicates"),
             counted(self.em_iters, "EM iteration", "EM iterations"),
             counted(trunks, "trunk", "trunks"),
-            thousands(self.trunk_size as u64),
+            count(self.trunk_size as u64),
             self.seed
         ));
         if let Some(path) = &cli.init_params {
@@ -103,7 +103,7 @@ impl BootstrapPlan {
                 "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
                  differ only in which of them they draw and the bands are coarse; a \
                  smaller --bootstrap-block-size gives more trunks",
-                thousands(self.trunk_size as u64)
+                count(self.trunk_size as u64)
             ));
         }
         Ok((seqs, trunks))
