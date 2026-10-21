@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{model, pool};
+use common::{densify, model, pool};
 use ndarray::Array2;
 use psmc_rs::hmm::{
     AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, SimdPath, TmrcaReportData,
@@ -140,18 +140,10 @@ fn standard_input() -> Input {
     )
 }
 
-/// The standard input with the transition matrix perturbed (rows
-/// renormalised) so that it loses PSMC's semiseparable structure: the E-step
-/// then uses the dense kernels and caches full forward rows when the budget
-/// allows.
+/// The standard input with a transition matrix of the dense kernels.
 fn dense_input() -> Input {
     let mut inp = standard_input();
-    let mut rng = SmallRng::seed_from_u64(3);
-    for mut row in inp.a.rows_mut() {
-        row.mapv_inplace(|v| v * (1.0 + 1e-3 * rng.gen_range(0.0..1.0)));
-        let s: f64 = row.sum();
-        row.mapv_inplace(|v| v / s);
-    }
+    densify(&mut inp.a, 3);
     inp
 }
 

@@ -7,6 +7,7 @@
 pub mod psmc_text;
 pub mod reference_hmm;
 
+use ndarray::Array2;
 use psmc_rs::hmm::{EStepResult, e_step_streaming};
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{
@@ -20,6 +21,8 @@ use psmc_rs::io::{CallableBases, Observations};
 use psmc_rs::model::{NegativeTransitions, n_steps_for_pattern};
 use psmc_rs::opt::{EmHistory, MStepConfig, em_train};
 use psmc_rs::{PsmcModel, initial_theta};
+use rand::rngs::SmallRng;
+use rand::{Rng as _, SeedableRng};
 use serde_json::Value;
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -575,6 +578,19 @@ pub fn e_step(m: &PsmcModel, rows: &[Vec<u8>], starts: &[bool]) -> EStepResult {
         "E",
     )
     .unwrap()
+}
+
+/// `a` with each probability raised by a random share of at most 1e-3 and
+/// its rows renormalised: a transition matrix without PSMC's semiseparable
+/// structure, on which the E-step runs its dense kernels and caches forward
+/// rows when its budget allows.
+pub fn densify(a: &mut Array2<f64>, seed: u64) {
+    let mut rng = SmallRng::seed_from_u64(seed);
+    for mut row in a.rows_mut() {
+        row.mapv_inplace(|v| v * (1.0 + 1e-3 * rng.gen_range(0.0..1.0)));
+        let s: f64 = row.sum();
+        row.mapv_inplace(|v| v / s);
+    }
 }
 
 /// A rayon pool of `threads` threads.

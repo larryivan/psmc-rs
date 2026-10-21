@@ -13,7 +13,7 @@
 
 mod common;
 
-use common::{TempDir, full_bins, model, pool};
+use common::{TempDir, densify, full_bins, model, pool};
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
@@ -49,17 +49,10 @@ fn psmc(seed: u64) -> (Model, PsmcModel) {
     (model, m)
 }
 
-/// The PSMC model with its transition matrix perturbed (rows renormalised),
-/// so that the E-step uses the dense kernels and caches forward rows when
-/// its budget allows.
+/// The PSMC model with a transition matrix of the dense kernels.
 fn dense(seed: u64) -> Model {
     let (mut m, _) = psmc(seed);
-    let mut rng = SmallRng::seed_from_u64(seed ^ 3);
-    for mut row in m.a.rows_mut() {
-        row.mapv_inplace(|v| v * (1.0 + 1e-3 * rng.gen_range(0.0..1.0)));
-        let s: f64 = row.sum();
-        row.mapv_inplace(|v| v / s);
-    }
+    densify(&mut m.a, seed ^ 3);
     m
 }
 
