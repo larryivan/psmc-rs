@@ -9,7 +9,7 @@ use psmc_rs::io::CallableSummary;
 use psmc_rs::io::consensus::{ConsensusSummary, DepthThresholds, LossReason};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
 use psmc_rs::io::vcf::VcfSummary;
-use psmc_rs::qc::fmt::{count, counted, pct};
+use psmc_rs::qc::fmt::{count, counted, pct, plural};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
     QcReport, QcSeq, try_analyze,
@@ -355,12 +355,16 @@ pub fn ensure_usable(data: &Dataset) -> Result<()> {
     let filtered = data
         .dropped
         .iter()
-        .any(|d| matches!(d.reason, DropReason::Filter { .. }));
-    if data.obs.rows.is_empty() && filtered {
+        .filter(|d| matches!(d.reason, DropReason::Filter { .. }))
+        .count();
+    if data.obs.rows.is_empty() && filtered > 0 {
         bail!(
-            "fq2psmcfa's output filter left no sequence to analyse (see the warning above); \
-             lower --min-good-bases or --min-good-fraction, or pass --min-good-bases 0 \
-             --min-good-fraction 0 to keep every sequence"
+            "no sequence is left to analyse: fq2psmcfa's output filter dropped {} (the \
+             'dropped because' warning lists {}); lower --min-good-bases or \
+             --min-good-fraction, or pass --min-good-bases 0 --min-good-fraction 0 to keep \
+             every sequence",
+            counted(filtered, "sequence", "sequences"),
+            plural(filtered, "it", "them")
         );
     }
     data.ensure_usable()

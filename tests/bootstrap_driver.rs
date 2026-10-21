@@ -160,7 +160,7 @@ fn single_trunk_input_is_rejected() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("single trunk"), "{err}");
-    assert!(err.contains("at most 33333 bins"), "{err}");
+    assert!(err.contains("at most 33,333 bins"), "{err}");
 
     let models = bootstrap(&one, &template, &config(3, 33_333, 0)).unwrap();
     assert_eq!(models.len(), 3);

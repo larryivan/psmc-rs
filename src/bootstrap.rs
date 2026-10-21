@@ -94,6 +94,7 @@ use crate::io::{CallableBases, CallableSummary, Observations, Sequences, sequenc
 use crate::model::{NegativeTransitions, PsmcModel, ThetaCounts, initial_theta_with_callable};
 use crate::opt::MStepConfig;
 use crate::psmc_out::{PsmcRunInfo, bin_callable_line, psmc_rounds, write_psmc};
+use crate::qc::fmt::count;
 
 /// The bootstrap distribution of Ne at one time point of the main curve.
 #[derive(Debug, Clone, Serialize)]
@@ -301,19 +302,21 @@ pub fn bootstrap_trunk_count(seqs: &[Vec<u8>], trunk_size: usize) -> Result<usiz
     if trunk_size == 0 {
         bail!("bootstrap trunk_size must be > 0");
     }
-    let count: usize = seqs
+    let trunks: usize = seqs
         .iter()
         .map(|s| trunk_ranges(s.len(), trunk_size).count())
         .sum();
-    match count {
+    match trunks {
         0 => bail!("bootstrap input has no data"),
         1 => {
             let bins: usize = seqs.iter().map(Vec::len).sum();
             bail!(
-                "bootstrap input of {bins} bins forms a single trunk at trunk size {trunk_size}, \
-                 so every replicate would refit the same data; use a trunk size of at most {} \
-                 bins (a few dozen trunks or more give smoother bands)",
-                (bins * 2 / 3).max(1)
+                "bootstrap input of {} bins forms a single trunk at trunk size {}, so every \
+                 replicate would refit the same data; use a trunk size of at most {} bins (a few \
+                 dozen trunks or more give smoother bands)",
+                count(bins as u64),
+                count(trunk_size as u64),
+                count((bins * 2 / 3).max(1) as u64)
             )
         }
         n => Ok(n),

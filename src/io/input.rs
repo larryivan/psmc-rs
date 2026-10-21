@@ -37,7 +37,7 @@ use crate::io::vcf::{
     VcfOptions, VcfSummary, gvcf_block_end, list_names, no_het_snp_message, read_vcf_seqs_from,
 };
 use crate::io::{BinCounts, CallableBases, Observations, Sequences, sequence_ranges};
-use crate::qc::fmt::{count, plural};
+use crate::qc::fmt::{count, counted, plural};
 
 /// Input file formats.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -340,9 +340,10 @@ fn choose_mode(seen: VcfModeChoice, path: &Path) -> Result<VcfModeChoice> {
         return Ok(choice(
             VcfMode::Mask,
             format!(
-                "mask mode: {gvcf_blocks} of the first {inspected} records are reference or \
-                 no-call blocks with INFO/END, as in a gVCF, so positions that no record covers \
-                 are missing"
+                "mask mode: {} of the first {} records are reference or no-call blocks with \
+                 INFO/END, as in a gVCF, so positions that no record covers are missing",
+                count(gvcf_blocks),
+                count(inspected)
             ),
         ));
     }
@@ -357,17 +358,20 @@ fn choose_mode(seen: VcfModeChoice, path: &Path) -> Result<VcfModeChoice> {
             return Ok(choice(
                 VcfMode::Consensus,
                 format!(
-                    "consensus mode: only {alt_dot} of the first {inspected} records have ALT \
-                     '.', but there is a record for {density:.0}% of the positions they span \
-                     and {records_with_fq} carry INFO/FQ, as in an all-sites VCF from 'bcftools \
-                     call -c -A', which gives reference sites ALT alleles"
+                    "consensus mode: only {} of the first {} records have ALT '.', but there is \
+                     a record for {density:.0}% of the positions they span and {} carry INFO/FQ, \
+                     as in an all-sites VCF from 'bcftools call -c -A', which gives reference \
+                     sites ALT alleles",
+                    count(alt_dot),
+                    count(inspected),
+                    count(records_with_fq)
                 ),
             ));
         }
         let why = if dense {
             format!(
-                "only {records_with_fq} carry the INFO/FQ of 'bcftools call -c', which \
-                 consensus mode needs"
+                "only {} carry the INFO/FQ of 'bcftools call -c', which consensus mode needs",
+                count(records_with_fq)
             )
         } else {
             format!(
@@ -378,8 +382,9 @@ fn choose_mode(seen: VcfModeChoice, path: &Path) -> Result<VcfModeChoice> {
         return Ok(choice(
             VcfMode::Mask,
             format!(
-                "mask mode: {alt_dot} of the first {inspected} records have ALT '.' (fewer than \
-                 half), and {why}"
+                "mask mode: {} of the first {} records have ALT '.' (fewer than half), and {why}",
+                count(alt_dot),
+                count(inspected)
             ),
         ));
     }
@@ -387,17 +392,23 @@ fn choose_mode(seen: VcfModeChoice, path: &Path) -> Result<VcfModeChoice> {
         return Ok(choice(
             VcfMode::Consensus,
             format!(
-                "consensus mode: {alt_dot} of the first {inspected} records have ALT '.' and \
-                 {with_fq} of those carry INFO/FQ, as in an all-sites VCF from 'bcftools call -c'"
+                "consensus mode: {} of the first {} records have ALT '.' and {} of those carry \
+                 INFO/FQ, as in an all-sites VCF from 'bcftools call -c'",
+                count(alt_dot),
+                count(inspected),
+                count(with_fq)
             ),
         ));
     }
     bail!(
-        "{path:?} looks like an all-sites VCF ({alt_dot} of the first {inspected} records have \
-         ALT '.'), but only {with_fq} of those carry INFO/FQ, which the consensus mode \
-         (vcfutils.pl vcf2fq) needs to tell reliable reference calls from unreliable ones. \
-         Rerun the caller as 'bcftools call -c' (the classic PSMC pipeline), or provide a \
-         callable mask and force mask mode, which reads the genotypes"
+        "{path:?} looks like an all-sites VCF ({} of the first {} records have ALT '.'), but \
+         only {} of those carry INFO/FQ, which the consensus mode (vcfutils.pl vcf2fq) needs to \
+         tell reliable reference calls from unreliable ones. Rerun the caller as 'bcftools call \
+         -c' (the classic PSMC pipeline), or provide a callable mask and force mask mode, which \
+         reads the genotypes",
+        count(alt_dot),
+        count(inspected),
+        count(with_fq)
     )
 }
 
@@ -773,9 +784,9 @@ impl Dataset {
         if let (Some(filter), false) = (&self.filter, filtered.is_empty()) {
             let n = filtered.len();
             out.push(format!(
-                "{n} {} dropped because fewer than {} of {} positions, or less than {}% of them, \
-                 are called (fq2psmcfa's output filter): {}",
-                plural(n, "sequence", "sequences"),
+                "{} dropped because fewer than {} of {} positions, or less than {}% of them, are \
+                 called (fq2psmcfa's output filter): {}",
+                counted(n, "sequence", "sequences"),
                 count(filter.min_good_bases),
                 plural(n, "its", "their"),
                 filter.min_good_fraction * 100.0,
@@ -802,11 +813,11 @@ impl Dataset {
                 let n = self.dropped.len();
                 msg.push_str(&format!(
                     ": the output filter (at least {} called positions making up at least {}% of \
-                     the sequence, as in fq2psmcfa) dropped {n} {} ({}); lower or disable it for \
+                     the sequence, as in fq2psmcfa) dropped {} ({}); lower or disable it for \
                      small test data",
                     count(filter.min_good_bases),
                     filter.min_good_fraction * 100.0,
-                    plural(n, "sequence", "sequences"),
+                    counted(n, "sequence", "sequences"),
                     describe_dropped(self.dropped.iter(), filter),
                 ));
             }
