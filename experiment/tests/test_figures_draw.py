@@ -177,6 +177,11 @@ class Draw(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
                 self.assertEqual(main(["fig3", "--profile", "tiny", "--runs-dir", empty, "--dpi", str(DPI)]), 1)
             self.assertIn("skip fig3_real_genomes", err.getvalue())
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(SystemExit) as cm:
+            main(["fig9"])
+        self.assertEqual(cm.exception.code, 2)  # a usage error naming the figures there are, not a traceback
+        self.assertIn("unknown figure 'fig9'; known: art1_agreement", err.getvalue())
 
     def test_the_readme_gives_each_figures_size(self):
         import math
