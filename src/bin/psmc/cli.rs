@@ -375,8 +375,8 @@ pub struct InferArgs {
 
     /// Worker threads (default: one per core); results do not depend on it.
     ///
-    /// They run the E-step (sequences in parallel), the bootstrap and the
-    /// TMRCA decoding.
+    /// They run the E-step (sequences in parallel, and a long sequence's
+    /// backward pass on free threads), the bootstrap and the TMRCA decoding.
     #[arg(long, value_name = "N", value_parser = positive_usize, help_heading = "Run")]
     pub threads: Option<usize>,
 
@@ -419,7 +419,8 @@ pub struct InferArgs {
     /// Start from a saved fit, the JSON output of an earlier run (C psmc -i).
     ///
     /// Its parameters replace theta0, rho0, t_max and flat lambdas as the
-    /// start; its pattern and n_steps are used unless given.
+    /// start; its pattern and n_steps are used (--pattern and --n-steps, if
+    /// given, must match them).
     #[arg(long, value_name = "FILE", conflicts_with_all = ["theta0", "rho0", "t_max", "tr_ratio"], help_heading = "Model")]
     pub init_params: Option<PathBuf>,
 
