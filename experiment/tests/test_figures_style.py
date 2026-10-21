@@ -523,7 +523,7 @@ class Performance(unittest.TestCase):
         self.assertEqual(fig4.chromosome_counts(table2), {100: 1, 300: 3, 3000: 30})
         with self.assertRaises(ValueError):
             fig4.chromosome_counts(pd.DataFrame({"size_mb": [100, 100], "chromosomes": [1, 2]}))
-        self.assertIn("ceil(n / t)", " ".join(fig4.__doc__.split()))
+        self.assertIn("give each thread one", " ".join(fig4.__doc__.split()))
 
     def test_figs4_names_the_runs_behind_more_than_one_output(self):
         rows = []

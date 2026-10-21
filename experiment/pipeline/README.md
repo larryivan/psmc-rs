@@ -8,7 +8,9 @@ and equivalence, Fig 2, Table 1, Fig S1), E2 (real genomes, Fig 3), E3
 (performance, Fig 4, Table 2, Fig S4), E4 (input preparation, Fig 5), E5
 (bootstrap calibration, Fig 6), E6 (supplementary analyses, Figs S2 and S3,
 Table S5), E7 (1000 Genomes, Fig 7, Figs S5 and S6) and FIG (every figure,
-Fig 1 included).
+Fig 1 included). Figure and table numbers in this README follow an earlier
+plan of the article; Supplementary Note 1, section 3, maps them to the
+article's.
 
 Run it from the repository root with the experiment's environment
 (`experiment/.venv` with the exact versions of
@@ -70,11 +72,8 @@ informative window is 7.7e-5, as small as with C psmc's own Hooke-Jeeves
 search run inside psmc-rs's EM (7.5e-5); over E1's 40 genomes, compared
 interval by interval, it is 3.7e-6 to 2.0e-4 (median 2.5e-5), and over
 E2's four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
-`E2_rs_vs_c.csv`). psmc-rs 0.1's L-BFGS stopped after 100 iterations,
-which left the two 0.03 to 0.16 apart;
-that is why the experiments pass the cap explicitly. Since psmc-rs's
-default M-step is the converged one, no experiment fits or times a separate
-default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are
+`E2_rs_vs_c.csv`). Since psmc-rs's default M-step is the converged one, no
+experiment fits or times a separate default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are
 unset, and setting one of them to a cap adds a fit (`fit-rs-default`,
 `E1_mstep.csv`) or timed runs (`rs02-default`) with M-steps capped at that
 many iterations (the tiny profile does, at 5, to test them).
@@ -118,10 +117,11 @@ the true pairwise TMRCA as run-length intervals.
 bytes of SHA-256 of `psmc-rs-manuscript/<experiment>/<model>/<replicate>/<stage>`
 modulo 2^31 - 1, plus 1. Stages are `ancestry/<chrom>` and
 `mutations/<chrom>` of every simulation, E4's `mask/<mask>/<chrom>` and
-`reference/<chrom>`, the bootstraps' `bootstrap` (E2's default trunks) and
-`bootstrap/trunk<B>`, and E5's `summary/<window>/trunk<B>` (resampling the
-datasets). A seed depends on nothing but its key, and no seed was chosen
-after looking at a result. Every seed is in the truth record, the job's
+`reference/<chrom>`, the bootstraps' `bootstrap` (E2's default trunks and
+E7) and `bootstrap/trunk<B>`, E5's `summary/<window>/trunk<B>` (resampling
+the datasets), and E7's `select/<sample>` (drawing the default set). A seed
+depends on nothing but its key, and no seed was chosen after looking at a
+result. Every seed is in the truth record, the job's
 provenance record and the experiment's `*_seeds.csv` table.
 
 **Metrics.** Curves are compared at 200 log-spaced times. The informative
@@ -151,7 +151,7 @@ the files. A job is done when its outputs exist with a matching provenance
 record in `runs/<exp>/provenance/<job>.json`: the record's key holds the
 command, settings, tool identities (psmc-rs 0.2: version, the git tree and
 blob ids of `src/`, `Cargo.toml` and `Cargo.lock`, a digest of uncommitted
-changes, `rustc -vV` and `RUSTFLAGS`; C psmc: version and SHA-256 of the
+changes, and the build flags (see Tools); C psmc: version and SHA-256 of the
 binary; Python steps: SHA-256 of their modules and package versions), seeds
 and the SHA-256 of every input, and the outputs must still have the
 checksums recorded at the end of the run. Paths are recorded as `<repo>`,
@@ -208,10 +208,10 @@ the runner's state records `provenance.machine()` (CPU model, memory, host,
 libc, usable CPUs and the SLURM job on Linux). None of this enters a job's
 key.
 
-`status` takes what it is not given (the experiments, `--only`, `--cores`,
-`--mem-gb`) from the running runner, or else the last one (it says when it
-keeps the last `--only`; `--only ''` shows all jobs). It reports a job
-blocked when no runner would start it: an input it reads is missing and no
+Without experiments or a jobs file, `status` takes them and `--only` from
+the running runner, or else the last one (it says when it keeps the last
+`--only`; `--only ''` shows all jobs); `--cores` and `--mem-gb` default to
+its budget. It reports a job blocked when no runner would start it: an input it reads is missing and no
 job makes it, it does not fit the budget, or it needs a blocked job; an
 experiment with a blocked job has the ETA `never`, and its CPU left
 counts the blocked jobs. It lists at most 10 running, 10 failed and 10
@@ -409,10 +409,11 @@ EM iterations of the recipe, 5 repeats each: C psmc on its one thread;
 psmc-rs 0.2 on 1, 8 and 30 threads (and with capped M-steps,
 `rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2
 on the 3000 Mb genome with 1, 2, 4, 8, 16 and 30 threads (thread scaling):
-19 setups, 95 timed runs. psmc-rs works on one sequence per thread, so the
-30 chromosomes of the largest genome make 30 threads the most that can
-help. A setup whose estimated peak memory exceeds 64 GB is not run and
-Table 2 says why (none with 100 Mb chromosomes: C psmc holds about 1 GB,
+19 setups, 95 timed runs. psmc-rs runs sequences in parallel, and threads
+left free (while at least half are) share each sequence's backward pass,
+so the smaller genomes also gain from threads (a single sequence is
+fastest on about 8). A setup whose estimated peak memory exceeds 64 GB is
+not run and Table 2 says why (none with 100 Mb chromosomes: C psmc holds about 1 GB,
 psmc-rs 0.2 well under 1 GB).
 
 Every run is an exclusive job (nothing else runs, on this runner or any
@@ -827,8 +828,8 @@ each figure reads and what captions must add are in
 
 Run the production in a checkout nobody develops in, since the runner stops
 starting jobs once the pipeline's code or a tool changes: a dedicated
-worktree of the branch that holds the pipeline (`git worktree add
-../psmc-rs-production <branch>`). A worktree without `experiment/.tools`
+worktree of the production commit (`git worktree add --detach
+../psmc-rs-production <commit>`). A worktree without `experiment/.tools`
 uses the main checkout's tools; the runs go to its own `experiment/runs`,
 and `start` builds its own psmc-rs 0.2. Then, from its root, with the main
 checkout's environment:

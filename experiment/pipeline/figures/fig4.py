@@ -5,15 +5,13 @@ Every run fits 25 EM iterations of the recipe to a constant-model genome of
 and 30 chromosomes at 100, 300, 1,000 and 3,000 Mb, the second line of each
 size's tick label.
 
-psmc-rs runs the E-step of each sequence on one thread, in parallel across
-sequences, so on t threads a genome of n equal chromosomes
-takes about ceil(n / t) times one chromosome's time: 17.2 to 18.3 s for
-every psmc-rs 0.2 setup in production (Supplementary Note 1, section 10).
-Threads beyond the chromosome count add nothing: at 100 Mb (one
-chromosome) the 1-, 8- and 30-thread points coincide, the 30-thread lines
-are flat, and the 30-thread speed-up at 3,000 Mb (243x in production)
-holds because its 30 equal chromosomes give each thread one. On a real
-genome the longest sequence sets the floor (Fig S4).
+psmc-rs fits sequences in parallel and, while at least half the threads
+are idle, pipelines each sequence's backward pass over them, so one 100 Mb
+chromosome runs at most about twice as fast on many threads as on one.
+Large speed-ups need many sequences of similar length: the 30-thread
+speed-up at 3,000 Mb (243x in production) holds because its 30 equal
+chromosomes give each thread one. On a real genome the longest sequence
+sets the floor (Fig S4).
 
 * a: wall time against genome size: C psmc (one thread) and psmc-rs 0.2
   at each of the thread counts E3 times every size at (1, 8 and 30 in

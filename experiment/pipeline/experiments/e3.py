@@ -15,8 +15,7 @@ does psmc-rs 0.2 give the same result whatever its thread count?
    ``rs02-default``, when that is set; by default it is not, since psmc-rs
    0.2's default M-step converges like every other run's); psmc-rs 0.2
    also fits the 3000 Mb genome on 1, 2, 4, 8, 16 and 30 threads (thread
-   scaling; with one sequence per thread, its 30 chromosomes are the most
-   threads can use). Each run is an
+   scaling). Each run is an
    exclusive job (nothing else runs, on this runner or any other: see the
    runner's machine lock) with as many cores as threads, at most the
    machine's (:func:`.e3_run.usable_cpus`), timed by ``e3_run measure`` (wall

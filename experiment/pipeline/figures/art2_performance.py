@@ -29,9 +29,9 @@ over 12.1 min, the text's medians, give 8.6×).
     psmc-rs's on one thread and on the most threads printed beside them.
     The upper limit puts C psmc's line at the same height of the axes as in
     b, so that the two orange lines of these small multiples align.
-    psmc-rs fits each sequence on one thread, in parallel across
-    sequences, so the speed-up on many threads needs as many sequences of
-    similar length (for the caption to say).
+    psmc-rs fits sequences in parallel, so a large speed-up on many
+    threads needs many sequences of similar length (for the caption to
+    say).
   * b: peak memory, the resident set size of the process tree (linear
     scale from zero): C psmc's, and psmc-rs's at one thread and at the most
     threads printed above their points; psmc-rs's rises with threads

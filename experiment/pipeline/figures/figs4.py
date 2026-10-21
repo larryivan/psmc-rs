@@ -6,11 +6,11 @@ iterations, E3's clean runs), on 1 to 30 threads:
 * a: wall time against threads: every repeat (dots) and the median (line),
   with ideal scaling from the fewest threads (dotted). The M-step runs on
   one thread but converges in a few ms per EM iteration, so the E-step's
-  sequences set the speed-up. psmc-rs works on one sequence per thread, so
-  the ideal is that of whole sequences per thread (:func:`ceiling_speedup`:
-  30 sequences on 8 threads take 4 rounds, a speed-up of 7.5), and its
-  floor, marked, is the time of one chromosome: threads beyond the 30
-  sequences add nothing.
+  sequences set the speed-up. With 30 equal sequences on at most 30
+  threads no thread is idle to share a backward pass, so the ideal is that
+  of whole sequences per thread (:func:`ceiling_speedup`: 30 sequences on
+  8 threads take 4 rounds, a speed-up of 7.5), and its floor, marked, is
+  the time of one chromosome.
 * b: parallel efficiency, speed-up / threads, of the medians, and the
   ideal's (dotted): 1 where the threads divide the sequences, below where
   they do not (94% on 4, 8 and 16 threads). Every point is labelled but

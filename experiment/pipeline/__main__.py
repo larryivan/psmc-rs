@@ -93,9 +93,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "default on: a sleep would stretch a timing run's wall time)")
 
     p = command("status", "done, running, failed, blocked and pending jobs per experiment, with an ETA",
-                "What is not given (experiments or jobs file, --only, --cores, --mem-gb) is the running runner's, or "
-                "else the last one's. A blocked job waits for what no runner does: an input that no job makes, more "
-                "cores or memory, or a blocked job it needs.")
+                "Without experiments or a jobs file, they and --only are the running runner's, or else the last "
+                "one's; --cores and --mem-gb default to its budget. A blocked job waits for what no runner does: an "
+                "input that no job makes, more cores or memory, or a blocked job it needs.")
     _job_args(p, last="the last runner's, else ")
     p.add_argument("--jobs", action="store_true",
                    help="list every job that is not done, and why (without it: at most "
