@@ -9,8 +9,8 @@ use super::fmt::{bases, count, counted, pct, plural, sig};
 use super::names::SeqKind;
 use super::stats::{fraction, median};
 use super::{
-    DEFAULT_TR_RATIO, QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE, SeqInfo,
-    largest_trunk_within,
+    DEFAULT_TR_RATIO, QcInput, QcReport, SATURATION_TARGET_SHARE, SATURATION_WARN_SHARE,
+    SequenceRow, largest_trunk_within,
 };
 use crate::io::CallableSummary;
 
@@ -437,9 +437,8 @@ impl Finding {
 pub(super) fn run(
     input: &QcInput,
     report: &QcReport,
-    seqs: &[SeqInfo],
+    seqs: &[SequenceRow],
 ) -> (Vec<Finding>, Vec<usize>) {
-    let seq_bins: Vec<u64> = seqs.iter().map(|s| s.stats.bins).collect();
     let mut named = Vec::new();
     let mut out: Vec<Finding> = [
         invalid_start(input, report),
@@ -449,7 +448,7 @@ pub(super) fn run(
         bin_saturation(report),
         few_hets(input, report),
         too_short(report),
-        short_sequences(report, &seq_bins),
+        short_sequences(report, seqs),
         sex_or_organelle(report, seqs, &mut named),
         het_outliers(report, seqs, &mut named),
         approx_missing_placement(input, report),
@@ -476,10 +475,10 @@ fn listing(names: &[String]) -> String {
 
 fn sex_or_organelle(
     report: &QcReport,
-    seqs: &[SeqInfo],
+    seqs: &[SequenceRow],
     named: &mut Vec<usize>,
 ) -> Option<Finding> {
-    let flagged: Vec<&SeqInfo> = seqs.iter().filter(|s| s.kind.is_some()).collect();
+    let flagged: Vec<&SequenceRow> = seqs.iter().filter(|s| s.kind.is_some()).collect();
     if flagged.is_empty() {
         return None;
     }
@@ -556,8 +555,12 @@ fn sex_or_organelle(
     Some(f)
 }
 
-fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> Option<Finding> {
-    let eligible: Vec<(&SeqInfo, f64)> = seqs
+fn het_outliers(
+    report: &QcReport,
+    seqs: &[SequenceRow],
+    named: &mut Vec<usize>,
+) -> Option<Finding> {
+    let eligible: Vec<(&SequenceRow, f64)> = seqs
         .iter()
         .filter(|s| s.kind.is_none())
         .filter(|s| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
@@ -574,7 +577,7 @@ fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> 
     let mut deviations: Vec<f64> = eligible.iter().map(|&(_, x)| (x - center).abs()).collect();
     let mad = median(&mut deviations);
     let limit = (HET_OUTLIER_MADS * mad).max(HET_OUTLIER_MIN_FOLD.ln());
-    let mut outliers: Vec<(&SeqInfo, f64)> = eligible
+    let mut outliers: Vec<(&SequenceRow, f64)> = eligible
         .iter()
         .filter(|&&(_, x)| (x - center).abs() > limit)
         .map(|&(s, x)| (s, x - center))
@@ -1043,7 +1046,7 @@ fn too_short(report: &QcReport) -> Option<Finding> {
     ))
 }
 
-fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
+fn short_sequences(report: &QcReport, seqs: &[SequenceRow]) -> Option<Finding> {
     let l = &report.lengths;
     let short_1mb = l.below_1mb.fraction > SHORT_SEQUENCES_MAX_FRACTION;
     let short_trunk = l
@@ -1076,7 +1079,8 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
             counted(below.sequences, "sequence", "sequences"),
             count(report.bootstrap_trunk_bins as u64)
         ));
-        let trunk = largest_trunk_within(seq_bins, SHORT_SEQUENCES_MAX_FRACTION);
+        let bins: Vec<u64> = seqs.iter().map(|s| s.stats.bins).collect();
+        let trunk = largest_trunk_within(&bins, SHORT_SEQUENCES_MAX_FRACTION);
         advice.push(format!(
             "For the bootstrap, a trunk of at most {} bins keeps at least {} of bins in \
              sequences of one trunk or more (--bootstrap-block-size).",

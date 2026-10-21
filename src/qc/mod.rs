@@ -989,14 +989,6 @@ fn callable_summary(bin_size: usize, total: &Counts, stats: &BinStats) -> Callab
     }
 }
 
-/// One analysed sequence, as the checks see it.
-pub(crate) struct SeqInfo {
-    index: usize,
-    name: String,
-    kind: Option<SeqKind>,
-    stats: BinStats,
-}
-
 /// One non-empty sequence of the input: its name, rows and loader facts.
 struct Span<'a> {
     name: Cow<'a, str>,
@@ -1142,18 +1134,30 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         initial_recombinations(totals.t_bins + totals.k_bins, theta, DEFAULT_TR_RATIO)
     });
 
-    let infos: Vec<SeqInfo> = spans
+    let mut sequences: Vec<SequenceRow> = spans
         .iter()
         .zip(&counts)
         .enumerate()
-        .map(|(index, (span, c))| SeqInfo {
+        .map(|(index, (span, c))| SequenceRow {
             index,
             name: span.name.to_string(),
             kind: classify_name(&span.name),
+            het_vs_reference: None,
             stats: c.stats(bin_size),
         })
         .collect();
-    let het_reference = het_reference(&infos, &counts, bin_size);
+    let het_reference = het_reference(&sequences, &counts, bin_size);
+    let reference = het_reference
+        .as_ref()
+        .map(|r| r.theta0_per_bin)
+        .filter(|&r| r > 0.0);
+    for s in &mut sequences {
+        s.het_vs_reference = s
+            .stats
+            .theta0_comparable()
+            .zip(reference)
+            .map(|(t, r)| t / r);
+    }
 
     let mut report = QcReport {
         input_format: input.context.input_format.clone(),
@@ -1174,7 +1178,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         sequences: Vec::new(),
         omitted: None,
     };
-    let (findings, named) = checks::run(input, &report, &infos);
+    let (findings, named) = checks::run(input, &report, &sequences);
     report.findings = findings;
 
     let shown = rows_to_show(&counts, &named, MAX_SEQUENCE_ROWS);
@@ -1188,31 +1192,27 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         sequences: hidden.len(),
         stats: Counts::sum(hidden).stats(bin_size),
     });
-    let reference = report.het_reference.as_ref().map(|r| r.theta0_per_bin);
-    report.sequences = infos
+    report.sequences = sequences
         .into_iter()
         .zip(shown)
-        .filter(|&(_, shown)| shown)
-        .map(|(info, _)| SequenceRow {
-            index: info.index,
-            name: info.name,
-            kind: info.kind,
-            het_vs_reference: info
-                .stats
-                .theta0_comparable()
-                .zip(reference)
-                .filter(|&(_, r)| r > 0.0)
-                .map(|(t, r)| t / r),
-            stats: info.stats,
-        })
+        .filter_map(|(s, shown)| shown.then_some(s))
         .collect();
     Ok(report)
 }
 
 /// See [`HetReference`]. θ0 is per callable base when the input records
 /// callable bases ([`BinStats::theta0_comparable`]).
-fn het_reference(infos: &[SeqInfo], counts: &[Counts], bin_size: usize) -> Option<HetReference> {
-    let autosomes = || infos.iter().zip(counts).filter(|(s, _)| s.kind.is_none());
+fn het_reference(
+    sequences: &[SequenceRow],
+    counts: &[Counts],
+    bin_size: usize,
+) -> Option<HetReference> {
+    let autosomes = || {
+        sequences
+            .iter()
+            .zip(counts)
+            .filter(|(s, _)| s.kind.is_none())
+    };
     let mut long: Vec<f64> = autosomes()
         .filter(|(s, _)| s.stats.called_bases_from_bins >= REFERENCE_MIN_CALLED_BASES)
         .filter_map(|(s, _)| s.stats.theta0_comparable())
