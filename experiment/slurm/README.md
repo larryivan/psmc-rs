@@ -17,13 +17,16 @@ Every repeat of E3 runs on its own exclusive node of one CPU model, so that
 the speed-ups of a repeat are paired on one node and the spread of the
 repeats includes the spread between nodes. A resubmitted repeat goes back
 to the node of its first runs (`--nodelist`), and `merge_e3.sh` refuses a
-repeat timed on more than one host. The report says which CPU models and
+repeat timed on more than one host. A new production starts from empty
+shards (a new `E3_SHARDS`): `submit.sh` pins a repeat to the host of any
+timing record in its shard, and `merge_e3.sh` copies every file of a shard
+into `$PROD`. The report says which CPU models and
 hosts the clean runs came from, and warns when they mix. Before its runs,
 an `e3` job measures the idle node for 30 s and stops if it is busier than
 the timing protocol allows (its log names the busiest processes), rather
 than deferring every run until the time limit.
 
-## Setup, once, on a login node
+## Setup, on a login node
 
 ```bash
 git clone <repository> $MAIN && cd $MAIN
@@ -32,11 +35,14 @@ cp experiment/slurm/site.env.example $PROD/experiment/slurm/site.env   # and fil
 rustup toolchain install 1.99.0 --profile minimal
 (cd $PROD && cargo fetch --locked)                     # compute nodes build offline
 # experiment/.tools: lh3/psmc 0.6.5-r74 sources in psmc_c/, vcfutils.pl,
-# msmc-tools/generate_multihetsep.py (see experiment/pipeline/README.md)
+# msmc-tools/generate_multihetsep.py (see Supplementary Note 1, section 2)
 # Python 3.13.13 with experiment/pipeline/requirements.lock and htslib 1.24:
 micromamba create -p $MAIN/experiment/.venv -c conda-forge -c bioconda python=3.13.13 bcftools=1.24 htslib=1.24 pip
 $MAIN/experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.lock
 ```
+
+For a new production commit: `git -C $MAIN fetch && git -C $PROD checkout
+--detach <commit> && (cd $PROD && cargo fetch --locked)`.
 
 ## Runs
 
@@ -49,6 +55,12 @@ cd $PROD/experiment/slurm         # ./submit.sh --help lists the jobs
 ./submit.sh e3-report             # waits for prod: both use $PROD's runs directory
 ./submit.sh e7-prep               # E7's inputs (network-bound: hours per chromosome); then prod again for E7
 ```
+
+E7's inputs can instead be copied from an earlier production's
+`runs/E7/inputs/` into `$PROD`. psmc-rs now compresses gzip with zlib-rs,
+so `e7-prep` writes other bytes than the production's; E2's
+`NA12878_1kGP30x_diploid.psmcfa.gz` and `config.RealGenome.sha256` are that
+production's, and must then be replaced from the new `MANIFEST.json`.
 
 Every job waits for a build job still queued or running. `prod` and
 `e3-report` share one job name (`psmcrs-runs`) and run one after the other,
