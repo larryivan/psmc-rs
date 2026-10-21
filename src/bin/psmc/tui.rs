@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::ValueEnum;
+use crossterm::cursor::Show;
 use crossterm::event::{self, Event as TermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -11,6 +12,7 @@ use crossterm::terminal::{
 use ratatui::prelude::*;
 use std::collections::VecDeque;
 use std::io;
+use std::panic;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -513,16 +515,29 @@ fn check_tui_args(cli: &InferArgs) -> Result<()> {
 }
 
 /// The terminal in raw mode on the alternate screen, given back as it was
-/// when dropped, also when the TUI stops with an error.
+/// when dropped, also when the TUI stops with an error or a panic (the
+/// release build aborts on a panic without dropping it, but runs the panic
+/// hook first).
 struct Screen(Terminal<CrosstermBackend<io::Stdout>>);
 
 impl Screen {
     fn enter() -> Result<Self> {
-        let backend = CrosstermBackend::new(io::stdout());
-        let mut screen = Screen(Terminal::new(backend).context("failed to initialize terminal")?);
+        // Raw mode first: it opens the terminal, so without one it fails
+        // with the reason, where the size query of Terminal::new gives a
+        // stale one.
         enable_raw_mode().context("failed to enable raw mode")?;
-        execute!(screen.0.backend_mut(), EnterAlternateScreen)
-            .context("failed to enter alternate screen")?;
+        let terminal = Terminal::new(CrosstermBackend::new(io::stdout()))
+            .inspect_err(|_| {
+                let _ = disable_raw_mode();
+            })
+            .context("failed to initialize terminal")?;
+        let mut screen = Screen(terminal);
+        let hook = panic::take_hook();
+        panic::set_hook(Box::new(move |info| {
+            restore_terminal();
+            hook(info);
+        }));
+        execute!(io::stdout(), EnterAlternateScreen).context("failed to enter alternate screen")?;
         screen.0.clear().context("failed to clear terminal")?;
         Ok(screen)
     }
@@ -530,10 +545,15 @@ impl Screen {
 
 impl Drop for Screen {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(self.0.backend_mut(), LeaveAlternateScreen);
-        let _ = self.0.show_cursor();
+        restore_terminal();
     }
+}
+
+/// Raw mode off, the main screen and the cursor back. ratatui::restore
+/// leaves the cursor hidden, as every frame of the TUI hides it.
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
 }
 
 /// Run the TUI until the user quits; `cli` fills the form.
