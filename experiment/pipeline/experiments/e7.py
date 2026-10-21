@@ -672,6 +672,10 @@ def report(ctx: Context) -> Dict[str, Path]:
     cfg = ctx.profile.e7
     lay = Layout(ctx.exp_dir(NAME))
     data = lay.data
+    missing = [str(p) for p in (data.samples, data.qc_samples, data.manifest) if not p.exists()]
+    if missing:
+        raise FileNotFoundError(f"E7's report reads its data stage's outputs (from Zenodo, or made by python -m "
+                                f"experiment.pipeline.kg1000), and these are missing: {', '.join(missing)}")
     samples = kg1000.read_samples(data.samples)
     qc = {r["sample_id"]: r for r in kg1000.read_tsv(data.qc_samples)}
     manifest = json.loads(data.manifest.read_text())
