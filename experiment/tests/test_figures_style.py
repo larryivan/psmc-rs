@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import ROOT, has_modules  # noqa: E402
+from fixtures import ROOT, has_font, has_modules  # noqa: E402
 
 from experiment.pipeline import config, demography  # noqa: E402
 from experiment.pipeline.figures.schemas import SCHEMAS  # noqa: E402
@@ -131,6 +131,7 @@ class Style(unittest.TestCase):
         self.assertTrue(style.narrow_log_span(1e3, 2e4))
         self.assertFalse(style.narrow_log_span(3e3, 3e6))
 
+    @unittest.skipUnless(has_font("Arial"), "the margins are measured in Arial, the house font")
     def test_layout_constants(self):
         self.assertEqual((style.MARGIN_MM, style.LEFT_MM, style.RIGHT_MM), (1.0, 11.0, 1.5))
         self.assertEqual((style.GUTTER_MM, style.GUTTER_SHARED_MM), (6.0, 3.0))
