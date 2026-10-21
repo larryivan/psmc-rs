@@ -212,11 +212,13 @@ key.
 `--mem-gb`) from the running runner, or else the last one (it says when it
 keeps the last `--only`; `--only ''` shows all jobs). It reports a job
 blocked when no runner would start it: an input it reads is missing and no
-job makes it, it does not fit the budget, or it needs a blocked job. It
-lists at most 10 running, 10 failed and 10 blocked jobs of each
-experiment; `--jobs` lists every job that is not done, and why. `plan`
-names the jobs that never start on its budget (on the default 7 cores,
-E2's and E7's bootstraps), and its times of what needs them are `never`.
+job makes it, it does not fit the budget, or it needs a blocked job; an
+experiment with a blocked job has the ETA `never`, and its CPU left
+counts the blocked jobs. It lists at most 10 running, 10 failed and 10
+blocked jobs of each experiment; `--jobs` lists every job that is not
+done, and why. `plan` names the jobs that never start on its budget (on
+the default 7 cores, E2's and E7's bootstraps), and its times of what
+needs them are `never`.
 
 `start`, `status`, `plan` and `list` take `--only REGEX`: only the jobs
 whose id matches (`re.search`) are run or shown, and the status, the ETA

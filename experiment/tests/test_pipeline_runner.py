@@ -218,6 +218,10 @@ class Status(Base):
         self.assertEqual((got["T/big"], got["T/after"]),
                          ((runner.BLOCKED, "needs 8 cores, budget 7"), (runner.BLOCKED, "needs T/big")))
         self.assertEqual(got["T/other"], (runner.PENDING, "not run yet"))
+        g, budget = Graph(jobs, self.runs), config.Budget(cores=7)
+        report = runner.format_status(g, runner.job_statuses(g, self.runs, daemon_pid=None, budget=budget), budget,
+                                      self.runs, None)
+        self.assertRegex(report, r"\nT\s+0\s+0\s+0\s+2\s+1\s+never\s")  # T never finishes, though T/other can run
         got = self.statuses(jobs, daemon_pid=None, budget=config.Budget(cores=8))
         self.assertEqual({state for state, _ in got.values()}, {runner.PENDING})
 
@@ -226,6 +230,7 @@ class Status(Base):
         g = Graph([self.job(f"T/j{i:02d}", [f"j{i}.txt"], inputs=[f"absent{i}.txt"]) for i in range(n)], self.runs)
         statuses = runner.job_statuses(g, self.runs, daemon_pid=None)
         short = runner.format_status(g, statuses, config.Budget(), self.runs, None)
+        self.assertRegex(short, rf"\nT\s+0\s+0\s+0\s+{n}\s+0\s+never\s")  # every job blocked: not "nothing left"
         self.assertEqual(short.count("\n  blocked  T/"), runner.STATUS_LINES)
         self.assertIn("\n  ... and 3 more blocked jobs of T (--jobs lists them)", short)
         full = runner.format_status(g, statuses, config.Budget(), self.runs, None, verbose=True)

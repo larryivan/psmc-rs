@@ -1283,15 +1283,16 @@ def format_status(
     for exp, mine in by_exp.items():
         c = Counter(s.state for s in mine)
         ids = [s.job.id for s in mine if s.job.id in finish]
-        eta = max((finish[i] for i in ids), default=0.0)
-        cpu = sum(s.job.est_seconds * s.job.cores for s in mine if s.state in (PENDING, FAILED)) + sum(
+        # a blocked job never runs, so its experiment never finishes (the schedule counts it as done)
+        eta = math.inf if c[BLOCKED] else max((finish[i] for i in ids), default=0.0)
+        cpu = sum(s.job.est_seconds * s.job.cores for s in mine if s.state in (PENDING, FAILED, BLOCKED)) + sum(
             running[s.job.id] * s.job.cores for s in mine if s.state == RUNNING
         )
         lines.append(
             f"{exp:<11}{c[DONE]:>6}{c[RUNNING]:>9}{c[FAILED]:>8}{c[BLOCKED]:>9}{c[PENDING]:>9}  "
-            f"{fmt_duration(eta) if (ids or c[RUNNING]) else '-':>10}  {cpu / 3600:.2f} h"
+            f"{fmt_duration(eta) if (ids or c[RUNNING] or c[BLOCKED]) else '-':>10}  {cpu / 3600:.2f} h"
         )
-    if pid is None and todo:
+    if pid is None and (todo or any(s.state == BLOCKED for s in statuses)):
         lines.append(f"(ETA if a runner starts now on {budget.cores} cores and {budget.mem_gb:g} GB; failed jobs "
                      "run again)")
     for exp, mine in by_exp.items():
