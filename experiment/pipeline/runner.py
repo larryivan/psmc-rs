@@ -950,7 +950,6 @@ class Daemon:
         if res.get("status") == DONE:
             try:
                 provenance.write_record(job, self.runs_dir, self.cache, self.keys[jid], res["run"])
-                self.cache.save()
             except Exception as exc:  # noqa: BLE001
                 res = {**res, "status": FAILED, "error": f"recording provenance failed: {exc}"}
         append_attempt(self.runs_dir, job, res)
@@ -996,7 +995,7 @@ class Daemon:
         self.refresh()
         self.write_state()
         recorded_pids: Dict[str, Optional[int]] = {}
-        last_write = time.time()
+        last_write = last_save = time.time()
         while True:
             changed = self.reap()
             if self.stop_now.is_set():
@@ -1015,6 +1014,11 @@ class Daemon:
             if changed or started or pids != recorded_pids or time.time() - last_write > 10:
                 self.write_state()
                 recorded_pids, last_write = pids, time.time()
+            # The checksum cache every 10 s, not after every job: rewriting it takes ~20 ms once it holds the
+            # production's 12,000 files, and an entry lost in a crash only costs a hash again.
+            if time.time() - last_save > 10:
+                self.cache.save()
+                last_save = time.time()
             if not self.running and (self.drain.is_set() or READY not in self.state.values()):
                 break
             time.sleep(POLL_SECONDS)
