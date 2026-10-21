@@ -29,9 +29,10 @@ __pycache__/
 # (replicate_NNN.json) and psmc-rs's summary; the replicates' .psmc files
 # (every EM round, about 0.1 MB each, a thousand of them) are not kept.
 /experiment/runs/E5/boot/**/replicate_*.psmc
-# E2 keeps the same of its bootstraps (main.json, replicate_NNN.json,
+# E2 and E7 keep the same of their bootstraps (main.json, replicate_NNN.json,
 # summary.json and summary.tsv), not the replicates' .psmc files.
 /experiment/runs/E2/bootstrap/**/replicate_*.psmc
+/experiment/runs/E7/boot/**/replicate_*.psmc
 
 # Site settings of the SLURM scripts (account, paths)
 /experiment/slurm/site.env

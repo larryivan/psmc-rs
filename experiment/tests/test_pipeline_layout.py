@@ -21,6 +21,9 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E1/provenance/fit-c/bottleneck/rep01.json",
             "experiment/runs/E1/provenance/report.json",
             "experiment/runs/E1/tables/E1_table1.csv",
+            "experiment/runs/E7/boot/NA12878/main.json",
+            "experiment/runs/E7/boot/NA12878/replicate_001.json",
+            "experiment/runs/E7/boot/NA12878/summary.tsv",
         ), ignored=(
             "experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa",
             "experiment/runs/E1/sims/bottleneck/rep01/genome.vcf.gz",
@@ -29,6 +32,7 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E1/fits/bottleneck/rep01.c.psmc.partial",
             "experiment/runs/E1/logs/attempts.jsonl",
             "experiment/runs/E1/logs/jobs/fit-c/bottleneck/rep01.log",
+            "experiment/runs/E7/boot/NA12878/replicate_001.psmc",
             "experiment/runs/_runner/runner.pid",
             "experiment/runs/_runner/checksums.json",
             "experiment/.runs-smoke/E1/tables/E1_table1.csv",
