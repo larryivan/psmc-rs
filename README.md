@@ -142,8 +142,8 @@ VCF of several samples, and `--vcf-sample` only checks the name of the one
 sample there (the run warns that it selected nothing).
 
 **Consensus mode** reproduces the classic PSMC input pipeline,
-`vcfutils.pl vcf2fq | fq2psmcfa`, in one streaming pass over the all-sites
-VCF of `bcftools call -c`, with bins identical to fq2psmcfa's (checked byte
+`vcfutils.pl vcf2fq | fq2psmcfa`, in one step from the all-sites VCF of
+`bcftools call -c`, with bins identical to fq2psmcfa's (checked byte
 for byte against bcftools 1.24, vcfutils.pl and fq2psmcfa; see
 `tests/data/route_a/`). The tools' options map as follows:
 
@@ -298,14 +298,12 @@ data (1.9% low on average), where ignoring the counts gave 0.64 to 0.66,
 and the RMSE of log10 Ne against the truth was 0.007 above that of the
 complete-data fit on average (at most 0.020), where ignoring the counts
 raised it by 0.16 to 0.20. Missing data in 20 kb runs changed the fits
-little either way. Multihetsep input does not recover the exact fit,
-because of where its reader places the uncalled sites (θ 0.67 to 0.69 of
-the complete-data fit with 30% in short runs, 0.89 to 0.91 in long runs),
-and in the smaller validation runs of
+little either way. Multihetsep input does not recover the exact fit
+([multihetsep](#multihetsep)); its approximate counts made θ 0.52 to 0.60
+of the complete-data fit in the smaller runs of
 [experiment/validation/](experiment/validation/README.md) (three runs of
-three 10 × 20 Mb genomes) its approximate counts made it worse (0.52 to
-0.60): `--bin-callable auto` does not use them, and `--bin-callable
-approximate` does. Use the VCF with its callable mask. E4's numbers are in
+three 10 × 20 Mb genomes), so `--bin-callable auto` does not use them.
+E4's numbers are in
 `experiment/runs/E4/tables/` and its design in
 [experiment/pipeline/README.md](experiment/pipeline/README.md#e4-input-preparation).
 
@@ -628,7 +626,7 @@ psmcfa input gets none);
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
 pattern (per round with the default pattern, 32 to 36 on the 180,000-bin
 test input and 32 to 56 on Papuan chr1, where C's Hooke-Jeeves needs 1,132
-to 7,002 and 939 to 1,334); `QD` leaves out the smoothing penalty; and
+to 1,540 and 939 to 1,334); `QD` leaves out the smoothing penalty; and
 `post_sigma`, `QD` and `RI` include the emission of each sequence's last bin,
 which C skips (differences of the order of the number of sequences divided
 by the called length: 2e-5 on the reference data).
@@ -709,44 +707,34 @@ memory still grows with sequence length, but at 1/128 of the rate: about
 bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
 at 21 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
-of eight copies of it (19.9 M bins). `--batch-size` is no longer needed
-for memory.
+of eight copies of it (19.9 M bins).
 
-Sequences are processed in parallel. While at least half the threads have
-no sequence to process (an input of fewer sequences than threads, or the
-last sequences of one), the E-step's backward pass over each sequence of
-more than 16 segments (2,048 bins) is pipelined over the free threads: one
-thread runs the backward recursion over 16 segments while the others
-recompute the forward vectors of the 16 before them and sum the expected
-transitions of the 16 after them, each segment on its own, and the sums
-are added in the order one thread adds them, so the results are the same to
-the bit. The forward pass stays on one thread. So a single sequence runs
-about twice as fast on 4 threads or more (the thread that reports progress
-counts as busy) with 64 states, and 1.4 times with 23; it is fastest on
-about 8 threads, and on more it is slower than on 8, though still faster
-than before. On an AMD EPYC 7702, with E3's options (below), 1 M
-bins of a human chromosome took 17.5 s on 1 thread, and 17.3 s on 8 or 16
-threads before, 9.4 s on 8 and 11.5 s on 16 now; three such sequences on 8
-and 16 threads took 17.5 s and 17.7 s before, 14.5 s and 13.3 s now. Each
-sequence whose backward pass is pipelined holds three blocks of 16
-segments' forward vectors and backward weights and the transition sums of
-16 segments, 98,688 × n + 128 × n² + 61,440 bytes for n states rounded up
-to a multiple of 8: 6.9 MB with 64 states, 2.5 MB with 23. The blocks are
-allocated again at every E-step, and on macOS the allocator keeps the
-memory freed by earlier E-steps resident, so over many EM iterations the
-peak resident memory can grow by about twice that: on 8 threads Papuan
-chr1 peaked at 32 MB after 20 iterations, against 19 MB before (23 to
-26 MB after one). On Linux (glibc, on the EPYC) it grew by about the heap
-figure over E3's 25 iterations: three sequences of 1 M bins on 8 threads
-peaked at 41 MB against 18 MB. The threads waiting for work between blocks
-take CPU time: a single sequence on 8 threads takes about 1.6 times the CPU
-time of one thread with 64 states and about twice with 23, and more on
-more threads.
+Sequences are processed in parallel. While at least half the threads are
+free (the thread that reports progress counts as busy), as with a single
+sequence on 4 threads or more, or during the last sequences of an input,
+the E-step's backward pass over each sequence of more than 16 segments
+(2,048 bins) is pipelined over the free threads: one thread runs the
+backward recursion over 16 segments while the others recompute the
+forward vectors of the 16 before them and sum the expected transitions of
+the 16 after them, each segment on its own, and the sums are added in the
+order one thread adds them, so the results are the same to the bit. The
+forward pass stays on one thread. So a single sequence runs about twice as
+fast on 4 threads or more with 64 states (1.4 times with 23), fastest on
+about 8: on an AMD EPYC 7702 with E3's options (below), 1 M bins of a
+human chromosome took 17.5 s on 1 thread, 9.4 s on 8 and 11.5 s on 16.
+Each pipelined sequence holds 98,688 × n + 128 × n² + 61,440 more bytes
+(n states rounded up to a multiple of 8): 6.9 MB with 64 states, 2.5 MB
+with 23. These blocks are reallocated at every E-step, so over many EM
+iterations the peak resident memory grows by about their size on Linux
+and about twice it on macOS, whose allocator keeps freed memory resident.
+The threads waiting between blocks use CPU time: a single sequence on 8
+threads takes about 1.6 times one thread's CPU time with 64 states, twice
+with 23, and more on more threads.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
-release builds), one run each on a machine shared with other work (load
-average 1 to 6); wall time and peak resident memory from `/usr/bin/time -l`:
+release builds) shared with other work; wall time and peak resident memory
+from `/usr/bin/time -l`:
 
 | input | EM iterations | threads | psmc-rs 0.2 | C psmc 0.6.5 (`-O1`) |
 | --- | --- | --- | --- | --- |
@@ -755,12 +743,10 @@ average 1 to 6); wall time and peak resident memory from `/usr/bin/time -l`:
 | HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 44.2 s, 87 MB | 588 s, 3.40 GB |
 | | 5 | 8 | 9.4 s, 117 MB | |
 
-The psmc-rs 0.2 figure for the first row is the median of three runs
-(24.7 to 24.8 s); C psmc is single-threaded. The rows on 8 threads are
-medians of three runs at load averages of 7 to 16, against 23.7 s, 19 MB
-and 10.6 s, 98 MB for the same build without the pipelined backward pass
-(alternated with it).
-The JSON outputs at 1 and 8 threads were byte-identical.
+psmc-rs on Papuan chr1 and on 8 threads: medians of three runs; the other
+cells are one run each. Load averages were 1 to 6, and 7 to 16 on 8
+threads. C psmc is single-threaded. The JSON outputs at 1 and 8 threads
+were byte-identical.
 
 The manuscript's experiment E3 timed the tools under a controlled protocol
 on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
@@ -799,10 +785,10 @@ machines and emulators that hide them, run the portable code, which does
 not fuse those multiply-adds (each would be a call to libm's `fma`,
 several times slower), so its results differ in the last digits: by a
 relative 1e-14 or so in an E-step (1.4e-14 at most on the test inputs),
-which the M-step, stopping on a flat optimum, turns into 1e-7 to 1e-6 in
-the fitted parameters after 5 EM iterations (6.4e-8 measured between a
-portable and an `x86-64-v3` build, 1.2e-6 on the 180,000-bin test input
-with the pattern `4+25*2+4+6`). `PSMC_RS_SIMD=portable` forces the
+which the M-step, stopping on a flat optimum, turns into about 1e-7 to
+1e-6 in the fitted parameters (1.9e-7 on a 20,000-bin test input after 3
+EM iterations, 1.2e-6 on the 180,000-bin one after 5 with the pattern
+`4+25*2+4+6`). `PSMC_RS_SIMD=portable` forces the
 portable code, to compare speeds or results; the output JSON's `simd`
 and the report say which ran (`avx2+fma`, `portable`, or `neon` on Apple
 silicon and other aarch64).
@@ -818,21 +804,15 @@ again for the check before it stops, so its time grows with the number of
 free parameters times states². With pattern `4+25*2+4+6` (31 parameters)
 on one thread, an M-step took 12 iterations, 78 evaluations and 2.1 ms on
 a simulated 500 Mb sequence, whose E-steps took 2.3 s (0.09%), and 2.2 ms
-on a simulated 4 × 25 Mb genome, against 0.46 s (0.5%); the forward-mode
-M-step of 0.1 and earlier 0.2 builds took 122 ms on either with its 100
-iterations, and 1.35 s with 1000 on the 500 Mb sequence (medians of three
-runs of 25 EM iterations, interleaved, at load averages of 3.5 to 7.4).
+on a simulated 4 × 25 Mb genome, against 0.46 s (0.5%; medians of three
+runs of 25 EM iterations).
 With one λ per interval (`--n-steps` alone) on the 180,000-bin test
 input, M-steps over 104 parameters took 13 to 18 ms and over 304 took
 0.29 to 0.60 s, against E-steps of 0.17 s and 4.9 to 5.0 s: on so small
 an input, many free λ make the M-step a noticeable share. One EM
 iteration there on one thread peaked at 6.2, 9.0, 176 and 235 MB of
 resident memory with 101, 201, 301 and 401 intervals and took 0.22, 0.71,
-7.6 and 13.8 s; the forward-mode differentiation of 0.1 and earlier 0.2
-builds, which carried the derivatives with respect to every parameter
-through every transition probability, needed 26, 156, 499 and 1,296 MB
-and took 0.81, 4.6, 16.3 and 36.7 s (medians of three runs, the latter
-one run each, all at load averages of 3.1 to 4.0). Above 256 intervals
+7.6 and 13.8 s (medians of three runs). Above 256 intervals
 the memory is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`):
 without it, the iteration with 401 intervals peaked at 20 MB.
 
@@ -932,9 +912,7 @@ outputs under `tests/data/c_reference/` come with C psmc's license
 
 ## Option reference
 
-A condensed table of the options (0.2.0); `psmc-rs -h` gives the
-program's one-sentence summaries and `psmc-rs --help` the full text.
-Inference, `convert` and `qc` share the input options.
+A condensed table of the options (0.2.0).
 
 **Input** (inference, `convert`, `qc`)
 
