@@ -688,13 +688,21 @@ class TrueModel:
     fixed: Any  # the fixed window's times
     gen_years: float
 
+    def ne_on_window(self):
+        """The true Ne at each time of the informative window."""
+        return metrics.truth_on_grid(self.epochs, self.window, self.gen_years)
+
+    def bias(self, curve: results.Curve):
+        """log10(fitted / true Ne) at each time of the informative window."""
+        return metrics.log10_bias(curve, self.epochs, self.window, self.gen_years)
+
     def vs_truth(self, curve: results.Curve) -> Dict:
         import numpy as np
 
-        e, w, g = self.epochs, self.window, self.gen_years
-        return {"rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, e, w, g),
+        e, g = self.epochs, self.gen_years
+        return {"rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, e, self.window, g),
                 "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(curve, e, self.fixed, g),
-                "mean_log10_bias": float(np.mean(metrics.log10_bias(curve, e, w, g)))}
+                "mean_log10_bias": float(np.mean(self.bias(curve)))}
 
     def vs_complete(self, curve: results.Curve, complete: Optional[RouteFit]) -> Dict:
         if complete is None:
@@ -776,12 +784,12 @@ def report(ctx: Context) -> Dict[str, Path]:
             for route, rf in fits.items():
                 findings = qc_findings(rf.params)
                 rows["qc"] += [{"mask": mask, "route": route, "replicate": r, **f} for f in findings]
-                bias.setdefault((mask, route), []).append(metrics.log10_bias(rf.curve, epochs, truth.window, g))
+                bias.setdefault((mask, route), []).append(truth.bias(rf.curve))
                 rows["routes"].append(route_row(cfg, rf, fits, complete, brec, missing_fraction, findings, truth))
                 rows["curves"] += step_rows(rf.fit, rf.curve, mask=mask, route=route, replicate=r)
             rows["rescaling"].append(rescaling_row(cfg, mask, r, missing_fraction, fits, complete, truth))
     rows["summary"] = summary_rows(cfg, rows["routes"])
-    rows["bias"] = bias_rows(bias, truth.window, metrics.truth_on_grid(epochs, truth.window, g))
+    rows["bias"] = bias_rows(bias, truth.window, truth.ne_on_window())
     return write_tables(lay.table, rows, FIELDS)
 
 
