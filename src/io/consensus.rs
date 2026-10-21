@@ -1226,34 +1226,24 @@ fn end_chrom(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// xorshift64, enough for random test strings.
-    struct Rng(u64);
-
-    impl Rng {
-        fn below(&mut self, n: usize) -> usize {
-            self.0 ^= self.0 << 13;
-            self.0 ^= self.0 >> 7;
-            self.0 ^= self.0 << 17;
-            (self.0 % n as u64) as usize
-        }
-    }
+    use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng};
 
     #[test]
     fn perl_num_reads_as_the_float_parser_does() {
         // Digit strings of up to 17 digits (the short ones take the fast
         // path), with a decimal point anywhere or none, and either sign.
-        let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+        let mut rng = SmallRng::seed_from_u64(0x9E37_79B9_7F4A_7C15);
         for len in 1..=17 {
             for _ in 0..2000 {
                 let mut s: String = (0..len)
-                    .map(|_| char::from(b'0' + rng.below(10) as u8))
+                    .map(|_| char::from(b'0' + rng.gen_range(0..10) as u8))
                     .collect();
-                let dot = rng.below(len + 2);
+                let dot = rng.gen_range(0..len + 2);
                 if dot <= len {
                     s.insert(dot, '.');
                 }
-                if rng.below(2) == 1 {
+                if rng.gen_range(0..2) == 1 {
                     s.insert(0, '-');
                 }
                 let want: f64 = s.parse().unwrap();
@@ -1292,11 +1282,11 @@ mod tests {
             b"DP=", b"MQ=", b"FQ=", b"AF1=", b"INDEL", b"IND", b"EL", b"A", b"D", b"F", b"=", b"-",
             b".", b"7", b"42", b";",
         ];
-        let mut rng = Rng(7);
+        let mut rng = SmallRng::seed_from_u64(7);
         for _ in 0..50_000 {
-            let n = rng.below(12);
+            let n = rng.gen_range(0..12);
             let info: Vec<u8> = (0..n)
-                .flat_map(|_| tokens[rng.below(tokens.len())])
+                .flat_map(|_| tokens[rng.gen_range(0..tokens.len())])
                 .copied()
                 .collect();
             let got = scan_info(&info);
