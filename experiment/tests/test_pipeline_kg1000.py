@@ -196,7 +196,8 @@ class Fetch(unittest.TestCase):
                                          "ignore_range": ignore_range})
         server_cls = type("S", (http.server.ThreadingHTTPServer,), {"request_queue_size": 64})  # every range at once
         server = server_cls(("127.0.0.1", 0), handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        # shutdown() waits for the server's next poll: 0.5 s by default, at the end of every test.
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         return f"http://127.0.0.1:{server.server_address[1]}/chr21.vcf.gz"
