@@ -652,8 +652,7 @@ class EndToEnd(unittest.TestCase):
     """E2 in the tiny runs of every experiment (tiny_runs): prefixes, both tools, bootstraps, qc and tables."""
 
     def test_tiny_profile(self):
-        runs = tiny_runs.runs_dir()
-        lay = e2.Layout(runs / "E2")
+        lay = e2.Layout(tiny_runs.runs_dir() / "E2")
         pairs = {r["sample_id"]: r for r in read_csv(lay.table("pairs"))}
         self.assertEqual(set(pairs), {"NA12878", "HLhydTec1"})
         for sid, row in pairs.items():
@@ -675,8 +674,7 @@ class EndToEnd(unittest.TestCase):
         for name in ("split2", "split1"):
             self.assertEqual(json.loads(lay.split_json("HLhydTec1", name).read_text())["input"],
                              json.loads(lay.rs_json("HLhydTec1").read_text())["input"])
-        statuses = runner.job_statuses(tiny_runs.graph(), runs, daemon_pid=None)
-        self.assertTrue(all(s.state == runner.DONE for s in statuses if s.job.experiment == "E2"))
+        self.assertTrue(all(s.state == runner.DONE for s in tiny_runs.statuses() if s.job.experiment == "E2"))
 
 
 if __name__ == "__main__":

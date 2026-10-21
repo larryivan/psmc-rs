@@ -16,6 +16,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Tuple
 
 import fixtures  # also puts the repository on sys.path
 
@@ -83,13 +84,15 @@ def runs_dir() -> Path:
     return tmp
 
 
-def graph() -> runner.Graph:
-    """The job graph of :func:`runs_dir` (for status checks)."""
+@functools.lru_cache(maxsize=None)
+def statuses() -> Tuple[runner.JobStatus, ...]:
+    """The status of every job of :func:`runs_dir` once it has run (looked up once, for every test)."""
     runs = runs_dir()
-    return runner.Graph(jobs_for(Context(config.TINY, runs, log=lambda msg: None), EXPERIMENTS), runs)
+    graph = runner.Graph(jobs_for(Context(config.TINY, runs, log=lambda msg: None), EXPERIMENTS), runs)
+    return tuple(runner.job_statuses(graph, runs, daemon_pid=None))
 
 
 REASON = missing()
 SKIP = f"the tiny runs need {REASON}" if REASON else ""
 
-__all__ = ["EXPERIMENTS", "REASON", "SKIP", "e7_data", "graph", "missing", "runs_dir"]
+__all__ = ["EXPERIMENTS", "REASON", "SKIP", "e7_data", "missing", "runs_dir", "statuses"]

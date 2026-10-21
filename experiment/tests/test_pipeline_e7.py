@@ -192,8 +192,7 @@ class TinyRun(unittest.TestCase):
         return read_csv(self.lay.table(key))
 
     def test_every_job_is_done(self):
-        statuses = [s for s in runner.job_statuses(tiny_runs.graph(), self.runs, daemon_pid=None)
-                    if s.job.experiment == "E7"]
+        statuses = [s for s in tiny_runs.statuses() if s.job.experiment == "E7"]
         self.assertGreater(len(statuses), len(self.samples))
         for s in statuses:
             self.assertEqual(s.state, runner.DONE, s.job.id)

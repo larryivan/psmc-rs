@@ -375,16 +375,14 @@ class EndToEnd(unittest.TestCase):
     """E5 in the tiny runs of every experiment (tiny_runs): simulate, fit, bootstrap and tables; then nothing is left to do."""
 
     def test_tiny_profile(self):
-        runs = tiny_runs.runs_dir()
-        lay = e5.Layout(runs / e5.NAME, config.TINY.e5.model)
+        lay = e5.Layout(tiny_runs.runs_dir() / e5.NAME, config.TINY.e5.model)
         datasets = read_csv(lay.table("datasets"))
         self.assertEqual(len(datasets), len(config.TINY.e5.trunk_bins))
         for row in datasets:
             self.assertEqual(row["main_fit_equals_fit"], "True")  # psmc-rs's results do not depend on the run
             self.assertLess(float(row["summary_band_max_rel_diff"]), 1e-9)
             self.assertEqual(int(row["replicates"]), config.TINY.e5.bootstrap_replicates)
-        statuses = runner.job_statuses(tiny_runs.graph(), runs, daemon_pid=None)
-        self.assertEqual({s.state for s in statuses if s.job.experiment == "E5"}, {runner.DONE})
+        self.assertEqual({s.state for s in tiny_runs.statuses() if s.job.experiment == "E5"}, {runner.DONE})
 
 
 if __name__ == "__main__":
