@@ -10,7 +10,7 @@ use std::time::Instant;
 use psmc_rs::qc::fmt::count;
 
 use super::picker::{FilePicker, PickerMode};
-use super::{App, FIELD_INPUT_FORMAT, HINTS, LABELS, Page, STAGES, StageSnapshot, command_line};
+use super::{App, FIELD_INPUT_FORMAT, FIELDS, Page, STAGES, StageSnapshot, command_line};
 use crate::cli::FormatArg;
 use crate::run::Stage;
 
@@ -27,16 +27,6 @@ fn highlight() -> Style {
     Style::new().bg(Color::Rgb(26, 48, 80)).white().bold()
 }
 
-fn stage_name(stage: Stage) -> &'static str {
-    match stage {
-        Stage::Io => "Reading input (bytes)",
-        Stage::EForward => "E-step forward (sites)",
-        Stage::EBackward => "E-step backward (sites)",
-        Stage::MStep => "M-step (iterations)",
-        Stage::Bootstrap => "Bootstrap (replicates)",
-    }
-}
-
 /// `seconds` as MM:SS, or HH:MM:SS from an hour on.
 fn clock(seconds: f64) -> String {
     let s = seconds.max(0.0).round() as u64;
@@ -48,26 +38,30 @@ fn clock(seconds: f64) -> String {
     }
 }
 
-/// A stage's count, how long it has run (until its last update once
-/// complete), and the time left at its rate so far.
-fn stage_label(stage: &StageSnapshot) -> String {
-    let iter = stage
+/// A stage's count, how long it has run (until `now` while it runs, until
+/// its last update once complete or once the run is over), and the time
+/// left at its rate so far; nothing before it starts. An M-step runs until
+/// it converges, far below its cap (its total until its last event), so it
+/// shows its iterations alone.
+fn stage_label(stage: Stage, snap: &StageSnapshot, now: Option<Instant>) -> String {
+    let Some((start, last)) = snap.started_at.zip(snap.updated_at) else {
+        return String::new();
+    };
+    let iter = snap
         .iter
         .map_or(String::new(), |(i, n)| format!("EM {i}/{n} | "));
-    let counts = format!("{iter}{} / {}", count(stage.done), count(stage.total));
-    let Some((start, last)) = stage.started_at.zip(stage.updated_at) else {
-        return counts;
-    };
-    let end = (stage.done < stage.total)
-        .then(Instant::now)
-        .unwrap_or(last);
-    let rate = stage.done as f64 / (last - start).as_secs_f64();
-    let eta = match stage.total.saturating_sub(stage.done) as f64 / rate {
+    let end = now.filter(|_| snap.done < snap.total).unwrap_or(last);
+    let elapsed = clock((end - start).as_secs_f64());
+    if stage == Stage::MStep {
+        return format!("{iter}{} iterations | {elapsed} elapsed", count(snap.done));
+    }
+    let rate = snap.done as f64 / (last - start).as_secs_f64();
+    let eta = match snap.total.saturating_sub(snap.done) as f64 / rate {
         left if left.is_finite() => clock(left),
         _ => "--:--".to_string(),
     };
-    let elapsed = clock((end - start).as_secs_f64());
-    format!("{counts} | {elapsed} elapsed | ETA {eta}")
+    let (done, total) = (count(snap.done), count(snap.total));
+    format!("{iter}{done} / {total} | {elapsed} elapsed | ETA {eta}")
 }
 
 /// `line` cut into rows of at most `width` characters, after a space where
@@ -122,10 +116,10 @@ fn wrapped<'a>(text: impl Into<Text<'a>>, title: &'a str) -> Paragraph<'a> {
 fn render_setup_page(f: &mut Frame, area: Rect, app: &mut App) {
     let [form, side] =
         Layout::horizontal([Constraint::Percentage(42), Constraint::Percentage(58)]).areas(area);
-    let items: Vec<ListItem> = LABELS
+    let items: Vec<ListItem> = FIELDS
         .iter()
         .zip(&app.fields)
-        .map(|(label, value)| {
+        .map(|((label, _), value)| {
             let value = match value.trim() {
                 "" => "<empty>".dark_gray(),
                 _ => value.as_str().white(),
@@ -155,23 +149,25 @@ fn render_setup_page(f: &mut Frame, area: Rect, app: &mut App) {
     };
     f.render_widget(wrapped(text, "Command"), command);
     let value = app.fields[app.selected].as_str();
-    let about = vec![HINTS[app.selected].gray().into(), Line::raw(value)];
-    f.render_widget(wrapped(about, LABELS[app.selected]), field);
+    let (label, hint) = FIELDS[app.selected];
+    let about = vec![hint.gray().into(), Line::raw(value)];
+    f.render_widget(wrapped(about, label), field);
     render_log(f, log, app);
 }
 
 fn render_run_page(f: &mut Frame, area: Rect, app: &mut App) {
     let gauges = STAGES.map(|_| Constraint::Length(3));
     let chunks = Layout::vertical(gauges.into_iter().chain([Constraint::Min(6)])).split(area);
-    for ((&stage, snap), &chunk) in STAGES.iter().zip(&app.stages).zip(chunks.iter()) {
+    let now = app.running.as_ref().map(|_| Instant::now());
+    for ((&(stage, title), snap), &chunk) in STAGES.iter().zip(&app.stages).zip(chunks.iter()) {
         let ratio = match snap.total {
             0 => 0.0,
             total => (snap.done as f64 / total as f64).min(1.0),
         };
         let gauge = Gauge::default()
-            .block(panel(stage_name(stage)))
+            .block(panel(title))
             .gauge_style(Style::new().cyan().bg(Color::Rgb(20, 30, 45)).bold())
-            .label(stage_label(snap))
+            .label(stage_label(stage, snap, now))
             .ratio(ratio);
         f.render_widget(gauge, chunk);
     }
@@ -253,11 +249,11 @@ pub(super) fn render_ui(f: &mut Frame, app: &mut App) {
         .highlight_style(Style::new().cyan().bold())
         .gray();
     f.render_widget(tabs_widget, tabs);
-    let state = match app.running {
-        Some(_) => "RUNNING".yellow().bold(),
-        None => "READY".green().bold(),
+    // Highlighted while a run is under way.
+    let line = match app.running {
+        Some(_) => app.status.as_str().yellow().bold(),
+        None => app.status.as_str().into(),
     };
-    let line = Line::from(vec![state, "  ".into(), app.status.as_str().into()]);
     f.render_widget(Paragraph::new(line).block(panel("Status")), status);
 
     match app.page {
@@ -270,9 +266,36 @@ pub(super) fn render_ui(f: &mut Frame, app: &mut App) {
         render_picker(f, picker);
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    /// Nothing before a stage starts, an M-step's iterations alone, and the
+    /// clock of a stage left unfinished stopped with the run.
+    #[test]
+    fn stage_labels_show_the_time_taken_and_left() {
+        let t0 = Instant::now();
+        let secs = |s| t0 + Duration::from_secs(s);
+        let mut snap = StageSnapshot::default();
+        assert_eq!(stage_label(Stage::EForward, &snap, Some(secs(9))), "");
+        (snap.done, snap.total, snap.iter) = (20, 100, Some((2, 4)));
+        (snap.started_at, snap.updated_at) = (Some(t0), Some(secs(10)));
+        let label = |stage, now| stage_label(stage, &snap, now);
+        assert_eq!(
+            label(Stage::EForward, Some(secs(30))),
+            "EM 2/4 | 20 / 100 | 00:30 elapsed | ETA 00:40"
+        );
+        assert_eq!(
+            label(Stage::EForward, None),
+            "EM 2/4 | 20 / 100 | 00:10 elapsed | ETA 00:40"
+        );
+        assert_eq!(
+            label(Stage::MStep, None),
+            "EM 2/4 | 20 iterations | 00:10 elapsed"
+        );
+    }
 
     #[test]
     fn log_lines_are_cut_into_rows_after_a_space() {

@@ -549,7 +549,12 @@ Reproduction package (`experiment/`):
   the Setup keys on every page, its Result page listed four of the files a
   run writes (now each result line, as the command line prints it), and
   its rates kept falling after a stage finished (the gauges now show the
-  time taken and left).
+  time taken and left, an M-step its iterations rather than a share and
+  ETA of its cap, and the clock of a stage left unfinished stops with the
+  run). Its status line put READY before every message ("READY  Ready",
+  "READY  Input is required"), and its log called a form that could not
+  run an "Input error"; both now say "Not ready", as the Command panel
+  does.
 - The HTML report was blank, without a word, when ECharts could not be
   fetched; it now says how to fix that.
 - The HTML report stacked the bootstrap band on years instead of Ne, so

@@ -37,31 +37,20 @@ use view::render_ui;
 
 const MAX_LOG_LINES: usize = 3_000;
 
-/// The labels of the form's fields, in the order of the `FIELD_` indices,
-/// and what each holds.
-const LABELS: [&str; 10] = [
-    "Input",
-    "Output",
-    "N iter",
-    "Pattern",
-    "Gen years",
-    "Threads",
-    "Input fmt",
-    "Bin size",
-    "Mu",
-    "Smooth",
-];
-const HINTS: [&str; LABELS.len()] = [
-    "Input file: psmcfa, multihetsep or VCF, plain or gzip",
-    "Output JSON of the parameters; the HTML report is written next to it",
-    "EM iterations (C psmc -N; 0 writes the starting model)",
-    "Free-parameter pattern of the time intervals (empty: C psmc's 4+5*3+4)",
-    "Years per generation, for the time axes",
-    "Worker threads (empty: one per core); results do not depend on it",
-    "Input format: auto, psmcfa, mhs or vcf",
-    "Bases per bin: bins VCF and multihetsep; for psmcfa, the -s it was made with",
-    "Mutation rate per base pair per generation, for scaling",
-    "Weight of the penalty on log-lambda differences (0: C psmc's objective)",
+/// The form's fields, in the order of the `FIELD_` indices: the label of
+/// each, and what it holds.
+#[rustfmt::skip]
+const FIELDS: [(&str, &str); 10] = [
+    ("Input", "Input file: psmcfa, multihetsep or VCF, plain or gzip"),
+    ("Output", "Output JSON of the parameters; the HTML report is written next to it"),
+    ("N iter", "EM iterations (C psmc -N; 0 writes the starting model)"),
+    ("Pattern", "Free-parameter pattern of the time intervals (empty: C psmc's 4+5*3+4)"),
+    ("Gen years", "Years per generation, for the time axes"),
+    ("Threads", "Worker threads (empty: one per core); results do not depend on it"),
+    ("Input fmt", "Input format: auto, psmcfa, mhs or vcf"),
+    ("Bin size", "Bases per bin: bins VCF and multihetsep; for psmcfa, the -s it was made with"),
+    ("Mu", "Mutation rate per base pair per generation, for scaling"),
+    ("Smooth", "Weight of the penalty on log-lambda differences (0: C psmc's objective)"),
 ];
 const FIELD_INPUT: usize = 0;
 const FIELD_OUTPUT: usize = 1;
@@ -82,14 +71,14 @@ enum Page {
     Result,
 }
 
-/// Every stage, in the order of [`Stage`]'s variants, so that `stage as
-/// usize` indexes [`App::stages`].
-const STAGES: [Stage; 5] = [
-    Stage::Io,
-    Stage::EForward,
-    Stage::EBackward,
-    Stage::MStep,
-    Stage::Bootstrap,
+/// Every stage with the title of its gauge, in the order of [`Stage`]'s
+/// variants, so that `stage as usize` indexes [`App::stages`].
+const STAGES: [(Stage, &str); 5] = [
+    (Stage::Io, "Reading input (bytes)"),
+    (Stage::EForward, "E-step forward (sites)"),
+    (Stage::EBackward, "E-step backward (sites)"),
+    (Stage::MStep, "M-step (iterations)"),
+    (Stage::Bootstrap, "Bootstrap (replicates)"),
 ];
 
 /// The progress of a stage: since when it has made it, and when it last
@@ -118,7 +107,7 @@ struct App {
     /// form does not show.
     base_cli: InferArgs,
     page: Page,
-    fields: [String; LABELS.len()],
+    fields: [String; FIELDS.len()],
     selected: usize,
     logs: VecDeque<String>,
     /// How many rows the log is scrolled back from its end.
@@ -305,7 +294,8 @@ fn start_run(app: &mut App) -> Result<()> {
     if app.running.is_some() {
         return Ok(());
     }
-    let cli = build_cli_from_form(app)?;
+    // As the Command panel says it.
+    let cli = build_cli_from_form(app).context("Not ready")?;
     app.append_log(format!("$ {}", command_line(app)?));
     app.stages = Default::default();
     app.results.clear();
@@ -374,9 +364,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         KeyCode::Char('u') if editing && ctrl => field.clear(),
         KeyCode::Char('o') if editing && ctrl => app.open_picker(FIELD_INPUT)?,
         KeyCode::Char('d') if editing && ctrl => app.open_picker(FIELD_OUTPUT)?,
-        KeyCode::Tab | KeyCode::Down if editing => app.selected = (app.selected + 1) % LABELS.len(),
+        KeyCode::Tab | KeyCode::Down if editing => app.selected = (app.selected + 1) % FIELDS.len(),
         KeyCode::BackTab | KeyCode::Up if editing => {
-            app.selected = (app.selected + LABELS.len() - 1) % LABELS.len();
+            app.selected = (app.selected + FIELDS.len() - 1) % FIELDS.len();
         }
         KeyCode::Char('q') | KeyCode::Esc if app.running.is_some() => {
             app.status = "Stop the run first (x)".to_string();
@@ -478,7 +468,7 @@ fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) 
             TermEvent::Key(key) => {
                 if let Err(e) = handle_key(app, key) {
                     app.status = format!("{e:#}");
-                    app.append_log(format!("Input error: {e:#}"));
+                    app.append_log(format!("{e:#}"));
                 }
             }
             TermEvent::Resize(..) => _ = term.autoresize(),
