@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
+use std::sync::mpsc::{Receiver, sync_channel};
 
 use crate::io::callable::{CountsBuilder, counted_bin_size};
 use crate::io::{BinCounts, CallableBases, Observations, Sequences};
@@ -23,7 +24,8 @@ use crate::io::{BinCounts, CallableBases, Observations, Sequences};
 /// A BGZF file must end with BGZF's empty end-of-file block, as htslib
 /// checks: reading one without it to the end is an error, because a bgzip
 /// file cut at a block boundary (by an interrupted job) decodes cleanly and
-/// would otherwise pass for the whole input.
+/// would otherwise pass for the whole input. Gzip input is decoded in a
+/// thread of its own while it is read.
 ///
 /// The decoded text must not be BCF, which is refused with a hint to
 /// convert it; a leading UTF-8 byte order mark is dropped.
@@ -72,17 +74,11 @@ fn decoding_reader(mut file: File, path: &Path) -> Result<Box<dyn BufRead>> {
     let is_bgzf = is_gzip && head.len() == 14 && head[3] & 4 != 0 && head[12..14] == *b"BC";
     let raw = Cursor::new(head).chain(file);
     let decoded: Box<dyn BufRead> = if is_bgzf {
-        Box::new(BufReader::with_capacity(
-            READ_BUFFER,
-            BgzfReader {
-                decoder: MultiGzDecoder::new(TailKeeper::new(raw)),
-            },
-        ))
+        Box::new(DecoderThread::spawn(BgzfReader {
+            decoder: MultiGzDecoder::new(TailKeeper::new(raw)),
+        })?)
     } else if is_gzip {
-        Box::new(BufReader::with_capacity(
-            READ_BUFFER,
-            MultiGzDecoder::new(raw),
-        ))
+        Box::new(DecoderThread::spawn(MultiGzDecoder::new(raw))?)
     } else {
         Box::new(BufReader::with_capacity(READ_BUFFER, raw))
     };
@@ -115,6 +111,84 @@ fn check_text_start(mut reader: Box<dyn BufRead>, path: &Path) -> Result<Box<dyn
     let mut head = Cursor::new(head);
     head.set_position(start);
     Ok(Box::new(head.chain(reader)))
+}
+
+/// Decodes gzip in a thread of its own, a few chunks ahead of the reader,
+/// so that decoding and parsing a compressed input run side by side (a
+/// third faster for a large bgzip VCF). The reader gets the same bytes and
+/// errors, in the same order, as from a decoder in its own thread.
+struct DecoderThread {
+    /// Decoded chunks, an empty one at the end.
+    chunks: Receiver<io::Result<Vec<u8>>>,
+    chunk: Vec<u8>,
+    /// Bytes of `chunk` already read.
+    pos: usize,
+    /// Whether the end of the data was reached.
+    done: bool,
+}
+
+impl DecoderThread {
+    fn spawn(mut decoder: impl Read + Send + 'static) -> io::Result<Self> {
+        let (tx, rx) = sync_channel(4);
+        std::thread::Builder::new()
+            .name("gzip decoder".to_string())
+            .spawn(move || {
+                loop {
+                    let mut chunk = Vec::with_capacity(READ_BUFFER);
+                    let read = (&mut decoder)
+                        .take(READ_BUFFER as u64)
+                        .read_to_end(&mut chunk);
+                    // A failed send means the reader stopped early.
+                    let more = match read {
+                        Ok(n) => tx.send(Ok(chunk)).is_ok() && n > 0,
+                        // The bytes decoded before the error go first.
+                        Err(e) => {
+                            if !chunk.is_empty() {
+                                let _ = tx.send(Ok(chunk));
+                            }
+                            let _ = tx.send(Err(e));
+                            false
+                        }
+                    };
+                    if !more {
+                        break;
+                    }
+                }
+            })?;
+        Ok(Self {
+            chunks: rx,
+            chunk: Vec::new(),
+            pos: 0,
+            done: false,
+        })
+    }
+}
+
+impl Read for DecoderThread {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.fill_buf()?.read(buf)?;
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+impl BufRead for DecoderThread {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        if self.pos == self.chunk.len() && !self.done {
+            // The decoder's thread ends after sending an error, or panics.
+            let chunk = self
+                .chunks
+                .recv()
+                .map_err(|_| io::Error::other("gzip decoding stopped"))??;
+            self.done = chunk.is_empty();
+            (self.chunk, self.pos) = (chunk, 0);
+        }
+        Ok(&self.chunk[self.pos..])
+    }
+
+    fn consume(&mut self, n: usize) {
+        self.pos += n;
+    }
 }
 
 /// A reader that remembers the last [`BGZF_EOF`]`.len()` bytes it passed on.
@@ -560,4 +634,39 @@ pub fn chunk_sequences(
     };
     debug_assert!(obs.validate().is_ok(), "chunking keeps the counts valid");
     Ok(obs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Gives `data` a few bytes at a time, then fails.
+    struct FailsAfter(Cursor<Vec<u8>>);
+
+    impl Read for FailsAfter {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let n = buf.len().min(7);
+            match self.0.read(&mut buf[..n])? {
+                0 => Err(io::Error::other("broken")),
+                n => Ok(n),
+            }
+        }
+    }
+
+    #[test]
+    fn the_decoder_thread_passes_on_every_byte_then_the_end_or_the_error() {
+        for len in [0, 5, READ_BUFFER - 1, READ_BUFFER, 3 * READ_BUFFER + 11] {
+            let data: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+            let mut got = Vec::new();
+            let mut ok = DecoderThread::spawn(Cursor::new(data.clone())).unwrap();
+            ok.read_to_end(&mut got).unwrap();
+            assert_eq!(got, data, "{len} bytes");
+            assert_eq!(ok.read(&mut [0; 4]).unwrap(), 0, "{len} bytes");
+
+            got.clear();
+            let mut failing = DecoderThread::spawn(FailsAfter(Cursor::new(data.clone()))).unwrap();
+            let err = failing.read_to_end(&mut got).unwrap_err();
+            assert!(got == data && err.to_string() == "broken", "{len} bytes");
+        }
+    }
 }

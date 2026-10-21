@@ -608,6 +608,11 @@ Reproduction package (`experiment/`):
   numbers without the standard library's float formatter.
 - psmcfa input is streamed instead of read whole, and the VCF reader is two
   to three times as fast.
+- Gzip and bgzip input is decoded in a thread of its own while it is
+  parsed: a 249 MB bgzip all-sites VCF (48 M records) is read in consensus
+  mode in 12.8 s instead of 19.0 s, and a bgzip SNP VCF with a callable
+  mask and a bgzip negative mask of a million rows in 0.13 s instead of
+  0.20 s, for the same CPU time.
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through

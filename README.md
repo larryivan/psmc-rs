@@ -91,7 +91,8 @@ is described in [docs/preprocessing.md](docs/preprocessing.md).
 ## Input
 
 psmc-rs reads three formats, each plain, gzip or bgzip (gzip is recognised
-from its magic bytes, and every member of a bgzip file is read). A bgzip
+from its magic bytes, every member of a bgzip file is read, and the
+decoding runs in a thread of its own, beside the parsing). A bgzip
 file must end with BGZF's end-of-file block, as htslib checks: without it,
 the file was probably cut short by an interrupted job, and it is refused.
 BCF is refused too (`bcftools view -Oz` converts it), and a UTF-8 byte
