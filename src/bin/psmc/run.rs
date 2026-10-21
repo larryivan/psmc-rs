@@ -371,8 +371,8 @@ fn read_input(
     announce_input(&data, &cli.input, ctx.sink);
     // Whether the fit weighs each bin by its callable bases.
     let counted = fit_uses_counts(&data, cli.bin_callable);
-    let bin_callable = bin_callable_record(&data, cli.bin_callable);
-    if let Some(event) = bin_callable_event(&bin_callable, &data, cli) {
+    let bin_callable = bin_callable_record(&data, cli.bin_callable, counted);
+    if let Some(event) = bin_callable_event(&data, cli, counted) {
         (ctx.sink)(event);
     }
 
@@ -454,12 +454,11 @@ fn psmc_plot_command(cli: &InferArgs, n_iter: usize, files: &str) -> String {
 }
 
 /// How the fit of `data` uses the callable bases of its bins under
-/// `--bin-callable mode`: the callable-length model when the mode uses the
-/// data's counts ([`fit_uses_counts`]: exact counts with `auto`, also
-/// multihetsep's approximate ones with `approximate`), C psmc's model
-/// otherwise. The counts are summarised whether or not the fit uses them.
-fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecord {
-    let model = if fit_uses_counts(data, mode) {
+/// `--bin-callable mode`: the callable-length model when they are
+/// `counted` (see [`fit_uses_counts`]), C psmc's model otherwise. The
+/// counts are summarised whether or not the fit uses them.
+fn bin_callable_record(data: &Dataset, mode: BinCallableArg, counted: bool) -> BinCallableRecord {
+    let model = if counted {
         CALLABLE_LENGTH_MODEL
     } else {
         FULL_BINS_MODEL
@@ -472,17 +471,16 @@ fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecor
     }
 }
 
-/// What the run says about the callable bases of `data`'s bins: how the
-/// fit uses them (the QC report says what they hold), or that a
-/// `--bin-callable` other than `auto` changes nothing for input without
-/// counts.
-fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -> Option<Event> {
+/// What the run says about the callable bases of `data`'s bins: whether
+/// the fit uses them (`counted`; the QC report says what they hold), or
+/// that a `--bin-callable` other than `auto` changes nothing for input
+/// without counts.
+fn bin_callable_event(data: &Dataset, cli: &InferArgs, counted: bool) -> Option<Event> {
     let s = cli.input.bin_size;
     let mode = cli.bin_callable.name();
     let max_counted = count(MAX_COUNTED_BIN_SIZE as u64);
     let psmcfa = matches!(data.source, SourceSummary::Psmcfa(_));
-    // The data have counts exactly when they have a source.
-    let Some(source) = b.counts.as_deref() else {
+    let Some(source) = counts_source(data) else {
         let what = if psmcfa {
             "psmcfa input, which records no callable bases per bin".to_string()
         } else {
@@ -508,7 +506,7 @@ fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) ->
     // Multihetsep's counts follow the reader's placement of the uncalled
     // sites, which QC's APPROX_MISSING_PLACEMENT describes.
     let exact = source == "exact";
-    let how = match (b.model == CALLABLE_LENGTH_MODEL, exact) {
+    let how = match (counted, exact) {
         (true, true) => format!("the fit weighs each called bin by them (--bin-callable {mode})"),
         (true, false) => format!(
             "the fit weighs each called bin by them (--bin-callable {mode}), which made theta \
