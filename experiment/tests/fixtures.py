@@ -14,6 +14,7 @@ import io
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
@@ -25,6 +26,16 @@ C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"  # C ps
 
 def has_modules(*names: str) -> bool:
     return all(importlib.util.find_spec(name) is not None for name in names)
+
+
+def has_font(name: str) -> bool:
+    """Whether matplotlib finds the font ``name`` itself, not a fallback."""
+    try:
+        from matplotlib import font_manager
+        font_manager.findfont(name, fallback_to_default=False)
+    except (ImportError, ValueError):
+        return False
+    return True
 
 
 def read_csv(path: Path) -> List[dict]:
@@ -121,11 +132,19 @@ def _repo_path(path) -> str:
 def assert_ignore_rules(test, kept: Iterable = (), ignored: Iterable = ()) -> None:
     """Git keeps every path of ``kept`` and ignores every one of ``ignored`` (repository-relative or absolute).
 
-    One ``git check-ignore --no-index`` for all: by the rules alone, whether or not a file exists or is tracked.
+    One ``git check-ignore`` for all, in an empty repository holding only this one's ``.gitignore`` files: by
+    the rules alone, whatever is on disk (a production links E7's inputs, and git checks no path beyond a link).
     """
     kept, ignored = [_repo_path(p) for p in kept], [_repo_path(p) for p in ignored]
-    res = subprocess.run(["git", "check-ignore", "--no-index", "--stdin", "-z"], input="\0".join(kept + ignored),
-                         cwd=ROOT, capture_output=True, text=True)
+    rules = subprocess.run(["git", "ls-files", "-z", "--", ".gitignore", "*/.gitignore"], cwd=ROOT,
+                           capture_output=True, text=True, check=True).stdout.split("\0")
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.run(["git", "init", "-q", tmp], check=True)
+        for rule in filter(None, rules):
+            (Path(tmp) / rule).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / rule, Path(tmp) / rule)
+        res = subprocess.run(["git", "check-ignore", "--no-index", "--stdin", "-z"], input="\0".join(kept + ignored),
+                             cwd=tmp, capture_output=True, text=True)
     test.assertIn(res.returncode, (0, 1), res.stderr)  # 1: none is ignored
     hit = set(res.stdout.split("\0"))
     with test.subTest("kept"):
