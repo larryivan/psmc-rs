@@ -111,8 +111,9 @@ def _het_panel(ax, inputs, sups: List[str]) -> None:
            alpha=0.35)
     ticks = []
     for s in sups:
-        g = inputs[inputs.superpopulation == s]
-        rho = g.het_per_callable_kb.corr(g.raw_depth, method="spearman") if len(g) > 2 else float("nan")
+        g = inputs.loc[inputs.superpopulation == s, ["het_per_callable_kb", "raw_depth"]]
+        # A DataFrame's Spearman is pandas' own; a Series' imports scipy, a second of the figure's run.
+        rho = g.corr(method="spearman").iloc[0, 1] if len(g) > 2 else float("nan")
         ticks.append(s if math.isnan(rho) else f"{s}\nρ = {rho:.2f}".replace("-", "−"))
     ax.set_xticklabels(ticks)
     ax.set_ylabel("Heterozygous SNVs per callable kb")
