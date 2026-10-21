@@ -54,8 +54,10 @@ PY=$MAIN/experiment/.venv/bin/python
 build_job=""
 if [ "$what" != build ] && [ -f "$LOGS/build.jobid" ]; then
   b=$(cat "$LOGS/build.jobid")
-  # Not squeue | grep -q, which pipefail fails when grep exits before squeue.
-  if [ -n "$(squeue -h -j "$b" -o %i 2> /dev/null)" ]; then build_job=$b; fi
+  # The user's jobs: squeue -j fails for a job that has left the queue, as when squeue fails.
+  queue=$(squeue -h -u "$USER" -o %i) ||
+    die "cannot tell whether build job $b is still queued or running: squeue failed (above)"
+  if grep -qxF "$b" <<< "$queue"; then build_job=$b; fi
 fi
 # prod, e3-report and each E3 repeat: one job of a name at a time, after the build.
 singleton=--dependency=singleton${build_job:+,afterok:$build_job}

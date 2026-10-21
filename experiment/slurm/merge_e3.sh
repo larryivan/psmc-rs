@@ -20,7 +20,8 @@ PY=$MAIN/experiment/.venv/bin/python
 dest=$PROD/experiment/runs/E3
 repeats=$(cd "$PROD" && "$PY" -c 'from experiment.pipeline import config; print(config.get_profile("production").e3.repeats)')
 
-queue=$(squeue -h -u "$USER" -o '%j %i %T')
+queue=$(squeue -h -u "$USER" -o '%j %i %T') ||
+  fail "cannot tell whether E3 jobs are still queued or running: squeue failed (above)"
 if grep -q '^psmcrs-e3-rep' <<< "$queue"; then
   fail "E3 jobs are still queued or running: $(grep '^psmcrs-e3-rep' <<< "$queue" | tr '\n' ' ')"
 fi
