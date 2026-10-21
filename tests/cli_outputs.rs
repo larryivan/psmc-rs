@@ -350,7 +350,9 @@ fn the_psmc_plot_options_are_printed() {
         )),
         "{err}"
     );
+    // The help is wrapped at the terminal's width.
     let help = run_ok(["--help"]);
+    let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         help.contains("psmc_plot.pl -s BIN_SIZE -u MU -g GEN_YEARS -n N_ITER"),
         "{help}"

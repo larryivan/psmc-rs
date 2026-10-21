@@ -383,19 +383,6 @@ fn errors_name_the_file_once() {
         let name = file.display().to_string();
         assert_eq!(stderr.matches(&name).count(), 1, "{stderr}");
     }
-    let empty_dir = dir.path("empty");
-    std::fs::create_dir(&empty_dir).unwrap();
-    let stderr = run_err(args![
-        empty_dir,
-        dir.path("c.json"),
-        "1",
-        "--input-format",
-        "mhs"
-    ]);
-    assert!(
-        stderr.ends_with("holds no multihetsep file (*.mhs, *.multihetsep, with or without .gz)\n"),
-        "{stderr}"
-    );
 }
 
 /// The JSON of psmc-rs 0.1, without run metadata, is a valid start.

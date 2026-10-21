@@ -239,8 +239,9 @@ pub struct ConvertArgs {
 
     /// Write one multihetsep file per sequence, PREFIX.<name>.multihetsep.
     ///
-    /// With .gz added, gzip-compressed, when PREFIX ends in .gz; MSMC2 takes
-    /// one file per chromosome.
+    /// A PREFIX ending in .gz writes gzip-compressed PREFIX.<name>.multihetsep.gz
+    /// files (pre.gz gives pre.chr1.multihetsep.gz). MSMC2 takes one file per
+    /// chromosome.
     #[arg(long, value_name = "PREFIX", help_heading = "Output")]
     pub multihetsep_per_chrom: Option<PathBuf>,
 
@@ -274,7 +275,7 @@ pub struct QcArgs {
 
     /// Check the input for a bootstrap with trunks of BINS bins.
     ///
-    /// Inference's default trunk is 500000 bins.
+    /// Inference's default trunk is 500,000 bins.
     #[arg(long, value_name = "BINS", value_parser = positive_usize, help_heading = "Report")]
     pub bootstrap_block_size: Option<usize>,
 
@@ -317,8 +318,7 @@ pub struct InferArgs {
 
     /// Free-parameter pattern of the time intervals (C psmc -p; default 4+5*3+4).
     ///
-    /// Without it, the model has C psmc's default pattern 4+5*3+4, or one
-    /// lambda per interval when --n-steps is given alone.
+    /// With --n-steps alone, one lambda per interval.
     #[arg(long, help_heading = "Model")]
     pub pattern: Option<String>,
 
@@ -363,14 +363,13 @@ pub struct InferArgs {
     #[arg(long, default_value = "2.5e-8", value_parser = positive_f64, help_heading = "Model")]
     pub mu: f64,
 
-    /// How to fit partly callable bins: by their callable bases (auto) or as full bins (ignore).
+    /// Weigh bins by callable bases: VCF's exact counts (auto), also multihetsep's (approximate), or not (ignore).
     ///
     /// A VCF read with its callable mask counts exactly how many bases of
     /// each bin are callable: auto fits each called bin by them (a bin of c
     /// callable bases emits as c of BIN_SIZE bases), which removes most of
     /// the bias that missing data scattered in short runs cause (theta,
-    /// times and Ne low by the missing share or more); ignore treats every
-    /// called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do.
+    /// times and Ne low by the missing share or more).
     ///
     /// Multihetsep does not say which sites are uncalled, so its counts
     /// follow the reader's placement of them and auto does not use them;
@@ -409,7 +408,7 @@ pub struct InferArgs {
     )]
     pub bootstrap: usize,
 
-    /// Bootstrap trunk size in bins (C splitfa; 500000 = 50 Mb at 100 bp bins).
+    /// Bootstrap trunk size in bins (C splitfa; 500,000 = 50 Mb at 100 bp bins).
     ///
     /// It must leave the input at least two trunks.
     #[arg(long, value_name = "BINS", default_value_t = DEFAULT_BOOTSTRAP_TRUNK, value_parser = positive_usize, alias = "bootstrap-trunk-size", help_heading = "Bootstrap")]
@@ -431,8 +430,7 @@ pub struct InferArgs {
     /// Directory of the replicate and summary files (default: OUTPUT with .bootstrap).
     ///
     /// The replicates are written as replicate_NNN.json and .psmc, the
-    /// summary as summary.tsv and .json; the default directory is OUTPUT
-    /// with .bootstrap instead of .json. An earlier bootstrap's
+    /// summary as summary.tsv and .json. An earlier bootstrap's
     /// replicate_NNN.* and summary.* files there are removed first.
     #[arg(long, value_name = "DIR", help_heading = "Bootstrap")]
     pub bootstrap_dir: Option<PathBuf>,
@@ -456,9 +454,9 @@ pub struct InferArgs {
 
     /// Also write C psmc's .psmc output (rounds 0 to N_ITER), for psmc_plot.pl.
     ///
-    /// For psmc_plot.pl and other tools made for C psmc. The file does not
-    /// record the bin size: plot it with psmc_plot.pl -s BIN_SIZE -u MU -g
-    /// GEN_YEARS -n N_ITER (its defaults are -s 100 -u 2.5e-8 -g 25 -n 20).
+    /// The file does not record the bin size: plot it with psmc_plot.pl -s
+    /// BIN_SIZE -u MU -g GEN_YEARS -n N_ITER (its defaults are -s 100 -u
+    /// 2.5e-8 -g 25 -n 20).
     #[arg(long, value_name = "FILE", help_heading = "Output")]
     pub psmc_out: Option<PathBuf>,
 
@@ -570,16 +568,17 @@ mod tests {
             .collect()
     }
 
-    /// `-h` lists each argument on one line, with the first paragraph of its
-    /// documentation; `--help` adds the rest.
+    /// `-h` lists each argument with the first paragraph of its
+    /// documentation, one sentence (clap wraps it at the terminal's width);
+    /// `--help` adds the rest.
     #[test]
-    fn every_argument_has_a_one_line_summary() {
+    fn every_argument_has_a_one_sentence_summary() {
         for (command, arg) in commands_and_arguments() {
             let id = arg.get_id().to_string();
             let help = arg.get_help().map(ToString::to_string);
             let help = help.unwrap_or_else(|| panic!("{command} {id} has no help"));
             assert!(
-                !help.contains('\n') && help.len() <= 90,
+                !help.contains('\n') && help.len() <= 110,
                 "{command} {id}: {help}"
             );
             if let Some(long) = arg.get_long_help() {
@@ -704,25 +703,5 @@ mod tests {
         );
         assert!(text.contains("one input file per run"), "{text}");
         assert!(text.contains("Usage: psmc-rs [OPTIONS]"), "{text}");
-    }
-
-    /// Without arguments, the program and its subcommands print their help,
-    /// with the status of a usage error.
-    #[test]
-    fn no_arguments_show_the_help() {
-        for argv in [
-            &["psmc-rs"][..],
-            &["psmc-rs", "convert"],
-            &["psmc-rs", "qc"],
-        ] {
-            let e = Cli::try_parse_args(argv).unwrap_err();
-            assert_eq!(
-                e.kind(),
-                clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand,
-                "{argv:?}"
-            );
-            assert_eq!(e.exit_code(), i32::from(USAGE_EXIT));
-            assert!(e.to_string().contains("Usage: psmc-rs"), "{argv:?}");
-        }
     }
 }

@@ -340,9 +340,9 @@ found after parsing (a `--pattern` that does not parse, outputs that name
 the same file, `--psmc-out -`); a file that cannot be read or written is
 an error. Without arguments, `psmc-rs`, `psmc-rs convert` and `psmc-rs qc`
 print their help, with status 2. `-h` gives a one-line summary of each
-option; the full option reference is under
-[Option reference](#option-reference) and in `psmc-rs --help`,
-`psmc-rs convert --help` and `psmc-rs qc --help`.
+option; a table of the options is under
+[Option reference](#option-reference), and the full text is in
+`psmc-rs --help`, `psmc-rs convert --help` and `psmc-rs qc --help`.
 
 ### Fitting
 
@@ -885,15 +885,16 @@ outputs under `tests/data/c_reference/` come with C psmc's license
 
 ## Option reference
 
-The summaries of `psmc-rs -h` (0.2.0); `psmc-rs --help` gives the full text.
-Inference, `convert` and `qc` share the input options.
+A condensed table of the options (0.2.0); `psmc-rs -h` gives the program's
+one-line summaries and `psmc-rs --help` the full text. Inference, `convert`
+and `qc` share the input options.
 
 **Input** (inference, `convert`, `qc`)
 
 | option | default | meaning |
 | --- | --- | --- |
 | `--input-format auto\|psmcfa\|mhs\|vcf` | `auto` | input format; auto recognises it from the content |
-| `--bin-size BP` | 100 | bases per bin: bins VCF and multihetsep input (fq2psmcfa `-s`), scales every format |
+| `--bin-size BP` | 100 | bases per bin (fq2psmcfa `-s`): bins VCF and multihetsep input; for psmcfa, give the `-s` it was made with |
 | `--batch-size BINS` | none | split sequences into HMM rows of at most BINS bins; results do not change |
 | `--mhs-pair I,J` | `0,1` | multihetsep: the two haplotypes, 0-based positions in the alleles column |
 | `--vcf-sample NAME` | | VCF mask mode: the sample to read (required when there are several); consensus mode needs a one-sample VCF |

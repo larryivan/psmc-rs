@@ -150,16 +150,21 @@ fn cli_reads_multihetsep_with_the_chosen_pair() {
     assert_eq!(theta(&["--mhs-pair", "2,3"]), -(1.0f64 - 1.0 / 10.0).ln());
 }
 
-/// Without arguments the program prints its help, with the status of a
-/// usage error.
+/// Without arguments the program and its subcommands print their help,
+/// with the status of a usage error.
 #[test]
 fn no_arguments_print_the_help() {
-    let o = common::outcome(std::iter::empty::<&str>());
-    assert!(o.stdout.is_empty(), "{}", o.stdout);
-    let stderr = o.exits(2);
-    assert!(
-        stderr.contains("Usage: psmc-rs [OPTIONS] [INPUT] [OUTPUT] [N_ITER]"),
-        "{stderr}"
-    );
-    assert!(stderr.contains("--bootstrap <N>"), "{stderr}");
+    for argv in [&[][..], &["convert"], &["qc"]] {
+        let o = common::outcome(argv);
+        assert!(o.stdout.is_empty(), "{}", o.stdout);
+        let stderr = o.exits(2);
+        assert!(stderr.contains("Usage: psmc-rs"), "{stderr}");
+        if argv.is_empty() {
+            assert!(
+                stderr.contains("Usage: psmc-rs [OPTIONS] [INPUT] [OUTPUT] [N_ITER]"),
+                "{stderr}"
+            );
+            assert!(stderr.contains("--bootstrap <N>"), "{stderr}");
+        }
+    }
 }

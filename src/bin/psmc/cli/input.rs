@@ -56,7 +56,7 @@ impl FormatArg {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum VcfModeArg {
     /// Consensus mode for an all-sites VCF from `bcftools call -c`, mask
-    /// mode otherwise.
+    /// mode otherwise (judged from the first records).
     Auto,
     /// Read like `vcfutils.pl vcf2fq | fq2psmcfa`.
     Consensus,
@@ -138,10 +138,10 @@ pub struct InputArgs {
     #[arg(long, value_enum, value_name = "FORMAT", default_value_t = FormatArg::Auto)]
     pub input_format: FormatArg,
 
-    /// Bases per bin: bins VCF and multihetsep input (fq2psmcfa -s), scales every format.
+    /// Bases per bin (fq2psmcfa -s): bins VCF and multihetsep input; for psmcfa, give the -s it was made with.
     ///
-    /// The time and Ne scaling uses it for every format: for a psmcfa file,
-    /// give the -s it was made with.
+    /// The time and Ne scaling uses it for every format, so a wrong value
+    /// rescales the results.
     #[arg(long, value_name = "BP", default_value_t = DEFAULT_BIN_SIZE, alias = "mhs-bin-size", value_parser = positive_usize)]
     pub bin_size: usize,
 
@@ -166,11 +166,7 @@ pub struct InputArgs {
     #[arg(long, value_name = "NAME")]
     pub vcf_sample: Option<String>,
 
-    /// VCF: consensus (vcf2fq | fq2psmcfa) or mask mode.
-    ///
-    /// Consensus mode reproduces `vcfutils.pl vcf2fq | fq2psmcfa` on an
-    /// all-sites VCF from `bcftools call -c`; mask mode reads the sample's
-    /// genotypes with callable masks; auto picks one from the first records.
+    /// VCF: consensus (vcf2fq | fq2psmcfa) or mask mode
     #[arg(long, value_enum, value_name = "MODE", default_value_t = VcfModeArg::Auto)]
     pub vcf_mode: VcfModeArg,
 
@@ -212,17 +208,11 @@ pub struct InputArgs {
     #[arg(long, value_name = "Q", default_value_t = DEFAULT_MIN_QUAL)]
     pub min_qual: u64,
 
-    /// VCF and multihetsep: drop sequences with fewer called bases (fq2psmcfa -g; 0 disables).
-    ///
-    /// A sequence with fewer called bases than this is left out of the
-    /// analysis.
+    /// VCF and multihetsep: drop sequences with fewer called bases (fq2psmcfa -g; 0 disables)
     #[arg(long, value_name = "BASES", default_value_t = DEFAULT_MIN_GOOD_BASES)]
     pub min_good_bases: u64,
 
-    /// VCF and multihetsep: drop sequences whose called share is lower (0 disables).
-    ///
-    /// A sequence whose called bases are less than this share of its length
-    /// is left out of the analysis (fq2psmcfa's fixed 0.2).
+    /// VCF and multihetsep: drop sequences whose called share is lower (fq2psmcfa's fixed 0.2; 0 disables)
     #[arg(long, value_name = "SHARE", default_value_t = DEFAULT_MIN_GOOD_FRACTION, value_parser = parse_fraction)]
     pub min_good_fraction: f64,
 }
