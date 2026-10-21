@@ -66,12 +66,18 @@ impl AlphaCacheBudget {
 
     /// Reserve `bytes` if they fit; the reservation is returned on drop.
     pub(crate) fn try_reserve(&self, bytes: usize) -> Option<Reservation<'_>> {
-        let fits = |used: usize| used.checked_add(bytes).filter(|&v| v <= self.limit);
-        let before = self
-            .used
-            .fetch_update(Ordering::AcqRel, Ordering::Relaxed, fits)
-            .ok()?;
-        self.peak.fetch_max(before + bytes, Ordering::Relaxed);
+        // fetch_update's loop: Rust 1.99 deprecates fetch_update for
+        // try_update, stable only since 1.95 (the crate's minimum is 1.88).
+        let mut used = self.used.load(Ordering::Relaxed);
+        while let Err(now) = self.used.compare_exchange_weak(
+            used,
+            used.checked_add(bytes).filter(|&v| v <= self.limit)?,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        ) {
+            used = now;
+        }
+        self.peak.fetch_max(used + bytes, Ordering::Relaxed);
         Some(Reservation {
             budget: self,
             bytes,
