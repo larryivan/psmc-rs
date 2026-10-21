@@ -41,8 +41,8 @@ done
 ref=$E3_SHARDS/rep1/E3
 for r in $(seq 2 "$repeats"); do
   for d in sims truth; do
-    diff -rq "$ref/$d" "$E3_SHARDS/rep$r/E3/$d" > /dev/null \
-      || fail "$E3_SHARDS/rep$r/E3/$d differs from $ref/$d: $(diff -rq "$ref/$d" "$E3_SHARDS/rep$r/E3/$d" | head -3)"
+    diffs=$(diff -rq "$ref/$d" "$E3_SHARDS/rep$r/E3/$d") ||
+      fail "$E3_SHARDS/rep$r/E3/$d differs from $ref/$d: $(head -3 <<< "$diffs")"
   done
 done
 
@@ -61,7 +61,7 @@ status=$(cd "$PROD" && PSMC_SLURM_DIR=$DIR bash -c 'source "$PSMC_SLURM_DIR/env.
   fail "cannot tell whether every run is done: the pipeline's status failed (above)"
 not_done=$(grep -E '^  (pending|running|failed|blocked) ' <<< "$status" || true)
 if [ -n "$not_done" ]; then
-  echo "$not_done" | head -20 >&2
+  head -20 <<< "$not_done" >&2
   fail "$(wc -l <<< "$not_done") simulations or runs are not done for the current code and tools"
 fi
 echo "every repeat merged and done; now: submit.sh e3-report"

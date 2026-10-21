@@ -54,7 +54,8 @@ PY=$MAIN/experiment/.venv/bin/python
 build_job=""
 if [ "$what" != build ] && [ -f "$LOGS/build.jobid" ]; then
   b=$(cat "$LOGS/build.jobid")
-  if squeue -h -j "$b" -o %i 2> /dev/null | grep -q .; then build_job=$b; fi
+  # Not squeue | grep -q, which pipefail fails when grep exits before squeue.
+  if [ -n "$(squeue -h -j "$b" -o %i 2> /dev/null)" ]; then build_job=$b; fi
 fi
 # prod, e3-report and each E3 repeat: one job of a name at a time, after the build.
 singleton=--dependency=singleton${build_job:+,afterok:$build_job}
