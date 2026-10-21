@@ -10,9 +10,9 @@ use psmc_rs::io::input::{Dataset, InputFormat};
 use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
 use psmc_rs::qc::fmt::{counted, pct};
 
-use crate::cli::{BinCallableArg, ConvertArgs, FormatArg, usage_bail};
+use crate::cli::{ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
-use crate::dataset::{callable_summary, counts_source, default_start, load_input, qc_report};
+use crate::dataset::{callable_summary, counts_source, default_qc_report, load_input};
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir};
 use crate::run::{Event, Sink, announce_input, report_qc};
 
@@ -37,15 +37,7 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     announce_input(&data, &args.input, &sink);
 
     // Also when no sequence is left: the report then says why.
-    let start = default_start(&data);
-    let report = qc_report(
-        &data,
-        args.input.bin_size,
-        0,
-        None,
-        start,
-        BinCallableArg::Auto,
-    );
+    let report = default_qc_report(&data, args.input.bin_size, 0);
     let qc = report_qc(&data, report, args.qc_json.as_deref(), &sink)?;
     if data.obs.rows.is_empty() {
         // fq2psmcfa writes an empty file too; the outputs say so.
@@ -170,9 +162,9 @@ fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<
 }
 
 /// The files `convert` writes whose names are known before the input is
-/// read, as `(flag, path)`; a QC JSON on stdout is not a file.
-fn output_files(args: &ConvertArgs) -> Vec<(&'static str, &Path)> {
-    [
+/// read, as `(flag, path)`.
+fn output_files(args: &ConvertArgs) -> Vec<(&'static str, Option<&Path>)> {
+    vec![
         ("--psmcfa", args.psmcfa.as_deref()),
         ("--multihetsep", args.multihetsep.as_deref()),
         // Only the QC JSON can go to stdout.
@@ -181,16 +173,13 @@ fn output_files(args: &ConvertArgs) -> Vec<(&'static str, &Path)> {
             args.qc_json.as_deref().filter(|p| !is_stdout(p)),
         ),
     ]
-    .into_iter()
-    .filter_map(|(what, path)| Some((what, path?)))
-    .collect()
 }
 
 /// Check the files `convert` will write before reading the input (see
 /// [`check_destinations`]); the per-sequence files need their directory,
 /// and are checked by name once the input is read.
 fn check_outputs(args: &ConvertArgs) -> Result<()> {
-    check_destinations(&args.input_file, &output_files(args), &[])?;
+    check_destinations(&args.input_file, &output_files(args), None)?;
     if let Some(prefix) = &args.multihetsep_per_chrom {
         if is_stdout(prefix) {
             usage_bail!("--multihetsep-per-chrom cannot be '-': {STDOUT_ONLY_QC}");
@@ -235,12 +224,9 @@ fn per_chrom_files(args: &ConvertArgs, data: &Dataset) -> Result<Vec<(String, Pa
         .collect::<Result<_>>()?;
     if !files.is_empty() {
         let mut outputs = output_files(args);
-        outputs.extend(
-            files
-                .iter()
-                .map(|(_, path)| ("--multihetsep-per-chrom", path.as_path())),
-        );
-        check_destinations(&args.input_file, &outputs, &[])?;
+        let each = files.iter().map(|(_, path)| Some(path.as_path()));
+        outputs.extend(each.map(|path| ("--multihetsep-per-chrom", path)));
+        check_destinations(&args.input_file, &outputs, None)?;
     }
     Ok(files)
 }

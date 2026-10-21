@@ -481,7 +481,7 @@ fn check_outputs(
             output.display()
         );
     }
-    let files: Vec<(&str, &Path)> = [
+    let files = [
         ("OUTPUT", Some(output)),
         ("the HTML report", Some(report_html)),
         ("--psmc-out", cli.psmc_out.as_deref()),
@@ -491,16 +491,13 @@ fn check_outputs(
             "--qc-json",
             cli.qc_json.as_deref().filter(|p| !is_stdout(p)),
         ),
-    ]
-    .into_iter()
-    .filter_map(|(what, path)| Some((what, path?)))
-    .collect();
+    ];
     let dir_name = match cli.bootstrap_dir {
         Some(_) => "--bootstrap-dir",
         None => "the bootstrap directory",
     };
     let dir = bootstrap.map(|plan| (dir_name, plan.dir.as_path()));
-    check_destinations(input, &files, dir.as_slice())?;
+    check_destinations(input, &files, dir)?;
     check_echarts_bundle()
 }
 

@@ -134,22 +134,25 @@ pub fn write_qc_json(path: &Path, report: &QcReport) -> Result<()> {
 }
 
 /// Check, before any work, that a run can write its outputs: `files` (each
-/// named as the user gave it, such as `--psmc-out`) are distinct, none is
-/// the input or one of `dirs`, and each can be written in an existing
-/// directory; each of `dirs` is a directory or can be created. Otherwise a
-/// typo in a directory would only fail after the fit and the bootstrap,
+/// named as the user gave it, such as `--psmc-out`; `None` when not asked
+/// for) are distinct, none is the input or `dir`, and each can be written in
+/// an existing directory; `dir` is a directory or can be created. Otherwise
+/// a typo in a directory would only fail after the fit and the bootstrap,
 /// and two outputs of one name would overwrite each other. Names that
 /// collide are a usage error, and so is `-`: only the QC JSON can go to
 /// stdout, so callers leave it out when it does, and any other output
 /// named `-` would be a file of that name.
 pub fn check_destinations(
     input: &Path,
-    files: &[(&str, &Path)],
-    dirs: &[(&str, &Path)],
+    files: &[(&str, Option<&Path>)],
+    dir: Option<(&str, &Path)>,
 ) -> Result<()> {
     let input = resolved(input);
+    let files: Vec<(&str, &Path)> = (files.iter())
+        .filter_map(|&(what, path)| Some((what, path?)))
+        .collect();
     let mut seen: Vec<(&str, &Path, PathBuf)> = Vec::new();
-    for &(what, path) in files.iter().chain(dirs) {
+    for &(what, path) in files.iter().chain(&dir) {
         if is_stdout(path) {
             usage_bail!("{what} cannot be '-': {STDOUT_ONLY_QC}");
         }
@@ -169,11 +172,11 @@ pub fn check_destinations(
         }
         seen.push((what, path, at));
     }
-    for &(what, path) in files {
+    for (what, path) in files {
         check_writable_file(path)
             .with_context(|| format!("cannot write {what} {}", path.display()))?;
     }
-    for &(what, path) in dirs {
+    if let Some((what, path)) = dir {
         check_creatable_dir(path)
             .with_context(|| format!("cannot create {what} {}", path.display()))?;
     }
@@ -256,45 +259,49 @@ mod tests {
         let input = dir.join("in.psmcfa");
         fs::write(&input, ">a\nT\n").unwrap();
         let out = dir.join("fit.json");
-        let check = |files: &[(&str, &Path)], dirs: &[(&str, &Path)]| {
-            check_destinations(&input, files, dirs).map_err(|e| format!("{e:#}"))
+        let check = |files: &[(&str, &Path)], dir: Option<(&str, &Path)>| {
+            let files: Vec<_> = files
+                .iter()
+                .map(|&(what, path)| (what, Some(path)))
+                .collect();
+            check_destinations(&input, &files, dir).map_err(|e| format!("{e:#}"))
         };
         let boot = dir.join("new/fit.bootstrap");
-        check(&[("OUTPUT", &out)], &[("--bootstrap-dir", &boot)]).unwrap();
+        check(&[("OUTPUT", &out)], Some(("--bootstrap-dir", &boot))).unwrap();
         // The check leaves no file behind.
         assert!(!out.exists() && !dir.join("new").exists());
         // An existing file is not changed.
         fs::write(&out, "{}").unwrap();
-        check(&[("OUTPUT", &out)], &[]).unwrap();
+        check(&[("OUTPUT", &out)], None).unwrap();
         assert_eq!(fs::read_to_string(&out).unwrap(), "{}");
 
         // Two names of one file.
         let other = dir.join("sub/../fit.json");
         fs::create_dir_all(dir.join("sub")).unwrap();
-        let err = check(&[("OUTPUT", &out), ("--psmc-out", &other)], &[]).unwrap_err();
+        let err = check(&[("OUTPUT", &out), ("--psmc-out", &other)], None).unwrap_err();
         assert!(err.contains("are the same file"), "{err}");
-        let err = check(&[("--tmrca-out", &input)], &[]).unwrap_err();
+        let err = check(&[("--tmrca-out", &input)], None).unwrap_err();
         assert!(err.contains("--tmrca-out"), "{err}");
         assert!(err.contains("is the input file"), "{err}");
-        let err = check(&[("OUTPUT", &out)], &[("--bootstrap-dir", &out)]).unwrap_err();
+        let err = check(&[("OUTPUT", &out)], Some(("--bootstrap-dir", &out))).unwrap_err();
         assert!(err.contains("are the same file"), "{err}");
 
         let missing = dir.join("nowhere/t.tsv");
-        let err = check(&[("--tmrca-out", &missing)], &[]).unwrap_err();
+        let err = check(&[("--tmrca-out", &missing)], None).unwrap_err();
         assert!(
             err.starts_with(&format!("cannot write --tmrca-out {}", missing.display())),
             "{err}"
         );
         assert!(err.contains("does not exist"), "{err}");
-        let err = check(&[("OUTPUT", &dir)], &[]).unwrap_err();
+        let err = check(&[("OUTPUT", &dir)], None).unwrap_err();
         assert!(err.contains("is a directory"), "{err}");
-        let err = check(&[], &[("--bootstrap-dir", &input.join("boot"))]).unwrap_err();
+        let err = check(&[], Some(("--bootstrap-dir", &input.join("boot")))).unwrap_err();
         assert!(err.contains("is not a directory"), "{err}");
         // `-` is stdout, which only the QC JSON can use.
         let dash = Path::new("-");
-        let err = check(&[("--psmc-out", dash)], &[]).unwrap_err();
+        let err = check(&[("--psmc-out", dash)], None).unwrap_err();
         assert!(err.starts_with("--psmc-out cannot be '-'"), "{err}");
-        let err = check(&[], &[("--bootstrap-dir", dash)]).unwrap_err();
+        let err = check(&[], Some(("--bootstrap-dir", dash))).unwrap_err();
         assert!(err.starts_with("--bootstrap-dir cannot be '-'"), "{err}");
         let _ = fs::remove_dir_all(dir);
     }

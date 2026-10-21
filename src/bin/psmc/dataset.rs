@@ -6,7 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use psmc_rs::io::CallableSummary;
-use psmc_rs::io::consensus::{ConsensusSummary, DepthThresholds, LossReason};
+use psmc_rs::io::consensus::{
+    ConsensusSummary, DepthStats as ReadDepth, DepthThresholds, LossReason,
+};
 use psmc_rs::io::input::{Dataset, DropReason, InputOptions, SourceSummary, VcfDetails, load};
 use psmc_rs::io::vcf::VcfSummary;
 use psmc_rs::qc::fmt::{count, counted, pct, plural};
@@ -19,14 +21,6 @@ use psmc_rs::{PsmcModel, initial_theta_with_callable};
 use crate::cli::{
     BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout,
 };
-
-/// The input format as QC and the report name it, with the VCF mode.
-fn format_label(data: &Dataset) -> String {
-    match &data.source {
-        SourceSummary::Vcf(v) => format!("vcf, {} mode", v.mode.mode.name()),
-        s => s.format().name().to_string(),
-    }
-}
 
 /// A model of this layout, for its free lambdas and time grid only: its
 /// rates are small enough for a valid transition matrix at every t_max the
@@ -68,26 +62,30 @@ pub fn fit_uses_counts(data: &Dataset, mode: BinCallableArg) -> bool {
     counts_source(data).is_some_and(|source| mode.uses_counts(source))
 }
 
-/// The start of a fit of `data` with the default settings (C psmc's: θ0
-/// from the data, ρ0 = θ0 / 4, t_max 15, pattern `4+5*3+4`, and the
-/// callable bases of the bins when `--bin-callable auto` fits them, that is
-/// when they are exact), which `qc` and `convert` check having no fit of
-/// their own; `None` when the data give no θ0.
-pub fn default_start(data: &Dataset) -> Option<FitStart> {
-    let counts = data
-        .obs
-        .callable
-        .as_ref()
-        .filter(|_| fit_uses_counts(data, BinCallableArg::Auto));
-    let theta0 = initial_theta_with_callable(&data.obs.rows, counts).ok()?;
-    let (n_steps, pattern) = model_layout(None, None).ok()?;
-    let layout = layout_model(DEFAULT_T_MAX, n_steps, pattern, DEFAULT_MU).ok()?;
-    Some(FitStart::new(
-        &layout,
-        theta0,
-        theta0 / DEFAULT_TR_RATIO,
-        true,
-    ))
+/// The input QC of `data` for `qc` and `convert`, which have no fit of
+/// their own: it checks the start of a fit with the default settings (C
+/// psmc's: θ0 from the data, ρ0 = θ0 / 4, t_max 15, pattern `4+5*3+4`, and
+/// the callable bases of the bins when `--bin-callable auto` fits them,
+/// that is when they are exact), when the data give a θ0.
+pub fn default_qc_report(
+    data: &Dataset,
+    bin_size: usize,
+    bootstrap_trunk: usize,
+) -> Result<QcReport> {
+    let auto = BinCallableArg::Auto;
+    let counts = (data.obs.callable.as_ref()).filter(|_| fit_uses_counts(data, auto));
+    let start = || {
+        let theta0 = initial_theta_with_callable(&data.obs.rows, counts).ok()?;
+        let (n_steps, pattern) = model_layout(None, None).ok()?;
+        let layout = layout_model(DEFAULT_T_MAX, n_steps, pattern, DEFAULT_MU).ok()?;
+        Some(FitStart::new(
+            &layout,
+            theta0,
+            theta0 / DEFAULT_TR_RATIO,
+            true,
+        ))
+    };
+    qc_report(data, bin_size, bootstrap_trunk, None, start(), auto)
 }
 
 /// Input QC of a loaded dataset, with the callable bases of its bins when
@@ -116,8 +114,13 @@ pub fn qc_report(
             ..QcSeq::new(s.name.clone(), s.n_bins)
         })
         .collect();
+    // The format as QC and the report name it, with the VCF mode.
+    let input_format = match &data.source {
+        SourceSummary::Vcf(v) => format!("vcf, {} mode", v.mode.mode.name()),
+        s => s.format().name().to_string(),
+    };
     let context = QcContext {
-        input_format: Some(format_label(data)),
+        input_format: Some(input_format),
         free_lambdas,
         start,
         dropped: dropped_groups(data),
@@ -140,6 +143,14 @@ pub fn qc_report(
 /// depth and consensus mode's filters.
 fn source_context(source: &SourceSummary) -> QcContext {
     let u32_of = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
+    // The read depth with the bounds of a called base, if any.
+    let depth = |d: &ReadDepth, bounds: Option<(u64, u64)>| DepthStats {
+        mean: d.mean,
+        median: d.median,
+        min_depth: bounds.map(|(min, _)| u32_of(min)),
+        max_depth: bounds.map(|(_, max)| u32_of(max)),
+        histogram: d.histogram.clone(),
+    };
     let mut context = QcContext::default();
     match source {
         SourceSummary::Psmcfa(_) => {}
@@ -147,13 +158,7 @@ fn source_context(source: &SourceSummary) -> QcContext {
         SourceSummary::Vcf(v) => match &v.details {
             VcfDetails::Consensus(c) => {
                 context.consensus = Some(ConsensusStats {
-                    depth: DepthStats {
-                        mean: c.depth.mean,
-                        median: c.depth.median,
-                        min_depth: Some(u32_of(c.min_depth)),
-                        max_depth: Some(u32_of(c.max_depth)),
-                        histogram: c.depth.histogram.clone(),
-                    },
+                    depth: depth(&c.depth, Some((c.min_depth, c.max_depth))),
                     total_bases: c.bases,
                     // Positions without a record are missing data, which
                     // HIGH_MISSING covers, rather than a filter.
@@ -170,19 +175,11 @@ fn source_context(source: &SourceSummary) -> QcContext {
             VcfDetails::Mask(m) => {
                 context.variants_only_no_mask = !m.positive_mask;
                 context.gvcf = m.read_as_gvcf;
-                if m.depth.records > 0 {
-                    context.consensus = Some(ConsensusStats {
-                        depth: DepthStats {
-                            mean: m.depth.mean,
-                            median: m.depth.median,
-                            min_depth: None,
-                            max_depth: None,
-                            histogram: m.depth.histogram.clone(),
-                        },
-                        total_bases: m.sites,
-                        filters: Vec::new(),
-                    });
-                }
+                context.consensus = (m.depth.records > 0).then(|| ConsensusStats {
+                    depth: depth(&m.depth, None),
+                    total_bases: m.sites,
+                    filters: Vec::new(),
+                });
             }
         },
     }
@@ -191,32 +188,24 @@ fn source_context(source: &SourceSummary) -> QcContext {
 
 /// The dropped sequences of `data`, counted by reason.
 fn dropped_groups(data: &Dataset) -> Vec<DroppedSequences> {
-    let mut empty = (0, 0);
-    let mut filtered = (0, 0);
-    for d in &data.dropped {
-        let group = match d.reason {
-            DropReason::Empty => &mut empty,
-            DropReason::Filter { .. } => &mut filtered,
-        };
-        group.0 += 1;
-        group.1 += d.extent.unwrap_or(0);
-    }
+    let (empty, filtered): (Vec<_>, Vec<_>) =
+        (data.dropped.iter()).partition(|d| matches!(d.reason, DropReason::Empty));
     let mut out = Vec::new();
-    if empty.0 > 0 {
+    if !empty.is_empty() {
         out.push(DroppedSequences {
             reason: "without any bin".to_string(),
-            count: empty.0,
+            count: empty.len(),
             bases: None,
         });
     }
-    if let (true, Some(f)) = (filtered.0 > 0, &data.filter) {
+    if let (false, Some(f)) = (filtered.is_empty(), &data.filter) {
         out.push(DroppedSequences {
             reason: format!(
                 "dropped by the output filter (--min-good-bases {}, --min-good-fraction {})",
                 f.min_good_bases, f.min_good_fraction
             ),
-            count: filtered.0,
-            bases: Some(filtered.1),
+            count: filtered.len(),
+            bases: Some(filtered.iter().map(|d| d.extent.unwrap_or(0)).sum()),
         });
     }
     out
@@ -370,16 +359,6 @@ pub fn ensure_usable(data: &Dataset) -> Result<()> {
     data.ensure_usable()
 }
 
-/// `n` of `total` as a percentage, as the QC report gives shares (0.0% of
-/// nothing).
-fn share(n: u64, total: u64) -> String {
-    pct(if total == 0 {
-        0.0
-    } else {
-        n as f64 / total as f64
-    })
-}
-
 /// Lines telling the user how the input was read: what the input QC report
 /// does not say of it.
 pub fn describe(data: &Dataset) -> Vec<String> {
@@ -494,16 +473,17 @@ fn describe_mask(m: &VcfSummary) -> String {
 /// The sequences and bins of `data`, for when the input QC report, which
 /// gives them, could not be made.
 pub fn totals(data: &Dataset) -> String {
-    let bins = data.n_bins() as u64;
-    let het = data.het_bins() as u64;
-    let missing = data.obs.rows.iter().flatten().filter(|&&b| b >= 2).count() as u64;
+    let bins = data.n_bins();
+    let missing = data.obs.rows.iter().flatten().filter(|&&b| b >= 2).count();
+    // As the QC report gives shares (0.0% of nothing).
+    let share = |n: usize| pct(n as f64 / bins.max(1) as f64);
     format!(
         "Input: {} kept, {} left out; {} ({} heterozygous, {} missing)",
         counted(data.seqs.len(), "sequence", "sequences"),
         count(data.dropped.len() as u64),
-        counted(bins as usize, "bin", "bins"),
-        share(het, bins),
-        share(missing, bins)
+        counted(bins, "bin", "bins"),
+        share(data.het_bins()),
+        share(missing)
     )
 }
 
