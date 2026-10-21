@@ -251,10 +251,11 @@ impl MaskAcc {
         let bad_row = |row_no: usize, what: &str| {
             anyhow::anyhow!("invalid mask row {row_no} in {}: {what}", path.display())
         };
+        // Plain digits, the usual form, are read by the fast `parse_u64`;
+        // `str::parse` also takes a leading '+' and more than 19 digits.
         let number = |field: &[u8], row_no: usize, what: &str| -> Result<u64> {
-            std::str::from_utf8(field)
-                .ok()
-                .and_then(|s| s.parse().ok())
+            parse_u64(field)
+                .or_else(|| std::str::from_utf8(field).ok()?.parse().ok())
                 .ok_or_else(|| bad_row(row_no, &format!("bad {what} '{}'", lossy(field))))
         };
         loop {

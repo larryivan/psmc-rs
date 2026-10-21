@@ -617,7 +617,10 @@ Reproduction package (`experiment/`):
   double, for values of up to 15 digits) and finds the INFO keys at their
   `=` instead of at every byte: on that VCF, uncompressed (2.7 GB), it
   takes 5.8 s of CPU instead of 7.2 s with given depth bounds, and 10.3 s
-  instead of 11.8 s with `--depth auto`, which reads the file twice.
+  instead of 11.8 s with `--depth auto`, which reads the file twice. Mask
+  coordinates written as plain digits are read without the standard
+  library's string parser: a callable mask of 24 M one-base rows (475 MB)
+  is read in 1.0 s of CPU instead of 1.4 s.
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through
