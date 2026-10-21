@@ -638,6 +638,10 @@ Reproduction package (`experiment/`):
 ### Removed
 
 - `psmc_rs::utils::logsumexp` (unused).
+- `em_train_with_progress` (also re-exported from `opt`) and
+  `opt::m_step_lbfgs_with_progress`: pass the callback as
+  `EmOptions::on_progress` to `em::em_train_with_options`, or to
+  `opt::m_step_lbfgs_with_outcome`.
 - The CLI's within-sequence bootstrap (the library function remains).
 - Reproduction package: 0.1's (`experiment/run.py`, the notebook that drew
   its figures, its results in `experiment/runs/main_text`, `real_data` and
