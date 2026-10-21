@@ -218,7 +218,7 @@ struct Input {
 /// [`run_inference`] inside its pool.
 fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummary> {
     let Plan {
-        input,
+        input: given_input,
         output,
         n_iter,
         saved,
@@ -227,8 +227,8 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
         bootstrap,
     } = Plan::of(cli)?;
     ctx.check_cancel()?;
-    let input_file = resolve_input_path(&input, cli.input.input_format)?;
-    if input_file != input {
+    let input_file = resolve_input_path(&given_input, cli.input.input_format)?;
+    if input_file != given_input {
         ctx.info(format!(
             "Input is a directory, selected file: {}",
             input_file.display()
