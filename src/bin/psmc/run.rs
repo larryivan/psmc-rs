@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::PsmcModel;
 use psmc_rs::bootstrap::BootstrapSummary;
-use psmc_rs::em::EmHistory;
 use psmc_rs::hmm::{Cancelled, TmrcaReportData};
 use psmc_rs::io::MAX_COUNTED_BIN_SIZE;
 use psmc_rs::io::input::{Dataset, SourceSummary};
@@ -154,58 +153,6 @@ pub fn run_inference(
     pool.install(|| infer(cli, ctx, progress_bars))
 }
 
-/// The settings of a run that are checked before its input is read.
-struct Plan {
-    input: PathBuf,
-    output: PathBuf,
-    n_iter: usize,
-    /// The parameters of `--init-params`.
-    saved: Option<PsmcModel>,
-    /// `n_steps` and the pattern of a fresh start.
-    fresh: (usize, Option<String>),
-    /// The layout of the starting model: its free lambdas, and the time grid
-    /// on which QC checks the start.
-    layout: PsmcModel,
-    bootstrap: Option<BootstrapPlan>,
-}
-
-impl Plan {
-    /// The settings of `cli`; those that can be checked without the data
-    /// fail first.
-    fn of(cli: &InferArgs) -> Result<Self> {
-        let missing = |what| anyhow!("missing {what}");
-        let input = cli
-            .input_file
-            .clone()
-            .ok_or_else(|| missing("INPUT_FILE"))?;
-        let output = cli
-            .output_file
-            .clone()
-            .ok_or_else(|| missing("OUTPUT_FILE"))?;
-        let n_iter = cli.n_iter.ok_or_else(|| missing("N_ITER"))?;
-        let saved = cli
-            .init_params
-            .as_deref()
-            .map(|path| saved_start(path, cli))
-            .transpose()?;
-        let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
-        let layout = match &saved {
-            Some(model) => model.clone(),
-            None => layout_model(cli.t_max, n_steps, pattern.clone(), cli.mu)?,
-        };
-        let bootstrap = BootstrapPlan::of(cli, n_iter, &output)?;
-        Ok(Self {
-            input,
-            output,
-            n_iter,
-            saved,
-            fresh: (n_steps, pattern),
-            layout,
-            bootstrap,
-        })
-    }
-}
-
 /// The input of a run, as read.
 struct Input {
     data: Dataset,
@@ -217,15 +164,30 @@ struct Input {
 
 /// [`run_inference`] inside its pool.
 fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummary> {
-    let Plan {
-        input: given_input,
-        output,
-        n_iter,
-        saved,
-        fresh,
-        layout,
-        bootstrap,
-    } = Plan::of(cli)?;
+    let missing = |what| anyhow!("missing {what}");
+    let given_input = cli
+        .input_file
+        .clone()
+        .ok_or_else(|| missing("INPUT_FILE"))?;
+    let output = cli
+        .output_file
+        .clone()
+        .ok_or_else(|| missing("OUTPUT_FILE"))?;
+    let n_iter = cli.n_iter.ok_or_else(|| missing("N_ITER"))?;
+    // Settings that can be checked without the data fail first.
+    let saved = cli
+        .init_params
+        .as_deref()
+        .map(|path| saved_start(path, cli))
+        .transpose()?;
+    let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
+    // The layout of the starting model: its free lambdas, and the time grid
+    // on which QC checks the start.
+    let layout = match &saved {
+        Some(model) => model.clone(),
+        None => layout_model(cli.t_max, n_steps, pattern.clone(), cli.mu)?,
+    };
+    let bootstrap = BootstrapPlan::of(cli, n_iter, &output)?;
     ctx.check_cancel()?;
     let input_file = resolve_input_path(&given_input, cli.input.input_format)?;
     if input_file != given_input {
@@ -244,7 +206,7 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
         .map(|plan| plan.resample(obs, cli, ctx))
         .transpose()?;
 
-    let mut model = starting_model(saved, fresh, obs, cli)?;
+    let mut model = starting_model(saved, (n_steps, pattern), obs, cli)?;
     if let Some(path) = &cli.init_params {
         ctx.info(format!(
             "Starting from the parameters in {}",
@@ -282,27 +244,31 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
     // The main fit's outputs are written before the bootstrap, which can
     // take far longer.
     let input_summary = InputSummary::of(&input.data);
-    let fitted = Fitted {
+    let record = FitRecord {
         model: &model,
         history: &history,
-        n_iter,
         final_loglike,
+        bin_size: cli.input.bin_size,
+        gen_years: cli.gen_years,
         tr_ratio,
-        input: &input,
-        input_summary: &input_summary,
+        smooth_lambda: cli.smooth_lambda,
+        input: &input_summary,
+        qc: input.qc.as_ref(),
+        bin_callable: &input.bin_callable,
     };
-    write_fit(&fitted, &output, cli, boot.is_none(), ctx)?;
-    let boot_summary = match &boot {
-        Some(b) => {
-            let scale = (cli.input.bin_size as f64, cli.gen_years);
-            let summary = b.run(&model, &mstep_config, scale, ctx)?;
-            if let Some(msg) = b.plan.plot_warning(cli, n_iter) {
-                ctx.warn(msg);
-            }
-            Some(summary)
-        }
-        None => None,
-    };
+    write_fit(
+        &record,
+        n_iter,
+        &input.data,
+        &output,
+        cli,
+        boot.is_none(),
+        ctx,
+    )?;
+    let boot_summary = boot
+        .as_ref()
+        .map(|b| b.run(&model, &mstep_config, cli, n_iter, ctx))
+        .transpose()?;
 
     ctx.check_cancel()?;
     let tmrca = cli
@@ -312,7 +278,8 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
         .transpose()?;
     let bootstrap = boot.as_ref().zip(boot_summary.as_ref());
     write_report(
-        &fitted,
+        &record,
+        n_iter,
         &report_html,
         &input_file,
         &output,
@@ -346,45 +313,20 @@ fn model_line(model: &PsmcModel) -> String {
     )
 }
 
-/// A finished main fit, with what its outputs record of it.
-struct Fitted<'a> {
-    model: &'a PsmcModel,
-    history: &'a EmHistory,
-    /// EM iterations (N_ITER).
-    n_iter: usize,
-    /// Log-likelihood of `model`: the history's last, or the start's after
-    /// 0 iterations.
-    final_loglike: f64,
-    /// theta0/rho0 of the start.
-    tr_ratio: f64,
-    input: &'a Input,
-    input_summary: &'a InputSummary,
-}
-
-/// Write the main fit's parameters to `output`, and its `.psmc` output when
-/// asked for; without a bootstrap (`no_bootstrap`), warn of the replicates
-/// of an earlier run in the default bootstrap directory.
+/// Write the main fit of `data` (`n_iter` EM iterations) to `output`, and
+/// its `.psmc` output when asked for; without a bootstrap (`no_bootstrap`),
+/// warn of the replicates of an earlier run in the default bootstrap
+/// directory.
 fn write_fit(
-    fitted: &Fitted,
+    record: &FitRecord,
+    n_iter: usize,
+    data: &Dataset,
     output: &Path,
     cli: &InferArgs,
     no_bootstrap: bool,
     ctx: Context,
 ) -> Result<()> {
-    let input = fitted.input;
-    let record = FitRecord {
-        model: fitted.model,
-        history: fitted.history,
-        final_loglike: Some(fitted.final_loglike),
-        bin_size: cli.input.bin_size,
-        gen_years: cli.gen_years,
-        tr_ratio: fitted.tr_ratio,
-        smooth_lambda: cli.smooth_lambda,
-        input: fitted.input_summary,
-        qc: input.qc.as_ref(),
-        bin_callable: Some(&input.bin_callable),
-    };
-    save_fit(output, &record)?;
+    save_fit(output, record)?;
     ctx.output(format!("Parameters: {}", output.display()));
     if no_bootstrap && let Some(msg) = earlier_bootstrap_warning(output) {
         ctx.warn(msg);
@@ -392,26 +334,28 @@ fn write_fit(
     if let Some(path) = &cli.psmc_out {
         write_main_psmc(
             path,
-            fitted.model,
-            fitted.history,
-            &input.data,
-            &input.bin_callable,
+            record.model,
+            record.history,
+            data,
+            record.bin_callable,
         )?;
         ctx.output(format!("PSMC output: {}", path.display()));
-        if fitted.n_iter > 0 {
+        if n_iter > 0 {
             ctx.info(format!(
                 "To plot it: {} (-s is the bin size, which the .psmc file does not record)",
-                psmc_plot_command(cli, fitted.n_iter, &path.display().to_string())
+                psmc_plot_command(cli, n_iter, &path.display().to_string())
             ));
         }
     }
     Ok(())
 }
 
-/// Write the HTML report of the fit to `path`, with the bootstrap and the
-/// TMRCA posterior when they were made.
+/// Write the HTML report of the fit (`n_iter` EM iterations) to `path`,
+/// with the bootstrap and the TMRCA posterior when they were made.
+#[allow(clippy::too_many_arguments)]
 fn write_report(
-    fitted: &Fitted,
+    record: &FitRecord,
+    n_iter: usize,
     path: &Path,
     input_file: &Path,
     output: &Path,
@@ -424,8 +368,8 @@ fn write_report(
         .as_ref()
         .map(|path| path.display().to_string());
     let settings = [
-        ("Starting theta0/rho0", Some(fitted.tr_ratio.to_string())),
-        ("Smoothness penalty", Some(cli.smooth_lambda.to_string())),
+        ("Starting theta0/rho0", Some(record.tr_ratio.to_string())),
+        ("Smoothness penalty", Some(record.smooth_lambda.to_string())),
         (
             "M-step iterations (at most)",
             Some(cli.mstep_iters.to_string()),
@@ -436,17 +380,17 @@ fn write_report(
     .filter_map(|(name, value)| Some((name.to_string(), value?)))
     .collect();
     let report = ReportData {
-        model: fitted.model,
-        bin_size: cli.input.bin_size as f64,
-        gen_years: cli.gen_years,
+        model: record.model,
+        bin_size: record.bin_size as f64,
+        gen_years: record.gen_years,
         input_file,
         output_json: output,
-        input: Some(fitted.input_summary),
-        n_iter: fitted.n_iter,
-        final_loglike: Some(fitted.final_loglike),
+        input: Some(record.input),
+        n_iter,
+        final_loglike: Some(record.final_loglike),
         settings,
-        qc: fitted.input.qc.as_ref(),
-        bin_callable: Some(&fitted.input.bin_callable),
+        qc: record.qc,
+        bin_callable: Some(record.bin_callable),
         bootstrap: bootstrap.map(|(b, summary)| BootstrapReport {
             summary,
             em_iters: b.plan.em_iters,

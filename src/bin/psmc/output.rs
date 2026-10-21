@@ -28,7 +28,7 @@ pub struct FitRecord<'a> {
     pub history: &'a EmHistory,
     /// Log-likelihood of `model`: the history's final value, or the
     /// starting parameters' after 0 iterations.
-    pub final_loglike: Option<f64>,
+    pub final_loglike: f64,
     /// Bases per bin.
     pub bin_size: usize,
     /// Years per generation.
@@ -42,14 +42,14 @@ pub struct FitRecord<'a> {
     /// The input QC report, when it could be made.
     pub qc: Option<&'a QcReport>,
     /// How the fit used the callable bases of each bin.
-    pub bin_callable: Option<&'a BinCallableRecord>,
+    pub bin_callable: &'a BinCallableRecord,
 }
 
 /// The log-likelihood after each number of EM iterations, from the start
 /// (0) to the end, `final_loglike` ([`RunMetadata::loglike`]).
-fn loglike_path(history: &EmHistory, final_loglike: Option<f64>) -> Vec<f64> {
+fn loglike_path(history: &EmHistory, final_loglike: f64) -> Vec<f64> {
     let mut path: Vec<f64> = history.loglike.iter().map(|&(before, _)| before).collect();
-    path.extend(final_loglike);
+    path.push(final_loglike);
     path
 }
 
@@ -60,7 +60,7 @@ pub fn save_fit(path: &Path, fit: &FitRecord) -> Result<()> {
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         simd: Some(psmc_rs::hmm::simd_path().name().to_string()),
         n_iter: Some(fit.history.loglike.len()),
-        final_loglike: fit.final_loglike,
+        final_loglike: Some(fit.final_loglike),
         loglike: Some(loglike_path(fit.history, fit.final_loglike)),
         bin_size: Some(fit.bin_size),
         gen_years: Some(fit.gen_years),
@@ -68,7 +68,7 @@ pub fn save_fit(path: &Path, fit: &FitRecord) -> Result<()> {
         smooth_lambda: Some(fit.smooth_lambda),
         input: Some(fit.input.clone()),
         qc: fit.qc.map(QcReport::summary),
-        bin_callable: fit.bin_callable.cloned(),
+        bin_callable: Some(fit.bin_callable.clone()),
     };
     save_params(path, &params)
 }

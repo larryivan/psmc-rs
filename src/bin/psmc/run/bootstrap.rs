@@ -115,7 +115,7 @@ impl BootstrapPlan {
     /// a plot command with the main fit's `.psmc` output (as concatenated
     /// for C psmc's bootstrap): with fewer rounds it fails, with more it
     /// plots them at an intermediate round.
-    pub(super) fn plot_warning(&self, cli: &InferArgs, n_iter: usize) -> Option<String> {
+    fn plot_warning(&self, cli: &InferArgs, n_iter: usize) -> Option<String> {
         if self.em_iters == n_iter {
             return None;
         }
@@ -173,14 +173,15 @@ impl Bootstrap {
         }
     }
 
-    /// Run the bootstrap of the fitted `model` and write its files: each
-    /// replicate's JSON and `.psmc` output, and the summary of the curves,
-    /// scaled by `(bin_size, gen_years)`.
+    /// Run the bootstrap of the fitted `model` (`n_iter` EM iterations) and
+    /// write its files: each replicate's JSON and `.psmc` output, and the
+    /// summary of the curves, scaled by `--bin-size` and `--gen-years`.
     pub(super) fn run(
         &self,
         model: &PsmcModel,
         mstep_config: &MStepConfig,
-        (bin_size, gen_years): (f64, f64),
+        cli: &InferArgs,
+        n_iter: usize,
         ctx: Context,
     ) -> Result<BootstrapSummary> {
         let cfg = &self.cfg;
@@ -217,8 +218,8 @@ impl Bootstrap {
         let mut summary = summarize_bootstrap_models(
             model,
             &models,
-            bin_size,
-            gen_years,
+            cli.input.bin_size as f64,
+            cli.gen_years,
             cfg.trunk_size,
             cfg.seed,
         )?;
@@ -243,6 +244,9 @@ impl Bootstrap {
             summary_tsv.display(),
             summary_json.display()
         ));
+        if let Some(msg) = self.plan.plot_warning(cli, n_iter) {
+            ctx.warn(msg);
+        }
         Ok(summary)
     }
 }
