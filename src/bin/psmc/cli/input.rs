@@ -74,15 +74,8 @@ impl VcfModeArg {
     }
 }
 
-// The defaults of the input options; the consensus filters are vcf2fq's
-// and fq2psmcfa's.
+/// fq2psmcfa's bin size.
 pub const DEFAULT_BIN_SIZE: usize = 100;
-const DEFAULT_MHS_PAIR: (usize, usize) = (0, 1);
-const DEFAULT_MIN_MAPQ: u64 = 10;
-const DEFAULT_INDEL_WINDOW: u64 = 5;
-const DEFAULT_MIN_QUAL: u64 = 10;
-const DEFAULT_MIN_GOOD_BASES: u64 = 10_000;
-const DEFAULT_MIN_GOOD_FRACTION: f64 = 0.2;
 
 /// `--mhs-pair i,j`: two different 0-based haplotype indices.
 fn parse_pair(s: &str) -> Result<(usize, usize), String> {
@@ -197,25 +190,71 @@ pub struct InputArgs {
     pub depth: DepthThresholds,
 
     /// VCF consensus mode: minimum INFO/MQ (vcf2fq -Q)
-    #[arg(long, value_name = "MQ", default_value_t = DEFAULT_MIN_MAPQ, value_parser = whole_number::<u64>)]
+    #[arg(long, value_name = "MQ", default_value_t = 10, value_parser = whole_number::<u64>)]
     pub min_mapq: u64,
 
     /// VCF consensus mode: bases masked on each side of an indel (vcf2fq -l)
-    #[arg(long, value_name = "BP", default_value_t = DEFAULT_INDEL_WINDOW, value_parser = whole_number::<u64>)]
+    #[arg(long, value_name = "BP", default_value_t = 5, value_parser = whole_number::<u64>)]
     pub indel_window: u64,
 
     /// VCF consensus mode: minimum base quality (fq2psmcfa -q)
-    #[arg(long, value_name = "Q", default_value_t = DEFAULT_MIN_QUAL, value_parser = whole_number::<u64>)]
+    #[arg(long, value_name = "Q", default_value_t = 10, value_parser = whole_number::<u64>)]
     pub min_qual: u64,
 
     /// VCF and multihetsep: drop sequences with fewer called bases (fq2psmcfa -g; 0 disables)
-    #[arg(long, value_name = "BASES", default_value_t = DEFAULT_MIN_GOOD_BASES, value_parser = whole_number::<u64>)]
+    #[arg(long, value_name = "BASES", default_value_t = 10_000, value_parser = whole_number::<u64>)]
     pub min_good_bases: u64,
 
     /// VCF and multihetsep: drop sequences whose called share is lower (fq2psmcfa's fixed 0.2; 0 disables)
-    #[arg(long, value_name = "SHARE", default_value_t = DEFAULT_MIN_GOOD_FRACTION, value_parser = parse_fraction)]
+    #[arg(long, value_name = "SHARE", default_value_t = 0.2, value_parser = parse_fraction)]
     pub min_good_fraction: f64,
 }
+
+/// How an input flag is spelt on the command line: `None` when it is not
+/// given (an option without a value, a switch that is off), no value for a
+/// switch that is on, one per use of a repeated flag.
+type Spelling = fn(&InputArgs) -> Option<Vec<String>>;
+
+/// Every input flag, with the inputs it applies to and its spelling.
+const FLAGS: [(&str, AppliesTo, Spelling); 16] = {
+    use AppliesTo::*;
+    fn one(value: impl fmt::Display) -> Option<Vec<String>> {
+        Some(vec![value.to_string()])
+    }
+    fn on(switch: bool) -> Option<Vec<String>> {
+        switch.then(Vec::new)
+    }
+    fn paths(paths: &[PathBuf]) -> Option<Vec<String>> {
+        let shown = paths.iter().map(|p| p.display().to_string());
+        (!paths.is_empty()).then(|| shown.collect())
+    }
+    fn depth(depth: DepthThresholds) -> Option<Vec<String>> {
+        one(match depth {
+            DepthThresholds::Fixed { min, max } => format!("{min}:{max}"),
+            DepthThresholds::Auto => "auto".to_string(),
+        })
+    }
+    [
+        ("--input-format", Every, |a| one(a.input_format.name())),
+        ("--bin-size", Every, |a| one(a.bin_size)),
+        ("--batch-size", Every, |a| a.batch_size.and_then(one)),
+        ("--vcf-sample", Vcf, |a| a.vcf_sample.as_ref().and_then(one)),
+        ("--vcf-mode", Vcf, |a| one(a.vcf_mode.mode().name())),
+        ("--vcf-mask", Vcf, |a| paths(&a.vcf_mask)),
+        ("--vcf-negative-mask", Vcf, |a| paths(&a.vcf_negative_mask)),
+        ("--vcf-keep-filtered", VcfMask, |a| on(a.vcf_keep_filtered)),
+        ("--vcf-no-contig-end", VcfMask, |a| on(a.vcf_no_contig_end)),
+        ("--depth", VcfConsensus, |a| depth(a.depth)),
+        ("--min-mapq", VcfConsensus, |a| one(a.min_mapq)),
+        ("--indel-window", VcfConsensus, |a| one(a.indel_window)),
+        ("--min-qual", VcfConsensus, |a| one(a.min_qual)),
+        ("--mhs-pair", Mhs, |a| {
+            one(format!("{},{}", a.mhs_pair.0, a.mhs_pair.1))
+        }),
+        ("--min-good-bases", Binned, |a| one(a.min_good_bases)),
+        ("--min-good-fraction", Binned, |a| one(a.min_good_fraction)),
+    ]
+};
 
 impl InputArgs {
     /// The loader's options.
@@ -245,87 +284,17 @@ impl InputArgs {
         }
     }
 
-    /// The flags given a value other than their default, as they are spelt
-    /// on the command line, with the inputs they apply to and their values
-    /// (none for a switch, one per use for a repeated flag).
+    /// The flags given a value other than clap's default, with the inputs
+    /// they apply to and their values as spelt ([`Spelling`]).
     fn given(&self) -> Vec<(&'static str, AppliesTo, Vec<String>)> {
-        use AppliesTo::*;
-        fn unless<T: PartialEq + fmt::Display>(value: T, default: T) -> Option<Vec<String>> {
-            (value != default).then(|| vec![value.to_string()])
-        }
-        let paths = |paths: &[PathBuf]| {
-            let shown = paths.iter().map(|p| p.display().to_string());
-            (!paths.is_empty()).then(|| shown.collect())
-        };
-        let depth = match self.depth {
-            DepthThresholds::Fixed { min, max } => Some(vec![format!("{min}:{max}")]),
-            DepthThresholds::Auto => None,
-        };
-        let (i, j) = self.mhs_pair;
-        let pair = (self.mhs_pair != DEFAULT_MHS_PAIR).then(|| vec![format!("{i},{j}")]);
-        let format = self.input_format.name();
-        let vcf_mode = self.vcf_mode.mode().name();
-        [
-            (
-                "--input-format",
-                Every,
-                unless(format, FormatArg::Auto.name()),
-            ),
-            ("--bin-size", Every, unless(self.bin_size, DEFAULT_BIN_SIZE)),
-            (
-                "--batch-size",
-                Every,
-                self.batch_size.map(|n| vec![n.to_string()]),
-            ),
-            (
-                "--vcf-sample",
-                Vcf,
-                self.vcf_sample.clone().map(|s| vec![s]),
-            ),
-            ("--vcf-mode", Vcf, unless(vcf_mode, VcfMode::Auto.name())),
-            ("--vcf-mask", Vcf, paths(&self.vcf_mask)),
-            ("--vcf-negative-mask", Vcf, paths(&self.vcf_negative_mask)),
-            (
-                "--vcf-keep-filtered",
-                VcfMask,
-                self.vcf_keep_filtered.then(Vec::new),
-            ),
-            (
-                "--vcf-no-contig-end",
-                VcfMask,
-                self.vcf_no_contig_end.then(Vec::new),
-            ),
-            ("--depth", VcfConsensus, depth),
-            (
-                "--min-mapq",
-                VcfConsensus,
-                unless(self.min_mapq, DEFAULT_MIN_MAPQ),
-            ),
-            (
-                "--indel-window",
-                VcfConsensus,
-                unless(self.indel_window, DEFAULT_INDEL_WINDOW),
-            ),
-            (
-                "--min-qual",
-                VcfConsensus,
-                unless(self.min_qual, DEFAULT_MIN_QUAL),
-            ),
-            ("--mhs-pair", Mhs, pair),
-            (
-                "--min-good-bases",
-                Filtered,
-                unless(self.min_good_bases, DEFAULT_MIN_GOOD_BASES),
-            ),
-            (
-                "--min-good-fraction",
-                Filtered,
-                unless(self.min_good_fraction, DEFAULT_MIN_GOOD_FRACTION),
-            ),
-        ]
-        .into_iter()
-        .filter_map(|(flag, applies, values)| Some((flag, applies, values?)))
-        .collect()
+        use clap::{Command, FromArgMatches};
+        let cmd = InputArgs::augment_args(Command::new("defaults"));
+        let matches = cmd.try_get_matches_from(["defaults"]).expect("no argument");
+        let defaults = InputArgs::from_arg_matches(&matches).expect("the defaults");
+        (FLAGS.iter())
+            .filter(|(_, _, spell)| spell(self) != spell(&defaults))
+            .filter_map(|&(flag, applies, spell)| Some((flag, applies, spell(self)?)))
+            .collect()
     }
 
     /// The flags given a value other than their default that do not apply
@@ -362,9 +331,9 @@ enum AppliesTo {
     VcfMask,
     VcfConsensus,
     Mhs,
-    /// The inputs that go through fq2psmcfa's sequence filter: all but
-    /// psmcfa.
-    Filtered,
+    /// The inputs psmc-rs bins itself, all but psmcfa, which go through
+    /// fq2psmcfa's sequence filter.
+    Binned,
 }
 
 impl AppliesTo {
@@ -378,7 +347,7 @@ impl AppliesTo {
             AppliesTo::VcfMask => vcf && vcf_mode == Some(VcfMode::Mask),
             AppliesTo::VcfConsensus => vcf && vcf_mode == Some(VcfMode::Consensus),
             AppliesTo::Mhs => format == InputFormat::Mhs,
-            AppliesTo::Filtered => format != InputFormat::Psmcfa,
+            AppliesTo::Binned => format != InputFormat::Psmcfa,
         }
     }
 }

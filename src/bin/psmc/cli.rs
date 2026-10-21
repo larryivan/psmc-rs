@@ -181,12 +181,10 @@ fn explain(e: clap::Error, argv: &[OsString]) -> clap::Error {
         }
         _ => (e, None),
     };
-    let tip = match late_subcommand(&cmd, argv) {
-        Some(name) => format!("a subcommand must be the first argument: psmc-rs {name} ..."),
-        None => match tip {
-            Some(tip) => tip,
-            None => return e,
-        },
+    let late = late_subcommand(&cmd, argv)
+        .map(|name| format!("a subcommand must be the first argument: psmc-rs {name} ..."));
+    let Some(tip) = late.or(tip) else {
+        return e;
     };
     let mut tips = match e.get(ContextKind::Suggested) {
         Some(ContextValue::StyledStrs(tips)) => tips.clone(),
