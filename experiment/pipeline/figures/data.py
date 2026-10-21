@@ -1,8 +1,8 @@
 """Reading the tables of :mod:`.schemas`, and the curve arithmetic the figures share.
 
 A fitted PSMC curve is a step function (:class:`..results.Curve`); several
-replicates are summarised pointwise (median, percentile band) on a common
-log-spaced grid of times. The truth comes from the demographic model in
+replicates are summarised by their pointwise median on a common log-spaced
+grid of times. The truth comes from the demographic model in
 :mod:`..config` through :mod:`..demography`, exactly as the truth records
 hold it, and is drawn with its exact change times.
 """
@@ -72,37 +72,23 @@ def curves(df, keys: Sequence[str]) -> Dict[Tuple, Curve]:
     return out
 
 
+def table_windows(df, key: str) -> Dict:
+    """``{row[key]: (window_lo_years, window_hi_years)}`` of a table that gives each genome's or model's window."""
+    return {getattr(r, key): (float(r.window_lo_years), float(r.window_hi_years)) for r in df.itertuples()}
+
+
 def time_grid(lim: Tuple[float, float], points: int):
     """``points`` log-spaced times spanning ``lim``."""
     return metrics.log_grid(lim[0], lim[1], points)
 
 
-def on_grid(cs: Iterable[Curve], grid):
-    """Ne of each curve at each time of ``grid``: an array of curves x times."""
+def median(cs: Iterable[Curve], grid):
+    """Pointwise geometric median of Ne over the curves (the median of their log10 Ne at each time of ``grid``)."""
     import numpy as np
 
     rows = [c.at(grid) for c in cs]
-    return np.vstack(rows) if rows else np.empty((0, len(grid)))
-
-
-def quantiles(cs: Iterable[Curve], grid, qs: Sequence[float]):
-    """Pointwise quantiles of Ne over the curves (geometric, i.e. of log10 Ne): array qs x times."""
-    import numpy as np
-
-    m = on_grid(cs, grid)
-    return 10 ** np.quantile(np.log10(m), qs, axis=0)
-
-
-def median(cs: Iterable[Curve], grid):
-    """Pointwise geometric median of Ne over the curves."""
-    return quantiles(cs, grid, [0.5])[0]
-
-
-def log10_ratio(a: Curve, b: Curve, grid):
-    """log10(Ne_a / Ne_b) at each time of ``grid``."""
-    import numpy as np
-
-    return np.log10(a.at(grid)) - np.log10(b.at(grid))
+    ne = np.vstack(rows) if rows else np.empty((0, len(grid)))
+    return 10 ** np.quantile(np.log10(ne), 0.5, axis=0)
 
 
 NICE_STEPS = (1.0, 2.0, 5.0)  # the round limits of a log axis within a decade
@@ -215,6 +201,5 @@ def fmt_sig(x: Optional[float]) -> str:
 
 __all__ = [
     "MissingTable", "SchemaError", "Source", "check_truth_table", "curves", "decades", "fmt_bp", "fmt_sig",
-    "informative_window", "log10_ratio", "median", "model_epochs", "on_grid", "quantiles", "read", "time_grid",
-    "truth_at", "truth_xy",
+    "informative_window", "median", "model_epochs", "read", "table_windows", "time_grid", "truth_at", "truth_xy",
 ]

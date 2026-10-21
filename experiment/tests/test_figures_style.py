@@ -329,14 +329,13 @@ class Data(unittest.TestCase):
         with self.assertRaises(ValueError):
             data.check_truth_table(bad, 25.0)
 
-    def test_quantiles_of_curves(self):
-        cs = [Curve((0.0, 10.0), (float(k), float(k))) for k in (1, 10, 100)]
-        grid = np.array([1.0, 20.0])
-        med = data.median(cs, grid)
-        self.assertTrue(np.allclose(med, [10.0, 10.0]))
-        lo, hi = data.quantiles(cs, grid, (0.0, 1.0))
-        self.assertTrue(np.allclose(lo, 1.0) and np.allclose(hi, 100.0))
-        self.assertTrue(np.allclose(data.log10_ratio(cs[1], cs[0], grid), 1.0))
+    def test_median_of_curves(self):
+        cs = [Curve((0.0, 10.0), (float(k), float(k))) for k in (1, 100, 1000, 10)]
+        self.assertTrue(np.allclose(data.median(cs, np.array([1.0, 20.0])), 10 ** 1.5))  # geometric: of log10 Ne
+
+    def test_windows_of_a_table(self):
+        df = pd.DataFrame({"model": ["a", "b"], "window_lo_years": [1, 2], "window_hi_years": [10, 20]})
+        self.assertEqual(data.table_windows(df, "model"), {"a": (1.0, 10.0), "b": (2.0, 20.0)})
 
     def test_curves_from_a_table(self):
         df = pd.DataFrame({"model": ["a", "a", "b", "b"], "interval": [1, 0, 0, 1],

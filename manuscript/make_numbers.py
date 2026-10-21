@@ -350,10 +350,7 @@ def e7_data_stage() -> None:
 def agreement() -> None:
     """Every interval in its window of every genome both programs fitted (Fig 1's agreement_intervals)."""
     from experiment.pipeline.figures import art1_agreement as art1
-    from experiment.pipeline.figures.data import curves
-
-    def windows(df, key):
-        return {getattr(r, key): (float(r.window_lo_years), float(r.window_hi_years)) for r in df.itertuples()}
+    from experiment.pipeline.figures.data import curves, table_windows as windows
 
     pairs, genomes = art1.agreement_intervals(
         curves(table("E1", "E1_curves"), ["model", "tool", "replicate"]), windows(table("E1", "E1_table1"), "model"),

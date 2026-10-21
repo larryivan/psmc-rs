@@ -76,7 +76,7 @@ import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import style
-from .data import Source, curves, decades, time_grid, truth_xy
+from .data import Source, curves, decades, table_windows, time_grid, truth_xy
 
 H_MM = 88.0  # the figure's height (README: 183 x 88 mm)
 
@@ -477,14 +477,14 @@ def draw(src: Source):
 
     prof = src.profile
     e1c = curves(src.table("E1_curves"), ["model", "tool", "replicate"])
-    win1 = {r.model: (float(r.window_lo_years), float(r.window_hi_years)) for r in src.table("E1_table1").itertuples()}
+    win1 = table_windows(src.table("E1_table1"), "model")
     rep = src.table("E1_replicates")
     e1d = src.table("E1_rs_vs_c")
     e2c = curves(src.table("E2_curves"), ["sample_id", "tool"])
     bands = src.table("E2_bands")
     rsc2 = src.table("E2_rs_vs_c")
     rsc7 = src.table("E7_rs_vs_c")
-    win2 = {r.sample_id: (float(r.window_lo_years), float(r.window_hi_years)) for r in rsc2.itertuples()}
+    win2 = table_windows(rsc2, "sample_id")
     delta2 = {r.sample_id: float(r.rmse_log10_ne_rs_vs_c_per_interval) for r in rsc2.itertuples()}
     species = {g.sample_id: g.species for g in prof.e2.genomes}
 

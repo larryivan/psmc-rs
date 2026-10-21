@@ -28,7 +28,7 @@ from typing import List
 
 from .. import config, metrics
 from . import style
-from .data import Source, curves, decades, time_grid, truth_xy
+from .data import Source, curves, decades, table_windows, time_grid, truth_xy
 from .fig2 import MODEL_LABEL, model_order
 
 FLOOR = 1e-6  # the floor of the differences axis (a smaller difference is drawn on it)
@@ -49,13 +49,12 @@ def draw(src: Source):
     fits = curves(table[table.format != "truth"], ["model", "format"])
     bins = src.table("E6_S2_bins")
     bins = bins[bins.sequence == "all"]
-    fit_rows = src.table("E6_S2_fits")
     models = model_order({m for m, _ in fits})
     inputs = [i for i in style.FORMAT_ORDER if any(k[1] == i for k in fits)]
     xlim = config.FIGURES.sim_years
     grid = time_grid(xlim, config.FIGURES.curve_grid_points)
     truths = {m: truth_xy(m, g, xlim) for m in models}
-    windows = {r.model: (float(r.window_lo_years), float(r.window_hi_years)) for r in fit_rows.itertuples()}
+    windows = table_windows(src.table("E6_S2_fits"), "model")  # one per model: every format's is the model's
     n = len(models)
     fig = style.figure("double", 96)
     gs = style.grid(fig, 2, n, left_mm=13.0, top_mm=8.0, bottom_mm=9.0, wspace_mm=4.5, hspace_mm=4.5,

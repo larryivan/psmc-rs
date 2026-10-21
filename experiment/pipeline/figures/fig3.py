@@ -52,7 +52,7 @@ from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from .. import config
 from . import style
-from .data import Source, curves, fmt_sig, time_grid
+from .data import Source, curves, fmt_sig, table_windows, time_grid
 
 C_LW, RS_LW = 2.0, 0.8
 MARGIN_DECADES = 0.5  # the x range: the comparison windows widened by this much on each side
@@ -193,10 +193,11 @@ def draw(src: Source):
     fits = curves(src.table("E2_curves"), ["sample_id", "tool"])
     bands = src.table("E2_bands")
     boots = src.table("E2_bootstrap")
-    pairs = {r.sample_id: r for r in src.table("E2_rs_vs_c").itertuples()}
+    rs_vs_c = src.table("E2_rs_vs_c")
+    pairs = {r.sample_id: r for r in rs_vs_c.itertuples()}
+    windows = table_windows(rs_vs_c, "sample_id")
     summary = {r.sample_id: r for r in src.table("E2_fit_summary").itertuples() if r.tool == "c"}
     genomes = genome_order(cfg, {s for s, _ in fits})
-    windows = {s: (float(p.window_lo_years), float(p.window_hi_years)) for s, p in pairs.items()}
     xlim = time_range([windows[g.sample_id] for g in genomes])
 
     n = len(genomes)

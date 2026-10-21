@@ -41,7 +41,7 @@ from typing import Dict, List
 
 from .. import config, metrics
 from . import style
-from .data import Source, check_truth_table, curves, decades, fmt_sig, median, time_grid, truth_xy
+from .data import Source, check_truth_table, curves, decades, fmt_sig, median, table_windows, time_grid, truth_xy
 
 DIFF_FLOOR = 1e-6  # lowest floor of the differences axis
 MODEL_LABEL = {"constant": "Constant", "bottleneck": "Bottleneck", "expansion": "Expansion", "zigzag": "Zigzag"}
@@ -61,7 +61,7 @@ def draw(src: Source):
     g = src.profile.e1.scaling.gen_years
     df = src.table("E1_curves")
     check_truth_table(src.table("E1_truth"), g)
-    windows = {r.model: (r.window_lo_years, r.window_hi_years) for r in src.table("E1_table1").itertuples()}
+    windows = table_windows(src.table("E1_table1"), "model")
     reps = src.table("E1_replicates")
     pairs = src.table("E1_rs_vs_c")
     models = model_order(df["model"].unique())
