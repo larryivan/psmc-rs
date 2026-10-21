@@ -99,6 +99,8 @@ TABLES = {
 }
 WINDOWS = ("informative", "fixed")
 SUMMARY_CHECK_RTOL = 1e-9  # recomputed band vs psmc-rs's summary.json (full precision)
+# Resamples of the datasets whose SD ratios are taken at once: 16 MB in production (all 10,000 would take 160 MB).
+RESAMPLE_BLOCK = 1000
 MAIN_FIT_KEYS = ("theta", "rho", "t_max", "lam", "loglike")
 
 
@@ -633,7 +635,9 @@ def dataset_resampling(c: Dict, resamples: int, seed: int, level: float = 0.95) 
     idx = rng.integers(0, n, size=(resamples, n))
     share = covers.mean(axis=1)
     coverage = share[idx].mean(axis=1)
-    ratio_median = np.array([np.median(np.median(ratio[i], axis=0)) for i in idx])
+    # per resample, the median over the times of the median over its datasets
+    ratio_median = np.concatenate([np.median(np.median(ratio[idx[i:i + RESAMPLE_BLOCK]], axis=1), axis=1)
+                                   for i in range(0, resamples, RESAMPLE_BLOCK)])
     a = (1.0 - level) / 2.0
     projected = {}
     if "covers_projected" in c:
