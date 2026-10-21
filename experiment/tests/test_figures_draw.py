@@ -153,6 +153,18 @@ class Draw(unittest.TestCase):
                 again = figures.render(fs, self.runs, config.TINY, dpi=DPI, out_dir=self.out / "again" / name)
                 self.assertEqual([p.read_bytes() for p in self._render(fs)], [p.read_bytes() for p in again])
 
+    def test_the_article_figures_name_no_psmc_rs_version(self):
+        from matplotlib.text import Text
+
+        from experiment.pipeline import figures
+
+        for name in ARTICLE_FIGURES:
+            fs = figures.spec(name)
+            with self.subTest(figure=name):
+                self.assertNotIn("psmc-rs 0.", fs.title)
+                for t in self._draw(fs.module).findobj(Text):
+                    self.assertNotIn("psmc-rs 0.", t.get_text())
+
     def test_cli_lists_and_skips_figures_without_tables(self):
         from experiment.pipeline.figures.__main__ import main
 
