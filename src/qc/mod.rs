@@ -823,42 +823,54 @@ impl Counts {
 
     /// Count the bins of one sequence, held in `rows`, with their callable
     /// bases `counts` (row for row) when the input records them.
+    ///
+    /// The bins are taken run by run; a run of missing or of called bins
+    /// can continue from one row into the next.
     fn scan(rows: &[Vec<u8>], counts: Option<&[BinCounts]>) -> Result<Self> {
-        let mut c = [0u64; 3];
-        let (mut run, mut best, mut best_end) = (0u64, 0u64, 0u64);
+        let mut out = Self::default();
+        let (mut missing_run, mut called_run) = (0u64, 0u64);
+        // Whether a missing run comes before the called run.
+        let mut after_missing = false;
         let mut pos = 0u64;
-        let (mut next_to_missing, mut prev, mut prev_counted) = (0u64, None, false);
         for row in rows {
-            for &b in row {
-                let class = b.min(2);
-                c[usize::from(class)] += 1;
-                // A called bin after an N, and one before an N not counted yet.
-                let counted = class != 2 && prev == Some(2);
-                if counted || (class == 2 && prev.is_some_and(|p| p != 2) && !prev_counted) {
-                    next_to_missing += 1;
-                }
-                (prev, prev_counted) = (Some(class), counted);
-                if class == 2 {
-                    run += 1;
-                    if run > best {
-                        best = run;
-                        best_end = pos;
+            let mut rest = row.as_slice();
+            while let Some(&first) = rest.first() {
+                let missing = first >= 2;
+                let len = rest
+                    .iter()
+                    .position(|&b| (b >= 2) != missing)
+                    .unwrap_or(rest.len());
+                let (run, tail) = rest.split_at(len);
+                rest = tail;
+                let len = len as u64;
+                pos += len;
+                if missing {
+                    out.n += len;
+                    // The called run before borders this missing run with
+                    // its last bin, and the missing run before it with its
+                    // first.
+                    out.next_to_missing += called_run.min(1 + u64::from(after_missing));
+                    called_run = 0;
+                    missing_run += len;
+                    // Only a longer run replaces the first longest one.
+                    if missing_run > out.longest_run {
+                        out.longest_run = missing_run;
+                        out.longest_run_start = pos - missing_run;
                     }
                 } else {
-                    run = 0;
+                    let k = run.iter().filter(|&&b| b == 1).count() as u64;
+                    out.k += k;
+                    out.t += len - k;
+                    if called_run == 0 {
+                        after_missing = missing_run > 0;
+                    }
+                    missing_run = 0;
+                    called_run += len;
                 }
-                pos += 1;
             }
         }
-        let mut out = Self {
-            t: c[0],
-            k: c[1],
-            n: c[2],
-            next_to_missing,
-            longest_run: best,
-            longest_run_start: if best > 0 { best_end + 1 - best } else { 0 },
-            ..Self::default()
-        };
+        // A called run at the end borders only the missing run before it.
+        out.next_to_missing += called_run.min(u64::from(after_missing));
         if let Some(counts) = counts {
             if counts.len() != rows.len() {
                 bail!(
