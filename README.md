@@ -710,8 +710,29 @@ bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
 at 21 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
 of eight copies of it (19.9 M bins). `--batch-size` is no longer needed
-for memory. Sequences are processed in parallel, so `--threads` helps
-inputs of many sequences; a single long sequence runs on one thread.
+for memory.
+
+Sequences are processed in parallel. While at least half the threads have
+no sequence to process (an input of fewer sequences than threads, or the
+last sequences of one), the E-step's backward pass over each sequence of
+more than 16 segments (2,048 bins) is pipelined over the free threads: one
+thread runs the backward recursion over 16 segments while the others
+recompute the forward vectors of the 16 before them and sum the expected
+transitions of the 16 after them, each segment on its own, and the sums
+are added in the order one thread adds them, so the results are the same to
+the bit. The forward pass stays on one thread. So a single sequence runs
+about twice as fast on 4 threads or more (the thread that reports progress
+counts as busy) with 64 states, and 1.4 times with 23, though more than 8
+threads gain less. On an AMD EPYC 7702, with E3's options (below), 1 M
+bins of a human chromosome took 17.5 s on 1 thread, and 17.3 s on 8 or 16
+threads before, 9.4 s on 8 and 11.5 s on 16 now; three such sequences on 8
+and 16 threads took 17.5 s and 17.7 s before, 14.5 s and 13.3 s now. Each
+sequence whose backward pass is pipelined holds three blocks of 16
+segments' forward vectors and backward weights and the transition sums of
+16 segments, 98,688 × n + 128 × n² + 61,440 bytes for n states rounded up
+to a multiple of 8: 6.9 MB with 64 states, 2.5 MB with 23. The threads
+waiting for work between blocks take CPU time: a single sequence on 8
+threads takes about 1.5 times the CPU time of one thread.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
@@ -721,12 +742,15 @@ average 1 to 6); wall time and peak resident memory from `/usr/bin/time -l`:
 | input | EM iterations | threads | psmc-rs 0.2 | C psmc 0.6.5 (`-O1`) |
 | --- | --- | --- | --- | --- |
 | Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 24.7 s, 21 MB | 312 s, 2.63 GB |
-| | 20 | 8 | 24.9 s, 22 MB | |
+| | 20 | 8 | 11.3 s, 32 MB | |
 | HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 44.2 s, 87 MB | 588 s, 3.40 GB |
-| | 5 | 8 | 9.9 s, 96 MB | |
+| | 5 | 8 | 9.4 s, 117 MB | |
 
 The psmc-rs 0.2 figure for the first row is the median of three runs
-(24.7 to 24.8 s); C psmc is single-threaded.
+(24.7 to 24.8 s); C psmc is single-threaded. The rows on 8 threads are
+medians of three runs at load averages of 7 to 16, against 23.7 s, 19 MB
+and 10.6 s, 98 MB for the same build without the pipelined backward pass
+(alternated with it).
 The JSON outputs at 1 and 8 threads were byte-identical.
 
 The manuscript's experiment E3 timed the tools under a controlled protocol

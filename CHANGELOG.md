@@ -697,6 +697,32 @@ Reproduction package (`experiment/`):
   200 Mb genome in 500 sequences peaks at 81 MB, against 163 MB when every
   item's sums were held, and at 103 MB with the callable bases of each bin,
   whose sums take one row per count (307 MB when held).
+- A sequence no longer runs on one thread while others have nothing to do:
+  while at least half the threads have no sequence to process, the
+  E-step's backward pass over a sequence of more than 2,048 bins is
+  pipelined over the free threads, one thread running the backward
+  recursion over 16 segments of 128 bins while the others recompute the
+  forward vectors of the 16 segments before them and sum the expected
+  transitions of the 16 after them, each segment on its own; the sums are
+  added in the order one thread adds them, so every result is unchanged,
+  to the bit, with any `--threads` and `--batch-size`. With
+  `4+25*2+4+6` on an Apple M1 Pro, Papuan chr1 (one sequence of 2.49 M
+  bins) took 11.3 s for 20 EM iterations on 8 threads instead of 23.7 s,
+  and NA12878's chr1 2.07 s for 3 on 4 threads and 1.92 s on 8 instead of
+  3.6 s (1.4 times as fast with the default 23 states); on an AMD EPYC
+  7702 with E3's options, 1 M bins of a human chromosome took 9.4 s on 8
+  threads and 11.5 s on 16 instead of 17.3 s, and three such sequences
+  14.5 s and 13.3 s instead of 17.5 s and 17.7 s. On one thread, and while
+  the sequences keep the threads busy, nothing changes: the turtle genome
+  (1,220 scaffolds) took as long as before on 1 and 8 threads, the human
+  genome on 8 threads 3.75 s against 3.88 s, and a bootstrap of 20
+  replicates on 8 threads 0.89 s against 0.88 s (medians of five to six
+  alternated runs at load averages of 4 to 27). A pipelined sequence holds
+  6.9 MB more with 64 states (2.5 MB with 23), at most half the threads'
+  sequences at a time: the human genome on 8 threads peaked at 129 MB
+  instead of 111 MB, the bootstrap at 42 MB instead of 17 MB. The threads
+  waiting for work between blocks take CPU time, about 1.5 times one
+  thread's for a single sequence on 8 threads.
 - The x86-64 release binaries run the E-step, the log-likelihood and TMRCA
   decoding with AVX2 and FMA on CPUs that have them (Intel Core since
   Haswell, 2013, though some later Pentium, Celeron and Atom models lack
