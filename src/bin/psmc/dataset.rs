@@ -323,16 +323,16 @@ pub fn resolve_input_path(path: &Path, fmt: FormatArg) -> Result<PathBuf> {
     })
 }
 
-/// [`load`], naming the input in the error unless the reader's error does,
-/// and with the option to use when the automatic depth bounds cannot read
-/// a pipe twice.
+/// [`load`], naming the input in the error unless the reader's error does
+/// (the readers quote it, as `{path:?}`), and with the option to use when
+/// the automatic depth bounds cannot read a pipe twice.
 pub fn load_input(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     load(path, opts).map_err(|e| {
-        let shown = path.display().to_string();
-        let e = if e.chain().any(|cause| cause.to_string().contains(&shown)) {
+        let quoted = format!("{path:?}");
+        let e = if e.chain().any(|cause| cause.to_string().contains(&quoted)) {
             e
         } else {
-            e.context(format!("failed to read the input {shown}"))
+            e.context(format!("failed to read the input {}", path.display()))
         };
         let two_passes = opts.consensus.depth == DepthThresholds::Auto
             && !path.is_file()
@@ -532,6 +532,30 @@ mod tests {
         );
         let file = dir.join("notes.txt");
         assert_eq!(resolve_input_path(&file, FormatArg::Auto).unwrap(), file);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// The input is named in the error unless the reader quotes its path:
+    /// a sample name that holds the path does not name it.
+    #[test]
+    fn errors_name_the_input() {
+        let dir = std::env::temp_dir().join(format!("psmc_rs_load_error_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("in.vcf");
+        fs::write(
+            &path,
+            "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
+        )
+        .unwrap();
+        let shown = path.display().to_string();
+        let argv = ["psmc-rs", "in", "out", "1", "--vcf-mode", "consensus"];
+        let cli = crate::cli::Cli::try_parse_args(argv.into_iter().chain(["--vcf-sample", &shown]))
+            .unwrap();
+        let err = load_input(&path, &cli.infer.input.to_options()).unwrap_err();
+        assert_eq!(
+            format!("{err:#}"),
+            format!("failed to read the input {shown}: VCF sample '{shown}' not found in header")
+        );
         let _ = fs::remove_dir_all(dir);
     }
 

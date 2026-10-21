@@ -229,9 +229,8 @@ fn a_truncated_bgzip_multihetsep_is_not_blamed_on_the_format_guess() {
         bgzf(&[first.as_bytes(), rest.as_bytes()], false),
     );
     let err = load(&mhs, &InputOptions::default()).unwrap_err();
-    assert!(
-        !format!("{err:#}").contains("recognised from the first line"),
-        "{err:#}"
-    );
+    let msg = format!("{err:#}");
+    assert!(!msg.contains("recognised from the first line"), "{msg}");
+    assert_eq!(msg.matches(&format!("{mhs:?}")).count(), 1, "{msg}");
     assert_truncated(err);
 }

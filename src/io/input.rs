@@ -946,7 +946,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
             // an error that suggests another format says how the format
             // was chosen.
             let (seqs, summary) =
-                read_mhs_seqs_from(input.into_reader(), path, &mhs_opts, opts.collect_het_sites)
+                read_mhs_seqs_from(input.into_reader(), &mhs_opts, opts.collect_het_sites)
                     .map_err(|e| {
                         let guessed = if opts.format.is_none() && e.maybe_other_format {
                             " (the format was recognised from the first line, which does not \

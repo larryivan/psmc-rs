@@ -186,8 +186,9 @@ pub fn read_mhs(path: &Path, batch_size: Option<usize>, bin_size: usize) -> Resu
 /// indel (it joins multi-character VCF alleles), which would shift the pair.
 pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
     check_options(opts)?;
-    let (seqs, _) =
-        read_mhs_seqs_from(open_reader(path)?, path, opts, false).map_err(|e| e.error)?;
+    let (seqs, _) = read_mhs_seqs_from(open_reader(path)?, opts, false)
+        .map_err(|e| e.error)
+        .with_context(|| format!("failed to read multihetsep {path:?}"))?;
     let seqs = Sequences::of_binned(opts.bin_size, seqs);
     chunk_sequences(seqs, opts.batch_size, "no valid mhs rows found in input")
 }
@@ -248,22 +249,19 @@ pub(crate) struct MhsReadError {
 }
 
 /// Read every chromosome of a multihetsep input as [`read_mhs_with`] does,
-/// without chunking; `path` names the input in messages. With
+/// without chunking; the caller names the input in messages. With
 /// `collect_het`, each sequence carries the sites where the pair is
 /// heterozygous, with `nr_called` counted over the sites binned as called
 /// for the pair.
 pub(crate) fn read_mhs_seqs_from(
     reader: impl BufRead,
-    path: &Path,
     opts: &MhsOptions,
     collect_het: bool,
 ) -> Result<(Vec<BinnedSeq>, MhsSummary), MhsReadError> {
     let mut maybe_other_format = false;
-    read_rows(reader, path, opts, collect_het, &mut maybe_other_format).map_err(|error| {
-        MhsReadError {
-            error,
-            maybe_other_format,
-        }
+    read_rows(reader, opts, collect_het, &mut maybe_other_format).map_err(|error| MhsReadError {
+        error,
+        maybe_other_format,
     })
 }
 
@@ -271,7 +269,6 @@ pub(crate) fn read_mhs_seqs_from(
 /// [`MhsReadError::maybe_other_format`] says before it fails.
 fn read_rows(
     mut reader: impl BufRead,
-    path: &Path,
     opts: &MhsOptions,
     collect_het: bool,
     maybe_other_format: &mut bool,
@@ -295,7 +292,7 @@ fn read_rows(
         *maybe_other_format = summary.rows == 0;
         let bytes = reader
             .read_line(&mut line)
-            .with_context(|| format!("failed to read {path:?}"))?;
+            .with_context(|| format!("failed to read mhs row {}", row_no + 1))?;
         if bytes == 0 {
             break;
         }

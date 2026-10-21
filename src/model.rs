@@ -69,7 +69,7 @@ impl PsmcModel {
             Some(spec) => {
                 let n_states = n_states_of_spec(spec);
                 if n_states < 2 {
-                    bail!("pattern implies {n_states} state(s); at least 2 are needed");
+                    bail!("pattern has only 1 interval; at least 2 are needed");
                 }
                 // Compatibility shim: callers used to pass the state count here.
                 if n_steps != n_states - 1 && n_steps != n_states {
@@ -837,7 +837,7 @@ impl ThetaCounts {
 pub fn n_steps_for_pattern(pattern: &str) -> Result<usize> {
     let n_states = n_states_of_spec(&parse_pattern(pattern)?);
     if n_states < 2 {
-        bail!("pattern {pattern:?} implies {n_states} state(s); at least 2 are needed");
+        bail!("pattern has only 1 interval; at least 2 are needed");
     }
     Ok(n_states - 1)
 }
@@ -886,12 +886,8 @@ fn parse_pattern(pattern: &str) -> Result<Vec<(usize, usize)>> {
     });
     match n_states {
         Some(n) if n <= MAX_STATES => Ok(out),
-        Some(n) => {
-            bail!("pattern {pattern:?} implies {n} states; at most {MAX_STATES} are supported")
-        }
-        None => {
-            bail!("pattern {pattern:?} implies too many states; at most {MAX_STATES} are supported")
-        }
+        Some(n) => bail!("pattern has {n} intervals; at most {MAX_STATES} are supported"),
+        None => bail!("pattern has too many intervals; at most {MAX_STATES} are supported"),
     }
 }
 
