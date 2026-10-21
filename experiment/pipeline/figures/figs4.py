@@ -35,8 +35,7 @@ from typing import List, Tuple
 
 from . import style
 from .data import Source, fmt_sig
-from .fig4 import (MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xaxis, fmt_mib, fmt_seconds, formatter,
-                   log_ticks, medians)
+from .fig4 import MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xaxis, fmt_mib, formatter, log_ticks, medians
 
 TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
 TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
@@ -104,7 +103,7 @@ def draw(src: Source):
         medians(ax_t, default["threads"], default["wall_median_s"], dent, MS)
         walls += list(default["wall_median_s"])
     thread_axis(ax_t, t)
-    log_ticks(ax_t, *decade_span(walls), TIME_TICKS, fmt_seconds)
+    log_ticks(ax_t, *decade_span(walls), TIME_TICKS, style.fmt_seconds)
     ax_t.set_ylabel(f"Wall time, {size:,} Mb")
     style.value_grid(ax_t)
 
@@ -144,7 +143,7 @@ def draw(src: Source):
     handles = [style.handle(style.RS02, kind="both", label="psmc-rs 0.2")]
     if not default.empty:
         handles.append(style.handle(dent, kind="both"))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
+    style.key_above(fig, handles)
     style.panel_letters(fig, [ax_t, ax_e, ax_m, ax_d])
     return fig
 

@@ -104,10 +104,9 @@ def draw(src):
               label=f"{lo_q:.0%}-{hi_q:.0%} of its genomes"),
         Line2D([], [], color=style.BLUE_650, linewidth=style.LW_THIN,
                label=vcf_label({int(n) for n in pops[pops.route == "rs-vcf"].n})),
-        Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"),
+        style.outside_handle(),
     ]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=2, columnspacing=1.5,
-                 handlelength=2.2)
+    style.key_above(fig, handles, ncol=2, handlelength=2.2)
     style.panel_letters(fig, axes)
     return fig
 

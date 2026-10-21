@@ -98,9 +98,7 @@ def draw(src: Source):
         style.shade_outside(ax, windows[m], xlim)
         for tool, ent in (("c", style.C_PSMC), ("rs", style.RS02)):
             for c in of(m, tool):
-                x, y = style.step_xy(c.years, c.ne, xlim)
-                ax.plot(x, y, drawstyle="steps-post", color=style.tint(ent.color), linewidth=style.LW_THIN,
-                        zorder=2)
+                style.curve_line(ax, c, xlim, color=style.tint(ent.color), linewidth=style.LW_THIN, zorder=2)
         for tool, ent, lw, z in (("c", style.C_PSMC, C_MEDIAN_LW, 4), ("rs", style.RS02, RS_MEDIAN_LW, 5)):
             ax.plot(grid, median(of(m, tool), grid), drawstyle="steps-post", color=ent.color, linewidth=lw, zorder=z)
         ax.plot(*truths[m], **style.truth_kw(zorder=6))
@@ -125,8 +123,7 @@ def draw(src: Source):
         style.handle(style.RS02, linewidth=style.LW_DATA, color=style.tint(style.RS02.color),
                      label="psmc-rs 0.2, one replicate"),
     ]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
-                 columnspacing=1.0)
+    style.key_above(fig, handles, columnspacing=1.0)
     style.panel_letters(fig, [*top, *mid, bottom])
     return fig
 

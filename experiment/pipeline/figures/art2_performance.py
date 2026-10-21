@@ -95,14 +95,6 @@ def fmt_time(seconds: float) -> str:
     return f"{minutes / 60.0:.1f} h"
 
 
-def fmt_tick(seconds: float) -> str:
-    """A time tick: 10 s, 1 min, 10 min, 1 h."""
-    for unit, size in (("h", 3600.0), ("min", 60.0)):
-        if seconds >= size * 0.999:
-            return f"{seconds / size:g} {unit}"
-    return f"{seconds:g} s"
-
-
 def fmt_fold(x: float) -> str:
     """A fold change: 8.6×, 17×, 243×, 7,000×."""
     return f"{x:.1f}{style.TIMES}" if x < 10 else f"{x:,.0f}{style.TIMES}"
@@ -195,7 +187,7 @@ def _panel_time(ax, th, wall, sp, c_wall: Optional[float], c_frac: Optional[floa
             hi = max(lo * (c_wall / lo) ** (1.0 / c_frac), c_wall * A_ROOM)
         ax.set_ylim(lo, hi)
         ax.yaxis.set_major_locator(FixedLocator([t for t in TIME_TICKS if lo <= t <= hi]))
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: fmt_tick(v)))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: style.fmt_seconds(v)))
     ax.yaxis.set_minor_locator(NullLocator())
     ax.set_ylabel("Wall time")
     _programs(ax, th, wall, c_wall)

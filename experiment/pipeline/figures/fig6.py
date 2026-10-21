@@ -93,19 +93,6 @@ NOMINAL_DROP = 2.0  # c's 'Nominal 95%' hangs this many points of coverage below
 TOL = 1e-9  # recomputed coverages against E5_summary
 
 
-def _centred_dash(dash, lw: float = style.LW_DATA):
-    """``dash`` started at the phase that centres it on a key handle, so both ends are equal part-dashes.
-
-    The rule of Fig 1's truth handle (``art1_agreement``): matplotlib scales a
-    pattern and its offset by the line's width, and the handle is
-    ``LEGEND_KW['handlelength']`` ems of 7 pt long. Unshifted, a's 12.6 pt
-    handle would end in a 0.6 pt stub that reads as a dot.
-    """
-    on, off = dash[1][0] * lw, dash[1][1] * lw
-    length = style.LEGEND_KW["handlelength"] * style.TEXT_PT
-    return (((on - length) / 2.0) % (on + off) / lw, dash[1])
-
-
 def _arm_colors(arms: Sequence[int]) -> Dict[int, str]:
     """The most blocks blue, the fewest light blue (``style.TRUNK_COLORS``)."""
     last = len(style.TRUNK_COLORS) - 1
@@ -269,7 +256,7 @@ def _panel_a(ax, sampling, example, color: str) -> None:
     style.ne_axis(ax, (floor, top))
 
     fits = int(sampling["fits"].iloc[0])
-    keys: List = [style.handle(style.TRUTH, linestyle=_centred_dash(style.DASH))]
+    keys: List = [style.handle(style.TRUTH, linestyle=style.centred_dash(style.DASH))]
     labels = ["Truth"]
     if has_fit:
         fit_key = style.overlay_kw(color)

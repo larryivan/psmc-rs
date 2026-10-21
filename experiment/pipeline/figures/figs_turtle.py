@@ -56,8 +56,6 @@ def note_lines(rows) -> List[str]:
 
 
 def draw(src: Source):
-    from matplotlib.patches import Patch
-
     cfg = src.profile.e2
     fits = curves(src.table("E2_split_curves"), ["sample_id", "pattern_name"])
     table = src.table("E2_split_patterns")
@@ -88,9 +86,8 @@ def draw(src: Source):
             c = fits.get((sid, name))
             if c is None:
                 continue
-            x, y = style.step_xy(c.years, c.ne, xlim)
-            ax.plot(x, y, drawstyle="steps-post", color=ents[name].color, linestyle=ents[name].linestyle,
-                    linewidth=width[name], zorder=3 if name == "default" else 4)
+            style.curve_line(ax, c, xlim, color=ents[name].color, linestyle=ents[name].linestyle,
+                             linewidth=width[name], zorder=3 if name == "default" else 4)
             ne = c.at(grid)
             vals += [float(ne.min()), float(ne.max())]
         lines = note_lines(rows[sid])
@@ -105,9 +102,8 @@ def draw(src: Source):
         style.note(ax, 0.97, 0.03, "\n".join(lines), ha="right", va="bottom", linespacing=1.25, zorder=7)
 
     handles = [style.handle(e, linewidth=width[k]) for k, e in ents.items()]
-    handles.append(Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
-                 columnspacing=1.0, handlelength=2.6)
+    handles.append(style.outside_handle())
+    style.key_above(fig, handles, columnspacing=1.0, handlelength=2.6)
     style.panel_letters(fig, axes)
     return fig
 

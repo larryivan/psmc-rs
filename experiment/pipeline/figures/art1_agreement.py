@@ -333,12 +333,6 @@ def _columns(labels: Sequence[float], overhang: Sequence[float]) -> Tuple[List[f
     return cols, w
 
 
-def _place(ax, x: float, y: float, w: float, h: float) -> None:
-    """Move ``ax`` to ``x`` mm right and ``y`` mm down from the figure's top-left corner, ``w`` x ``h`` mm."""
-    fw, fh = ax.figure.get_figwidth() / style.MM, ax.figure.get_figheight() / style.MM
-    ax.set_position((x / fw, 1.0 - (y + h) / fh, w / fw, h / fh))
-
-
 def _layout_top(fig, axs, drawn: Sequence[bool]) -> Tuple[List[float], float]:
     """Place a-d with equal widths and equal clear white; return their left spines and a's ink left of its spine.
 
@@ -360,7 +354,7 @@ def _layout_top(fig, axs, drawn: Sequence[bool]) -> Tuple[List[float], float]:
         overhang.append(max(0.0, ink.x1 / fig.dpi / style.MM - pos.x1 * fw))
     cols, pw = _columns(labels, overhang)
     for ax, x in zip(axs, cols):
-        _place(ax, x, ROW_TOP_MM, pw, ROW_H_MM)
+        style.place_mm(ax, x, ROW_TOP_MM, pw, ROW_H_MM)
     return cols, labels[0]
 
 
@@ -477,17 +471,6 @@ def _fold_arrow(ax, dif: float, err: float, fold: float) -> None:
                 zorder=style.Z_TEXT)
 
 
-def _centred_dash(dash, lw: float = style.LW_DATA):
-    """``dash`` started at the phase that centres it on a legend handle, so both ends are equal part-dashes.
-
-    matplotlib scales a pattern and its offset by the line's width; the
-    handle is ``LEGEND_KW['handlelength']`` ems of 7 pt long.
-    """
-    on, off = dash[1][0] * lw, dash[1][1] * lw
-    length = style.LEGEND_KW["handlelength"] * style.TEXT_PT
-    return (((on - length) / 2.0) % (on + off) / lw, dash[1])
-
-
 def draw(src: Source):
     from matplotlib.patches import Patch
     from matplotlib.ticker import NullLocator
@@ -559,7 +542,7 @@ def draw(src: Source):
     renderer = fig.canvas.get_renderer()
     col_w = max((t.get_window_extent(renderer).width / fig.dpi / style.MM for t in names), default=0.0)
     e_x = head_x + col_w + E_LABEL_GAP_MM
-    _place(ax_e, e_x, E_TOP_MM, RIGHT_EDGE_MM - e_x, E_H_MM)
+    style.place_mm(ax_e, e_x, E_TOP_MM, RIGHT_EDGE_MM - e_x, E_H_MM)
     for t in names:
         t.set_x((e_x - E_LABEL_GAP_MM) / fw)
     if SLOT_SIM in medians and SLOT_ERR_RS in medians:  # the ratio of the medians the arrow joins
@@ -572,8 +555,9 @@ def draw(src: Source):
     ax_e.set_xlabel("RMSE of " + style.LOGNE)
 
     # ------------------------------------------------------------------ key, x label, letters
-    handles = [style.handle(style.TRUTH, linestyle=_centred_dash(style.DASH)), style.handle(style.C_PSMC, "underlay"),
-               style.handle(style.RS02), Patch(facecolor=style.FILL, linewidth=0.0, label="Spread of estimates")]
+    handles = [style.handle(style.TRUTH, linestyle=style.centred_dash(style.DASH)),
+               style.handle(style.C_PSMC, "underlay"), style.handle(style.RS02),
+               Patch(facecolor=style.FILL, linewidth=0.0, label="Spread of estimates")]
     leg = style.top_legend(fig, handles, x_mm=L_MM)
     drawn = [ax for ax, p in zip(axs, panels) if p is not None]
     if drawn:

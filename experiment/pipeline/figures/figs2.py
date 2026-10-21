@@ -91,10 +91,8 @@ def draw(src: Source):
             c = fits.get((m, i))
             if c is None:
                 continue
-            ent = FORMATS[i]
-            x, y = style.step_xy(c.years, c.ne, xlim)
-            ax.plot(x, y, drawstyle="steps-post", color=ent.color, linestyle=ent.linestyle,
-                    linewidth=FORMAT_LW.get(i, style.LW_DATA), zorder=FORMAT_Z.get(i, 3))
+            style.curve_line(ax, c, xlim, color=FORMATS[i].color, linestyle=FORMATS[i].linestyle,
+                             linewidth=FORMAT_LW.get(i, style.LW_DATA), zorder=FORMAT_Z.get(i, 3))
         ax.plot(*truths[m], **style.truth_kw())
         style.years_axis(ax, xlim, label=False)
         style.ne_axis(ax, ylim, label=style.NE_LABEL if j == 0 else None)
@@ -118,7 +116,7 @@ def draw(src: Source):
 
     handles = [style.handle(FORMATS[i], linewidth=FORMAT_LW.get(i, style.LW_DATA)) for i in inputs]
     handles.append(style.handle(style.TRUTH))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles))
+    style.key_above(fig, handles)
     style.panel_letters(fig, [*top, *bottom])
     return fig
 

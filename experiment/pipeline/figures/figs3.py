@@ -80,7 +80,7 @@ def _track_panel(fig, ax, track) -> None:
                Patch(facecolor=style.BLUE, alpha=style.BAND_ALPHA, linewidth=0, label="95% posterior interval"),
                Line2D([], [], color=style.REF, linestyle="none", marker="|", markersize=4, markeredgewidth=0.6,
                       label="Heterozygous bin")]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
+    style.key_above(fig, handles)
 
 
 def _density_panel(fig, ax, dens, overall) -> None:

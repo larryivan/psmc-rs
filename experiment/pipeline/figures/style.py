@@ -416,6 +416,11 @@ def step_line(ax, years: Sequence[float], ne: Sequence[float], **kw):
     return ax.plot(years, ne, **{"drawstyle": "steps-post", "solid_capstyle": "butt", "solid_joinstyle": "miter", **kw})
 
 
+def curve_line(ax, curve, xlim: Tuple[float, float], **kw):
+    """Draw a fitted curve (``curve.years``, ``curve.ne``: :class:`..results.Curve`) across ``xlim``."""
+    return step_line(ax, *step_xy(curve.years, curve.ne, xlim), **kw)
+
+
 def step_xy(years: Sequence[float], ne: Sequence[float], xlim: Tuple[float, float]):
     """Coordinates of a PSMC step curve for ``drawstyle='steps-post'`` within ``xlim``.
 
@@ -559,10 +564,19 @@ def grid(fig, nrows: int, ncols: int, *, left_mm: float = LEFT_MM, right_mm: flo
                             height_ratios=list(height_ratios or [1.0] * nrows))
 
 
+def _rect_mm(fig, x: float, y: float, w: float, h: float) -> Tuple[float, float, float, float]:
+    fw, fh = _fig_mm(fig)
+    return x / fw, 1.0 - (y + h) / fh, w / fw, h / fh
+
+
 def axes_mm(fig, x: float, y: float, w: float, h: float):
     """Axes whose top-left corner is ``x`` mm right of and ``y`` mm down from the figure's, ``w`` x ``h`` mm."""
-    fw, fh = _fig_mm(fig)
-    return fig.add_axes((x / fw, 1.0 - (y + h) / fh, w / fw, h / fh))
+    return fig.add_axes(_rect_mm(fig, x, y, w, h))
+
+
+def place_mm(ax, x: float, y: float, w: float, h: float) -> None:
+    """Move ``ax`` as :func:`axes_mm` places a new one."""
+    ax.set_position(_rect_mm(ax.figure, x, y, w, h))
 
 
 def fig_text(fig, x_mm: float, y_mm: float, text: str, **kw):
@@ -604,6 +618,14 @@ def plain_formatter():
     from matplotlib.ticker import FuncFormatter
 
     return FuncFormatter(lambda v, _pos: fmt_num(v))
+
+
+def fmt_seconds(v: float) -> str:
+    """A run time's tick label: 10 s, 1 min, 10 min, 1 h."""
+    for unit, size in (("h", 3600.0), ("min", 60.0)):
+        if v >= size * 0.999:
+            return f"{v / size:g} {unit}"
+    return f"{v:g} s"
 
 
 def narrow_log_span(lo: float, hi: float) -> bool:
@@ -714,6 +736,13 @@ def shade_outside(ax, window: Tuple[float, float], lim: Tuple[float, float]) -> 
         ax.axvspan(hi, lim[1], color=FILL, linewidth=0, zorder=0)
 
 
+def outside_handle(label: str = "Outside the comparison window"):
+    """The legend handle of :func:`shade_outside`'s grey."""
+    from matplotlib.patches import Patch
+
+    return Patch(facecolor=FILL, linewidth=0, label=label)
+
+
 def ref_line(ax, y: float, **kw) -> None:
     """A horizontal reference line (zero difference, ratio one, nominal coverage): 0.5 pt :data:`REF`."""
     ax.axhline(y, **{"color": REF, "linewidth": LW_THIN, "linestyle": "-", "zorder": Z_REF, **kw})
@@ -746,6 +775,12 @@ def legend(ax_or_fig, handles: Sequence, labels: Optional[Sequence[str]] = None,
     if labels is None:
         labels = [h.get_label() for h in handles]
     return ax_or_fig.legend(list(handles), list(labels), **{**LEGEND_KW, **kw})
+
+
+def key_above(fig, handles: Sequence, labels: Optional[Sequence[str]] = None, **kw):
+    """The key of a pipeline-only figure: centred at its top, on one line unless ``ncol`` says otherwise."""
+    return legend(fig, handles, labels, **{"loc": "upper center", "bbox_to_anchor": (0.5, 1.0), "ncol": len(handles),
+                                           **kw})
 
 
 def top_legend(fig, handles: Sequence, labels: Optional[Sequence[str]] = None, *, ax=None,
@@ -785,6 +820,18 @@ def handle(entity: Entity, kind: str = "line", **kw):
     else:
         raise ValueError(f"unknown handle kind {kind!r}")
     return Line2D([], [], **{**style, **kw})
+
+
+def centred_dash(dash, lw: float = LW_DATA):
+    """``dash`` started at the phase that centres it on a legend handle, so both ends are equal part-dashes.
+
+    matplotlib scales a pattern and its offset by the line's width; the
+    handle is ``LEGEND_KW['handlelength']`` ems of 7 pt long. Unshifted, the
+    truth's 12.6 pt handle would end in a 0.6 pt stub that reads as a dot.
+    """
+    on, off = dash[1][0] * lw, dash[1][1] * lw
+    length = LEGEND_KW["handlelength"] * TEXT_PT
+    return (((on - length) / 2.0) % (on + off) / lw, dash[1])
 
 
 # ---------------------------------------------------------------------------

@@ -80,13 +80,6 @@ def formatter(fn):
     return FuncFormatter(lambda v, _pos: fn(v) if v > 0 else "")
 
 
-def fmt_seconds(v: float) -> str:
-    for unit, size in (("h", 3600.0), ("min", 60.0)):
-        if v >= size * 0.999:
-            return f"{v / size:g} {unit}"
-    return f"{v:g} s"
-
-
 def fmt_mib(v: float) -> str:
     return f"{v / 1024:g} GB" if v >= 1024 * 0.999 else f"{v:g} MB"
 
@@ -198,7 +191,7 @@ def draw(src: Source):
     chromosomes = chromosome_counts(table2)
     threads = tool_threads(src.profile.e3)
     for ax, median_col, run_col, ticks, fmt, label in (
-            (ax_t, "wall_median_s", "wall_seconds", TIME_TICKS, fmt_seconds,
+            (ax_t, "wall_median_s", "wall_seconds", TIME_TICKS, style.fmt_seconds,
              f"Wall time, {src.profile.e3.inference.n_iter} EM iterations"),
             (ax_m, "peak_rss_median_mb", "peak_rss_mb", MEM_TICKS, fmt_mib, "Peak memory (RSS)")):
         notes = draw_metric(ax, table2, runs, median_col, run_col, threads)
@@ -210,10 +203,10 @@ def draw(src: Source):
     speedup_panel(ax_s, table2, sizes, threads, chromosomes)
 
     handles = [style.handle(ent, kind="both") for _, _, ent in series(table2, threads)]
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=4)
+    style.key_above(fig, handles, ncol=4)
     style.panel_letters(fig, [ax_t, ax_m, ax_s])
     return fig
 
 
-__all__ = ["chromosome_counts", "draw", "fixed_log_xaxis", "fmt_mib", "fmt_seconds", "formatter", "log_ticks",
-           "medians", "series", "size_axis", "tool_threads"]
+__all__ = ["chromosome_counts", "draw", "fixed_log_xaxis", "fmt_mib", "formatter", "log_ticks", "medians", "series",
+           "size_axis", "tool_threads"]

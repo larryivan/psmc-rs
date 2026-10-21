@@ -184,9 +184,8 @@ def _legend(fig, cfg: config.E2, boots) -> None:
     if not fine.empty:
         handles.append(Line2D([], [], color=style.BLUE_650, linewidth=FINE_LW, linestyle=FINE_STYLE,
                               label=f"Bootstrap 95% band, {float(fine['trunk_mb'].iloc[0]):g} Mb blocks"))
-    handles.append(Patch(facecolor=style.FILL, linewidth=0, label="Outside the comparison window"))
-    style.legend(fig, handles, loc="upper center", bbox_to_anchor=(0.5, 1.0), ncol=len(handles),
-                 columnspacing=1.0, handlelength=2.0)
+    handles.append(style.outside_handle())
+    style.key_above(fig, handles, columnspacing=1.0, handlelength=2.0)
 
 
 def draw(src: Source):
@@ -219,8 +218,7 @@ def draw(src: Source):
             c = fits.get((sid, tool))
             if c is None:
                 continue
-            x, y = style.step_xy(c.years, c.ne, xlim)
-            ax.plot(x, y, drawstyle="steps-post", color=ent.color, linewidth=lw, zorder=z)
+            style.curve_line(ax, c, xlim, color=ent.color, linewidth=lw, zorder=z)
             ne = c.at(grid)
             vals += [float(ne.min()), float(ne.max())]
         sc = summary.get(sid)
