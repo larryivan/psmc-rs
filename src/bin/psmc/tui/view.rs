@@ -6,7 +6,8 @@ use ratatui::widgets::{
     Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Paragraph, Tabs, Wrap,
 };
 
-use super::{App, PickerMode, STAGE_ORDER, StageSnapshot, TuiPage, preview_cmdline};
+use super::picker::PickerMode;
+use super::{App, STAGE_ORDER, StageSnapshot, TuiPage, preview_cmdline};
 use crate::cli::FormatArg;
 use crate::run::Stage;
 

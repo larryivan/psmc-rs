@@ -10,7 +10,6 @@ use crossterm::terminal::{
 };
 use ratatui::prelude::*;
 use std::collections::VecDeque;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,13 +20,17 @@ use std::time::{Duration, Instant};
 
 use psmc_rs::hmm::Cancelled;
 
-use crate::cli::{FormatArg, InferArgs, usage_bail};
-use crate::dataset::is_supported_input_file;
+use crate::cli::{
+    DEFAULT_BIN_SIZE, FormatArg, InferArgs, non_negative_f64, positive_f64, positive_usize,
+    usage_bail, whole_number,
+};
 use crate::output::is_stdout;
 use crate::run::{self, Event, RunSummary, Stage};
 
+mod picker;
 mod view;
 
+use picker::FilePicker;
 use view::render_ui;
 
 const MAX_LOG_LINES: usize = 3_000;
@@ -97,113 +100,6 @@ struct RunningTask {
     rx: Receiver<RunnerEvent>,
     handle: JoinHandle<()>,
     stop: Arc<AtomicBool>,
-}
-
-/// What the file picker picks.
-#[derive(Debug, Clone, Copy)]
-enum PickerMode {
-    /// An input file of this format.
-    Input(FormatArg),
-    /// The directory of the output.
-    OutputDir,
-}
-
-#[derive(Debug, Clone)]
-struct PickerEntry {
-    label: String,
-    path: PathBuf,
-    is_file: bool,
-}
-
-#[derive(Debug, Clone)]
-struct FilePicker {
-    mode: PickerMode,
-    cwd: PathBuf,
-    entries: Vec<PickerEntry>,
-    selected: usize,
-}
-
-impl FilePicker {
-    fn open(mode: PickerMode, cwd: PathBuf) -> Result<Self> {
-        let mut picker = Self {
-            mode,
-            cwd,
-            entries: Vec::new(),
-            selected: 0,
-        };
-        picker.refresh()?;
-        Ok(picker)
-    }
-
-    /// Go to `dir` and list it.
-    fn enter(&mut self, dir: PathBuf) -> Result<()> {
-        self.cwd = dir;
-        self.refresh()
-    }
-
-    /// List the current directory: itself, its parent, its directories and,
-    /// when picking an input, its input files of the format.
-    fn refresh(&mut self) -> Result<()> {
-        let mut dirs = Vec::new();
-        let mut files = Vec::new();
-        for entry in fs::read_dir(&self.cwd)
-            .with_context(|| format!("failed to read directory {}", self.cwd.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
-                dirs.push(PickerEntry {
-                    label: format!("{name}/"),
-                    path,
-                    is_file: false,
-                });
-            } else if let PickerMode::Input(format) = self.mode
-                && path.is_file()
-                && is_supported_input_file(&path, format)
-            {
-                files.push(PickerEntry {
-                    label: name,
-                    path,
-                    is_file: true,
-                });
-            }
-        }
-        dirs.sort_by_key(|e| e.label.to_ascii_lowercase());
-        files.sort_by_key(|e| e.label.to_ascii_lowercase());
-        let dir_entry = |label: &str, path: &Path| PickerEntry {
-            label: label.to_string(),
-            path: path.to_path_buf(),
-            is_file: false,
-        };
-        let here = dir_entry("[use this directory]", &self.cwd);
-        let up = self.cwd.parent().map(|parent| dir_entry("../", parent));
-        self.entries = [here]
-            .into_iter()
-            .chain(up)
-            .chain(dirs)
-            .chain(files)
-            .collect();
-        self.selected = self.selected.min(self.entries.len().saturating_sub(1));
-        Ok(())
-    }
-
-    fn selected_entry(&self) -> Option<&PickerEntry> {
-        self.entries.get(self.selected)
-    }
-
-    fn select_prev(&mut self) {
-        self.selected = match self.selected {
-            0 => self.entries.len().saturating_sub(1),
-            i => i - 1,
-        };
-    }
-
-    fn select_next(&mut self) {
-        if !self.entries.is_empty() {
-            self.selected = (self.selected + 1) % self.entries.len();
-        }
-    }
 }
 
 struct App {
@@ -361,21 +257,6 @@ impl App {
         snap.iter = iter;
         snap.updated_at = Some(now);
     }
-
-    /// Open the file picker for `field`: an input file of the format field's
-    /// format for [`FIELD_INPUT`], the output's directory for
-    /// [`FIELD_OUTPUT`]. It starts in the field's directory.
-    fn open_picker(&mut self, field: usize) -> Result<()> {
-        let mode = match field {
-            FIELD_INPUT => PickerMode::Input(parse_input_format_field(
-                self.field_value(FIELD_INPUT_FORMAT),
-            )?),
-            _ => PickerMode::OutputDir,
-        };
-        let start = infer_picker_dir(self.field_value(field));
-        self.picker = Some(FilePicker::open(mode, start)?);
-        Ok(())
-    }
 }
 
 /// The trimmed value of the field `name`, which must not be empty.
@@ -387,31 +268,21 @@ fn required<'a>(name: &str, v: &'a str) -> Result<&'a str> {
     Ok(s)
 }
 
-fn parse_optional_usize(name: &str, v: &str) -> Result<Option<usize>> {
-    let s = v.trim();
-    if s.is_empty() {
-        return Ok(None);
-    }
-    match s.parse::<usize>() {
-        Ok(0) => bail!("{name} must be >= 1"),
-        Ok(n) => Ok(Some(n)),
-        Err(_) => bail!("{name} must be an integer"),
-    }
+/// The value of the field `name`, read by `parse`, a parser of the command
+/// line's values.
+fn parsed<T>(name: &str, v: &str, parse: fn(&str) -> Result<T, String>) -> Result<T> {
+    parse(required(name, v)?).map_err(|e| anyhow!("{name}: {e}"))
 }
 
-fn parse_positive_f64(name: &str, v: &str) -> Result<f64> {
-    match required(name, v)?.parse::<f64>() {
-        Ok(n) if n.is_finite() && n > 0.0 => Ok(n),
-        Ok(_) => bail!("{name} must be > 0"),
-        Err(_) => bail!("{name} must be a floating-point number"),
-    }
-}
-
-fn parse_non_negative_f64(name: &str, v: &str) -> Result<f64> {
-    match required(name, v)?.parse::<f64>() {
-        Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
-        Ok(_) => bail!("{name} must be 0 or more"),
-        Err(_) => bail!("{name} must be a number"),
+/// [`parsed`] for a field that may be left empty.
+fn parsed_or_none<T>(
+    name: &str,
+    v: &str,
+    parse: fn(&str) -> Result<T, String>,
+) -> Result<Option<T>> {
+    match v.trim() {
+        "" => Ok(None),
+        _ => parsed(name, v, parse).map(Some),
     }
 }
 
@@ -426,16 +297,15 @@ fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     let field = |idx| app.field_value(idx);
     let input = required("Input", field(FIELD_INPUT))?;
     let output = required("Output", field(FIELD_OUTPUT))?;
-    let n_iter = required("N iter", field(FIELD_N_ITER))?
-        .parse::<usize>()
-        .map_err(|_| anyhow!("N iter must be a whole number"))?;
-    let mu = parse_positive_f64("Mu", field(FIELD_MU))?;
-    let gen_years = parse_positive_f64("Gen years", field(FIELD_GEN_YEARS))?;
-    let smooth = parse_non_negative_f64("Smooth", field(FIELD_SMOOTH_LAMBDA))?;
+    let n_iter = parsed("N iter", field(FIELD_N_ITER), whole_number)?;
+    let mu = parsed("Mu", field(FIELD_MU), positive_f64)?;
+    let gen_years = parsed("Gen years", field(FIELD_GEN_YEARS), positive_f64)?;
+    let smooth = parsed("Smooth", field(FIELD_SMOOTH_LAMBDA), non_negative_f64)?;
     let input_format = parse_input_format_field(field(FIELD_INPUT_FORMAT))?;
     let pattern = field(FIELD_PATTERN).trim();
-    let threads = parse_optional_usize("Threads", field(FIELD_THREADS))?;
-    let bin_size = parse_optional_usize("Bin size", field(FIELD_BIN_SIZE))?.unwrap_or(100);
+    let threads = parsed_or_none("Threads", field(FIELD_THREADS), positive_usize)?;
+    let bin_size = parsed_or_none("Bin size", field(FIELD_BIN_SIZE), positive_usize)?
+        .unwrap_or(DEFAULT_BIN_SIZE);
 
     let mut cli = app.base_cli.clone();
     cli.tui = false;
@@ -451,60 +321,6 @@ fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     cli.gen_years = gen_years;
     cli.no_progress = true;
     Ok(cli)
-}
-
-/// Where the picker for a field holding `raw_path` starts: that directory,
-/// the directory of that file (or of a new file in an existing directory),
-/// or the current directory.
-fn infer_picker_dir(raw_path: &str) -> PathBuf {
-    let p = Path::new(raw_path.trim());
-    if !p.as_os_str().is_empty() {
-        if p.is_dir() {
-            return p.to_path_buf();
-        }
-        if p.is_file() {
-            // A bare file name's parent is the empty path, which is not a directory to list.
-            return p
-                .parent()
-                .filter(|d| !d.as_os_str().is_empty())
-                .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        }
-        if let Some(parent) = p.parent()
-            && parent.exists()
-        {
-            return parent.to_path_buf();
-        }
-    }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-}
-
-/// Enter in the picker: take the selected input file, or the selected
-/// directory for the output; an input needs a file, so a directory opens.
-fn apply_picker_selection(app: &mut App) -> Result<()> {
-    let Some(picker) = app.picker.as_mut() else {
-        return Ok(());
-    };
-    let Some(entry) = picker.selected_entry().cloned() else {
-        return Ok(());
-    };
-    match (picker.mode, entry.is_file) {
-        (PickerMode::Input(_), true) => {
-            app.fields[FIELD_INPUT].value = entry.path.display().to_string();
-            app.picker = None;
-        }
-        (PickerMode::Input(_), false) => picker.enter(entry.path)?,
-        (PickerMode::OutputDir, true) => {}
-        (PickerMode::OutputDir, false) => {
-            let output = &mut app.fields[FIELD_OUTPUT].value;
-            let name = Path::new(output.as_str())
-                .file_name()
-                .map(|v| v.to_os_string())
-                .unwrap_or_else(|| "out.json".into());
-            *output = entry.path.join(name).display().to_string();
-            app.picker = None;
-        }
-    }
-    Ok(())
 }
 
 /// The command line of `cli`, as the TUI shows it.
@@ -613,31 +429,6 @@ fn stop_run(app: &mut App) {
     }
 }
 
-/// A key while the file picker is open.
-fn handle_picker_key(app: &mut App, code: KeyCode) -> Result<()> {
-    let Some(picker) = app.picker.as_mut() else {
-        return Ok(());
-    };
-    match code {
-        KeyCode::Esc | KeyCode::Char('q') => app.picker = None,
-        KeyCode::Up => picker.select_prev(),
-        KeyCode::Down => picker.select_next(),
-        KeyCode::Enter => apply_picker_selection(app)?,
-        KeyCode::Right => {
-            if let Some(entry) = picker.selected_entry().filter(|e| !e.is_file) {
-                picker.enter(entry.path.clone())?;
-            }
-        }
-        KeyCode::Backspace | KeyCode::Left => {
-            if let Some(parent) = picker.cwd.parent().map(Path::to_path_buf) {
-                picker.enter(parent)?;
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
 fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     if key.kind != KeyEventKind::Press {
         return Ok(());
@@ -652,7 +443,7 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
         return Ok(());
     }
     if app.picker.is_some() {
-        return handle_picker_key(app, key.code);
+        return app.picker_key(key.code);
     }
 
     // While the form can be edited, it takes every printable character
@@ -721,89 +512,84 @@ fn check_tui_args(cli: &InferArgs) -> Result<()> {
     Ok(())
 }
 
+/// The terminal in raw mode on the alternate screen, given back as it was
+/// when dropped, also when the TUI stops with an error.
+struct Screen(Terminal<CrosstermBackend<io::Stdout>>);
+
+impl Screen {
+    fn enter() -> Result<Self> {
+        let backend = CrosstermBackend::new(io::stdout());
+        let mut screen = Screen(Terminal::new(backend).context("failed to initialize terminal")?);
+        enable_raw_mode().context("failed to enable raw mode")?;
+        execute!(screen.0.backend_mut(), EnterAlternateScreen)
+            .context("failed to enter alternate screen")?;
+        screen.0.clear().context("failed to clear terminal")?;
+        Ok(screen)
+    }
+}
+
+impl Drop for Screen {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(self.0.backend_mut(), LeaveAlternateScreen);
+        let _ = self.0.show_cursor();
+    }
+}
+
 /// Run the TUI until the user quits; `cli` fills the form.
 pub fn run_tui(cli: &InferArgs) -> Result<()> {
     check_tui_args(cli)?;
     let self_bin = std::env::current_exe().context("failed to resolve executable path")?;
     let mut app = App::new(self_bin, cli);
-
-    enable_raw_mode().context("failed to enable raw mode")?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen).context("failed to enter alternate screen")?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut term = Terminal::new(backend).context("failed to initialize terminal")?;
-    term.clear().context("failed to clear terminal")?;
-
-    let mut final_res = Ok(());
-    while !app.should_quit {
-        poll_runner(&mut app);
-        if let Err(e) = term.draw(|f| render_ui(f, &app)) {
-            final_res = Err(anyhow!("draw failed: {e}"));
-            break;
-        }
-
-        if event::poll(Duration::from_millis(80)).context("event poll failed")? {
-            match event::read().context("failed to read terminal event")? {
-                TermEvent::Key(key) => {
-                    if let Err(e) = handle_key(&mut app, key) {
-                        app.status = "Input error".to_string();
-                        app.append_log(format!("Input error: {e}"));
-                    }
-                }
-                TermEvent::Resize(_, _) => {
-                    let _ = term.autoresize();
-                }
-                _ => {}
-            }
-        }
-    }
-
+    let mut screen = Screen::enter()?;
+    let result = event_loop(&mut app, &mut screen.0);
     stop_run(&mut app);
     if let Some(task) = app.running.take() {
         let _ = task.handle.join();
     }
+    result
+}
 
-    disable_raw_mode().ok();
-    execute!(term.backend_mut(), LeaveAlternateScreen).ok();
-    let _ = term.show_cursor();
-    final_res
+/// Draw the interface and handle the terminal's events until the user
+/// quits.
+fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+    while !app.should_quit {
+        poll_runner(app);
+        term.draw(|f| render_ui(f, app)).context("draw failed")?;
+        if !event::poll(Duration::from_millis(80)).context("event poll failed")? {
+            continue;
+        }
+        match event::read().context("failed to read terminal event")? {
+            TermEvent::Key(key) => {
+                if let Err(e) = handle_key(app, key) {
+                    app.status = "Input error".to_string();
+                    app.append_log(format!("Input error: {e}"));
+                }
+            }
+            TermEvent::Resize(_, _) => {
+                let _ = term.autoresize();
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cli::{Cli, UsageError};
-    use clap::Parser;
+    use std::fs;
 
-    fn app(args: &[&str]) -> App {
-        let mut argv = vec!["psmc-rs", "--tui"];
-        argv.extend_from_slice(args);
-        let cli = Cli::try_parse_from(argv).unwrap();
+    /// The TUI opened with `args`.
+    pub(super) fn app(args: &[&str]) -> App {
+        let argv = ["psmc-rs", "--tui"].iter().chain(args).copied();
+        let cli = Cli::try_parse_args(argv).unwrap();
         App::new(PathBuf::from("psmc-rs"), &cli.infer)
     }
 
-    fn set(app: &mut App, field: usize, value: &str) {
+    pub(super) fn set(app: &mut App, field: usize, value: &str) {
         app.fields[field].value = value.to_string();
-    }
-
-    /// A file named without a directory opens the picker in the current
-    /// directory (its parent is the empty path).
-    #[test]
-    fn the_picker_starts_in_the_directory_of_a_bare_file_name() {
-        assert_eq!(infer_picker_dir("Cargo.toml"), PathBuf::from("."));
-        let mut a = app(&[]);
-        set(&mut a, FIELD_INPUT, "Cargo.toml");
-        set(&mut a, FIELD_INPUT_FORMAT, "psmcfa");
-        a.open_picker(FIELD_INPUT).unwrap();
-    }
-
-    /// The output-directory picker does not need the input's format.
-    #[test]
-    fn the_output_picker_opens_whatever_the_input_format_field_holds() {
-        let mut a = app(&[]);
-        set(&mut a, FIELD_INPUT_FORMAT, "not-a-format");
-        assert!(a.open_picker(FIELD_INPUT).is_err());
-        a.open_picker(FIELD_OUTPUT).unwrap();
     }
 
     /// The form fills the settings it shows and keeps the others of the
@@ -853,11 +639,7 @@ mod tests {
 
     #[test]
     fn the_qc_json_cannot_go_to_the_terminal_of_the_interface() {
-        let cli = |args: &[&str]| {
-            let mut argv = vec!["psmc-rs", "--tui"];
-            argv.extend_from_slice(args);
-            Cli::try_parse_from(argv).unwrap().infer
-        };
+        let cli = |args: &[&str]| app(args).base_cli;
         let err = check_tui_args(&cli(&["--qc-json", "-"])).unwrap_err();
         assert!(err.to_string().contains("give --qc-json a file"), "{err}");
         assert!(UsageError::is_in(&err), "{err}");

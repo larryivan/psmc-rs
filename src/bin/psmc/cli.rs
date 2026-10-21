@@ -159,7 +159,7 @@ pub const DEFAULT_MU: f64 = 2.5e-8;
 
 // The defaults of the other options; the consensus filters are vcf2fq's
 // and fq2psmcfa's.
-const DEFAULT_BIN_SIZE: usize = 100;
+pub const DEFAULT_BIN_SIZE: usize = 100;
 const DEFAULT_MHS_PAIR: (usize, usize) = (0, 1);
 const DEFAULT_MIN_MAPQ: u64 = 10;
 const DEFAULT_INDEL_WINDOW: u64 = 5;
@@ -170,12 +170,17 @@ const DEFAULT_BOOTSTRAP_SEED: u64 = 42;
 const DEFAULT_GEN_YEARS: f64 = 25.0;
 
 /// A positive integer.
-fn positive_usize(s: &str) -> Result<usize, String> {
-    match s.parse::<usize>() {
-        Ok(0) => Err("must be at least 1".to_string()),
-        Ok(n) => Ok(n),
-        Err(e) => Err(e.to_string()),
+pub fn positive_usize(s: &str) -> Result<usize, String> {
+    match whole_number(s)? {
+        0 => Err("must be at least 1".to_string()),
+        n => Ok(n),
     }
+}
+
+/// A whole number of at least 0.
+pub fn whole_number(s: &str) -> Result<usize, String> {
+    s.parse()
+        .map_err(|_| format!("'{s}' is not a whole number"))
 }
 
 /// `--mhs-pair i,j`: two different 0-based haplotype indices.
@@ -215,7 +220,7 @@ pub fn parse_depth(s: &str) -> Result<DepthThresholds, String> {
 }
 
 /// A positive, finite number.
-fn positive_f64(s: &str) -> Result<f64, String> {
+pub fn positive_f64(s: &str) -> Result<f64, String> {
     match s.parse::<f64>() {
         Ok(v) if v > 0.0 && v.is_finite() => Ok(v),
         Ok(v) => Err(format!("must be a positive number, got {v}")),
@@ -224,7 +229,7 @@ fn positive_f64(s: &str) -> Result<f64, String> {
 }
 
 /// A finite number of at least 0.
-fn non_negative_f64(s: &str) -> Result<f64, String> {
+pub fn non_negative_f64(s: &str) -> Result<f64, String> {
     match s.parse::<f64>() {
         Ok(v) if v >= 0.0 && v.is_finite() => Ok(v),
         Ok(v) => Err(format!("must be 0 or more, got {v}")),
@@ -250,9 +255,7 @@ fn parse_t_max(s: &str) -> Result<f64, String> {
 
 /// `--n-steps`: a model of 2 to `MAX_STATES` intervals.
 fn parse_n_steps(s: &str) -> Result<usize, String> {
-    let n: usize = s
-        .parse()
-        .map_err(|_| format!("'{s}' is not a whole number"))?;
+    let n = whole_number(s)?;
     if !(1..MAX_STATES).contains(&n) {
         return Err(format!(
             "must be between 1 and {} (2 to {MAX_STATES} intervals), got {n}",
