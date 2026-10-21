@@ -48,7 +48,8 @@ of bases at quality 10, and 0.3% sequencing errors.
 
 - The test itself: `E2E_WORK` pointing at a directory of other files stops
   it, and the files stay.
-- The command line: `--help`, usage errors (exit 2), a missing input, a
+- The command line: `--help`, the same help on standard error without
+  arguments (exit 2), usage errors (exit 2), a missing input, a
   bcftools older than 1.10 and a psmc-rs older than 0.2.0 (fake binaries),
   versions read from standard output past a dynamic loader warning on
   standard error (as glibc 2.34 to 2.38 print for a binary linked on 2.39),

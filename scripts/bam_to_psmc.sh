@@ -180,6 +180,8 @@ has_extra() {
   return 1
 }
 
+# Without arguments: the help on standard error and exit 2, as psmc-rs does.
+[ "$#" -gt 0 ] || { usage >&2; exit 2; }
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --bam) need_value "$@"; bam=$2; shift 2 ;;
@@ -279,9 +281,9 @@ version_at_least() {
 # before the program runs (glibc's "weak version `GLIBC_2.39' not found"
 # with a binary built on a newer glibc, for one); the error messages show it.
 tool_version() { # program, name, minimum, version pattern[, what needs it]
-  local out version
-  out=$("$1" --version 2> /dev/null) || die "'$1 --version' failed: $("$1" --version 2>&1)"
-  version=$(printf '%s\n' "$out" | sed -n "s/^$2 \\($4\\).*/\\1/p" | sed -n 1p)
+  local text version
+  text=$("$1" --version 2> /dev/null) || die "'$1 --version' failed: $("$1" --version 2>&1)"
+  version=$(printf '%s\n' "$text" | sed -n "s/^$2 \\($4\\).*/\\1/p" | sed -n 1p)
   [ -n "$version" ] || die "cannot read the $2 version from '$("$1" --version 2>&1)'"
   version_at_least "$version" "$3" || die "$2 $version is too old: $3 or later is needed${5-}"
   printf '%s\n' "$version"

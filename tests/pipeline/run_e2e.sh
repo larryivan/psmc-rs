@@ -101,6 +101,12 @@ ok "E2E_WORK refuses a non-empty directory that run_e2e.sh did not make"
 run_script --help > "$out/help.txt" || fail "--help"
 grep -q '^Usage: ' "$out/help.txt" || fail "--help prints no usage"
 ok "--help"
+s=0
+run_script > /dev/null 2> "$out/noargs.txt" || s=$?
+if [ "$s" -ne 2 ] || ! cmp -s "$out/help.txt" "$out/noargs.txt"; then
+  fail "without arguments: exit $s, $(cat "$out/noargs.txt")"
+fi
+ok "without arguments: the help on standard error (exit 2)"
 
 expect_error() { # expected status, expected message, arguments...
   local want=$1 msg=$2 s=0
