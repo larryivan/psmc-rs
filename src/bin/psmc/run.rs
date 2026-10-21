@@ -370,11 +370,11 @@ fn read_input(
     (ctx.sink)(io_progress(io_total));
     announce_input(&data, &cli.input, ctx.sink);
     // Whether the fit weighs each bin by its callable bases.
+    let counted = fit_uses_counts(&data, cli.bin_callable);
     let bin_callable = bin_callable_record(&data, cli.bin_callable);
     if let Some(event) = bin_callable_event(&bin_callable, &data, cli) {
         (ctx.sink)(event);
     }
-    let counted = bin_callable.model == CALLABLE_LENGTH_MODEL;
 
     // Input QC, printed before the fit, also when no sequence is left (the
     // report then says why). A QC error is only reported, so that it never
@@ -459,18 +459,16 @@ fn psmc_plot_command(cli: &InferArgs, n_iter: usize, files: &str) -> String {
 /// multihetsep's approximate ones with `approximate`), C psmc's model
 /// otherwise. The counts are summarised whether or not the fit uses them.
 fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecord {
-    let callable = callable_summary(data);
-    let counted = callable.is_some() && fit_uses_counts(data, mode);
+    let model = if fit_uses_counts(data, mode) {
+        CALLABLE_LENGTH_MODEL
+    } else {
+        FULL_BINS_MODEL
+    };
     BinCallableRecord {
         mode: mode.name().to_string(),
-        model: if counted {
-            CALLABLE_LENGTH_MODEL
-        } else {
-            FULL_BINS_MODEL
-        }
-        .to_string(),
+        model: model.to_string(),
         counts: counts_source(data).map(str::to_string),
-        callable,
+        callable: callable_summary(data),
     }
 }
 

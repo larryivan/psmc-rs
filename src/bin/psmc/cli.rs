@@ -134,6 +134,11 @@ pub struct Cli {
     pub infer: InferArgs,
 }
 
+/// The narrowest COLUMNS that the help is wrapped to, and the width used
+/// instead of a narrower one (clap's own when it finds no width).
+const MIN_HELP_WIDTH: usize = 20;
+const DEFAULT_HELP_WIDTH: usize = 100;
+
 impl Cli {
     /// Parse `argv` as [`Parser::try_parse_from`] does, with clearer errors
     /// for two mistakes ([`explain`]).
@@ -260,11 +265,6 @@ pub enum Command {
     #[command(arg_required_else_help = true)]
     Qc(QcArgs),
 }
-
-/// The narrowest COLUMNS that the help is wrapped to, and the width used
-/// instead of a narrower one (clap's own when it finds no width).
-const MIN_HELP_WIDTH: usize = 20;
-const DEFAULT_HELP_WIDTH: usize = 100;
 
 /// `convert`'s usage, one output per line (clap's own is one line of 112
 /// characters); outputs can be combined.
