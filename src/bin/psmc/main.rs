@@ -48,3 +48,44 @@ fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    /// A fresh directory of its own under the system temp dir, removed when
+    /// dropped.
+    pub struct TempDir(PathBuf);
+
+    impl TempDir {
+        pub fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("psmc_rs_{name}_{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl std::ops::Deref for TempDir {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// `dir/in.psmcfa`: two sequences of `repeat` times the same 49 bins (5
+    /// heterozygous, 2 missing).
+    pub fn psmcfa(dir: &Path, repeat: usize) -> PathBuf {
+        let path = dir.join("in.psmcfa");
+        let bins = "TTTTKTTTTTTTNNTTKTTTTTTTTKTTTTTTTTTTKTTTTTTTTTKTT".repeat(repeat);
+        fs::write(&path, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
+        path
+    }
+}

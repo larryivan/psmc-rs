@@ -243,19 +243,11 @@ fn check_creatable_dir(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A directory of its own under the system temp dir.
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("psmc_rs_output_{name}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+    use crate::tests::TempDir;
 
     #[test]
     fn destinations_must_be_distinct_writable_files() {
-        let dir = temp_dir("destinations");
+        let dir = TempDir::new("output_destinations");
         let input = dir.join("in.psmcfa");
         fs::write(&input, ">a\nT\n").unwrap();
         let out = dir.join("fit.json");
@@ -303,6 +295,5 @@ mod tests {
         assert!(err.starts_with("--psmc-out cannot be '-'"), "{err}");
         let err = check(&[], Some(("--bootstrap-dir", dash))).unwrap_err();
         assert!(err.starts_with("--bootstrap-dir cannot be '-'"), "{err}");
-        let _ = fs::remove_dir_all(dir);
     }
 }

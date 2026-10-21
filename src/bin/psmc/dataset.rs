@@ -548,12 +548,11 @@ fn totals(data: &Dataset) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::TempDir;
 
     #[test]
     fn a_directory_gives_its_first_input_file() {
-        let dir = std::env::temp_dir().join(format!("psmc_rs_dir_input_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("dir_input");
         for name in ["notes.txt", "c.psmcfa", "b.vcf.gz"] {
             fs::write(dir.join(name), "").unwrap();
         }
@@ -574,15 +573,13 @@ mod tests {
         );
         let file = dir.join("notes.txt");
         assert_eq!(resolve_input_path(&file, FormatArg::Auto).unwrap(), file);
-        let _ = fs::remove_dir_all(dir);
     }
 
     /// The input is named in the error unless the reader quotes its path:
     /// a sample name that holds the path does not name it.
     #[test]
     fn errors_name_the_input() {
-        let dir = std::env::temp_dir().join(format!("psmc_rs_load_error_{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("load_error");
         let path = dir.join("in.vcf");
         fs::write(
             &path,
@@ -598,7 +595,6 @@ mod tests {
             format!("{err:#}"),
             format!("failed to read the input {shown}: VCF sample '{shown}' not found in header")
         );
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -620,8 +616,7 @@ mod tests {
     /// with the empty records that n_seqs counts.
     #[test]
     fn a_psmcfa_input_is_described_by_c_psmcs_counts() {
-        let dir = std::env::temp_dir().join(format!("psmc_rs_describe_{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = TempDir::new("describe");
         let path = dir.join("in.psmcfa");
         let cli = crate::cli::Cli::try_parse_args(["psmc-rs", "in", "out", "1"]).unwrap();
         let opts = cli.infer.input.to_options();
@@ -638,6 +633,5 @@ mod tests {
             totals(&data),
             "Input: 1 sequence kept, 1 left out; 12 bins (16.7% heterozygous, 8.3% missing)"
         );
-        let _ = fs::remove_dir_all(dir);
     }
 }

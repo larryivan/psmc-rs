@@ -482,7 +482,7 @@ fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) 
 mod tests {
     use super::*;
     use crate::cli::{Cli, UsageError};
-    use std::fs;
+    use crate::tests::{TempDir, psmcfa};
 
     /// The TUI opened with `args`.
     pub(super) fn app(args: &[&str]) -> App {
@@ -715,11 +715,8 @@ mod tests {
     /// take far longer than the test allows.
     #[test]
     fn stop_cancels_a_running_fit() {
-        let dir = std::env::temp_dir().join(format!("psmc_rs_tui_stop_{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let input = dir.join("in.psmcfa");
-        let bins = "TTTTKTTTTTTTNNTTKTTTTTTTTKTTTTTTTTTTKTTTTTTTTTKTT".repeat(40);
-        fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
+        let dir = TempDir::new("tui_stop");
+        let input = psmcfa(&dir, 40);
         let mut a = app(&[]);
         set(&mut a, FIELD_INPUT, input.to_str().unwrap());
         set(&mut a, FIELD_OUTPUT, dir.join("fit.json").to_str().unwrap());
@@ -744,6 +741,5 @@ mod tests {
         }
         assert_eq!(a.status, "Cancelled", "{:?}", a.logs);
         assert!(!dir.join("fit.json").exists());
-        let _ = fs::remove_dir_all(dir);
     }
 }

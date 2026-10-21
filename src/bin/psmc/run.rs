@@ -538,21 +538,11 @@ fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::tests::{TempDir, psmcfa};
     use std::sync::Mutex;
 
-    /// A directory of its own under the system temp dir.
-    fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("psmc_rs_run_{name}_{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn cli(dir: &std::path::Path, extra: &[&str]) -> InferArgs {
-        let input = dir.join("in.psmcfa");
-        let bins = "TTTTKTTTTTTTNNTTKTTTTTTTTKTTTTTTTTTTKTTTTTTTTTKTT".repeat(4);
-        fs::write(&input, format!(">a\n{bins}\n>b\n{bins}\n")).unwrap();
+    fn cli(dir: &Path, extra: &[&str]) -> InferArgs {
+        let input = psmcfa(dir, 4);
         let mut args = vec![
             "psmc-rs".to_string(),
             input.display().to_string(),
@@ -567,7 +557,7 @@ mod tests {
     /// runs several.
     #[test]
     fn each_run_uses_its_thread_count() {
-        let dir = temp_dir("threads");
+        let dir = TempDir::new("run_threads");
         for threads in [3, 2] {
             let sizes = Mutex::new(Vec::new());
             let sink = |ev: Event| {
@@ -581,16 +571,14 @@ mod tests {
             assert!(!sizes.is_empty());
             assert!(sizes.iter().all(|&n| n == threads), "{sizes:?}");
         }
-        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
     fn a_set_cancel_flag_stops_the_run() {
-        let dir = temp_dir("cancel");
+        let dir = TempDir::new("run_cancel");
         let cli = cli(&dir, &[]);
         let err = run_inference(&cli, &AtomicBool::new(true), &|_| {}, false).unwrap_err();
         assert!(err.is::<Cancelled>(), "{err:#}");
         assert!(!dir.join("out.json").exists());
-        let _ = fs::remove_dir_all(dir);
     }
 }
