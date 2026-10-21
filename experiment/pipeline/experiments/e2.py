@@ -34,9 +34,8 @@ qc --json``, with the default trunk size); then ``report``.
 scaled per genome (:class:`.config.RealGenome`, whose ``scaling_source``
 gives the citations): the turtles with mu 4.6e-9 per bp per generation, the
 mean germline rate of nine *Chrysemys picta* trios (Bergeron et al. 2023; a
-cryptodire's rate, since no pleurodire rate has been measured; the psmc-rs
-0.1 runs' 7.9e-9 was a crocodilian rate, Green et al. 2014), and g 15 years
-for all three; the human with mu 1.25e-8 (Scally & Durbin 2012) and g 29
+cryptodire's rate, since no pleurodire rate has been measured), and g 15
+years for all three; the human with mu 1.25e-8 (Scally & Durbin 2012) and g 29
 years (Fenner 2005). psmc-rs is given mu and g (``--mu``, ``--gen-years``)
 for its own report; its fitted parameters do not depend on them, and C
 psmc is given neither.

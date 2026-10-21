@@ -101,7 +101,8 @@ Temporary files go to ``--tmp-dir`` (``$PSMC_E7_TMPDIR``, default
 assembly) and the chunk BCF to ``--local-tmp-dir`` (``$PSMC_E7_LOCAL_TMPDIR``,
 node-local disk; default the shared one). One chromosome's split files for
 2,504 samples take up to ~8 GB (chr2) and ~40,000 files; ``submit.sh
-e7-prep`` keeps at most two chromosomes in flight.
+e7-prep`` runs ``$E7_PREP_PARALLEL`` chromosomes at once (default 4), each
+in its own node-local directory.
 
 ``fixture`` writes the tiny profile's synthetic cohort (msprime) as local
 files named as the URLs; ``check`` reports what the stage needs of a node
@@ -1783,7 +1784,7 @@ def build_parser() -> argparse.ArgumentParser:
     common(sp, jobs=True)
     sp.add_argument("--pilot", action="append", default=[], metavar="CHROM", help="also run the pilot on CHROM")
     sp.add_argument("--prune", action="store_true")
-    sp = sub.add_parser("chunks", help="print the chunks of the plan (chrom, index, region), for submit.sh")
+    sp = sub.add_parser("chunks", help="print the chunks of the plan (chrom, index, region)")
     common(sp)
     sp.add_argument("--chrom", action="append", default=[])
     common(sub.add_parser("fixture", help="the tiny profile's synthetic cohort, as local files"))

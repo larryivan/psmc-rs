@@ -12,7 +12,7 @@ Modules:
 * :mod:`.demography`  the demographic models as ``msprime.Demography`` and
                       their true Ne(t);
 * :mod:`.simulate`    one simulated diploid genome: psmcfa, VCF, truth, TMRCA;
-* :mod:`.tools`       psmc-rs 0.2 and 0.1 and C psmc: build, locate, identify,
+* :mod:`.tools`       psmc-rs 0.2 and C psmc: build, locate, identify,
                       and the exact command lines;
 * :mod:`.results`     C ``.psmc`` and psmc-rs JSON outputs as Ne(t) curves;
 * :mod:`.metrics`     time grids and RMSE of log10 Ne;

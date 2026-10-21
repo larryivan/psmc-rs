@@ -6,7 +6,7 @@ whenever a table changes), its outputs ``<runs>/<EXP>/figures/<name>.{pdf,
 svg,png}``. A figure is declared once every experiment it reads is
 implemented (registered in :data:`.REGISTRY`) and, for E7, its data stage
 has finished; Fig 1, a schematic, needs none. The provenance key holds the
-figure's code (style, data, schemas and its module), the figure settings
+figure's code (:meth:`..figures.FigureSpec.code_files`), the figure settings
 (:data:`..config.FIGURES`), the profile's settings of the experiments it
 reads, the package versions and the font file the text is set in.
 

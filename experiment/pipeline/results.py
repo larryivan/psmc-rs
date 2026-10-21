@@ -124,7 +124,7 @@ def read_rs_json(path: Path) -> Dict:
 
 
 def fit_from_rs(params: Dict) -> Fit:
-    """The model of a psmc-rs (0.1 or 0.2) parameter JSON."""
+    """The model of a psmc-rs parameter JSON."""
     n = int(params["n_steps"])
     pattern = params.get("pattern")
     return Fit(
