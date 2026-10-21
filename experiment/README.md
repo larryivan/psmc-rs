@@ -5,14 +5,17 @@ Everything that makes the manuscript's results. The pipeline in
 simulates genomes, runs psmc-rs 0.2 and C psmc (lh3/psmc 0.6.5-r74) with
 identical settings, records how every output was made, writes each
 experiment's tables and draws the figures from them. Its production runs
-are committed in `runs/`, so the tables and figures can be made again
-without running either tool. Commands are run from the repository root;
-the pipeline finds the repository from its own path, so any working
-directory works.
+are committed in `runs/`: from them, without running either tool, every
+figure and the tables of E1, E2, E4, E5 and E6 (its S1 and S5) can be made
+again (Supplementary Note 1, section 3; E6's S2 and S3 need the simulated
+genomes, and E7's report its inputs from Zenodo). Commands are run from
+the repository root, from which `python -m experiment.pipeline` imports
+the package; the pipeline then finds its files from its own location, not
+from the working directory.
 
 | experiment | what | in the article |
 | --- | --- | --- |
-| E1 | simulated accuracy and agreement with C psmc: four demographic models, ten genomes of 500 Mb each | Fig 1, Table 1, Table S1, Fig S1 |
+| E1 | simulated accuracy and agreement with C psmc: four demographic models, ten genomes of 500 Mb per model | Fig 1, Table 1, Table S1, Fig S1 |
 | E2 | four real genomes: three turtles and NA12878 (chr1-22), with bootstraps | Fig 1, Table 1 |
 | E3 | performance: run time and peak memory of C psmc and psmc-rs on 100 to 3,000 Mb, thread scaling, determinism | Fig 2, Table 2 |
 | E4 | partly callable bins: the routes from a VCF and its callable mask to PSMC | Fig S2 |
@@ -20,6 +23,11 @@ directory works.
 | E6 | supplementary analyses: EM convergence, input formats, TMRCA decoding, the QC report | quoted in the text |
 | E7 | the 2,504 genomes of the 1000 Genomes 30x data | Fig 3, Fig 1, Table 1 |
 | FIG | every figure, drawn from the experiments' tables | |
+
+The last column gives the article's numbers. The pipeline names most
+figure files, and its README and code number the figures, after an
+earlier plan of the article; Supplementary Note 1, section 3, maps the
+two.
 
 Where to read on:
 
@@ -78,13 +86,22 @@ PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline tools          # the tools and their identities
 $PY -m experiment.pipeline report E1      # an experiment's tables from the committed runs
 $PY -m experiment.pipeline.figures        # every figure whose tables exist
-$PY -m experiment.pipeline plan           # what running everything from scratch costs
-$PY -m experiment.pipeline start E1       # a detached, resumable runner; status, stop
+$PY -m experiment.pipeline plan --cores 50 --mem-gb 64   # what running everything from scratch costs
+RUNS=/path/to/new/runs
+$PY -m experiment.pipeline start --runs-dir $RUNS E1     # a detached, resumable runner; status, stop
 ```
 
-`--profile smoke` runs every experiment at a small size in
-`experiment/.runs-smoke/`. Supplementary Note 1 gives the full
-procedures.
+`plan` and `start` default to 7 cores and 12 GB, on which E2's and E7's
+bootstraps (50 and 32 threads) cannot start, so `plan` shows E2, E7 and
+FIG (whose figures wait for their tables) as `inf`; the pipeline README's
+production commands give `--cores 50 --mem-gb 64`. `start` runs into a
+new runs directory, and `status` and `stop` take the same `--runs-dir`:
+in the default, the committed `runs/`, a fit counts as not done when its
+tool is another build than the production's (psmc-rs by another rustc,
+another C psmc binary), and `start` would run it again over the committed
+results (Supplementary Note 1, section 4). `--profile smoke` runs every
+experiment at a small size in `experiment/.runs-smoke/`. Supplementary
+Note 1 gives the full procedures.
 
 ## Tests
 
