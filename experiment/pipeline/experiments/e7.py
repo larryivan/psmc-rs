@@ -80,7 +80,7 @@ import sys
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
 
 from .. import config, kg1000, metrics, paths, provenance, results, tools
 from ..runner import Job
@@ -658,16 +658,22 @@ def input_row(s: kg1000.Sample, qc: Dict[str, str], nonpass: int, cfg: config.E7
     }
 
 
+def _require(files: Iterable[Path]) -> None:
+    """Fail naming each of the data stage's outputs ``files`` that is missing, and where they come from."""
+    missing = [str(f) for f in files if not f.exists()]
+    if missing:
+        raise FileNotFoundError(f"E7's report reads its data stage's outputs (from Zenodo, or made by python -m "
+                                f"experiment.pipeline.kg1000), and these are missing: {', '.join(missing)}")
+
+
 def report(ctx: Context) -> Dict[str, Path]:
     """Write every E7 table from the fits; returns the paths written."""
     cfg = ctx.profile.e7
     lay = Layout(ctx.exp_dir(NAME))
     data = lay.data
-    missing = [str(p) for p in (data.samples, data.qc_samples, data.manifest) if not p.exists()]
-    if missing:
-        raise FileNotFoundError(f"E7's report reads its data stage's outputs (from Zenodo, or made by python -m "
-                                f"experiment.pipeline.kg1000), and these are missing: {', '.join(missing)}")
+    _require((data.samples, data.qc_samples, data.manifest))
     samples = kg1000.read_samples(data.samples)
+    _require(data.psmcfa(s.sample_id) for s in samples if s.bootstrap)  # for their bootstraps' trunk counts
     qc = {r["sample_id"]: r for r in kg1000.read_tsv(data.qc_samples)}
     manifest = json.loads(data.manifest.read_text())
     nonpass = sum(int(c.get("nonpass", 0)) for c in manifest.get("chromosomes", {}).values())

@@ -48,6 +48,16 @@ class Jobs(unittest.TestCase):
         self.lay.data.manifest.unlink()  # setup has written the samples, the chromosomes are not done
         self.assertEqual(e7.jobs(self.ctx), [])
 
+    def test_the_report_names_the_data_stage_outputs_it_misses(self):
+        data = self.lay.data
+        self.stage([sample("NA12878", default=True, boot=True), sample("NA00002")])
+        for missing in (data.qc_samples, data.psmcfa("NA12878")):  # the bootstrap's psmcfa, read for its trunks
+            with self.assertRaisesRegex(FileNotFoundError, "data stage's outputs") as cm:
+                e7.report(self.ctx)
+            self.assertTrue(str(cm.exception).endswith(f"missing: {missing}"))
+            missing.parent.mkdir(parents=True, exist_ok=True)
+            missing.touch()
+
     def test_jobs_follow_each_samples_roles(self):
         self.stage([sample("NA12878", "CEU", "EUR", default=True, split=True, boot=True, giab=True),
                     sample("NA00002", default=True), sample("NA00003")])
