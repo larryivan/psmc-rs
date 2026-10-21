@@ -87,8 +87,8 @@ from ..runner import Job
 from . import Context
 from .e1 import (check_same_input, compare_tools, loglike_diffs, loglikes, read_c_fit, read_rs_fit, run_record,
                  write_tables)
-from .e2 import (BootFiles, band, band_rows, bootstrap_args, display_grid, fitted_window, load_bootstrap,
-                 psmcfa_lengths, summary_difference)
+from .e2 import (BootFiles, band, band_rows, bootstrap_args, fitted_window, load_bootstrap, psmcfa_lengths,
+                 summary_difference)
 from .e5 import trunk_count
 
 NAME = "E7"
@@ -507,7 +507,7 @@ def pop_band_rows(fits: Sequence[SampleFits], cfg: config.E7) -> List[Dict]:
     """Per group (population, superpopulation, all) and rs route: median and spread across individuals."""
     import numpy as np
 
-    years = display_grid(cfg.display_years)
+    years = metrics.log_grid(*cfg.display_years)
     qs = (cfg.spread[0], 0.5, cfg.spread[1])
     groups: Dict[Tuple[str, str, str], List[SampleFits]] = {}
     for sf in fits:
@@ -619,7 +619,7 @@ def bootstrap_rows(lay: Layout, cfg: config.E7, sf: SampleFits) -> Tuple[Dict, L
         "main_fit_fields_differing": ";".join(boot.differing), "threads": cfg.bootstrap_threads,
         **_run_fields(boot.run),
     }
-    return row, band_rows({"sample_id": sid}, display_grid(cfg.display_years), window, boot, cfg.band, c, rs)
+    return row, band_rows({"sample_id": sid}, metrics.log_grid(*cfg.display_years), window, boot, cfg.band, c, rs)
 
 
 def throughput_rows(fits: Sequence[SampleFits], lay: Layout, cfg: config.E7, boots: Sequence[str]) -> List[Dict]:

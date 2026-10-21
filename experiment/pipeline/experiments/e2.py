@@ -616,12 +616,6 @@ def band(curves: Sequence[results.Curve], years, probs: Sequence[float]):
     return np.quantile(ne, list(probs), axis=0, method="linear")
 
 
-def display_grid(display_years: Tuple[float, float, int]):
-    """The dense log grid (from, to, points; E2's or E7's ``display_years``) the curves and bands are tabulated on."""
-    lo, hi, points = display_years
-    return metrics.log_grid(lo, hi, int(points))
-
-
 def band_rows(ids: Dict, years, window: Tuple[float, float], boot: Bootstrap, band_quantiles: Tuple[float, float],
               c: Optional[results.Curve], rs: results.Curve) -> List[Dict]:
     """Both curves and a bootstrap's band at each time of ``years``, ``ids`` first (``ne_c`` empty without ``c``)."""
@@ -1063,6 +1057,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     cfg = ctx.profile.e2
     n = cfg.inference.n_iter
     lay = Layout(ctx.exp_dir(NAME))
+    years = metrics.log_grid(*cfg.display_years)
     rows: Dict[str, List[Dict]] = {k: [] for k in TABLES}
     for g in cfg.genomes:
         gr = load_genome(lay, cfg, g)
@@ -1072,8 +1067,8 @@ def report(ctx: Context) -> Dict[str, Path]:
         for boot in gr.boots.values():
             rows["bootstrap"].append(bootstrap_row(gr, cfg, boot))
             rows["replicates"] += replicate_rows(gr, boot)
-            rows["bands"] += band_rows({"sample_id": sid, "trunk_bins": boot.trunk}, display_grid(cfg.display_years),
-                                       gr.window, boot, cfg.band, gr.curves["c"], gr.curves["rs"])
+            rows["bands"] += band_rows({"sample_id": sid, "trunk_bins": boot.trunk}, years, gr.window, boot, cfg.band,
+                                       gr.curves["c"], gr.curves["rs"])
         for tool, psmc in (("c", gr.c), ("rs", gr.rs)):
             rows["curves"] += step_rows(gr.fits[tool], gr.curves[tool], sample_id=sid, tool=tool)
             rows["traces"] += trace_rows(psmc, gr.loglikes[tool], n, sample_id=sid, tool=tool)
@@ -1120,8 +1115,8 @@ if __name__ == "__main__":
 
 __all__ = [
     "BootFiles", "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "band_rows",
-    "below_trunk_fraction", "boot_kind", "bootstrap_args", "bootstrap_seed", "display_grid", "fit_epochs",
-    "fitted_window", "input_lengths", "input_shape", "is_gzip", "jobs", "load_bootstrap", "load_genome", "load_split",
+    "below_trunk_fraction", "boot_kind", "bootstrap_args", "bootstrap_seed", "fit_epochs", "fitted_window",
+    "input_lengths", "input_shape", "is_gzip", "jobs", "load_bootstrap", "load_genome", "load_split",
     "main_fit_mismatch", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "recent_shape", "report",
     "shared_bootstrap_differences", "split_fits", "split_kind", "split_rows", "summary_difference", "trunk_sizes",
     "write_psmcfa_prefix",
