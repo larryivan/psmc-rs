@@ -141,11 +141,11 @@ fn ignore_fits_what_fq2psmcfas_output_fits() {
     );
 }
 
-/// A one-sample VCF of a 3 Mb chromosome with heterozygous SNPs, and a BED
-/// of callable sites that leaves out `missing` of the bases in runs of
-/// about 20 bp (none when 0).
+/// A one-sample VCF of a 1.5 Mb chromosome (15,000 bins) with heterozygous
+/// SNPs, and a BED of callable sites that leaves out `missing` of the bases
+/// in runs of about 20 bp (none when 0).
 fn synthetic(dir: &TempDir, missing: f64) -> (PathBuf, Option<PathBuf>) {
-    const LEN: u64 = 3_000_000;
+    const LEN: u64 = 1_500_000;
     let mut rng = SmallRng::seed_from_u64(11);
     // A draw of the exponential distribution of mean 1.
     let mut exp1 = || -(1.0 - rng.r#gen::<f64>()).ln();
@@ -234,7 +234,9 @@ fn auto_fits_partly_callable_bins_and_says_so() {
     );
     let mean = b["callable"]["mean_fraction"].as_f64().unwrap();
     assert!((0.6..0.8).contains(&mean), "mean callable share {mean}");
-    assert!(b["callable"]["partial_bins"].as_u64().unwrap() > 20_000);
+    // Runs of about 20 missing bases leave most bins partly callable.
+    let partial = b["callable"]["partial_bins"].as_u64().unwrap();
+    assert!(partial > 10_000, "{partial} of 15,000 bins partly callable");
     assert_eq!(ignore["bin_callable"]["mode"], "ignore");
     assert_eq!(ignore["bin_callable"]["callable"], b["callable"]);
     // QC notes the correction, and warns when the fit ignores the counts.
