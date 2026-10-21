@@ -1,6 +1,7 @@
 //! Helpers shared by the integration tests: runs of the `psmc-rs` binary,
-//! the files of `tests/data`, and the models, fits and E-steps that many
-//! tests build alike.
+//! temporary and gzip files, the generator of the random scenarios, the files
+//! of `tests/data`, and the models, fits and E-steps that many tests build
+//! alike.
 
 #![allow(dead_code)]
 
@@ -580,10 +581,10 @@ pub fn e_step(m: &PsmcModel, rows: &[Vec<u8>], starts: &[bool]) -> EStepResult {
     .unwrap()
 }
 
-/// `a` with each probability raised by a random share of at most 1e-3 and
-/// its rows renormalised: a transition matrix without PSMC's semiseparable
-/// structure, on which the E-step runs its dense kernels and caches forward
-/// rows when its budget allows.
+/// Make `a` a transition matrix without PSMC's semiseparable structure, on
+/// which the E-step runs its dense kernels and caches forward rows when its
+/// budget allows: each probability raised by a random share below 1e-3 (of
+/// `seed`), and the rows renormalised.
 pub fn densify(a: &mut Array2<f64>, seed: u64) {
     let mut rng = SmallRng::seed_from_u64(seed);
     for mut row in a.rows_mut() {
