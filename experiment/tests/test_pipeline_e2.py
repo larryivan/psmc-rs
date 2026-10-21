@@ -438,12 +438,9 @@ class Tables(unittest.TestCase):
     def test_tool_comparison(self):
         pairs = {r["sample_id"]: r for r in read_csv(self.lay.table("pairs"))}
         self.assertEqual(float(pairs["NA12878"]["rmse_log10_ne_rs_vs_c_per_interval"]), 0.0)
-        self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c_per_interval"]), math.log10(2),
-                               places=12)
-        self.assertAlmostEqual(float(pairs["HLhydTec1"]["rmse_log10_ne_rs_vs_c_per_interval_fixed"]), math.log10(2),
-                               places=12)
-        self.assertAlmostEqual(float(pairs["HLhydTec1"]["max_abs_log10_ne_rs_vs_c_per_interval"]), math.log10(2),
-                               places=12)
+        for col in ("rmse_log10_ne_rs_vs_c_per_interval", "rmse_log10_ne_rs_vs_c_per_interval_fixed",
+                    "max_abs_log10_ne_rs_vs_c_per_interval"):  # HLhydTec1's psmc-rs lambdas are twice C's
+            self.assertAlmostEqual(float(pairs["HLhydTec1"][col]), math.log10(2), places=12, msg=col)
         self.assertEqual(float(pairs["NA12878"]["loglike_iteration0_rel_diff"]), 0.0)
         self.assertEqual(pairs["NA12878"]["bootstrap_main_identical"], "True")
         lo, hi = float(pairs["NA12878"]["window_lo_years"]), float(pairs["NA12878"]["window_hi_years"])
