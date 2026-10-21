@@ -645,7 +645,7 @@ pub struct CallableBases {
 impl CallableBases {
     /// Counts for bins of `bin_size` bases, which must be between 1 and
     /// [`MAX_COUNTED_BIN_SIZE`], one [`BinCounts`] per row or sequence. The
-    /// counts themselves are checked with their bins
+    /// rows' bin sizes and counts are checked with their bins
     /// ([`Observations::validate`]).
     pub fn new(bin_size: usize, rows: Vec<BinCounts>) -> Result<Self> {
         Ok(Self {
