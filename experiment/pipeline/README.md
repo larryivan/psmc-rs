@@ -26,10 +26,11 @@ $PY -m experiment.pipeline start E1       # resume: only what is not done runs
 ```
 
 `--profile smoke` runs the same jobs at a small size in
-`experiment/.runs-smoke/` (3 EM iterations; the 164 jobs of every
-experiment and figure took under a minute on the development machine,
-while `plan` expects about 5); `--profile tiny` is for the unit tests. The production run
-is described at the end ([Production](#production)).
+`experiment/.runs-smoke/` (3 EM iterations; `plan --profile smoke` counts
+167 jobs of E1-E6 and the figures and expects about 3 minutes; E7 has none
+until its data stage has run there); `--profile tiny` is for the unit
+tests. The production run is described at the end
+([Production](#production)).
 
 ## Modules
 
@@ -798,7 +799,7 @@ peaks of Hilgers et al. 2025); NA12878's heterozygous SNVs against GIAB
 psmcfa route), `_split`, `_giab` and `_throughput`; what each holds is in
 `experiments/e7.py` and [figures/README.md](figures/README.md).
 
-**Cost** (`plan E7`, from `config.Costs`): 2,639 jobs and 470 CPU
+**Cost** (`plan E7`, from `config.Costs`): 2,639 jobs and 480 CPU
 hours, 2,504 single-thread fits of about 8 minutes and 52 C psmc fits of
 about 70 minutes dominating; the bootstraps run on 32 threads. The data
 stage is network-bound: hours per chromosome where the link is slow.
@@ -851,8 +852,8 @@ back.
 | E4 | 286 | 4 | 0.6 | 5.2 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 19.1 | 20 bootstrap runs of about 45 min (Ibex: 55) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.3 | S1-S3 wait for E1 |
-| E7 | 2,639 | 470 | 10 (50 cores) | 642.9 (on 94 cores: 8.2 hours with E2's re-run) | after its data stage; bootstraps on 32 threads |
-| FIG | 14 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
+| E7 | 2,639 | 480 | 11 (50 cores) | 642.9 (on 94 cores: 8.2 hours with E2's re-run) | after its data stage; bootstraps on 32 threads |
+| FIG | 16 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so

@@ -310,9 +310,10 @@ in the production run of [the pipeline's README](../README.md#production):
 $PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG
 ```
 
-Eleven jobs of a few seconds each (1 core, 0.1-0.4 GB peak; a few CPU
-minutes in all), none exclusive; `plan` counts 20 s and 1 GB each
-(`config.FIGURES.job_seconds`, `job_gb`). A figure whose experiment has not
-run yet (Fig 4 and Fig S4 until E3 is done) stays blocked on its missing
-tables and runs at the next `start`. Commit the
+Sixteen jobs, one per figure, of a few seconds each (1 core, 0.1-0.4 GB
+peak; a few CPU minutes in all), none exclusive; `plan` counts 20 s and
+1 GB each (`config.FIGURES.job_seconds`, `job_gb`). A figure whose
+experiment has not run yet (Fig 4, Fig S4 and art2 until E3 is done;
+art1, art2, Fig 7, Fig S5 and Fig S6 until E7 is) stays blocked on its
+missing tables and runs at the next `start`. Commit the
 `figures/` directories and `FIG/provenance/` with the tables.
