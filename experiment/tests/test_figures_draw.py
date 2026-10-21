@@ -191,9 +191,9 @@ class Draw(unittest.TestCase):
         out = Path(self.enterContext(tempfile.TemporaryDirectory()))
         printed = io.StringIO()
         with contextlib.redirect_stdout(printed):
-            self.assertEqual(main(["fig1", "fig4", "-j", "2", "--profile", "tiny", "--runs-dir", str(self.runs),
-                                   "--dpi", str(DPI), "--out-dir", str(out)]), 0)
-        self.assertEqual(printed.getvalue().split(), [str(out / p.name) for p in drawn])  # in order
+            self.assertEqual(main(["fig1", "fig4", "fig1_workflow", "-j", "2", "--profile", "tiny", "--runs-dir",
+                                   str(self.runs), "--dpi", str(DPI), "--out-dir", str(out)]), 0)
+        self.assertEqual(printed.getvalue().split(), [str(out / p.name) for p in drawn])  # in order, once each
         for p in drawn:
             self.assertEqual((out / p.name).read_bytes(), p.read_bytes(), p.name)
 

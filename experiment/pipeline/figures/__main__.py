@@ -44,7 +44,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             print(f"{fs.name}  ->  {fs.experiment}/figures/\n    {fs.title}\n    reads: {tables}")
         return 0
     try:
-        wanted = [spec(n) for n in args.figures] if args.figures else list(FIGURES)
+        wanted = list(dict.fromkeys(map(spec, args.figures))) if args.figures else list(FIGURES)  # once each
     except KeyError as exc:
         parser.error(exc.args[0])  # exits 2
     status, todo = 0, []
