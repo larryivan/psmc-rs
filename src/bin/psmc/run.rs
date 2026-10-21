@@ -21,8 +21,8 @@ use psmc_rs::io::params::{
     BinCallableRecord, CALLABLE_LENGTH_MODEL, FULL_BINS_MODEL, InputSummary,
 };
 use psmc_rs::opt::MStepConfig;
+use psmc_rs::qc::QcReport;
 use psmc_rs::qc::fmt::{count, counted};
-use psmc_rs::qc::{QcReport, Severity, render_text};
 use psmc_rs::report::{
     BootstrapReport, ReportData, check_echarts_bundle, default_html_path, write_html_report,
 };
@@ -30,14 +30,12 @@ use psmc_rs::report::{
 use self::bootstrap::{Bootstrap, BootstrapPlan, earlier_bootstrap_warning};
 use self::fit::{decode_tmrca, fit, model_loglike, near_bounds_warning};
 use self::start::{check_starts, fit_start, saved_start, starting_model};
-use crate::cli::{BinCallableArg, InferArgs, InputArgs, model_layout, usage_bail};
+use crate::cli::{BinCallableArg, InferArgs, model_layout, usage_bail};
 use crate::dataset::{
-    callable_summary, counts_source, describe, ensure_usable, fit_uses_counts, ignored_options,
-    layout_model, load_input, loader_warnings, qc_report, resolve_input_path, totals,
+    announce_input, callable_summary, counts_source, ensure_usable, fit_uses_counts, layout_model,
+    load_input, qc_report, report_qc, resolve_input_path,
 };
-use crate::output::{
-    FitRecord, check_destinations, is_stdout, save_fit, write_main_psmc, write_qc_json,
-};
+use crate::output::{FitRecord, check_destinations, is_stdout, save_fit, write_main_psmc};
 
 /// A stage of the pipeline with a progress count. The TUI indexes its
 /// gauges by the order of the variants.
@@ -405,62 +403,6 @@ fn read_input(
     })
 }
 
-/// Say how the input was read: what it holds, and the options of `args`
-/// it does not use.
-pub fn announce_input(data: &Dataset, args: &InputArgs, sink: Sink) {
-    for line in describe(data) {
-        sink(Event::Info(line));
-    }
-    if let Some(line) = ignored_options(args, data) {
-        sink(Event::Warning(line));
-    }
-}
-
-/// Show the input QC `report` of `data`, or why it could not be made,
-/// after the loader's warnings that it does not repeat, and write it as
-/// JSON to `qc_json` when given. A failed report is only a warning, so that
-/// it never stops a run; it is returned as `None`.
-pub fn report_qc(
-    data: &Dataset,
-    report: Result<QcReport>,
-    qc_json: Option<&Path>,
-    sink: Sink,
-) -> Result<Option<QcReport>> {
-    let qc = match report {
-        Ok(report) => Some(report),
-        Err(e) => {
-            let unwritten = qc_json.map_or(String::new(), |path| {
-                format!(", so {} is not written", path.display())
-            });
-            sink(Event::Warning(format!("input QC failed{unwritten}: {e:#}")));
-            sink(Event::Info(totals(data)));
-            None
-        }
-    };
-    for line in loader_warnings(data, qc.as_ref()) {
-        sink(Event::Warning(line));
-    }
-    let Some(report) = &qc else {
-        return Ok(None);
-    };
-    sink(Event::Qc {
-        text: render_text(report),
-        warnings: report
-            .findings
-            .iter()
-            .filter(|f| f.severity == Severity::Warning)
-            .map(|f| format!("QC {}: {}", f.code.as_str(), f.message))
-            .collect(),
-    });
-    if let Some(path) = qc_json {
-        write_qc_json(path, report)?;
-        if !is_stdout(path) {
-            sink(Event::Output(format!("QC report: {}", path.display())));
-        }
-    }
-    Ok(qc)
-}
-
 /// Check the files and directories the run will write before reading the
 /// input (see [`check_destinations`]), and the chart library the report
 /// embeds when `PSMC_ECHARTS_JS` names one.
@@ -539,61 +481,58 @@ fn bin_callable_record(data: &Dataset, mode: BinCallableArg) -> BinCallableRecor
 fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) -> Option<Event> {
     let s = cli.input.bin_size;
     let mode = cli.bin_callable.name();
-    let counted = b.model == CALLABLE_LENGTH_MODEL;
     let max_counted = count(MAX_COUNTED_BIN_SIZE as u64);
-    match (&b.callable, b.counts.as_deref()) {
-        // Multihetsep's counts follow the reader's placement of the
-        // uncalled sites, which QC's APPROX_MISSING_PLACEMENT describes.
-        (Some(_), Some(source)) if source != "exact" => {
-            let how = if counted {
-                format!(
-                    "the fit weighs each called bin by them (--bin-callable {mode}), which made \
-                     theta and Ne lower than --bin-callable auto in the validation"
-                )
-            } else {
-                format!(
-                    "the fit treats every called bin as {s} bases (--bin-callable {mode}; \
-                     approximate would use the counts)"
-                )
-            };
-            Some(Event::Info(format!(
-                "Callable bases ({source} counts, see APPROX_MISSING_PLACEMENT): {how}"
-            )))
-        }
-        (Some(_), Some(source)) => {
-            let how = if counted {
-                format!("the fit weighs each called bin by them (--bin-callable {mode})")
-            } else {
-                format!(
-                    "the fit treats every called bin as {s} bases, as fq2psmcfa and C psmc do \
-                     (--bin-callable {mode})"
-                )
-            };
-            Some(Event::Info(format!(
-                "Callable bases ({source} counts): {how}"
-            )))
-        }
-        _ if cli.bin_callable != BinCallableArg::Auto => {
-            let what = match &data.source {
-                SourceSummary::Psmcfa(_) => {
-                    "psmcfa input, which records no callable bases per bin".to_string()
-                }
-                _ => format!(
-                    "bins of {s} bases, whose callable bases are not counted (only bins of at \
-                     most {max_counted} bases are)"
-                ),
-            };
+    let psmcfa = matches!(data.source, SourceSummary::Psmcfa(_));
+    // The data have counts exactly when they have a source.
+    let Some(source) = b.counts.as_deref() else {
+        let what = if psmcfa {
+            "psmcfa input, which records no callable bases per bin".to_string()
+        } else {
+            format!(
+                "bins of {s} bases, whose callable bases are not counted (only bins of at most \
+                 {max_counted} bases are)"
+            )
+        };
+        return if cli.bin_callable != BinCallableArg::Auto {
             Some(Event::Warning(format!(
                 "--bin-callable {mode} changes nothing for {what}: every called bin is taken to \
                  hold {s} bases, as C psmc takes them"
             )))
-        }
-        _ if !matches!(data.source, SourceSummary::Psmcfa(_)) => Some(Event::Info(format!(
-            "Callable bases are counted for bins of at most {max_counted} bases; bins of {s} are \
-             fitted as C psmc fits them, every called bin as {s} bases"
-        ))),
-        _ => None,
-    }
+        } else {
+            (!psmcfa).then(|| {
+                Event::Info(format!(
+                    "Callable bases are counted for bins of at most {max_counted} bases; bins of \
+                     {s} are fitted as C psmc fits them, every called bin as {s} bases"
+                ))
+            })
+        };
+    };
+    // Multihetsep's counts follow the reader's placement of the uncalled
+    // sites, which QC's APPROX_MISSING_PLACEMENT describes.
+    let exact = source == "exact";
+    let how = match (b.model == CALLABLE_LENGTH_MODEL, exact) {
+        (true, true) => format!("the fit weighs each called bin by them (--bin-callable {mode})"),
+        (true, false) => format!(
+            "the fit weighs each called bin by them (--bin-callable {mode}), which made theta \
+             and Ne lower than --bin-callable auto in the validation"
+        ),
+        (false, true) => format!(
+            "the fit treats every called bin as {s} bases, as fq2psmcfa and C psmc do \
+             (--bin-callable {mode})"
+        ),
+        (false, false) => format!(
+            "the fit treats every called bin as {s} bases (--bin-callable {mode}; approximate \
+             would use the counts)"
+        ),
+    };
+    let see = if exact {
+        ""
+    } else {
+        ", see APPROX_MISSING_PLACEMENT"
+    };
+    Some(Event::Info(format!(
+        "Callable bases ({source} counts{see}): {how}"
+    )))
 }
 
 #[cfg(test)]

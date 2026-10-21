@@ -527,22 +527,13 @@ mod tests {
         ] {
             set(&mut a, field, value);
         }
-        let args = build_cli_from_form(&a).unwrap();
-        assert!(!args.tui);
-        assert_eq!(args.input_file, Some(PathBuf::from("data/in.vcf.gz")));
-        assert_eq!(args.output_file, Some(PathBuf::from("out/fit.json")));
-        assert_eq!(args.n_iter, Some(30));
-        assert_eq!(args.pattern.as_deref(), Some("4+25*2+4+6"));
-        assert_eq!(args.gen_years, 29.0);
-        assert_eq!(args.threads, Some(2));
-        assert_eq!(args.input.input_format, FormatArg::Vcf);
-        assert_eq!(args.input.bin_size, 50);
-        assert_eq!((args.mu, args.smooth_lambda), (1.25e-8, 0.0));
-        assert_eq!(args.bootstrap, 5);
-        assert_eq!(args.input.vcf_mask, [PathBuf::from("m.bed")]);
-        let command = command_line(&a).unwrap();
-        assert!(command.contains("--gen-years 29"), "{command}");
-        assert!(command.contains("--bootstrap 5"), "{command}");
+        assert!(!build_cli_from_form(&a).unwrap().tui);
+        // The command line gives back every setting (`InferArgs::to_args`).
+        assert_eq!(
+            command_line(&a).unwrap(),
+            "psmc-rs data/in.vcf.gz out/fit.json 30 --input-format vcf --bin-size 50 --vcf-mask \
+             m.bed --pattern 4+25*2+4+6 --mu 1.25e-8 --threads 2 --gen-years 29 --bootstrap 5"
+        );
 
         // An empty pattern or thread count means the default.
         set(&mut a, FIELD_PATTERN, " ");

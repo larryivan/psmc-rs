@@ -12,9 +12,11 @@ use psmc_rs::qc::fmt::{counted, pct};
 
 use crate::cli::{ConvertArgs, FormatArg, usage_bail};
 use crate::console::Console;
-use crate::dataset::{callable_summary, counts_source, default_qc_report, load_input};
+use crate::dataset::{
+    announce_input, callable_summary, counts_source, default_qc_report, load_input, report_qc,
+};
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir};
-use crate::run::{Event, Sink, announce_input, report_qc};
+use crate::run::{Event, Sink};
 
 /// Run `convert`.
 pub fn run(args: &ConvertArgs) -> Result<ExitCode> {

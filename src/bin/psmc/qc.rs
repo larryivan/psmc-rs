@@ -7,9 +7,9 @@ use psmc_rs::qc::render_text;
 
 use crate::cli::QcArgs;
 use crate::console::{Console, print_err, print_out};
-use crate::dataset::{default_qc_report, load_input, loader_warnings};
+use crate::dataset::{announce_input, default_qc_report, load_input, loader_warnings};
 use crate::output::{check_destinations, is_stdout, write_qc_json};
-use crate::run::{Event, announce_input};
+use crate::run::Event;
 
 /// The exit status of `qc --strict` when the report has a warning.
 const STRICT_FAILURE: u8 = 2;

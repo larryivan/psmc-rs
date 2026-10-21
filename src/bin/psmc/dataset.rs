@@ -1,5 +1,5 @@
-//! Loading the input as inference, `convert` and `qc` all do, and describing
-//! what was read.
+//! Loading the input as inference, `convert` and `qc` all do, and saying
+//! what was read: how it was read, and its QC report.
 
 use anyhow::{Context, Result, anyhow, bail};
 use std::fs;
@@ -14,13 +14,15 @@ use psmc_rs::io::vcf::VcfSummary;
 use psmc_rs::qc::fmt::{count, counted, pct, plural};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
-    QcReport, QcSeq, try_analyze,
+    QcReport, QcSeq, Severity, render_text, try_analyze,
 };
 use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
 use crate::cli::{
     BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout,
 };
+use crate::output::{is_stdout, write_qc_json};
+use crate::run::{Event, Sink};
 
 /// A model of this layout, for its free lambdas and time grid only: its
 /// rates are small enough for a valid transition matrix at every t_max the
@@ -231,7 +233,7 @@ pub fn loader_warnings(data: &Dataset, qc: Option<&QcReport>) -> Vec<String> {
 /// A warning naming the options of `args` that the input, as read, does
 /// not use: those of another format or of the other VCF mode, and those it
 /// only checks (`--vcf-sample` in consensus mode).
-pub fn ignored_options(args: &InputArgs, data: &Dataset) -> Option<String> {
+fn ignored_options(args: &InputArgs, data: &Dataset) -> Option<String> {
     let (vcf_mode, what) = match &data.source {
         SourceSummary::Psmcfa(_) => (None, "psmcfa input".to_string()),
         SourceSummary::Mhs(_) => (None, "multihetsep input".to_string()),
@@ -361,7 +363,7 @@ pub fn ensure_usable(data: &Dataset) -> Result<()> {
 
 /// Lines telling the user how the input was read: what the input QC report
 /// does not say of it.
-pub fn describe(data: &Dataset) -> Vec<String> {
+fn describe(data: &Dataset) -> Vec<String> {
     match &data.source {
         SourceSummary::Psmcfa(p) => {
             // C psmc counts the empty records in n_seqs (its MM line).
@@ -470,9 +472,65 @@ fn describe_mask(m: &VcfSummary) -> String {
     )
 }
 
+/// Say how the input was read: what it holds, and the options of `args`
+/// it does not use.
+pub fn announce_input(data: &Dataset, args: &InputArgs, sink: Sink) {
+    for line in describe(data) {
+        sink(Event::Info(line));
+    }
+    if let Some(line) = ignored_options(args, data) {
+        sink(Event::Warning(line));
+    }
+}
+
+/// Show the input QC `report` of `data`, or why it could not be made,
+/// after the loader's warnings that it does not repeat, and write it as
+/// JSON to `qc_json` when given. A failed report is only a warning, so that
+/// it never stops a run; it is returned as `None`.
+pub fn report_qc(
+    data: &Dataset,
+    report: Result<QcReport>,
+    qc_json: Option<&Path>,
+    sink: Sink,
+) -> Result<Option<QcReport>> {
+    let qc = match report {
+        Ok(report) => Some(report),
+        Err(e) => {
+            let unwritten = qc_json.map_or(String::new(), |path| {
+                format!(", so {} is not written", path.display())
+            });
+            sink(Event::Warning(format!("input QC failed{unwritten}: {e:#}")));
+            sink(Event::Info(totals(data)));
+            None
+        }
+    };
+    for line in loader_warnings(data, qc.as_ref()) {
+        sink(Event::Warning(line));
+    }
+    let Some(report) = &qc else {
+        return Ok(None);
+    };
+    sink(Event::Qc {
+        text: render_text(report),
+        warnings: report
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .map(|f| format!("QC {}: {}", f.code.as_str(), f.message))
+            .collect(),
+    });
+    if let Some(path) = qc_json {
+        write_qc_json(path, report)?;
+        if !is_stdout(path) {
+            sink(Event::Output(format!("QC report: {}", path.display())));
+        }
+    }
+    Ok(qc)
+}
+
 /// The sequences and bins of `data`, for when the input QC report, which
 /// gives them, could not be made.
-pub fn totals(data: &Dataset) -> String {
+fn totals(data: &Dataset) -> String {
     let bins = data.n_bins();
     let missing = data.obs.rows.iter().flatten().filter(|&&b| b >= 2).count();
     // As the QC report gives shares (0.0% of nothing).
