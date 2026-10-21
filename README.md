@@ -530,18 +530,22 @@ The rationale and the sources of each threshold are documented on
 
 ### Terminal interface
 
-`psmc-rs --tui` has three pages: Setup (F1), Run (F2) and Result (F3). The
-form takes the input, output, N_ITER (25), pattern (empty for `4+5*3+4`),
-generation time, threads, input format, bin size, μ and smoothing; any other
-option given with `--tui` is kept, and the page shows the equivalent
-command line. On the Setup page every character types into the selected
-field: Tab and Shift+Tab move between fields, Space or Left/Right cycle the
-input format, Ctrl+O and Ctrl+D pick the input file and the output
-directory, F5 or Enter runs, and Esc quits. x or Ctrl+C stops a run (EM and
-the bootstrap stop at their next check, and the run shows "Cancelled");
-Ctrl+C with no run quits. On the other pages q quits and r runs. PageUp,
-PageDown and End scroll the log, and Ctrl+L clears it. `--qc-json -` is
-refused with `--tui`, whose screen is stdout.
+`psmc-rs --tui` has three pages, Setup (F1), Run (F2) and Result (F3), and
+a line of the keys that apply. The form takes the input, output, N_ITER
+(25), pattern (empty for `4+5*3+4`), generation time, threads, input
+format, bin size, μ and smoothing; any other option given with `--tui` is
+kept, and the page shows the equivalent command line, or what the form
+still lacks. On the Setup page every character types into the selected
+field: Tab, Shift+Tab and Up/Down move between fields, Ctrl+U clears one,
+Space or Left/Right change the input format, Ctrl+O and Ctrl+D pick the
+input file and the output directory, F5 or Enter runs, and Esc quits. x or
+Ctrl+C stops a run (EM and the bootstrap stop at their next check, and the
+run shows "Cancelled"); Ctrl+C with no run quits. A run that fails goes
+back to the Setup page with the error in its log; one that finishes opens
+the Result page, which lists what it wrote. On the other pages q quits and
+r runs. Up/Down and PageUp/PageDown scroll the log, End goes back to its
+end, and Ctrl+L clears it. `--qc-json -` is refused with `--tui`, whose
+screen is stdout.
 
 ## Outputs
 

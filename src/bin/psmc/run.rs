@@ -6,10 +6,10 @@ mod bootstrap;
 mod fit;
 mod start;
 
-use anyhow::{Context as _, Result, anyhow};
+use anyhow::{Context as _, Result, bail};
 use rayon::ThreadPool;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use psmc_rs::PsmcModel;
@@ -81,22 +81,6 @@ pub enum Event {
 /// Where the pipeline sends its events; called from worker threads too.
 pub type Sink<'a> = &'a (dyn Fn(Event) + Sync);
 
-/// The outputs of a finished run.
-#[derive(Debug, Clone)]
-pub struct RunSummary {
-    /// The fitted parameters.
-    pub output_json: PathBuf,
-    /// The HTML report.
-    pub html_report: PathBuf,
-    /// The TMRCA posterior, if asked for.
-    pub tmrca_out: Option<PathBuf>,
-    /// The bootstrap files, if a bootstrap ran.
-    pub bootstrap_dir: Option<PathBuf>,
-    /// Log-likelihood of the written parameters: the fitted ones, or the
-    /// starting ones after 0 iterations.
-    pub final_loglike: Option<f64>,
-}
-
 /// What the stages of a run share: the flag that cancels it, where its
 /// events go, and its thread pool.
 #[derive(Clone, Copy)]
@@ -129,16 +113,16 @@ impl Context<'_> {
 }
 
 /// Run inference as `cli` describes it, in a thread pool of its own with
-/// `--threads` workers. `cancel` stops the run at the next check (between
-/// stages, and inside EM and the bootstrap); the error is then
-/// [`Cancelled`]. `progress_bars` lets the TMRCA decoding draw its own bar
-/// on stderr.
+/// `--threads` workers; the files written are named by [`Event::Output`].
+/// `cancel` stops the run at the next check (between stages, and inside EM
+/// and the bootstrap); the error is then [`Cancelled`]. `progress_bars`
+/// lets the TMRCA decoding draw its own bar on stderr.
 pub fn run_inference(
     cli: &InferArgs,
     cancel: &AtomicBool,
     sink: Sink,
     progress_bars: bool,
-) -> Result<RunSummary> {
+) -> Result<()> {
     // A pool per run, rather than the global one, so that a later run (in
     // the TUI) can use another thread count.
     let pool = rayon::ThreadPoolBuilder::new()
@@ -163,17 +147,13 @@ struct Input {
 }
 
 /// [`run_inference`] inside its pool.
-fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummary> {
-    let missing = |what| anyhow!("missing {what}");
-    let given_input = cli
-        .input_file
-        .clone()
-        .ok_or_else(|| missing("INPUT_FILE"))?;
-    let output = cli
-        .output_file
-        .clone()
-        .ok_or_else(|| missing("OUTPUT_FILE"))?;
-    let n_iter = cli.n_iter.ok_or_else(|| missing("N_ITER"))?;
+fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
+    // The command line requires them; the TUI's form fills them.
+    let (Some(given_input), Some(output), Some(n_iter)) =
+        (&cli.input_file, &cli.output_file, cli.n_iter)
+    else {
+        bail!("INPUT, OUTPUT and N_ITER are required");
+    };
     // Settings that can be checked without the data fail first.
     let saved = cli
         .init_params
@@ -187,17 +167,17 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
         Some(model) => model.clone(),
         None => layout_model(cli.t_max, n_steps, pattern.clone(), cli.mu)?,
     };
-    let bootstrap = BootstrapPlan::of(cli, n_iter, &output)?;
+    let bootstrap = BootstrapPlan::of(cli, n_iter, output)?;
     ctx.check_cancel()?;
-    let input_file = resolve_input_path(&given_input, cli.input.input_format)?;
-    if input_file != given_input {
+    let input_file = resolve_input_path(given_input, cli.input.input_format)?;
+    if input_file != *given_input {
         ctx.info(format!(
             "Input is a directory, selected file: {}",
             input_file.display()
         ));
     }
-    let report_html = default_html_path(&output);
-    check_outputs(cli, &input_file, &output, &report_html, bootstrap.as_ref())?;
+    let report_html = default_html_path(output);
+    check_outputs(cli, &input_file, output, &report_html, bootstrap.as_ref())?;
     let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
     let input = read_input(&input_file, cli, &layout, trunk, ctx)?;
     let obs = &input.data.obs;
@@ -243,28 +223,17 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
 
     // The main fit's outputs are written before the bootstrap, which can
     // take far longer.
-    let input_summary = InputSummary::of(&input.data);
     let record = FitRecord {
+        cli,
         model: &model,
         history: &history,
         final_loglike,
-        bin_size: cli.input.bin_size,
-        gen_years: cli.gen_years,
         tr_ratio,
-        smooth_lambda: cli.smooth_lambda,
-        input: &input_summary,
+        input: &InputSummary::of(&input.data),
         qc: input.qc.as_ref(),
         bin_callable: &input.bin_callable,
     };
-    write_fit(
-        &record,
-        n_iter,
-        &input.data,
-        &output,
-        cli,
-        boot.is_none(),
-        ctx,
-    )?;
+    write_fit(&record, &input.data, output, boot.is_none(), ctx)?;
     let boot_summary = boot
         .as_ref()
         .map(|b| b.run(&model, &mstep_config, cli, n_iter, ctx))
@@ -279,23 +248,14 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<RunSummar
     let bootstrap = boot.as_ref().zip(boot_summary.as_ref());
     write_report(
         &record,
-        n_iter,
         &report_html,
         &input_file,
-        &output,
-        cli,
+        output,
         bootstrap,
         tmrca.as_ref(),
     )?;
     ctx.output(format!("HTML report: {}", report_html.display()));
-
-    Ok(RunSummary {
-        output_json: output,
-        html_report: report_html,
-        tmrca_out: cli.tmrca_out.clone(),
-        bootstrap_dir: boot.map(|b| b.plan.dir),
-        final_loglike: Some(final_loglike),
-    })
+    Ok(())
 }
 
 /// The line that describes the model a fit starts from.
@@ -313,63 +273,50 @@ fn model_line(model: &PsmcModel) -> String {
     )
 }
 
-/// Write the main fit of `data` (`n_iter` EM iterations) to `output`, and
-/// its `.psmc` output when asked for; without a bootstrap (`no_bootstrap`),
-/// warn of the replicates of an earlier run in the default bootstrap
-/// directory.
+/// Write the main fit of `data` to `output`, and its `.psmc` output when
+/// asked for; without a bootstrap (`no_bootstrap`), warn of the replicates
+/// of an earlier run in the default bootstrap directory.
 fn write_fit(
-    record: &FitRecord,
-    n_iter: usize,
+    fit: &FitRecord,
     data: &Dataset,
     output: &Path,
-    cli: &InferArgs,
     no_bootstrap: bool,
     ctx: Context,
 ) -> Result<()> {
-    save_fit(output, record)?;
+    save_fit(output, fit)?;
     ctx.output(format!("Parameters: {}", output.display()));
     if no_bootstrap && let Some(msg) = earlier_bootstrap_warning(output) {
         ctx.warn(msg);
     }
-    if let Some(path) = &cli.psmc_out {
-        write_main_psmc(
-            path,
-            record.model,
-            record.history,
-            data,
-            record.bin_callable,
-        )?;
+    if let Some(path) = &fit.cli.psmc_out {
+        write_main_psmc(path, fit, data)?;
         ctx.output(format!("PSMC output: {}", path.display()));
+        let n_iter = fit.history.loglike.len();
         if n_iter > 0 {
             ctx.info(format!(
                 "To plot it: {} (-s is the bin size, which the .psmc file does not record)",
-                psmc_plot_command(cli, n_iter, &path.display().to_string())
+                psmc_plot_command(fit.cli, n_iter, &path.display().to_string())
             ));
         }
     }
     Ok(())
 }
 
-/// Write the HTML report of the fit (`n_iter` EM iterations) to `path`,
-/// with the bootstrap and the TMRCA posterior when they were made.
-#[allow(clippy::too_many_arguments)]
+/// Write the HTML report of the fit of `input_file` into `output` to
+/// `path`, with the bootstrap and the TMRCA posterior when they were made.
 fn write_report(
-    record: &FitRecord,
-    n_iter: usize,
+    fit: &FitRecord,
     path: &Path,
     input_file: &Path,
     output: &Path,
-    cli: &InferArgs,
     bootstrap: Option<(&Bootstrap, &BootstrapSummary)>,
     tmrca: Option<&TmrcaReportData>,
 ) -> Result<()> {
-    let started_from = cli
-        .init_params
-        .as_ref()
-        .map(|path| path.display().to_string());
+    let cli = fit.cli;
+    let started_from = cli.init_params.as_ref().map(|p| p.display().to_string());
     let settings = [
-        ("Starting theta0/rho0", Some(record.tr_ratio.to_string())),
-        ("Smoothness penalty", Some(record.smooth_lambda.to_string())),
+        ("Starting theta0/rho0", Some(fit.tr_ratio.to_string())),
+        ("Smoothness penalty", Some(cli.smooth_lambda.to_string())),
         (
             "M-step iterations (at most)",
             Some(cli.mstep_iters.to_string()),
@@ -380,17 +327,17 @@ fn write_report(
     .filter_map(|(name, value)| Some((name.to_string(), value?)))
     .collect();
     let report = ReportData {
-        model: record.model,
-        bin_size: record.bin_size as f64,
-        gen_years: record.gen_years,
+        model: fit.model,
+        bin_size: cli.input.bin_size as f64,
+        gen_years: cli.gen_years,
         input_file,
         output_json: output,
-        input: Some(record.input),
-        n_iter,
-        final_loglike: Some(record.final_loglike),
+        input: Some(fit.input),
+        n_iter: fit.history.loglike.len(),
+        final_loglike: Some(fit.final_loglike),
         settings,
-        qc: record.qc,
-        bin_callable: Some(record.bin_callable),
+        qc: fit.qc,
+        bin_callable: Some(fit.bin_callable),
         bootstrap: bootstrap.map(|(b, summary)| BootstrapReport {
             summary,
             em_iters: b.plan.em_iters,
@@ -655,6 +602,7 @@ fn bin_callable_event(b: &BinCallableRecord, data: &Dataset, cli: &InferArgs) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::sync::Mutex;
 
     /// A directory of its own under the system temp dir.

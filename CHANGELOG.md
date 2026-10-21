@@ -402,7 +402,9 @@ Reproduction package (`experiment/`):
 - Input from pipes and FIFOs (the file is read once; only `--depth auto`
   needs a regular file).
 - TUI: the stop key interrupts EM and the bootstrap mid-step, the form has
-  a generation-time field and shows the equivalent command line.
+  a generation-time field and shows the equivalent command line (or what
+  it lacks) and a hint for each field, Ctrl+U clears a field, and a failed
+  run goes back to the form.
 - Library: `io::input::load` and `Dataset` (one loader for every format),
   `io::consensus`, `io::write` (psmcfa and multihetsep writers),
   `io::mhs::read_mhs_with`, `io::vcf::read_vcf_with`, the `qc` and
@@ -532,6 +534,13 @@ Reproduction package (`experiment/`):
   field was invalid, though it does not use it.
 - The TUI form could not take q, x, r or a space, and its stop key could
   not interrupt EM.
+- The TUI's log stopped short of its last lines when long lines wrapped,
+  hiding the end of a run; PageUp jumped to the top of the log and PageDown
+  scrolled towards it. Its key hints were cut off at 120 columns and named
+  the Setup keys on every page, its Result page listed four of the files a
+  run writes (now each result line, as the command line prints it), and
+  its rates kept falling after a stage finished (the gauges now show the
+  time taken and left).
 - The HTML report was blank, without a word, when ECharts could not be
   fetched; it now says how to fix that.
 - The HTML report stacked the bootstrap band on years instead of Ne, so

@@ -1,7 +1,7 @@
 //! The interactive terminal UI (`--tui`): a form for the main settings, live
 //! progress of the shared inference pipeline, and the results.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use clap::ValueEnum;
 use crossterm::cursor::Show;
 use crossterm::event::{self, Event as TermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -13,7 +13,7 @@ use ratatui::prelude::*;
 use std::collections::VecDeque;
 use std::io;
 use std::panic;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -27,7 +27,7 @@ use crate::cli::{
     usage_bail, whole_number,
 };
 use crate::output::is_stdout;
-use crate::run::{self, Event, RunSummary, Stage};
+use crate::run::{self, Event, Stage};
 
 mod picker;
 mod view;
@@ -37,7 +37,32 @@ use view::render_ui;
 
 const MAX_LOG_LINES: usize = 3_000;
 
-// The fields of the form, in the order of [`App::new`].
+/// The labels of the form's fields, in the order of the `FIELD_` indices,
+/// and what each holds.
+const LABELS: [&str; 10] = [
+    "Input",
+    "Output",
+    "N iter",
+    "Pattern",
+    "Gen years",
+    "Threads",
+    "Input fmt",
+    "Bin size",
+    "Mu",
+    "Smooth",
+];
+const HINTS: [&str; LABELS.len()] = [
+    "Input file: psmcfa, multihetsep or VCF, plain or gzip",
+    "Output JSON of the parameters; the HTML report is written next to it",
+    "EM iterations (C psmc -N; 0 writes the starting model)",
+    "Free-parameter pattern of the time intervals (empty: C psmc's 4+5*3+4)",
+    "Years per generation, for the time axes",
+    "Worker threads (empty: one per core); results do not depend on it",
+    "Input format: auto, psmcfa, mhs or vcf",
+    "Bases per bin: bins VCF and multihetsep; for psmcfa, the -s it was made with",
+    "Mutation rate per base pair per generation, for scaling",
+    "Weight of the penalty on log-lambda differences (0: C psmc's objective)",
+];
 const FIELD_INPUT: usize = 0;
 const FIELD_OUTPUT: usize = 1;
 const FIELD_N_ITER: usize = 2;
@@ -49,15 +74,9 @@ const FIELD_BIN_SIZE: usize = 7;
 const FIELD_MU: usize = 8;
 const FIELD_SMOOTH_LAMBDA: usize = 9;
 
-struct FormField {
-    label: &'static str,
-    value: String,
-    hint: &'static str,
-}
-
-/// The pages, in the order of their tabs.
+/// The pages, in the order of their tabs (F1 to F3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TuiPage {
+enum Page {
     Setup,
     Run,
     Result,
@@ -65,7 +84,7 @@ enum TuiPage {
 
 /// Every stage, in the order of [`Stage`]'s variants, so that `stage as
 /// usize` indexes [`App::stages`].
-const STAGE_ORDER: [Stage; 5] = [
+const STAGES: [Stage; 5] = [
     Stage::Io,
     Stage::EForward,
     Stage::EBackward,
@@ -73,6 +92,8 @@ const STAGE_ORDER: [Stage; 5] = [
     Stage::Bootstrap,
 ];
 
+/// The progress of a stage: since when it has made it, and when it last
+/// did (which keeps the rate of a finished stage).
 #[derive(Debug, Clone, Default)]
 struct StageSnapshot {
     done: u64,
@@ -82,42 +103,32 @@ struct StageSnapshot {
     updated_at: Option<Instant>,
 }
 
-/// A finished run, as the result page shows it.
-#[derive(Debug, Clone)]
-struct Finished {
-    summary: RunSummary,
-    elapsed_sec: f64,
-}
-
-/// What the worker thread of a run sends to the UI.
-#[derive(Debug)]
-enum RunnerEvent {
-    Pipeline(Event),
-    Completed(Finished),
-    Failed(String),
-    Cancelled,
-}
-
-struct RunningTask {
-    rx: Receiver<RunnerEvent>,
-    handle: JoinHandle<()>,
+/// A run on its worker thread, which sends the pipeline's events with the
+/// time it sent them, and returns its outcome.
+struct Running {
+    events: Receiver<(Instant, Event)>,
+    worker: JoinHandle<Result<()>>,
     stop: Arc<AtomicBool>,
+    started: Instant,
 }
 
 struct App {
     self_bin: PathBuf,
+    /// The command line that opened the TUI, which gives the settings the
+    /// form does not show.
     base_cli: InferArgs,
-    page: TuiPage,
-    fields: Vec<FormField>,
+    page: Page,
+    fields: [String; LABELS.len()],
     selected: usize,
     logs: VecDeque<String>,
+    /// How many rows the log is scrolled back from its end.
+    scroll_back: usize,
     status: String,
     should_quit: bool,
-    autoscroll: bool,
-    manual_scroll: u16,
-    running: Option<RunningTask>,
-    stages: [StageSnapshot; STAGE_ORDER.len()],
-    result: Option<Finished>,
+    running: Option<Running>,
+    stages: [StageSnapshot; STAGES.len()],
+    /// The result lines of the last run: the files it wrote.
+    results: Vec<String>,
     picker: Option<FilePicker>,
 }
 
@@ -126,75 +137,32 @@ impl App {
     fn new(self_bin: PathBuf, cli: &InferArgs) -> Self {
         let path = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
         let fields = [
-            (
-                "Input",
-                path(&cli.input_file).unwrap_or_default(),
-                "Input file (.psmcfa/.mhs/.multihetsep/.vcf/.gz)",
-            ),
-            (
-                "Output",
-                path(&cli.output_file).unwrap_or_else(|| "out.json".to_string()),
-                "Output JSON path",
-            ),
-            (
-                "N iter",
-                cli.n_iter
-                    .map_or_else(|| "25".to_string(), |n| n.to_string()),
-                "EM iterations (C psmc -N)",
-            ),
-            (
-                "Pattern",
-                cli.pattern.clone().unwrap_or_default(),
-                "PSMC pattern (empty: C psmc's 4+5*3+4)",
-            ),
-            (
-                "Gen years",
-                cli.gen_years.to_string(),
-                "Years per generation, for the time axis",
-            ),
-            (
-                "Threads",
-                cli.threads.map(|n| n.to_string()).unwrap_or_default(),
-                "Worker threads (empty: one per core)",
-            ),
-            (
-                "Input fmt",
-                cli.input.input_format.name().to_string(),
-                "auto, psmcfa, mhs or vcf (Space cycles)",
-            ),
-            (
-                "Bin size",
-                cli.input.bin_size.to_string(),
-                "Bases per bin: binning of mhs/vcf, scaling of every format",
-            ),
-            ("Mu", cli.mu.to_string(), "Mutation rate"),
-            (
-                "Smooth",
-                cli.smooth_lambda.to_string(),
-                "Smoothness penalty on log lambda (0: C psmc's objective)",
-            ),
-        ]
-        .map(|(label, value, hint)| FormField { label, value, hint });
+            path(&cli.input_file).unwrap_or_default(),
+            path(&cli.output_file).unwrap_or_else(|| "out.json".to_string()),
+            cli.n_iter.unwrap_or(25).to_string(),
+            cli.pattern.clone().unwrap_or_default(),
+            cli.gen_years.to_string(),
+            cli.threads.map(|n| n.to_string()).unwrap_or_default(),
+            cli.input.input_format.name().to_string(),
+            cli.input.bin_size.to_string(),
+            format!("{:e}", cli.mu),
+            cli.smooth_lambda.to_string(),
+        ];
         Self {
             self_bin,
             base_cli: cli.clone(),
-            page: TuiPage::Setup,
-            fields: fields.into(),
+            page: Page::Setup,
+            fields,
             selected: 0,
             logs: VecDeque::new(),
-            status: "Idle".to_string(),
+            scroll_back: 0,
+            status: "Ready".to_string(),
             should_quit: false,
-            autoscroll: true,
-            manual_scroll: 0,
             running: None,
             stages: Default::default(),
-            result: None,
+            results: Vec::new(),
             picker: None,
         }
-    }
-
-    fn field_value(&self, idx: usize) -> &str {
-        &self.fields[idx].value
     }
 
     fn append_log(&mut self, line: impl Into<String>) {
@@ -202,191 +170,134 @@ impl App {
             self.logs.pop_front();
         }
         self.logs.push_back(line.into());
-        if self.autoscroll {
-            self.manual_scroll = 0;
-        }
     }
 
-    fn clear_logs(&mut self) {
-        self.logs.clear();
-        self.manual_scroll = 0;
+    /// The next input format in the format field.
+    fn cycle_input_format(&mut self) {
+        let all = FormatArg::value_variants();
+        let next = parse_input_format(&self.fields[FIELD_INPUT_FORMAT])
+            .ok()
+            .and_then(|f| all.iter().position(|&x| x == f))
+            .map_or(FormatArg::Auto, |i| all[(i + 1) % all.len()]);
+        self.fields[FIELD_INPUT_FORMAT] = next.name().to_string();
     }
-
-    fn next_field(&mut self) {
-        self.selected = (self.selected + 1) % self.fields.len();
-    }
-
-    fn prev_field(&mut self) {
-        self.selected = (self.selected + self.fields.len() - 1) % self.fields.len();
-    }
-
-    fn toggle_input_format(&mut self) {
-        let next = match parse_input_format_field(self.field_value(FIELD_INPUT_FORMAT)) {
-            Ok(f) => {
-                let all = FormatArg::value_variants();
-                let i = all.iter().position(|&x| x == f).unwrap_or(0);
-                all[(i + 1) % all.len()]
-            }
-            Err(_) => FormatArg::Auto,
-        };
-        self.fields[FIELD_INPUT_FORMAT].value = next.name().to_string();
-    }
-
-    fn scroll_up(&mut self) {
-        self.autoscroll = false;
-        self.manual_scroll = self.manual_scroll.saturating_add(2);
-    }
-
-    fn scroll_down(&mut self) {
-        self.manual_scroll = self.manual_scroll.saturating_sub(2);
-        if self.manual_scroll == 0 {
-            self.autoscroll = true;
-        }
-    }
-
-    fn update_stage(&mut self, stage: Stage, done: u64, total: u64, iter: Option<(usize, usize)>) {
-        let now = Instant::now();
-        let snap = &mut self.stages[stage as usize];
-        let reset = snap.started_at.is_none()
-            || done < snap.done
-            || total != snap.total
-            || iter != snap.iter;
-        if reset {
-            snap.started_at = Some(now);
-        }
-        snap.done = done.min(total);
-        snap.total = total;
-        snap.iter = iter;
-        snap.updated_at = Some(now);
-    }
-}
-
-/// The trimmed value of the field `name`, which must not be empty.
-fn required<'a>(name: &str, v: &'a str) -> Result<&'a str> {
-    let s = v.trim();
-    if s.is_empty() {
-        bail!("{name} is required");
-    }
-    Ok(s)
 }
 
 /// The value of the field `name`, read by `parse`, a parser of the command
-/// line's values.
-fn parsed<T>(name: &str, v: &str, parse: fn(&str) -> Result<T, String>) -> Result<T> {
-    parse(required(name, v)?).map_err(|e| anyhow!("{name}: {e}"))
-}
-
-/// [`parsed`] for a field that may be left empty.
-fn parsed_or_none<T>(
-    name: &str,
-    v: &str,
-    parse: fn(&str) -> Result<T, String>,
-) -> Result<Option<T>> {
-    match v.trim() {
+/// line's values; `None` when it is empty.
+fn parsed<T>(name: &str, value: &str, parse: fn(&str) -> Result<T, String>) -> Result<Option<T>> {
+    match value.trim() {
         "" => Ok(None),
-        _ => parsed(name, v, parse).map(Some),
+        v => parse(v).map(Some).map_err(|e| anyhow!("{name}: {e}")),
     }
 }
 
-fn parse_input_format_field(v: &str) -> Result<FormatArg> {
-    FormatArg::from_str(v.trim(), true)
+/// [`parsed`] for a field that must be filled.
+fn required<T>(name: &str, value: &str, parse: fn(&str) -> Result<T, String>) -> Result<T> {
+    parsed(name, value, parse)?.ok_or_else(|| anyhow!("{name} is required"))
+}
+
+fn parse_input_format(value: &str) -> Result<FormatArg> {
+    FormatArg::from_str(value.trim(), true)
         .map_err(|_| anyhow!("Input fmt must be auto, psmcfa, mhs or vcf"))
 }
 
 /// The run the form describes: its fields over the other settings of the
 /// command line that opened the TUI.
 fn build_cli_from_form(app: &App) -> Result<InferArgs> {
-    let field = |idx| app.field_value(idx);
-    let input = required("Input", field(FIELD_INPUT))?;
-    let output = required("Output", field(FIELD_OUTPUT))?;
-    let n_iter = parsed("N iter", field(FIELD_N_ITER), whole_number)?;
-    let mu = parsed("Mu", field(FIELD_MU), positive_f64)?;
-    let gen_years = parsed("Gen years", field(FIELD_GEN_YEARS), positive_f64)?;
-    let smooth = parsed("Smooth", field(FIELD_SMOOTH_LAMBDA), non_negative_f64)?;
-    let input_format = parse_input_format_field(field(FIELD_INPUT_FORMAT))?;
-    let pattern = field(FIELD_PATTERN).trim();
-    let threads = parsed_or_none("Threads", field(FIELD_THREADS), positive_usize)?;
-    let bin_size = parsed_or_none("Bin size", field(FIELD_BIN_SIZE), positive_usize)?
-        .unwrap_or(DEFAULT_BIN_SIZE);
-
+    let field = |idx: usize| app.fields[idx].as_str();
+    let text = |s: &str| Ok::<_, String>(s.to_string());
     let mut cli = app.base_cli.clone();
     cli.tui = false;
-    cli.input_file = Some(PathBuf::from(input));
-    cli.output_file = Some(PathBuf::from(output));
-    cli.n_iter = Some(n_iter);
-    cli.input.input_format = input_format;
-    cli.pattern = (!pattern.is_empty()).then(|| pattern.to_string());
-    cli.threads = threads;
-    cli.input.bin_size = bin_size;
-    cli.mu = mu;
-    cli.smooth_lambda = smooth;
-    cli.gen_years = gen_years;
-    cli.no_progress = true;
+    cli.input_file = Some(required("Input", field(FIELD_INPUT), text)?.into());
+    cli.output_file = Some(required("Output", field(FIELD_OUTPUT), text)?.into());
+    cli.n_iter = Some(required("N iter", field(FIELD_N_ITER), whole_number)?);
+    cli.pattern = parsed("Pattern", field(FIELD_PATTERN), text)?;
+    cli.gen_years = required("Gen years", field(FIELD_GEN_YEARS), positive_f64)?;
+    cli.threads = parsed("Threads", field(FIELD_THREADS), positive_usize)?;
+    cli.input.input_format = parse_input_format(field(FIELD_INPUT_FORMAT))?;
+    cli.input.bin_size =
+        parsed("Bin size", field(FIELD_BIN_SIZE), positive_usize)?.unwrap_or(DEFAULT_BIN_SIZE);
+    cli.mu = required("Mu", field(FIELD_MU), positive_f64)?;
+    cli.smooth_lambda = required("Smooth", field(FIELD_SMOOTH_LAMBDA), non_negative_f64)?;
     Ok(cli)
 }
 
-/// The command line of `cli`, as the TUI shows it.
-fn command_line(self_bin: &Path, cli: &InferArgs) -> String {
-    format!("{} {}", self_bin.display(), cli.to_args().join(" "))
+/// The command line of the run the form describes, or why there is none.
+fn command_line(app: &App) -> Result<String> {
+    let cli = build_cli_from_form(app)?;
+    Ok(format!(
+        "{} {}",
+        app.self_bin.display(),
+        cli.to_args().join(" ")
+    ))
 }
 
-fn preview_cmdline(app: &App) -> String {
-    match build_cli_from_form(app) {
-        Ok(cli) => command_line(&app.self_bin, &cli),
-        Err(e) => format!("Invalid config: {e}"),
-    }
-}
-
+/// Take the events of the run under way and, once it has ended, its
+/// outcome.
 fn poll_runner(app: &mut App) {
-    let Some(task) = &app.running else {
+    let Some(run) = &app.running else {
         return;
     };
-    let events: Vec<RunnerEvent> = task.rx.try_iter().collect();
-    let mut done = false;
-    for ev in events {
-        match ev {
-            RunnerEvent::Pipeline(ev) => handle_pipeline_event(app, ev),
-            RunnerEvent::Completed(finished) => {
-                app.status = format!("Done in {:.1}s", finished.elapsed_sec);
-                app.result = Some(finished);
-                app.page = TuiPage::Result;
-                done = true;
-            }
-            RunnerEvent::Failed(err) => {
-                app.status = "Failed".to_string();
-                app.append_log(format!("Run failed: {err}"));
-                done = true;
-            }
-            RunnerEvent::Cancelled => {
-                app.status = "Cancelled".to_string();
-                app.append_log("Run cancelled by user.");
-                done = true;
-            }
-        }
+    // Every event of a finished worker is in the channel.
+    let ended = run.worker.is_finished();
+    let events: Vec<(Instant, Event)> = run.events.try_iter().collect();
+    for (at, ev) in events {
+        handle_pipeline_event(app, at, ev);
     }
-    if done && let Some(task) = app.running.take() {
-        let _ = task.handle.join();
+    let Some(run) = app.running.take_if(|_| ended) else {
+        return;
+    };
+    let outcome = run
+        .worker
+        .join()
+        .unwrap_or_else(|_| Err(anyhow!("the run stopped unexpectedly")));
+    match outcome {
+        Ok(()) => {
+            app.status = format!("Done in {:.1}s", run.started.elapsed().as_secs_f64());
+            app.page = Page::Result;
+        }
+        Err(e) if e.is::<Cancelled>() => {
+            app.status = "Cancelled".to_string();
+            app.append_log("Run cancelled by user.");
+        }
+        Err(e) => {
+            // Back to the form, to fix what the error names.
+            app.status = "Failed: see the log".to_string();
+            app.append_log(format!("Run failed: {e:#}"));
+            app.page = Page::Setup;
+        }
     }
 }
 
-/// Show an event of the pipeline: messages in the log, progress in the
-/// stage gauges.
-fn handle_pipeline_event(app: &mut App, ev: Event) {
+/// Show an event of the pipeline, sent `at`: messages in the log, progress
+/// in the stage gauges, results on the result page too.
+fn handle_pipeline_event(app: &mut App, at: Instant, ev: Event) {
     match ev {
-        Event::Info(line) | Event::Output(line) => app.append_log(line),
-        Event::Warning(line) => app.append_log(format!("Warning: {line}")),
-        Event::Qc { text, .. } => {
-            for line in text.lines() {
-                app.append_log(line);
-            }
+        Event::Info(line) => app.append_log(line),
+        Event::Output(line) => {
+            app.results.push(line.clone());
+            app.append_log(line);
         }
+        Event::Warning(line) => app.append_log(format!("Warning: {line}")),
+        Event::Qc { text, .. } => text.lines().for_each(|line| app.append_log(line)),
         Event::Iteration { iter, total } => app.append_log(format!("EM iteration {iter}/{total}")),
         Event::Progress {
             stage,
             done,
             total,
             iter,
-        } => app.update_stage(stage, done, total, iter),
+        } => {
+            // A stage starts again when its count goes back or its EM
+            // iteration changes. (The M-step's length is its cap until its
+            // last event.)
+            let snap = &mut app.stages[stage as usize];
+            if snap.started_at.is_none() || done < snap.done || iter != snap.iter {
+                snap.started_at = Some(at);
+            }
+            (snap.done, snap.total, snap.iter) = (done.min(total), total, iter);
+            snap.updated_at = Some(at);
+        }
     }
 }
 
@@ -395,37 +306,36 @@ fn start_run(app: &mut App) -> Result<()> {
         return Ok(());
     }
     let cli = build_cli_from_form(app)?;
-    app.append_log(format!("$ {}", command_line(&app.self_bin, &cli)));
+    app.append_log(format!("$ {}", command_line(app)?));
     app.stages = Default::default();
-    app.result = None;
-    app.page = TuiPage::Run;
+    app.results.clear();
+    app.scroll_back = 0;
+    app.page = Page::Run;
     app.status = "Running".to_string();
 
-    let (tx, rx) = mpsc::channel::<RunnerEvent>();
+    let (tx, events) = mpsc::channel();
     let stop = Arc::new(AtomicBool::new(false));
-    let stop_worker = Arc::clone(&stop);
-    let handle = thread::spawn(move || {
-        let started = Instant::now();
-        let sink = |ev: Event| {
-            let _ = tx.send(RunnerEvent::Pipeline(ev));
-        };
-        let outcome = match run::run_inference(&cli, &stop_worker, &sink, false) {
-            Ok(summary) => RunnerEvent::Completed(Finished {
-                summary,
-                elapsed_sec: started.elapsed().as_secs_f64(),
-            }),
-            Err(e) if e.is::<Cancelled>() => RunnerEvent::Cancelled,
-            Err(e) => RunnerEvent::Failed(format!("{e:#}")),
-        };
-        let _ = tx.send(outcome);
+    let cancel = Arc::clone(&stop);
+    let worker = thread::spawn(move || {
+        run::run_inference(
+            &cli,
+            &cancel,
+            &|ev| _ = tx.send((Instant::now(), ev)),
+            false,
+        )
     });
-    app.running = Some(RunningTask { rx, handle, stop });
+    app.running = Some(Running {
+        events,
+        worker,
+        stop,
+        started: Instant::now(),
+    });
     Ok(())
 }
 
 fn stop_run(app: &mut App) {
-    if let Some(task) = &app.running {
-        task.stop.store(true, Ordering::Relaxed);
+    if let Some(run) = &app.running {
+        run.stop.store(true, Ordering::Relaxed);
         app.status = "Stopping...".to_string();
         app.append_log("Stop requested.");
     }
@@ -437,67 +347,52 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Result<()> {
     }
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     if ctrl && key.code == KeyCode::Char('c') {
-        if app.running.is_some() {
-            stop_run(app);
-        } else {
-            app.should_quit = true;
+        match app.running {
+            Some(_) => stop_run(app),
+            None => app.should_quit = true,
         }
         return Ok(());
     }
     if app.picker.is_some() {
         return app.picker_key(key.code);
     }
-
     // While the form can be edited, it takes every printable character
     // (paths such as "results/run.json" hold the command letters), except
-    // Space on the format field, which cycles it.
-    let editing = app.page == TuiPage::Setup && app.running.is_none();
-    // Ctrl or Alt makes a command; both together is AltGr on Windows, which
-    // types characters such as '@'.
+    // Space on the format field, which changes it. Ctrl or Alt makes a
+    // command; both together is AltGr on Windows, which types characters
+    // such as '@'.
+    let editing = app.page == Page::Setup && app.running.is_none();
     let plain = ctrl == key.modifiers.contains(KeyModifiers::ALT);
-    if editing
-        && plain
-        && let KeyCode::Char(c) = key.code
-    {
-        if c == ' ' && app.selected == FIELD_INPUT_FORMAT {
-            app.toggle_input_format();
-        } else {
-            app.fields[app.selected].value.push(c);
-        }
-        return Ok(());
-    }
-
+    let on_format = editing && app.selected == FIELD_INPUT_FORMAT;
+    let field = &mut app.fields[app.selected];
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => {
-            if app.running.is_some() {
-                app.status = "Stop running job first (x)".to_string();
-            } else {
-                app.should_quit = true;
-            }
+        KeyCode::Char(' ') | KeyCode::Left | KeyCode::Right if on_format && plain => {
+            app.cycle_input_format();
         }
-        KeyCode::F(1) => app.page = TuiPage::Setup,
-        KeyCode::F(2) => app.page = TuiPage::Run,
-        KeyCode::F(3) => app.page = TuiPage::Result,
+        KeyCode::Char(c) if editing && plain => field.push(c),
+        KeyCode::Backspace if editing => _ = field.pop(),
+        KeyCode::Char('u') if editing && ctrl => field.clear(),
+        KeyCode::Char('o') if editing && ctrl => app.open_picker(FIELD_INPUT)?,
+        KeyCode::Char('d') if editing && ctrl => app.open_picker(FIELD_OUTPUT)?,
+        KeyCode::Tab | KeyCode::Down if editing => app.selected = (app.selected + 1) % LABELS.len(),
+        KeyCode::BackTab | KeyCode::Up if editing => {
+            app.selected = (app.selected + LABELS.len() - 1) % LABELS.len();
+        }
+        KeyCode::Char('q') | KeyCode::Esc if app.running.is_some() => {
+            app.status = "Stop the run first (x)".to_string();
+        }
+        KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
         KeyCode::Char('x') => stop_run(app),
         KeyCode::F(5) | KeyCode::Enter | KeyCode::Char('r') => start_run(app)?,
-        KeyCode::PageUp => app.scroll_up(),
-        KeyCode::PageDown => app.scroll_down(),
-        KeyCode::End => {
-            app.autoscroll = true;
-            app.manual_scroll = 0;
-        }
-        KeyCode::Tab | KeyCode::Down if editing => app.next_field(),
-        KeyCode::Tab | KeyCode::Down => app.scroll_down(),
-        KeyCode::BackTab | KeyCode::Up if editing => app.prev_field(),
-        KeyCode::BackTab | KeyCode::Up => app.scroll_up(),
-        KeyCode::Char('l') if ctrl => app.clear_logs(),
-        KeyCode::Char('o') if ctrl && editing => app.open_picker(FIELD_INPUT)?,
-        KeyCode::Char('d') if ctrl && editing => app.open_picker(FIELD_OUTPUT)?,
-        KeyCode::Left | KeyCode::Right if editing && app.selected == FIELD_INPUT_FORMAT => {
-            app.toggle_input_format();
-        }
-        KeyCode::Backspace if editing => {
-            app.fields[app.selected].value.pop();
+        KeyCode::F(n @ 1..=3) => app.page = [Page::Setup, Page::Run, Page::Result][n as usize - 1],
+        KeyCode::Up => app.scroll_back += 1,
+        KeyCode::PageUp => app.scroll_back += 10,
+        KeyCode::Down => app.scroll_back = app.scroll_back.saturating_sub(1),
+        KeyCode::PageDown => app.scroll_back = app.scroll_back.saturating_sub(10),
+        KeyCode::End => app.scroll_back = 0,
+        KeyCode::Char('l') if ctrl => {
+            app.logs.clear();
+            app.scroll_back = 0;
         }
         _ => {}
     }
@@ -564,8 +459,8 @@ pub fn run_tui(cli: &InferArgs) -> Result<()> {
     let mut screen = Screen::enter()?;
     let result = event_loop(&mut app, &mut screen.0);
     stop_run(&mut app);
-    if let Some(task) = app.running.take() {
-        let _ = task.handle.join();
+    if let Some(run) = app.running.take() {
+        let _ = run.worker.join();
     }
     result
 }
@@ -582,13 +477,11 @@ fn event_loop(app: &mut App, term: &mut Terminal<CrosstermBackend<io::Stdout>>) 
         match event::read().context("failed to read terminal event")? {
             TermEvent::Key(key) => {
                 if let Err(e) = handle_key(app, key) {
-                    app.status = "Input error".to_string();
-                    app.append_log(format!("Input error: {e}"));
+                    app.status = format!("{e:#}");
+                    app.append_log(format!("Input error: {e:#}"));
                 }
             }
-            TermEvent::Resize(_, _) => {
-                let _ = term.autoresize();
-            }
+            TermEvent::Resize(..) => _ = term.autoresize(),
             _ => {}
         }
     }
@@ -609,7 +502,7 @@ mod tests {
     }
 
     pub(super) fn set(app: &mut App, field: usize, value: &str) {
-        app.fields[field].value = value.to_string();
+        app.fields[field] = value.to_string();
     }
 
     /// The form fills the settings it shows and keeps the others of the
@@ -617,8 +510,9 @@ mod tests {
     #[test]
     fn the_form_builds_the_run_settings() {
         let mut a = app(&["--bootstrap", "5", "--vcf-mask", "m.bed"]);
-        assert_eq!(a.field_value(FIELD_INPUT_FORMAT), "auto");
-        assert_eq!(a.field_value(FIELD_GEN_YEARS), "25");
+        assert_eq!(a.fields[FIELD_INPUT_FORMAT], "auto");
+        assert_eq!(a.fields[FIELD_GEN_YEARS], "25");
+        assert_eq!(a.fields[FIELD_MU], "2.5e-8");
         for (field, value) in [
             (FIELD_INPUT, "data/in.vcf.gz"),
             (FIELD_OUTPUT, "out/fit.json"),
@@ -634,7 +528,7 @@ mod tests {
             set(&mut a, field, value);
         }
         let args = build_cli_from_form(&a).unwrap();
-        assert!(!args.tui && args.no_progress);
+        assert!(!args.tui);
         assert_eq!(args.input_file, Some(PathBuf::from("data/in.vcf.gz")));
         assert_eq!(args.output_file, Some(PathBuf::from("out/fit.json")));
         assert_eq!(args.n_iter, Some(30));
@@ -646,9 +540,9 @@ mod tests {
         assert_eq!((args.mu, args.smooth_lambda), (1.25e-8, 0.0));
         assert_eq!(args.bootstrap, 5);
         assert_eq!(args.input.vcf_mask, [PathBuf::from("m.bed")]);
-        let preview = preview_cmdline(&a);
-        assert!(preview.contains("--gen-years 29"), "{preview}");
-        assert!(preview.contains("--bootstrap 5"), "{preview}");
+        let command = command_line(&a).unwrap();
+        assert!(command.contains("--gen-years 29"), "{command}");
+        assert!(command.contains("--bootstrap 5"), "{command}");
 
         // An empty pattern or thread count means the default.
         set(&mut a, FIELD_PATTERN, " ");
@@ -670,66 +564,70 @@ mod tests {
     #[test]
     fn invalid_form_values_are_explained() {
         let mut a = app(&[]);
-        let err = |a: &App| build_cli_from_form(a).unwrap_err().to_string();
+        let err = |a: &App| command_line(a).unwrap_err().to_string();
         assert_eq!(err(&a), "Input is required");
         set(&mut a, FIELD_INPUT, "in.psmcfa");
         set(&mut a, FIELD_GEN_YEARS, "old");
-        assert!(err(&a).contains("Gen years"));
+        assert_eq!(err(&a), "Gen years: 'old' is not a number");
         set(&mut a, FIELD_GEN_YEARS, "25");
         set(&mut a, FIELD_INPUT_FORMAT, "bam");
         assert!(err(&a).contains("auto, psmcfa, mhs or vcf"));
-        assert!(preview_cmdline(&a).starts_with("Invalid config"));
+    }
+
+    fn key(app: &mut App, code: KeyCode, modifiers: KeyModifiers) {
+        handle_key(app, KeyEvent::new(code, modifiers)).unwrap();
     }
 
     fn press(app: &mut App, code: KeyCode) {
-        handle_key(app, KeyEvent::new(code, KeyModifiers::NONE)).unwrap();
-    }
-
-    fn type_text(app: &mut App, text: &str) {
-        for c in text.chars() {
-            press(app, KeyCode::Char(c));
-        }
+        key(app, code, KeyModifiers::NONE);
     }
 
     /// The form takes every printable character, the command letters
-    /// included; Space cycles the format field.
+    /// included; Space changes the format field.
     #[test]
     fn typed_text_reaches_the_form() {
         let mut a = app(&[]);
         a.selected = FIELD_OUTPUT;
-        a.fields[FIELD_OUTPUT].value.clear();
-        type_text(&mut a, "results/req x.json");
-        assert_eq!(a.field_value(FIELD_OUTPUT), "results/req x.json");
+        key(&mut a, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        for c in "results/req x.json".chars() {
+            press(&mut a, KeyCode::Char(c));
+        }
+        assert_eq!(a.fields[FIELD_OUTPUT], "results/req x.json");
         assert!(!a.should_quit && a.running.is_none());
-        assert_eq!(a.page, TuiPage::Setup);
+        assert_eq!(a.page, Page::Setup);
         press(&mut a, KeyCode::Backspace);
-        assert_eq!(a.field_value(FIELD_OUTPUT), "results/req x.jso");
+        assert_eq!(a.fields[FIELD_OUTPUT], "results/req x.jso");
 
         a.selected = FIELD_INPUT_FORMAT;
         press(&mut a, KeyCode::Char(' '));
-        assert_eq!(a.field_value(FIELD_INPUT_FORMAT), "psmcfa");
+        assert_eq!(a.fields[FIELD_INPUT_FORMAT], "psmcfa");
         press(&mut a, KeyCode::Right);
-        assert_eq!(a.field_value(FIELD_INPUT_FORMAT), "mhs");
+        assert_eq!(a.fields[FIELD_INPUT_FORMAT], "mhs");
 
         // Ctrl chords are commands, not text.
         a.selected = FIELD_INPUT;
         a.logs.push_back("old".to_string());
-        handle_key(
-            &mut a,
-            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
-        )
-        .unwrap();
+        key(&mut a, KeyCode::Char('l'), KeyModifiers::CONTROL);
         assert!(a.logs.is_empty());
-        assert_eq!(a.field_value(FIELD_INPUT), "");
-        handle_key(
+        assert_eq!(a.fields[FIELD_INPUT], "");
+        key(
             &mut a,
-            KeyEvent::new(
-                KeyCode::Char('@'),
-                KeyModifiers::CONTROL | KeyModifiers::ALT,
-            ),
-        )
-        .unwrap();
-        assert_eq!(a.field_value(FIELD_INPUT), "@");
+            KeyCode::Char('@'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        );
+        assert_eq!(a.fields[FIELD_INPUT], "@");
+    }
+
+    /// A run whose worker returns `outcome` at once.
+    fn finished_run(outcome: Result<()>) -> (Running, mpsc::Sender<(Instant, Event)>) {
+        let (tx, events) = mpsc::channel();
+        let run = Running {
+            events,
+            worker: thread::spawn(|| outcome),
+            stop: Arc::new(AtomicBool::new(false)),
+            started: Instant::now(),
+        };
+        (run, tx)
     }
 
     /// Esc quits from the form; q quits from the other pages; neither while
@@ -741,23 +639,18 @@ mod tests {
         assert!(a.should_quit);
 
         let mut a = app(&[]);
-        a.page = TuiPage::Result;
+        a.page = Page::Result;
         press(&mut a, KeyCode::Char('q'));
         assert!(a.should_quit);
 
         let mut a = app(&[]);
-        let stop = Arc::new(AtomicBool::new(false));
-        a.running = Some(RunningTask {
-            rx: mpsc::channel().1,
-            handle: thread::spawn(|| {}),
-            stop: Arc::clone(&stop),
-        });
-        a.page = TuiPage::Run;
+        a.running = Some(finished_run(Ok(())).0);
+        a.page = Page::Run;
         press(&mut a, KeyCode::Char('q'));
         press(&mut a, KeyCode::Esc);
         assert!(!a.should_quit);
         press(&mut a, KeyCode::Char('x'));
-        assert!(stop.load(Ordering::Relaxed));
+        assert!(a.running.as_ref().unwrap().stop.load(Ordering::Relaxed));
         assert_eq!(a.status, "Stopping...");
     }
 
@@ -766,70 +659,75 @@ mod tests {
         let mut a = app(&[]);
         let mut seen = Vec::new();
         for _ in 0..5 {
-            seen.push(a.field_value(FIELD_INPUT_FORMAT).to_string());
-            a.toggle_input_format();
+            seen.push(a.fields[FIELD_INPUT_FORMAT].clone());
+            a.cycle_input_format();
         }
         assert_eq!(seen, ["auto", "psmcfa", "mhs", "vcf", "auto"]);
     }
 
     #[test]
-    fn pipeline_events_reach_the_log_and_the_gauges() {
+    fn pipeline_events_reach_the_log_the_gauges_and_the_results() {
         let mut a = app(&[]);
-        handle_pipeline_event(&mut a, Event::Info("read".to_string()));
-        handle_pipeline_event(&mut a, Event::Warning("odd".to_string()));
-        handle_pipeline_event(
-            &mut a,
+        for ev in [
+            Event::Info("read".to_string()),
+            Event::Warning("odd".to_string()),
             Event::Qc {
                 text: "Input QC\nNo warnings or notes.\n".to_string(),
                 warnings: Vec::new(),
             },
-        );
-        handle_pipeline_event(&mut a, Event::Iteration { iter: 2, total: 9 });
-        handle_pipeline_event(
-            &mut a,
+            Event::Iteration { iter: 2, total: 9 },
             Event::Progress {
                 stage: Stage::EForward,
                 done: 40,
                 total: 100,
                 iter: Some((2, 9)),
             },
-        );
-        let logs: Vec<&str> = a.logs.iter().map(String::as_str).collect();
+            Event::Output("Parameters: x".to_string()),
+        ] {
+            handle_pipeline_event(&mut a, Instant::now(), ev);
+        }
         assert_eq!(
-            logs,
+            a.logs,
             [
                 "read",
                 "Warning: odd",
                 "Input QC",
                 "No warnings or notes.",
-                "EM iteration 2/9"
+                "EM iteration 2/9",
+                "Parameters: x"
             ]
         );
+        assert_eq!(a.results, ["Parameters: x"]);
         let snap = &a.stages[Stage::EForward as usize];
         assert_eq!((snap.done, snap.total, snap.iter), (40, 100, Some((2, 9))));
     }
 
+    /// The end of a run: its outcome in the status, the results page after
+    /// a finished run, the form after a failed one.
     #[test]
     fn the_end_of_a_run_is_shown() {
-        let mut a = app(&[]);
-        let (tx, rx) = mpsc::channel();
-        a.running = Some(RunningTask {
-            rx,
-            handle: thread::spawn(|| {}),
-            stop: Arc::new(AtomicBool::new(false)),
-        });
-        tx.send(RunnerEvent::Pipeline(Event::Output(
-            "Parameters: x".to_string(),
-        )))
-        .unwrap();
-        tx.send(RunnerEvent::Cancelled).unwrap();
-        poll_runner(&mut a);
-        assert!(a.running.is_none());
+        let ended = |outcome: Result<()>| {
+            let mut a = app(&[]);
+            let (run, tx) = finished_run(outcome);
+            let ev = Event::Output("Parameters: x".to_string());
+            tx.send((Instant::now(), ev)).unwrap();
+            a.running = Some(run);
+            a.page = Page::Run;
+            while a.running.is_some() {
+                poll_runner(&mut a);
+            }
+            a
+        };
+        let a = ended(Err(Cancelled.into()));
         assert_eq!(a.status, "Cancelled");
-        assert_eq!(
-            a.logs.iter().map(String::as_str).collect::<Vec<_>>(),
-            ["Parameters: x", "Run cancelled by user."]
-        );
+        assert_eq!(a.logs, ["Parameters: x", "Run cancelled by user."]);
+        let a = ended(Ok(()));
+        assert!(a.status.starts_with("Done in"), "{}", a.status);
+        assert_eq!(a.page, Page::Result);
+        assert_eq!(a.results, ["Parameters: x"]);
+        let a = ended(Err(anyhow!("no input")));
+        assert_eq!(a.page, Page::Setup);
+        assert_eq!(a.logs.back().unwrap(), "Run failed: no input");
     }
 
     /// The stop key interrupts a run inside EM: 100,000 iterations would
@@ -847,7 +745,7 @@ mod tests {
         set(&mut a, FIELD_N_ITER, "100000");
         set(&mut a, FIELD_THREADS, "2");
         start_run(&mut a).unwrap();
-        assert_eq!(a.page, TuiPage::Run);
+        assert_eq!(a.page, Page::Run);
 
         let started = Instant::now();
         while !a.logs.iter().any(|l| l.starts_with("EM iteration 3/")) {

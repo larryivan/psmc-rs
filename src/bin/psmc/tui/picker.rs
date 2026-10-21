@@ -6,7 +6,7 @@ use crossterm::event::KeyCode;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{App, FIELD_INPUT, FIELD_INPUT_FORMAT, FIELD_OUTPUT, parse_input_format_field};
+use super::{App, FIELD_INPUT, FIELD_INPUT_FORMAT, FIELD_OUTPUT, parse_input_format};
 use crate::cli::FormatArg;
 use crate::dataset::is_supported_input_file;
 
@@ -35,85 +35,44 @@ pub(super) struct FilePicker {
 }
 
 impl FilePicker {
-    fn open(mode: PickerMode, cwd: PathBuf) -> Result<Self> {
-        let mut picker = Self {
-            mode,
-            cwd,
-            entries: Vec::new(),
-            selected: 0,
-        };
-        picker.refresh()?;
-        Ok(picker)
-    }
-
-    /// Go to `dir` and list it.
-    fn enter(&mut self, dir: PathBuf) -> Result<()> {
-        self.cwd = dir;
-        self.refresh()
-    }
-
-    /// List the current directory: itself, its parent, its directories and,
+    /// Go to `dir` and list it: itself, its parent, its directories and,
     /// when picking an input, its input files of the format.
-    fn refresh(&mut self) -> Result<()> {
-        let mut dirs = Vec::new();
-        let mut files = Vec::new();
-        for entry in fs::read_dir(&self.cwd)
-            .with_context(|| format!("failed to read directory {}", self.cwd.display()))?
-        {
-            let entry = entry?;
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
+    fn enter(&mut self, dir: PathBuf) -> Result<()> {
+        let listing = fs::read_dir(&dir)
+            .with_context(|| format!("failed to read directory {}", dir.display()))?;
+        let entry = |label: String, path: PathBuf, is_file| PickerEntry {
+            label,
+            path,
+            is_file,
+        };
+        let (mut dirs, mut files) = (Vec::new(), Vec::new());
+        for item in listing {
+            let path = item?.path();
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
             if path.is_dir() {
-                dirs.push(PickerEntry {
-                    label: format!("{name}/"),
-                    path,
-                    is_file: false,
-                });
+                dirs.push(entry(format!("{name}/"), path.clone(), false));
             } else if let PickerMode::Input(format) = self.mode
                 && path.is_file()
                 && is_supported_input_file(&path, format)
             {
-                files.push(PickerEntry {
-                    label: name,
-                    path,
-                    is_file: true,
-                });
+                files.push(entry(name.to_string(), path.clone(), true));
             }
         }
         dirs.sort_by_key(|e| e.label.to_ascii_lowercase());
         files.sort_by_key(|e| e.label.to_ascii_lowercase());
-        let dir_entry = |label: &str, path: &Path| PickerEntry {
-            label: label.to_string(),
-            path: path.to_path_buf(),
-            is_file: false,
-        };
-        let here = dir_entry("[use this directory]", &self.cwd);
-        let up = self.cwd.parent().map(|parent| dir_entry("../", parent));
+        let here = entry("[use this directory]".to_string(), dir.clone(), false);
+        let up = dir
+            .parent()
+            .map(|p| entry("../".to_string(), p.into(), false));
         self.entries = [here]
             .into_iter()
             .chain(up)
             .chain(dirs)
             .chain(files)
             .collect();
-        self.selected = self.selected.min(self.entries.len().saturating_sub(1));
+        self.selected = self.selected.min(self.entries.len() - 1);
+        self.cwd = dir;
         Ok(())
-    }
-
-    fn selected_entry(&self) -> Option<&PickerEntry> {
-        self.entries.get(self.selected)
-    }
-
-    fn select_prev(&mut self) {
-        self.selected = match self.selected {
-            0 => self.entries.len().saturating_sub(1),
-            i => i - 1,
-        };
-    }
-
-    fn select_next(&mut self) {
-        if !self.entries.is_empty() {
-            self.selected = (self.selected + 1) % self.entries.len();
-        }
     }
 }
 
@@ -122,24 +81,16 @@ impl FilePicker {
 /// or the current directory.
 fn start_dir(raw_path: &str) -> PathBuf {
     let p = Path::new(raw_path.trim());
-    if !p.as_os_str().is_empty() {
-        if p.is_dir() {
-            return p.to_path_buf();
-        }
-        if p.is_file() {
-            // A bare file name's parent is the empty path, which is not a directory to list.
-            return p
-                .parent()
-                .filter(|d| !d.as_os_str().is_empty())
-                .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-        }
-        if let Some(parent) = p.parent()
-            && parent.exists()
-        {
-            return parent.to_path_buf();
-        }
+    if p.is_dir() {
+        return p.to_path_buf();
     }
-    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    // A bare file name's parent is the empty path, which is not a directory
+    // to list.
+    match p.parent() {
+        Some(dir) if dir.as_os_str().is_empty() && p.is_file() => PathBuf::from("."),
+        Some(dir) if !dir.as_os_str().is_empty() && dir.exists() => dir.to_path_buf(),
+        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    }
 }
 
 impl App {
@@ -148,13 +99,17 @@ impl App {
     /// [`FIELD_OUTPUT`]. It starts in the field's directory.
     pub(super) fn open_picker(&mut self, field: usize) -> Result<()> {
         let mode = match field {
-            FIELD_INPUT => PickerMode::Input(parse_input_format_field(
-                self.field_value(FIELD_INPUT_FORMAT),
-            )?),
+            FIELD_INPUT => PickerMode::Input(parse_input_format(&self.fields[FIELD_INPUT_FORMAT])?),
             _ => PickerMode::OutputDir,
         };
-        let start = start_dir(self.field_value(field));
-        self.picker = Some(FilePicker::open(mode, start)?);
+        let mut picker = FilePicker {
+            mode,
+            cwd: PathBuf::new(),
+            entries: Vec::new(),
+            selected: 0,
+        };
+        picker.enter(start_dir(&self.fields[field]))?;
+        self.picker = Some(picker);
         Ok(())
     }
 
@@ -163,51 +118,37 @@ impl App {
         let Some(picker) = self.picker.as_mut() else {
             return Ok(());
         };
+        let n = picker.entries.len();
+        let entry = picker.entries[picker.selected].clone();
         match code {
             KeyCode::Esc | KeyCode::Char('q') => self.picker = None,
-            KeyCode::Up => picker.select_prev(),
-            KeyCode::Down => picker.select_next(),
-            KeyCode::Enter => self.pick()?,
-            KeyCode::Right => {
-                if let Some(entry) = picker.selected_entry().filter(|e| !e.is_file) {
-                    picker.enter(entry.path.clone())?;
-                }
-            }
+            KeyCode::Up => picker.selected = (picker.selected + n - 1) % n,
+            KeyCode::Down => picker.selected = (picker.selected + 1) % n,
+            KeyCode::Right if !entry.is_file => picker.enter(entry.path)?,
             KeyCode::Backspace | KeyCode::Left => {
-                if let Some(parent) = picker.cwd.parent().map(Path::to_path_buf) {
-                    picker.enter(parent)?;
+                if let Some(parent) = picker.cwd.parent() {
+                    picker.enter(parent.to_path_buf())?;
                 }
             }
+            // An input needs a file, so a directory opens; the output takes
+            // the directory.
+            KeyCode::Enter => match (picker.mode, entry.is_file) {
+                (PickerMode::Input(_), true) => {
+                    self.fields[FIELD_INPUT] = entry.path.display().to_string();
+                    self.picker = None;
+                }
+                (PickerMode::Input(_), false) => picker.enter(entry.path)?,
+                (PickerMode::OutputDir, true) => {}
+                (PickerMode::OutputDir, false) => {
+                    let output = &mut self.fields[FIELD_OUTPUT];
+                    let name = Path::new(output.as_str())
+                        .file_name()
+                        .map_or_else(|| "out.json".into(), |v| v.to_os_string());
+                    *output = entry.path.join(name).display().to_string();
+                    self.picker = None;
+                }
+            },
             _ => {}
-        }
-        Ok(())
-    }
-
-    /// Enter in the picker: take the selected input file, or the selected
-    /// directory for the output; an input needs a file, so a directory opens.
-    fn pick(&mut self) -> Result<()> {
-        let Some(picker) = self.picker.as_mut() else {
-            return Ok(());
-        };
-        let Some(entry) = picker.selected_entry().cloned() else {
-            return Ok(());
-        };
-        match (picker.mode, entry.is_file) {
-            (PickerMode::Input(_), true) => {
-                self.fields[FIELD_INPUT].value = entry.path.display().to_string();
-                self.picker = None;
-            }
-            (PickerMode::Input(_), false) => picker.enter(entry.path)?,
-            (PickerMode::OutputDir, true) => {}
-            (PickerMode::OutputDir, false) => {
-                let output = &mut self.fields[FIELD_OUTPUT].value;
-                let name = Path::new(output.as_str())
-                    .file_name()
-                    .map(|v| v.to_os_string())
-                    .unwrap_or_else(|| "out.json".into());
-                *output = entry.path.join(name).display().to_string();
-                self.picker = None;
-            }
         }
         Ok(())
     }

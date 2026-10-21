@@ -18,25 +18,23 @@ use psmc_rs::io::params::{BinCallableRecord, InputSummary, RunMetadata, save_par
 use psmc_rs::psmc_out::{PsmcRunInfo, psmc_rounds, write_psmc};
 use psmc_rs::qc::QcReport;
 
-use crate::cli::usage_bail;
+use crate::cli::{InferArgs, usage_bail};
 
-/// A finished main fit and how it was made, as the output JSON records it.
+/// A finished main fit and how it was made, as the output JSON and the
+/// report record it.
 pub struct FitRecord<'a> {
+    /// The run's settings.
+    pub cli: &'a InferArgs,
     /// The fitted model.
     pub model: &'a PsmcModel,
-    /// Its EM history, from the starting parameters on.
+    /// Its EM history, from the starting parameters on: one entry per EM
+    /// iteration.
     pub history: &'a EmHistory,
     /// Log-likelihood of `model`: the history's final value, or the
     /// starting parameters' after 0 iterations.
     pub final_loglike: f64,
-    /// Bases per bin.
-    pub bin_size: usize,
-    /// Years per generation.
-    pub gen_years: f64,
     /// theta0/rho0 of the starting parameters.
     pub tr_ratio: f64,
-    /// Weight of the M-step's smoothness penalty.
-    pub smooth_lambda: f64,
     /// What the input held.
     pub input: &'a InputSummary,
     /// The input QC report, when it could be made.
@@ -45,27 +43,21 @@ pub struct FitRecord<'a> {
     pub bin_callable: &'a BinCallableRecord,
 }
 
-/// The log-likelihood after each number of EM iterations, from the start
-/// (0) to the end, `final_loglike` ([`RunMetadata::loglike`]).
-fn loglike_path(history: &EmHistory, final_loglike: f64) -> Vec<f64> {
-    let mut path: Vec<f64> = history.loglike.iter().map(|&(before, _)| before).collect();
-    path.push(final_loglike);
-    path
-}
-
 /// Write the fitted parameters with their run metadata.
 pub fn save_fit(path: &Path, fit: &FitRecord) -> Result<()> {
+    // The log-likelihood after each number of EM iterations, from 0 on.
+    let loglike = fit.history.loglike.iter().map(|&(before, _)| before);
     let mut params = fit.model.params_file();
     params.run = RunMetadata {
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
         simd: Some(psmc_rs::hmm::simd_path().name().to_string()),
         n_iter: Some(fit.history.loglike.len()),
         final_loglike: Some(fit.final_loglike),
-        loglike: Some(loglike_path(fit.history, fit.final_loglike)),
-        bin_size: Some(fit.bin_size),
-        gen_years: Some(fit.gen_years),
+        loglike: Some(loglike.chain([fit.final_loglike]).collect()),
+        bin_size: Some(fit.cli.input.bin_size),
+        gen_years: Some(fit.cli.gen_years),
         tr_ratio: Some(fit.tr_ratio),
-        smooth_lambda: Some(fit.smooth_lambda),
+        smooth_lambda: Some(fit.cli.smooth_lambda),
         input: Some(fit.input.clone()),
         qc: fit.qc.map(QcReport::summary),
         bin_callable: Some(fit.bin_callable.clone()),
@@ -73,21 +65,17 @@ pub fn save_fit(path: &Path, fit: &FitRecord) -> Result<()> {
     save_params(path, &params)
 }
 
-/// Write the main fit as C psmc's `.psmc` output, with an `MM` line saying
-/// how it used the callable bases of each bin when the input has them.
-pub fn write_main_psmc(
-    path: &Path,
-    model: &PsmcModel,
-    history: &EmHistory,
-    data: &Dataset,
-    bin_callable: &BinCallableRecord,
-) -> Result<()> {
+/// Write the main fit of `data` as C psmc's `.psmc` output, with an `MM`
+/// line saying how it used the callable bases of each bin when the input
+/// has them.
+pub fn write_main_psmc(path: &Path, fit: &FitRecord, data: &Dataset) -> Result<()> {
+    let (model, history) = (fit.model, fit.history);
     let mut info = PsmcRunInfo::from_history(model, history, &data.obs.rows, &data.obs.row_starts)?;
     // C psmc counts the empty records of a psmcfa file in n_seqs.
     if let SourceSummary::Psmcfa(p) = &data.source {
         info.n_seqs = p.records;
     }
-    info.bin_callable = bin_callable.psmc_line();
+    info.bin_callable = fit.bin_callable.psmc_line();
     let rounds = psmc_rounds(model, history, info.sum_l)?;
     write_buffered(path, |w| Ok(write_psmc(w, &info, &rounds)?))
 }
