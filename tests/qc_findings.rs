@@ -146,15 +146,13 @@ fn high_missing_thresholds() {
     );
     // 1,000 bins, the given number missing.
     let missing = |n: usize| qc(&data(&[("chr1", 1000 - n - 100, 100, n)]));
-    assert_eq!(severity(&missing(250), QcCode::HighMissing), None);
-    assert_eq!(
-        severity(&missing(251), QcCode::HighMissing),
-        Some(Severity::Info)
-    );
-    assert_eq!(
-        severity(&missing(500), QcCode::HighMissing),
-        Some(Severity::Info)
-    );
+    for (n, want) in [
+        (250, None),
+        (251, Some(Severity::Info)),
+        (500, Some(Severity::Info)),
+    ] {
+        assert_eq!(severity(&missing(n), QcCode::HighMissing), want, "{n}");
+    }
     let r = missing(501);
     let f = r.finding(QcCode::HighMissing).unwrap();
     assert_eq!(f.severity, Severity::Warning);
@@ -197,19 +195,18 @@ fn high_missing_thresholds_on_uncalled_sites() {
         d.seqs[0].called_bases = Some(called);
         qc(&d)
     };
-    assert_eq!(severity(&with_called(75_000), QcCode::HighMissing), None);
-    assert_eq!(
-        severity(&with_called(74_999), QcCode::HighMissing),
-        Some(Severity::Info)
-    );
-    assert_eq!(
-        severity(&with_called(50_000), QcCode::HighMissing),
-        Some(Severity::Info)
-    );
-    assert_eq!(
-        severity(&with_called(49_999), QcCode::HighMissing),
-        Some(Severity::Warning)
-    );
+    for (called, want) in [
+        (75_000, None),
+        (74_999, Some(Severity::Info)),
+        (50_000, Some(Severity::Info)),
+        (49_999, Some(Severity::Warning)),
+    ] {
+        assert_eq!(
+            severity(&with_called(called), QcCode::HighMissing),
+            want,
+            "{called}"
+        );
+    }
     // Without the loader's count only the N bins are seen.
     let d = data(&[("chr1", 900, 100, 0)]);
     assert_eq!(severity(&qc(&d), QcCode::HighMissing), None);
@@ -643,12 +640,10 @@ fn largest_trunk_within_is_the_largest_that_keeps_the_share() {
 fn clean_input_has_no_findings() {
     // 3 Gb at 100 bp bins would be slow to build; 150 Mb in 1.5M-bin
     // chromosomes is enough: no missing data, 5% K bins (share ~2.5%).
-    let spec: Vec<(String, usize, usize, usize)> = (1..=10)
-        .map(|i| (format!("chr{i}"), 142_500, 7_500, 0))
-        .collect();
-    let spec: Vec<(&str, usize, usize, usize)> = spec
+    let names: Vec<String> = (1..=10).map(|i| format!("chr{i}")).collect();
+    let spec: Vec<_> = names
         .iter()
-        .map(|(n, t, k, m)| (n.as_str(), *t, *k, *m))
+        .map(|n| (n.as_str(), 142_500, 7_500, 0))
         .collect();
     let r = report(&data(&spec), 50_000, QcContext::default());
     assert!(r.findings.is_empty(), "{:#?}", r.findings);
