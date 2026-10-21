@@ -509,15 +509,13 @@ Reproduction package (`experiment/`):
   and the run wrote a flat curve without a word, as C psmc does. The run
   now checks the start before the main fit and stops with the limit and
   the bin size, `--tr-ratio`, `--rho0` or saved rho that fixes it; QC
-  reports such a start as `INVALID_START`. In the library, the new
+  reports such a start as `INVALID_START` (an input without a heterozygous
+  bin is left to the loader and `FEW_HETS`). In the library, the new
   `PsmcModel::check_transitions` finds such a start and returns a
   `model::NegativeTransitions` error, with which `em_train` refuses it
   (reachable with `downcast_ref` through EM's and the bootstrap's
   context), and the M-step refuses a start where its objective is not
   finite.
-- QC's `INVALID_START` no longer fires for an input without a heterozygous
-  bin, where it called a ρ0 of `-0` too large for the time grid; the loader
-  and `FEW_HETS` report such an input.
 - Saved parameters reload bit for bit (exact JSON float parsing).
 - A closed stdout (`psmc-rs ... | head -1`) aborted the run before any file
   was written.
