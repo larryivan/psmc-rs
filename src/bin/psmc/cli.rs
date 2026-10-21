@@ -94,10 +94,10 @@ const ABOUT: &str = "PSMC: population size history from one diploid genome";
 const LONG_ABOUT: &str = "\
 PSMC (Li & Durbin 2011): population size history from one diploid genome.
 
-psmc-rs INPUT OUTPUT N_ITER fits the model to INPUT (psmcfa, multihetsep or
-VCF) with N_ITER EM iterations and writes the parameters to OUTPUT (JSON)
-with an HTML report next to it. `psmc-rs convert` writes psmcfa and
-multihetsep files, `psmc-rs qc` reports how suitable an input is, and
+psmc-rs INPUT OUTPUT N_ITER fits the model to INPUT (psmcfa, multihetsep or \
+VCF) with N_ITER EM iterations and writes the parameters to OUTPUT (JSON) \
+with an HTML report next to it. `psmc-rs convert` writes psmcfa and \
+multihetsep files, `psmc-rs qc` reports how suitable an input is, and \
 --tui opens an interactive interface.";
 
 const AFTER_HELP: &str = "\
@@ -137,8 +137,21 @@ impl Cli {
         I: IntoIterator<Item = T>,
         T: Into<OsString>,
     {
+        use clap::{CommandFactory, FromArgMatches};
         let argv: Vec<OsString> = argv.into_iter().map(Into::into).collect();
-        Self::try_parse_from(&argv).map_err(|e| explain(e, &argv))
+        let mut cmd = Self::command();
+        // clap wraps the help at COLUMNS when it is set; at 0 or a few
+        // columns that would put one word on each line.
+        let columns = std::env::var("COLUMNS")
+            .ok()
+            .and_then(|c| c.trim().parse::<usize>().ok());
+        if columns.is_some_and(|c| c < MIN_HELP_WIDTH) {
+            cmd = cmd.term_width(DEFAULT_HELP_WIDTH);
+        }
+        let matches = cmd
+            .try_get_matches_from_mut(&argv)
+            .map_err(|e| explain(e, &argv))?;
+        Self::from_arg_matches(&matches).map_err(|e| e.format(&mut cmd))
     }
 }
 
@@ -195,13 +208,19 @@ fn subcommand(cmd: &clap::Command, arg: &OsStr) -> Option<String> {
 /// value of an option before it (`--qc-json qc` names a file).
 fn late_subcommand(cmd: &clap::Command, argv: &[OsString]) -> Option<String> {
     let (first, rest) = argv.get(1..)?.split_first()?;
-    if subcommand(cmd, first).is_some() {
+    if first == "--" || subcommand(cmd, first).is_some() {
         return None;
     }
     let mut is_value = takes_value(cmd, first);
     for arg in rest {
-        if !is_value && let Some(name) = subcommand(cmd, arg) {
-            return Some(name);
+        if !is_value {
+            // Everything after `--` is a positional argument.
+            if arg == "--" {
+                break;
+            }
+            if let Some(name) = subcommand(cmd, arg) {
+                return Some(name);
+            }
         }
         is_value = !is_value && takes_value(cmd, arg);
     }
@@ -239,8 +258,21 @@ pub enum Command {
     Qc(QcArgs),
 }
 
+/// The narrowest COLUMNS that the help is wrapped to, and the width used
+/// instead of a narrower one (clap's own when it finds no width).
+const MIN_HELP_WIDTH: usize = 20;
+const DEFAULT_HELP_WIDTH: usize = 100;
+
+/// `convert`'s usage, one output per line (clap's own is one line of 112
+/// characters); outputs can be combined.
+const CONVERT_USAGE: &str = "\
+psmc-rs convert [OPTIONS] <INPUT> --psmcfa <FILE>
+       psmc-rs convert [OPTIONS] <INPUT> --multihetsep <FILE>
+       psmc-rs convert [OPTIONS] <INPUT> --multihetsep-per-chrom <PREFIX>";
+
 /// `psmc-rs convert`.
 #[derive(Args, Debug, Clone)]
+#[command(override_usage = CONVERT_USAGE)]
 #[command(group(
     ArgGroup::new("outputs")
         .required(true)
@@ -268,9 +300,9 @@ pub struct ConvertArgs {
 
     /// Write one multihetsep file per sequence, PREFIX.<name>.multihetsep.
     ///
-    /// A PREFIX ending in .gz writes gzip-compressed PREFIX.<name>.multihetsep.gz
-    /// files (pre.gz gives pre.chr1.multihetsep.gz). MSMC2 takes one file per
-    /// chromosome.
+    /// A PREFIX ending in .gz writes gzip-compressed files, the .gz moved to
+    /// the end (pre.gz gives pre.chr1.multihetsep.gz). MSMC2 takes one file
+    /// per chromosome.
     #[arg(long, value_name = "PREFIX", help_heading = "Output")]
     pub multihetsep_per_chrom: Option<PathBuf>,
 
@@ -456,7 +488,7 @@ pub struct InferArgs {
     #[arg(long, value_name = "N", help_heading = "Bootstrap")]
     pub bootstrap_iters: Option<usize>,
 
-    /// Directory of the replicate and summary files (default: OUTPUT with .bootstrap).
+    /// Directory of the replicate and summary files (default: OUTPUT with .bootstrap in place of .json).
     ///
     /// The replicates are written as replicate_NNN.json and .psmc, the
     /// summary as summary.tsv and .json. An earlier bootstrap's
@@ -712,6 +744,10 @@ mod tests {
         // An option's value is not a subcommand.
         let value = err("psmc-rs --qc-json qc in.vcf");
         assert!(!value.contains("tip: a subcommand"), "{value}");
+        // Nor is an argument after `--`.
+        for argv in ["psmc-rs in.vcf -- qc", "psmc-rs -- convert out.json 3x"] {
+            assert!(!err(argv).contains("tip: a subcommand"), "{argv}");
+        }
         assert!(err("psmc-rs qc in.vcf --threads 4").contains("--threads"));
         let after = err("psmc-rs in out 3 convert");
         assert!(

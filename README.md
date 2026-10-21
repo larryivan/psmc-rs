@@ -552,7 +552,7 @@ refused with `--tui`, whose screen is stdout.
 | `--psmc-out FILE` | on request | C psmc's `.psmc` output, rounds 0 to N_ITER |
 | `--tmrca-out FILE` | on request | posterior TMRCA of every bin (TSV, gzip when FILE ends in `.gz`) |
 | `--qc-json FILE` | on request | the input QC report (`-` for stdout; result lines then go to stderr) |
-| `--bootstrap-dir DIR` | with `--bootstrap` | `replicate_NNN.json`, `replicate_NNN.psmc`, `summary.tsv`, `summary.json` (default `OUTPUT` with `.bootstrap` instead of `.json`); an earlier bootstrap's files there are removed first |
+| `--bootstrap-dir DIR` | with `--bootstrap` | `replicate_NNN.json`, `replicate_NNN.psmc`, `summary.tsv`, `summary.json` (default `OUTPUT` with `.bootstrap` in place of `.json`); an earlier bootstrap's files there are removed first |
 
 Output paths are checked before the input is read: each must be writable,
 no two of them, nor any of them and the input, may be the same file, and
@@ -643,7 +643,7 @@ and `summary.json` in its directory, with a warning that names the
 earlier replicates beyond this run's count; other files are left alone. A
 bootstrap that fails or is stopped part way therefore leaves only the JSON
 files of the replicates it finished, never files of an earlier run. A fit
-without `--bootstrap` warns when `OUTPUT.bootstrap` holds replicates.
+without `--bootstrap` warns when that directory holds replicates.
 
 **Console.** stdout carries only results (`Last EM loglike`, `Parameters`,
 `PSMC output`, `QC report`, `Bootstrap ...`, `TMRCA posterior`, `HTML
@@ -933,7 +933,7 @@ Inference, `convert` and `qc` share the input options.
 | `--bootstrap-block-size BINS` | 500000 | trunk size (splitfa); alias `--bootstrap-trunk-size` |
 | `--bootstrap-seed SEED` | 42 | seed of the resampling |
 | `--bootstrap-iters N` | N_ITER | EM iterations per replicate |
-| `--bootstrap-dir DIR` | `OUTPUT` with `.bootstrap` | replicate and summary files; an earlier bootstrap's `replicate_NNN.*` and `summary.*` there are removed first |
+| `--bootstrap-dir DIR` | `OUTPUT` with `.bootstrap` in place of `.json` | replicate and summary files; an earlier bootstrap's `replicate_NNN.*` and `summary.*` there are removed first |
 | `--qc-json FILE` | | input QC report as JSON (`-` for stdout) |
 | `--psmc-out FILE` | | C psmc's `.psmc` output |
 | `--tmrca-out FILE` | | posterior TMRCA per bin (TSV; gzip for `.gz`) |
