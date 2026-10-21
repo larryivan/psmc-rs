@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 use crate::io::{Observations, Sequences};
 
 /// The largest bin size whose callable bases are recorded: counts are
-/// 16-bit. The readers bin larger bins as before, without counts.
+/// 16-bit. The readers bin larger bins without counts.
 pub const MAX_COUNTED_BIN_SIZE: usize = u16::MAX as usize;
 
 /// `bin_size` as the count of a full bin, when bins of that size are

@@ -1062,22 +1062,15 @@ impl ChromBuilder {
         }
         // In a gVCF, the positions after the last record's coverage were
         // not looked at.
-        let callable_to = if self.uncovered_missing {
+        let covered_to = if self.uncovered_missing {
             min(to, self.covered_until)
         } else {
             to
         };
-        if callable_to < to {
-            let from = max(a, callable_to + 1);
-            if from <= to {
-                let n = to - from + 1;
-                s.uncovered_sites += n;
-                self.fill_mask(a, callable_to, s);
-                self.missing(n, s);
-                return;
-            }
-        }
-        self.fill_mask(a, to, s);
+        self.fill_mask(a, covered_to, s);
+        let uncovered = to + 1 - max(a, covered_to + 1);
+        s.uncovered_sites += uncovered;
+        self.missing(uncovered, s);
     }
 
     /// Emit the positions `a..=to`, covered by records but without one of
@@ -1277,17 +1270,15 @@ pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> S
 
 /// Read every chromosome of one sample of a VCF from `reader`, as
 /// [`read_vcf_with`] does, without chunking and without the check for
-/// heterozygous SNPs; `path` names the input in messages. With
-/// `collect_het`, each sequence carries its heterozygous sites.
+/// heterozygous SNPs (or of the bin size, which must be > 0); `path` names
+/// the input in messages. With `collect_het`, each sequence carries its
+/// heterozygous sites.
 pub(crate) fn read_vcf_seqs_from(
     mut reader: impl BufRead,
     path: &Path,
     opts: &VcfOptions,
     collect_het: bool,
 ) -> Result<(Vec<BinnedSeq>, VcfSummary)> {
-    if opts.bin_size == 0 {
-        bail!("vcf bin_size must be > 0");
-    }
     let masks = MaskEngine::new(&opts.masks, &opts.negative_masks)?;
     let mut summary = VcfSummary {
         positive_mask: masks.has_positive(),

@@ -293,15 +293,6 @@ impl Binner {
         }
     }
 
-    pub fn bin_size(&self) -> usize {
-        self.bin_size
-    }
-
-    /// Number of finished bins emitted so far.
-    pub fn n_bins(&self) -> usize {
-        self.seq.len()
-    }
-
     /// Whether no site has been added since the last [`Binner::finish`].
     pub fn is_empty(&self) -> bool {
         self.seq.is_empty() && self.len == 0
