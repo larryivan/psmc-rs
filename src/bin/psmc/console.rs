@@ -1,10 +1,13 @@
 //! Pipeline events on a terminal: results on stdout, messages and progress
 //! bars on stderr.
 
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressState, ProgressStyle};
+use std::fmt;
 use std::io::{self, Write};
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
+
+use psmc_rs::qc::fmt::counted;
 
 use crate::run::{Event, Stage};
 
@@ -126,7 +129,7 @@ const BAR: &str = "{prefix:.bold} {msg:.bold} [{elapsed_precise}] {wide_bar:.cya
                    {human_pos}/{human_len} {percent:>3}% ETA {eta_precise}";
 const SPINNER: &str = "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}]";
 const MSTEP: &str = "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}] \
-                     {human_pos} iterations";
+                     {iterations}";
 
 /// The bar of `stage`, or of the EM iterations for `None`, of `len` steps;
 /// a bar fills the terminal's width. It ticks on its own, so that its
@@ -147,7 +150,10 @@ fn bar(stage: Option<Stage>, len: u64) -> ProgressBar {
     let style = ProgressStyle::with_template(template)
         .expect("a valid template")
         .progress_chars("█▇▆▅▄▃▂▁ ")
-        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+        .with_key("iterations", |s: &ProgressState, w: &mut dyn fmt::Write| {
+            _ = w.write_str(&counted(s.pos() as usize, "iteration", "iterations"));
+        });
     let pb = ProgressBar::with_draw_target(Some(len), ProgressDrawTarget::hidden())
         .with_style(style)
         .with_prefix(prefix)

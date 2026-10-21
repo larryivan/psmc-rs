@@ -7,7 +7,7 @@ use ratatui::widgets::{
 };
 use std::time::Instant;
 
-use psmc_rs::qc::fmt::count;
+use psmc_rs::qc::fmt::{count, counted};
 
 use super::picker::{FilePicker, PickerMode};
 use super::{App, FIELD_INPUT_FORMAT, FIELDS, Page, STAGES, StageSnapshot, command_line};
@@ -53,7 +53,8 @@ fn stage_label(stage: Stage, snap: &StageSnapshot, now: Option<Instant>) -> Stri
     let end = now.filter(|_| snap.done < snap.total).unwrap_or(last);
     let elapsed = clock((end - start).as_secs_f64());
     if stage == Stage::MStep {
-        return format!("{iter}{} iterations | {elapsed} elapsed", count(snap.done));
+        let iterations = counted(snap.done as usize, "iteration", "iterations");
+        return format!("{iter}{iterations} | {elapsed} elapsed");
     }
     let rate = snap.done as f64 / (last - start).as_secs_f64();
     let eta = match snap.total.saturating_sub(snap.done) as f64 / rate {
@@ -298,6 +299,8 @@ mod tests {
             label(Stage::MStep, None),
             "EM 2/4 | 20 iterations | 00:10 elapsed"
         );
+        snap.done = 1;
+        assert!(stage_label(Stage::MStep, &snap, None).contains("| 1 iteration |"));
     }
 
     #[test]
