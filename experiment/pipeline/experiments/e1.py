@@ -75,7 +75,6 @@ from __future__ import annotations
 
 import csv
 import json
-import math
 import statistics
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -254,25 +253,18 @@ def jobs(ctx: Context) -> List[Job]:
 # ---------------------------------------------------------------------------
 
 
-def _num(x) -> str:
-    if x is None:
-        return ""
-    if isinstance(x, float):
-        return "nan" if math.isnan(x) else repr(x)
-    return str(x)
-
-
 def write_csv(path: Path, rows: Sequence[Dict], fields: Optional[Sequence[str]] = None) -> None:
-    """Write ``rows`` atomically with the columns ``fields`` (default: the first row's keys): None as an empty
-    cell, a float by its repr."""
+    """Write ``rows`` atomically with the columns ``fields`` (default: the first row's keys).
+
+    The csv module writes None (and a missing key) as an empty cell and a float by its shortest repr.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    fields = list(fields or (rows[0].keys() if rows else []))
+    fields = list(fields or (rows[0] if rows else []))
     tmp = path.with_name(path.name + ".partial")
     with open(tmp, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields, lineterminator="\n")
-        w.writeheader()
-        for row in rows:
-            w.writerow({k: _num(row.get(k)) for k in fields})
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(fields)
+        w.writerows([row.get(k) for k in fields] for row in rows)
     tmp.replace(path)
 
 
