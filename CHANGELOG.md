@@ -171,6 +171,14 @@ Command line and outputs:
   skipped. When a file recognised as multihetsep does not read as one from
   its start, the error says how its format was recognised and names
   `--input-format`.
+- gzip outputs (psmcfa and multihetsep named `.gz`, and `--tmrca-out`
+  FILE.gz) are compressed by zlib-rs instead of miniz_oxide (see
+  *Performance*): their bytes differ from those of earlier 0.2 builds,
+  and their decompressed content does not. They stay the same from run
+  to run and with any `--threads`. Their size changes little on real
+  data (NA12878's psmcfa.gz 0.4% smaller, TMRCA output 1.2% smaller to
+  1.5% larger) and more on text that repeats one pattern (a synthetic
+  psmcfa.gz 34% larger).
 
 Library API:
 
@@ -638,6 +646,17 @@ Reproduction package (`experiment/`):
   the standard library's SipHash, which shows only on inputs of very many
   sequences: converting a mask-mode VCF of a million scaffolds takes 4.6 s
   of CPU instead of 4.95 s. Every output is unchanged, bit for bit.
+- gzip output is compressed by zlib-rs (flate2's pure-Rust port of zlib)
+  instead of miniz_oxide, and psmcfa and multihetsep text reaches the
+  compressor 64 KiB at a time instead of line by line: converting
+  NA12878's psmcfa.gz in `experiment/real_data` (28.75 M bins) to
+  psmcfa.gz takes 0.73 s instead of 1.41 s, a turtle genome's TMRCA
+  (HLpelCas1, one EM iteration on 8 threads) to `.tsv.gz` 38.3 s of CPU
+  instead of 59.0 s, and a synthetic 1 Gb SNP VCF with its mask to
+  psmcfa.gz and multihetsep.gz 1.8 s instead of 3.6 s. gzip input is
+  decoded by zlib-rs too, which takes a sixth less CPU time on the VCFs
+  above but no less wall time, as the decoding runs beside the parsing.
+  The compressed bytes change (see *Changed*).
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through

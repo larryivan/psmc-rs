@@ -12,9 +12,11 @@ use std::path::Path;
 use crate::io::input::{Dataset, HetSite};
 
 /// An output file, gzip-compressed when its name ends in `.gz`.
+// One per file written, so the size of the gzip variant does not matter.
+#[allow(clippy::large_enum_variant)]
 enum Output {
     Plain(BufWriter<File>),
-    Gzip(GzEncoder<BufWriter<File>>),
+    Gzip(BufWriter<GzEncoder<BufWriter<File>>>),
 }
 
 impl Output {
@@ -22,7 +24,11 @@ impl Output {
         let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
         let buf = BufWriter::with_capacity(1 << 16, file);
         Ok(if path.to_string_lossy().ends_with(".gz") {
-            Output::Gzip(GzEncoder::new(buf, Compression::default()))
+            // Lines reach the compressor 64 KiB at a time, not one by one.
+            Output::Gzip(BufWriter::with_capacity(
+                1 << 16,
+                GzEncoder::new(buf, Compression::default()),
+            ))
         } else {
             Output::Plain(buf)
         })
@@ -39,6 +45,9 @@ impl Output {
         let mut buf = match self {
             Output::Plain(w) => w,
             Output::Gzip(w) => w
+                .into_inner()
+                .map_err(|e| e.into_error())
+                .with_context(|| format!("failed to write {path:?}"))?
                 .finish()
                 .with_context(|| format!("failed to write {path:?}"))?,
         };

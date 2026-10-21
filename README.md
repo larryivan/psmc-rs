@@ -693,7 +693,11 @@ Inputs, flags and outputs are covered in detail in [CHANGELOG.md](CHANGELOG.md).
 
 Results do not depend on `--threads` or `--batch-size`: a run writes the
 same bytes (JSON, `.psmc`, TMRCA and bootstrap files) with any thread
-count, which the tests check by running the binary. With models of up to
+count, which the tests check by running the binary. Gzip outputs are
+compressed by zlib-rs, whose version `Cargo.lock` pins: another version
+of psmc-rs may compress the same text to other bytes, so compare the
+`.gz` outputs of two versions decompressed (`gzip -dc`).
+With models of up to
 256 states, the E-step's forward and backward steps take O(states) time per
 bin instead of O(states²), from the rank-one triangles of PSMC's transition
 matrix, with which Harris et al. (2014) decode coalescent HMMs in linear
