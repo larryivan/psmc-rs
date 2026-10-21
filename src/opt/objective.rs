@@ -374,15 +374,39 @@ impl<'a> Objective<'a> {
             grad.len(),
             self.bounds.len()
         );
+        let [theta, rho, t_max] = self.ws.set_params(x, self.bounds, &self.group);
+        let shared = self.ws.forward_shared(self.n, rho, t_max);
+        let rows = self.rows(theta, rho, &shared);
+        self.row_deviation = if rows.valid {
+            rows.row_deviation
+        } else {
+            f64::NAN
+        };
+        // Not a valid HMM (a NaN probability made `valid` false, so
+        // `row_deviation`, whose `max` skips NaN, is a number), or a value
+        // that is not finite.
+        if !rows.valid || rows.row_deviation > self.row_tolerance || !rows.q.is_finite() {
+            grad.fill(f64::NAN);
+            return f64::INFINITY;
+        }
+        let [bar_rho, bar_t_max] = self.ws.backward_shared(self.n, rho, &shared, &rows);
+        self.penalised(rows.q, [rows.bar_theta, bar_rho, bar_t_max], grad)
+    }
+
+    /// `Q`, row by row: each row's probabilities and their terms, then the
+    /// adjoints the row adds to θ, ρ and the quantities all rows share (the
+    /// scalars returned, the vectors in the workspace).
+    fn rows(&mut self, theta: f64, rho: f64, shared: &Shared) -> RowSums {
         let n = self.n;
-        let nf = n as f64;
+        let &Shared {
+            c_pi,
+            c_pi_rho,
+            c_sigma,
+            ..
+        } = shared;
         let Workspace {
-            p,
-            dp_dx,
             lam,
-            ln_lam,
             bar_lam,
-            grid_exp,
             tau,
             bar_tau,
             alpha,
@@ -398,61 +422,8 @@ impl<'a> Objective<'a> {
             bar_sum_t,
             em0,
             k_terms,
+            ..
         } = &mut self.ws;
-
-        // Parameters: lo + (hi - lo) * sigmoid(x).
-        for (i, (&xi, b)) in x.iter().zip(self.bounds).enumerate() {
-            let e = (-xi).exp();
-            let denom = 1.0 + e;
-            let z = 1.0 / denom;
-            p[i] = z * (b.hi - b.lo) + b.lo;
-            dp_dx[i] = e / (denom * denom) * (b.hi - b.lo);
-        }
-        let (theta, rho, t_max) = (p[0], p[1], p[2]);
-        for (l, &g) in lam.iter_mut().zip(&self.group) {
-            *l = p[3 + g];
-        }
-        let lam: &[f64] = lam;
-
-        // ---- Forward: the quantities all rows share ----
-        // The time grid (C psmc_update_intv): t[k] = 0.1 (exp(beta k) - 1)
-        // for k < n, t[n] = t_max and t[n + 1] = T_INF.
-        let grid_arg = 1.0 + t_max / GRID_ALPHA;
-        let grid_beta = grid_arg.ln() / nf;
-        for (k, e) in grid_exp.iter_mut().enumerate() {
-            *e = (grid_beta * k as f64).exp();
-        }
-        let t = |k: usize| -> f64 {
-            match k.cmp(&n) {
-                std::cmp::Ordering::Less => GRID_ALPHA * (grid_exp[k] - 1.0),
-                std::cmp::Ordering::Equal => t_max,
-                std::cmp::Ordering::Greater => T_INF,
-            }
-        };
-        for (k, v) in tau.iter_mut().enumerate() {
-            *v = t(k + 1) - t(k);
-        }
-        alpha[0] = 1.0;
-        for k in 1..=n {
-            alpha[k] = alpha[k - 1] * (-(tau[k - 1] / lam[k - 1])).exp();
-        }
-        alpha[n + 1] = 0.0;
-        beta[0] = 0.0;
-        for k in 1..=n {
-            beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
-        }
-        let mut c_pi = 0.0;
-        for k in 0..=n {
-            dalpha[k] = alpha[k] - alpha[k + 1];
-            c_pi += lam[k] * dalpha[k];
-        }
-        let c_pi_rho = c_pi * rho;
-        let c_sigma = 1.0 / c_pi_rho + 0.5;
-        for m in 0..n {
-            q_aux[m] = dalpha[m] * (beta[m] - lam[m] / alpha[m]) + tau[m];
-        }
-
-        // ---- Each row: its value, then the adjoints (of Q) it adds ----
         for v in [
             &mut *bar_lam,
             &mut *bar_tau,
@@ -622,19 +593,201 @@ impl<'a> Objective<'a> {
             sum_t += tau_k;
         }
         self.emissions.add_terms(&mut q_sum, em0, k_terms);
-
-        self.row_deviation = if valid { row_deviation } else { f64::NAN };
-        // Not a valid HMM (a NaN probability made `valid` false, so
-        // `row_deviation`, whose `max` skips NaN, is a number), or a value
-        // that is not finite.
-        if !valid || row_deviation > self.row_tolerance || !q_sum.is_finite() {
-            grad.fill(f64::NAN);
-            return f64::INFINITY;
+        RowSums {
+            q: q_sum,
+            valid,
+            row_deviation,
+            bar_theta,
+            bar_rho,
+            bar_c_pi,
+            bar_c_pi_rho,
+            bar_c_sigma,
         }
+    }
 
-        // ---- Backward through the shared quantities ----
+    /// The objective `-Q + lambda * penalty` at the parameters in the
+    /// workspace, and its gradient in `grad`: from the adjoints of `Q` (of
+    /// θ, ρ and t_max as given, of each state's λ in the workspace) through
+    /// the sigmoids to `x`.
+    fn penalised(
+        &mut self,
+        q: f64,
+        [bar_theta, bar_rho, bar_t_max]: [f64; 3],
+        grad: &mut [f64],
+    ) -> f64 {
+        let n = self.n;
+        let Workspace {
+            dp_dx,
+            lam,
+            ln_lam,
+            bar_lam,
+            ..
+        } = &mut self.ws;
+        for (ln, &l) in ln_lam.iter_mut().zip(lam.iter()) {
+            *ln = l.ln();
+        }
+        let mut penalty = 0.0;
+        for k in 0..n {
+            let d = ln_lam[k + 1] - ln_lam[k];
+            penalty += d * d;
+        }
+        let f = -q + penalty * self.lambda;
+
+        // df/dp = -dQ/dp + lambda dpenalty/dp, then through the sigmoids.
+        grad.fill(0.0);
+        grad[0] = -bar_theta;
+        grad[1] = -bar_rho;
+        grad[2] = -bar_t_max;
+        for (k, &g) in self.group.iter().enumerate() {
+            let mut d_penalty = 0.0;
+            if k > 0 {
+                d_penalty += 2.0 * (ln_lam[k] - ln_lam[k - 1]) / lam[k];
+            }
+            if k < n {
+                d_penalty -= 2.0 * (ln_lam[k + 1] - ln_lam[k]) / lam[k];
+            }
+            grad[3 + g] += -bar_lam[k] + self.lambda * d_penalty;
+        }
+        for (g, d) in grad.iter_mut().zip(dp_dx.iter()) {
+            *g *= d;
+        }
+        f
+    }
+}
+
+/// The scalars among the quantities all rows share.
+struct Shared {
+    /// `1 + t_max / 0.1`: the time grid's exponent is its logarithm over `n`.
+    grid_arg: f64,
+    c_pi: f64,
+    c_pi_rho: f64,
+    c_sigma: f64,
+}
+
+/// What [`Objective::rows`] adds up.
+struct RowSums {
+    /// `Q`.
+    q: f64,
+    /// Whether every probability is a number in [0, 1] (for transitions,
+    /// not negative).
+    valid: bool,
+    /// The largest deviation of a row sum from 1.
+    row_deviation: f64,
+    /// The adjoints of the scalars the rows use.
+    bar_theta: f64,
+    bar_rho: f64,
+    bar_c_pi: f64,
+    bar_c_pi_rho: f64,
+    bar_c_sigma: f64,
+}
+
+impl Workspace {
+    /// Sets the parameters `lo + (hi - lo) sigmoid(x)`, their derivatives,
+    /// and each state's λ; returns θ, ρ and t_max.
+    fn set_params(&mut self, x: &[f64], bounds: &[Bounds], group: &[usize]) -> [f64; 3] {
+        let Self { p, dp_dx, lam, .. } = self;
+        for (i, (&xi, b)) in x.iter().zip(bounds).enumerate() {
+            let e = (-xi).exp();
+            let denom = 1.0 + e;
+            let z = 1.0 / denom;
+            p[i] = z * (b.hi - b.lo) + b.lo;
+            dp_dx[i] = e / (denom * denom) * (b.hi - b.lo);
+        }
+        for (l, &g) in lam.iter_mut().zip(group) {
+            *l = p[3 + g];
+        }
+        [p[0], p[1], p[2]]
+    }
+
+    /// The quantities all rows share, as `param_recalculate` computes them:
+    /// the time grid (C psmc_update_intv: `t[k] = 0.1 (exp(beta k) - 1)`
+    /// for `k < n`, `t[n] = t_max` and `t[n + 1] = T_INF`), the interval
+    /// lengths, the survival, C's β sums, `C_pi`, `C_sigma` and `q_aux`.
+    fn forward_shared(&mut self, n: usize, rho: f64, t_max: f64) -> Shared {
+        let Self {
+            lam,
+            grid_exp,
+            tau,
+            alpha,
+            dalpha,
+            beta,
+            q_aux,
+            ..
+        } = self;
+        let grid_arg = 1.0 + t_max / GRID_ALPHA;
+        let grid_beta = grid_arg.ln() / n as f64;
+        for (k, e) in grid_exp.iter_mut().enumerate() {
+            *e = (grid_beta * k as f64).exp();
+        }
+        let t = |k: usize| -> f64 {
+            match k.cmp(&n) {
+                std::cmp::Ordering::Less => GRID_ALPHA * (grid_exp[k] - 1.0),
+                std::cmp::Ordering::Equal => t_max,
+                std::cmp::Ordering::Greater => T_INF,
+            }
+        };
+        for (k, v) in tau.iter_mut().enumerate() {
+            *v = t(k + 1) - t(k);
+        }
+        alpha[0] = 1.0;
+        for k in 1..=n {
+            alpha[k] = alpha[k - 1] * (-(tau[k - 1] / lam[k - 1])).exp();
+        }
+        alpha[n + 1] = 0.0;
+        beta[0] = 0.0;
+        for k in 1..=n {
+            beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
+        }
+        let mut c_pi = 0.0;
+        for k in 0..=n {
+            dalpha[k] = alpha[k] - alpha[k + 1];
+            c_pi += lam[k] * dalpha[k];
+        }
+        let c_pi_rho = c_pi * rho;
+        let c_sigma = 1.0 / c_pi_rho + 0.5;
+        for m in 0..n {
+            q_aux[m] = dalpha[m] * (beta[m] - lam[m] / alpha[m]) + tau[m];
+        }
+        Shared {
+            grid_arg,
+            c_pi,
+            c_pi_rho,
+            c_sigma,
+        }
+    }
+
+    /// Takes the adjoints the rows left back through the quantities all
+    /// rows share, into the adjoint of each state's λ (`bar_lam`); returns
+    /// those of ρ and t_max.
+    fn backward_shared(&mut self, n: usize, rho: f64, shared: &Shared, rows: &RowSums) -> [f64; 2] {
+        let Self {
+            lam,
+            bar_lam,
+            grid_exp,
+            tau,
+            bar_tau,
+            alpha,
+            dalpha,
+            bar_alpha,
+            bar_dalpha,
+            bar_log_surv,
+            bar_rate,
+            beta,
+            bar_beta,
+            bar_q_aux,
+            bar_sum_t,
+            ..
+        } = self;
+        let &Shared {
+            grid_arg,
+            c_pi,
+            c_pi_rho,
+            ..
+        } = shared;
+        let (mut bar_c_pi, mut bar_c_pi_rho) = (rows.bar_c_pi, rows.bar_c_pi_rho);
+        let mut bar_rho = rows.bar_rho;
         // c_sigma = 1 / (c_pi rho) + 1/2
-        bar_c_pi_rho -= bar_c_sigma / (c_pi_rho * c_pi_rho);
+        bar_c_pi_rho -= rows.bar_c_sigma / (c_pi_rho * c_pi_rho);
         bar_c_pi += bar_c_pi_rho * rho;
         bar_rho += bar_c_pi_rho * c_pi;
         // q_aux[m] = dalpha[m] (beta[m] - lam[m] / alpha[m]) + tau[m]
@@ -701,7 +854,7 @@ impl<'a> Objective<'a> {
         // most of their size (the later intervals' start times), so the
         // derivative is the sum of tau's adjoints times tau's derivatives,
         // as forward mode forms it, not the difference of the adjoints.
-        let d_grid_beta = 1.0 / grid_arg / GRID_ALPHA / nf;
+        let d_grid_beta = 1.0 / grid_arg / GRID_ALPHA / n as f64;
         let dt = |k: usize| -> f64 {
             match k.cmp(&n) {
                 std::cmp::Ordering::Less => GRID_ALPHA * (d_grid_beta * k as f64 * grid_exp[k]),
@@ -713,36 +866,6 @@ impl<'a> Objective<'a> {
         for (k, &bar) in bar_tau.iter().enumerate() {
             bar_t_max += bar * (dt(k + 1) - dt(k));
         }
-
-        // ---- The smoothing penalty, and the objective ----
-        for (ln, &l) in ln_lam.iter_mut().zip(lam) {
-            *ln = l.ln();
-        }
-        let mut penalty = 0.0;
-        for k in 0..n {
-            let d = ln_lam[k + 1] - ln_lam[k];
-            penalty += d * d;
-        }
-        let f = -q_sum + penalty * self.lambda;
-
-        // df/dp = -dQ/dp + lambda dpenalty/dp, then through the sigmoids.
-        grad.fill(0.0);
-        grad[0] = -bar_theta;
-        grad[1] = -bar_rho;
-        grad[2] = -bar_t_max;
-        for (k, &g) in self.group.iter().enumerate() {
-            let mut d_penalty = 0.0;
-            if k > 0 {
-                d_penalty += 2.0 * (ln_lam[k] - ln_lam[k - 1]) / lam[k];
-            }
-            if k < n {
-                d_penalty -= 2.0 * (ln_lam[k + 1] - ln_lam[k]) / lam[k];
-            }
-            grad[3 + g] += -bar_lam[k] + self.lambda * d_penalty;
-        }
-        for (g, d) in grad.iter_mut().zip(dp_dx.iter()) {
-            *g *= d;
-        }
-        f
+        [bar_rho, bar_t_max]
     }
 }
