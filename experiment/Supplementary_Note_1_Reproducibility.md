@@ -15,7 +15,7 @@ The experiments are E1 (simulated accuracy and agreement with C psmc:
 Fig 1, Table 1, Table S1, Fig S1), E2 (four real genomes: Fig 1, Table 1),
 E3 (performance: Fig 2, Table 2), E4 (partly callable bins: Fig S2), E5
 (bootstrap calibration: Fig S3), E6 (supplementary analyses, quoted in the
-text) and E7 (the 1000 Genomes 30x genomes: Fig 3, Fig 1, Table 1); FIG
+text) and E7 (the 1000 Genomes 30x genomes: Fig 3, Fig 1, Fig 2c, Table 1); FIG
 draws every figure. The pipeline names most figure files after an earlier
 plan of the article, and draws some that the article leaves out; section
 3 maps them.
@@ -66,8 +66,12 @@ git checkout <MANUSCRIPT_TAG>
 python3.13 -m venv experiment/.venv
 experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.lock
 cargo build --release --locked
+T=experiment/.tools
+git clone https://github.com/lh3/psmc $T/psmc_c && git -C $T/psmc_c checkout 82fa2ad
+git clone https://github.com/stschiff/msmc-tools $T/msmc-tools
+curl -fsSLo $T/vcfutils.pl https://raw.githubusercontent.com/samtools/bcftools/1.24/misc/vcfutils.pl
 PY=experiment/.venv/bin/python
-$PY -m experiment.pipeline tools      # the tools and their identities; exits 1 if one is missing
+$PY -m experiment.pipeline tools --build-c   # builds C psmc; exits 1 if a tool is missing
 ```
 
 ## 3) Tables and figures from the committed results
@@ -89,7 +93,7 @@ runs (`manuscript/make_numbers.py` writes the tables' LaTeX):
 | article | file |
 | --- | --- |
 | Fig 1 | `runs/FIG/figures/art1_agreement` (from E1, E2 and E7's tables) |
-| Fig 2 | `runs/E3/figures/art2_performance` |
+| Fig 2 | `runs/E3/figures/art2_performance` (from E3 and E7's tables) |
 | Fig 3 | `runs/E7/figures/fig7_1000_genomes` |
 | Table 1 | from `E1_rs_vs_c`, `E1_replicates`, `E2_rs_vs_c`, `E2_fit_summary`, `E7_rs_vs_c` and `E7_fits` |
 | Table 2 | `runs/E3/tables/E3_table2.csv` |
@@ -134,7 +138,8 @@ over log time), which reads the same fits.
 
 The pipeline is a job graph run by a detached, resumable runner (the
 Runner section of `experiment/pipeline/README.md`). Into a fresh runs
-directory, to reproduce everything from scratch:
+directory, to reproduce E1, E4, E5 and E6 from scratch (E2 and E3 below;
+E7 needs its inputs, section 1):
 
 ```bash
 RUNS=/path/to/new/runs
@@ -161,9 +166,9 @@ committed, a job counts as done when its outputs exist and its provenance
 record matches: the same command, settings, seeds, input checksums and tool
 identities (section 6). Inputs count by content, so a simulation that
 reproduces its recorded checksums leaves the jobs that read it done. With
-the production's tools, `start E1 E6` would therefore remake only the
-simulated genomes and S3's true TMRCA track, which E6's S2 and S3 read, and
-`report E6` then writes their tables. With other builds of the tools (for
+the production's tools, `start E1 E6` would therefore remake only what is
+not committed: the simulated genomes, S2's conversions and S3's true and
+decoded TMRCA tracks. `report E6` then writes their tables. With other builds of the tools (for
 example psmc-rs built by another rustc, or another C psmc binary) their
 fits count as not done and run again; `status --jobs` lists what `start`
 would run, and `start --only REGEX` restricts it to the matching jobs.
@@ -260,7 +265,8 @@ the version string `0.6.5-r74-dirty` that the provenance records hold.
 `python -m experiment.pipeline tools
 --build-c` builds it, `fq2psmcfa` and `splitfa` from the sources in
 `experiment/.tools/psmc_c` with `$CC` and `$PSMC_C_CFLAGS` (default: the
-Makefile's `-g -Wall -O2 -Wno-unused-function`) and records the compiler,
+Makefile's `-g -Wall -O2 -Wno-unused-function`; `-O1` on macOS arm64,
+where `-O2` segfaults) and records the compiler,
 flags, commands and checksums in `psmc_c/BUILD.json`, which adds the
 compiler and the flags to C psmc's identity.
 
@@ -454,29 +460,17 @@ time (the sum of its `wall_seconds`).
 settings and the protocol's limits.
 
 The protocol (`config.TimingProtocol`, `experiments/e3_run.py`): before
-each run the whole machine must be quiet, at most 1 core and 10% of all
-cores busy (all but idle and iowait time, so processes, kernel threads,
-interrupts and steal), since nothing of the experiment runs then.
-During the run, the other user-space processes (all but the tool's and
-the timing wrapper, each one's CPU time read just before and right after
-the run on Linux, with that of the children it reaped meanwhile) and
-steal time together may keep at most 0.5 core and 5% of all cores busy;
-otherwise the run is discarded and repeated later. A process that ended
-during the run, short-lived or not, is counted through the process that
-reaped it, its parent or init (one that had started before the run with
-its earlier CPU time too, which errs towards rejecting runs); only a
-process that nothing waits for is not measured, and its CPU appears
-only in the machine-wide time that no measured process explains, which
-each record keeps but the protocol does not limit, since it also holds
-accounting differences between the machine's and the processes' CPU
-time. Kernel threads and interrupt time are recorded but not limited
-during the run: part of them is the kernel's work for the timed tool
-itself (on the 128-core nodes, a run keeping 30 cores busy adds about
-0.1 core to an idle node's 0.35 to 0.49 busy core), the rest
-housekeeping the quiet check bounds, and neither is interference from
-another workload. Where not every process, or the CPU time of reaped
-children, can be read (macOS), the machine's busy CPU time but the
-tool's is limited instead; each timing record names the measure used.
+each run the machine must be quiet for 2 s, with at most 1 core and 10% of
+all cores busy (all but idle and iowait time). During the run, other
+user-space processes (each counted with the children it reaped) and steal
+time may keep at most 0.5 core and 5% of all cores busy; otherwise the run
+is discarded and repeated later. Kernel threads and interrupts are
+recorded but not limited, because part of their time is the kernel's work
+for the tool: on the 128-core nodes, a run keeping 30 cores busy adds
+about 0.1 core to an idle node's 0.35 to 0.49 busy core. On macOS, where
+not every process can be read, the limit applies instead to all of the
+machine's busy time but the tool's, and each record names the measure
+used.
 
 **Runs.** Before its runs, each `e3` job measured its idle node for 30 s,
 to stop if the node was busier than the protocol allows; none stopped.
@@ -567,8 +561,8 @@ efficiency: the speed-up over t):
 | efficiency | 1 | 0.99 | 0.93 | 0.92 | 0.90 | 0.94 |
 | peak memory (MB) | 35.8 | 39.8 | 46.2 | 61.5 | 93.9 | 148.0 |
 
-psmc-rs processes sequences in parallel, and a single sequence runs on
-one thread, so its wall time stops improving once the threads reach the
+The psmc-rs of these runs processed sequences in parallel, each on one
+thread, so its wall time stops improving once the threads reach the
 number of chromosomes: on 100 Mb (one chromosome) it took 17.25, 17.24 and
 17.25 s on 1, 8 and 30 threads, on 300 Mb (three) 18.27 s on both 8 and
 30, and every genome took 17.2 to 18.3 s on at least as many threads as
@@ -613,18 +607,3 @@ The 30-thread runs need 30 usable CPUs (`measure` refuses to time a run
 on more threads than the CPUs it may use), and the spread of the repeats
 then leaves out the spread between machines. FIG draws Fig 2 and the thread-scaling figure
 from the tables (section 3).
-
-## 11) Release archive integrity
-
-Each release archive is published with its SHA-256 checksum in
-`<archive>.sha256`, and `SHA256SUMS.txt` lists the checksums of all
-archives. Check a downloaded `.tar.gz` archive, in the directory it was
-saved to, against either file:
-
-```bash
-shasum -a 256 -c psmc-rs-<tag>-<target>.tar.gz.sha256   # or: sha256sum -c ...
-shasum -a 256 -c --ignore-missing SHA256SUMS.txt        # the archives present
-```
-
-On Windows, compare the output of `Get-FileHash <archive>.zip` with the
-value in `<archive>.zip.sha256`.
