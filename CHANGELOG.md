@@ -120,7 +120,8 @@ Command line and outputs:
 - `-h` gives a one-sentence summary of each option and `--help` the full
   text, both wrapped at the terminal's width; `psmc-rs`, `convert` and `qc`
   alone print their help; an argument after `N_ITER` (a second input from
-  a shell pattern) is named as unexpected. Errors and warnings start with
+  a shell pattern) is named as unexpected, and a value that is not a whole
+  number as such (not as an "invalid digit"). Errors and warnings start with
   `error:` and `warning:`, as clap's do, and name each file once; a run
   prints how it read the input (for psmcfa, C psmc's `n_seqs`, `sum_L` and
   `sum_n`; for VCF its mode, filters and the bases it lost) and leaves what

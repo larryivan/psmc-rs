@@ -363,7 +363,7 @@ pub struct InferArgs {
     pub output_file: Option<PathBuf>,
 
     /// EM iterations (C psmc -N; 0 writes the starting model)
-    #[arg(value_name = "N_ITER", required_unless_present = "tui")]
+    #[arg(value_name = "N_ITER", required_unless_present = "tui", value_parser = whole_number::<usize>)]
     pub n_iter: Option<usize>,
 
     /// How to read the input.
@@ -461,12 +461,7 @@ pub struct InferArgs {
     /// As in C psmc's bootstrap, each draws trunks of the input with
     /// replacement and is fitted from a fresh start, or from the
     /// --init-params parameters when given (C psmc -i -b).
-    #[arg(
-        long,
-        value_name = "N",
-        default_value_t = 0,
-        help_heading = "Bootstrap"
-    )]
+    #[arg(long, value_name = "N", default_value_t = 0, value_parser = whole_number::<usize>, help_heading = "Bootstrap")]
     pub bootstrap: usize,
 
     /// Bootstrap trunk size in bins (C splitfa; 500,000 = 50 Mb at 100 bp bins).
@@ -476,16 +471,11 @@ pub struct InferArgs {
     pub bootstrap_block_size: usize,
 
     /// Seed of the bootstrap resampling
-    #[arg(
-        long,
-        value_name = "SEED",
-        default_value_t = DEFAULT_BOOTSTRAP_SEED,
-        help_heading = "Bootstrap"
-    )]
+    #[arg(long, value_name = "SEED", default_value_t = DEFAULT_BOOTSTRAP_SEED, value_parser = whole_number::<u64>, help_heading = "Bootstrap")]
     pub bootstrap_seed: u64,
 
     /// EM iterations of each replicate (default: N_ITER)
-    #[arg(long, value_name = "N", help_heading = "Bootstrap")]
+    #[arg(long, value_name = "N", value_parser = whole_number::<usize>, help_heading = "Bootstrap")]
     pub bootstrap_iters: Option<usize>,
 
     /// Directory of the replicate and summary files (default: OUTPUT with .bootstrap in place of .json).
@@ -555,7 +545,8 @@ impl InferArgs {
             .each("--theta0", self.theta0)
             .each("--rho0", self.rho0)
             .each("--init-params", path(&self.init_params))
-            .unless("--mu", self.mu, DEFAULT_MU)
+            // 2.5e-8 rather than 0.000000025.
+            .unless("--mu", format!("{:e}", self.mu), format!("{DEFAULT_MU:e}"))
             .unless(
                 "--bin-callable",
                 self.bin_callable.name(),

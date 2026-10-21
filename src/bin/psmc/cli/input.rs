@@ -9,7 +9,7 @@ use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
 
 use super::ArgList;
-use super::values::positive_usize;
+use super::values::{positive_usize, whole_number};
 
 /// `--input-format`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -197,19 +197,19 @@ pub struct InputArgs {
     pub depth: DepthThresholds,
 
     /// VCF consensus mode: minimum INFO/MQ (vcf2fq -Q)
-    #[arg(long, value_name = "MQ", default_value_t = DEFAULT_MIN_MAPQ)]
+    #[arg(long, value_name = "MQ", default_value_t = DEFAULT_MIN_MAPQ, value_parser = whole_number::<u64>)]
     pub min_mapq: u64,
 
     /// VCF consensus mode: bases masked on each side of an indel (vcf2fq -l)
-    #[arg(long, value_name = "BP", default_value_t = DEFAULT_INDEL_WINDOW)]
+    #[arg(long, value_name = "BP", default_value_t = DEFAULT_INDEL_WINDOW, value_parser = whole_number::<u64>)]
     pub indel_window: u64,
 
     /// VCF consensus mode: minimum base quality (fq2psmcfa -q)
-    #[arg(long, value_name = "Q", default_value_t = DEFAULT_MIN_QUAL)]
+    #[arg(long, value_name = "Q", default_value_t = DEFAULT_MIN_QUAL, value_parser = whole_number::<u64>)]
     pub min_qual: u64,
 
     /// VCF and multihetsep: drop sequences with fewer called bases (fq2psmcfa -g; 0 disables)
-    #[arg(long, value_name = "BASES", default_value_t = DEFAULT_MIN_GOOD_BASES)]
+    #[arg(long, value_name = "BASES", default_value_t = DEFAULT_MIN_GOOD_BASES, value_parser = whole_number::<u64>)]
     pub min_good_bases: u64,
 
     /// VCF and multihetsep: drop sequences whose called share is lower (fq2psmcfa's fixed 0.2; 0 disables)
