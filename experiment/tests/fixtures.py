@@ -106,6 +106,7 @@ def c_ref_loglikes(final: float = -25000.0) -> List[float]:
     return [ll[i] for i in range(5)] + [final]
 
 
+@functools.lru_cache(maxsize=None)
 def in_git_work_tree() -> bool:
     if shutil.which("git") is None:
         return False
