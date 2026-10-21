@@ -9,9 +9,10 @@ Usage: submit.sh JOB [ARG...] [-- SBATCH_OPTION...]
   build            build psmc-rs and C psmc in $PROD and run every test
   prod             E1 E2 E4 E5 E6 (and E7 once e7-prep is done) in
                    $PROD/experiment/runs, one allocation
-  e3 REPEAT...     E3's timing runs, one exclusive node per repeat (e3 1 2 3 4 5)
+  e3 REPEAT...     E3's timing runs of these repeats, one exclusive node
+                   each (e3 1 2 3 4 5: all of them)
   e3-report        E3's tables, once merge_e3.sh merged the repeats
-  e7-prep [N...]   E7's data stage: setup, chromosomes N (default 1-22), samples
+  e7-prep [N...]   E7's inputs: setup, chromosomes N (default 1-22), samples
 
 Options after -- go to sbatch (e.g. submit.sh prod -- --begin=now+1hour).
 

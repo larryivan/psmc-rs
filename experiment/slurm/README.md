@@ -57,9 +57,9 @@ The `e7-prep` jobs write only `$PROD/experiment/runs/E7/inputs/`, which no
 runner holds, and E7 has no runner jobs until its last step has written the
 manifest; a chromosome task that failed is submitted again with `e7-prep N`
 (setup and finished chromosomes are skipped). A job that reaches its time
-limit leaves its unfinished runs pending: 90
-minutes (E3: 2 hours) before the limit the runner starts nothing new, and
-submitting again runs only what is not done. Status, from a login node:
+limit leaves its unfinished runs pending: 90 minutes (E3: 2 hours) before
+the limit the runner starts nothing new, and submitting again runs only
+what is not done. Status, from a login node:
 
 ```bash
 cd $PROD && bash -c 'source experiment/slurm/env.sh && \
