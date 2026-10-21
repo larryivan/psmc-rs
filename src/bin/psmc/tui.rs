@@ -94,7 +94,7 @@ const STAGES: [Stage; 5] = [
 
 /// The progress of a stage: since when it has made it, and when it last
 /// did (which keeps the rate of a finished stage).
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 struct StageSnapshot {
     done: u64,
     total: u64,

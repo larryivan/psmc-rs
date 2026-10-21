@@ -25,7 +25,7 @@ fn infer(args: &InferArgs) -> Result<ExitCode> {
     let never = AtomicBool::new(false);
     let result = run::run_inference(args, &never, &|ev| console.emit(ev), !args.no_progress);
     console.finish();
-    result.map(|_| ExitCode::SUCCESS)
+    result.map(|()| ExitCode::SUCCESS)
 }
 
 fn main() -> ExitCode {

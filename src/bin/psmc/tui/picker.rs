@@ -11,7 +11,7 @@ use crate::cli::FormatArg;
 use crate::dataset::is_supported_input_file;
 
 /// What the file picker picks.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub(super) enum PickerMode {
     /// An input file of this format.
     Input(FormatArg),
@@ -19,14 +19,13 @@ pub(super) enum PickerMode {
     OutputDir,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(super) struct PickerEntry {
     pub(super) label: String,
     path: PathBuf,
     is_file: bool,
 }
 
-#[derive(Debug, Clone)]
 pub(super) struct FilePicker {
     pub(super) mode: PickerMode,
     pub(super) cwd: PathBuf,
