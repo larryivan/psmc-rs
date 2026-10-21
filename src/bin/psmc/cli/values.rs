@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use clap::ValueEnum;
+use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
 use psmc_rs::model::{MAX_STATES, n_steps_for_pattern};
@@ -67,9 +68,11 @@ pub fn positive_usize(s: &str) -> Result<usize, String> {
 
 /// A whole number of at least 0 (clap's own error for one would be Rust's
 /// "invalid digit found in string").
-pub fn whole_number<T: FromStr>(s: &str) -> Result<T, String> {
-    s.parse()
-        .map_err(|_| format!("'{s}' is not a whole number"))
+pub fn whole_number<T: FromStr<Err = ParseIntError>>(s: &str) -> Result<T, String> {
+    s.parse().map_err(|e: ParseIntError| match e.kind() {
+        IntErrorKind::PosOverflow => format!("'{s}' is too large"),
+        _ => format!("'{s}' is not a whole number"),
+    })
 }
 
 /// A positive, finite number.
@@ -244,6 +247,13 @@ mod tests {
             let err = parse_err(&format!("{flag} 2.5"));
             assert!(err.contains("'2.5' is not a whole number"), "{flag}: {err}");
         }
+        let big = "99999999999999999999999";
+        assert_eq!(
+            whole_number::<u64>(big),
+            Err(format!("'{big}' is too large"))
+        );
+        assert!(parse_err(&format!("--bootstrap-seed {big}")).contains("is too large"));
+        assert!(parse_err("--threads 1.5").contains("'1.5' is not a whole number"));
         assert!(parse_err("--tr-ratio=-4").contains("positive"));
         assert!(parse_err("--smooth-lambda=-1").contains("0 or more"));
         assert!(parse_err("--mstep-iters 0").contains("at least 1"));
