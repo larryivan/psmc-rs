@@ -676,6 +676,7 @@ Reproduction package (`experiment/`):
 ### Removed
 
 - `psmc_rs::utils::logsumexp` (unused).
+- `psmc_rs::progress::spinner` (unused; `progress::spinner_raw` remains).
 - `em_train_with_progress` (also re-exported from `opt`) and
   `opt::m_step_lbfgs_with_progress`: pass the callback as
   `EmOptions::on_progress` to `em::em_train_with_options`, or to

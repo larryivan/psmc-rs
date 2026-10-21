@@ -1,5 +1,4 @@
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
-use std::time::Duration;
 
 fn bar_style() -> ProgressStyle {
     ProgressStyle::with_template(
@@ -30,22 +29,14 @@ pub fn bar(len: u64, prefix: &str, msg: &str) -> ProgressBar {
     styled(pb, bar_style(), prefix, msg)
 }
 
-/// A spinner drawn on stderr, ticking on its own.
-pub fn spinner(prefix: &str, msg: &str) -> ProgressBar {
-    let pb = ProgressBar::with_draw_target(None, ProgressDrawTarget::stderr_with_hz(15));
-    let pb = styled(pb, spinner_style(), prefix, msg);
-    pb.enable_steady_tick(Duration::from_millis(80));
-    pb
-}
-
 /// A progress bar styled like [`bar`], for a caller that chooses where it
 /// is drawn.
 pub fn bar_raw(len: u64, prefix: &str, msg: &str) -> ProgressBar {
     styled(ProgressBar::new(len), bar_style(), prefix, msg)
 }
 
-/// A spinner styled like [`spinner`], for a caller that draws it itself
-/// (for example in an `indicatif::MultiProgress`) and starts its ticks.
+/// A spinner for a caller that draws it itself (for example in an
+/// `indicatif::MultiProgress`) and starts its ticks.
 pub fn spinner_raw(prefix: &str, msg: &str) -> ProgressBar {
     styled(ProgressBar::new_spinner(), spinner_style(), prefix, msg)
 }
