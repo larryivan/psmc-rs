@@ -122,25 +122,38 @@ struct Shown {
     stage: Option<(Stage, ProgressBar)>,
 }
 
-/// A bar of `len` steps, or a spinner without; it fills the terminal's
-/// width. It starts hidden: a bar drawn on stderr before it joins the
-/// [`MultiProgress`] leaves a line there that is never cleared.
-fn bar(len: Option<u64>, prefix: &str, msg: &str) -> ProgressBar {
-    let style = match len {
-        Some(_) => ProgressStyle::with_template(
-            "{prefix:.bold} {msg:.bold} [{elapsed_precise}] {wide_bar:.cyan/blue} \
-             {human_pos}/{human_len} {percent:>3}% ETA {eta_precise}",
-        )
-        .map(|s| s.progress_chars("█▇▆▅▄▃▂▁ ")),
-        None => ProgressStyle::with_template(
-            "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}]",
-        )
-        .map(|s| s.tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")),
+const BAR: &str = "{prefix:.bold} {msg:.bold} [{elapsed_precise}] {wide_bar:.cyan/blue} \
+                   {human_pos}/{human_len} {percent:>3}% ETA {eta_precise}";
+const SPINNER: &str = "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}]";
+const MSTEP: &str = "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}] \
+                     {human_pos} iterations";
+
+/// The bar of `stage`, or of the EM iterations for `None`, of `len` steps;
+/// a bar fills the terminal's width. It ticks on its own, so that its
+/// elapsed time runs between events. It starts hidden: a bar drawn on
+/// stderr before it joins the [`MultiProgress`] leaves a line there that is
+/// never cleared.
+fn bar(stage: Option<Stage>, len: u64) -> ProgressBar {
+    let (prefix, msg, template) = match stage {
+        None => ("EM", "iterations", BAR),
+        Some(Stage::Io) => ("IO", "reading input", SPINNER),
+        Some(Stage::EForward) => ("  ", "E-step forward", BAR),
+        Some(Stage::EBackward) => ("  ", "E-step backward", BAR),
+        // An M-step runs until it converges, far below its cap (its length
+        // until its last event), so it shows its iterations alone.
+        Some(Stage::MStep) => ("  ", "M-step", MSTEP),
+        Some(Stage::Bootstrap) => ("BOOT", "replicates", BAR),
     };
-    ProgressBar::with_draw_target(len, ProgressDrawTarget::hidden())
-        .with_style(style.expect("a valid template"))
-        .with_prefix(prefix.to_string())
-        .with_message(msg.to_string())
+    let style = ProgressStyle::with_template(template)
+        .expect("a valid template")
+        .progress_chars("█▇▆▅▄▃▂▁ ")
+        .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
+    let pb = ProgressBar::with_draw_target(Some(len), ProgressDrawTarget::hidden())
+        .with_style(style)
+        .with_prefix(prefix)
+        .with_message(msg);
+    pb.enable_steady_tick(Duration::from_millis(100));
+    pb
 }
 
 impl Bars {
@@ -149,12 +162,9 @@ impl Bars {
         let mut shown = self.shown.lock().unwrap_or_else(PoisonError::into_inner);
         match ev {
             Event::Iteration { iter, total } => {
-                let em = shown.em.get_or_insert_with(|| {
-                    self.multi
-                        .insert(0, bar(Some(total as u64), "EM", "iterations"))
-                });
+                let em =
+                    (shown.em).get_or_insert_with(|| self.multi.insert(0, bar(None, total as u64)));
                 em.set_position(iter.saturating_sub(1) as u64);
-                em.set_message(format!("iteration {iter}/{total}"));
             }
             Event::Progress {
                 stage, done, total, ..
@@ -168,20 +178,8 @@ impl Bars {
                 if read {
                     return;
                 }
-                let (_, pb) = shown.stage.get_or_insert_with(|| {
-                    let pb = self.multi.add(match stage {
-                        Stage::Io => bar(None, "IO", "reading input"),
-                        Stage::EForward => bar(Some(total), "  ", "E-step forward"),
-                        Stage::EBackward => bar(Some(total), "  ", "E-step backward"),
-                        Stage::MStep => bar(Some(total), "  ", "M-step"),
-                        Stage::Bootstrap => bar(Some(total), "BOOT", "replicates"),
-                    });
-                    if stage == Stage::Io {
-                        pb.enable_steady_tick(Duration::from_millis(80));
-                    }
-                    (stage, pb)
-                });
-                // The M-step's length is its cap until its last event.
+                let (_, pb) = (shown.stage)
+                    .get_or_insert_with(|| (stage, self.multi.add(bar(Some(stage), total))));
                 pb.set_length(total);
                 pb.set_position(done.min(total));
             }

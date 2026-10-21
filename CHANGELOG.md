@@ -526,7 +526,12 @@ Reproduction package (`experiment/`):
 - The progress bars left a stale line on the terminal at each E- or M-step
   phase and at the start of reading (a bar drew itself before it joined
   the others), about a hundred lines for 25 iterations; they now leave
-  none, fit the terminal's width and count sites with separators.
+  none, fit the terminal's width and count sites with separators. Their
+  elapsed times stood still between updates (for a whole iteration on the
+  EM bar), the EM bar gave the iteration under way beside the count of
+  those done, and the M-step's bar a share and ETA of its cap, which
+  converged M-steps stay far below; the bars now tick on their own, the EM
+  bar counts the iterations done, and an M-step counts its iterations.
 - Output files with the same name overwrote each other (`OUTPUT fit.html`
   was replaced by the report), and a bad output path failed only after the
   fit and the bootstrap.
