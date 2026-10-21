@@ -614,7 +614,7 @@ the run warns and prints that command. With replicates of N_ITER
 iterations and `--psmc-out`, it prints the recipe:
 
 ```text
-To plot it with the bootstrap: cat fit.psmc fit.bootstrap/replicate_*.psmc > combined.psmc; psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 25 PREFIX combined.psmc
+To plot the fit with its bootstrap replicates: cat fit.psmc fit.bootstrap/replicate_*.psmc > combined.psmc; psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 25 PREFIX combined.psmc
 ```
 
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;

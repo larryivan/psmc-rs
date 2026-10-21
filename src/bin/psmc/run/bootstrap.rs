@@ -243,7 +243,8 @@ impl Bootstrap {
         }
         let main = cli.psmc_out.as_ref()?;
         Some(Event::Info(format!(
-            "To plot it with the bootstrap: cat {} {replicates} > combined.psmc; {}",
+            "To plot the fit with its bootstrap replicates: cat {} {replicates} > \
+             combined.psmc; {}",
             main.display(),
             psmc_plot_command(cli, n_iter, "combined.psmc")
         )))
