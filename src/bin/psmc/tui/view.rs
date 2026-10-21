@@ -162,6 +162,9 @@ fn render_run_page(f: &mut Frame, area: Rect, app: &mut App) {
     for ((&(stage, title), snap), &chunk) in STAGES.iter().zip(&app.stages).zip(chunks.iter()) {
         let ratio = match snap.total {
             0 => 0.0,
+            // An M-step's total is its iteration cap until it converges, so
+            // its gauge fills only then.
+            _ if stage == Stage::MStep && snap.done < snap.total => 0.0,
             total => (snap.done as f64 / total as f64).min(1.0),
         };
         let gauge = Gauge::default()
@@ -224,7 +227,7 @@ fn key_hints(app: &App) -> &'static str {
     } else if app.running.is_some() {
         "x stop  ↑/↓/PgUp/PgDn scroll the log  F1/F2/F3 pages"
     } else if app.page != Page::Setup {
-        "Enter run again  ↑/↓/PgUp/PgDn scroll the log  F1 setup  q quit"
+        "Enter run  ↑/↓/PgUp/PgDn scroll the log  F1 setup  q quit"
     } else if app.selected == FIELD_INPUT_FORMAT {
         "Tab/↑/↓ field  Space/←/→ change the format  Enter run  F2/F3 pages  Esc quit"
     } else {
