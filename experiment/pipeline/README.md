@@ -897,8 +897,8 @@ QC reports, bootstrap replicates' JSON, tables and figures.
 
 The tools directory is `$PSMC_EXP_TOOLS`, else `experiment/.tools` (of the
 main checkout when run from a worktree without one): `psmc_c/psmc` (lh3/psmc
-0.6.5-r74), `psmc_c/utils/{fq2psmcfa,splitfa}`, `psmc_c/psmc_plot.pl`,
-`vcfutils.pl`, `msmc-tools/generate_multihetsep.py`. psmc-rs 0.2 is this
+0.6.5-r74), `psmc_c/utils/{fq2psmcfa,splitfa}` and
+`msmc-tools/generate_multihetsep.py`. psmc-rs 0.2 is this
 checkout's `target/release/psmc-rs`, built by `start`. A psmc-rs build is
 identified by rustc, the rustflags and `CARGO_PROFILE_RELEASE_*` variables
 and the target features they enable; one with `-C target-cpu=native`, or

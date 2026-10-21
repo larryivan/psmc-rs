@@ -54,10 +54,9 @@ replicates' `.psmc` files, HTML reports, logs and the runner's state
 - **psmc-rs 0.2.0**, built from the repository with `cargo build --release
   --locked` (Rust 1.88 or later; the production build used rustc 1.99.0,
   the release profile and no `RUSTFLAGS`).
-- **C psmc** (lh3/psmc 0.6.5-r74) with its `fq2psmcfa`, `splitfa` and
-  `psmc_plot.pl`, `vcfutils.pl`, and `generate_multihetsep.py` of
-  msmc-tools, in `experiment/.tools` (or `$PSMC_EXP_TOOLS`); section 7
-  describes the builds.
+- **C psmc** (lh3/psmc 0.6.5-r74) with its `fq2psmcfa` and `splitfa`,
+  and `generate_multihetsep.py` of msmc-tools, in `experiment/.tools` (or
+  `$PSMC_EXP_TOOLS`); section 7 describes the builds.
 - **Figures:** Arial (else Helvetica, else DejaVu Sans).
 
 ```bash

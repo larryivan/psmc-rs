@@ -312,8 +312,6 @@ def psmc_rs_02(build: bool = True, log: Callable[[str], None] = print) -> Tool:
 UTILITIES = {
     "fq2psmcfa": ("psmc_c", "utils", "fq2psmcfa"),
     "splitfa": ("psmc_c", "utils", "splitfa"),
-    "psmc_plot.pl": ("psmc_c", "psmc_plot.pl"),
-    "vcfutils.pl": ("vcfutils.pl",),
     "generate_multihetsep.py": ("msmc-tools", "generate_multihetsep.py"),
 }
 
