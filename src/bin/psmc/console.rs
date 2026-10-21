@@ -1,11 +1,10 @@
 //! Pipeline events on a terminal: results on stdout, messages and progress
 //! bars on stderr.
 
-use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget};
+use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::io::{self, Write};
-use std::sync::Mutex;
-
-use psmc_rs::progress;
+use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
 
 use crate::run::{Event, Stage};
 
@@ -36,28 +35,13 @@ pub struct Console {
     bars: Option<Bars>,
 }
 
-/// The progress bars of a run: one for reading, one for the EM iterations,
-/// one for the current E- or M-step phase, and one for the bootstrap.
-struct Bars {
-    multi: MultiProgress,
-    state: Mutex<BarState>,
-}
-
-#[derive(Default)]
-struct BarState {
-    io: Option<ProgressBar>,
-    em: Option<ProgressBar>,
-    phase: Option<(Stage, ProgressBar)>,
-    bootstrap: Option<ProgressBar>,
-}
-
 impl Console {
     /// `quiet` hides information lines (warnings and results still show);
     /// `progress` draws progress bars.
     pub fn new(quiet: bool, progress: bool) -> Self {
         let bars = progress.then(|| Bars {
             multi: MultiProgress::with_draw_target(ProgressDrawTarget::stderr_with_hz(15)),
-            state: Mutex::new(BarState::default()),
+            shown: Mutex::default(),
         });
         Self {
             quiet,
@@ -73,8 +57,8 @@ impl Console {
         self
     }
 
-    /// Print `line` with `print` (on stdout or stderr) without breaking the
-    /// progress bars.
+    /// Print `line` with `print` (on stdout or stderr) above the progress
+    /// bars.
     fn line(&self, print: fn(&str), line: &str) {
         let line = format!("{line}\n");
         match &self.bars {
@@ -86,8 +70,7 @@ impl Console {
     /// Show one event of the pipeline.
     pub fn emit(&self, ev: Event) {
         match ev {
-            Event::Info(_) if self.quiet => {}
-            Event::Info(line) => self.line(print_err, &line),
+            Event::Info(line) if !self.quiet => self.line(print_err, &line),
             Event::Warning(line) => self.line(print_err, &format!("warning: {line}")),
             Event::Qc { warnings, .. } if self.quiet => {
                 for w in warnings {
@@ -95,98 +78,119 @@ impl Console {
                 }
             }
             Event::Qc { text, .. } => self.line(print_err, text.trim_end()),
-            Event::Output(line) if self.results_on_stderr => self.line(print_err, &line),
-            Event::Output(line) => self.line(print_out, &line),
-            Event::Iteration { iter, total } => {
+            Event::Output(line) => {
+                // A result ends the stage before it.
+                self.finish();
+                let print = if self.results_on_stderr {
+                    print_err
+                } else {
+                    print_out
+                };
+                self.line(print, &line);
+            }
+            Event::Iteration { .. } | Event::Progress { .. } => {
                 if let Some(b) = &self.bars {
-                    b.iteration(iter, total);
+                    b.show(ev);
                 }
             }
-            Event::Progress {
-                stage, done, total, ..
-            } => {
-                if let Some(b) = &self.bars {
-                    b.progress(stage, done, total);
-                }
-            }
+            Event::Info(_) => {}
         }
     }
 
     /// Remove the progress bars.
     pub fn finish(&self) {
         if let Some(b) = &self.bars {
-            let mut s = b.state.lock().unwrap_or_else(|e| e.into_inner());
-            for pb in [s.io.take(), s.em.take(), s.bootstrap.take()]
-                .into_iter()
-                .flatten()
-                .chain(s.phase.take().map(|(_, pb)| pb))
-            {
-                pb.finish_and_clear();
+            let mut shown = b.shown.lock().unwrap_or_else(PoisonError::into_inner);
+            let stage = shown.stage.take().map(|(_, pb)| pb);
+            for pb in shown.em.take().into_iter().chain(stage) {
+                b.remove(pb);
             }
         }
     }
 }
 
-impl Bars {
-    fn iteration(&self, iter: usize, total: usize) {
-        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        let em = s.em.get_or_insert_with(|| {
-            self.multi
-                .add(progress::bar_raw(total as u64, "EM", "iterations"))
-        });
-        em.set_position(iter.saturating_sub(1) as u64);
-        em.set_message(format!("iteration {iter}/{total}"));
-    }
+/// The progress bars of a run: the EM iterations, and below them the stage
+/// under way (reading, an E- or M-step phase, the bootstrap).
+struct Bars {
+    multi: MultiProgress,
+    shown: Mutex<Shown>,
+}
 
-    fn progress(&self, stage: Stage, done: u64, total: u64) {
-        let mut s = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        match stage {
-            Stage::Io => {
-                if done >= total {
-                    if let Some(pb) = s.io.take() {
-                        pb.finish_and_clear();
-                    }
-                } else if s.io.is_none() {
-                    let pb = self.multi.add(progress::spinner_raw("IO", "reading input"));
-                    pb.enable_steady_tick(std::time::Duration::from_millis(80));
-                    s.io = Some(pb);
-                }
-            }
-            Stage::EForward | Stage::EBackward | Stage::MStep => {
-                let label = match stage {
-                    Stage::EForward => "E-step forward",
-                    Stage::EBackward => "E-step backward",
-                    _ => "M-step",
-                };
-                let reuse = matches!(&s.phase, Some((st, pb)) if *st == stage && pb.length() == Some(total));
-                if !reuse {
-                    if let Some((_, pb)) = s.phase.take() {
-                        pb.finish_and_clear();
-                    }
-                    let pb = self.multi.add(progress::bar_raw(total, "  ", label));
-                    s.phase = Some((stage, pb));
-                }
-                if let Some((_, pb)) = &s.phase {
-                    pb.set_position(done.min(total));
-                }
-            }
-            Stage::Bootstrap => {
-                if s.bootstrap.is_none() {
-                    // The main fit is over.
-                    for pb in
-                        s.em.take()
-                            .into_iter()
-                            .chain(s.phase.take().map(|(_, pb)| pb))
-                    {
-                        pb.finish_and_clear();
-                    }
-                }
-                let pb = s.bootstrap.get_or_insert_with(|| {
+#[derive(Default)]
+struct Shown {
+    em: Option<ProgressBar>,
+    stage: Option<(Stage, ProgressBar)>,
+}
+
+/// A bar of `len` steps, or a spinner without; it fills the terminal's
+/// width. It starts hidden: a bar drawn on stderr before it joins the
+/// [`MultiProgress`] leaves a line there that is never cleared.
+fn bar(len: Option<u64>, prefix: &str, msg: &str) -> ProgressBar {
+    let style = match len {
+        Some(_) => ProgressStyle::with_template(
+            "{prefix:.bold} {msg:.bold} [{elapsed_precise}] {wide_bar:.cyan/blue} \
+             {human_pos}/{human_len} {percent:>3}% ETA {eta_precise}",
+        )
+        .map(|s| s.progress_chars("█▇▆▅▄▃▂▁ ")),
+        None => ProgressStyle::with_template(
+            "{prefix:.bold} {spinner:.magenta} {msg:.bold} [{elapsed_precise}]",
+        )
+        .map(|s| s.tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")),
+    };
+    ProgressBar::with_draw_target(len, ProgressDrawTarget::hidden())
+        .with_style(style.expect("a valid template"))
+        .with_prefix(prefix.to_string())
+        .with_message(msg.to_string())
+}
+
+impl Bars {
+    /// Show an iteration or progress event.
+    fn show(&self, ev: Event) {
+        let mut shown = self.shown.lock().unwrap_or_else(PoisonError::into_inner);
+        match ev {
+            Event::Iteration { iter, total } => {
+                let em = shown.em.get_or_insert_with(|| {
                     self.multi
-                        .add(progress::bar_raw(total, "BOOT", "replicates"))
+                        .insert(0, bar(Some(total as u64), "EM", "iterations"))
                 });
+                em.set_position(iter.saturating_sub(1) as u64);
+                em.set_message(format!("iteration {iter}/{total}"));
+            }
+            Event::Progress {
+                stage, done, total, ..
+            } => {
+                let read = stage == Stage::Io && done >= total;
+                if (read || shown.stage.as_ref().is_some_and(|(s, _)| *s != stage))
+                    && let Some((_, pb)) = shown.stage.take()
+                {
+                    self.remove(pb);
+                }
+                if read {
+                    return;
+                }
+                let (_, pb) = shown.stage.get_or_insert_with(|| {
+                    let pb = self.multi.add(match stage {
+                        Stage::Io => bar(None, "IO", "reading input"),
+                        Stage::EForward => bar(Some(total), "  ", "E-step forward"),
+                        Stage::EBackward => bar(Some(total), "  ", "E-step backward"),
+                        Stage::MStep => bar(Some(total), "  ", "M-step"),
+                        Stage::Bootstrap => bar(Some(total), "BOOT", "replicates"),
+                    });
+                    if stage == Stage::Io {
+                        pb.enable_steady_tick(Duration::from_millis(80));
+                    }
+                    (stage, pb)
+                });
+                // The M-step's length is its cap until its last event.
+                pb.set_length(total);
                 pb.set_position(done.min(total));
             }
+            _ => {}
         }
+    }
+
+    fn remove(&self, pb: ProgressBar) {
+        pb.finish_and_clear();
+        self.multi.remove(&pb);
     }
 }

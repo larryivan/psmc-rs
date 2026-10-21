@@ -519,6 +519,10 @@ Reproduction package (`experiment/`):
 - Saved parameters reload bit for bit (exact JSON float parsing).
 - A closed stdout (`psmc-rs ... | head -1`) aborted the run before any file
   was written.
+- The progress bars left a stale line on the terminal at each E- or M-step
+  phase and at the start of reading (a bar drew itself before it joined
+  the others), about a hundred lines for 25 iterations; they now leave
+  none, fit the terminal's width and count sites with separators.
 - Output files with the same name overwrote each other (`OUTPUT fit.html`
   was replaced by the report), and a bad output path failed only after the
   fit and the bootstrap.
