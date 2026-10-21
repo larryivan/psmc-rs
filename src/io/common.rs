@@ -192,11 +192,12 @@ impl BufRead for DecoderThread {
 }
 
 /// The lines of a text, as `read_until(b'\n')` gives them (the last may
-/// lack its `\n`), read 1 MiB at a time and handed out in place: only a
-/// line that straddles two reads is copied.
+/// lack its `\n`), found with memchr in a buffer of 1 MiB and handed out
+/// in place: only a line that straddles two fills of it is copied. (A gzip
+/// input fills it one decoded chunk, of 128 KiB, at a time.)
 pub(crate) struct LineReader<R> {
     reader: BufReader<R>,
-    /// The current line when it straddled two reads.
+    /// The current line when it straddled two fills of the buffer.
     copied: Vec<u8>,
     /// The length of the current line when it is at the start of the
     /// reader's buffer (consumed at the next [`Self::advance`]), else 0.
