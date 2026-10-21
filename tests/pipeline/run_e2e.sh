@@ -8,14 +8,15 @@
 #
 # VCFUTILS and FQ2PSMCFA default to vcfutils.pl and fq2psmcfa on PATH, and
 # PSMC_RS to target/release/psmc-rs. bcftools (>= 1.10), bgzip, tabix, perl
-# and python3 must be on PATH. E2E_WORK=DIR works in DIR instead of a
-# temporary directory (whose name holds a space) and keeps the files there:
-# DIR must be new or empty, or a directory that an earlier run made, which is
-# emptied first.
+# and python3 must be on PATH. The test works in a temporary directory
+# (whose name holds a space), which it removes only when every check passed.
+# E2E_WORK=DIR works in DIR instead and keeps the files there: DIR must be
+# new or empty, or a directory that an earlier run made, which is emptied
+# first.
 # E2E_BASH=PATH runs the script with that bash (for example /bin/bash,
 # macOS's bash 3.2).
 
-set -euo pipefail
+set -Eeuo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -39,6 +40,37 @@ expect_files() {
     [ -s "$f" ] || fail "missing output $f"
   done
 }
+
+# A command that fails outside a check stops the test (set -e). The ERR
+# trap, which -E passes on to functions, records the line of the command at
+# the top level of this file that failed or called what failed. On exit,
+# that command is shown, with where its messages went, on the test's own
+# standard error (3; the command's may be a file), and the temporary work
+# directory stays, as after a failed check.
+exec 3>&2
+failed_line=""
+tmp_root=""
+on_error() { failed_line=${BASH_LINENO[${#FUNCNAME[@]} - 2]}; }
+on_exit() {
+  local s=$?
+  if [ -n "$failed_line" ]; then
+    printf 'FAIL: exit status %s at line %s of run_e2e.sh:\n' "$s" "$failed_line" >&3
+    # The command's lines: those next to it that end in \ or |.
+    awk -v n="$failed_line" '{ more[NR] = /[\\|]$/; text[NR] = $0 }
+      END { s = n; while (s > 1 && more[s - 1]) s--
+        e = n; while (more[e]) e++
+        for (i = s; i <= e; i++) print "  " text[i] }' "$here/run_e2e.sh" >&3
+  fi
+  if [ -n "$tmp_root" ]; then
+    if [ "$s" -eq 0 ]; then
+      rm -rf "$tmp_root"
+    else
+      printf 'work directory kept: %s\n' "$work" >&3
+    fi
+  fi
+}
+trap on_error ERR
+trap on_exit EXIT
 
 PSMC_RS=${PSMC_RS:-$root/target/release/psmc-rs}
 VCFUTILS=${VCFUTILS:-$(command -v vcfutils.pl || true)}
@@ -68,7 +100,6 @@ else
   # A space in the name, so that every run checks that the script and this
   # test handle such paths.
   tmp_root=$(mktemp -d)
-  trap 'rm -rf "$tmp_root"' EXIT
   work="$tmp_root/e2e work"
   mkdir "$work"
 fi
@@ -221,7 +252,7 @@ awk 'BEGIN { off = 0 }
 run_script --bam "$out/empty.bam" --ref "$out/names.fa" --out "$out/names" --dry-run \
   > "$out/dry_run.txt" 2> "$out/dry_run.err" ||
   fail "the dry run of names.fa: $(cat "$out/dry_run.err")"
-"$PSMC_RS" qc "$out/names.psmcfa" --json "$out/names.qc.json" > /dev/null 2>&1
+"$PSMC_RS" qc "$out/names.psmcfa" --json "$out/names.qc.json" > /dev/null 2> "$out/names.qc.err"
 check kinds "$out/dry_run.txt" "$out/names.qc.json"
 
 # Roman numerals: in a stickleback-like reference chrX is chromosome 10 and
@@ -449,18 +480,18 @@ awk -v OFS='\t' '$1 ~ /^chr([1-9]|1[0-9]|2[0-2])$/ { print $1, 1, $2 }' "$sim/re
 [ "$(cut -f 1 "$b/autosomes.txt" | tr '\n' ' ')" = "chr1 chr2 chr3 " ] ||
   fail "autosomes.txt: $(cat "$b/autosomes.txt")"
 bcftools mpileup -C50 -q20 -Q20 -d 10000 -a FORMAT/DP -R "$b/autosomes.txt" -f "$sim/ref.fa" \
-  "$sim/aln.sam.gz" 2> /dev/null |
-  bcftools call -m -g "$dmin,$((dmax + 1))" -Oz -o "$b/sample.g.vcf.gz" 2> /dev/null
+  "$sim/aln.sam.gz" 2> "$b/mpileup.err" |
+  bcftools call -m -g "$dmin,$((dmax + 1))" -Oz -o "$b/sample.g.vcf.gz" 2> "$b/call.err"
 contigs=$(bcftools query -f '%CHROM\n' "$b/sample.g.vcf.gz" 2> "$b/query.err" | uniq | tr '\n' ' ') ||
   fail "bcftools query of the gVCF: $(cat "$b/query.err")"
 [ "$contigs" = "chr1 chr2 chr3 " ] || fail "the gVCF holds $contigs"
 bcftools query -i "FMT/DP>=$dmin && FMT/DP<=$dmax" -f '%CHROM\t%POS0\t%END\n' \
-  "$b/sample.g.vcf.gz" > "$b/callable.bed" 2> /dev/null
-bcftools view -v snps,indels -Oz -o "$b/variants.vcf.gz" "$b/sample.g.vcf.gz" 2> /dev/null
-"$PSMC_RS" qc "$b/variants.vcf.gz" --json "$b/nomask.qc.json" > /dev/null 2>&1
+  "$b/sample.g.vcf.gz" > "$b/callable.bed" 2> "$b/callable.err"
+bcftools view -v snps,indels -Oz -o "$b/variants.vcf.gz" "$b/sample.g.vcf.gz" 2> "$b/view.err"
+"$PSMC_RS" qc "$b/variants.vcf.gz" --json "$b/nomask.qc.json" > /dev/null 2> "$b/nomask.qc.err"
 check qc "$b/nomask.qc.json" --format "vcf, mask mode" --has VARIANTS_ONLY_NO_MASK
 "$PSMC_RS" convert "$b/variants.vcf.gz" --vcf-mask "$b/callable.bed" --psmcfa "$b/b.psmcfa" \
-  --multihetsep-per-chrom "$b/b" --qc-json "$b/b.qc.json" -q 2> /dev/null > /dev/null
+  --multihetsep-per-chrom "$b/b" --qc-json "$b/b.qc.json" -q > /dev/null 2> "$b/convert.err"
 check qc "$b/b.qc.json" --format "vcf, mask mode" --lacks VARIANTS_ONLY_NO_MASK \
   --kept chr1,chr2,chr3 --dropped 0
 check recovery "$sim" "$b/b.psmcfa" 100 --min-recovery 0.97 --max-false-k 0.01 --min-masked-n 0.97
