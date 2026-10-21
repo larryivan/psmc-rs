@@ -287,7 +287,7 @@ pub fn parse_psmcfa<R: BufRead>(reader: R) -> Result<Vec<PsmcfaRecord>> {
 }
 
 /// [`parse_psmcfa`], also counting the signs of a per-base consensus.
-pub(crate) fn parse_psmcfa_with_stats<R: BufRead>(
+fn parse_psmcfa_with_stats<R: BufRead>(
     mut reader: R,
 ) -> Result<(Vec<PsmcfaRecord>, PsmcfaTextStats)> {
     let mut parser = Parser::new();
@@ -314,16 +314,28 @@ pub fn read_psmcfa_records(path: &Path) -> Result<Vec<PsmcfaRecord>> {
     parse_psmcfa(reader).with_context(|| format!("failed to parse {path:?}"))
 }
 
-/// Read a psmcfa file into HMM rows, one per record (or per `batch_size` bins
-/// of a record, see [`chunk_sequences`]). Records with an empty sequence are
-/// dropped. Fails when the file holds no `>` record at all.
-pub fn read_psmcfa(path: &Path, batch_size: Option<usize>) -> Result<Observations> {
-    let records = read_psmcfa_records(path)?;
+/// The records of a psmcfa input, with its signs of a per-base consensus;
+/// an error when it holds no `>` record at all. `path` names the input in
+/// messages.
+pub(crate) fn read_psmcfa_from(
+    reader: impl BufRead,
+    path: &Path,
+) -> Result<(Vec<PsmcfaRecord>, PsmcfaTextStats)> {
+    let (records, stats) =
+        parse_psmcfa_with_stats(reader).with_context(|| format!("failed to parse {path:?}"))?;
     if records.is_empty() {
         bail!(
             "no psmcfa records found in {path:?}: each sequence must start with a '>name' header line"
         );
     }
+    Ok((records, stats))
+}
+
+/// Read a psmcfa file into HMM rows, one per record (or per `batch_size` bins
+/// of a record, see [`chunk_sequences`]). Records with an empty sequence are
+/// dropped. Fails when the file holds no `>` record at all.
+pub fn read_psmcfa(path: &Path, batch_size: Option<usize>) -> Result<Observations> {
+    let (records, _) = read_psmcfa_from(open_reader(path)?, path)?;
     chunk_sequences(
         records.into_iter().map(|r| r.seq).collect::<Vec<_>>(),
         batch_size,
