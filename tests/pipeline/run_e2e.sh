@@ -534,7 +534,7 @@ ok "a typo in the fit's options: error before any chromosome is called, with psm
 
 # A fit that fails only once it has read the input shows psmc-rs's error
 # line, which follows pages of QC text.
-expect_failure fitfail "Error: --bootstrap-block-size is too large for this input" \
+expect_failure fitfail "error: --bootstrap-block-size is too large for this input" \
   --bam "$sim/aln.sam" --ref "$sim/ref.fa" --chroms chr3 --run 1 \
   -- --bootstrap 2 --bootstrap-block-size 100000000
 ok "a fit that fails: its error line is shown"

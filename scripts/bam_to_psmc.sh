@@ -608,7 +608,7 @@ fi
 # tips, or else its last lines.
 error_lines() {
   local lines
-  lines=$(grep -E '^(error|Error):|^ *tip: ' "$1" || true)
+  lines=$(grep -E '^error:|^ *tip: ' "$1" || true)
   [ -n "$lines" ] || lines=$(tail -n 5 "$1")
   printf '%s\n' "$lines"
 }
@@ -820,7 +820,7 @@ if [ -n "$run_iters" ]; then
 $(error_lines "$tmp/fit.err")"
   # The QC warnings were shown already; the fit's own warnings and the
   # psmc_plot.pl hint were not.
-  grep -v '^Warning: QC ' "$tmp/fit.err" | grep -E '^(Warning: |To plot it)' >&2 || true
+  grep -v '^warning: QC ' "$tmp/fit.err" | grep -E '^(warning: |To plot it)' >&2 || true
   cat "$tmp/fit.out" >&2
 fi
 
