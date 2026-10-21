@@ -10,9 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 0.2.0 rebuilds the E-step, the input readers and the bootstrap, follows
 C psmc in its defaults, and adds the `qc` and `convert` commands. **Results
 are not comparable with 0.1 runs that relied on the defaults** (first part
-of *Changed*); the manuscript's results are made again with 0.2 by the
-new pipeline in `experiment/pipeline/` (`experiment/runs/E1` to `E7` and
-`FIG`, committed with the release), which replaces 0.1's reproduction
+of *Changed*). The manuscript's results are made again with 0.2 by the new
+pipeline in `experiment/pipeline/`, which replaces 0.1's reproduction
 package (*Removed*).
 
 ### Changed
@@ -27,30 +26,16 @@ Defaults, each of which changes the results of a run that relied on it:
 - EM starts from ρ0 = θ0/4 (C psmc's `-r 4`, new `--tr-ratio`) instead of
   θ0/5.
 - `--smooth-lambda` defaults to 0, C psmc's objective, instead of 1e-3.
-- Each M-step runs until it converges, as C psmc's Hooke-Jeeves search
-  does, instead of stopping after 100 L-BFGS iterations; `--mstep-iters`
-  (default 1000 instead of 100) is only a cap, which normal fits do not
-  reach (in the manuscript's 40 E1 fits with `4+25*2+4+6`, an M-step took
-  a median 76 evaluations of its objective and at most 160, two per free
-  parameter of them for its curvatures and its stopping check; C psmc's
-  Hooke-Jeeves search took a median 3,934). The 100-iteration M-steps
-  stopped short of the maximum of Q, and EM carried the shortfall through
-  the rounds: on a simulated 4 × 25 Mb bottleneck genome (`-N25 -t15 -r5 -p 4+25*2+4+6`)
-  the curve was 0.034 (RMSE of log10 Ne over the informative window) from
-  C psmc's, and is now 7.7e-5 from it, and 5e-7 from a fit whose M-steps
-  run to the precision limit. The M-steps no longer differ: C's
-  Hooke-Jeeves search, ported in place of the L-BFGS, gives a curve 7.5e-5
-  from C's. Nearly all the rest comes from C's expected counts, which leave
-  out each sequence's last bin: with that bin left out of psmc-rs's counts
-  too, the curve is 6.4e-6 from C's, and on the reference data rounds 2 to
-  5 agree with C's log-likelihoods to a relative 2.8e-9 instead of 7.3e-8.
-  Across the manuscript's 40 simulated 500 Mb genomes (E1) and four real
-  genomes (E2), compared interval by interval, the curves are 3.7e-6 to
-  2.8e-4 apart (RMSE of log10 Ne; at most 6.6e-4 in any interval of the
-  window), θ, ρ and t_max agree within a relative 1.0e-3 and the final
-  log-likelihood within 2.3e-7 (`experiment/pipeline/README.md`).
-  Without a pattern (one λ per interval) the capped M-steps had let the fit
-  drift away from C's in every interval.
+- Each M-step runs until it converges, as C psmc's does; `--mstep-iters`
+  (1000, was 100) is only a cap. 0.1's 100 L-BFGS iterations stopped short
+  of the maximum of Q and left the curve 0.03 to 0.16 (RMSE of log10 Ne)
+  from C psmc's, and with one λ per interval let the fit drift away from
+  C's in every interval. For 0.2's agreement with C psmc see
+  `experiment/pipeline/README.md` (E1, E2).
+- The M-step bounds each λ by 1e4 instead of 1e6 (`MStepConfig::lam_hi`):
+  above 1e4, C's formulas give rounding noise in f64 for short early
+  intervals, where EM stalled, and a λ of 1e4 already means no
+  coalescences in the interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of
   `--bootstrap-block-size` bins (default 500,000 instead of 50,000) are
   drawn with replacement across the whole input, and each replicate is
@@ -68,25 +53,16 @@ Defaults, each of which changes the results of a run that relied on it:
   (`--bin-callable auto`, new): a called bin of `c` callable bases out of
   `s` emits as `c` bases of sequence, `P(T | k) = exp(-θ (c/s) avg_t[k])`,
   instead of as a full bin, as fq2psmcfa's psmcfa and C psmc treat every
-  called bin. With missing data scattered in runs shorter than a bin,
-  treating such bins as full biased θ, N0, the times and Ne low by about
-  1.2 times the missing share of the called bins; on five simulated 500 Mb
-  bottleneck genomes with 30% of the bases missing in runs of about 20 bp
-  (the manuscript's experiment E4), θ goes from 0.64-0.66 of the fit of
-  the same genome without missing data (ignored) to 0.97-0.99 (fitted),
-  and the RMSE of log10 Ne against the truth comes back to 0.007 above
-  that of the complete-data fit on average (at most 0.020), from 0.16-0.20
-  above it (see `experiment/pipeline/README.md`, E4; the smaller runs of
-  `experiment/validation/README.md` give similar θ). The E-step, the
-  M-step, the starting θ0 (which solves `sum (1 - exp(-θ0 c/s)) = K` over called bins, C's
-  −ln(1 − K/L) for full bins), the bootstrap and the TMRCA decoding all
-  use the counts. Complete data, and psmcfa input, which
-  records no counts, are fitted exactly as before, to the bit;
-  `--bin-callable ignore` fits C psmc's model on any input. Multihetsep
-  does not say which sites are uncalled, so the counts of its bins follow
-  the reader's placement of them; they made the fit worse in the
-  validation, so `auto` does not use them and fits multihetsep input as C
-  psmc would fit its bins, and `--bin-callable approximate` fits them. See
+  called bin. With missing data scattered in runs shorter than a bin, full
+  bins biased θ, N0, the times and Ne low by about 1.2 times the missing
+  share of the called bins (E4 in `experiment/pipeline/README.md`). The
+  E-step, the M-step, the starting θ0, the bootstrap and the TMRCA decoding
+  all use the counts. Complete data, and psmcfa input (which records no
+  counts), give to the bit the fit of `--bin-callable ignore`, which fits
+  C psmc's model on any input. Multihetsep does not say where its uncalled
+  sites are, so the counts of its bins are approximate; they made the fit
+  worse in the validation, so `auto` fits multihetsep input as C psmc
+  would fit its bins, and `--bin-callable approximate` uses them. See
   `docs/design/bin-callable-model.md`.
 - A VCF read in mask mode runs to each chromosome's `##contig` length
   (`--vcf-no-contig-end`: to its last record) instead of stopping at the
@@ -103,151 +79,66 @@ Defaults, each of which changes the results of a run that relied on it:
 
 Command line and outputs:
 
-- Out-of-range model settings are usage errors before the input is read:
-  `--t-max` must lie in [1, 200], the range the M-step searches, and
-  `--n-steps` in 1 to 9999; a pattern must parse and agree with
-  `--n-steps`.
-- Output paths are checked before the input is read: each must be
-  writable, none may be the input or another output, and `OUTPUT` may not
-  end in `.html`. Only the QC JSON (`--qc-json`, `qc --json`) can be `-`,
-  for stdout. `convert` checks its per-sequence multihetsep files, named
-  after the sequences, once the input is read and before anything is
-  written, and the `PSMC_ECHARTS_JS` bundle is read before the input too.
-- Usage errors found after parsing (an invalid `--pattern`, outputs that
-  name one file, `--bootstrap-iters` without `--bootstrap`, multihetsep
-  output of psmcfa input, `--tui --qc-json -`, ...) exit with status 2, as
-  clap's own do; errors reading or writing files exit with 1.
-- `-h` gives a one-sentence summary of each option and `--help` the full
-  text, both wrapped at the terminal's width; `psmc-rs`, `convert` and `qc`
-  alone print their help; an argument after `N_ITER` (a second input from
-  a shell pattern) is named as unexpected, and a value that is not a whole
-  number, or is too large, as such (not as an "invalid digit"). Errors and
-  warnings start with `error:` and `warning:`, as clap's do, and name each
-  file once; a run prints how it read the input (for psmcfa, C psmc's
-  `n_seqs`, `sum_L` and `sum_n`; for VCF its mode, filters and the bases it
-  lost) and leaves what the input holds to the QC report, without the
-  former `Input:` line.
-- The output JSON is written right after the main fit, before the
-  bootstrap, and carries run metadata (see *Added*).
-- For VCF and multihetsep input, the `.psmc` output has one more `MM` line
-  after `n_seqs`, `MM bin_model:..., counts:..., mean_callable:...,
-  partial_bins:...`, which says how the fit used the callable bases of each
-  bin (psmc_plot.pl skips it; psmcfa input gets none), and so do bootstrap
-  replicates fitted with the counts. `convert --psmcfa` warns when it
-  writes partly callable bins of a VCF, which psmcfa cannot record, and
-  advises fitting the VCF itself.
-- QC compares the heterozygosity of sequences per callable base when the
-  input records callable bases (the per-sequence table's het/kb, then
-  marked `het/kb*` with a note under the table, and `vs ref`, the autosomal
-  reference, `SEX_OR_ORGANELLE` and `HET_OUTLIER`), so that a sequence with
-  more missing data does not look less heterozygous; the fit's JSON keeps
-  `qc.het_per_kb` per kb of called bins and adds `qc.het_per_callable_kb`; `HIGH_MISSING` says when the fit corrects the bias of
-  partly called bins. `APPROX_MISSING_PLACEMENT` gives the share of
-  uncalled sites of multihetsep input and is a warning above 5%: its
-  reader's placement of them biases θ, the times and Ne low whatever
-  `--bin-callable` (θ 0.67 to 0.69 of the complete-data fit with 30% of
-  the sites uncalled in 20 bp runs, 0.89 to 0.91 in 20 kb runs, on E4's
-  simulated genomes). `convert --multihetsep` of a VCF with uncalled sites
-  says so. The start that `qc`
-  and `convert` check (`INVALID_START`) takes θ0 from the callable bases
-  of each bin when a fit with `--bin-callable auto` does (VCF).
-- A bootstrap starts by removing every `replicate_NNN.json`,
-  `replicate_NNN.psmc`, `summary.tsv` and `summary.json` in its directory,
-  with a warning that names the earlier replicates beyond its own count,
-  so that a rerun with fewer replicates, or one that stops part way,
-  leaves no earlier replicates for `cat replicate_*.psmc` or a glob of the
-  JSON files to pick up; other files there are left alone. A fit without
-  `--bootstrap` warns when `OUTPUT.bootstrap` holds replicates.
-- The HTML report labels the curve psmc-rs, scales it with the run's bin
-  size and generation time, and has run summary, QC and bootstrap
-  sections.
-- `PSMC_ALPHA_CACHE_MB` is one budget for the whole process and is used
-  only by models of more than 256 states; 0 now disables the cache instead
-  of selecting the default (2048).
-- `--threads` builds a thread pool per run; the TUI no longer keeps the
-  first run's thread count.
-- BCF input is an error that gives the `bcftools view -Oz` command to
-  convert it, and a UTF-8 byte order mark at the start of an input is
-  skipped. When a file recognised as multihetsep does not read as one from
-  its start, the error says how its format was recognised and names
-  `--input-format`.
-- gzip outputs (psmcfa and multihetsep named `.gz`, and `--tmrca-out`
-  FILE.gz) are compressed by zlib-rs instead of miniz_oxide (see
-  *Performance*): their bytes differ from those of earlier 0.2 builds,
-  and their decompressed content does not. They stay the same from run
-  to run and with any `--threads`. Their size changes little on real
-  data (NA12878's psmcfa.gz 0.4% smaller, TMRCA output 1.2% smaller to
-  1.5% larger) and more on text that repeats one pattern (a synthetic
-  psmcfa.gz 34% larger). gzip and BGZF input is decoded by zlib-rs too:
-  a corrupt deflate stream that refers back before its start is now
-  reported as `corrupt deflate stream` where it occurs, rather than later
-  as a checksum mismatch or as an error on the garbled text; such an
-  input is refused as before.
+- Settings and outputs are checked before the input is read. Usage errors
+  exit with 2, and errors reading or writing files exit with 1.
+  - `--t-max` must be in [1, 200] and `--n-steps` in 1 to 9999.
+  - `--pattern` must parse and agree with `--n-steps`.
+  - `--bootstrap-iters` needs `--bootstrap`.
+  - Outputs must be writable, and distinct from each other and from the
+    input. `OUTPUT` may not end in `.html` (0.1 let outputs overwrite each
+    other, as the report did `OUTPUT fit.html`, and failed on a bad path
+    only after the fit and the bootstrap). Only `--qc-json` and
+    `qc --json` may be `-`.
+- `-h` summarises each option and `--help` gives the details. `psmc-rs`,
+  `convert` and `qc` alone print their help.
+- Errors and warnings start with `error:` and `warning:`.
+- A run prints how it read the input and then the QC report. For psmcfa
+  that is C psmc's `n_seqs`, `sum_L` and `sum_n`; for VCF it is the mode,
+  the filters and the bases lost.
+- The output JSON is written after the main fit, before the bootstrap.
+- For VCF and multihetsep input, the `.psmc` output has an
+  `MM bin_model:...` line after `n_seqs`, which psmc_plot.pl skips.
+- A bootstrap first removes the `replicate_NNN.*` and `summary.*` files in
+  its directory, and warns when there were more replicates than it makes.
+  A fit without `--bootstrap` warns when `OUTPUT.bootstrap` holds
+  replicates.
+- The HTML report labels the curve psmc-rs and scales it by the run's bin
+  size and generation time.
+- `PSMC_ALPHA_CACHE_MB` is one budget for the whole process, used only by
+  models of more than 256 states. 0 disables the cache (in 0.1 it selected
+  the default, 2048).
+- `--threads` sets the thread pool of each run (the TUI kept the first
+  run's).
+- BCF input is refused with the `bcftools view -Oz` command that converts
+  it, and a UTF-8 byte order mark is skipped.
 
 Library API:
 
+- EM lives in the new `em` module; `opt` re-exports `em_train`, `EmHistory`
+  and `EmProgressEvent`. `EmHistory` gains `post_sigma`, `q`,
+  `mstep_evaluations`, `mstep_iterations` and `mstep_stops`
+  (`opt::MStepStop`), and `loglike[i].1` is the log-likelihood after
+  iteration i (0.1: a copy of `.0`). `em_train` returns the model with its
+  matrices recalculated.
+- `MStepConfig`: `rel_tol` (1e-13, relative to the objective) replaces
+  `tol_grad`, an absolute gradient norm that grew with the input. The
+  defaults are now `max_iters` 1000 (`opt::DEFAULT_MSTEP_ITERS`; was 100),
+  `lbfgs_m` 20 (7), `lambda` 0 (1e-3) and `lam_hi` 1e4 (1e6; see
+  Defaults). The last `MStepProgress` event of an M-step has `total` equal
+  to the iterations taken.
+- The M-step's objective is infinite where the f64 HMM is invalid
+  (negative or NaN probabilities, or transition rows that do not sum to 1
+  within 1e-9), so the search no longer moves where λ underflows.
 - `report::write_html_report(path, &ReportData)` replaces the positional
   form.
 - `bootstrap::new_rng` returns `BootstrapRng` (ChaCha8) instead of
-  `SmallRng`; `sample_sequences_block_bootstrap` takes any `Rng` and is kept
-  as the 0.1 scheme.
-- `EmHistory` gains `post_sigma`, `q`, `mstep_evaluations`,
-  `mstep_iterations` and `mstep_stops` (`opt::MStepStop`, why each M-step
-  stopped), and `loglike[i].1` is the log-likelihood after iteration i (it
-  was a copy of `.0`); `em_train` returns the model with its matrices
-  recalculated.
-- `MStepConfig::default()` sets `lambda` to 0, C psmc's objective and the
-  CLI's default, instead of 1e-3, so `em_train` and `run_bootstrap` with
-  default settings no longer fit a penalised objective.
-- The M-step stops by a scale-free convergence test: `MStepConfig::rel_tol`
-  (1e-13; the objective's decrease and the next quasi-Newton step's
-  predicted decrease, relative to the objective, over two iterations)
-  replaces `tol_grad`, an absolute gradient norm that grew with the input,
-  and `MStepStop::Converged` replaces `GradientTolerance`.
-  `MStepConfig::max_iters` defaults to `opt::DEFAULT_MSTEP_ITERS` (1000)
-  and `lbfgs_m` to 20 (7). The L-BFGS initial matrix is the inverse of the
-  objective's curvature in each coordinate (one objective evaluation per
-  parameter at the start of each M-step) instead of a multiple of the
-  identity; curvature pairs are kept when `s'y` is positive relative to
-  `|s| |y|` (it was compared with 1e-12, a scale that changes with the
-  input); and the line search backtracks by interpolation and, when it
-  fails, restarts along the preconditioned gradient, instead of trying the
-  reverse direction and a coordinate search.
-- Before an M-step stops, it takes fresh curvatures: it moves each
-  parameter along which the objective does not curve upwards alone to the
-  best of a ladder of moves, and restarts with an empty memory when that
-  or the diagonal Newton step of the others promises more than the
-  convergence threshold (at most three times). Trial points keep each
-  parameter within 1e-12 of its range from its bounds, the margin of the
-  start. Without that, weakly determined λ carried past their optimum
-  stopped M-steps short (the first λ of a simulated genome at 7,387 with Q
-  peaking at 23 along it, 3.1e-2 higher), and the logit coordinates of
-  parameters pushed against a bound ran off to -57.
-- The M-step's objective is infinite wherever the HMM computed in f64 is
-  not one, so that the search never moves there: a probability negative
-  or not a number, or a row of transition probabilities whose sum
-  differs from 1 by more than 1e-9 (or by more than the start's own
-  deviation, when that is larger). A small λ of an early interval makes the
-  survival underflow in the squares of C's formulas (below about 1e-154),
-  where rows summed to up to 1.014 and Q exceeded its maximum Q0; on a
-  simulated genome fitted with one λ per interval an M-step moved there,
-  and the next E-step lowered the log-likelihood by 367.
-- The last `opt::MStepProgress` event of each M-step reports the
-  iterations it took as its `total` (earlier events report the cap,
-  `max_iters`), and the M-step's progress bar ends there: converged
-  M-steps stop far below the cap of 1000 (in the 40 E1 fits, a median 76
-  evaluations of the objective and at most 160, which bound the
-  iterations), so bars drawn against the cap stopped near their start.
-- `MStepConfig::lam_hi` defaults to 1e4 instead of 1e6. Over an early
-  interval of length τ, C's formulas cancel to about τ² / (2λ), so f64
-  holds them to a relative 2.2e-16 (λ/τ)²: at λ = 1e6 the first of 64
-  intervals (τ = 0.0083) gets probabilities that are rounding noise,
-  negative at most points near any valid one. EM drove recent λ to 1e6
-  and then stopped moving (a simulated 4 × 25 Mb genome with 101
-  intervals, from round 27; a 5 Mb one with 64, from round 16); at 1e4 the
-  error is 3e-4, and below 1 up to about 1,600 intervals. λ = 1e4 already
-  means no coalescence in the interval: holding such λ at 1e4 instead of
-  1e6 lowered the maximum of Q by 1e-5 to 7e-4 on the simulations' counts.
+  `SmallRng`. `sample_sequences_block_bootstrap` (0.1's scheme) takes any
+  `Rng`. `BootstrapSummary` gains `skipped_replicates`.
+- `Observations` and `hmm::SufficientStats` gain a `callable` field (the
+  callable bases of each bin, `docs/design/bin-callable-model.md`), which
+  breaks struct literals (add `callable: None`); `read_vcf` and `read_mhs`
+  fill it for bins of at most 65,535 bases. Without counts, results are
+  C psmc's to the bit.
 - `PsmcModel::new` rejects `n_steps` 0, single-state and overflowing
   patterns, more than `model::MAX_STATES` (10,000) states, and `t_max`
   outside (0, 1000).
@@ -255,78 +146,6 @@ Library API:
   unsorted positions, a chromosome that comes back, a record beyond its
   `##contig` length and a genotype allele that ALT lacks.
 - `hmm::write_tmrca_posterior_tsv` writes gzip when the path ends in `.gz`.
-- `bootstrap::BootstrapSummary` gains `skipped_replicates` (the replicates
-  left out for an invalid start), which breaks code that builds it with a
-  struct literal.
-- The callable bases of each bin (`docs/design/bin-callable-model.md`).
-  Input: the new `io::callable` module holds `CallableBases` (the counts
-  of a list of rows or sequences), `BinCounts` (of one, kept as runs of
-  partly callable bins or one byte per bin, whichever is smaller),
-  `CallableSummary` (their mean share and distribution over the called
-  bins) and `MAX_COUNTED_BIN_SIZE` (65,535), all re-exported from `io`,
-  with the counts' iterator `callable::Iter`; `Observations::validate`
-  checks rows, starts and counts together, and `qc::try_analyze` and
-  `initial_theta_with_callable` refuse rows of counts for another bin size
-  than the whole's. `Observations` gains the public
-  field `callable` and `io::consensus::ConsensusSeq` the field `callable`,
-  which breaks code that builds them with a struct literal (add
-  `callable: None`). The new `io::Sequences` holds whole sequences with
-  optional counts (`From<Vec<Vec<u8>>>` for bins without them,
-  `Sequences::validate`), and `io::common::chunk_sequences` takes `impl
-  Into<Sequences>` instead of `Vec<Vec<u8>>`, so an un-annotated
-  `.collect()` passed to it no longer compiles. `io::input::load`,
-  `io::vcf::read_vcf_with` (and `read_vcf`) and `io::mhs::read_mhs_with`
-  (and `read_mhs`) return the counts for bins of at most 65,535 bases;
-  `io::common::Binner::finish_with_callable` and
-  `io::input::Dataset::sequence_callable` are new.
-- Model: `hmm::EStepOptions::callable` runs the E-step and
-  `log_likelihood_with_options` on the counts, and the E-step returns
-  `SufficientStats::callable` (`hmm::CallableStats`: the count-weighted `T`
-  sums and the `K` sums by count), which breaks code that builds
-  `SufficientStats` with a struct literal. `hmm::TmrcaOptions` and
-  `write_tmrca_posterior_tsv_with_options` decode with them.
-  `em::EmOptions::callable` fits them, the M-step weighs each count's `K`
-  bins, and `em::hmm_q` and `hmm_q0` evaluate Q and its maximum of the
-  callable-length model. `initial_theta_with_callable` and
-  `model::ThetaCounts` give the starting θ0. Without counts, or with every
-  called bin full, every one of these gives C psmc's results to the bit;
-  `e_step_streaming`, `log_likelihood`, `write_tmrca_posterior_tsv`,
-  `em_train` and `initial_theta` keep their signatures and C's model. The
-  new fields `EStepOptions::callable` and `EmOptions::callable` break code
-  that builds these options with a struct literal of every field; one
-  that ends in `..Default::default()` still compiles.
-- Bootstrap: `observations_to_sequences`, `split_sequences_for_bootstrap`,
-  `resample_sequences` and `run_bootstrap_sequences` carry the counts with
-  their bins and draw the same trunks as without them; the replicates of
-  `run_bootstrap_sequences` are fitted with them, from
-  `replicate_initial_model_with_callable`, and
-  `invalid_replicate_starts_sequences` finds the replicates it skips.
-  `BootstrapReplicate` gains `callable`, which breaks code that builds it
-  with a struct literal (it has no `Default`; add `callable: None`).
-- Outputs: `io::params::RunMetadata::bin_callable`
-  (`io::params::BinCallableRecord`, with `CALLABLE_LENGTH_MODEL` and
-  `FULL_BINS_MODEL`), `psmc_out::PsmcRunInfo::bin_callable` and
-  `psmc_out::bin_callable_line`, `report::ReportData::bin_callable` and
-  `report::bin_callable_rows`; struct literals of these types need the new
-  fields.
-- QC: `qc::QcInput::callable` (struct literals need `callable: None`),
-  `QcContext::counts_ignored` (struct literals of every field need it;
-  `..QcContext::default()` covers it), `QcReport::callable`,
-  `QcReport::het_per_callable_kb` and `HET_PER_CALLABLE_KB_NOTE`,
-  `QcSummary::het_per_callable_kb` (struct literals need it),
-  `BinStats::{theta0_callable, mean_callable_fraction,
-  partly_callable_fraction, called_next_to_missing}` with
-  `theta0_comparable` and `het_per_kb_comparable`,
-  `QcCode::PartlyCallableBins` (between `VariantsOnlyNoMask` and
-  `HighMissing` in report order) and `PARTLY_CALLABLE_NOTE_FRACTION`,
-  `PARTLY_CALLABLE_WARN_MEAN`; `APPROX_PLACEMENT_WARN_FRACTION`, above
-  which `QcCode::ApproxMissingPlacement` is a warning.
-
-Reproduction package (`experiment/`):
-
-- `experiment/README.md` and Supplementary Note 1 describe the pipeline
-  of `experiment/pipeline/` and how to reproduce the manuscript's results:
-  from the committed runs, on one machine or on a SLURM cluster.
 
 ### Added
 
@@ -338,19 +157,24 @@ Reproduction package (`experiment/`):
   `HIGH_MISSING`, `BIN_SATURATION`, `FEW_HETS`, `TOO_SHORT`,
   `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`, `HET_OUTLIER`,
   `APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`) and
-  recommendations. `PARTLY_CALLABLE_BINS` reports how much of the called
-  bins of a VCF is callable and the bias of treating them as full: a note
-  when the fit corrects it, a warning when `--bin-callable ignore` leaves
-  called bins less than 95% callable on average (θ then comes out more
-  than about 5% low: 1.1 to 1.3 times the missing share in simulations),
-  and for psmcfa input,
-  which cannot tell, a note with the called bins next to missing runs and
-  how to measure the rest. `--json`, `--strict` (exit 2
-  on a warning) and `--bootstrap-block-size` (trunk checks). Every fit and
+  recommendations. `PARTLY_CALLABLE_BINS` says how much of the called bins
+  is callable and the bias of `--bin-callable ignore`. When the input
+  records callable bases, heterozygosity is compared per callable base
+  (table column `het/kb*`, JSON `qc.het_per_callable_kb` beside
+  `qc.het_per_kb`), so that missing data does not make a sequence look
+  less heterozygous. `APPROX_MISSING_PLACEMENT` gives the share of uncalled
+  sites in multihetsep input and warns above 5%: their placement biases θ,
+  the times and Ne low, whatever `--bin-callable` is set to
+  (`convert --multihetsep` of a VCF with uncalled sites says so).
+  `INVALID_START` takes θ0 from the callable bases of each bin when the
+  fit does (VCF, `--bin-callable auto`). `--json`, `--strict` (exit 2 on a
+  warning) and `--bootstrap-block-size` (trunk checks). Every fit and
   conversion prints the same report and `--qc-json` writes it.
 - `psmc-rs convert INPUT`: psmcfa as fq2psmcfa lays it out, and multihetsep
   as `generate_multihetsep.py` writes it, in one file or one per sequence
-  (`--psmcfa`, `--multihetsep`, `--multihetsep-per-chrom`), gzip by name.
+  (`--psmcfa`, `--multihetsep`, `--multihetsep-per-chrom`), gzip by name;
+  gzip outputs (also `--tmrca-out FILE.gz`) are the same bytes from run to
+  run and with any `--threads`; compare those of two versions decompressed.
 - VCF consensus mode: an all-sites VCF from `bcftools call -c` is read
   exactly as `vcfutils.pl vcf2fq | fq2psmcfa` would read it (`--depth
   auto|MIN:MAX`, `--min-mapq`, `--indel-window`, `--min-qual`), with
@@ -372,8 +196,7 @@ Reproduction package (`experiment/`):
   callable mask (route B, which also feeds MSMC2 and SMC++), with
   `psmc-rs qc` and the pitfalls (missing masks, sex chromosomes and
   organelles, low coverage, repeats, bin size, scaling).
-- VCF mask mode options `--vcf-keep-filtered` and `--vcf-no-contig-end`;
-  the read depth of the sample in mask mode.
+- VCF mask mode options `--vcf-keep-filtered` and `--vcf-no-contig-end`.
 - `--mhs-pair I,J` selects the two haplotypes of a multihetsep file.
 - `--psmc-out FILE`: C psmc's `.psmc` output (rounds 0 to N_ITER) for
   `psmc_plot.pl`; with `--bootstrap`, `replicate_NNN.psmc` for every
@@ -393,8 +216,8 @@ Reproduction package (`experiment/`):
   replicate fails with EM's error.
 - `--init-params FILE` starts from the parameters of an earlier run (C
   `-i`), and its replicates start there too, as `psmc -i -b`.
-- `--tr-ratio`, `--gen-years`, `--qc-json`, `-q`/`--quiet`, `--version`
-  and `--bin-callable auto|ignore|approximate` (see *Changed*).
+- `--tr-ratio`, `--qc-json`, `-q`/`--quiet`, `--version` and
+  `--bin-callable auto|ignore|approximate` (see *Changed*).
 - Output JSON metadata: `version`, `simd` (the HMM kernels that ran:
   `avx2+fma`, `portable` or `neon`), `n_iter`, `final_loglike`, `loglike`
   (the log-likelihood after each iteration, from the start), `bin_size`,
@@ -404,9 +227,8 @@ Reproduction package (`experiment/`):
   0 the run evaluates the starting model for them and for `Last EM
   loglike`. Files without them (0.1) still load.
 - HTML report: run summary (with the bin model and the callable bases of
-  the called bins), QC findings and per-sequence table, bootstrap
-  settings with a coverage caveat, and an offline notice when ECharts
-  cannot load (`PSMC_ECHARTS_JS` embeds a local copy).
+  the called bins), QC findings and per-sequence table, and bootstrap
+  settings with a coverage caveat.
 - `experiment/validation/bin_callable.py`, the simulation study of
   `--bin-callable` (see *Changed*), with its results in
   `experiment/validation/README.md`.
@@ -419,9 +241,8 @@ Reproduction package (`experiment/`):
 - Input from pipes and FIFOs (the file is read once; only `--depth auto`
   needs a regular file).
 - TUI: the stop key interrupts EM and the bootstrap mid-step, the form has
-  a generation-time field and shows the equivalent command line (or what
-  it lacks) and a hint for each field, Ctrl+U clears a field, and a failed
-  run goes back to the form.
+  a generation-time field, Ctrl+U clears a field, and a failed run goes
+  back to the form.
 - Library: `io::input::load` and `Dataset` (one loader for every format),
   `io::consensus`, `io::write` (psmcfa and multihetsep writers),
   `io::mhs::read_mhs_with`, `io::vcf::read_vcf_with`, the `qc` and
@@ -434,10 +255,15 @@ Reproduction package (`experiment/`):
   run_bootstrap, run_bootstrap_with_options, BootstrapConfig,
   BootstrapOptions, split_for_bootstrap, resample_chunks,
   bootstrap_trunk_count, replicate_rng}` and
-  `opt::m_step_lbfgs_with_outcome`.
-- `examples/bootstrap_calibration.rs`, the simulation behind the bootstrap
-  coverage figures (by default with the CLI's start and smoothing;
-  `--tr-ratio`, `--smooth-lambda`), and `examples/bench_estep.rs`.
+  `opt::m_step_lbfgs_with_outcome`; for the callable bases of each bin,
+  `io::callable` (`CallableBases`, `BinCounts`, `CallableSummary`),
+  `io::Sequences`, the `callable` options of `EStepOptions`, `EmOptions`
+  and `hmm::TmrcaOptions`, `initial_theta_with_callable`,
+  `model::ThetaCounts` and `bootstrap::run_bootstrap_sequences`.
+- `examples/bootstrap_calibration.rs`, a small simulation that compares
+  bootstrap SDs with true sampling SDs (by default with the CLI's start
+  and smoothing; `--tr-ratio`, `--smooth-lambda`), and
+  `examples/bench_estep.rs`.
 - Tests against the original tools' outputs: `tests/c_equivalence.rs` (C
   psmc 0.6.5-r74), the `.psmc` output and `psmc_plot.pl`, psmcfa parsing,
   route A goldens from bcftools, `vcfutils.pl`, `fq2psmcfa` and
@@ -447,17 +273,18 @@ Reproduction package (`experiment/`):
   fq2psmcfa` and with the simulation, and runs route B with the guide's
   commands.
 - CI: formatting and clippy with warnings denied (pinned to Rust 1.99.0),
-  tests on Linux and macOS, a Rust 1.88 build, the Python tests of the
-  reproduction package, and a `pipeline` job that checks the shell
-  scripts with shellcheck, runs the end-to-end test with Ubuntu's bcftools
-  and `vcfutils.pl` and with `fq2psmcfa` built from lh3/psmc 0.6.5-r74, and
+  tests on Linux and macOS, a build with the minimum Rust version, 1.88
+  (`rust-version` in `Cargo.toml`), the Python tests of the reproduction
+  package, and a `pipeline` job that checks the shell scripts with
+  shellcheck, runs the end-to-end test with Ubuntu's bcftools and
+  `vcfutils.pl` and with `fq2psmcfa` built from lh3/psmc 0.6.5-r74, and
   runs the ignored tests that compare consensus and mask mode with those
   tools.
 - Reproduction package: the experiment pipeline (`experiment/pipeline/`,
   `python -m experiment.pipeline`), which makes the manuscript's
   experiments, tables and figures with C psmc and psmc-rs 0.2, the scripts
   that ran it on a SLURM cluster (`experiment/slurm/`), and Python tests
-  (`python3 -m unittest discover -s experiment/tests`).
+  (`experiment/tests`).
 - `CONTRIBUTING.md`, issue and pull-request templates, `CITATION.cff` and
   this changelog.
 
@@ -494,11 +321,11 @@ Reproduction package (`experiment/`):
 - VCF mask mode classifies every base: 0.1 moved the missing sites of each
   interval between heterozygous SNPs together, which got 14.7% of bins
   wrong at 20% random missingness, counted missing genotypes as callable,
-  aborted on two records at one position, dropped everything after the
-  last heterozygous SNP and started a new sequence when a chromosome came
-  back. FILTER was ignored and heterozygous indels counted as heterozygous
-  SNPs; filtered records and missing genotypes are now missing at their
-  position, heterozygous non-SNPs over their REF span.
+  aborted on two records at one position and started a new sequence when
+  a chromosome came back. FILTER was ignored and heterozygous indels
+  counted as heterozygous SNPs; filtered records and missing genotypes are
+  now missing at their position, heterozygous non-SNPs over their REF
+  span.
 - gVCFs (GATK, DeepVariant, `bcftools call -g`, Strelka2) are recognised by
   the reference and no-call blocks among their first records (ALT only
   `.`, `<*>`, `<NON_REF>` or `<X>`, with INFO/END) and read in mask mode,
@@ -513,14 +340,10 @@ Reproduction package (`experiment/`):
   the uncovered positions.
 - The time grid ends at C psmc's PSMC_T_INF = 1000 instead of 1e300, which
   changed the last state's emission when its λ was large.
-- The first L-BFGS step of each M-step started at unit step length, which
-  on whole-genome inputs needed all 20 halvings and failed (the M-step then
-  took another path); it now starts at unit distance.
 - The E-step had three code paths whose results depended on the thread
   count and the cache budget (up to 1% in the parameters after 20
   iterations, more than the difference from C psmc); results are now
   bit-identical for any thread count and budget.
-- `EmHistory` never recorded the log-likelihood of the final parameters.
 - EM could start from negative transition probabilities, which PSMC's
   model has when ρ0 per bin is too large for the time grid (at t_max 15
   and flat λ, above about 1/6, which θ0/4 passes at about 49%
@@ -547,17 +370,13 @@ Reproduction package (`experiment/`):
   those done, and the M-step's bar a share and ETA of its cap, which
   converged M-steps stay far below; the bars now tick on their own, the EM
   bar counts the iterations done, and an M-step counts its iterations.
-- Output files with the same name overwrote each other (`OUTPUT fit.html`
-  was replaced by the report), and a bad output path failed only after the
-  fit and the bootstrap.
 - The TUI's file picker (Ctrl+O) failed with "failed to read directory"
   when the input field held a file name without a directory, and going up
   (`../`, Backspace) failed the same way from there, or for the output
   directory took the current one. The output-directory picker (Ctrl+D)
   refused to open while the input-format field was invalid, though it
   does not use it.
-- The TUI form could not take q, x, r or a space, and its stop key could
-  not interrupt EM.
+- The TUI form could not take q, x, r or a space.
 - The TUI's log stopped short of its last lines when long lines wrapped,
   hiding the end of a run; PageUp jumped to the top of the log and PageDown
   scrolled towards it. Its key hints were cut off at 120 columns and named
@@ -566,13 +385,10 @@ Reproduction package (`experiment/`):
   its rates kept falling after a stage finished (the gauges now show the
   time taken and left, an M-step its iterations rather than a share and
   ETA of its cap, and the clock of a stage left unfinished stops with the
-  run). Its status line put READY before every message ("READY  Ready",
-  "READY  Input is required") and now shows the message alone; a form
-  that cannot run is "Not ready: ..." there and in the log (which said
-  "Input error: ..."), as in the Command panel. That panel no longer adds
-  `--no-progress`, so that a command copied from it draws progress bars.
+  run). The Command panel no longer adds `--no-progress`, so that a
+  command copied from it draws progress bars.
 - The HTML report was blank, without a word, when ECharts could not be
-  fetched; it now says how to fix that.
+  fetched; it now says so, and `PSMC_ECHARTS_JS` embeds a local copy.
 - The HTML report stacked the bootstrap band on years instead of Ne, so
   the band it drew had nothing to do with the replicates' quantiles.
 - The bootstrap summary (`summary.tsv`, `summary.json`, the report's band)
@@ -594,16 +410,9 @@ Reproduction package (`experiment/`):
   glibc 2.34 (RHEL and Rocky 8, Ubuntu 20.04, Debian 11) and printed a
   `GLIBC_2.39` warning on every run before 2.39. The release checks the
   binary in CentOS 7, Rocky Linux 8 and Ubuntu 22.04 before publishing it.
-- The documented minimum Rust version is 1.88, which the locked
-  dependencies of `ratatui` 0.30 need.
 
 ### Performance
 
-- Reading inputs is leaner: one sequence builder serves the VCF, consensus
-  and multihetsep readers, inputs are read through 128 KiB buffers, and
-  multihetsep rows no longer allocate. Reading one sample from a VCF of
-  2,000 samples and reading a multihetsep file take about 20% less CPU;
-  every output is unchanged, bit for bit.
 - The E-step's forward and backward steps work in O(states) per bin instead
   of O(states²) for PSMC transition matrices of up to 256 states (their
   triangles are rank one, which Harris et al. 2014 used to decode
@@ -616,147 +425,43 @@ Reproduction package (`experiment/`):
   `experiment/real_data` (one sequence of 2.49 M bins, `4+25*2+4+6`, 20
   iterations, 1 thread, Apple M1 Pro) a fit takes 25 s and 21 MB instead of
   139 s and 1.95 GB; on HLhydTec1 (34 sequences, 18.5 M bins, 5 iterations,
-  8 threads) 9.9 s and 96 MB instead of 79 s and 6.9 GB.
+  8 threads) 9.4 s and 117 MB instead of 79 s and 6.9 GB.
+- While at least half the threads are free, the E-step's backward pass
+  over a sequence of more than 2,048 bins is pipelined over them, with the
+  same results to the bit: the human chromosome 1 above took 11.3 s on 8
+  threads. Each pipelined sequence holds 6.9 MB more with 64 states, and
+  the threads waiting for work use CPU time (README, *Determinism and
+  performance*).
+- The E-step and the log-likelihood merge each work item's sums as soon as
+  those before it are merged, instead of holding them all, with results
+  unchanged to the bit: a bootstrap of 8 replicates on 8 threads of a
+  200 Mb genome in 500 sequences peaks at 81 MB instead of 163 MB.
 - TMRCA decoding runs in parallel within and across sequences (30,000
-  sequences of 50-300 bins at 8 threads: 10.8 s to 0.86 s) and formats
-  numbers without the standard library's float formatter.
-- psmcfa input is streamed instead of read whole, and the VCF reader is two
-  to three times as fast.
-- Gzip and bgzip input is decoded in a thread of its own while it is
-  parsed, which takes a little more CPU time but less wall time on a
-  machine with more than one core: a 249 MB bgzip all-sites VCF (48 M
-  records) is read in consensus mode with `--depth auto`, which reads it
-  twice, in 13.0 s instead of 20.1 s for about 1 s more CPU time, and a
-  bgzip SNP VCF with a callable mask and a bgzip negative mask of a
-  million rows in 0.15 s instead of 0.21 s.
-- Consensus mode reads FQ and AF1 without the general float parser (to the
-  same double; values of more than 15 digits still go through it) and
-  finds the INFO keys at their `=` instead of at every byte: on that VCF,
-  uncompressed (2.7 GB), it takes 5.8 s of CPU instead of 7.1 s with given
-  depth bounds, and 9.8 s instead of 11.7 s with `--depth auto`. Mask
-  coordinates written as plain digits are read without the standard
-  library's string parser: a callable mask of 24 M one-base rows (475 MB)
-  is read in 1.0 s of CPU instead of 1.3 s.
-- The VCF and mask readers find each line with memchr in a buffer of up to
-  1 MiB and take it in place, instead of copying it into a buffer of its
-  own, and consensus mode finds the `=` and `I` bytes of INFO eight at a
-  time. Consensus mode with `--depth auto` reads a synthetic bgzip
-  all-sites VCF of a 100 Mb sequence (96 M records, 499 MB) that carries
-  only the INFO keys vcf2fq reads in 17.0 s instead of 20.4 s (30.6 s of
-  CPU instead of 34.1 s), and one of 30 Mb (30 M records, 223 MB) with
-  every key `bcftools call -c` writes in 8.1 s instead of 9.6 s (14.4 s of
-  CPU instead of 16.2 s); mask mode saves a few percent of its CPU time.
-  Every output is unchanged, bit for bit. (Medians of five and seven
-  interleaved runs at load averages of 3 to 8.)
-- The readers' maps keyed by sequence name hash with foldhash instead of
-  the standard library's SipHash, which shows only on inputs of very many
-  sequences: converting a mask-mode VCF of a million scaffolds takes 4.6 s
-  of CPU instead of 4.95 s. Every output is unchanged, bit for bit.
-- gzip output is compressed by zlib-rs (flate2's pure-Rust port of zlib)
-  instead of miniz_oxide, and psmcfa and multihetsep text reaches the
-  compressor 64 KiB at a time instead of line by line: converting
-  NA12878's psmcfa.gz in `experiment/real_data` (28.75 M bins) to
-  psmcfa.gz takes 0.73 s instead of 1.41 s, a turtle genome's TMRCA
-  (HLpelCas1, one EM iteration on 8 threads) to `.tsv.gz` 38.3 s of CPU
-  instead of 59.0 s, and a synthetic 1 Gb SNP VCF with its mask to
-  psmcfa.gz and multihetsep.gz 1.8 s instead of 3.6 s. gzip input is
-  decoded by zlib-rs too, which takes a sixth less CPU time on the VCFs
-  above but no less wall time, as the decoding runs beside the parsing.
-  The compressed bytes change (see *Changed*).
-- The M-step differentiates its objective in reverse mode (adjoints written
-  out by hand) instead of with forward-mode dual numbers, which carried the
-  derivatives with respect to every parameter, in a heap vector, through
-  every operation: an evaluation takes O(states²) time and O(states) memory
-  besides the expected counts, however many λ are free (about 27 µs
-  instead of 1.0 ms for `4+25*2+4+6`). With one λ per interval, one EM
-  iteration on the 180,000-bin test input with 401 intervals peaked at 235
-  MB of resident memory instead of 1.30 GB (20 MB without the E-step's
-  cache of forward rows) and took 13.8 s instead of 36.7 s; with 201
-  intervals 9.0 MB and 0.71 s instead of 156 MB and 4.6 s (load averages
-  3 to 4). The warning that such models' M-steps would need gigabytes,
-  given before the input was read, is gone.
-- With that gradient and a curvature-scaled L-BFGS, the M-step converges
-  (see *Changed*) in a small fraction of the E-step's time: with
-  `4+25*2+4+6` on one thread, 2.1 ms per EM iteration on a simulated
-  500 Mb sequence (E-step 2.3 s, so 0.09%), where 100 forward-mode L-BFGS
-  iterations took 123 ms and 1000 took 1.35 s, and 2.2 ms on a simulated
-  4 × 25 Mb genome (E-step 0.46 s), where 100 iterations took 122 ms. 25 EM
-  iterations on the 4 × 25 Mb genome take 11.9 s, against 14.7 s with 100
-  forward-mode iterations and 161 s with 1000; on the 500 Mb sequence,
-  where the E-step dominates, 58.6 s, against 61.5 s and 91.5 s. (Medians
-  of three runs, interleaved, at load averages of 3.1 to 7.4.) The M-step's
-  time grows with the free parameters times states²: with one λ per
-  interval on the 180,000-bin test input it took 13 to 18 ms with 101
-  intervals and 0.29 to 0.60 s with 301, against E-steps of 0.17 s and
-  4.9 s.
-- Callable masks are merged as they are read, so their memory follows the
-  merged intervals instead of the rows (40 million adjacent per-site rows:
-  646 MB to 3.9 MB).
-- The E-step and the log-likelihood start their work items in order and
-  merge each item's sums as soon as the items before it are merged,
-  instead of holding every item's sums until all are done; results are
-  unchanged, to the bit. A bootstrap of 8 replicates with 8 threads on a
-  200 Mb genome in 500 sequences peaks at 81 MB, against 163 MB when every
-  item's sums were held, and at 103 MB with the callable bases of each bin,
-  whose sums take one row per count (307 MB when held).
-- A sequence no longer runs on one thread while others have nothing to do:
-  while at least half the threads have no sequence to process, the
-  E-step's backward pass over a sequence of more than 2,048 bins is
-  pipelined over the free threads, one thread running the backward
-  recursion over 16 segments of 128 bins while the others recompute the
-  forward vectors of the 16 segments before them and sum the expected
-  transitions of the 16 after them, each segment on its own; the sums are
-  added in the order one thread adds them, so every result is unchanged,
-  to the bit, with any `--threads` and `--batch-size`. With
-  `4+25*2+4+6` on an Apple M1 Pro, Papuan chr1 (one sequence of 2.49 M
-  bins) took 11.3 s for 20 EM iterations on 8 threads instead of 23.7 s,
-  and NA12878's chr1 2.07 s for 3 on 4 threads and 1.92 s on 8 instead of
-  3.6 s (1.4 times as fast with the default 23 states); on an AMD EPYC
-  7702 with E3's options, 1 M bins of a human chromosome took 9.4 s on 8
-  threads and 11.5 s on 16 instead of 17.3 s, and three such sequences
-  14.5 s and 13.3 s instead of 17.5 s and 17.7 s. On one thread, and while
-  the sequences keep the threads busy, nothing changes: the turtle genome
-  (1,220 scaffolds) took as long as before on 1 and 8 threads, the human
-  genome on 8 threads 3.75 s against 3.88 s, and a bootstrap of 20
-  replicates on 8 threads 0.89 s against 0.88 s (medians of five to six
-  alternated runs at load averages of 4 to 27). A pipelined sequence holds
-  6.9 MB more with 64 states (2.5 MB with 23), at most half the threads'
-  sequences at a time: the human genome on 8 threads peaked at 129 MB
-  instead of 111 MB, the bootstrap at 42 MB instead of 17 MB. The blocks
-  are allocated again at every E-step, and macOS's allocator keeps the
-  freed memory resident, so on macOS the peak can grow by about twice the
-  blocks' size over many EM iterations (Papuan chr1 on 8 threads: 32 MB
-  instead of 19 MB after 20 iterations); on Linux it grew by about their
-  size. The threads waiting for work between blocks take CPU time:
-  for a single sequence on 8 threads, about 1.6 times one thread's with
-  64 states and twice with 23, and more on more threads.
-- The x86-64 release binaries run the E-step, the log-likelihood and TMRCA
-  decoding with AVX2 and FMA on CPUs that have them (Intel Core since
-  Haswell, 2013, though some later Pentium, Celeron and Atom models lack
-  AVX2; AMD since Excavator, 2015, and every Zen), picked at run time, and
-  the portable code elsewhere. The AVX2 and FMA code fitted a 1.9 Gb
-  genome (5 EM iterations, 1 thread) about twice as fast as the portable
-  build before it, whose code the portable path runs unchanged, and as
-  fast as a `-C target-cpu=x86-64-v3` build: 71.7 s against 161 s on an
-  AMD EPYC 7702 (Zen 2), 47.1 s against 97.0 s on an EPYC 9655 (Zen 5). It
-  fuses the multiply-adds of the O(states) forward and backward products
-  (the linear-time recursion of Harris et al. 2014), as the NEON code of
-  aarch64 does, so its results are bitwise identical to those of an
-  `x86-64-v3` build, and from one CPU with AVX2 and FMA to another as long
-  as the system math library gives the same `log` and `exp` on both (glibc
-  picks a variant of them by CPU). CPUs, virtual machines and emulators
-  without AVX2 and FMA, and `PSMC_RS_SIMD=portable` (for benchmarks), run
-  that portable code. It does not fuse those multiply-adds, which would
-  each call libm's `fma` (3.75 times as slow on Zen 5, and emulated in
-  software on CPUs without FMA), so its results differ from the AVX2 and
-  FMA code's in the last digits: by a relative 1.4e-14 at most in an
-  E-step on the test inputs, and by 1e-7 to 1e-6 in the fitted parameters
-  after 5 EM iterations, which the M-step fixes only as closely as its
-  flat optimum allows (6.4e-8 measured between a portable and an
-  `x86-64-v3` build, 1.2e-6 on the 180,000-bin test input with the pattern
-  `4+25*2+4+6`). AVX-512 is not used (on Zen 5 it was slower than AVX2).
-  The output JSON records which code ran (`"simd"`: `avx2+fma`, `portable`
-  or `neon`), as does the HTML report.
+  sequences of 50-300 bins at 8 threads: 10.8 s to 0.86 s).
+- Input reading is faster and leaner: psmcfa is streamed instead of read
+  whole, gzip and bgzip input is decoded in a thread of its own beside the
+  parsing, and callable masks are merged as they are read (40 million
+  per-site rows: 646 MB to 3.9 MB).
+- The M-step differentiates its objective in reverse mode instead of with
+  forward-mode dual numbers, which carried the derivatives with respect to
+  every parameter through every operation: an evaluation takes O(states²)
+  time and O(states) memory besides the expected counts, however many λ
+  are free (about 27 µs instead of 1.0 ms for `4+25*2+4+6`). With one λ
+  per interval, one EM iteration on the 180,000-bin test input with 401
+  intervals peaked at 235 MB of resident memory instead of 1.30 GB and
+  took 13.8 s instead of 36.7 s. With that gradient and a curvature-scaled
+  L-BFGS, the converged M-step (see *Changed*) takes a small fraction of
+  the E-step's time: with `4+25*2+4+6` on one thread, 2.1 ms per EM
+  iteration on a simulated 500 Mb sequence (E-step 2.3 s), where 100
+  forward-mode L-BFGS iterations took 123 ms and 1000 took 1.35 s.
+- On x86-64 the E-step, log-likelihood and TMRCA decoding use AVX2 and FMA
+  when the CPU has both, chosen at run time: a 1.9 Gb genome (5 EM
+  iterations, 1 thread) took 71.7 s instead of 161 s on an AMD EPYC 7702.
+  Results are bit-identical on any CPU with AVX2 and FMA that gets the
+  same libm `log` and `exp`. The portable code (CPUs without AVX2 or FMA,
+  or `PSMC_RS_SIMD=portable`) does not fuse multiply-adds, so its fitted
+  parameters differ by a relative 1e-7 to 1e-6 after 5 iterations. The
+  JSON's `simd` and the HTML report record which code ran.
 
 ### Deprecated
 
@@ -765,20 +470,17 @@ Reproduction package (`experiment/`):
 
 ### Removed
 
-- `psmc_rs::utils::logsumexp` (unused).
-- `psmc_rs::progress::spinner` (unused): the new `progress::spinner_raw`
-  has its style and draws on stderr; call its `enable_steady_tick`
-  (`Duration::from_millis(80)` as `spinner` did) for it to tick on its own.
-- `em_train_with_progress` (also re-exported from `opt`) and
-  `opt::m_step_lbfgs_with_progress`: pass the callback as
-  `EmOptions::on_progress` to `em::em_train_with_options`, or to
-  `opt::m_step_lbfgs_with_outcome`.
-- The CLI's within-sequence bootstrap (the library function remains).
-- Reproduction package: 0.1's (`experiment/run.py`, the notebook that drew
-  its figures, its results in `experiment/runs/main_text`, `real_data` and
-  `supplementary`, and the interface screenshots in `experiment/assets/ui/`),
-  which the pipeline replaces; it stays in the v0.1.x tags and the git
-  history.
+- `utils::logsumexp`; `progress::spinner` (use `progress::spinner_raw` and
+  call its `enable_steady_tick(Duration::from_millis(80))`);
+  `opt::em_train_with_progress` and `opt::m_step_lbfgs_with_progress`
+  (pass the callback as `EmOptions::on_progress` to
+  `em::em_train_with_options`, or to `opt::m_step_lbfgs_with_outcome`).
+- The CLI's within-sequence bootstrap (`sample_sequences_block_bootstrap`
+  remains).
+- 0.1's reproduction package (`experiment/run.py`, its notebook,
+  `experiment/runs/main_text`, `real_data` and `supplementary`,
+  `experiment/assets/ui/`), replaced by the pipeline; it stays in the
+  v0.1.x tags.
 
 ## [0.1.2] - 2026-02-24
 
