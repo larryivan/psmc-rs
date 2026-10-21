@@ -130,10 +130,9 @@ class Jobs(unittest.TestCase):
                                                             "--threads")], [str(seed), "100", "500000", "50"])
         self.assertEqual(boot.cores, 50)
         self.assertEqual(boot.mem_gb, 10.0)  # one replicate per thread at once
-        lay = e2.Layout(self.runs / "E2")
+        files = e2.Layout(self.runs / "E2").boot("HLhydTec1", 500_000)
         # Replicates are not declared: psmc-rs may skip one, and the report reads those the summary names.
-        self.assertEqual(boot.outputs, [lay.boot_main("HLhydTec1", 500_000), lay.boot_summary("HLhydTec1", 500_000),
-                                        lay.boot_summary("HLhydTec1", 500_000, "tsv")])
+        self.assertEqual(boot.outputs, [files.main, files.summary(), files.summary("tsv")])
         self.assertNotEqual(seed, config.seed("E2", "HLpelCas1", 0, "bootstrap"))
         # NA12878's chr1-22 form 59 default trunks: no second bootstrap.
         lengths = e2.input_lengths(config.PRODUCTION.e2, genome("NA12878"))
@@ -161,11 +160,10 @@ class Jobs(unittest.TestCase):
                                                       "trunk_bins": p.e7.bootstrap_trunk_bins,
                                                       "iterations": p.e7.inference.n_iter})
         # The command is the one E7 builds, but for the input's and outputs' paths and the threads.
-        lay, trunk = e2.Layout(self.runs / "E2"), p.e7.bootstrap_trunk_bins
+        files = e2.Layout(self.runs / "E2").boot("NA12878", p.e7.bootstrap_trunk_bins)
         self.assertEqual(boot.command, tools.rs02_fit(
             fake_tools("rs02")["rs02"], p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file,
-            lay.boot_main("NA12878", trunk), threads=p.e2.rs_threads,
-            extra=e7.bootstrap_args(p.e7, "NA12878", lay.boot_dir("NA12878", trunk)),
+            files.main, threads=p.e2.rs_threads, extra=e7.bootstrap_args(p.e7, "NA12878", files.dir),
         ))
         # One bootstrap: none on fine trunks, whose seed would be E2's own.
         self.assertEqual([j.id for j in self.jobs if j.id.startswith("E2/boot-rs/") and j.id.endswith("/NA12878")],
@@ -385,12 +383,13 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
         sc = g.scaling
         main_curve = results.fit_from_rs(fit).curve(sc.mu, sc.gen_years, 100)
         for trunk in e2.trunk_sizes(cfg, e2.input_lengths(cfg, g)):
-            lay.boot_dir(sid, trunk).mkdir(parents=True, exist_ok=True)
-            lay.boot_main(sid, trunk).write_text(main)
+            files = lay.boot(sid, trunk)
+            files.dir.mkdir(parents=True, exist_ok=True)
+            files.main.write_text(main)
             reps = []
             for r in range(1, cfg.bootstrap_replicates + 1):
                 p = c_ref_json(scale * (1 + r / 10), mu=g.scaling.mu)
-                lay.boot_replicate(sid, trunk, r).write_text(json.dumps(p))
+                files.replicate(r).write_text(json.dumps(p))
                 reps.append(results.fit_from_rs(p).curve(sc.mu, sc.gen_years, 100))
             xs = list(main_curve.years[1:])
             q = e2.band(reps, xs, e2.SUMMARY_PROBS)
@@ -398,8 +397,8 @@ def write_stand_in_outputs(runs: Path, cfg: config.E2) -> e2.Layout:
                        "ne_q500": float(b), "ne_q975": float(c)} for x, a, b, c in zip(xs, *q)]
             summary = {"n_replicates": cfg.bootstrap_replicates, "skipped_replicates": [],
                        "block_size": trunk, "seed": e2.bootstrap_seed(cfg, g, trunk), "points": points}
-            lay.boot_summary(sid, trunk).write_text(json.dumps(summary))
-            lay.boot_summary(sid, trunk, "tsv").write_text("x_years\n")
+            files.summary().write_text(json.dumps(summary))
+            files.summary("tsv").write_text("x_years\n")
         qc = {"n_sequences": 1, "bin_size": 100, "bootstrap_trunk_bins": cfg.bootstrap_trunk_bins,
               "totals": {"bins": 4, "k_fraction": 0.25, "called_bases_from_bins": 400},
               "lengths": {"bootstrap_trunks": 12, "below_trunk": {"fraction": 0.0}, "n50_bases": 400},
@@ -596,7 +595,7 @@ class BootstrapMainFit(EditedStandIns):
     @property
     def path(self) -> Path:
         cfg = STAND_IN_PROFILE.e2
-        return self.lay.boot_main("NA12878", e2.trunk_sizes(cfg, e2.input_lengths(cfg, genome("NA12878")))[0])
+        return self.lay.boot("NA12878", e2.trunk_sizes(cfg, e2.input_lengths(cfg, genome("NA12878")))[0]).main
 
     def test_a_qc_record_of_the_bootstrap_trunks_is_not_a_difference(self):
         self.params["qc"]["warnings"].append("SHORT_SEQUENCES")

@@ -85,9 +85,11 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 from .. import config, kg1000, metrics, paths, provenance, results, tools
 from ..runner import Job
 from . import Context
-from .e1 import write_csv
-from .e2 import band, fitted_window, main_fit_mismatch, psmcfa_lengths, summary_difference
-from .e5 import main_fit_difference, trunk_count
+from .e1 import (check_same_input, compare_tools, loglike_diffs, loglikes, read_c_fit, read_rs_fit, run_record,
+                 write_tables)
+from .e2 import (BootFiles, band, band_rows, display_grid, fitted_window, load_bootstrap, psmcfa_lengths,
+                 summary_difference)
+from .e5 import trunk_count
 
 NAME = "E7"
 MODULE = "experiment.pipeline.experiments.e7"
@@ -131,17 +133,8 @@ class Layout:
     def fit_psmc(self, route: str, sid: str) -> Path:
         return self.root / "fits" / route / f"{sid}.psmc"
 
-    def boot_dir(self, sid: str) -> Path:
-        return self.root / "boot" / sid
-
-    def boot_main(self, sid: str) -> Path:
-        return self.boot_dir(sid) / "main.json"
-
-    def boot_summary(self, sid: str, ext: str = "json") -> Path:
-        return self.boot_dir(sid) / f"summary.{ext}"
-
-    def boot_replicate(self, sid: str, i: int) -> Path:
-        return self.boot_dir(sid) / f"replicate_{i:03d}.json"
+    def boot(self, sid: str) -> BootFiles:
+        return BootFiles(self.root / "boot" / sid)
 
     def giab(self, sid: str) -> Path:
         return self.root / "qc" / f"giab_{sid}.json"
@@ -249,12 +242,12 @@ def jobs(ctx: Context) -> List[Job]:
                     settings={"inference": inference}, tools={c_tool.name: c_tool.identity},
                     description=f"C psmc on {sid}'s psmcfa ({s.population})")
         if s.bootstrap:
+            boot = lay.boot(sid)
             add("boot-rs", sid,
-                command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, psmcfa, lay.boot_main(sid),
-                                       threads=cfg.bootstrap_threads,
-                                       extra=bootstrap_args(cfg, sid, lay.boot_dir(sid))),
+                command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, psmcfa, boot.main,
+                                       threads=cfg.bootstrap_threads, extra=bootstrap_args(cfg, sid, boot.dir)),
                 inputs=[psmcfa],
-                outputs=[lay.boot_main(sid), lay.boot_summary(sid, "json"), lay.boot_summary(sid, "tsv")],
+                outputs=[boot.main, boot.summary("json"), boot.summary("tsv")],
                 cores=cfg.bootstrap_threads, mem_gb=round(costs.rs02_gb * cfg.bootstrap_threads, 2),
                 est_seconds=fit_s + cfg.bootstrap_replicates * fit_s / max(cfg.bootstrap_threads, 1),
                 settings={"inference": inference, "scaling": scaling, "threads": cfg.bootstrap_threads,
@@ -440,13 +433,6 @@ def giab_compare(vcf: Path, truth: Path, truth_bed: Path, mask: Path, chromosome
 # ---------------------------------------------------------------------------
 
 
-def run_record(path: Path) -> Dict:
-    try:
-        return json.loads(Path(path).read_text()).get("run", {})
-    except (OSError, ValueError):
-        return {}
-
-
 @dataclass
 class SampleFits:
     """The fits of one sample, read back."""
@@ -468,21 +454,12 @@ class SampleFits:
 def load_sample(lay: Layout, cfg: config.E7, s: kg1000.Sample) -> SampleFits:
     sid, n_iter, bin_size, sc = s.sample_id, cfg.inference.n_iter, cfg.inference.bin_size, cfg.scaling
     routes = ["rs-psmcfa"] + (["rs-vcf"] if s.default else []) + (["rs-split"] if s.split_check else [])
-    params = {r: results.read_rs_json(lay.fit_json(r, sid)) for r in routes}
-    for r, p in params.items():
-        if int(p.get("n_iter", -1)) != n_iter:
-            raise ValueError(f"{lay.fit_json(r, sid)}: not a fit of {n_iter} iterations")
+    params = {r: read_rs_fit(lay.fit_json(r, sid), n_iter) for r in routes}
     fits = {r: results.fit_from_rs(p) for r, p in params.items()}
     c = None
     if s.default and cfg.c_psmc:
-        c = results.parse_psmc(lay.fit_psmc("c", sid))
-        if c.last().round != n_iter:
-            raise ValueError(f"{lay.fit_psmc('c', sid)}: last complete round {c.last().round}, expected {n_iter}")
-        inp = params["rs-psmcfa"].get("input", {})
-        called = inp.get("bins", -1) - inp.get("missing_bins", 0)
-        if not (c.header.get("sum_L") == called and c.header.get("sum_n") == inp.get("het_bins")):
-            raise ValueError(f"{sid}: the tools read different inputs (C sum_L {c.header.get('sum_L')}, sum_n "
-                             f"{c.header.get('sum_n')}; psmc-rs {called} called bins, {inp.get('het_bins')} heterozygous)")
+        c = read_c_fit(lay.fit_psmc("c", sid), n_iter)
+        check_same_input(c, params["rs-psmcfa"], sid)
         fits["c"] = c.last().fit()
     curves = {r: f.curve(sc.mu, sc.gen_years, bin_size) for r, f in fits.items()}
     windows = {r: fitted_window(f, sc, bin_size, cfg.grid.quantiles) for r, f in fits.items()}
@@ -535,19 +512,11 @@ def curve_rows(sf: SampleFits) -> List[Dict]:
             for route in sf.routes for k, (y, ne) in enumerate(zip(sf.curves[route].years, sf.curves[route].ne))]
 
 
-def display_grid(cfg: config.E7):
-    """The dense log grid of years of the population and bootstrap bands (``display_years``)."""
-    import numpy as np
-
-    lo_y, hi_y, npts = cfg.display_years
-    return np.logspace(math.log10(lo_y), math.log10(hi_y), int(npts))
-
-
 def pop_band_rows(fits: Sequence[SampleFits], cfg: config.E7) -> List[Dict]:
     """Per group (population, superpopulation, all) and rs route: median and spread across individuals."""
     import numpy as np
 
-    years = display_grid(cfg)
+    years = display_grid(cfg.display_years)
     qs = (cfg.spread[0], 0.5, cfg.spread[1])
     groups: Dict[Tuple[str, str, str], List[SampleFits]] = {}
     for sf in fits:
@@ -574,23 +543,16 @@ def pop_band_rows(fits: Sequence[SampleFits], cfg: config.E7) -> List[Dict]:
 
 
 def rs_vs_c_row(sf: SampleFits, cfg: config.E7) -> Dict:
-    n = cfg.inference.n_iter
-    ll_c, ll_rs = sf.c.loglikes(), dict(enumerate(results.rs_loglikes(sf.params["rs-psmcfa"])))
-    common = sorted(i for i in set(ll_c) & set(ll_rs) if ll_c[i])
-    rel = {i: abs(ll_rs[i] - ll_c[i]) / abs(ll_c[i]) for i in common}
-    fc, fr = sf.fits["c"], sf.fits["rs-psmcfa"]
-    window = sf.windows["c"]
-    diff = metrics.interval_diff(sf.curves["rs-psmcfa"], sf.curves["c"], window)
+    """psmc-rs's fit of the psmcfa against C psmc's, as ``E2_rs_vs_c`` (without the fixed window)."""
+    rs = "rs-psmcfa"
+    ll = loglike_diffs(loglikes(sf.c, sf.params[rs]), cfg.inference.n_iter)
     return {
-        **_who(sf.sample), "window_lo_years": window[0], "window_hi_years": window[1],
-        "intervals_in_window": len(diff.interval),
-        "rmse_log10_ne_rs_vs_c_per_interval": diff.rmse,
-        "max_abs_log10_ne_rs_vs_c_per_interval": diff.max_abs,
-        "max_abs_log10_ne_rs_vs_c_any_interval": diff.max_abs_any,
-        "theta_rel_diff": fr.theta / fc.theta - 1.0, "rho_rel_diff": fr.rho / fc.rho - 1.0,
-        "t_max_rel_diff": fr.t_max / fc.t_max - 1.0,
-        "loglike_iteration0_rel_diff": rel.get(0), "loglike_max_rel_diff": max(rel.values()) if rel else None,
-        "loglike_common_diff": (ll_rs[n - 1] - ll_c[n - 1]) if (n - 1) in common else None,
+        **_who(sf.sample),
+        **compare_tools({"c": sf.fits["c"], "rs": sf.fits[rs]}, {"c": sf.curves["c"], "rs": sf.curves[rs]},
+                        sf.windows["c"]),
+        "loglike_iteration0_rel_diff": ll["loglike_iteration0_rel_diff"],
+        "loglike_max_rel_diff": ll["loglike_max_rel_diff"],
+        "loglike_common_diff": ll["loglike_common_diff"],
     }
 
 
@@ -640,52 +602,33 @@ def split_row(sf: SampleFits) -> Dict:
 
 
 def bootstrap_rows(lay: Layout, cfg: config.E7, sf: SampleFits) -> Tuple[Dict, List[Dict]]:
-    """The bootstrap's row (as ``E2_bootstrap``) and its band on the dense grid."""
+    """The bootstrap's row (as ``E2_bootstrap``) and its band on the dense grid (as ``E2_bands``)."""
     import numpy as np
 
-    sid, sc, bin_size = sf.sample.sample_id, cfg.scaling, cfg.inference.bin_size
-    summary = json.loads(lay.boot_summary(sid).read_text())
-    expect = {"block_size": cfg.bootstrap_trunk_bins, "seed": bootstrap_seed(sid)}
-    for key, value in expect.items():
-        if summary.get(key) != value:
-            raise ValueError(f"{lay.boot_summary(sid)}: {key} {summary.get(key)}, expected {value}")
-    skipped = set(summary.get("skipped_replicates", []))
-    reps = [results.read_rs_json(lay.boot_replicate(sid, i))
-            for i in range(1, cfg.bootstrap_replicates + 1) if i not in skipped]
-    if len(reps) != summary.get("n_replicates"):
-        raise ValueError(f"{sid}: {len(reps)} replicate files, summary.json counts {summary.get('n_replicates')}")
-    curves = [results.fit_from_rs(p).curve(sc.mu, sc.gen_years, bin_size) for p in reps]
-    main = results.read_rs_json(lay.boot_main(sid))
-    differing = main_fit_mismatch(main, sf.params["rs-psmcfa"])
+    sid, trunk = sf.sample.sample_id, cfg.bootstrap_trunk_bins
+    c, rs = sf.curves.get("c"), sf.curves["rs-psmcfa"]
+    boot = load_bootstrap(lay.boot(sid), cfg, trunk, bootstrap_seed(sid), cfg.scaling, sf.params["rs-psmcfa"],
+                          lay.record("boot-rs", sid))
     window = sf.windows["c"] if "c" in sf.windows else sf.windows["rs-psmcfa"]
     grid = metrics.log_grid(window[0], window[1], cfg.grid.points)
-    lo, med, hi = band(curves, grid, (cfg.band[0], 0.5, cfg.band[1]))
-    rs_ne = sf.curves["rs-psmcfa"].at(grid)
-    c_ne = sf.curves["c"].at(grid) if "c" in sf.curves else None
+    lo, med, hi = band(boot.curves, grid, (cfg.band[0], 0.5, cfg.band[1]))
+    rs_ne = rs.at(grid)
+    c_ne = c.at(grid) if c is not None else None
     lengths = psmcfa_lengths(lay.data.psmcfa(sid))  # gzip, one member per chromosome
     row = {
-        **_who(sf.sample), "replicates": len(reps), "skipped_replicates": len(skipped), "seed": summary.get("seed"),
-        "trunk_bins": cfg.bootstrap_trunk_bins, "trunk_mb": cfg.bootstrap_trunk_bins * bin_size / 1e6,
-        "trunks": trunk_count(lengths, cfg.bootstrap_trunk_bins), "band_lo_quantile": cfg.band[0],
+        **_who(sf.sample), "replicates": len(boot.replicates), "skipped_replicates": len(boot.skipped),
+        "seed": boot.summary.get("seed"), "trunk_bins": trunk, "trunk_mb": trunk * cfg.inference.bin_size / 1e6,
+        "trunks": trunk_count(lengths, trunk), "band_lo_quantile": cfg.band[0],
         "band_hi_quantile": cfg.band[1], "window_lo_years": window[0], "window_hi_years": window[1],
         "band_width_log10_median": float(np.median(np.log10(hi) - np.log10(lo))),
         "c_in_band_fraction": float(np.mean((lo <= c_ne) & (c_ne <= hi))) if c_ne is not None else None,
         "rs_in_band_fraction": float(np.mean((lo <= rs_ne) & (rs_ne <= hi))),
-        "summary_max_rel_diff": summary_difference(sf.curves["rs-psmcfa"], curves, summary),
-        "main_identical_to_fit": not differing,
-        "main_fit_max_abs_diff": main_fit_difference(main, sf.params["rs-psmcfa"]),
-        "main_fit_fields_differing": ";".join(differing), "threads": cfg.bootstrap_threads,
-        **_run_fields(run_record(lay.record("boot-rs", sid))),
+        "summary_max_rel_diff": summary_difference(rs, boot.curves, boot.summary),
+        "main_identical_to_fit": boot.identical, "main_fit_max_abs_diff": boot.max_abs_diff,
+        "main_fit_fields_differing": ";".join(boot.differing), "threads": cfg.bootstrap_threads,
+        **_run_fields(boot.run),
     }
-    years = display_grid(cfg)
-    blo, bmed, bhi = band(curves, years, (cfg.band[0], 0.5, cfg.band[1]))
-    rs_y = sf.curves["rs-psmcfa"].at(years)
-    c_y = sf.curves["c"].at(years) if "c" in sf.curves else [None] * len(years)
-    bands = [{"sample_id": sid, "years": float(t), "in_window": bool(window[0] <= t <= window[1]),
-              "ne_c": None if c is None else float(c), "ne_rs": float(r), "ne_band_lo": float(a),
-              "ne_band_median": float(m), "ne_band_hi": float(b)}
-             for t, c, r, a, m, b in zip(years, c_y, rs_y, blo, bmed, bhi)]
-    return row, bands
+    return row, band_rows({"sample_id": sid}, display_grid(cfg.display_years), window, boot, cfg.band, c, rs)
 
 
 def throughput_rows(fits: Sequence[SampleFits], lay: Layout, cfg: config.E7, boots: Sequence[str]) -> List[Dict]:
@@ -756,14 +699,13 @@ def report(ctx: Context) -> Dict[str, Path]:
             rows["giab"].append(json.loads(lay.giab(s.sample_id).read_text()))
     rows["pop_bands"] = pop_band_rows(fits, cfg)
     rows["throughput"] = throughput_rows(fits, lay, cfg, [s.sample_id for s in samples if s.bootstrap])
-    for key, table in rows.items():
-        write_csv(lay.table(key), table)
+    written = write_tables(lay.table, rows)
     differ = [r for r in rows["bootstrap"] if not r["main_identical_to_fit"]]
     if differ:
         raise ValueError("the main fit of a bootstrap run differs from fit-rs-psmcfa's fit (psmc-rs's results must not "
                          "depend on --threads): " + "; ".join(f"{r['sample_id']}: {r['main_fit_fields_differing']}"
                                                              for r in differ))
-    return {key: lay.table(key) for key in rows}
+    return written
 
 
 # ---------------------------------------------------------------------------

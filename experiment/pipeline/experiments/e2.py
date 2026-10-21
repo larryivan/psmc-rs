@@ -159,7 +159,8 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import compare_tools, loglike_diffs, loglikes, read_fits, run_fields, run_record, step_rows, trace_rows, write_csv
+from .e1 import (check_same_input, compare_tools, loglike_diffs, loglikes, read_fits, read_rs_fit, run_fields,
+                 run_record, step_rows, trace_rows, write_tables)
 from .e5 import main_fit_difference, trunk_count
 
 NAME = "E2"
@@ -297,6 +298,23 @@ def write_psmcfa_prefix(src: Path, dst: Path, max_bins: int) -> Shape:
 
 
 @dataclass(frozen=True)
+class BootFiles:
+    """The files of one ``psmc-rs --bootstrap`` run (E7's too): ``main.json`` (its OUT) and the ``--bootstrap-dir``."""
+
+    dir: Path
+
+    @property
+    def main(self) -> Path:
+        return self.dir / "main.json"
+
+    def summary(self, ext: str = "json") -> Path:
+        return self.dir / f"summary.{ext}"
+
+    def replicate(self, i: int) -> Path:
+        return self.dir / f"replicate_{i:03d}.json"
+
+
+@dataclass(frozen=True)
 class Layout:
     """Where E2's files are."""
 
@@ -320,17 +338,8 @@ class Layout:
     def split_psmc(self, sid: str, name: str) -> Path:
         return self.root / "fits" / f"{sid}.{name}.rs.psmc"
 
-    def boot_dir(self, sid: str, trunk: int) -> Path:
-        return self.root / "bootstrap" / sid / f"trunk{trunk}"
-
-    def boot_main(self, sid: str, trunk: int) -> Path:
-        return self.boot_dir(sid, trunk) / "main.json"
-
-    def boot_summary(self, sid: str, trunk: int, ext: str = "json") -> Path:
-        return self.boot_dir(sid, trunk) / f"summary.{ext}"
-
-    def boot_replicate(self, sid: str, trunk: int, i: int) -> Path:
-        return self.boot_dir(sid, trunk) / f"replicate_{i:03d}.json"
+    def boot(self, sid: str, trunk: int) -> BootFiles:
+        return BootFiles(self.root / "bootstrap" / sid / f"trunk{trunk}")
 
     def qc_json(self, sid: str) -> Path:
         return self.root / "qc" / f"{sid}.qc.json"
@@ -498,14 +507,13 @@ def genome_jobs(ctx: Context, lay: Layout, g: config.RealGenome) -> Tuple[List[J
     for trunk in trunk_sizes(cfg, lengths):
         # psmc-rs skips a replicate whose fresh start is invalid (it gets no
         # files); the report reads exactly the replicates summary.json names.
-        outputs = [lay.boot_main(sid, trunk), lay.boot_summary(sid, trunk, "json"), lay.boot_summary(sid, trunk, "tsv")]
+        boot = lay.boot(sid, trunk)
+        outputs = [boot.main, boot.summary("json"), boot.summary("tsv")]
         boot_outputs += outputs
         out.append(Job(
             id=job_id(boot_kind(trunk), sid),
-            command=tools.rs02_fit(
-                rs_tool, cfg.inference, g.scaling, inp, lay.boot_main(sid, trunk),
-                threads=cfg.rs_threads, extra=bootstrap_args(cfg, g, trunk, lay.boot_dir(sid, trunk)),
-            ),
+            command=tools.rs02_fit(rs_tool, cfg.inference, g.scaling, inp, boot.main, threads=cfg.rs_threads,
+                                   extra=bootstrap_args(cfg, g, trunk, boot.dir)),
             inputs=[inp],
             outputs=outputs,
             cores=cfg.rs_threads,
@@ -565,7 +573,8 @@ def jobs(ctx: Context) -> List[Job]:
         est_seconds=ctx.profile.costs.report_s,
         settings={"e2": asdict(cfg)},
         tools={"pipeline": provenance.python_identity(
-            ["experiments/e2.py", "experiments/e1.py", "results.py", "metrics.py", "demography.py"], ["numpy"]
+            ["experiments/e2.py", "experiments/e1.py", "experiments/e5.py", "results.py", "metrics.py", "demography.py"],
+            ["numpy"],
         )},
         description="E2 tables",
     ))
@@ -605,6 +614,32 @@ def band(curves: Sequence[results.Curve], years, probs: Sequence[float]):
     return np.quantile(ne, list(probs), axis=0, method="linear")
 
 
+def display_grid(display_years: Tuple[float, float, int]):
+    """The dense log grid (from, to, points; E2's or E7's ``display_years``) the curves and bands are tabulated on."""
+    lo, hi, points = display_years
+    return metrics.log_grid(lo, hi, int(points))
+
+
+def band_rows(ids: Dict, years, window: Tuple[float, float], boot: Bootstrap, band_quantiles: Tuple[float, float],
+              c: Optional[results.Curve], rs: results.Curve) -> List[Dict]:
+    """Both curves and a bootstrap's band at each time of ``years``, ``ids`` first (``ne_c`` empty without ``c``)."""
+    lo, med, hi = band(boot.curves, years, (band_quantiles[0], 0.5, band_quantiles[1]))
+    c_ne = [None] * len(years) if c is None else c.at(years)
+    return [
+        {
+            **ids,
+            "years": float(t),
+            "in_window": bool(window[0] <= t <= window[1]),
+            "ne_c": None if a is None else float(a),
+            "ne_rs": float(b),
+            "ne_band_lo": float(x),
+            "ne_band_median": float(m),
+            "ne_band_hi": float(y),
+        }
+        for t, a, b, x, m, y in zip(years, c_ne, rs.at(years), lo, med, hi)
+    ]
+
+
 # psmc-rs's summary times are the main curve's interval starts, computed by
 # psmc-rs; the same starts computed here can differ in the last place (the
 # platforms' exp), which puts a start a hair after its time and reads the
@@ -630,10 +665,10 @@ def summary_difference(main: results.Curve, replicates: Sequence[results.Curve],
 
 @dataclass
 class Bootstrap:
-    """One bootstrap run of a genome, read back and checked."""
+    """One bootstrap run of a genome (E2's or E7's), read back and checked."""
 
     trunk: int
-    differing: Tuple[str, ...]  # the MAIN_FIT_FIELDS in which its main.json differs from fit-rs's JSON
+    differing: Tuple[str, ...]  # the MAIN_FIT_FIELDS in which its main.json differs from the fit's JSON
     max_abs_diff: float  # the largest difference of a number of those fields (0: the same fit)
     summary: Dict
     replicates: List[Tuple[int, Dict]]
@@ -642,8 +677,13 @@ class Bootstrap:
 
     @property
     def identical(self) -> bool:
-        """Its main fit is fit-rs's fit, field for field."""
+        """Its main fit is the fit, field for field."""
         return not self.differing
+
+    @property
+    def skipped(self) -> List[int]:
+        """The replicates psmc-rs skipped (their fresh start was invalid)."""
+        return self.summary.get("skipped_replicates", [])
 
 
 def main_fit_mismatch(main: Dict, fit: Dict) -> Tuple[str, ...]:
@@ -673,16 +713,12 @@ class GenomeResult:
 def load_genome(lay: Layout, cfg: config.E2, g: config.RealGenome) -> GenomeResult:
     sid, bin_size = g.sample_id, cfg.inference.bin_size
     c, rs, rs_params = read_fits(lay.c_psmc(sid), lay.rs_psmc(sid), lay.rs_json(sid), cfg.inference.n_iter)
-    inp = rs_params.get("input", {})
-    called = inp.get("bins", -1) - inp.get("missing_bins", 0)
-    if not (c.header.get("sum_L") == called and c.header.get("sum_n") == inp.get("het_bins")):
-        raise ValueError(
-            f"{sid}: the tools read different inputs (C sum_L {c.header.get('sum_L')}, sum_n "
-            f"{c.header.get('sum_n')}; psmc-rs {called} called bins, {inp.get('het_bins')} heterozygous)"
-        )
+    check_same_input(c, rs_params, sid)
     sc = g.scaling
     lengths = input_lengths(cfg, g)
-    boots = {trunk: load_bootstrap(lay, cfg, g, trunk, rs_params) for trunk in trunk_sizes(cfg, lengths)}
+    boots = {trunk: load_bootstrap(lay.boot(sid, trunk), cfg, trunk, bootstrap_seed(cfg, g, trunk), sc, rs_params,
+                                   lay.record(boot_kind(trunk), sid))
+             for trunk in trunk_sizes(cfg, lengths)}
     fits = {"c": c.last().fit(), "rs": results.fit_from_rs(rs_params)}
     return GenomeResult(
         genome=g,
@@ -701,35 +737,33 @@ def load_genome(lay: Layout, cfg: config.E2, g: config.RealGenome) -> GenomeResu
     )
 
 
-def load_bootstrap(lay: Layout, cfg: config.E2, g: config.RealGenome, trunk: int, fit: Dict) -> Bootstrap:
-    """One bootstrap run, checked to be the run the configuration asks for, with the replicates its summary names.
+def load_bootstrap(files: BootFiles, cfg, trunk: int, seed: int, scaling: config.Scaling, fit: Dict,
+                   record: Path) -> Bootstrap:
+    """A bootstrap run, checked to be of these trunks and seed, with the replicates its summary names.
 
-    ``fit`` is fit-rs's JSON, which the run's main fit must equal.
+    ``cfg`` (:class:`.config.E2` or :class:`.config.E7`) gives the replicates asked for and the bin size; ``fit`` is
+    the JSON of the fit the run's main fit must equal, and ``record`` the run's provenance record.
     """
-    sid, sc = g.sample_id, g.scaling
-    summary = json.loads(lay.boot_summary(sid, trunk).read_text())
-    expect = {"block_size": trunk, "seed": bootstrap_seed(cfg, g, trunk)}
-    for key, value in expect.items():
+    summary = json.loads(files.summary().read_text())
+    for key, value in {"block_size": trunk, "seed": seed}.items():
         if summary.get(key) != value:
-            raise ValueError(f"{lay.boot_summary(sid, trunk)}: {key} {summary.get(key)}, expected {value}")
+            raise ValueError(f"{files.summary()}: {key} {summary.get(key)}, expected {value}")
     skipped = set(summary.get("skipped_replicates", []))
-    replicates = [
-        (i, results.read_rs_json(lay.boot_replicate(sid, trunk, i)))
-        for i in range(1, cfg.bootstrap_replicates + 1)
-        if i not in skipped
-    ]
+    replicates = [(i, results.read_rs_json(files.replicate(i)))
+                  for i in range(1, cfg.bootstrap_replicates + 1) if i not in skipped]
     if len(replicates) != summary.get("n_replicates"):
-        raise ValueError(f"{sid} trunk{trunk}: {len(replicates)} replicate files, summary.json counts "
+        raise ValueError(f"{files.dir}: {len(replicates)} replicate files, summary.json counts "
                          f"{summary.get('n_replicates')}")
-    main = results.read_rs_json(lay.boot_main(sid, trunk))
+    main = results.read_rs_json(files.main)
     return Bootstrap(
         trunk=trunk,
         differing=main_fit_mismatch(main, fit),
         max_abs_diff=main_fit_difference(main, fit),
         summary=summary,
         replicates=replicates,
-        curves=[results.fit_from_rs(p).curve(sc.mu, sc.gen_years, cfg.inference.bin_size) for _, p in replicates],
-        run=run_record(lay.record(boot_kind(trunk), sid)),
+        curves=[results.fit_from_rs(p).curve(scaling.mu, scaling.gen_years, cfg.inference.bin_size)
+                for _, p in replicates],
+        run=run_record(record),
     )
 
 
@@ -813,7 +847,7 @@ def bootstrap_row(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> Dict:
         "label": gr.genome.label,
         "default_trunks": boot.trunk == cfg.bootstrap_trunk_bins,
         "replicates": len(boot.replicates),
-        "skipped_replicates": len(boot.summary.get("skipped_replicates", [])),
+        "skipped_replicates": len(boot.skipped),
         "seed": boot.summary.get("seed"),
         "trunk_bins": boot.trunk,
         "trunk_mb": boot.trunk * cfg.inference.bin_size / 1e6,
@@ -855,28 +889,6 @@ def replicate_rows(gr: GenomeResult, boot: Bootstrap) -> List[Dict]:
             "lam": " ".join(repr(float(x)) for x in p["lam"]),
         }
         for i, p in boot.replicates
-    ]
-
-
-def band_rows(gr: GenomeResult, cfg: config.E2, boot: Bootstrap) -> List[Dict]:
-    lo_y, hi_y, npts = cfg.display_years
-    years = metrics.log_grid(lo_y, hi_y, int(npts))
-    lo, med, hi = band(boot.curves, years, (cfg.band[0], 0.5, cfg.band[1]))
-    c_ne, rs_ne = gr.curves["c"].at(years), gr.curves["rs"].at(years)
-    w_lo, w_hi = gr.window
-    return [
-        {
-            "sample_id": gr.genome.sample_id,
-            "trunk_bins": boot.trunk,
-            "years": float(t),
-            "in_window": bool(w_lo <= t <= w_hi),
-            "ne_c": float(a),
-            "ne_rs": float(b),
-            "ne_band_lo": float(x),
-            "ne_band_median": float(m),
-            "ne_band_hi": float(y),
-        }
-        for t, a, b, x, m, y in zip(years, c_ne, rs_ne, lo, med, hi)
     ]
 
 
@@ -959,9 +971,7 @@ def load_split(lay: Layout, cfg: config.E2, gr: GenomeResult, name: str, pattern
     """A split-first-window fit, checked to be of its pattern and of fit-rs's input."""
     g, n_iter = gr.genome, cfg.inference.n_iter
     path = lay.split_json(g.sample_id, name)
-    params = results.read_rs_json(path)
-    if int(params.get("n_iter", -1)) != n_iter:
-        raise ValueError(f"{path}: not a fit of {n_iter} iterations")
+    params = read_rs_fit(path, n_iter)
     if params.get("pattern") != pattern:
         raise ValueError(f"{path}: pattern {params.get('pattern')}, expected {pattern}")
     keys = ("sequences", "bins", "missing_bins", "het_bins")
@@ -1060,7 +1070,8 @@ def report(ctx: Context) -> Dict[str, Path]:
         for boot in gr.boots.values():
             rows["bootstrap"].append(bootstrap_row(gr, cfg, boot))
             rows["replicates"] += replicate_rows(gr, boot)
-            rows["bands"] += band_rows(gr, cfg, boot)
+            rows["bands"] += band_rows({"sample_id": sid, "trunk_bins": boot.trunk}, display_grid(cfg.display_years),
+                                       gr.window, boot, cfg.band, gr.curves["c"], gr.curves["rs"])
         for tool, psmc in (("c", gr.c), ("rs", gr.rs)):
             rows["curves"] += step_rows(gr.fits[tool], gr.curves[tool], sample_id=sid, tool=tool)
             rows["traces"] += trace_rows(psmc, gr.loglikes[tool], n, sample_id=sid, tool=tool)
@@ -1072,8 +1083,7 @@ def report(ctx: Context) -> Dict[str, Path]:
             for sf in fits:
                 rows["split_curves"] += step_rows(sf.fit, sf.curve, sample_id=sid, pattern_name=sf.name,
                                                   pattern=sf.pattern)
-    for key, table in rows.items():
-        write_csv(lay.table(key), table)
+    written = write_tables(lay.table, rows)
     differ = [r for r in rows["bootstrap"] if not r["main_identical_to_fit"]]
     if differ:
         raise ValueError(
@@ -1081,7 +1091,7 @@ def report(ctx: Context) -> Dict[str, Path]:
             "--threads): " + "; ".join(f"{r['sample_id']} trunk{r['trunk_bins']}: {r['main_fit_fields_differing']} "
                                        f"(largest difference {r['main_fit_max_abs_diff']:.3g})" for r in differ)
         )
-    return {key: lay.table(key) for key in rows}
+    return written
 
 
 # ---------------------------------------------------------------------------
@@ -1107,9 +1117,10 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "below_trunk_fraction",
-    "boot_kind", "bootstrap_seed", "fit_epochs", "fitted_window", "input_lengths", "input_shape", "is_gzip", "jobs",
-    "load_genome", "load_split", "main_fit_mismatch", "prefix_lengths", "psmcfa_lengths", "read_psmcfa",
-    "recent_shape", "report", "shared_bootstrap_differences", "split_fits", "split_kind", "split_rows",
-    "summary_difference", "trunk_sizes", "write_psmcfa_prefix",
+    "BootFiles", "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "band_rows",
+    "below_trunk_fraction", "boot_kind", "bootstrap_seed", "display_grid", "fit_epochs", "fitted_window",
+    "input_lengths", "input_shape", "is_gzip", "jobs", "load_bootstrap", "load_genome", "load_split",
+    "main_fit_mismatch", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "recent_shape", "report",
+    "shared_bootstrap_differences", "split_fits", "split_kind", "split_rows", "summary_difference", "trunk_sizes",
+    "write_psmcfa_prefix",
 ]

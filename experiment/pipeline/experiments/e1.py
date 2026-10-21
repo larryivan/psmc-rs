@@ -66,9 +66,12 @@ stopped at its bound on every free lambda, 1e4, C psmc's reached about
 curves at fixed times would instead read whole steps wherever a time falls
 between two nearly equal boundaries.
 
-The helpers of the tables that E2 shares (both tools on one input) are here
-too: :func:`read_fits`, :func:`compare_tools`, :func:`step_rows`,
-:func:`trace_rows` and :func:`run_fields`.
+The helpers the other experiments share are here too: every table is
+written by :func:`write_tables` and every fit read by :func:`read_c_fit` or
+:func:`read_rs_fit`; E2 and E7 (both tools on one input) compare the tools
+with :func:`read_fits`, :func:`check_same_input`, :func:`compare_tools` and
+:func:`loglike_diffs`, and the step curves, traces and runs are rows of
+:func:`step_rows`, :func:`trace_rows` and :func:`run_fields`.
 """
 
 from __future__ import annotations
@@ -78,7 +81,7 @@ import json
 import statistics
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from .. import config, demography, metrics, provenance, results, simulate, tools
 from ..runner import Job
@@ -249,7 +252,7 @@ def jobs(ctx: Context) -> List[Job]:
 
 
 # ---------------------------------------------------------------------------
-# Tables (write_csv serves every experiment; read_fits to run_fields serve E2 too)
+# Tables (write_tables and the readers serve every experiment; read_fits to run_fields E2 and E7 too)
 # ---------------------------------------------------------------------------
 
 
@@ -268,14 +271,46 @@ def write_csv(path: Path, rows: Sequence[Dict], fields: Optional[Sequence[str]] 
     tmp.replace(path)
 
 
+def write_tables(path: Callable[[str], Path], tables: Dict[str, Sequence[Dict]],
+                 fields: Optional[Dict[str, Sequence[str]]] = None) -> Dict[str, Path]:
+    """Write each table of ``tables`` to ``path(key)``, with the columns ``fields[key]`` where given; returns the
+    paths written."""
+    for key, rows in tables.items():
+        write_csv(path(key), rows, (fields or {}).get(key))
+    return {key: path(key) for key in tables}
+
+
+def read_c_fit(path: Path, n_iter: int) -> results.PsmcFile:
+    """C psmc's ``.psmc``, checked to end with the round of ``n_iter`` iterations."""
+    c = results.parse_psmc(path)
+    if c.last().round != n_iter:
+        raise ValueError(f"{path}: last complete round {c.last().round}, expected {n_iter}")
+    return c
+
+
+def read_rs_fit(path: Path, n_iter: int) -> Dict:
+    """psmc-rs's JSON, checked to be a fit of ``n_iter`` iterations."""
+    params = results.read_rs_json(path)
+    if int(params.get("n_iter", -1)) != n_iter:
+        raise ValueError(f"{path}: not a fit of {n_iter} iterations")
+    return params
+
+
 def read_fits(c_path: Path, rs_psmc: Path, rs_json: Path, n_iter: int) -> Tuple[results.PsmcFile, results.PsmcFile, Dict]:
     """C psmc's ``.psmc``, psmc-rs's ``.psmc`` and its JSON, checked to be fits of ``n_iter`` iterations."""
-    c, rs, rs_params = results.parse_psmc(c_path), results.parse_psmc(rs_psmc), results.read_rs_json(rs_json)
-    if c.last().round != n_iter:
-        raise ValueError(f"{c_path}: last complete round {c.last().round}, expected {n_iter}")
-    if int(rs_params.get("n_iter", -1)) != n_iter or rs.last().round != n_iter:
-        raise ValueError(f"{rs_json}: not a fit of {n_iter} iterations")
+    c, rs, rs_params = read_c_fit(c_path, n_iter), results.parse_psmc(rs_psmc), read_rs_fit(rs_json, n_iter)
+    if rs.last().round != n_iter:
+        raise ValueError(f"{rs_psmc}: last complete round {rs.last().round}, expected {n_iter}")
     return c, rs, rs_params
+
+
+def check_same_input(c: results.PsmcFile, rs_params: Dict, what: str) -> None:
+    """Both tools read the same bins: C psmc's called (``sum_L``) and heterozygous (``sum_n``) bins are psmc-rs's."""
+    inp = rs_params.get("input", {})
+    called = inp.get("bins", -1) - inp.get("missing_bins", 0)
+    if not (c.header.get("sum_L") == called and c.header.get("sum_n") == inp.get("het_bins")):
+        raise ValueError(f"{what}: the tools read different inputs (C sum_L {c.header.get('sum_L')}, sum_n "
+                         f"{c.header.get('sum_n')}; psmc-rs {called} called bins, {inp.get('het_bins')} heterozygous)")
 
 
 def loglikes(c: results.PsmcFile, rs_params: Dict) -> Dict[str, Dict[int, float]]:
@@ -296,16 +331,19 @@ def loglike_diffs(ll: Dict[str, Dict[int, float]], n_iter: int) -> Dict:
 
 
 def compare_tools(fits: Dict[str, results.Fit], curves: Dict[str, results.Curve], window: Tuple[float, float],
-                  fixed: Tuple[float, float]) -> Dict:
-    """psmc-rs's fit against C psmc's: interval by interval on ``window`` and ``fixed`` (years), and the parameters."""
+                  fixed: Optional[Tuple[float, float]] = None) -> Dict:
+    """psmc-rs's fit against C psmc's: interval by interval on ``window`` and, if given, ``fixed`` (years), and the
+    parameters."""
     fc, fr = fits["c"], fits["rs"]
     diff = metrics.interval_diff(curves["rs"], curves["c"], window)
+    on_fixed = {} if fixed is None else {
+        "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(curves["rs"], curves["c"], fixed)}
     return {
         "window_lo_years": window[0],
         "window_hi_years": window[1],
         "intervals_in_window": len(diff.interval),
         "rmse_log10_ne_rs_vs_c_per_interval": diff.rmse,
-        "rmse_log10_ne_rs_vs_c_per_interval_fixed": metrics.interval_rmse(curves["rs"], curves["c"], fixed),
+        **on_fixed,
         "max_abs_log10_ne_rs_vs_c_per_interval": diff.max_abs,
         "max_abs_log10_ne_rs_vs_c_any_interval": diff.max_abs_any,
         "theta_rel_diff": fr.theta / fc.theta - 1.0,
@@ -388,9 +426,7 @@ def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default
     runs = {tool: run_record(lay.record(kind, model, r)) for tool, kind in (("c", "fit-c"), ("rs", "fit-rs"))}
     default_params = default_curve = None
     if with_default and default_inference(cfg) is not None:
-        default_params = results.read_rs_json(lay.rs_default_json(model, r))
-        if int(default_params.get("n_iter", -1)) != n_iter:
-            raise ValueError(f"{lay.rs_default_json(model, r)}: not a fit of {n_iter} iterations")
+        default_params = read_rs_fit(lay.rs_default_json(model, r), n_iter)
         default_curve = results.fit_from_rs(default_params).curve(sc.mu, sc.gen_years, bin_size)
         runs["rs-default"] = run_record(lay.record("fit-rs-default", model, r))
     return Replicate(
@@ -548,12 +584,11 @@ def report(ctx: Context) -> Dict[str, Path]:
         tables["table1"].append(table1_row(model, window, rows["replicates"], rows["pairs"], rows["mstep"]))
         for k, v in rows.items():
             tables[k] += v
-    for key, rows in tables.items():
-        write_csv(lay.table(key), rows, MSTEP_FIELDS if key == "mstep" else None)
-    return {key: lay.table(key) for key in tables}
+    return write_tables(lay.table, tables, {"mstep": MSTEP_FIELDS})
 
 
 __all__ = [
-    "Layout", "NAME", "TABLES", "compare_tools", "jobs", "load_replicate", "loglike_diffs", "loglikes", "read_fits",
-    "rep", "report", "run_fields", "run_record", "step_rows", "trace_rows", "write_csv",
+    "Layout", "NAME", "TABLES", "check_same_input", "compare_tools", "jobs", "load_replicate", "loglike_diffs",
+    "loglikes", "read_c_fit", "read_fits", "read_rs_fit", "rep", "report", "run_fields", "run_record", "step_rows",
+    "trace_rows", "write_csv", "write_tables",
 ]
