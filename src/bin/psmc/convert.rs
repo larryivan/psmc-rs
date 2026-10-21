@@ -15,11 +15,7 @@ use crate::dataset::{
     callable_summary, counted, counts_source, default_start, load_input, percent, qc_report,
 };
 use crate::output::{STDOUT_ONLY_QC, check_destinations, is_stdout, parent_dir};
-use crate::run::{Event, announce_input, report_qc};
-
-const NO_SITES: &str = "psmcfa input has no sites to write as multihetsep: its bins only say \
-                        whether each holds a heterozygous site, not where. Convert the VCF or \
-                        multihetsep file the psmcfa was made from instead";
+use crate::run::{Event, Sink, announce_input, report_qc};
 
 /// Run `convert`.
 pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
@@ -28,37 +24,17 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     let console = Console::new(args.quiet, false).results_on_stderr(json_to_stdout);
     let sink = |ev| console.emit(ev);
     let want_sites = args.multihetsep.is_some() || args.multihetsep_per_chrom.is_some();
-    if want_sites && args.input.input_format == FormatArg::Psmcfa {
-        usage_bail!("{NO_SITES}");
-    }
+    // Multihetsep of psmcfa input is refused as soon as the format is
+    // known: from --input-format, from a file's first lines, or, for a
+    // pipe, once it is read.
+    check_sites(want_sites, args.input.input_format.format())?;
     check_outputs(args)?;
-    if want_sites && recognised_as_psmcfa(args) {
-        usage_bail!("{NO_SITES}");
-    }
+    check_sites(want_sites, sniffed_format(args))?;
     let mut opts = args.input.to_options();
     opts.collect_het_sites = want_sites;
     let data = load_input(&args.input_file, &opts)?;
-    let format = data.source.format();
-    // The format of a pipe is known only now; the error is the same.
-    if want_sites && format == InputFormat::Psmcfa {
-        usage_bail!("{NO_SITES}");
-    }
-    // The per-sequence files are named after the sequences, so only now can
-    // they be checked against the input and the other outputs, before
-    // anything is written.
-    let per_chrom = match &args.multihetsep_per_chrom {
-        Some(prefix) => per_chrom_files(prefix, &data)?,
-        None => Vec::new(),
-    };
-    if !per_chrom.is_empty() {
-        let mut files = output_files(args);
-        files.extend(
-            per_chrom
-                .iter()
-                .map(|(_, path)| ("--multihetsep-per-chrom", path.as_path())),
-        );
-        check_destinations(&args.input_file, &files, &[])?;
-    }
+    check_sites(want_sites, Some(data.source.format()))?;
+    let per_chrom = per_chrom_files(args, &data)?;
     announce_input(&data, &args.input, &sink);
 
     // Also when no sequence is left: the report then says why.
@@ -78,30 +54,11 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
             "no sequence is left to write, so the outputs are empty".to_string(),
         ));
     }
-
     if let Some(path) = &args.psmcfa {
-        if format == InputFormat::Mhs {
-            sink(Event::Info(
-                "multihetsep gives no position for the uncalled sites between two rows, so they \
-                 were placed at the start of each interval; which bins are missing can differ \
-                 from fq2psmcfa's binning of the same calls (read the VCF with its callable \
-                 mask for exact bins)"
-                    .to_string(),
-            ));
-        }
-        if let Some(line) = partial_bins_warning(&data, args.input.bin_size, path) {
-            sink(Event::Warning(line));
-        }
-        write_psmcfa(path, &data)?;
-        sink(Event::Output(format!(
-            "psmcfa: {} ({}, {})",
-            path.display(),
-            counted(data.seqs.len(), "sequence", "sequences"),
-            counted(data.n_bins(), "bin", "bins")
-        )));
+        write_psmcfa_file(path, &data, args.input.bin_size, &sink)?;
     }
     if want_sites
-        && format == InputFormat::Vcf
+        && data.source.format() == InputFormat::Vcf
         && let Some(uncalled) = qc
             .as_ref()
             .and_then(|r| r.totals.uncalled_site_fraction)
@@ -139,6 +96,55 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Refuse multihetsep output (`want_sites`) of input whose format is
+/// psmcfa, which has no sites to write.
+fn check_sites(want_sites: bool, format: Option<InputFormat>) -> Result<()> {
+    if want_sites && format == Some(InputFormat::Psmcfa) {
+        usage_bail!(
+            "psmcfa input has no sites to write as multihetsep: its bins only say whether each \
+             holds a heterozygous site, not where. Convert the VCF or multihetsep file the \
+             psmcfa was made from instead"
+        );
+    }
+    Ok(())
+}
+
+/// The format of the input recognised before it is read: with
+/// `--input-format auto`, from the first lines of a regular file. A pipe or
+/// FIFO can be read only once, so only the loader can recognise its format.
+/// A file whose format cannot be recognised is left to the loader, which
+/// says why.
+fn sniffed_format(args: &ConvertArgs) -> Option<InputFormat> {
+    let auto = args.input.input_format == FormatArg::Auto;
+    (auto && args.input_file.is_file())
+        .then(|| InputFormat::sniff(&args.input_file).ok())
+        .flatten()
+}
+
+/// Write `data` as psmcfa to `path`, after what it cannot record.
+fn write_psmcfa_file(path: &Path, data: &Dataset, bin_size: usize, sink: Sink) -> Result<()> {
+    if data.source.format() == InputFormat::Mhs {
+        sink(Event::Info(
+            "multihetsep gives no position for the uncalled sites between two rows, so they \
+             were placed at the start of each interval; which bins are missing can differ \
+             from fq2psmcfa's binning of the same calls (read the VCF with its callable \
+             mask for exact bins)"
+                .to_string(),
+        ));
+    }
+    if let Some(line) = partial_bins_warning(data, bin_size, path) {
+        sink(Event::Warning(line));
+    }
+    write_psmcfa(path, data)?;
+    sink(Event::Output(format!(
+        "psmcfa: {} ({}, {})",
+        path.display(),
+        counted(data.seqs.len(), "sequence", "sequences"),
+        counted(data.n_bins(), "bin", "bins")
+    )));
+    Ok(())
+}
+
 /// The warning for writing `data` as psmcfa to `path` when some of its
 /// called bins are partly callable by exact counts (VCF): psmcfa records
 /// each bin's symbol only, so a fit of the file takes every called bin as
@@ -162,17 +168,6 @@ fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<
         path.display(),
         percent(1.0 - c.mean_fraction)
     ))
-}
-
-/// Whether the format of the input is recognised as psmcfa before the
-/// input is read: with `--input-format auto`, from the first lines of a
-/// regular file. A pipe or FIFO can be read only once, so only the loader
-/// can recognise its format. A file whose format cannot be recognised is
-/// left to the loader, which says why.
-fn recognised_as_psmcfa(args: &ConvertArgs) -> bool {
-    args.input.input_format == FormatArg::Auto
-        && args.input_file.is_file()
-        && InputFormat::sniff(&args.input_file).is_ok_and(|f| f == InputFormat::Psmcfa)
 }
 
 /// The files `convert` writes whose names are known before the input is
@@ -225,14 +220,30 @@ fn het_sites(data: &Dataset, name: Option<&str>) -> usize {
 
 /// The per-sequence files of `--multihetsep-per-chrom PREFIX`: each name
 /// of `data`'s sequences once (the blocks of a repeated name share a file),
-/// with its path.
-fn per_chrom_files(prefix: &Path, data: &Dataset) -> Result<Vec<(String, PathBuf)>> {
+/// with its path. They are named after the sequences, so only now can they
+/// be checked against the input and the other outputs, before anything is
+/// written.
+fn per_chrom_files(args: &ConvertArgs, data: &Dataset) -> Result<Vec<(String, PathBuf)>> {
+    let Some(prefix) = &args.multihetsep_per_chrom else {
+        return Ok(Vec::new());
+    };
     let mut seen = HashSet::new();
-    data.seqs
+    let files: Vec<(String, PathBuf)> = data
+        .seqs
         .iter()
         .filter(|seq| seen.insert(seq.name.as_str()))
         .map(|seq| Ok((seq.name.clone(), per_chrom_path(prefix, &seq.name)?)))
-        .collect()
+        .collect::<Result<_>>()?;
+    if !files.is_empty() {
+        let mut outputs = output_files(args);
+        outputs.extend(
+            files
+                .iter()
+                .map(|(_, path)| ("--multihetsep-per-chrom", path.as_path())),
+        );
+        check_destinations(&args.input_file, &outputs, &[])?;
+    }
+    Ok(files)
 }
 
 /// The file of sequence `name` under `--multihetsep-per-chrom PREFIX`:
