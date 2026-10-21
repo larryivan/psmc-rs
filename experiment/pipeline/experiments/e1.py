@@ -70,8 +70,9 @@ The helpers the other experiments share are here too: every table is
 written by :func:`write_tables` and every fit read by :func:`read_c_fit` or
 :func:`read_rs_fit`; E2 and E7 (both tools on one input) compare the tools
 with :func:`read_fits`, :func:`check_same_input`, :func:`compare_tools` and
-:func:`loglike_diffs`, and the step curves, traces and runs are rows of
-:func:`step_rows`, :func:`trace_rows` and :func:`run_fields`.
+:func:`loglike_diffs`, and the step curves, true curves, traces and runs are
+rows of :func:`step_rows`, :func:`truth_rows`, :func:`trace_rows` and
+:func:`run_fields`.
 """
 
 from __future__ import annotations
@@ -358,6 +359,13 @@ def step_rows(fit: results.Fit, curve: results.Curve, **ids) -> List[Dict]:
             for k, (t, y, lam, ne) in enumerate(zip(fit.boundaries(), curve.years, fit.lambdas, curve.ne))]
 
 
+def truth_rows(model: str, epochs: Sequence[demography.Epoch], gen_years: float) -> List[Dict]:
+    """A model's true Ne(t) on the dense grid of :data:`.config.TRUTH_TABLE_YEARS` (the figures' true curves)."""
+    years = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
+    return [{"model": model, "years": float(t), "ne": float(ne)}
+            for t, ne in zip(years, metrics.truth_on_grid(epochs, years, gen_years))]
+
+
 def trace_rows(psmc: results.PsmcFile, ll: Dict[int, float], n_iter: int, **ids) -> List[Dict]:
     """A fit's log-likelihood, theta, rho and t_max after 0 to ``n_iter`` EM iterations (empty where it has none)."""
     by_round = {r.round: r for r in psmc.complete_rounds()}
@@ -566,7 +574,6 @@ def report(ctx: Context) -> Dict[str, Path]:
     cfg = ctx.profile.e1
     lay = Layout(ctx.exp_dir(NAME))
     fixed = metrics.fixed_grid(cfg.grid)
-    dense = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
     g = cfg.scaling.gen_years
     tables: Dict[str, List[Dict]] = {k: [] for k in ("table1", "truth", "seeds", "replicates", "pairs", "traces",
                                                      "curves", "mstep")}
@@ -574,8 +581,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         reps = [load_replicate(lay, cfg, model, r) for r in range(1, cfg.replicates + 1)]
         epochs = reps[0].epochs
         window = metrics.model_grid(epochs, cfg.grid, g)
-        tables["truth"] += [{"model": model, "years": float(t), "ne": float(ne)}
-                            for t, ne in zip(dense, metrics.truth_on_grid(epochs, dense, g))]
+        tables["truth"] += truth_rows(model, epochs, g)
         rows: Dict[str, List[Dict]] = {k: [] for k in ("replicates", "pairs", "traces", "curves", "mstep")}
         for rp in reps:
             for k, v in replicate_rows(rp, cfg, window, fixed).items():
@@ -590,5 +596,5 @@ def report(ctx: Context) -> Dict[str, Path]:
 __all__ = [
     "Layout", "NAME", "TABLES", "check_same_input", "compare_tools", "jobs", "load_replicate", "loglike_diffs",
     "loglikes", "read_c_fit", "read_fits", "read_rs_fit", "rep", "report", "run_fields", "run_record", "step_rows",
-    "trace_rows", "write_csv", "write_tables",
+    "trace_rows", "truth_rows", "write_csv", "write_tables",
 ]

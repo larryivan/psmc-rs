@@ -127,7 +127,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import read_rs_fit, rep, run_record, step_rows, write_tables
+from .e1 import read_rs_fit, rep, run_record, step_rows, truth_rows, write_tables
 
 NAME = "E4"
 ROUTES = ("mask_auto", "mask_ignore", "fq2psmcfa", "multihetsep", "nomask")
@@ -744,9 +744,7 @@ def report(ctx: Context) -> Dict[str, Path]:
     masks = mask_names(cfg)
     rows: Dict[str, List[Dict]] = {k: [] for k in TABLES}
     bias: Dict[Tuple[str, str], List] = {}  # (mask, route): log10 bias on the window, one array per replicate
-    dense = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
-    rows["truth"] = [{"model": cfg.model, "years": float(t), "ne": float(ne)}
-                     for t, ne in zip(dense, metrics.truth_on_grid(epochs, dense, g))]
+    rows["truth"] = truth_rows(cfg.model, epochs, g)
     for r in range(1, cfg.replicates + 1):
         record = _read(lay.truth(r))
         if demography.epochs_from_record(record["truth"]) != epochs:
