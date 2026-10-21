@@ -356,7 +356,7 @@ fn sequence_table(out: &mut String, r: &QcReport) {
 
 /// The bootstrap section, with the coverage caveat that
 /// `examples/bootstrap_calibration.rs` measures at the CLI's default start
-/// and objective (the numbers the README gives).
+/// and objective (the numbers the `bootstrap` module docs give).
 fn bootstrap_section(b: &BootstrapReport) -> String {
     let s = b.summary;
     let skipped = s.skipped_replicates.len();

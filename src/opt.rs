@@ -47,9 +47,9 @@ pub struct MStepConfig {
     /// Weight of the smoothing penalty
     /// `lambda * sum_k (ln lambda_{k+1} - ln lambda_k)^2` (over all states)
     /// that the M-step adds to minus C psmc's Q. The default, 0, leaves C
-    /// psmc's objective, as the CLI's `--smooth-lambda` does by default
-    /// (0.1 used 1e-3). The penalty does not grow with the number of bins,
-    /// so a given weight matters less on larger inputs.
+    /// psmc's objective, as the CLI's `--smooth-lambda` does by default.
+    /// The penalty does not grow with the number of bins, so a given weight
+    /// matters less on larger inputs.
     pub lambda: f64,
     /// The Armijo constant of the line search.
     pub line_search_c1: f64,
