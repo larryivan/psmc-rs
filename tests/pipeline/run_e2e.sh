@@ -385,7 +385,7 @@ fi
 # multihetsep file, which this run does not write, goes with a warning.
 run_script --bam "$sim/aln.sam.gz" --ref "$sim/ref.fa" --out "$r" --chroms chr2,chr3 \
   --run 1 2> "$work/re3.err"
-grep -qF "removed the outputs of an earlier run, made from another $r.psmcfa: 1 file(s) $r.<chrom>.multihetsep" \
+grep -qF "removed the outputs of an earlier run, made from another $r.psmcfa: 1 file $r.<chrom>.multihetsep" \
   "$work/re3.err" || fail "no warning about the removed multihetsep file: $(cat "$work/re3.err")"
 [ ! -e "$r.chr3.multihetsep" ] || fail "$r.chr3.multihetsep of the earlier run is still there"
 check fit "$r.json" "$r.psmc" 1 2

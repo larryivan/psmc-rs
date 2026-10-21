@@ -149,6 +149,11 @@ log_cmd() {
   say "+ $*"
 }
 
+# A count and a noun, in the plural unless the count is 1.
+plural() {
+  if [ "$1" -eq 1 ]; then printf '1 %s' "$2"; else printf '%s %ss' "$1" "$2"; fi
+}
+
 # ---------------------------------------------------------------------------
 # Arguments
 
@@ -599,7 +604,7 @@ say "bam_to_psmc.sh $SCRIPT_VERSION: $command_line"
 say "bcftools $bcftools_version ($(command -v "$bcftools")), psmc-rs $psmc_rs_version ($(command -v "$psmc_rs"))"
 at_once=$threads
 [ "$at_once" -le "${#selected[@]}" ] || at_once=${#selected[@]}
-say "calling ${#selected[@]} chromosome(s), $at_once at a time"
+say "calling $(plural "${#selected[@]}" chromosome), $at_once at a time"
 if [ "${#excluded[@]}" -gt 0 ]; then
   say "left out by name: $(printf '%s, ' "${excluded[@]}" | sed 's/, $//')"
 fi
@@ -739,7 +744,7 @@ qc=("$psmc_rs" qc "$vcf" "${common_input_opts[@]}" --json "$tmp/qc.json")
 log_cmd "$(quoted "${qc[@]}") > $(quoted "$tmp/qc.txt")"
 run_captured "$tmp/qc.txt" "$tmp/qc.err" "${qc[@]}" || die "psmc-rs qc failed: $(cat "$tmp/qc.err")"
 if [ "$depth" = auto ]; then
-  bound=$(sed -n 's/.*bases kept at depth [0-9]*-\([0-9]*\) (auto).*/\1/p' "$tmp/qc.err" | head -n 1)
+  bound=$(sed -n 's/.*bases kept at depth [0-9]*-\([0-9]*\) (auto).*/\1/p' "$tmp/qc.err" | sed -n 1p)
   if [ -z "$bound" ]; then
     warn "cannot read the depth bounds from psmc-rs qc; check in $log_file that twice the upper one is at most --max-depth $max_depth"
   elif [ "$((2 * bound))" -gt "$max_depth" ]; then
@@ -794,7 +799,7 @@ if [ "$multihetsep" -eq 1 ] || [ "$changed" -eq 1 ]; then
       n=$((n + 1))
     fi
   done
-  [ "$multihetsep" -eq 1 ] || [ "$n" -eq 0 ] || stale+=("$n file(s) $out.<chrom>.multihetsep")
+  [ "$multihetsep" -eq 1 ] || [ "$n" -eq 0 ] || stale+=("$(plural "$n" file) $out.<chrom>.multihetsep")
 fi
 if [ "${#stale[@]}" -gt 0 ]; then
   warn "removed the outputs of an earlier run, made from another $psmcfa: $(printf '%s, ' "${stale[@]}" | sed 's/, $//')"
