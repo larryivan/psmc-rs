@@ -206,16 +206,15 @@ def write_json(path: Path, obj) -> None:
     path.write_text(json.dumps(obj))
 
 
-def synthetic_profile() -> config.Profile:
-    e5_cfg = replace(
-        config.TINY.e5, truth_replicates=4, bootstrap_datasets=2, bootstrap_replicates=4, trunk_bins=(1000, 500),
-        inference=replace(config.INFERENCE, n_iter=5),
-    )
-    return replace(config.TINY, e5=e5_cfg)
+# The tiny profile with an E5 of 4 genomes fitted in 5 iterations, the first 2 bootstrapped (4 replicates each) on
+# trunks of 1,000 and of 500 bins.
+SYNTHETIC = replace(config.TINY, e5=replace(
+    config.TINY.e5, truth_replicates=4, bootstrap_datasets=2, bootstrap_replicates=4, trunk_bins=(1000, 500),
+    inference=replace(config.INFERENCE, n_iter=5)))
 
 
-def write_synthetic_runs(runs: Path, profile: config.Profile) -> e5.Layout:
-    cfg = profile.e5
+def write_synthetic_runs(runs: Path) -> e5.Layout:
+    cfg = SYNTHETIC.e5
     lay = e5.Layout(runs / "E5", cfg.model)
     n = cfg.inference.n_iter
     truth = {
@@ -241,14 +240,20 @@ def write_synthetic_runs(runs: Path, profile: config.Profile) -> e5.Layout:
     return lay
 
 
+def report(runs: Path) -> dict:
+    return e5.report(Context(SYNTHETIC, runs, log=lambda msg: None))
+
+
 @unittest.skipUnless(HAS_SCIPY, "numpy and scipy not installed")
 class Tables(unittest.TestCase):
-    def setUp(self):
-        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.profile = synthetic_profile()
-        self.cfg = self.profile.e5
-        self.lay = write_synthetic_runs(self.runs, self.profile)
-        self.written = e5.report(Context(self.profile, self.runs, log=lambda msg: None))
+    """The report on the synthetic runs, written once for the tests."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runs = Path(cls.enterClassContext(tempfile.TemporaryDirectory()))
+        cls.cfg = SYNTHETIC.e5
+        cls.lay = write_synthetic_runs(cls.runs)
+        cls.written = report(cls.runs)
 
     def test_every_table_is_written(self):
         self.assertEqual(set(self.written), set(e5.TABLES))
@@ -319,6 +324,16 @@ class Tables(unittest.TestCase):
         self.assertEqual(rows[("1", "1000")]["trunks"], "3")
         self.assertEqual(rows[("1", "500")]["trunks"], "6")
 
+
+@unittest.skipUnless(HAS_SCIPY, "numpy and scipy not installed")
+class EditedRuns(unittest.TestCase):
+    """The report on synthetic runs that a test changes first."""
+
+    def setUp(self):
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.cfg = SYNTHETIC.e5
+        self.lay = write_synthetic_runs(self.runs)
+
     def test_skipped_replicates_are_left_out(self):
         cfg = self.cfg
         n = cfg.inference.n_iter
@@ -326,7 +341,7 @@ class Tables(unittest.TestCase):
         self.lay.replicate_json(1, 1000, 4).unlink()
         write_json(self.lay.boot_summary(1, 1000),
                    psmc_rs_summary(params(FIT_OFFSETS[0], n), reps, cfg, 1000, e5.bootstrap_seed(cfg, 1, 1000), [4]))
-        e5.report(Context(self.profile, self.runs, log=lambda msg: None))
+        report(self.runs)
         rows = {(r["dataset"], r["trunk_bins"]): r for r in read_csv(self.lay.table("datasets"))}
         self.assertEqual(rows[("1", "1000")]["replicates"], "3")
         self.assertEqual(rows[("1", "1000")]["skipped_replicates"], "4")
@@ -337,7 +352,7 @@ class Tables(unittest.TestCase):
         summary["points"][10]["ne_q975"] *= 1.001
         path.write_text(json.dumps(summary))
         with self.assertRaisesRegex(ValueError, "summary.json"):
-            e5.report(Context(self.profile, self.runs, log=lambda msg: None))
+            report(self.runs)
 
     def test_a_bootstrap_with_another_seed_is_refused(self):
         path = self.lay.boot_summary(1, 500)
@@ -345,7 +360,8 @@ class Tables(unittest.TestCase):
         summary["seed"] = 42
         path.write_text(json.dumps(summary))
         with self.assertRaisesRegex(ValueError, "seed"):
-            e5.report(Context(self.profile, self.runs, log=lambda msg: None))
+            report(self.runs)
+
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class RunsLayout(unittest.TestCase):
