@@ -19,8 +19,9 @@ environment (`experiment/.venv`, see Supplementary Note 1, section 2),
   text quotes, each with its source in a comment, and Tables 1, 2 and S1
   (`table1.tex`, `table2.tex`, `tableS1.tex`), from the committed tables of
   `experiment/runs/*/tables`, E7's `MANIFEST.json`, the two runs of
-  NA12878's bootstrap, `experiment/crossplatform` and the README's
-  diagnostic of the residual difference from C psmc. The text quotes no
+  NA12878's bootstrap, `experiment/crossplatform`, the README's diagnostic
+  of the residual difference from C psmc and the production profile of
+  `experiment.pipeline.config`. The text quotes no
   result that is not one of these macros, and the generator checks with
   assertions the claims the text makes in words (for example, that
   splitting the turtles' first time window removed their recent peaks in every fit).
@@ -34,5 +35,5 @@ environment (`experiment/.venv`, see Supplementary Note 1, section 2),
   section 3, maps the article's figure numbers to their files.
 
 Red bracketed text in the PDFs marks what the author still has to supply:
-names, affiliation, the source of the turtle data, Zenodo DOIs, funding,
-contributions and the statement on AI tools.
+names, affiliation, the source of the turtle data, Zenodo DOIs, the
+computing allocation, funding, contributions and the statement on AI tools.

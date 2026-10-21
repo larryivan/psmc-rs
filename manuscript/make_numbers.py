@@ -171,8 +171,10 @@ def e3() -> None:
     rs = t[t.tool == "rs02"]
     put_range("EthreeSpeedOne", rs[rs.threads == 1].speedup_vs_c, lambda v: fix(v, 1),
               "E3_table2 rs02 1 thread speedup, every size")
-    put_range("EthreeChromWall", rs[rs.size_mb == min(c.genome_sizes_mb)].wall_median_s, lambda v: fix(v, 2),
-              "E3_table2 rs02 one 100 Mb chromosome, any threads")
+    chrom = t[t.size_mb == min(c.genome_sizes_mb)].set_index(["tool", "threads"])
+    for th, name in ((1, "One"), (8, "Eight")):
+        put(f"EthreeChromWall{name}", fix(chrom.loc[("rs02", th), "wall_median_s"], 1),
+            f"E3_table2 rs02 one 100 Mb chromosome, threads {th}")
     ts = table("E3", "E3_thread_scaling")
     put_range("EthreeEff", ts[ts.threads > 1].efficiency, lambda v: fix(v, 2), "E3_thread_scaling efficiency, 2+ threads")
     runs = table("E3", "E3_runs")
