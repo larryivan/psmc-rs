@@ -1,6 +1,6 @@
 //! Command-line arguments.
 
-use clap::{ArgGroup, Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, FromArgMatches, Parser, Subcommand};
 use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::path::PathBuf;
@@ -53,40 +53,45 @@ macro_rules! usage_bail {
 }
 pub(crate) use usage_bail;
 
-/// Command-line arguments, rebuilt from parsed ones.
-#[derive(Default)]
-struct ArgList(Vec<String>);
+/// How a flag is spelt on the command line: `None` when it is not given (an
+/// option without a value, a switch that is off), no value for a switch
+/// that is on, one per use of a repeated flag. A flag is given when its
+/// spelling differs from that of clap's default ([`defaults`]).
+type Spelling<A> = fn(&A) -> Option<Vec<String>>;
 
-impl ArgList {
-    /// `flag value` for each of `values` (none, one or several).
-    fn each<T: fmt::Display>(
-        &mut self,
-        flag: &str,
-        values: impl IntoIterator<Item = T>,
-    ) -> &mut Self {
-        for value in values {
-            self.0.extend([flag.to_string(), value.to_string()]);
+/// The spelling of a flag given once.
+fn one(value: impl fmt::Display) -> Option<Vec<String>> {
+    Some(vec![value.to_string()])
+}
+
+/// The spelling of a switch.
+fn on(switch: bool) -> Option<Vec<String>> {
+    switch.then(Vec::new)
+}
+
+/// The spelling of a path given once.
+fn path(path: &Option<PathBuf>) -> Option<Vec<String>> {
+    path.as_ref().and_then(|p| one(p.display()))
+}
+
+/// `A` with clap's defaults (and no required argument).
+fn defaults<A: Args + FromArgMatches>() -> A {
+    let cmd = A::augment_args(clap::Command::new("defaults").ignore_errors(true));
+    let matches = cmd.try_get_matches_from(["defaults"]).expect("no argument");
+    A::from_arg_matches(&matches).expect("clap's defaults")
+}
+
+/// The arguments of `flags` and their values: `flag value` for each value,
+/// `flag` alone for a switch.
+fn spelt(flags: impl IntoIterator<Item = (&'static str, Vec<String>)>) -> Vec<String> {
+    let mut args = Vec::new();
+    for (flag, values) in flags {
+        if values.is_empty() {
+            args.push(flag.to_string());
         }
-        self
+        args.extend(values.into_iter().flat_map(|v| [flag.to_string(), v]));
     }
-
-    /// `flag value`, unless `value` is the default.
-    fn unless<T: PartialEq + fmt::Display>(
-        &mut self,
-        flag: &str,
-        value: T,
-        default: T,
-    ) -> &mut Self {
-        self.each(flag, (value != default).then_some(value))
-    }
-
-    /// `flag` alone, if `on`.
-    fn switch(&mut self, flag: &str, on: bool) -> &mut Self {
-        if on {
-            self.0.push(flag.to_string());
-        }
-        self
-    }
+    args
 }
 
 const ABOUT: &str = "PSMC: population size history from one diploid genome";
@@ -137,7 +142,7 @@ impl Cli {
         I: IntoIterator<Item = T>,
         T: Into<OsString>,
     {
-        use clap::{CommandFactory, FromArgMatches};
+        use clap::CommandFactory;
         let argv: Vec<OsString> = argv.into_iter().map(Into::into).collect();
         let mut cmd = Self::command();
         // clap wraps the help at COLUMNS when it is set; at 0 or a few
@@ -524,57 +529,49 @@ pub struct InferArgs {
     pub gen_years: f64,
 }
 
+/// Every inference flag but the input's and `--tui`, with its spelling.
+const INFER_FLAGS: [(&str, Spelling<InferArgs>); 23] = [
+    ("--pattern", |a| a.pattern.as_ref().and_then(one)),
+    ("--n-steps", |a| a.n_steps.and_then(one)),
+    ("--t-max", |a| one(a.t_max)),
+    ("--tr-ratio", |a| one(a.tr_ratio)),
+    ("--theta0", |a| a.theta0.and_then(one)),
+    ("--rho0", |a| a.rho0.and_then(one)),
+    ("--init-params", |a| path(&a.init_params)),
+    // 2.5e-8 rather than 0.000000025.
+    ("--mu", |a| one(format!("{:e}", a.mu))),
+    ("--bin-callable", |a| one(a.bin_callable.name())),
+    ("--mstep-iters", |a| one(a.mstep_iters)),
+    ("--smooth-lambda", |a| one(a.smooth_lambda)),
+    ("--threads", |a| a.threads.and_then(one)),
+    ("--gen-years", |a| one(a.gen_years)),
+    ("--bootstrap", |a| one(a.bootstrap)),
+    ("--bootstrap-block-size", |a| one(a.bootstrap_block_size)),
+    ("--bootstrap-seed", |a| one(a.bootstrap_seed)),
+    ("--bootstrap-iters", |a| a.bootstrap_iters.and_then(one)),
+    ("--bootstrap-dir", |a| path(&a.bootstrap_dir)),
+    ("--psmc-out", |a| path(&a.psmc_out)),
+    ("--qc-json", |a| path(&a.qc_json)),
+    ("--tmrca-out", |a| path(&a.tmrca_out)),
+    ("--quiet", |a| on(a.quiet)),
+    ("--no-progress", |a| on(a.no_progress)),
+];
+
 impl InferArgs {
     /// The arguments that reproduce this inference run on the command line
     /// (without `--tui`), as the TUI shows and runs it.
     pub fn to_args(&self) -> Vec<String> {
-        let path = |p: &Option<PathBuf>| p.as_ref().map(|p| p.display().to_string());
-        let positional = [
-            path(&self.input_file),
-            path(&self.output_file),
-            self.n_iter.map(|n| n.to_string()),
-        ];
-        let mut args = ArgList(positional.into_iter().flatten().collect());
-        args.input(&self.input)
-            .each("--pattern", &self.pattern)
-            .each("--n-steps", self.n_steps)
-            .unless("--t-max", self.t_max, DEFAULT_T_MAX)
-            .unless("--tr-ratio", self.tr_ratio, DEFAULT_TR_RATIO)
-            .each("--theta0", self.theta0)
-            .each("--rho0", self.rho0)
-            .each("--init-params", path(&self.init_params))
-            // 2.5e-8 rather than 0.000000025.
-            .unless("--mu", format!("{:e}", self.mu), format!("{DEFAULT_MU:e}"))
-            .unless(
-                "--bin-callable",
-                self.bin_callable.name(),
-                BinCallableArg::Auto.name(),
-            )
-            .unless("--mstep-iters", self.mstep_iters, DEFAULT_MSTEP_ITERS)
-            .unless("--smooth-lambda", self.smooth_lambda, 0.0)
-            .each("--threads", self.threads)
-            .unless("--gen-years", self.gen_years, DEFAULT_GEN_YEARS);
-        if self.bootstrap > 0 {
-            args.each("--bootstrap", [self.bootstrap])
-                .unless(
-                    "--bootstrap-block-size",
-                    self.bootstrap_block_size,
-                    DEFAULT_BOOTSTRAP_TRUNK,
-                )
-                .unless(
-                    "--bootstrap-seed",
-                    self.bootstrap_seed,
-                    DEFAULT_BOOTSTRAP_SEED,
-                );
-        }
-        args.each("--bootstrap-iters", self.bootstrap_iters)
-            .each("--bootstrap-dir", path(&self.bootstrap_dir))
-            .each("--psmc-out", path(&self.psmc_out))
-            .each("--qc-json", path(&self.qc_json))
-            .each("--tmrca-out", path(&self.tmrca_out))
-            .switch("--quiet", self.quiet)
-            .switch("--no-progress", self.no_progress);
-        args.0
+        let defaults: InferArgs = defaults();
+        let positional = [&self.input_file, &self.output_file].map(path);
+        let flags = (INFER_FLAGS.iter())
+            .filter(|(_, spell)| spell(self) != spell(&defaults))
+            .filter_map(|&(flag, spell)| Some((flag, spell(self)?)));
+        (positional.into_iter().chain([self.n_iter.and_then(one)]))
+            .flatten()
+            .flatten()
+            .chain(self.input.to_args())
+            .chain(spelt(flags))
+            .collect()
     }
 }
 

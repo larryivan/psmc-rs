@@ -2,14 +2,13 @@
 //! `convert` and `qc`: their values, defaults and the inputs they apply to.
 
 use clap::{Args, ValueEnum};
-use std::fmt;
 use std::path::PathBuf;
 
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
 
-use super::ArgList;
 use super::values::{positive_usize, whole_number};
+use super::{Spelling, defaults, on, one, spelt};
 
 /// `--input-format`.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -210,20 +209,9 @@ pub struct InputArgs {
     pub min_good_fraction: f64,
 }
 
-/// How an input flag is spelt on the command line: `None` when it is not
-/// given (an option without a value, a switch that is off), no value for a
-/// switch that is on, one per use of a repeated flag.
-type Spelling = fn(&InputArgs) -> Option<Vec<String>>;
-
 /// Every input flag, with the inputs it applies to and its spelling.
-const FLAGS: [(&str, AppliesTo, Spelling); 16] = {
+const FLAGS: [(&str, AppliesTo, Spelling<InputArgs>); 16] = {
     use AppliesTo::*;
-    fn one(value: impl fmt::Display) -> Option<Vec<String>> {
-        Some(vec![value.to_string()])
-    }
-    fn on(switch: bool) -> Option<Vec<String>> {
-        switch.then(Vec::new)
-    }
     fn paths(paths: &[PathBuf]) -> Option<Vec<String>> {
         let shown = paths.iter().map(|p| p.display().to_string());
         (!paths.is_empty()).then(|| shown.collect())
@@ -287,14 +275,20 @@ impl InputArgs {
     /// The flags given a value other than clap's default, with the inputs
     /// they apply to and their values as spelt ([`Spelling`]).
     fn given(&self) -> Vec<(&'static str, AppliesTo, Vec<String>)> {
-        use clap::{Command, FromArgMatches};
-        let cmd = InputArgs::augment_args(Command::new("defaults"));
-        let matches = cmd.try_get_matches_from(["defaults"]).expect("no argument");
-        let defaults = InputArgs::from_arg_matches(&matches).expect("the defaults");
+        let defaults: InputArgs = defaults();
         (FLAGS.iter())
             .filter(|(_, _, spell)| spell(self) != spell(&defaults))
             .filter_map(|&(flag, applies, spell)| Some((flag, applies, spell(self)?)))
             .collect()
+    }
+
+    /// The input flags that give these settings on the command line.
+    pub(super) fn to_args(&self) -> Vec<String> {
+        spelt(
+            self.given()
+                .into_iter()
+                .map(|(flag, _, values)| (flag, values)),
+        )
     }
 
     /// The flags given a value other than their default that do not apply
@@ -349,20 +343,6 @@ impl AppliesTo {
             AppliesTo::Mhs => format == InputFormat::Mhs,
             AppliesTo::Binned => format != InputFormat::Psmcfa,
         }
-    }
-}
-
-impl ArgList {
-    /// The input flags of `input` given values other than their defaults.
-    pub(super) fn input(&mut self, input: &InputArgs) -> &mut Self {
-        for (flag, _, values) in input.given() {
-            if values.is_empty() {
-                self.switch(flag, true);
-            } else {
-                self.each(flag, values);
-            }
-        }
-        self
     }
 }
 
@@ -433,9 +413,8 @@ mod tests {
         );
         assert_eq!(o.filter, SeqFilter::DISABLED);
 
-        let to_args = |a: &InputArgs| ArgList::default().input(a).0.clone();
-        assert_eq!(input(&to_args(&a).join(" ")), a);
-        assert_eq!(to_args(&input("")), Vec::<String>::new());
+        assert_eq!(input(&a.to_args().join(" ")), a);
+        assert_eq!(input("").to_args(), Vec::<String>::new());
     }
 
     #[test]
