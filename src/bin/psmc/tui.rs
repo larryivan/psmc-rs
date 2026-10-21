@@ -170,20 +170,22 @@ impl App {
             .map_or(FormatArg::Auto, |i| all[(i + 1) % all.len()]);
         self.fields[FIELD_INPUT_FORMAT] = next.name().to_string();
     }
-}
 
-/// The value of the field `name`, read by `parse`, a parser of the command
-/// line's values; `None` when it is empty.
-fn parsed<T>(name: &str, value: &str, parse: fn(&str) -> Result<T, String>) -> Result<Option<T>> {
-    match value.trim() {
-        "" => Ok(None),
-        v => parse(v).map(Some).map_err(|e| anyhow!("{name}: {e}")),
+    /// The value of field `idx`, read by `parse`, a parser of the command
+    /// line's values; `None` when it is empty.
+    fn parsed<T>(&self, idx: usize, parse: fn(&str) -> Result<T, String>) -> Result<Option<T>> {
+        match self.fields[idx].trim() {
+            "" => Ok(None),
+            v => parse(v)
+                .map(Some)
+                .map_err(|e| anyhow!("{}: {e}", FIELDS[idx].0)),
+        }
     }
-}
 
-/// [`parsed`] for a field that must be filled.
-fn required<T>(name: &str, value: &str, parse: fn(&str) -> Result<T, String>) -> Result<T> {
-    parsed(name, value, parse)?.ok_or_else(|| anyhow!("{name} is required"))
+    /// [`App::parsed`] for a field that must be filled.
+    fn required<T>(&self, idx: usize, parse: fn(&str) -> Result<T, String>) -> Result<T> {
+        (self.parsed(idx, parse)?).ok_or_else(|| anyhow!("{} is required", FIELDS[idx].0))
+    }
 }
 
 fn parse_input_format(value: &str) -> Result<FormatArg> {
@@ -194,21 +196,21 @@ fn parse_input_format(value: &str) -> Result<FormatArg> {
 /// The run the form describes: its fields over the other settings of the
 /// command line that opened the TUI.
 fn build_cli_from_form(app: &App) -> Result<InferArgs> {
-    let field = |idx: usize| app.fields[idx].as_str();
-    let text = |s: &str| Ok::<_, String>(s.to_string());
+    let text = |s: &str| Ok(s.to_string());
     let mut cli = app.base_cli.clone();
     cli.tui = false;
-    cli.input_file = Some(required("Input", field(FIELD_INPUT), text)?.into());
-    cli.output_file = Some(required("Output", field(FIELD_OUTPUT), text)?.into());
-    cli.n_iter = Some(required("N iter", field(FIELD_N_ITER), whole_number)?);
-    cli.pattern = parsed("Pattern", field(FIELD_PATTERN), text)?;
-    cli.gen_years = required("Gen years", field(FIELD_GEN_YEARS), positive_f64)?;
-    cli.threads = parsed("Threads", field(FIELD_THREADS), positive_usize)?;
-    cli.input.input_format = parse_input_format(field(FIELD_INPUT_FORMAT))?;
-    cli.input.bin_size =
-        parsed("Bin size", field(FIELD_BIN_SIZE), positive_usize)?.unwrap_or(DEFAULT_BIN_SIZE);
-    cli.mu = required("Mu", field(FIELD_MU), positive_f64)?;
-    cli.smooth_lambda = required("Smooth", field(FIELD_SMOOTH_LAMBDA), non_negative_f64)?;
+    cli.input_file = Some(app.required(FIELD_INPUT, text)?.into());
+    cli.output_file = Some(app.required(FIELD_OUTPUT, text)?.into());
+    cli.n_iter = Some(app.required(FIELD_N_ITER, whole_number)?);
+    cli.pattern = app.parsed(FIELD_PATTERN, text)?;
+    cli.gen_years = app.required(FIELD_GEN_YEARS, positive_f64)?;
+    cli.threads = app.parsed(FIELD_THREADS, positive_usize)?;
+    cli.input.input_format = parse_input_format(&app.fields[FIELD_INPUT_FORMAT])?;
+    cli.input.bin_size = app
+        .parsed(FIELD_BIN_SIZE, positive_usize)?
+        .unwrap_or(DEFAULT_BIN_SIZE);
+    cli.mu = app.required(FIELD_MU, positive_f64)?;
+    cli.smooth_lambda = app.required(FIELD_SMOOTH_LAMBDA, non_negative_f64)?;
     Ok(cli)
 }
 
