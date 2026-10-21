@@ -130,13 +130,7 @@ impl PsmcRunInfo {
         if rows.len() != row_starts.len() {
             bail!("row_starts length mismatch");
         }
-        let (mut sum_l, mut sum_n) = (0u64, 0u64);
-        for &bin in rows.iter().flatten() {
-            if bin < 2 {
-                sum_l += 1;
-                sum_n += u64::from(bin);
-            }
-        }
+        let (sum_l, sum_n) = called_and_het_bins(rows);
         let n_seqs = row_starts.iter().filter(|&&s| s).count();
         Self::from_counts(template, history, n_seqs, sum_l, sum_n)
     }
@@ -176,6 +170,19 @@ impl PsmcRunInfo {
             bin_callable: None,
         })
     }
+}
+
+/// C's `sum_L` and `sum_n` of `rows`: their non-missing and their
+/// heterozygous bins.
+pub(crate) fn called_and_het_bins(rows: &[Vec<u8>]) -> (u64, u64) {
+    let (mut sum_l, mut sum_n) = (0u64, 0u64);
+    for &bin in rows.iter().flatten() {
+        if bin < 2 {
+            sum_l += 1;
+            sum_n += u64::from(bin);
+        }
+    }
+    (sum_l, sum_n)
 }
 
 /// The model's parameter pattern in the syntax C psmc and psmc_plot.pl

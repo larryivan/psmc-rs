@@ -93,7 +93,9 @@ use crate::io::params::CALLABLE_LENGTH_MODEL;
 use crate::io::{CallableBases, CallableSummary, Observations, Sequences, sequence_ranges};
 use crate::model::{NegativeTransitions, PsmcModel, ThetaCounts, initial_theta_with_callable};
 use crate::opt::MStepConfig;
-use crate::psmc_out::{PsmcRunInfo, bin_callable_line, psmc_rounds, write_psmc};
+use crate::psmc_out::{
+    PsmcRunInfo, bin_callable_line, called_and_het_bins, psmc_rounds, write_psmc,
+};
 use crate::qc::fmt::count;
 
 /// The bootstrap distribution of Ne at one time point of the main curve.
@@ -791,20 +793,13 @@ pub struct ReplicateData {
 
 impl ReplicateData {
     fn of(seqs: &[Vec<u8>]) -> Self {
-        let mut data = Self {
+        let (sum_l, sum_n) = called_and_het_bins(seqs);
+        Self {
             n_seqs: seqs.len(),
-            bins: 0,
-            sum_l: 0,
-            sum_n: 0,
-        };
-        for &bin in seqs.iter().flatten() {
-            data.bins += 1;
-            if bin < 2 {
-                data.sum_l += 1;
-                data.sum_n += u64::from(bin);
-            }
+            bins: seqs.iter().map(|s| s.len() as u64).sum(),
+            sum_l,
+            sum_n,
         }
-        data
     }
 }
 
@@ -1113,8 +1108,11 @@ pub fn summarize_bootstrap_models(
     })
 }
 
-/// A buffered writer to a new file at `path`, creating its directory.
-fn create_summary_file(path: &Path) -> Result<BufWriter<File>> {
+/// Write a new file at `path` with `write`, creating its directory.
+fn write_summary_file(
+    path: &Path,
+    write: impl FnOnce(&mut BufWriter<File>) -> Result<()>,
+) -> Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -1122,27 +1120,29 @@ fn create_summary_file(path: &Path) -> Result<BufWriter<File>> {
             .with_context(|| format!("failed to create bootstrap summary dir {parent:?}"))?;
     }
     let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
-    Ok(BufWriter::new(file))
+    let mut w = BufWriter::new(file);
+    write(&mut w)
+        .and_then(|()| Ok(w.flush()?))
+        .with_context(|| format!("failed to write {path:?}"))
 }
 
 /// Write the summary's points as TSV: `x_years`, `ne_main` and the three
-/// quantiles, in `%.8e`.
+/// quantiles, in scientific notation with 8 decimals (`1.23456789e4`).
 pub fn write_bootstrap_summary_tsv(path: &Path, summary: &BootstrapSummary) -> Result<()> {
-    let mut w = create_summary_file(path)?;
-    w.write_all(b"x_years\tne_main\tne_q025\tne_q500\tne_q975\n")?;
-    for p in &summary.points {
-        writeln!(
-            w,
-            "{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
-            p.x_years, p.ne_main, p.ne_q025, p.ne_q500, p.ne_q975
-        )?;
-    }
-    w.flush()?;
-    Ok(())
+    write_summary_file(path, |w| {
+        w.write_all(b"x_years\tne_main\tne_q025\tne_q500\tne_q975\n")?;
+        for p in &summary.points {
+            writeln!(
+                w,
+                "{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}\t{:.8e}",
+                p.x_years, p.ne_main, p.ne_q025, p.ne_q500, p.ne_q975
+            )?;
+        }
+        Ok(())
+    })
 }
 
 /// Write the summary as pretty-printed JSON.
 pub fn write_bootstrap_summary_json(path: &Path, summary: &BootstrapSummary) -> Result<()> {
-    serde_json::to_writer_pretty(create_summary_file(path)?, summary)
-        .with_context(|| format!("failed to write {path:?}"))
+    write_summary_file(path, |w| Ok(serde_json::to_writer_pretty(w, summary)?))
 }
