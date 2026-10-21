@@ -16,7 +16,7 @@ pub use values::{
     BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, model_layout, non_negative_f64,
     positive_f64, positive_usize, whole_number,
 };
-use values::{DEFAULT_BOOTSTRAP_SEED, DEFAULT_GEN_YEARS, parse_n_steps, parse_t_max};
+use values::{parse_n_steps, parse_t_max};
 
 /// The exit status of a usage error, as clap gives for the errors it finds.
 pub const USAGE_EXIT: u8 = 2;
@@ -474,7 +474,7 @@ pub struct InferArgs {
     pub bootstrap_block_size: usize,
 
     /// Seed of the bootstrap resampling
-    #[arg(long, value_name = "SEED", default_value_t = DEFAULT_BOOTSTRAP_SEED, value_parser = whole_number::<u64>, help_heading = "Bootstrap")]
+    #[arg(long, value_name = "SEED", default_value_t = 42, value_parser = whole_number::<u64>, help_heading = "Bootstrap")]
     pub bootstrap_seed: u64,
 
     /// EM iterations of each replicate (default: N_ITER)
@@ -525,7 +525,7 @@ pub struct InferArgs {
     ///
     /// The time axes of the Ne curve (report), the bootstrap summary and the
     /// TMRCA output.
-    #[arg(long, value_name = "YEARS", default_value_t = DEFAULT_GEN_YEARS, value_parser = positive_f64, alias = "tmrca-gen-years", help_heading = "Output")]
+    #[arg(long, value_name = "YEARS", default_value_t = 25.0, value_parser = positive_f64, alias = "tmrca-gen-years", help_heading = "Output")]
     pub gen_years: f64,
 }
 

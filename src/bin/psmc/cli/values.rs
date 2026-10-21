@@ -57,10 +57,6 @@ pub const DEFAULT_TR_RATIO: f64 = 4.0;
 /// The default mutation rate per base pair per generation (`--mu`).
 pub const DEFAULT_MU: f64 = 2.5e-8;
 
-// The defaults of the bootstrap and output options.
-pub(super) const DEFAULT_BOOTSTRAP_SEED: u64 = 42;
-pub(super) const DEFAULT_GEN_YEARS: f64 = 25.0;
-
 /// A positive integer.
 pub fn positive_usize(s: &str) -> Result<usize, String> {
     match whole_number(s)? {
