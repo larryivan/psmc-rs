@@ -160,9 +160,9 @@ each site remove both:
   vcf2fq turns into bases (one-base REF, no `INDEL` flag, a base or `.` as
   ALT), and the bounds are `max(1, round(mean / 3))` and `round(2 * mean)`.
   Reading the file twice needs a regular file; from a pipe, give
-  `--depth MIN:MAX`. psmc-rs prints the mean and the bounds it used
-  (`consensus: depth mean 25.3, median 25; bases kept at depth 8-51
-  (auto)`).
+  `--depth MIN:MAX`. psmc-rs prints the bounds it used (`consensus: bases
+  kept at depth 8-51 (auto), ...`), and its QC report gives the mean
+  (`Read depth  mean 25.3x, median 25.0x, ...; kept 8-51x`).
 
 The mean covers every chromosome in the VCF, so call only the chromosomes
 you analyse: a male X at half depth, or an organelle at hundreds of times

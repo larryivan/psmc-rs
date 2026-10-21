@@ -339,7 +339,7 @@ errors are options that are invalid alone or together, also when they are
 found after parsing (a `--pattern` that does not parse, outputs that name
 the same file, `--psmc-out -`); a file that cannot be read or written is
 an error. Without arguments, `psmc-rs`, `psmc-rs convert` and `psmc-rs qc`
-print their help, with status 2. `-h` gives a one-line summary of each
+print their help, with status 2. `-h` gives a one-sentence summary of each
 option; a table of the options is under
 [Option reference](#option-reference), and the full text is in
 `psmc-rs --help`, `psmc-rs convert --help` and `psmc-rs qc --help`.
@@ -885,9 +885,9 @@ outputs under `tests/data/c_reference/` come with C psmc's license
 
 ## Option reference
 
-A condensed table of the options (0.2.0); `psmc-rs -h` gives the program's
-one-line summaries and `psmc-rs --help` the full text. Inference, `convert`
-and `qc` share the input options.
+A condensed table of the options (0.2.0); `psmc-rs -h` gives the
+program's one-sentence summaries and `psmc-rs --help` the full text.
+Inference, `convert` and `qc` share the input options.
 
 **Input** (inference, `convert`, `qc`)
 

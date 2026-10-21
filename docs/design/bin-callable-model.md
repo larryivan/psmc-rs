@@ -536,14 +536,13 @@ reproducible.
 The flag applies to inference and the bootstrap, and is an inference
 option (`InferArgs`), not an input option: `convert` and `qc` read the
 input the same way in both modes and report on the counts as `auto` would
-use them. The run says what the counts hold and which model it fits
-(`Callable bases (exact counts): called bins hold 70.5% of their 100 bases
-on average, and 91.7% of them fewer than 100; the fit weighs each called
-bin by its callable bases`). For input without counts, `--bin-callable
-ignore` and `approximate` get a warning that they change nothing, in the
-run itself rather than in `InputArgs::ignored_flags`, which lists options
-of `InputArgs`. The
-flag is recorded in the output JSON (`bin_callable`) and in the command
+use them. The run says which model it fits (`Callable bases (exact
+counts): the fit weighs each called bin by them (--bin-callable auto)`),
+and the QC report's `Callable bases` row says what the counts hold. For
+input without counts, `--bin-callable ignore` and `approximate` get a
+warning that they change nothing, in the run itself rather than in
+`InputArgs::ignored_flags`, which lists options of `InputArgs`. The flag
+is recorded in the output JSON (`bin_callable`) and in the command
 line that reproduces a run (`InferArgs::to_args`, which the TUI shows).
 
 ## What stage 2 built
