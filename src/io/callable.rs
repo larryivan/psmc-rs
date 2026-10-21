@@ -716,6 +716,20 @@ impl CallableBases {
         self.rows.capacity() * size_of::<BinCounts>()
             + self.rows.iter().map(BinCounts::heap_bytes).sum::<usize>()
     }
+
+    /// Errors unless every row's counts are for bins of the whole's bin
+    /// size, naming the first row that is not as `{entry} {i}` ("row" or
+    /// "sequence").
+    pub(crate) fn check_bin_sizes(&self, entry: &str) -> Result<()> {
+        match self.rows.iter().position(|r| r.full != self.bin_size) {
+            Some(i) => bail!(
+                "{entry} {i} has callable bases of bins of {} bases, in counts of bins of {}",
+                self.rows[i].full,
+                self.bin_size
+            ),
+            None => Ok(()),
+        }
+    }
 }
 
 /// How much of its called bins an input's counts say is callable: the bias
@@ -835,14 +849,9 @@ pub(crate) fn validate(
             bins.len()
         );
     }
+    callable.check_bin_sizes(entry)?;
     let s = u32::from(callable.bin_size);
     for (i, (row, row_counts)) in bins.iter().zip(rows).enumerate() {
-        if row_counts.full != callable.bin_size {
-            bail!(
-                "{entry} {i} has callable bases of bins of {} bases, in counts of bins of {s}",
-                row_counts.full
-            );
-        }
         if row_counts.len() != row.len() {
             bail!(
                 "{entry} {i} has {} bins but callable bases for {}",
@@ -1110,5 +1119,39 @@ mod tests {
             repr: Repr::Dense(Dense::Wide(counts)),
         };
         assert_ne!(other_size, wide);
+    }
+
+    #[test]
+    fn rows_of_another_bin_size_are_refused_by_their_users() {
+        // `new` takes the rows as given: validate, QC and θ0 refuse those
+        // of another bin size instead of panicking or taking their size.
+        let bins = vec![vec![0, 1], vec![0]];
+        let starts = [true, false];
+        let row = |s: usize, len| BinCounts::new(s, vec![s as u16; len]).unwrap();
+        let msg =
+            |i| format!("row {i} has callable bases of bins of 99 bases, in counts of bins of 100");
+        for (rows, want) in [
+            (vec![row(100, 2), row(100, 1)], None),
+            (vec![row(100, 2), row(99, 1)], Some(msg(1))),
+            (vec![row(99, 2), row(99, 1)], Some(msg(0))),
+        ] {
+            let c = CallableBases::new(100, rows).unwrap();
+            let qc = crate::qc::try_analyze(&crate::qc::QcInput {
+                rows: &bins,
+                row_starts: &starts,
+                seqs: &[],
+                bin_size: 100,
+                bootstrap_trunk_bins: 0,
+                context: Default::default(),
+                callable: Some(&c),
+            });
+            for r in [
+                validate(&bins, Some(&starts), Some(&c)),
+                qc.map(drop),
+                crate::model::initial_theta_with_callable(&bins, Some(&c)).map(drop),
+            ] {
+                assert_eq!(r.map_err(|e| e.to_string()).err(), want);
+            }
+        }
     }
 }

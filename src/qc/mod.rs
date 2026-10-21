@@ -1059,8 +1059,10 @@ pub fn analyze(input: &QcInput) -> QcReport {
 /// # Errors
 ///
 /// When `bin_size` is 0, `rows` and `row_starts` differ in length, the first
-/// row continues a sequence, or `seqs` (when not empty) does not list the
-/// sequences of `rows` in order with their bin counts.
+/// row continues a sequence, `seqs` (when not empty) does not list the
+/// sequences of `rows` in order with their bin counts, or `callable` does
+/// not fit `rows` and `bin_size` (one count per bin, every row's for bins of
+/// `bin_size`, none above it).
 pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
     let spans = spans(input)?;
     let bin_size = input.bin_size;
@@ -1078,6 +1080,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
                 c.bin_size()
             );
         }
+        c.check_bin_sizes("row")?;
     }
     let counts: Vec<Counts> = spans
         .iter()

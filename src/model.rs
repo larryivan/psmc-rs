@@ -651,7 +651,10 @@ pub fn initial_theta(rows: &[Vec<u8>]) -> Result<f64> {
 
 /// Initial per-bin θ0 of bins with the callable bases `callable` (row for
 /// row): [`ThetaCounts::theta0`], which is [`initial_theta`] without
-/// callable bases or when every called bin is full.
+/// callable bases or when every called bin is full. Errors as
+/// [`ThetaCounts::theta0`] does, and when the counts do not fit the rows
+/// ([`ThetaCounts::of_counted`]) or a row's are for bins of another size
+/// than `callable`'s.
 pub fn initial_theta_with_callable(
     rows: &[Vec<u8>],
     callable: Option<&CallableBases>,
@@ -666,6 +669,7 @@ pub fn initial_theta_with_callable(
             rows.len()
         );
     }
+    callable.check_bin_sizes("row")?;
     let mut counts = ThetaCounts::new(Some(callable.bin_size()));
     for (row, c) in rows.iter().zip(callable.rows()) {
         counts.add(&ThetaCounts::of_counted(row, c)?);

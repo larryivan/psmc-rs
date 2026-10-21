@@ -265,7 +265,9 @@ Library API:
   `CallableSummary` (their mean share and distribution over the called
   bins) and `MAX_COUNTED_BIN_SIZE` (65,535), all re-exported from `io`,
   with the counts' iterator `callable::Iter`; `Observations::validate`
-  checks rows, starts and counts together. `Observations` gains the public
+  checks rows, starts and counts together, and `qc::try_analyze` and
+  `initial_theta_with_callable` refuse rows of counts for another bin size
+  than the whole's. `Observations` gains the public
   field `callable` and `io::consensus::ConsensusSeq` the field `callable`,
   which breaks code that builds them with a struct literal (add
   `callable: None`). The new `io::Sequences` holds whole sequences with
