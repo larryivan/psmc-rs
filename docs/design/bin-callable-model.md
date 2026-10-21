@@ -140,8 +140,9 @@ model, so no use of the counts is lost.
 
 **Storage.** Every copy of the data the CLI holds carries the counts of
 its bins: `Dataset::obs`, and with a bootstrap also the joined sequences
-(`boot_seqs` in `src/bin/psmc/run.rs`, built before the main fit), the
-trunks and the resampled data of each replicate being fitted. One count
+(`BootstrapPlan::resample` in `src/bin/psmc/run/bootstrap.rs`, built
+before the main fit), the trunks and the resampled data of each replicate
+being fitted. One count
 per bin would add 2 bytes (`u16`) or 4 (`u32`) per bin to each copy, next
 to its 1-byte symbol, whether the counts carry information or not. A first
 draft did so with `u32`, and the E-step's own buffers are no larger (one
@@ -167,7 +168,7 @@ built, cut or joined, and the builder behind the binner switches from runs
 to one count per bin as soon as the runs would be larger, so that it never
 holds much more than its result.
 
-Peak resident memory (median of three runs) of `psmc-rs infer IN OUT 1
+Peak resident memory (median of three runs) of `psmc-rs IN OUT 1
 --vcf-mode mask --bin-size 100 --threads 3 --pattern 4+5*3+4`, alone (fit)
 and with `--bootstrap 3 --bootstrap-iters 1` (fit + bootstrap): before
 stage 1 (bf12203), with the first draft's `u32` per bin (2101d69) and with
@@ -325,10 +326,10 @@ the estimate recovers θ on bins simulated under one coalescence time, to
 2%, where C's is 40% low with 40% of the bases missing). Every θ0 uses this
 rule:
 
-- the main fit's start (`start_rates` in `src/bin/psmc/run.rs`), which
+- the main fit's start (`start_rates` in `src/bin/psmc/run/start.rs`), which
   `fit_start` also hands to QC;
 - the start that `qc` and `convert` check when they have no fit of their
-  own (`default_start` in `src/bin/psmc/dataset.rs`), as a fit with
+  own (`default_qc_report` in `src/bin/psmc/dataset.rs`), as a fit with
   `--bin-callable auto` would start: with the counts of a VCF, not with
   multihetsep's;
 - the bootstrap's fresh starts (`replicate_initial_model_with_callable`),
@@ -596,7 +597,7 @@ every item before it has been (`hmm::sched::fold_in_order`, which the
 log-likelihood uses too): the same sums in the same order, so every result
 is unchanged to the bit, and only the sums of items that finished before
 an earlier one are held, about one per thread. Peak resident memory of
-`psmc-rs infer IN OUT 1 --vcf-mask ... -p 4+25*2+4+6 --threads 8
+`psmc-rs IN OUT 1 --vcf-mask ... --pattern 4+25*2+4+6 --threads 8
 --bootstrap 8 --bootstrap-iters 1` on replicate 1's dispersed 30% genome
 of the validation cut into 500 contigs of 400 kb (three runs each):
 

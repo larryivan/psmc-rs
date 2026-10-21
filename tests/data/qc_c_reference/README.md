@@ -19,7 +19,7 @@ was written to its own file and run alone.
 Inputs: `synthetic.psmcfa` (written by `make_synthetic.py`, deterministic: six
 records with different lengths, heterozygosity, `N` runs, lowercase symbols
 and header letters), `../c_reference/papuan_chr1_3seg.psmcfa`, and the four
-files in `experiment/real_data/` (whole files; per record also for
+`.psmcfa` files in `experiment/real_data/` (whole files; per record also for
 `HLhydTec1_diploid.psmcfa`).
 
 ## Regenerating

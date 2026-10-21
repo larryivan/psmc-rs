@@ -111,10 +111,11 @@ for `target-cpu=native` benchmarks).
 
 The pipeline in `experiment/pipeline/` (`python -m experiment.pipeline`)
 runs the manuscript's experiments and makes its tables and figures; see
-`experiment/README.md`. If you change it:
+`experiment/README.md`. If you change it, run its tests in the environment
+of `experiment/README.md` (with a bare python3 most of them skip):
 
 ```bash
-python3 -m unittest discover -s experiment/tests -v
+experiment/.venv/bin/python -m unittest discover -s experiment/tests
 ```
 
 The pipeline must find its files from its own location, not from the
