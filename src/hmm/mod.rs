@@ -50,6 +50,8 @@ pub use budget::AlphaCacheBudget;
 pub use simd::{SimdPath, set_force_portable, simd_path};
 pub use tmrca::{TmrcaOptions, write_tmrca_posterior_tsv, write_tmrca_posterior_tsv_with_options};
 
+pub(crate) use sched::busy;
+
 use fb::{Ctx, Partial, Progress, SeqObs, Workspace};
 use kernel::Kernel;
 use obs::ObsTable;
