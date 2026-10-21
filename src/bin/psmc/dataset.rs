@@ -20,7 +20,7 @@ use crate::cli::{
 };
 
 /// The input format as QC and the report name it, with the VCF mode.
-pub fn format_label(data: &Dataset) -> String {
+fn format_label(data: &Dataset) -> String {
     match &data.source {
         SourceSummary::Vcf(v) => format!("vcf, {} mode", v.mode.mode.name()),
         s => s.format().name().to_string(),
@@ -115,16 +115,32 @@ pub fn qc_report(
             ..QcSeq::new(s.name.clone(), s.n_bins)
         })
         .collect();
-    let mut context = QcContext {
+    let context = QcContext {
         input_format: Some(format_label(data)),
         free_lambdas,
         start,
         dropped: dropped_groups(data),
         counts_ignored: data.obs.callable.is_some() && !fit_uses_counts(data, mode),
-        ..QcContext::default()
+        ..source_context(&data.source)
     };
+    try_analyze(&QcInput {
+        rows: &data.obs.rows,
+        row_starts: &data.obs.row_starts,
+        seqs: &seqs,
+        bin_size,
+        bootstrap_trunk_bins: bootstrap_trunk,
+        context,
+        callable: data.obs.callable.as_ref(),
+    })
+}
+
+/// What QC learns from how the input of `source` was read: where
+/// multihetsep placed the uncalled sites, and for VCF the mask, the read
+/// depth and consensus mode's filters.
+fn source_context(source: &SourceSummary) -> QcContext {
     let u32_of = |v: u64| u32::try_from(v).unwrap_or(u32::MAX);
-    match &data.source {
+    let mut context = QcContext::default();
+    match source {
         SourceSummary::Psmcfa(_) => {}
         SourceSummary::Mhs(_) => context.approximate_missing_placement = true,
         SourceSummary::Vcf(v) => match &v.details {
@@ -169,15 +185,7 @@ pub fn qc_report(
             }
         },
     }
-    try_analyze(&QcInput {
-        rows: &data.obs.rows,
-        row_starts: &data.obs.row_starts,
-        seqs: &seqs,
-        bin_size,
-        bootstrap_trunk_bins: bootstrap_trunk,
-        context,
-        callable: data.obs.callable.as_ref(),
-    })
+    context
 }
 
 /// The dropped sequences of `data`, counted by reason.
