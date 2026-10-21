@@ -76,7 +76,7 @@ hosts = {json.loads(p.read_text()).get("machine", {}).get("hostname")
          for p in pathlib.Path(sys.argv[1], "E3", "timings").rglob("*.json")}
 hosts.discard(None)
 if len(hosts) > 1:
-    sys.exit(f"submit.sh e3: repeat {sys.argv[2]} was timed on several hosts: {', '.join(sorted(hosts))}")
+    sys.exit(f"submit.sh: e3: repeat {sys.argv[2]} was timed on several hosts: {', '.join(sorted(hosts))}")
 print(next(iter(hosts), ""))
 EOF
 }
