@@ -120,8 +120,9 @@ manuscript places them at 100%, never scaled).
   step of it where the mark is below 4.3:1 on white), because there the
   colour is the key.
 
-  :data:`YELLOW`, band alpha (:data:`BAND_ALPHA`) and outside-window
-  shading (:func:`shade_outside`) serve the pipeline-only modules (fig1-fig4, figs2-figs6 and figs_turtle,
+  :data:`YELLOW`, band alpha (:data:`BAND_ALPHA`), outside-window
+  shading (:func:`shade_outside`, keyed by :func:`outside_handle`) and the
+  centred key (:func:`key_above`) serve the pipeline-only modules (fig1-fig4, figs2-figs6 and figs_turtle,
   which are not in the paper); no article figure uses them.
 
 Export (:func:`save`) writes ``<name>.pdf``, ``.svg`` and a 600-dpi ``.png``

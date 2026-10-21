@@ -35,7 +35,8 @@ from typing import List, Tuple
 
 from . import style
 from .data import Source, fmt_sig
-from .fig4 import MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xaxis, fmt_mib, formatter, log_ticks, medians
+from .fig4 import (MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xaxis, fmt_mib, formatter, log_ticks,
+                   medians)
 
 TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
 TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
