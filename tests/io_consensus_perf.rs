@@ -11,6 +11,9 @@
 //! reused as it is, so a compressed copy (e.g. from bgzip) can be timed too;
 //! the throughput in MB/s refers to the file's size on disk.
 
+mod common;
+
+use common::Rng;
 use psmc_rs::io::common::open_reader;
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, VcfMode, load};
@@ -18,23 +21,6 @@ use std::fs::File;
 use std::io::{BufRead, BufWriter, Write};
 use std::path::PathBuf;
 use std::time::Instant;
-
-/// SplitMix64: deterministic and dependency-free.
-struct Rng(u64);
-
-impl Rng {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    fn below(&mut self, n: u64) -> u64 {
-        self.next_u64() % n
-    }
-}
 
 fn write_vcf(path: &PathBuf, chroms: usize, per_chrom: u64) -> u64 {
     let mut w = BufWriter::with_capacity(1 << 20, File::create(path).unwrap());
@@ -49,15 +35,15 @@ fn write_vcf(path: &PathBuf, chroms: usize, per_chrom: u64) -> u64 {
     for c in 1..=chroms {
         let mut pos = 0;
         for _ in 0..per_chrom {
-            pos += if rng.below(2000) == 0 {
-                1 + rng.below(500)
+            pos += if rng.range(0, 1999) == 0 {
+                rng.range(1, 500)
             } else {
                 1
             };
-            let reference = b"ACGT"[rng.below(4) as usize] as char;
-            let dp = 10 + rng.below(40);
-            let mq = 40 + rng.below(21);
-            if rng.below(1000) == 0 {
+            let reference = rng.pick(b"ACGT") as char;
+            let dp = rng.range(10, 49);
+            let mq = rng.range(40, 60);
+            if rng.range(0, 999) == 0 {
                 writeln!(
                     w,
                     "chr{c}\t{pos}\t.\t{reference}\tG\t222\t.\tDP={dp};VDB=0.5;SGB=-0.69;\
@@ -76,7 +62,7 @@ fn write_vcf(path: &PathBuf, chroms: usize, per_chrom: u64) -> u64 {
                 .unwrap();
             }
             n += 1;
-            if rng.below(5000) == 0 {
+            if rng.range(0, 4999) == 0 {
                 writeln!(
                     w,
                     "chr{c}\t{pos}\t.\t{reference}AT\t{reference}\t99\t.\tINDEL;IDV=10;IMF=0.3;\

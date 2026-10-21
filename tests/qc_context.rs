@@ -3,14 +3,13 @@
 
 mod common;
 
-use common::TempDir;
+use common::{TempDir, VCF_HEADER};
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf_with};
 use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, MAX_FILTER_FRACTION, MIN_MEAN_DEPTH,
     QcCode, QcContext, QcInput, QcReport, Severity, analyze, render_text,
 };
-use std::fs;
 
 /// 2,000 called bins with 100 K bins, read with `context`.
 fn qc(context: QcContext) -> QcReport {
@@ -56,24 +55,18 @@ fn approximate_missing_placement() {
 fn multihetsep_placement_changes_which_bins_are_missing() {
     let dir = TempDir::new("qc_context");
     // Callable: 1-150 and 400-1000; heterozygous SNPs at 120, 450, 455, 990.
-    let vcf = dir.path("calls.vcf");
-    let mut text = String::from(
-        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
-    );
+    let mut text = String::from(VCF_HEADER);
     for pos in [120, 450, 455, 990] {
         text.push_str(&format!("chr1\t{pos}\t.\tA\tC\t.\tPASS\t.\tGT\t0/1\n"));
     }
-    fs::write(&vcf, text).unwrap();
-    let mask = dir.path("callable.bed");
-    fs::write(&mask, "chr1\t0\t150\nchr1\t399\t1000\n").unwrap();
+    let vcf = dir.write("calls.vcf", text);
+    let mask = dir.write("callable.bed", "chr1\t0\t150\nchr1\t399\t1000\n");
     // The multihetsep rows count called sites since the previous row:
     // 1-120: 120; 121-450: 30 + 51 = 81; 451-455: 5; 456-990: 535.
-    let mhs = dir.path("calls.multihetsep");
-    fs::write(
-        &mhs,
+    let mhs = dir.write(
+        "calls.multihetsep",
         "chr1\t120\t120\tAC\nchr1\t450\t81\tAC\nchr1\t455\t5\tAC\nchr1\t990\t535\tAC\n",
-    )
-    .unwrap();
+    );
 
     let exact = read_vcf_with(
         &vcf,

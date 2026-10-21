@@ -27,7 +27,7 @@ fn convert_reproduces_vcf2fq_and_fq2psmcfa() {
         // Plain and gzip output hold the same bytes.
         for ext in ["psmcfa", "psmcfa.gz"] {
             let out = dir.path(&format!("{}.{ext}", set.name));
-            run_ok(args!["convert", set.vcf, "--psmcfa", out, ..set.args]);
+            run_ok(args!["convert", set.vcf, "--psmcfa", out, ..set.args()]);
             assert!(
                 gunzipped(&out) == gunzipped(&set.expected),
                 "{} ({ext}) differs from fq2psmcfa's output",

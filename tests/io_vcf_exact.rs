@@ -5,39 +5,13 @@
 
 mod common;
 
-use common::TempDir;
+use common::{Rng, TempDir};
 use psmc_rs::io::Observations;
 use psmc_rs::io::vcf::{VcfOptions, read_vcf, read_vcf_with};
 use rayon::prelude::*;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-
-/// SplitMix64: deterministic and dependency-free.
-struct Rng(u64);
-
-impl Rng {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// Uniform in `lo..=hi`.
-    fn range(&mut self, lo: u64, hi: u64) -> u64 {
-        lo + self.next_u64() % (hi - lo + 1)
-    }
-
-    fn chance(&mut self, p: f64) -> bool {
-        ((self.next_u64() >> 11) as f64) / ((1u64 << 53) as f64) < p
-    }
-
-    fn pick<T: Copy>(&mut self, xs: &[T]) -> T {
-        xs[self.range(0, xs.len() as u64 - 1) as usize]
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum State {

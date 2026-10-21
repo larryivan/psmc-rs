@@ -3,8 +3,7 @@
 
 mod common;
 
-use common::TempDir;
-use flate2::write::GzEncoder;
+use common::{TempDir, VCF_HEADER, gzip};
 use flate2::{Compression, GzBuilder};
 use psmc_rs::io::input::{InputOptions, load};
 use psmc_rs::io::mhs::read_mhs;
@@ -14,31 +13,16 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// `bytes` written to `name` in `dir`.
-fn write(dir: &TempDir, name: &str, bytes: impl AsRef<[u8]>) -> PathBuf {
-    let path = dir.path(name);
-    fs::write(&path, bytes).unwrap();
-    path
-}
-
-fn gzip_member(data: &[u8]) -> Vec<u8> {
-    let mut enc = GzEncoder::new(Vec::new(), Compression::default());
-    enc.write_all(data).unwrap();
-    enc.finish().unwrap()
-}
-
 /// Compress `parts` as consecutive gzip members, like bgzip does. Current bgzip
 /// puts a VCF header in its own first block, so splitting at arbitrary points
 /// (including mid-line) is what real files look like.
 fn multi_member(parts: &[&[u8]]) -> Vec<u8> {
-    parts.iter().flat_map(|p| gzip_member(p)).collect()
+    parts.iter().flat_map(|p| gzip(p)).collect()
 }
 
 /// A VCF of 300 heterozygous SNPs, 1 kb apart, and where its records start.
 fn vcf_text() -> (String, usize) {
-    let mut s = String::from(
-        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
-    );
+    let mut s = String::from(VCF_HEADER);
     let header = s.len();
     for i in 0..300 {
         s.push_str(&format!(
@@ -66,8 +50,8 @@ fn bgzip_style_vcf_is_read_in_full() {
     // Header in its own member, records split across members mid-line.
     let mid = body.len() / 3;
     let parts = [header, &body[..mid], &body[mid..2 * mid], &body[2 * mid..]];
-    let gz = write(&dir, "calls.vcf.gz", multi_member(&parts));
-    let plain = write(&dir, "calls.vcf", &text);
+    let gz = dir.write("calls.vcf.gz", multi_member(&parts));
+    let plain = dir.write("calls.vcf", &text);
     let from_gz = vcf_rows(&gz, &[]).unwrap();
     assert_eq!(from_gz, vcf_rows(&plain, &[]).unwrap());
     assert_eq!(het_bins(&from_gz), 300);
@@ -88,7 +72,7 @@ fn bgzip_style_psmcfa_is_read_in_full() {
     let bytes = text.as_bytes();
     let dir = TempDir::new("io_gzip");
     let gz = multi_member(&[&bytes[..4], &bytes[4..2000], &bytes[2000..]]);
-    let obs = read_psmcfa(&write(&dir, "in.psmcfa.gz", gz), None).unwrap();
+    let obs = read_psmcfa(&dir.write("in.psmcfa.gz", gz), None).unwrap();
     let lens: Vec<usize> = obs.rows.iter().map(Vec::len).collect();
     assert_eq!(lens, [5000, 3000]);
 }
@@ -100,11 +84,7 @@ fn bgzip_style_mhs_is_read_in_full() {
         .collect();
     let bytes = text.as_bytes();
     let dir = TempDir::new("io_gzip");
-    let gz = write(
-        &dir,
-        "in.mhs.gz",
-        multi_member(&[&bytes[..37], &bytes[37..]]),
-    );
+    let gz = dir.write("in.mhs.gz", multi_member(&[&bytes[..37], &bytes[37..]]));
     assert_eq!(read_mhs(&gz, None, 100).unwrap().rows, [vec![1u8; 200]]);
 }
 
@@ -114,13 +94,9 @@ fn bgzip_style_mask_is_read_in_full() {
     let mask_text = "chr1\t0\t1000\nchr1\t1000\t300000\n";
     let bytes = mask_text.as_bytes();
     let dir = TempDir::new("io_gzip");
-    let gz = write(
-        &dir,
-        "mask.bed.gz",
-        multi_member(&[&bytes[..13], &bytes[13..]]),
-    );
-    let plain = write(&dir, "mask.bed", mask_text);
-    let vcf = write(&dir, "calls.vcf", vcf_text().0);
+    let gz = dir.write("mask.bed.gz", multi_member(&[&bytes[..13], &bytes[13..]]));
+    let plain = dir.write("mask.bed", mask_text);
+    let vcf = dir.write("calls.vcf", vcf_text().0);
     let with_gz = vcf_rows(&vcf, &[gz]).unwrap();
     assert_eq!(with_gz, vcf_rows(&vcf, &[plain]).unwrap());
     // A truncated mask would leave everything after the first block uncallable.
@@ -178,7 +154,7 @@ fn a_bgzip_file_without_its_end_of_file_block_is_an_error() {
         .unwrap()
         + 1;
     let blocks = [header, &body[..cut_at], &body[cut_at..]];
-    let vcf = write(&dir, "calls.vcf.gz", bgzf(&blocks, true));
+    let vcf = dir.write("calls.vcf.gz", bgzf(&blocks, true));
     assert_eq!(het_bins(&vcf_rows(&vcf, &[]).unwrap()), 300);
     for cut in [bgzf(&blocks[..2], false), bgzf(&blocks, false)] {
         fs::write(&vcf, cut).unwrap();
@@ -187,14 +163,14 @@ fn a_bgzip_file_without_its_end_of_file_block_is_an_error() {
 
     // The same for psmcfa input and for masks.
     let records = [&b">s1\nTTKT\n"[..], b">s2\nKKTT\n"];
-    let psmcfa = write(&dir, "in.psmcfa.gz", bgzf(&records, true));
+    let psmcfa = dir.write("in.psmcfa.gz", bgzf(&records, true));
     assert_eq!(read_psmcfa(&psmcfa, None).unwrap().rows.len(), 2);
     fs::write(&psmcfa, bgzf(&records[..1], false)).unwrap();
     assert_truncated(read_psmcfa(&psmcfa, None).unwrap_err());
 
     let rows = [&b"chr1\t0\t1000\n"[..], b"chr1\t1000\t300000\n"];
-    let mask = write(&dir, "mask.bed.gz", bgzf(&rows[..1], false));
-    let plain = write(&dir, "calls.vcf", &text);
+    let mask = dir.write("mask.bed.gz", bgzf(&rows[..1], false));
+    let plain = dir.write("calls.vcf", &text);
     let masks = [mask];
     assert_truncated(vcf_rows(&plain, &masks).unwrap_err());
     fs::write(&masks[0], bgzf(&rows, true)).unwrap();
@@ -205,8 +181,8 @@ fn a_bgzip_file_without_its_end_of_file_block_is_an_error() {
 fn gzip_is_detected_by_content_not_extension() {
     let text = ">s1\nTTKT\n";
     let dir = TempDir::new("io_gzip");
-    let gz_no_ext = write(&dir, "gz.psmcfa", gzip_member(text.as_bytes()));
-    let plain_with_gz_ext = write(&dir, "plain.psmcfa.gz", text);
+    let gz_no_ext = dir.write("gz.psmcfa", gzip(text.as_bytes()));
+    let plain_with_gz_ext = dir.write("plain.psmcfa.gz", text);
     for path in [&gz_no_ext, &plain_with_gz_ext] {
         let obs = read_psmcfa(path, None).unwrap();
         assert_eq!(obs.rows, [[0, 0, 1, 0]], "{path:?}");
@@ -223,8 +199,7 @@ fn a_truncated_bgzip_multihetsep_is_not_blamed_on_the_format_guess() {
         .collect();
     let (first, rest) = (rows[..200].concat(), rows[200..].concat());
     let dir = TempDir::new("io_gzip");
-    let mhs = write(
-        &dir,
+    let mhs = dir.write(
         "in.mhs.gz",
         bgzf(&[first.as_bytes(), rest.as_bytes()], false),
     );

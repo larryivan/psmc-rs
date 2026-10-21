@@ -97,15 +97,15 @@ fn ignore_fits_what_fq2psmcfas_output_fits() {
             &dir,
             &format!("{name}_psmcfa"),
             &set.expected,
-            args!["--bin-size", set.bin_size],
+            args!["--bin-size", set.bin_size.to_string()],
         );
         let (ignore, ignore_out) = fit(
             &dir,
             &format!("{name}_ignore"),
             &set.vcf,
-            args![..set.args, "--bin-callable", "ignore"],
+            args![..set.args(), "--bin-callable", "ignore"],
         );
-        let (auto, auto_out) = fit(&dir, &format!("{name}_auto"), &set.vcf, args![..set.args]);
+        let (auto, auto_out) = fit(&dir, &format!("{name}_auto"), &set.vcf, args![..set.args()]);
 
         assert_eq!(fit_bits(&ignore), fit_bits(&from_psmcfa), "{name}");
         assert_eq!(rounds(&ignore_out), rounds(&psmcfa_out), "{name}");

@@ -6,15 +6,12 @@ mod common;
 use common::TempDir;
 use psmc_rs::io::Observations;
 use psmc_rs::io::mhs::{MhsOptions, read_mhs, read_mhs_with};
-use std::fs;
 use std::path::Path;
 
 /// `content` read as a multihetsep file by `read`.
 fn read_text<T>(content: &str, read: impl FnOnce(&Path) -> T) -> T {
     let dir = TempDir::new("io_mhs");
-    let path = dir.path("in.multihetsep");
-    fs::write(&path, content).unwrap();
-    read(&path)
+    read(&dir.write("in.multihetsep", content))
 }
 
 /// `content` read with `read_mhs`, which reads the first sample.

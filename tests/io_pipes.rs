@@ -5,12 +5,12 @@
 
 mod common;
 
-use common::TempDir;
+use common::{TempDir, gunzipped};
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{Dataset, InputFormat, InputOptions, SeqFilter, VcfMode, load};
 use psmc_rs::io::write::write_psmcfa_to;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc;
@@ -20,14 +20,6 @@ use std::time::Duration;
 /// A file of tests/data/route_a.
 fn fixture(name: &str) -> PathBuf {
     common::fixture(&format!("route_a/{name}"))
-}
-
-fn gunzip(bytes: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    flate2::read::MultiGzDecoder::new(bytes)
-        .read_to_end(&mut out)
-        .unwrap();
-    out
 }
 
 /// `load` of a FIFO whose writer sends `content` once, to the first reader
@@ -105,7 +97,7 @@ fn an_all_sites_vcf_from_a_fifo_is_read_like_the_file() {
     let default_psmcfa = fs::read(fixture("expected/default.psmcfa")).unwrap();
     for (i, opts) in option_sets.iter().enumerate() {
         let file = load(&path, opts).unwrap();
-        for content in [gz.clone(), gunzip(&gz)] {
+        for content in [gz.clone(), gunzipped(&path)] {
             let piped = load_fifo(content, opts).unwrap();
             assert_same(&piped, &file);
             // The defaults are those of vcf2fq and fq2psmcfa.

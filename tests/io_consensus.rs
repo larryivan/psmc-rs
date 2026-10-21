@@ -5,16 +5,11 @@
 
 mod common;
 
-use common::TempDir;
+use common::{TempDir, VCF_HEADER};
 use psmc_rs::io::consensus::{
     ConsensusFilters, ConsensusOptions, ConsensusRead, DepthThresholds, LossReason,
     auto_depth_thresholds, read_vcf_consensus, scan_depth,
 };
-use std::fs;
-use std::path::PathBuf;
-
-const HEADER: &str =
-    "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
 
 /// INFO of a confident reference call that passes the default filters.
 const GOOD: &str = "DP=20;MQ=50;AF1=0;FQ=-60";
@@ -65,16 +60,9 @@ fn het_sites() -> ConsensusOptions {
     }
 }
 
-/// `text` written to `name` in `dir`.
-fn write(dir: &TempDir, name: &str, text: &str) -> PathBuf {
-    let path = dir.path(name);
-    fs::write(&path, text).unwrap();
-    path
-}
-
 fn read(records: &str, opts: &ConsensusOptions) -> anyhow::Result<ConsensusRead> {
     let dir = TempDir::new("io_consensus");
-    read_vcf_consensus(&write(&dir, "in.vcf", &format!("{HEADER}{records}")), opts)
+    read_vcf_consensus(&dir.write("in.vcf", format!("{VCF_HEADER}{records}")), opts)
 }
 
 /// [`opts`] with a callable mask of each of `rows`, written to `dir`.
@@ -82,7 +70,7 @@ fn masks(dir: &TempDir, rows: &[&str]) -> ConsensusOptions {
     let masks = rows
         .iter()
         .enumerate()
-        .map(|(i, r)| write(dir, &format!("mask{i}.bed"), r))
+        .map(|(i, r)| dir.write(&format!("mask{i}.bed"), r))
         .collect();
     ConsensusOptions { masks, ..opts() }
 }
@@ -458,7 +446,7 @@ fn auto_depth_uses_the_mean_of_base_records() {
     ]
     .concat();
     let dir = TempDir::new("io_consensus");
-    let path = write(&dir, "in.vcf", &format!("{HEADER}{records}"));
+    let path = dir.write("in.vcf", format!("{VCF_HEADER}{records}"));
     let stats = scan_depth(&path).unwrap();
     assert_eq!((stats.records, stats.records_without_dp), (4, 1));
     assert_eq!((stats.mean, stats.median), (30.0, 25.0));

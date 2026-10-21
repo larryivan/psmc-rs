@@ -3,27 +3,12 @@
 //! sequences are cut into rows. How the counts are stored is tested in
 //! `src/io/callable.rs`.
 
+mod common;
+
+use common::Rng;
 use psmc_rs::bootstrap::sequences_to_observations;
 use psmc_rs::io::common::chunk_sequences;
 use psmc_rs::io::{BinCounts, CallableBases, MAX_COUNTED_BIN_SIZE, Observations, Sequences};
-
-/// SplitMix64: deterministic and dependency-free.
-struct Rng(u64);
-
-impl Rng {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// Uniform in `lo..=hi`.
-    fn range(&mut self, lo: u64, hi: u64) -> u64 {
-        lo + self.next_u64() % (hi - lo + 1)
-    }
-}
 
 /// Random sequences of bins of `s` bases whose symbols agree with their
 /// counts: N exactly when fewer than 10% of the bases are callable. Some

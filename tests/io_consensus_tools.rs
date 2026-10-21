@@ -12,6 +12,9 @@
 //!
 //! `CONSENSUS_FUZZ_CASES` sets the number of random files (default 300).
 
+mod common;
+
+use common::{Rng, VCF_HEADER};
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode, load};
 use psmc_rs::io::write::write_psmcfa_to;
@@ -19,32 +22,6 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-
-/// SplitMix64: deterministic and dependency-free.
-struct Rng(u64);
-
-impl Rng {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// Uniform in `lo..=hi`.
-    fn range(&mut self, lo: u64, hi: u64) -> u64 {
-        lo + self.next_u64() % (hi - lo + 1)
-    }
-
-    fn chance(&mut self, p: f64) -> bool {
-        ((self.next_u64() >> 11) as f64) / ((1u64 << 53) as f64) < p
-    }
-
-    fn pick<T: Copy>(&mut self, xs: &[T]) -> T {
-        xs[self.range(0, xs.len() as u64 - 1) as usize]
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Opts {
@@ -437,8 +414,6 @@ fn first_difference(a: &[u8], b: &[u8]) -> String {
 
 /// Hand-written files for the cases random files rarely reach.
 fn fixed_cases() -> Vec<(&'static str, String, Opts)> {
-    let header =
-        "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
     let good = |c: &str, from: u64, to: u64| -> String {
         (from..=to)
             .map(|p| format!("{c}\t{p}\t.\tA\t.\t30\t.\tDP=20;MQ=50;FQ=-60\tGT\t0/0\n"))
@@ -460,20 +435,20 @@ fn fixed_cases() -> Vec<(&'static str, String, Opts)> {
         // vcf2fq dies with "substr outside of string".
         (
             "window past the end",
-            format!("{header}{}{}", good("c", 1, 4), indel("c", 5)),
+            format!("{VCF_HEADER}{}{}", good("c", 1, 4), indel("c", 5)),
             Opts { l: 0, ..o },
         ),
         // With l = 1 it starts at the end and is empty.
         (
             "empty window at the end",
-            format!("{header}{}{}", good("c", 1, 4), indel("c", 5)),
+            format!("{VCF_HEADER}{}{}", good("c", 1, 4), indel("c", 5)),
             Opts { l: 1, ..o },
         ),
         // A chromosome named 0 is dropped unless it is the last one.
         (
             "chromosome 0",
             format!(
-                "{header}{}{}{}",
+                "{VCF_HEADER}{}{}{}",
                 good("0", 1, 30),
                 good("c", 1, 30),
                 good("0", 1, 30)
@@ -484,14 +459,14 @@ fn fixed_cases() -> Vec<(&'static str, String, Opts)> {
         (
             "empty chromosome",
             format!(
-                "{header}{}{}{}",
+                "{VCF_HEADER}{}{}{}",
                 good("a", 1, 30),
                 indel("b", 1),
                 good("c", 1, 30)
             ),
             o,
         ),
-        ("no records", header.to_string(), o),
+        ("no records", VCF_HEADER.to_string(), o),
     ]
 }
 

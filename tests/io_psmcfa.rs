@@ -3,20 +3,14 @@
 
 mod common;
 
-use common::TempDir;
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use common::{TempDir, gzip};
 use psmc_rs::io::Observations;
 use psmc_rs::io::psmcfa::{PsmcfaRecord, parse_psmcfa, read_psmcfa};
-use std::fs;
-use std::io::Write;
 
 /// `bytes` written to the file `name` and read in rows of `batch_size`.
 fn read(name: &str, bytes: &[u8], batch_size: Option<usize>) -> anyhow::Result<Observations> {
     let dir = TempDir::new("io_psmcfa");
-    let path = dir.path(name);
-    fs::write(&path, bytes).unwrap();
-    read_psmcfa(&path, batch_size)
+    read_psmcfa(&dir.write(name, bytes), batch_size)
 }
 
 fn rows(bytes: &[u8]) -> Vec<Vec<u8>> {
@@ -40,9 +34,7 @@ fn records_are_rows_cut_into_batches() {
 
 #[test]
 fn gzip_input_is_read() {
-    let mut gz = GzEncoder::new(Vec::new(), Compression::default());
-    gz.write_all(b"> chr1\nTKNT\n").unwrap();
-    let obs = read("in.psmcfa.gz", &gz.finish().unwrap(), None).unwrap();
+    let obs = read("in.psmcfa.gz", &gzip(b"> chr1\nTKNT\n"), None).unwrap();
     assert_eq!(obs.row_starts, [true]);
     assert_eq!(obs.rows, [[0, 1, 2, 0]]);
 }

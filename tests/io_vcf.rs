@@ -7,17 +7,9 @@ use common::TempDir;
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::vcf::{VcfOptions, VcfRead, read_vcf, read_vcf_with};
 use std::fmt::Write as _;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 const COLUMNS: &str = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1";
-
-/// `text` written to `name` in `dir`.
-fn write(dir: &TempDir, name: &str, text: &str) -> PathBuf {
-    let path = dir.path(name);
-    fs::write(&path, text).unwrap();
-    path
-}
 
 /// A one-sample VCF `name` in `dir`: the `##` lines `meta`, then `records`
 /// given as `chrom pos ref alt filter gt`, or as `chrom pos ref alt filter
@@ -42,7 +34,7 @@ fn write_vcf(dir: &TempDir, name: &str, meta: &[&str], records: &[&str]) -> Path
         )
         .unwrap();
     }
-    write(dir, name, &text)
+    dir.write(name, &text)
 }
 
 fn opts(bin_size: usize) -> VcfOptions {
@@ -78,10 +70,9 @@ fn heterozygous_genotypes_are_k_bins() {
 #[test]
 fn a_vcf_of_several_samples_needs_the_sample_named() {
     let dir = TempDir::new("io_vcf");
-    let vcf = write(
-        &dir,
+    let vcf = dir.write(
         "two.vcf",
-        &format!(
+        format!(
             "##fileformat=VCFv4.2\n{COLUMNS}\ts2\nchr1\t20\t.\tA\tC\t.\tPASS\t.\tGT\t0/0\t0/1\n"
         ),
     );
@@ -106,9 +97,9 @@ fn masks_follow_multihetsep_called_semantics() {
     );
     // Callable: [1, 101] (1-based) less [2, 99], which leaves positions 1
     // and 100 of the sequence.
-    let mask = write(&dir, "mask.bed", "chr1\t0\t101\n");
-    let neg = write(&dir, "neg.bed", "chr1\t1\t99\n");
-    let mhs = write(&dir, "calls.mhs", "chr1 1 1 AC\nchr1 100 1 GT\n");
+    let mask = dir.write("mask.bed", "chr1\t0\t101\n");
+    let neg = dir.write("neg.bed", "chr1\t1\t99\n");
+    let mhs = dir.write("calls.mhs", "chr1 1 1 AC\nchr1 100 1 GT\n");
     let from_vcf = read_vcf(&vcf, None, 100, None, &[mask], &[neg]).unwrap();
     let from_mhs = read_mhs(&mhs, None, 100).unwrap();
     assert_eq!(from_vcf.row_starts, from_mhs.row_starts);
@@ -142,7 +133,7 @@ fn missing_sites_stay_at_their_own_positions() {
     let neg_rows: String = (1..=10)
         .map(|i| format!("chr1\t{}\t{}\n", 2 * i - 1, 2 * i))
         .collect();
-    let neg = write(&dir, "neg.bed", &neg_rows);
+    let neg = dir.write("neg.bed", &neg_rows);
     let obs = read_vcf(&vcf, None, 10, None, &[], &[neg]).unwrap();
     assert_eq!(obs.rows, [[0, 0, 1]]);
 }
@@ -297,11 +288,7 @@ fn sequences_extend_to_the_contig_length() {
     ];
     let vcf = write_vcf(&dir, "calls.vcf", &meta, &records);
     // Callable: chr1 1-12, all of chr2 and chr3.
-    let mask = write(
-        &dir,
-        "mask.bed",
-        "chr1\t0\t12\nchr2\t0\t100\nchr3\t0\t100\n",
-    );
+    let mask = dir.write("mask.bed", "chr1\t0\t12\nchr2\t0\t100\nchr3\t0\t100\n");
 
     // chr1 runs to 40: bins 1-10 K, 11-20 T (8 missing), 21-30 and 31-40 N.
     // chr3 has no length and ends at its last record; chrM has no records.
@@ -461,7 +448,7 @@ fn without_a_positive_mask_gaps_count_as_called_with_a_warning() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("--vcf-mask"), "{warnings:?}");
 
-    let read = read_with(vec![write(&dir, "mask.bed", "chr1\t0\t2000100\n")]);
+    let read = read_with(vec![dir.write("mask.bed", "chr1\t0\t2000100\n")]);
     assert!(read.summary.positive_mask);
     assert!(read.summary.warnings().is_empty());
 }
@@ -471,7 +458,7 @@ fn chromosomes_the_mask_does_not_mention_are_reported() {
     // A mask written with Ensembl names for a UCSC-named VCF.
     let dir = TempDir::new("io_vcf");
     let opts = VcfOptions {
-        masks: vec![write(&dir, "mask.bed", "1\t0\t1000\n")],
+        masks: vec![dir.write("mask.bed", "1\t0\t1000\n")],
         ..opts(10)
     };
     let ucsc = write_vcf(
@@ -505,7 +492,7 @@ fn chromosomes_the_mask_does_not_mention_are_reported() {
 fn gvcf_blocks_without_a_call_are_missing_over_their_span() {
     let dir = TempDir::new("io_vcf");
     let opts = VcfOptions {
-        masks: vec![write(&dir, "mask.bed", "chr1\t0\t100\n")],
+        masks: vec![dir.write("mask.bed", "chr1\t0\t100\n")],
         ..opts(10)
     };
     let missing_40 = [0, 0, 2, 2, 2, 2, 1, 0, 0, 0];
@@ -650,7 +637,7 @@ fn reading_as_a_gvcf_makes_uncovered_positions_missing() {
     );
     // Uncovered positions are missing also where a mask would call them,
     // and a position the mask leaves out is not counted twice.
-    let s = read_as(true, vec![write(&dir, "mask.bed", "chr1\t0\t50\n")]);
+    let s = read_as(true, vec![dir.write("mask.bed", "chr1\t0\t50\n")]);
     assert_eq!(missing(&s), (29, 29));
 }
 
@@ -659,7 +646,7 @@ fn separate_per_chromosome_masks_are_said_to_be_intersected() {
     // One mask per chromosome, each given as its own --vcf-mask: every
     // chromosome is in one mask and missing from the others.
     let dir = TempDir::new("io_vcf");
-    let mask = |c: &str| write(&dir, &format!("{c}.bed"), &format!("{c}\t0\t1000\n"));
+    let mask = |c: &str| dir.write(&format!("{c}.bed"), format!("{c}\t0\t1000\n"));
     let (chr1, chr2) = (mask("chr1"), mask("chr2"));
     let vcf2 = write_vcf(
         &dir,
@@ -681,7 +668,7 @@ fn separate_per_chromosome_masks_are_said_to_be_intersected() {
     assert!(!err.contains("'chr1' vs '1'"), "{err}");
 
     // With a third mask that covers both, and a chromosome no mask has.
-    let both = write(&dir, "both.bed", "chr1\t0\t1000\nchr2\t0\t1000\n");
+    let both = dir.write("both.bed", "chr1\t0\t1000\nchr2\t0\t1000\n");
     let vcf3 = write_vcf(
         &dir,
         "three.vcf",
@@ -764,7 +751,7 @@ fn the_summary_counts_records_by_kind() {
         ],
     );
     let opts = VcfOptions {
-        negative_masks: vec![write(&dir, "neg.bed", "chr1\t6\t7\n")],
+        negative_masks: vec![dir.write("neg.bed", "chr1\t6\t7\n")],
         ..opts(2)
     };
     let read = read(&vcf, &opts);
@@ -785,10 +772,9 @@ fn the_summary_counts_records_by_kind() {
 fn the_summary_reports_the_sample_depth() {
     // One sample: FORMAT/DP, else INFO/DP; a DP of '.' is no depth.
     let dir = TempDir::new("io_vcf");
-    let one = write(
-        &dir,
+    let one = dir.write(
         "one.vcf",
-        &format!(
+        format!(
             "##fileformat=VCFv4.2\n{COLUMNS}\n\
              c\t1\t.\tA\tC\t.\tPASS\tDP=99\tGT:DP\t0/1:10\n\
              c\t2\t.\tA\t.\t.\tPASS\t.\tGT:DP\t0/0:20\n\
@@ -810,10 +796,9 @@ fn the_summary_reports_the_sample_depth() {
 
     // Several samples: the selected sample's FORMAT/DP only, since INFO/DP
     // sums over all of them.
-    let two = write(
-        &dir,
+    let two = dir.write(
         "two.vcf",
-        &format!(
+        format!(
             "##fileformat=VCFv4.2\n{COLUMNS}\ts2\n\
              c\t1\t.\tA\tC\t.\tPASS\tDP=130\tGT:DP\t0/0:100\t0/1:30\n\
              c\t2\t.\tA\t.\t.\tPASS\tDP=50\tGT\t0/0\t0/0\n"

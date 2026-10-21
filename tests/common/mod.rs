@@ -8,7 +8,13 @@ pub mod psmc_text;
 pub mod reference_hmm;
 
 use psmc_rs::hmm::{EStepResult, e_step_streaming};
+use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
+use psmc_rs::io::input::{
+    Dataset, InputFormat, InputOptions, SeqFilter, SourceSummary, VcfDetails, VcfInputSummary,
+    VcfMode,
+};
 use psmc_rs::io::psmcfa::{read_psmcfa, read_psmcfa_records};
+use psmc_rs::io::vcf::VcfSummary;
 use psmc_rs::io::write::write_psmcfa_to;
 use psmc_rs::io::{CallableBases, Observations};
 use psmc_rs::model::{NegativeTransitions, n_steps_for_pattern};
@@ -17,7 +23,7 @@ use psmc_rs::{PsmcModel, initial_theta};
 use serde_json::Value;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -193,6 +199,13 @@ pub fn read(path: impl AsRef<Path>) -> String {
     fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// `data` as one gzip member.
+pub fn gzip(data: &[u8]) -> Vec<u8> {
+    let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    enc.write_all(data).unwrap();
+    enc.finish().unwrap()
+}
+
 /// The contents of a file, gunzipped when its name ends in `.gz` (which it
 /// must then be).
 #[track_caller]
@@ -219,6 +232,10 @@ pub fn json(path: &Path) -> Value {
     serde_json::from_str(&read(path)).unwrap()
 }
 
+/// The header of a VCF of one sample, `s1`.
+pub const VCF_HEADER: &str =
+    "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
+
 /// The codes of the findings of a QC report's JSON, in order.
 pub fn finding_codes(report: &Value) -> Vec<String> {
     report["findings"]
@@ -227,6 +244,38 @@ pub fn finding_codes(report: &Value) -> Vec<String> {
         .iter()
         .map(|f| f["code"].as_str().unwrap().to_string())
         .collect()
+}
+
+// ---- random scenarios ---------------------------------------------------------
+
+/// SplitMix64, the generator of the random scenarios: deterministic and
+/// dependency-free, so that a failing scenario's seed reproduces it on any
+/// platform and with any `rand` release.
+pub struct Rng(pub u64);
+
+impl Rng {
+    pub fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    /// Uniform in `lo..=hi`.
+    pub fn range(&mut self, lo: u64, hi: u64) -> u64 {
+        lo + self.next_u64() % (hi - lo + 1)
+    }
+
+    /// True with probability `p`.
+    pub fn chance(&mut self, p: f64) -> bool {
+        ((self.next_u64() >> 11) as f64) / ((1u64 << 53) as f64) < p
+    }
+
+    /// One of `xs`, uniformly.
+    pub fn pick<T: Copy>(&mut self, xs: &[T]) -> T {
+        xs[self.range(0, xs.len() as u64 - 1) as usize]
+    }
 }
 
 // ---- fixtures ---------------------------------------------------------------
@@ -264,23 +313,81 @@ pub fn small_psmcfa(path: &Path, bins: usize) {
 }
 
 /// One row of `route_a/expected/option_sets.tsv`: a VCF of `tests/data/route_a`
-/// and the psmc-rs options that read it as `vcfutils.pl vcf2fq | fq2psmcfa`
-/// did with the row's options (their defaults where it gives none) to write
-/// the golden psmcfa `expected`.
+/// and the options `vcfutils.pl vcf2fq | fq2psmcfa` read it with (their
+/// defaults where the row gives none) to write the golden psmcfa `expected`.
 pub struct OptionSet {
     pub name: String,
     pub vcf: PathBuf,
     pub expected: PathBuf,
-    /// `--depth`, `--min-mapq`, `--indel-window`, `--min-qual`,
-    /// `--min-good-bases` and `--bin-size`, in that order; the `auto` row
-    /// lets psmc-rs choose the depth bounds.
-    pub args: Vec<String>,
-    pub bin_size: String,
+    /// vcf2fq's `-d`, `-D`, `-Q` and `-l`.
+    pub min_depth: u64,
+    pub max_depth: u64,
+    pub min_mq: u64,
+    pub indel_window: u64,
+    /// fq2psmcfa's `-q`, `-g` and `-s`.
+    pub min_qual: u64,
+    pub min_good_bases: u64,
+    pub bin_size: usize,
+}
+
+impl OptionSet {
+    /// The row's depth bounds, but psmc-rs's own for the `auto` row, whose
+    /// bounds the script that made the goldens computed.
+    fn depth(&self) -> DepthThresholds {
+        if self.name == "auto" {
+            DepthThresholds::Auto
+        } else {
+            DepthThresholds::Fixed {
+                min: self.min_depth,
+                max: self.max_depth,
+            }
+        }
+    }
+
+    /// The command-line options that read `vcf` as the tools did.
+    pub fn args(&self) -> Vec<String> {
+        let depth = match self.depth() {
+            DepthThresholds::Fixed { min, max } => format!("{min}:{max}"),
+            DepthThresholds::Auto => "auto".to_string(),
+        };
+        [
+            ("--depth", depth),
+            ("--min-mapq", self.min_mq.to_string()),
+            ("--indel-window", self.indel_window.to_string()),
+            ("--min-qual", self.min_qual.to_string()),
+            ("--min-good-bases", self.min_good_bases.to_string()),
+            ("--bin-size", self.bin_size.to_string()),
+        ]
+        .into_iter()
+        .flat_map(|(flag, value)| [flag.to_string(), value])
+        .collect()
+    }
+
+    /// The loader's options that read `vcf` as the tools did.
+    pub fn input_options(&self) -> InputOptions {
+        InputOptions {
+            format: Some(InputFormat::Vcf),
+            vcf_mode: VcfMode::Auto,
+            bin_size: self.bin_size,
+            consensus: ConsensusFilters {
+                depth: self.depth(),
+                min_mq: self.min_mq,
+                indel_window: self.indel_window,
+                min_qual: self.min_qual,
+            },
+            filter: SeqFilter {
+                min_good_bases: self.min_good_bases,
+                min_good_fraction: 0.2,
+            },
+            ..InputOptions::default()
+        }
+    }
 }
 
 /// The rows of `route_a/expected/option_sets.tsv`.
 pub fn route_a_option_sets() -> Vec<OptionSet> {
-    let flags = |text: &str, tool: &str| -> Vec<(char, String)> {
+    // A tool's flags by their letters: `vcf2fq -d 10 -D 60`.
+    let flags = |text: &str, tool: &str| -> Vec<(char, u64)> {
         let words: Vec<&str> = text
             .strip_prefix(tool)
             .expect("tool name")
@@ -288,8 +395,14 @@ pub fn route_a_option_sets() -> Vec<OptionSet> {
             .collect();
         words
             .chunks(2)
-            .map(|p| (p[0].chars().nth(1).unwrap(), p[1].to_string()))
+            .map(|p| (p[0].chars().nth(1).unwrap(), p[1].parse().unwrap()))
             .collect()
+    };
+    let get = |flags: &[(char, u64)], key: char, default: u64| {
+        flags
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map_or(default, |&(_, v)| v)
     };
     let route_a = |name: &str| fixture(&format!("route_a/{name}"));
     read(route_a("expected/option_sets.tsv"))
@@ -299,29 +412,6 @@ pub fn route_a_option_sets() -> Vec<OptionSet> {
             let cols: Vec<&str> = line.split('\t').collect();
             let name = cols[0].to_string();
             let (v, f) = (flags(cols[1], "vcf2fq"), flags(cols[2], "fq2psmcfa"));
-            let get = |flags: &[(char, String)], key: char, default: &str| {
-                flags
-                    .iter()
-                    .find(|(k, _)| *k == key)
-                    .map_or(default.to_string(), |(_, v)| v.clone())
-            };
-            let depth = if name == "auto" {
-                "auto".to_string()
-            } else {
-                format!("{}:{}", get(&v, 'd', "3"), get(&v, 'D', "100000"))
-            };
-            let bin_size = get(&f, 's', "100");
-            let args = [
-                ("--depth", depth),
-                ("--min-mapq", get(&v, 'Q', "10")),
-                ("--indel-window", get(&v, 'l', "5")),
-                ("--min-qual", get(&f, 'q', "10")),
-                ("--min-good-bases", get(&f, 'g', "10000")),
-                ("--bin-size", bin_size.clone()),
-            ]
-            .into_iter()
-            .flat_map(|(flag, value)| [flag.to_string(), value])
-            .collect();
             let expected = ["psmcfa", "psmcfa.gz"]
                 .iter()
                 .map(|ext| route_a(&format!("expected/{name}.{ext}")))
@@ -330,12 +420,34 @@ pub fn route_a_option_sets() -> Vec<OptionSet> {
             OptionSet {
                 vcf: route_a(cols[3]),
                 expected,
-                args,
-                bin_size,
+                min_depth: get(&v, 'd', 3),
+                max_depth: get(&v, 'D', 100_000),
+                min_mq: get(&v, 'Q', 10),
+                indel_window: get(&v, 'l', 5),
+                min_qual: get(&f, 'q', 10),
+                min_good_bases: get(&f, 'g', 10_000),
+                bin_size: get(&f, 's', 100) as usize,
                 name,
             }
         })
         .collect()
+}
+
+/// The summary of `data`, which must have been read as a VCF.
+pub fn vcf_summary(data: &Dataset) -> &VcfInputSummary {
+    let SourceSummary::Vcf(v) = &data.source else {
+        panic!("not read as a VCF: {:?}", data.source)
+    };
+    v
+}
+
+/// The reader's summary of `data`, which must have been read as a VCF in
+/// mask mode.
+pub fn mask_summary(data: &Dataset) -> &VcfSummary {
+    let VcfDetails::Mask(m) = &vcf_summary(data).details else {
+        panic!("not read in mask mode")
+    };
+    m
 }
 
 // ---- models, fits and E-steps -------------------------------------------------

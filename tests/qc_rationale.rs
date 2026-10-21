@@ -11,7 +11,6 @@ use psmc_rs::qc::{
     HEMIZYGOUS_MIN_EXPECTED_HET_BINS, QcCode, QcContext, QcInput, QcReport, QcSeq,
     REFERENCE_MIN_CALLED_BASES, Severity, analyze, initial_recombinations, theta0_per_bin,
 };
-use std::fs;
 
 /// The QC report of `rows` and `seqs` in bins of 100 bp, with the default
 /// context and no bootstrap.
@@ -272,7 +271,6 @@ fn variants_only_vcf_without_mask_lowers_theta() {
     // VARIANTS_ONLY_NO_MASK: the same calls read with and without the
     // callable mask that says only half of the chromosome was callable.
     let dir = TempDir::new("qc_rationale");
-    let vcf = dir.path("calls.vcf");
     let mut text = String::from(
         "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=200000>\n\
          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n",
@@ -281,9 +279,8 @@ fn variants_only_vcf_without_mask_lowers_theta() {
     for pos in (200..100_000).step_by(400) {
         text.push_str(&format!("chr1\t{pos}\t.\tA\tG\t.\tPASS\t.\tGT\t0/1\n"));
     }
-    fs::write(&vcf, text).unwrap();
-    let mask = dir.path("callable.bed");
-    fs::write(&mask, "chr1\t0\t100000\n").unwrap();
+    let vcf = dir.write("calls.vcf", text);
+    let mask = dir.write("callable.bed", "chr1\t0\t100000\n");
 
     let theta = |masks: Vec<std::path::PathBuf>| {
         let obs = read_vcf_with(

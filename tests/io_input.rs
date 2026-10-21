@@ -3,33 +3,22 @@
 
 mod common;
 
-use common::TempDir;
+use common::{TempDir, VCF_HEADER, gzip, mask_summary, vcf_summary};
 use psmc_rs::io::input::{
-    Dataset, DropReason, HetSite, InputFormat, InputOptions, MODE_DETECTION_RECORDS, SeqFilter,
-    SourceSummary, VcfDetails, VcfInputSummary, VcfMode, detect_vcf_mode, load,
+    DropReason, HetSite, InputFormat, InputOptions, MODE_DETECTION_RECORDS, SeqFilter,
+    SourceSummary, VcfDetails, VcfMode, detect_vcf_mode, load,
 };
 use psmc_rs::io::mhs::read_mhs;
 use psmc_rs::io::psmcfa::read_psmcfa;
-use psmc_rs::io::vcf::{VcfSummary, read_vcf};
+use psmc_rs::io::vcf::read_vcf;
 use psmc_rs::io::write::write_psmcfa_to;
 use std::fmt::Write as _;
-use std::fs;
-use std::path::{Path, PathBuf};
-
-const HEADER: &str =
-    "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n";
-
-/// `content` written to `name` in `dir`.
-fn write(dir: &TempDir, name: &str, content: impl AsRef<[u8]>) -> PathBuf {
-    let path = dir.path(name);
-    fs::write(&path, content).unwrap();
-    path
-}
+use std::path::Path;
 
 /// An all-sites VCF as `bcftools call -c` writes it, with a heterozygous
 /// SNP every `het_every` positions.
 fn call_c_vcf(chrom: &str, len: u64, het_every: u64, depth: u64) -> String {
-    let mut out = String::from(HEADER);
+    let mut out = String::from(VCF_HEADER);
     for pos in 1..=len {
         let (alt, af1, fq, gt) = if pos % het_every == 0 {
             ("G", "0.5", "40", "0/1")
@@ -76,38 +65,21 @@ fn error(path: &Path, opts: &InputOptions) -> String {
     format!("{:#}", load(path, opts).unwrap_err())
 }
 
-fn vcf_summary(data: &Dataset) -> &VcfInputSummary {
-    let SourceSummary::Vcf(v) = &data.source else {
-        panic!("not read as a VCF: {:?}", data.source)
-    };
-    v
-}
-
-fn mask_summary(data: &Dataset) -> &VcfSummary {
-    let VcfDetails::Mask(m) = &vcf_summary(data).details else {
-        panic!("not read in mask mode")
-    };
-    m
-}
-
 #[test]
 fn formats_are_recognised_from_the_content() {
     let dir = TempDir::new("io_input");
-    let psmcfa = write(&dir, "psmcfa.txt", "\n>chr1\nTTKN\n");
+    let psmcfa = dir.write("psmcfa.txt", "\n>chr1\nTTKN\n");
     for (path, format) in [
         (
-            write(&dir, "vcf.txt", call_c_vcf("c", 3, 2, 10)),
+            dir.write("vcf.txt", call_c_vcf("c", 3, 2, 10)),
             InputFormat::Vcf,
         ),
         (psmcfa.clone(), InputFormat::Psmcfa),
-        (
-            write(&dir, "mhs.txt", "chr1\t10\t10\tAC\n"),
-            InputFormat::Mhs,
-        ),
+        (dir.write("mhs.txt", "chr1\t10\t10\tAC\n"), InputFormat::Mhs),
     ] {
         assert_eq!(InputFormat::sniff(&path).unwrap(), format);
     }
-    assert!(InputFormat::sniff(&write(&dir, "empty.txt", "\n\n")).is_err());
+    assert!(InputFormat::sniff(&dir.write("empty.txt", "\n\n")).is_err());
 
     let data = load(&psmcfa, &InputOptions::default()).unwrap();
     assert_eq!(data.source.format(), InputFormat::Psmcfa);
@@ -119,13 +91,11 @@ fn bcf_input_is_refused_with_a_conversion_hint() {
     // BCF 2.2 as bcftools writes it: magic, header length, header text,
     // then binary records. -Ob compresses it (gzip framing here).
     let mut bcf = b"BCF\x02\x02".to_vec();
-    let header = format!("{HEADER}\0");
+    let header = format!("{VCF_HEADER}\0");
     bcf.extend_from_slice(&(header.len() as u32).to_le_bytes());
     bcf.extend_from_slice(header.as_bytes());
     bcf.extend_from_slice(&[0x1c, 0, 0, 0, 0xff, 0xfe, 0x80, 0x7f]);
-    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    std::io::Write::write_all(&mut gz, &bcf).unwrap();
-    let gz = gz.finish().unwrap();
+    let gz = gzip(&bcf);
     let dir = TempDir::new("io_input");
     for (bytes, format) in [
         (&bcf, None),
@@ -137,7 +107,7 @@ fn bcf_input_is_refused_with_a_conversion_hint() {
             format,
             ..InputOptions::default()
         };
-        let msg = error(&write(&dir, "in.bcf", bytes), &opts);
+        let msg = error(&dir.write("in.bcf", bytes), &opts);
         assert!(
             msg.contains("is a BCF file") && msg.contains("bcftools view -Oz"),
             "{format:?}: {msg}"
@@ -149,22 +119,18 @@ fn bcf_input_is_refused_with_a_conversion_hint() {
 fn a_utf8_byte_order_mark_is_skipped() {
     const BOM: &str = "\u{feff}";
     let dir = TempDir::new("io_input");
-    let psmcfa = write(&dir, "in.psmcfa", format!("{BOM}>chr1\nTTKN\n"));
+    let psmcfa = dir.write("in.psmcfa", format!("{BOM}>chr1\nTTKN\n"));
     let data = load(&psmcfa, &InputOptions::default()).unwrap();
     assert_eq!(data.source.format(), InputFormat::Psmcfa);
     assert_eq!(data.seqs[0].name, "chr1");
     assert_eq!(data.obs.rows, [[0, 0, 1, 2]]);
 
-    let mhs = write(&dir, "in.mhs", format!("{BOM}chr1\t10\t10\tAC\n"));
+    let mhs = dir.write("in.mhs", format!("{BOM}chr1\t10\t10\tAC\n"));
     let data = load(&mhs, &binned(5)).unwrap();
     assert_eq!(data.source.format(), InputFormat::Mhs);
     assert_eq!(data.seqs[0].name, "chr1");
 
-    let vcf = write(
-        &dir,
-        "in.vcf",
-        format!("{BOM}{}", call_c_vcf("c", 30, 3, 20)),
-    );
+    let vcf = dir.write("in.vcf", format!("{BOM}{}", call_c_vcf("c", 30, 3, 20)));
     let data = load(&vcf, &binned(100)).unwrap();
     assert_eq!(data.source.format(), InputFormat::Vcf);
     assert_eq!(data.seqs[0].het_sites, Some(10));
@@ -173,7 +139,7 @@ fn a_utf8_byte_order_mark_is_skipped() {
 #[test]
 fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
     let dir = TempDir::new("io_input");
-    let notes = write(&dir, "notes.txt", "Some notes, not data\n");
+    let notes = dir.write("notes.txt", "Some notes, not data\n");
     let err = error(&notes, &InputOptions::default());
     assert!(
         err.contains("failed to read multihetsep")
@@ -186,7 +152,7 @@ fn a_failed_multihetsep_guess_says_how_the_format_was_chosen() {
     };
     let err = error(&notes, &forced);
     assert!(!err.contains("recognised from the first line"), "{err}");
-    let guessed = |text: &str| error(&write(&dir, "in.txt", text), &InputOptions::default());
+    let guessed = |text: &str| error(&dir.write("in.txt", text), &InputOptions::default());
     // The note names the option, and comes with a row that lacks columns
     // anywhere in the file.
     let err = guessed("chr1\t100\t50\tAC\nchr1 200\n");
@@ -215,13 +181,13 @@ fn vcf_headers_need_not_start_with_fileformat() {
     let dir = TempDir::new("io_input");
     let body = call_c_vcf("c", 40, 4, 20);
     let records: String = body.lines().skip(2).map(|l| format!("{l}\n")).collect();
-    let chrom_line = HEADER.lines().nth(1).unwrap();
+    let chrom_line = VCF_HEADER.lines().nth(1).unwrap();
     let opts = binned(10);
     let as_vcf = InputOptions {
         format: Some(InputFormat::Vcf),
         ..opts.clone()
     };
-    let expected = load(&write(&dir, "ref.vcf", &body), &as_vcf).unwrap();
+    let expected = load(&dir.write("ref.vcf", &body), &as_vcf).unwrap();
     assert_eq!(expected.obs.rows, [vec![1; 4]]);
     // vcf2fq skips every '#' line and needs no header at all.
     for text in [
@@ -231,7 +197,7 @@ fn vcf_headers_need_not_start_with_fileformat() {
         format!("# a comment\n{chrom_line}\n{records}"),
         records.clone(),
     ] {
-        let vcf = write(&dir, "in.vcf", &text);
+        let vcf = dir.write("in.vcf", &text);
         assert_eq!(
             InputFormat::sniff(&vcf).unwrap(),
             InputFormat::Vcf,
@@ -243,15 +209,15 @@ fn vcf_headers_need_not_start_with_fileformat() {
     }
 
     // Comment lines before multihetsep or psmcfa content are skipped.
-    let mhs = write(&dir, "mhs.txt", "# made by hand\nchr1\t10\t10\tAC\n");
+    let mhs = dir.write("mhs.txt", "# made by hand\nchr1\t10\t10\tAC\n");
     for (path, format) in [
         (mhs.clone(), InputFormat::Mhs),
         (
-            write(&dir, "psmcfa.txt", "# made by hand\n>chr1\nTTKN\n"),
+            dir.write("psmcfa.txt", "# made by hand\n>chr1\nTTKN\n"),
             InputFormat::Psmcfa,
         ),
         (
-            write(&dir, "comments.txt", "# nothing else\n\n"),
+            dir.write("comments.txt", "# nothing else\n\n"),
             InputFormat::Mhs,
         ),
     ] {
@@ -263,7 +229,7 @@ fn vcf_headers_need_not_start_with_fileformat() {
 #[test]
 fn auto_mode_reads_call_c_output_as_consensus() {
     let dir = TempDir::new("io_input");
-    let vcf = write(&dir, "in.vcf", call_c_vcf("c", 200, 10, 20));
+    let vcf = dir.write("in.vcf", call_c_vcf("c", 200, 10, 20));
     let choice = detect_vcf_mode(&vcf).unwrap();
     assert_eq!((choice.mode, choice.forced), (VcfMode::Consensus, false));
     assert_eq!(
@@ -286,11 +252,9 @@ fn auto_mode_reads_call_c_output_as_consensus() {
 #[test]
 fn auto_mode_reads_variants_only_vcfs_with_masks() {
     let dir = TempDir::new("io_input");
-    let vcf = write(
-        &dir,
-        "in.vcf",
+    let vcf = dir.write("in.vcf",
         format!(
-            "{HEADER}c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\nc\t9\t.\tA\t.\t50\tPASS\tFQ=-3\tGT\t0/0\n\
+            "{VCF_HEADER}c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\nc\t9\t.\tA\t.\t50\tPASS\tFQ=-3\tGT\t0/0\n\
              c\t12\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
         ),
     );
@@ -317,11 +281,10 @@ fn auto_mode_names_a_gvcf_as_such() {
     // DeepVariant: reference and no-call blocks with END, and variants
     // with a symbolic <*> allele.
     let dir = TempDir::new("io_input");
-    let vcf = write(
-        &dir,
+    let vcf = dir.write(
         "in.vcf",
         format!(
-            "{HEADER}c\t1\t.\tA\t<*>\t0\t.\tEND=40\tGT:GQ\t0/0:50\n\
+            "{VCF_HEADER}c\t1\t.\tA\t<*>\t0\t.\tEND=40\tGT:GQ\t0/0:50\n\
              c\t41\t.\tA\tC,<*>\t50\tPASS\t.\tGT:GQ\t0/1:40\n\
              c\t42\t.\tA\t<*>\t0\t.\tEND=80\tGT:GQ\t./.:0\n\
              c\t81\t.\tA\t<*>\t0\t.\tEND=100\tGT:GQ\t0/0:50\n"
@@ -348,8 +311,7 @@ fn auto_mode_names_a_gvcf_as_such() {
 #[test]
 fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
     let dir = TempDir::new("io_input");
-    let vcf = write(
-        &dir,
+    let vcf = dir.write(
         "in.vcf",
         "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=1000>\n\
          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
@@ -357,7 +319,7 @@ fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
          chr1\t299\t.\tA\tG\t50\t.\tDP=5\tGT:DP\t0/1:5\n\
          chr1\t600\t.\tA\t.\t.\t.\tEND=899;MIN_DP=1\tGT:DP\t0/0:1\n",
     );
-    let mask = write(&dir, "mask.bed", "chr1\t0\t1000\n");
+    let mask = dir.write("mask.bed", "chr1\t0\t1000\n");
     let choice = detect_vcf_mode(&vcf).unwrap();
     assert_eq!(
         (choice.mode, choice.gvcf_blocks, choice.alt_dot),
@@ -405,12 +367,12 @@ fn a_bcftools_gvcf_is_read_in_mask_mode_with_its_gaps_missing() {
 #[test]
 fn an_all_sites_vcf_without_fq_is_an_error_with_guidance() {
     // `bcftools call -m` without -v: ALT '.' everywhere, no FQ.
-    let mut text = String::from(HEADER);
+    let mut text = String::from(VCF_HEADER);
     for pos in 1..=100 {
         writeln!(text, "c\t{pos}\t.\tA\t.\t50\t.\tDP=10;MQ=50\tGT\t0/0").unwrap();
     }
     let dir = TempDir::new("io_input");
-    let vcf = write(&dir, "in.vcf", &text);
+    let vcf = dir.write("in.vcf", &text);
     let msg = format!("{:#}", detect_vcf_mode(&vcf).unwrap_err());
     for part in ["all-sites VCF", "bcftools call -c", "callable mask"] {
         assert!(msg.contains(part), "{msg}");
@@ -429,7 +391,7 @@ fn mode_detection_thresholds() {
     // Records at consecutive positions: `n_dot` with ALT '.' (the first
     // `n_dot_fq` of them with FQ), then `n_var` with ALT C and `var_info`.
     let build = |n_dot: u64, n_dot_fq: u64, n_var: u64, var_info: &str| {
-        let mut s = String::from(HEADER);
+        let mut s = String::from(VCF_HEADER);
         let mut pos = 0;
         for i in 0..n_dot {
             pos += 1;
@@ -443,7 +405,7 @@ fn mode_detection_thresholds() {
         s
     };
     let dir = TempDir::new("io_input");
-    let detect = |text: &str| detect_vcf_mode(&write(&dir, "in.vcf", text));
+    let detect = |text: &str| detect_vcf_mode(&dir.write("in.vcf", text));
     // Exactly 50% ALT '.' with exactly 90% FQ: consensus.
     let choice = detect(&build(10, 9, 10, "DP=5")).unwrap();
     assert_eq!(choice.mode, VcfMode::Consensus);
@@ -462,7 +424,7 @@ fn mode_detection_thresholds() {
     assert_eq!((choice.mode, choice.span), (VcfMode::Mask, 19));
     assert!(choice.reason.contains("INFO/FQ"), "{}", choice.reason);
     // No records at all: mask.
-    let choice = detect(HEADER).unwrap();
+    let choice = detect(VCF_HEADER).unwrap();
     assert_eq!((choice.mode, choice.inspected), (VcfMode::Mask, 0));
     // Only the first records are inspected.
     let n = MODE_DETECTION_RECORDS;
@@ -495,7 +457,7 @@ fn dense_call_c_vcfs_with_alt_alleles_at_reference_sites_are_consensus() {
     };
     let dir = TempDir::new("io_input");
     let detect = |records: String| {
-        detect_vcf_mode(&write(&dir, "in.vcf", format!("{HEADER}{records}"))).unwrap()
+        detect_vcf_mode(&dir.write("in.vcf", format!("{VCF_HEADER}{records}"))).unwrap()
     };
 
     let choice = detect(build("c", 1, 300, 1, 0));
@@ -534,7 +496,7 @@ fn dense_call_c_vcfs_with_alt_alleles_at_reference_sites_are_consensus() {
 #[test]
 fn forced_modes_are_reported() {
     let dir = TempDir::new("io_input");
-    let vcf = write(&dir, "in.vcf", call_c_vcf("c", 50, 5, 20));
+    let vcf = dir.write("in.vcf", call_c_vcf("c", 50, 5, 20));
     let data = load(&vcf, &unfiltered(VcfMode::Mask)).unwrap();
     let mode = &vcf_summary(&data).mode;
     assert_eq!((mode.mode, mode.forced), (VcfMode::Mask, true));
@@ -564,7 +526,7 @@ fn consensus_mode_refuses_a_vcf_with_several_samples() {
         })
         .collect();
     let dir = TempDir::new("io_input");
-    let vcf = write(&dir, "two.vcf", &two);
+    let vcf = dir.write("two.vcf", &two);
     let sample = |name: &str| Some(name.to_string());
     let refused = |opts: &InputOptions| {
         let msg = error(&vcf, opts);
@@ -599,7 +561,7 @@ fn consensus_mode_refuses_a_vcf_with_several_samples() {
     };
     assert_eq!(load(&vcf, &opts).unwrap().het_bins(), 0);
     // So does consensus mode for a one-sample VCF named on the command line.
-    let one = write(&dir, "one.vcf", call_c_vcf("c", 50, 5, 20));
+    let one = dir.write("one.vcf", call_c_vcf("c", 50, 5, 20));
     let opts = InputOptions {
         sample: sample("s1"),
         ..binned(5)
@@ -634,9 +596,9 @@ fn the_output_filter_follows_fq2psmcfa() {
 fn the_output_filter_applies_to_every_vcf_mode() {
     // c1: 20,000 bases, all called. c2: 5,000 called bases only.
     let mut text = call_c_vcf("c1", 20_000, 100, 20);
-    text.push_str(&call_c_vcf("c2", 5_000, 100, 20).replace(HEADER, ""));
+    text.push_str(&call_c_vcf("c2", 5_000, 100, 20).replace(VCF_HEADER, ""));
     let dir = TempDir::new("io_input");
-    let vcf = write(&dir, "in.vcf", &text);
+    let vcf = dir.write("in.vcf", &text);
     for mode in [VcfMode::Consensus, VcfMode::Mask] {
         let data = load(&vcf, &vcf_opts(mode)).unwrap();
         let names: Vec<_> = data.seqs.iter().map(|s| s.name.as_str()).collect();
@@ -672,8 +634,7 @@ fn mask_mode_good_bases_are_the_callable_sites() {
     // A 30,000 bp contig: the good bases are the callable positions, and
     // the sequence extends to the ##contig length.
     let dir = TempDir::new("io_input");
-    let vcf = write(
-        &dir,
+    let vcf = dir.write(
         "in.vcf",
         "##fileformat=VCFv4.2\n##contig=<ID=c,length=30000>\n\
          #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\ts1\n\
@@ -681,7 +642,7 @@ fn mask_mode_good_bases_are_the_callable_sites() {
     );
     // 10,000 callable positions: enough, and a third of the sequence.
     let opts = InputOptions {
-        masks: vec![write(&dir, "third.bed", "c\t0\t10000\n")],
+        masks: vec![dir.write("third.bed", "c\t0\t10000\n")],
         ..vcf_opts(VcfMode::Mask)
     };
     let data = load(&vcf, &opts).unwrap();
@@ -694,7 +655,7 @@ fn mask_mode_good_bases_are_the_callable_sites() {
 
     // 5,999 callable positions: just under a fifth.
     let opts = InputOptions {
-        masks: vec![write(&dir, "fifth.bed", "c\t0\t5999\n")],
+        masks: vec![dir.write("fifth.bed", "c\t0\t5999\n")],
         filter: SeqFilter {
             min_good_bases: 0,
             ..SeqFilter::default()
@@ -723,8 +684,7 @@ fn mask_mode_good_bases_are_the_callable_sites() {
 #[test]
 fn multihetsep_input_is_filtered_and_described() {
     let dir = TempDir::new("io_input");
-    let two = write(
-        &dir,
+    let two = dir.write(
         "two.mhs",
         "A\t20000\t19000\tAC\nA\t20010\t10\tAA,CC\nA\t20020\t10\tAC,CA\nB\t100\t50\tAC\n",
     );
@@ -740,8 +700,7 @@ fn multihetsep_input_is_filtered_and_described() {
 
     // Four haplotypes; the pair (0, 1) is heterozygous, homozygous, then
     // heterozygous on A.
-    let four = write(
-        &dir,
+    let four = dir.write(
         "four.mhs",
         "A\t20000\t19000\tACAC\nA\t20010\t10\tAACC\nA\t20030\t10\tCAAA\nB\t100\t50\tACAA\n",
     );
@@ -780,11 +739,10 @@ fn multihetsep_input_is_filtered_and_described() {
 #[test]
 fn mask_mode_het_sites_carry_alleles_in_gt_order() {
     let dir = TempDir::new("io_input");
-    let vcf = write(
-        &dir,
+    let vcf = dir.write(
         "in.vcf",
         format!(
-            "{HEADER}\
+            "{VCF_HEADER}\
              c\t3\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n\
              c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t1|0\n\
              c\t7\t.\tA\tC,G\t50\tPASS\t.\tGT\t1/2\n\
@@ -796,7 +754,7 @@ fn mask_mode_het_sites_carry_alleles_in_gt_order() {
         ),
     );
     // Position 6 of c is not callable.
-    let mask = write(&dir, "mask.bed", "c\t0\t5\nc\t6\t20\nd\t0\t1\ne\t0\t10\n");
+    let mask = dir.write("mask.bed", "c\t0\t5\nc\t6\t20\nd\t0\t1\ne\t0\t10\n");
     let opts = InputOptions {
         masks: vec![mask],
         collect_het_sites: true,
@@ -836,7 +794,7 @@ fn mask_mode_het_sites_carry_alleles_in_gt_order() {
 #[test]
 fn het_sites_are_only_collected_on_request_and_not_for_psmcfa() {
     let dir = TempDir::new("io_input");
-    let vcf = write(&dir, "in.vcf", call_c_vcf("c", 30, 7, 20));
+    let vcf = dir.write("in.vcf", call_c_vcf("c", 30, 7, 20));
     let opts = unfiltered(VcfMode::Auto);
     assert!(load(&vcf, &opts).unwrap().het_sites.is_none());
     let collect = InputOptions {
@@ -848,7 +806,7 @@ fn het_sites_are_only_collected_on_request_and_not_for_psmcfa() {
     assert_eq!(pos, [(7, 7), (14, 7), (21, 7), (28, 7)]);
     assert!(sites.iter().all(|h| h.alleles == *b"AG"));
 
-    let psmcfa = write(&dir, "in.psmcfa", ">a\nTKT\n");
+    let psmcfa = dir.write("in.psmcfa", ">a\nTKT\n");
     let collect = InputOptions {
         collect_het_sites: true,
         ..InputOptions::default()
@@ -859,7 +817,7 @@ fn het_sites_are_only_collected_on_request_and_not_for_psmcfa() {
 #[test]
 fn psmcfa_input_is_not_filtered() {
     let dir = TempDir::new("io_input");
-    let psmcfa = write(&dir, "in.psmcfa", ">a\nTKN\n>empty\n>b\nNNNNK\n");
+    let psmcfa = dir.write("in.psmcfa", ">a\nTKN\n>empty\n>b\nNNNNK\n");
     let data = load(&psmcfa, &InputOptions::default()).unwrap();
     let names: Vec<_> = data.seqs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
@@ -890,7 +848,7 @@ fn psmcfa_input_is_not_filtered() {
 fn a_per_base_consensus_given_as_psmcfa_is_pointed_out() {
     let dir = TempDir::new("io_input");
     let psmcfa_of = |text: &str| {
-        let data = load(&write(&dir, "in.psmcfa", text), &InputOptions::default()).unwrap();
+        let data = load(&dir.write("in.psmcfa", text), &InputOptions::default()).unwrap();
         let SourceSummary::Psmcfa(p) = data.source.clone() else {
             panic!("not a psmcfa summary")
         };
@@ -925,7 +883,7 @@ fn a_per_base_consensus_given_as_psmcfa_is_pointed_out() {
 #[test]
 fn batching_keeps_whole_sequences_available() {
     let dir = TempDir::new("io_input");
-    let psmcfa = write(&dir, "in.psmcfa", ">a\nTKNTKNT\n>b\nKK\n");
+    let psmcfa = dir.write("in.psmcfa", ">a\nTKNTKNT\n>b\nKK\n");
     let batched = |batch_size| {
         let opts = InputOptions {
             batch_size: Some(batch_size),
@@ -947,7 +905,7 @@ fn batching_keeps_whole_sequences_available() {
 #[test]
 fn input_without_heterozygous_bins_loads_but_is_not_usable() {
     let dir = TempDir::new("io_input");
-    let psmcfa = write(&dir, "in.psmcfa", ">a\nTTNT\n");
+    let psmcfa = dir.write("in.psmcfa", ">a\nTTNT\n");
     let data = load(&psmcfa, &InputOptions::default()).unwrap();
     assert!(
         data.warnings()
@@ -958,10 +916,9 @@ fn input_without_heterozygous_bins_loads_but_is_not_usable() {
     assert!(msg.contains("heterozygous"), "{msg}");
 
     // Mask mode keeps the reader's detailed message.
-    let vcf = write(
-        &dir,
+    let vcf = dir.write(
         "in.vcf",
-        format!("{HEADER}c\t5\t.\tA\tC\t50\tq10\t.\tGT\t0/1\n"),
+        format!("{VCF_HEADER}c\t5\t.\tA\tC\t50\tq10\t.\tGT\t0/1\n"),
     );
     let data = load(&vcf, &unfiltered(VcfMode::Mask)).unwrap();
     let msg = format!("{:#}", data.ensure_usable().unwrap_err());
@@ -989,7 +946,7 @@ fn chromosome_names_must_be_utf8() {
     // Latin-1 'chré': a lossy conversion would make it 'chr\u{FFFD}', the
     // name of every other such chromosome too.
     let dir = TempDir::new("io_input");
-    let latin1 = write(&dir, "latin1.vcf", vcf_bytes_with_chrom(b"chr\xe9"));
+    let latin1 = dir.write("latin1.vcf", vcf_bytes_with_chrom(b"chr\xe9"));
     for mode in [VcfMode::Auto, VcfMode::Consensus, VcfMode::Mask] {
         let msg = error(&latin1, &vcf_opts(mode));
         assert!(
@@ -1000,7 +957,7 @@ fn chromosome_names_must_be_utf8() {
     assert!(read_vcf(&latin1, None, 10, None, &[], &[]).is_err());
 
     // UTF-8 names are kept byte for byte, as vcf2fq and fq2psmcfa keep them.
-    let utf8 = write(&dir, "utf8.vcf", vcf_bytes_with_chrom("chré".as_bytes()));
+    let utf8 = dir.write("utf8.vcf", vcf_bytes_with_chrom("chré".as_bytes()));
     for mode in [VcfMode::Consensus, VcfMode::Mask] {
         let opts = InputOptions {
             bin_size: 5,

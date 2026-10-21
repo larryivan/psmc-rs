@@ -4,14 +4,13 @@
 
 mod common;
 
-use common::TempDir;
+use common::{TempDir, gunzipped};
 use psmc_rs::io::input::{Dataset, InputFormat, InputOptions, SeqFilter, load};
 use psmc_rs::io::psmcfa::read_psmcfa_records;
 use psmc_rs::io::write::{
     MultihetsepOptions, write_multihetsep, write_multihetsep_to, write_psmcfa, write_psmcfa_to,
 };
 use std::fs;
-use std::io::Read;
 
 fn psmcfa_text(seqs: &[(&str, &[u8])]) -> String {
     let mut out = Vec::new();
@@ -36,17 +35,7 @@ fn fq2psmcfa_layout(name: &str, symbols: &str) -> String {
 /// `text` loaded from a file `name` with `opts`.
 fn load_text(name: &str, text: &str, opts: &InputOptions) -> Dataset {
     let dir = TempDir::new("io_write");
-    let path = dir.path(name);
-    fs::write(&path, text).unwrap();
-    load(&path, opts).unwrap()
-}
-
-fn gunzip(bytes: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    flate2::read::MultiGzDecoder::new(bytes)
-        .read_to_end(&mut out)
-        .unwrap();
-    out
+    load(&dir.write(name, text), opts).unwrap()
 }
 
 /// Multihetsep rows of the sequence `name` only.
@@ -99,9 +88,8 @@ fn files_ending_in_gz_are_gzip() {
     write_psmcfa(&gz, &data).unwrap();
     let text = fs::read(&plain).unwrap();
     assert_eq!(text, b">a\nTTKN\n>b\nKKKK\n");
-    let raw = fs::read(&gz).unwrap();
-    assert_eq!(raw[..2], [0x1f, 0x8b]);
-    assert_eq!(gunzip(&raw), text);
+    // `gunzipped` checks the gzip magic of a `.gz` path.
+    assert_eq!(gunzipped(&gz), text);
     assert_eq!(read_psmcfa_records(&gz).unwrap().len(), 2);
 }
 
@@ -167,7 +155,7 @@ fn multihetsep_layout_is_generate_multihetsep_s() {
     let dir = TempDir::new("io_write");
     let gz = dir.path("out.multihetsep.gz");
     write_multihetsep(&gz, &data, &only("c2")).unwrap();
-    assert_eq!(gunzip(&fs::read(&gz).unwrap()), b"c2\t8\t8\tCT\n");
+    assert_eq!(gunzipped(&gz), b"c2\t8\t8\tCT\n");
 }
 
 #[test]

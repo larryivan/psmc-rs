@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{TempDir, fixture};
+use common::{Rng, TempDir, fixture};
 use psmc_rs::io::MAX_COUNTED_BIN_SIZE;
 use psmc_rs::io::common::Binner;
 use psmc_rs::io::input::{Dataset, InputFormat, InputOptions, SeqFilter, VcfMode, load};
@@ -19,13 +19,6 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// `content` written to `name` in `dir`.
-fn write(dir: &TempDir, name: &str, content: &str) -> PathBuf {
-    let path = dir.path(name);
-    fs::write(&path, content).unwrap();
-    path
-}
-
 /// Mask-mode VCF input with the callable `mask`, every sequence kept.
 fn masked(mask: &Path) -> InputOptions {
     InputOptions {
@@ -34,24 +27,6 @@ fn masked(mask: &Path) -> InputOptions {
         masks: vec![mask.to_path_buf()],
         filter: SeqFilter::DISABLED,
         ..InputOptions::default()
-    }
-}
-
-/// SplitMix64: deterministic and dependency-free.
-struct Rng(u64);
-
-impl Rng {
-    fn next_u64(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    /// Uniform in `lo..=hi`.
-    fn range(&mut self, lo: u64, hi: u64) -> u64 {
-        lo + self.next_u64() % (hi - lo + 1)
     }
 }
 
@@ -227,7 +202,7 @@ fn small_vcf(dir: &TempDir) -> (PathBuf, PathBuf) {
                chr1\t777\t.\tA\tG\t50\tPASS\t.\tGT\t./.\n\
                chr2\t100\t.\tC\tT\t50\tPASS\t.\tGT\t0/1\n";
     let mask = "chr1\t0\t400\nchr1\t420\t990\nchr2\t0\t300\n";
-    (write(dir, "small.vcf", vcf), write(dir, "small.bed", mask))
+    (dir.write("small.vcf", vcf), dir.write("small.bed", mask))
 }
 
 /// Every kept sequence's counts sum to its called positions plus the
@@ -354,7 +329,7 @@ fn bins_too_large_to_count_load_as_before_without_counts() {
         bin_size,
         ..masked(&mask)
     };
-    let mhs = write(&dir, "big.multihetsep", "chr1\t20\t1\tAC\n");
+    let mhs = dir.write("big.multihetsep", "chr1\t20\t1\tAC\n");
     let mut sizes = vec![MAX_COUNTED_BIN_SIZE + 1, 1 << 30];
     if cfg!(target_pointer_width = "64") {
         // Beyond 32 bits too.
@@ -432,10 +407,7 @@ fn masked_vcf(dir: &TempDir, len: u64, callable: &[(u64, u64)]) -> (PathBuf, Pat
     for (start, end) in callable {
         writeln!(bed, "chr1\t{start}\t{end}").unwrap();
     }
-    (
-        write(dir, "memory.vcf", &vcf),
-        write(dir, "memory.bed", &bed),
-    )
+    (dir.write("memory.vcf", &vcf), dir.write("memory.bed", &bed))
 }
 
 #[test]
