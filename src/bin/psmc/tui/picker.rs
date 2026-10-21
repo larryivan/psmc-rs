@@ -37,8 +37,10 @@ impl FilePicker {
     /// Go to `dir` and list it: itself, its parent, its directories and,
     /// when picking an input, its input files of the format.
     fn enter(&mut self, dir: PathBuf) -> Result<()> {
-        let listing = fs::read_dir(&dir)
-            .with_context(|| format!("failed to read directory {}", dir.display()))?;
+        let failed = || format!("failed to read directory {}", dir.display());
+        // Made absolute, so that the parent of `.` is the directory above.
+        let dir = fs::canonicalize(&dir).with_context(failed)?;
+        let listing = fs::read_dir(&dir).with_context(failed)?;
         let entry = |label: String, path: PathBuf, is_file| PickerEntry {
             label,
             path,
@@ -77,19 +79,12 @@ impl FilePicker {
 
 /// Where the picker for a field holding `raw_path` starts: that directory,
 /// the directory of that file (or of a new file in an existing directory),
-/// or the current directory.
-fn start_dir(raw_path: &str) -> PathBuf {
+/// or the current directory (also for a bare file name, whose parent is the
+/// empty path).
+fn start_dir(raw_path: &str) -> &Path {
     let p = Path::new(raw_path.trim());
-    if p.is_dir() {
-        return p.to_path_buf();
-    }
-    // A bare file name's parent is the empty path, which is not a directory
-    // to list.
-    match p.parent() {
-        Some(dir) if dir.as_os_str().is_empty() && p.is_file() => PathBuf::from("."),
-        Some(dir) if !dir.as_os_str().is_empty() && dir.exists() => dir.to_path_buf(),
-        _ => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
-    }
+    let dir = if p.is_dir() { Some(p) } else { p.parent() };
+    dir.filter(|d| d.is_dir()).unwrap_or(Path::new("."))
 }
 
 impl App {
@@ -107,7 +102,7 @@ impl App {
             entries: Vec::new(),
             selected: 0,
         };
-        picker.enter(start_dir(&self.fields[field]))?;
+        picker.enter(start_dir(&self.fields[field]).to_path_buf())?;
         self.picker = Some(picker);
         Ok(())
     }
@@ -159,14 +154,18 @@ mod tests {
     use crate::tui::tests::{app, set};
 
     /// A file named without a directory opens the picker in the current
-    /// directory (its parent is the empty path).
+    /// directory (its parent is the empty path), from which it goes up.
     #[test]
     fn the_picker_starts_in_the_directory_of_a_bare_file_name() {
-        assert_eq!(start_dir("Cargo.toml"), PathBuf::from("."));
+        assert_eq!(start_dir("Cargo.toml"), Path::new("."));
         let mut a = app(&[]);
         set(&mut a, FIELD_INPUT, "Cargo.toml");
         set(&mut a, FIELD_INPUT_FORMAT, "psmcfa");
         a.open_picker(FIELD_INPUT).unwrap();
+        let here = fs::canonicalize(".").unwrap();
+        assert_eq!(a.picker.as_ref().unwrap().cwd, here);
+        a.picker_key(KeyCode::Backspace).unwrap();
+        assert_eq!(a.picker.as_ref().unwrap().cwd, here.parent().unwrap());
     }
 
     /// The output-directory picker does not need the input's format.
