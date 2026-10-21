@@ -26,10 +26,9 @@ use std::io::{BufRead, Cursor, Read};
 use std::path::{Path, PathBuf};
 
 use crate::io::callable::join_counts;
-use crate::io::common::{BinnedSeq, HetCall, chunk_sequences, open_reader, reopen_reader};
+use crate::io::common::{BinnedSeq, HetCall, chunk_sequences, open_reader};
 use crate::io::consensus::{
-    ConsensusFilters, ConsensusOptions, ConsensusSeq, ConsensusSummary, DepthBounds,
-    DepthThresholds, ensure_rereadable, info_has_fq, read_consensus_from, scan_depth_from,
+    ConsensusFilters, ConsensusOptions, ConsensusSeq, ConsensusSummary, info_has_fq, read_consensus,
 };
 use crate::io::mhs::{MhsOptions, MhsSummary, read_mhs_seqs_from};
 use crate::io::psmcfa::{PsmcfaRecord, parse_psmcfa_with_stats};
@@ -927,8 +926,9 @@ impl From<ConsensusSeq> for RawSeq {
 /// The input is read once, so `path` may be a pipe or FIFO (`/dev/stdin`, a
 /// process substitution): the lines read to recognise the format and the VCF
 /// mode are kept in memory and read again. The one exception is
-/// [`DepthThresholds::Auto`] in consensus mode, which reads the file twice
-/// and so fails up front unless `path` is a regular file.
+/// [`DepthThresholds::Auto`](crate::io::consensus::DepthThresholds::Auto) in
+/// consensus mode, which reads the file twice and so fails up front unless
+/// `path` is a regular file.
 ///
 /// Fails on unreadable or malformed input. A file whose sequences are all
 /// dropped, or that has no heterozygous bin, loads fine: QC wants to report
@@ -948,29 +948,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
             (raw, SourceSummary::Psmcfa(summary), None)
         }
         InputFormat::Mhs => {
-            let mhs_opts = MhsOptions {
-                bin_size: opts.bin_size,
-                batch_size: opts.batch_size,
-                pair: opts.mhs_pair,
-            };
-            // Multihetsep is also what the format guess falls back to, so
-            // an error that suggests another format says how the format
-            // was chosen.
-            let (seqs, summary) =
-                read_mhs_seqs_from(input.into_reader(), &mhs_opts, opts.collect_het_sites)
-                    .map_err(|e| {
-                        let guessed = if opts.format.is_none() && e.maybe_other_format {
-                            " (the format was recognised from the first line, which does not \
-                             start with '>' or '@' as in psmcfa and has fewer than the 8 \
-                             tab-separated fields of a VCF record; give --input-format if the \
-                             file is something else)"
-                        } else {
-                            ""
-                        };
-                        e.error
-                            .context(format!("failed to read multihetsep {path:?}{guessed}"))
-                    })?;
-            let raw = seqs.into_iter().map(RawSeq::from).collect();
+            let (raw, summary) = load_mhs(input, path, opts)?;
             (raw, SourceSummary::Mhs(summary), Some(opts.filter))
         }
         InputFormat::Vcf => {
@@ -1073,6 +1051,32 @@ fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)
     Ok((raw, summary))
 }
 
+fn load_mhs(input: Input, path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, MhsSummary)> {
+    let mhs_opts = MhsOptions {
+        bin_size: opts.bin_size,
+        batch_size: opts.batch_size,
+        pair: opts.mhs_pair,
+    };
+    match read_mhs_seqs_from(input.into_reader(), &mhs_opts, opts.collect_het_sites) {
+        Ok((seqs, summary)) => Ok((seqs.into_iter().map(RawSeq::from).collect(), summary)),
+        Err(e) => {
+            // Multihetsep is also what the format guess falls back to, so
+            // an error that suggests another format says how the format
+            // was chosen.
+            let guessed = if opts.format.is_none() && e.maybe_other_format {
+                " (the format was recognised from the first line, which does not start with \
+                 '>' or '@' as in psmcfa and has fewer than the 8 tab-separated fields of a VCF \
+                 record; give --input-format if the file is something else)"
+            } else {
+                ""
+            };
+            Err(e
+                .error
+                .context(format!("failed to read multihetsep {path:?}{guessed}")))
+        }
+    }
+}
+
 /// Why consensus mode refuses a VCF with several `samples`; `selected` is
 /// the sample asked for, if any.
 fn pooled_samples_message(samples: &[String], selected: Option<&str>) -> String {
@@ -1137,26 +1141,8 @@ fn load_vcf(
             negative_masks: opts.negative_masks.clone(),
             collect_het_sites: opts.collect_het_sites,
         };
-        let context = || format!("failed to read VCF {path:?} in consensus mode");
-        let (reader, bounds) = match opts.consensus.depth {
-            DepthThresholds::Fixed { min, max } => {
-                let bounds = DepthBounds {
-                    min,
-                    max,
-                    auto: false,
-                };
-                (input.into_reader(), bounds)
-            }
-            DepthThresholds::Auto => {
-                // The first pass reads the lines mode detection kept and the
-                // rest of the stream; the second one opens the file again.
-                ensure_rereadable(path)?;
-                let stats = scan_depth_from(input.into_reader(), path).with_context(context)?;
-                let bounds = DepthBounds::from_stats(&stats, path)?;
-                (reopen_reader(path)?, bounds)
-            }
-        };
-        let read = read_consensus_from(reader, path, &copts, bounds).with_context(context)?;
+        // The lines mode detection kept are read again, then the rest.
+        let read = read_consensus(path, &copts, || Ok(input.into_reader()))?;
         let raw = read.seqs.into_iter().map(RawSeq::from).collect();
         let summary = VcfInputSummary {
             mode: choice,

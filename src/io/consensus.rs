@@ -968,7 +968,7 @@ pub fn scan_depth(path: &Path) -> Result<DepthStats> {
 }
 
 /// [`scan_depth`] over an opened input; `path` names it in messages.
-pub(crate) fn scan_depth_from(reader: impl BufRead, path: &Path) -> Result<DepthStats> {
+fn scan_depth_from(reader: impl BufRead, path: &Path) -> Result<DepthStats> {
     let mut counter = DepthCounter::default();
     let mut lines = Lines::new(reader, path);
     while let Some(line) = lines.next()? {
@@ -993,42 +993,11 @@ pub fn auto_depth_thresholds(mean: f64) -> (u64, u64) {
 
 /// The INFO/DP bounds of one read, fixed or chosen from the data.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct DepthBounds {
-    pub min: u64,
-    pub max: u64,
+struct DepthBounds {
+    min: u64,
+    max: u64,
     /// Whether they come from [`DepthThresholds::Auto`].
-    pub auto: bool,
-}
-
-impl DepthBounds {
-    /// [`DepthThresholds::Auto`]'s bounds from the depths of a first pass.
-    pub(crate) fn from_stats(stats: &DepthStats, path: &Path) -> Result<Self> {
-        if stats.records == 0 {
-            bail!(
-                "cannot choose depth thresholds automatically: no SNP/reference record in \
-                 {path:?} has INFO/DP; give the thresholds explicitly"
-            );
-        }
-        let (min, max) = auto_depth_thresholds(stats.mean);
-        Ok(Self {
-            min,
-            max,
-            auto: true,
-        })
-    }
-}
-
-/// Fail unless `path` can be read twice, as [`DepthThresholds::Auto`] needs.
-pub(crate) fn ensure_rereadable(path: &Path) -> Result<()> {
-    if !is_regular_file(path) {
-        bail!(
-            "automatic depth thresholds need two passes over the VCF (the first one measures \
-             the mean depth), but {path:?} is not a regular file and can be read only once \
-             (a pipe or FIFO); give the depth thresholds explicitly, or write the VCF to a \
-             file first"
-        );
-    }
-    Ok(())
+    auto: bool,
 }
 
 /// Read an all-sites VCF from `bcftools call -c` the way `vcfutils.pl vcf2fq`
@@ -1040,35 +1009,64 @@ pub fn read_vcf_consensus(path: &Path, opts: &ConsensusOptions) -> Result<Consen
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
     }
-    match opts.filters.depth {
+    read_consensus(path, opts, || open_reader(path))
+}
+
+/// [`read_vcf_consensus`] of `path` as `open` opens it (the caller checks
+/// the bin size); [`DepthThresholds::Auto`] opens `path` again for its
+/// second pass.
+pub(crate) fn read_consensus(
+    path: &Path,
+    opts: &ConsensusOptions,
+    open: impl FnOnce() -> Result<Box<dyn BufRead>>,
+) -> Result<ConsensusRead> {
+    let context = || format!("failed to read VCF {path:?} in consensus mode");
+    let (reader, bounds) = match opts.filters.depth {
         DepthThresholds::Fixed { min, max } => {
             let bounds = DepthBounds {
                 min,
                 max,
                 auto: false,
             };
-            read_consensus_from(open_reader(path)?, path, opts, bounds)
+            (open()?, bounds)
         }
         DepthThresholds::Auto => {
-            ensure_rereadable(path)?;
-            let bounds = DepthBounds::from_stats(&scan_depth(path)?, path)?;
-            read_consensus_from(reopen_reader(path)?, path, opts, bounds)
+            if !is_regular_file(path) {
+                bail!(
+                    "automatic depth thresholds need two passes over the VCF (the first one \
+                     measures the mean depth), but {path:?} is not a regular file and can be \
+                     read only once (a pipe or FIFO); give the depth thresholds explicitly, or \
+                     write the VCF to a file first"
+                );
+            }
+            let stats = scan_depth_from(open()?, path).with_context(context)?;
+            if stats.records == 0 {
+                bail!(
+                    "cannot choose depth thresholds automatically: no SNP/reference record in \
+                     {path:?} has INFO/DP; give the thresholds explicitly"
+                );
+            }
+            let (min, max) = auto_depth_thresholds(stats.mean);
+            let bounds = DepthBounds {
+                min,
+                max,
+                auto: true,
+            };
+            (reopen_reader(path)?, bounds)
         }
-    }
+    };
+    read_consensus_from(reader, path, opts, bounds).with_context(context)
 }
 
 /// [`read_vcf_consensus`] over an opened input with the depth bounds already
 /// chosen (`opts.filters.depth` is not used); `path` names the input in
 /// messages.
-pub(crate) fn read_consensus_from(
+fn read_consensus_from(
     reader: impl BufRead,
     path: &Path,
     opts: &ConsensusOptions,
     bounds: DepthBounds,
 ) -> Result<ConsensusRead> {
-    if opts.bin_size == 0 {
-        bail!("vcf bin_size must be > 0");
-    }
     let filters = &opts.filters;
     let mut summary = ConsensusSummary {
         min_depth: bounds.min,
