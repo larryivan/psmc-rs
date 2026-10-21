@@ -15,6 +15,7 @@ path = "src/bin/psmc/main.rs"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive", "wrap_help"] }
 flate2 = "1.0"
+foldhash = "0.2"
 indicatif = "0.17"
 memchr = "2.7"
 ndarray = { version = "0.15", features = ["rayon"] }

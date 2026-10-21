@@ -87,8 +87,9 @@
 //!   the string was shifted as described above.
 
 use anyhow::{Context, Result, bail};
+use foldhash::{HashSet, HashSetExt};
 use serde::Serialize;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 

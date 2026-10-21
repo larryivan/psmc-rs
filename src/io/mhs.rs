@@ -2,7 +2,7 @@
 //! binned into PSMC observations for one pair of haplotypes.
 
 use anyhow::{Context, Result, bail};
-use std::collections::HashSet;
+use foldhash::{HashSet, HashSetExt};
 use std::io::BufRead;
 use std::path::Path;
 

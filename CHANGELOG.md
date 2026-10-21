@@ -634,6 +634,10 @@ Reproduction package (`experiment/`):
   mask mode saves a few percent of its CPU time. Every output is
   unchanged, bit for bit. (Medians of five and seven interleaved runs at
   load averages of 3 to 8.)
+- The readers' maps keyed by sequence name hash with foldhash instead of
+  the standard library's SipHash, which shows only on inputs of very many
+  sequences: converting a mask-mode VCF of a million scaffolds takes 4.6 s
+  of CPU instead of 4.95 s. Every output is unchanged, bit for bit.
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through

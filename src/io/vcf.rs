@@ -52,9 +52,9 @@
 //! mask intervals.
 
 use anyhow::{Context, Result, bail};
+use foldhash::{HashMap, HashMapExt, HashSet, HashSetExt};
 use std::borrow::Cow;
 use std::cmp::{max, min};
-use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
