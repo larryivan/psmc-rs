@@ -140,6 +140,8 @@ pub(crate) struct Workspace {
     w: Vec<f64>,
     beta: Vec<f64>,
     beta_next: Vec<f64>,
+    /// The forward vector entering each segment of a sequence (row 0
+    /// unused), when its forward pass keeps them.
     ckpt: Vec<f64>,
 }
 
@@ -205,23 +207,30 @@ struct FullRows {
     c: Vec<f64>,
 }
 
+/// What a forward pass keeps besides the log-likelihood.
+enum Keep<'a> {
+    Nothing,
+    /// The forward vector entering each segment, in [`Workspace::ckpt`].
+    Checkpoints,
+    /// Every forward vector and normaliser.
+    Rows(&'a mut FullRows),
+}
+
 /// Forward recursion over the whole sequence; returns the log-likelihood
-/// (the sum of the log normalisers, in site order). Stores the checkpoints in
-/// `ws.ckpt` when `checkpoints` is set, and every row when `full` is given.
+/// (the sum of the log normalisers, in site order).
 #[inline(always)]
 fn forward_pass<const FUSED: bool>(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &mut Workspace,
-    checkpoints: bool,
-    full: Option<&mut FullRows>,
+    keep: Keep<'_>,
     ctx: &Ctx<'_>,
 ) -> Result<f64> {
     let np = ws.np;
     let n_seg = seq.n_segments();
     let mut loglike = 0.0;
-    match full {
-        Some(full) => {
+    match keep {
+        Keep::Rows(full) => {
             for s in 0..n_seg {
                 ctx.check_cancel()?;
                 let (start, len) = seq.segment(s);
@@ -244,7 +253,8 @@ fn forward_pass<const FUSED: bool>(
                     .fetch_add(len as u64, Ordering::Relaxed);
             }
         }
-        None => {
+        Keep::Nothing | Keep::Checkpoints => {
+            let checkpoints = matches!(keep, Keep::Checkpoints);
             if checkpoints {
                 ws.ckpt.clear();
                 ws.ckpt.resize(n_seg * np, 0.0);
@@ -322,7 +332,7 @@ fn log_likelihood_impl<const FUSED: bool>(
     ws: &mut Workspace,
     ctx: &Ctx<'_>,
 ) -> Result<f64> {
-    forward_pass::<FUSED>(k, seq, ws, false, None, ctx)
+    forward_pass::<FUSED>(k, seq, ws, Keep::Nothing, ctx)
 }
 
 dispatch! {
@@ -362,7 +372,11 @@ fn e_step_impl<const FUSED: bool>(
         c: vec![0.0; len],
     });
 
-    acc.loglike += forward_pass::<FUSED>(k, seq, ws, full.is_none(), full.as_mut(), ctx)?;
+    let keep = match full.as_mut() {
+        Some(rows) => Keep::Rows(rows),
+        None => Keep::Checkpoints,
+    };
+    acc.loglike += forward_pass::<FUSED>(k, seq, ws, keep, ctx)?;
 
     let Workspace {
         obs,
@@ -461,7 +475,7 @@ fn forward_checkpoints_impl<const FUSED: bool>(
     ctx: &Ctx<'_>,
 ) -> Result<Vec<f64>> {
     let mut ws = Workspace::new(k.np());
-    forward_pass::<FUSED>(k, seq, &mut ws, true, None, ctx)?;
+    forward_pass::<FUSED>(k, seq, &mut ws, Keep::Checkpoints, ctx)?;
     Ok(ws.ckpt)
 }
 
