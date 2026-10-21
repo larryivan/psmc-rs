@@ -637,7 +637,10 @@ impl PsmcfaSummary {
                  bins, so each base became a bin and the missing data are undercounted; the \
                  time scale, theta and Ne come out as if each base were a whole bin. Bin the \
                  consensus with fq2psmcfa first, or give psmc-rs the VCF it was made from",
-                self.fastq_records, self.records, self.base_letters, self.bins
+                count(self.fastq_records as u64),
+                count(self.records as u64),
+                count(self.base_letters),
+                count(self.bins)
             ));
         }
         out

@@ -998,10 +998,11 @@ fn few_hets(input: &QcInput, report: &QcReport) -> Option<Finding> {
         QcCode::FewHets,
         Severity::Warning,
         format!(
-            "Only {} heterozygous (K) bins, fewer than {}{recomb}. psmc's documentation \
+            "Only {} heterozygous (K) {}, fewer than {}{recomb}. psmc's documentation \
              asks for about 10 recombinations in the intervals of each free parameter, and \
              {parameters}.",
             count(k),
+            plural(k as usize, "bin", "bins"),
             count(MIN_HET_BINS),
         ),
         "Add data (more of the genome, a less strict mask) or fit a --pattern with fewer, \

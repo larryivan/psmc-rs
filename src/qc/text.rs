@@ -208,8 +208,8 @@ fn metrics(out: &mut String, r: &QcReport) {
             .as_ref()
             .map_or("none".to_string(), |m| {
                 format!(
-                    "{} bins ({}) in {} from bin {}",
-                    count(m.bins),
+                    "{} ({}) in {} from bin {}",
+                    counted(m.bins as usize, "bin", "bins"),
                     bases(m.bases),
                     m.sequence,
                     count(m.start_bin)

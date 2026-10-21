@@ -293,7 +293,8 @@ fn qc_metric_rows(out: &mut String, r: &QcReport) {
     let (n50, l50) = (count(r.lengths.n50_bases), count(r.lengths.l50 as u64));
     row(out, "N50 / L50", format!("{n50} bp / {l50}"));
     if let Some(run) = &r.longest_missing_run {
-        let longest = format!("{} bins in {}", count(run.bins), escape_html(&run.sequence));
+        let bins = counted(run.bins as usize, "bin", "bins");
+        let longest = format!("{bins} in {}", escape_html(&run.sequence));
         row(out, "Longest missing run", longest);
     }
     if let Some(s) = &r.saturation {

@@ -63,6 +63,7 @@ use crate::io::common::{
 };
 use crate::io::consensus::utf8_chrom;
 use crate::io::{Observations, Sequences};
+use crate::qc::fmt::{count, counted};
 
 type Interval = (u64, u64); // inclusive [start, end], 1-based
 
@@ -1249,19 +1250,28 @@ pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> S
     // show the heterozygous calls among them.
     if summary.filtered_records > 0 && !keep_filtered {
         hint.push_str(&format!(
-            "; {} records have a FILTER other than PASS or '.' and are treated as \
-             missing: keep them with --vcf-keep-filtered if the filter does not \
-             apply to this analysis",
-            summary.filtered_records
+            "; {} a FILTER other than PASS or '.' and are treated as missing: keep \
+             them with --vcf-keep-filtered if the filter does not apply to this analysis",
+            counted(
+                summary.filtered_records as usize,
+                "record has",
+                "records have"
+            )
         ));
     }
     for h in summary.mask_coverage_hints() {
         hint.push_str(&format!("; {h}"));
     }
     format!(
-        "no heterozygous SNP at a callable position found in VCF input ({} records, \
-         {} heterozygous SNP records, {} outside the callable set){hint}",
-        summary.records, summary.het_snp_records, summary.records_outside_mask
+        "no heterozygous SNP at a callable position found in VCF input ({}, {}, {} \
+         outside the callable set){hint}",
+        counted(summary.records as usize, "record", "records"),
+        counted(
+            summary.het_snp_records as usize,
+            "heterozygous SNP record",
+            "heterozygous SNP records"
+        ),
+        count(summary.records_outside_mask)
     )
 }
 
