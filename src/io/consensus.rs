@@ -95,7 +95,7 @@ use std::path::{Path, PathBuf};
 use crate::io::BinCounts;
 pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
 use crate::io::common::{
-    DepthCounter, HetCall, SeqBuilder, is_regular_file, open_reader, reopen_reader,
+    DepthCounter, HetCall, LineReader, SeqBuilder, is_regular_file, open_reader, reopen_reader,
 };
 use crate::io::vcf::{
     MaskEngine, Uncallable, list_names, outside_mask_hint, outside_some_masks_hint, parse_pos,
@@ -546,21 +546,19 @@ enum Line<'a> {
     },
 }
 
-/// The lines of a VCF, read one at a time into one buffer.
+/// The lines of a VCF.
 struct Lines<'p, R> {
-    reader: R,
+    reader: LineReader<R>,
     /// Names the input in messages.
     path: &'p Path,
-    line: Vec<u8>,
     row_no: usize,
 }
 
 impl<'p, R: BufRead> Lines<'p, R> {
     fn new(reader: R, path: &'p Path) -> Self {
         Self {
-            reader,
+            reader: LineReader::new(reader),
             path,
-            line: Vec::new(),
             row_no: 0,
         }
     }
@@ -569,25 +567,25 @@ impl<'p, R: BufRead> Lines<'p, R> {
     /// A data line with fewer than 8 fields is an error.
     fn next(&mut self) -> Result<Option<Line<'_>>> {
         loop {
-            self.line.clear();
             let path = self.path;
-            let n = self
+            let more = self
                 .reader
-                .read_until(b'\n', &mut self.line)
+                .advance()
                 .with_context(|| format!("failed to read VCF {path:?}"))?;
-            if n == 0 {
+            if !more {
                 return Ok(None);
             }
             self.row_no += 1;
-            if !self.line.iter().all(|&b| is_perl_space(b)) {
+            if !self.reader.line().iter().all(|&b| is_perl_space(b)) {
                 break;
             }
         }
         let row_no = self.row_no;
-        if self.line[0] == b'#' {
-            return Ok(Some(Line::Header(&self.line)));
+        let line = self.reader.line();
+        if line[0] == b'#' {
+            return Ok(Some(Line::Header(line)));
         }
-        match split8(&self.line) {
+        match split8(line) {
             Some(fields) => Ok(Some(Line::Record { row_no, fields })),
             None => bail!("invalid VCF row {row_no}: expected at least 8 fields"),
         }
@@ -632,37 +630,63 @@ struct Info<'a> {
 }
 
 /// [`Info`] of an INFO column. Every key but INDEL ends with an `=`, so the
-/// leftmost match of each is found at the first `=` it ends at.
+/// leftmost match of each is found at the first `=` it ends at. The `=` and
+/// `I` bytes are found eight at a time, and visited in order.
 fn scan_info(info: &[u8]) -> Info<'_> {
+    const EQ: u64 = u64::from_ne_bytes([b'='; 8]);
+    const I: u64 = u64::from_ne_bytes([b'I'; 8]);
     let mut out = Info::default();
-    for (i, &b) in info.iter().enumerate() {
-        if b == b'I' {
-            out.indel |= info[i..].starts_with(b"INDEL");
-        }
-        if b != b'=' {
-            continue;
-        }
-        // The value after the key: its leading run of `ok` bytes, if not
-        // empty.
-        let (key, v) = info.split_at(i + 1);
-        let value = |ok: fn(u8) -> bool| Some(&v[..run_len(v, ok)]).filter(|v| !v.is_empty());
-        if key.ends_with(b"DP=") {
-            out.dp = out.dp.or_else(|| value(is_digit));
-        } else if key.ends_with(b"MQ=") {
-            out.mq = out.mq.or_else(|| value(is_digit));
-        } else if key.ends_with(b"AF1=") {
-            out.af1 = out.af1.or_else(|| value(is_num_char));
-        } else if key.ends_with(b"FQ=") && out.fq.is_none() {
-            // `-?` takes a '-' when a number follows it. Otherwise there
-            // is no match here: `[\d.]+` cannot start at the '-' either.
-            let sign = usize::from(v.first() == Some(&b'-'));
-            let k = run_len(&v[sign..], is_num_char);
-            if k > 0 {
-                out.fq = Some(&v[..sign + k]);
-            }
+    let (words, _) = info.as_chunks::<8>();
+    for (k, &word) in words.iter().enumerate() {
+        let x = u64::from_le_bytes(word);
+        let mut found = has_zero(x ^ EQ) | has_zero(x ^ I);
+        while found != 0 {
+            info_at(info, 8 * k + found.trailing_zeros() as usize / 8, &mut out);
+            found &= found - 1;
         }
     }
+    for i in 8 * words.len()..info.len() {
+        info_at(info, i, &mut out);
+    }
     out
+}
+
+/// The high bit of every zero byte of `x`, and perhaps of bytes after one
+/// (which [`info_at`] looks at and passes over).
+fn has_zero(x: u64) -> u64 {
+    x.wrapping_sub(u64::from_ne_bytes([1; 8])) & !x & u64::from_ne_bytes([0x80; 8])
+}
+
+/// What `info[i]` adds to `out`: an INDEL that starts there, or the value
+/// of a key whose `=` it is. (Inlined: [`scan_info`] calls it for every
+/// `=`.)
+#[inline(always)]
+fn info_at<'a>(info: &'a [u8], i: usize, out: &mut Info<'a>) {
+    if info[i] == b'I' {
+        out.indel |= info[i..].starts_with(b"INDEL");
+    }
+    if info[i] != b'=' {
+        return;
+    }
+    // The value after the key: its leading run of `ok` bytes, if not
+    // empty.
+    let (key, v) = info.split_at(i + 1);
+    let value = |ok: fn(u8) -> bool| Some(&v[..run_len(v, ok)]).filter(|v| !v.is_empty());
+    if key.ends_with(b"DP=") {
+        out.dp = out.dp.or_else(|| value(is_digit));
+    } else if key.ends_with(b"MQ=") {
+        out.mq = out.mq.or_else(|| value(is_digit));
+    } else if key.ends_with(b"AF1=") {
+        out.af1 = out.af1.or_else(|| value(is_num_char));
+    } else if key.ends_with(b"FQ=") && out.fq.is_none() {
+        // `-?` takes a '-' when a number follows it. Otherwise there
+        // is no match here: `[\d.]+` cannot start at the '-' either.
+        let sign = usize::from(v.first() == Some(&b'-'));
+        let k = run_len(&v[sign..], is_num_char);
+        if k > 0 {
+            out.fq = Some(&v[..sign + k]);
+        }
+    }
 }
 
 /// `10^k` for `k` up to 15, each exact.

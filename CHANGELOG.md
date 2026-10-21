@@ -623,6 +623,17 @@ Reproduction package (`experiment/`):
   coordinates written as plain digits are read without the standard
   library's string parser: a callable mask of 24 M one-base rows (475 MB)
   is read in 1.0 s of CPU instead of 1.3 s.
+- The VCF and mask readers take each line in place from reads of 1 MiB
+  instead of copying it into a buffer of its own, and consensus mode
+  finds the `=` and `I` bytes of INFO eight at a time. Consensus mode
+  with `--depth auto` reads a synthetic bgzip all-sites VCF of a 100 Mb
+  sequence (96 M records, 499 MB) that carries only the INFO keys vcf2fq
+  reads in 17.0 s instead of 20.4 s (30.6 s of CPU instead of 34.1 s),
+  and one of 30 Mb (30 M records, 223 MB) with every key `bcftools call
+  -c` writes in 8.1 s instead of 9.6 s (14.4 s of CPU instead of 16.2 s);
+  mask mode saves a few percent of its CPU time. Every output is
+  unchanged, bit for bit. (Medians of five and seven interleaved runs at
+  load averages of 3 to 8.)
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through

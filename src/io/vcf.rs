@@ -59,7 +59,7 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use crate::io::common::{
-    BinnedSeq, DepthCounter, DepthStats, SeqBuilder, chunk_sequences, open_reader,
+    BinnedSeq, DepthCounter, DepthStats, LineReader, SeqBuilder, chunk_sequences, open_reader,
 };
 use crate::io::consensus::utf8_chrom;
 use crate::io::{Observations, Sequences};
@@ -242,8 +242,7 @@ impl MaskAcc {
     /// exactly 2 columns are `start end`, 1-based inclusive, and apply to
     /// every chromosome. Blank lines and lines starting with `#` are skipped.
     fn add_file(&mut self, path: &Path) -> Result<()> {
-        let mut reader = open_reader(path)?;
-        let mut line = Vec::<u8>::new();
+        let mut lines = LineReader::new(open_reader(path)?);
         let mut row_no = 0usize;
         // The chromosome of the last BED row and its intervals, out of the
         // map: consecutive rows of one chromosome need no lookup.
@@ -258,16 +257,12 @@ impl MaskAcc {
                 .or_else(|| std::str::from_utf8(field).ok()?.parse().ok())
                 .ok_or_else(|| bad_row(row_no, &format!("bad {what} '{}'", lossy(field))))
         };
-        loop {
-            line.clear();
-            let n = reader
-                .read_until(b'\n', &mut line)
-                .with_context(|| format!("failed to read mask {path:?}"))?;
-            if n == 0 {
-                break;
-            }
+        while lines
+            .advance()
+            .with_context(|| format!("failed to read mask {path:?}"))?
+        {
             row_no += 1;
-            let s = line.trim_ascii();
+            let s = lines.line().trim_ascii();
             if s.is_empty() || s[0] == b'#' {
                 continue;
             }
@@ -1294,7 +1289,7 @@ pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> S
 /// the input in messages. With `collect_het`, each sequence carries its
 /// heterozygous sites.
 pub(crate) fn read_vcf_seqs_from(
-    mut reader: impl BufRead,
+    reader: impl BufRead,
     path: &Path,
     opts: &VcfOptions,
     collect_het: bool,
@@ -1306,7 +1301,7 @@ pub(crate) fn read_vcf_seqs_from(
         ..VcfSummary::default()
     };
 
-    let mut line = Vec::<u8>::new();
+    let mut lines = LineReader::new(reader);
     let mut row_no = 0usize;
     let mut sample_idx: Option<usize> = None;
     let mut single_sample = false;
@@ -1317,16 +1312,12 @@ pub(crate) fn read_vcf_seqs_from(
     let mut cur: Option<ChromBuilder> = None;
     let mut seqs = Vec::<BinnedSeq>::new();
 
-    loop {
-        line.clear();
-        let n = reader
-            .read_until(b'\n', &mut line)
-            .with_context(|| format!("failed to read VCF {path:?}"))?;
-        if n == 0 {
-            break;
-        }
+    while lines
+        .advance()
+        .with_context(|| format!("failed to read VCF {path:?}"))?
+    {
         row_no += 1;
-        let s = line.trim_ascii();
+        let s = lines.line().trim_ascii();
         if s.is_empty() {
             continue;
         }

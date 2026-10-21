@@ -191,6 +191,54 @@ impl BufRead for DecoderThread {
     }
 }
 
+/// The lines of a text, as `read_until(b'\n')` gives them (the last may
+/// lack its `\n`), read 1 MiB at a time and handed out in place: only a
+/// line that straddles two reads is copied.
+pub(crate) struct LineReader<R> {
+    reader: BufReader<R>,
+    /// The current line when it straddled two reads.
+    copied: Vec<u8>,
+    /// The length of the current line when it is at the start of the
+    /// reader's buffer (consumed at the next [`Self::advance`]), else 0.
+    in_place: usize,
+}
+
+impl<R: Read> LineReader<R> {
+    pub(crate) fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::with_capacity(1 << 20, reader),
+            copied: Vec::new(),
+            in_place: 0,
+        }
+    }
+
+    /// Move to the next line; false at the end of the text.
+    pub(crate) fn advance(&mut self) -> io::Result<bool> {
+        self.reader.consume(std::mem::take(&mut self.in_place));
+        let newline = loop {
+            match self.reader.fill_buf() {
+                Ok(buf) => break memchr::memchr(b'\n', buf),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        };
+        if let Some(i) = newline {
+            self.in_place = i + 1;
+            return Ok(true);
+        }
+        self.copied.clear();
+        Ok(self.reader.read_until(b'\n', &mut self.copied)? > 0)
+    }
+
+    /// The current line.
+    pub(crate) fn line(&self) -> &[u8] {
+        match self.in_place {
+            0 => &self.copied,
+            n => &self.reader.buffer()[..n],
+        }
+    }
+}
+
 /// A reader that remembers the last [`BGZF_EOF`]`.len()` bytes it passed on.
 struct TailKeeper<R> {
     inner: R,
@@ -658,6 +706,40 @@ mod tests {
             let mut failing = DecoderThread::spawn(FailsAfter(Cursor::new(data.clone()))).unwrap();
             let err = failing.read_to_end(&mut got).unwrap_err();
             assert!(got == data && err.to_string() == "broken", "{len} bytes");
+        }
+    }
+
+    /// Gives `data` a few bytes at a time, each read after an interrupted one.
+    struct Trickle(Cursor<Vec<u8>>, bool);
+
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.1 = !self.1;
+            if self.1 {
+                return Err(io::ErrorKind::Interrupted.into());
+            }
+            let n = buf.len().min(7);
+            self.0.read(&mut buf[..n])
+        }
+    }
+
+    #[test]
+    fn the_line_reader_gives_the_lines_of_read_until() {
+        let long = [&[b'x'; (1 << 20) + 3][..], b"\n\nz"].concat();
+        for text in [&b""[..], b"\n", b"a", b"a\n\nbc\r\n", b"ab\ncd", &long] {
+            let want: Vec<&[u8]> = text.split_inclusive(|&b| b == b'\n').collect();
+            for trickle in [false, true] {
+                let reader: Box<dyn Read> = match trickle {
+                    false => Box::new(Cursor::new(text.to_vec())),
+                    true => Box::new(Trickle(Cursor::new(text.to_vec()), false)),
+                };
+                let mut lines = LineReader::new(reader);
+                let mut got = Vec::new();
+                while lines.advance().unwrap() {
+                    got.push(lines.line().to_vec());
+                }
+                assert!(got == want, "{} bytes, trickle {trickle}", text.len());
+            }
         }
     }
 }

@@ -1069,6 +1069,7 @@ dependencies = [
  "crossterm",
  "flate2",
  "indicatif",
+ "memchr",
  "ndarray",
  "rand",
  "rand_chacha",
