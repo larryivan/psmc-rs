@@ -183,6 +183,20 @@ class Draw(unittest.TestCase):
         self.assertEqual(cm.exception.code, 2)  # a usage error naming the figures there are, not a traceback
         self.assertIn("unknown figure 'fig9'; known: art1_agreement", err.getvalue())
 
+    def test_cli_draws_figures_at_once_to_the_same_bytes(self):
+        from experiment.pipeline import figures
+        from experiment.pipeline.figures.__main__ import main
+
+        drawn = [p for name in ("fig1", "fig4") for p in self._render(figures.spec(name))]
+        out = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            self.assertEqual(main(["fig1", "fig4", "-j", "2", "--profile", "tiny", "--runs-dir", str(self.runs),
+                                   "--dpi", str(DPI), "--out-dir", str(out)]), 0)
+        self.assertEqual(printed.getvalue().split(), [str(out / p.name) for p in drawn])  # in order
+        for p in drawn:
+            self.assertEqual((out / p.name).read_bytes(), p.read_bytes(), p.name)
+
     def test_the_readme_gives_each_figures_size(self):
         import math
         import re

@@ -13,6 +13,7 @@ with text as text (TrueType, `fonttype 42`; SVG `svg.fonttype none`) and a
 PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline start E1 FIG          # figures as runner jobs, after their tables
 $PY -m experiment.pipeline.figures               # or draw every figure whose tables exist
+$PY -m experiment.pipeline.figures -j 4          # the same, four figures at once (a process each)
 $PY -m experiment.pipeline.figures fig2 figS1    # some of them (file stem or its prefix)
 $PY -m experiment.pipeline.figures --list        # figures and the tables they read
 $PY -m experiment.pipeline report FIG            # the same as drawing them all
