@@ -2,52 +2,26 @@
 
 from __future__ import annotations
 
-import csv
-import importlib.util
 import json
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, demography, metrics, results, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, e5  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import C_REF, assert_ignore_rules, fake_ctx, has_modules, in_git_work_tree, option, read_csv  # noqa: E402
 
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-HAS_NUMPY = importlib.util.find_spec("numpy") is not None
-HAS_SCIPY = HAS_NUMPY and importlib.util.find_spec("scipy") is not None
-HAS_MATPLOTLIB = importlib.util.find_spec("matplotlib") is not None
-HAS_MSPRIME = importlib.util.find_spec("msprime") is not None and importlib.util.find_spec("psutil") is not None
+from experiment.pipeline import config, demography, metrics, results, runner  # noqa: E402
+from experiment.pipeline.experiments import Context, e5  # noqa: E402
 
-
-def read_csv(path: Path):
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def fake_ctx(profile: config.Profile, runs: Path) -> Context:
-    return Context(profile, runs, _tools={"rs02": FAKE_RS})
-
-
-def arg(command, flag):
-    return command[command.index(flag) + 1]
+HAS_SCIPY = has_modules("numpy", "scipy")
 
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.cfg = config.SMOKE.e5
         self.jobs = e5.jobs(fake_ctx(config.SMOKE, self.runs))
         self.by_id = {j.id: j for j in self.jobs}
@@ -69,15 +43,15 @@ class Jobs(unittest.TestCase):
         job = self.by_id["E5/boot-trunk5000/bottleneck/rep02"]
         cmd = job.command
         self.assertEqual(cmd[3], str(self.cfg.inference.n_iter))
-        self.assertEqual(arg(cmd, "--bootstrap"), str(self.cfg.bootstrap_replicates))
-        self.assertEqual(arg(cmd, "--bootstrap-block-size"), "5000")
+        self.assertEqual(option(cmd, "--bootstrap"), str(self.cfg.bootstrap_replicates))
+        self.assertEqual(option(cmd, "--bootstrap-block-size"), "5000")
         seed = config.seed("E5", "bottleneck", 2, "bootstrap/trunk5000")
-        self.assertEqual(arg(cmd, "--bootstrap-seed"), str(seed))
+        self.assertEqual(option(cmd, "--bootstrap-seed"), str(seed))
         self.assertEqual(job.seeds, {"bootstrap": seed})
         lay = e5.Layout(self.runs / "E5", "bottleneck")
-        self.assertEqual(arg(cmd, "--bootstrap-dir"), str(lay.boot_dir(2, 5000)))
+        self.assertEqual(option(cmd, "--bootstrap-dir"), str(lay.boot_dir(2, 5000)))
         self.assertEqual(job.outputs, [lay.boot_json(2, 5000), lay.boot_summary(2, 5000), lay.boot_summary_tsv(2, 5000)])
-        self.assertEqual(arg(cmd, "--threads"), str(self.cfg.bootstrap_threads))
+        self.assertEqual(option(cmd, "--threads"), str(self.cfg.bootstrap_threads))
 
     def test_fits_and_bootstraps_share_the_inference_settings(self):
         fit = self.by_id["E5/fit/bottleneck/rep01"]
@@ -91,7 +65,7 @@ class Jobs(unittest.TestCase):
     def test_simulation_records_its_seeds_and_writes_no_vcf(self):
         sim = self.by_id["E5/sim/bottleneck/rep02"]
         self.assertIn("--no-vcf", sim.command)
-        self.assertEqual(arg(sim.command, "--experiment"), "E5")
+        self.assertEqual(option(sim.command, "--experiment"), "E5")
         self.assertEqual(sim.seeds["chr2"]["mutations"], config.seed("E5", "bottleneck", 2, "mutations/chr2"))
         self.assertEqual(len(sim.outputs), 2)
 
@@ -197,7 +171,7 @@ class Statistics(unittest.TestCase):
 
 FIT_OFFSETS = (-0.1, 0.0, 0.1, 0.2)  # log10 Ne of the genomes' fits, around a base curve
 BOOT_OFFSETS = (-0.2, 0.0, 0.2, 0.4)  # of the bootstrap replicates, around their genome's fit: twice the SD
-BASE = results.parse_psmc(ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc").last().pa
+BASE = results.parse_psmc(C_REF).last().pa
 BINS, HET_BINS = 3000, 150
 
 
@@ -270,9 +244,7 @@ def write_synthetic_runs(runs: Path, profile: config.Profile) -> e5.Layout:
 @unittest.skipUnless(HAS_SCIPY, "numpy and scipy not installed")
 class Tables(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.profile = synthetic_profile()
         self.cfg = self.profile.e5
         self.lay = write_synthetic_runs(self.runs, self.profile)
@@ -375,21 +347,10 @@ class Tables(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "seed"):
             e5.report(Context(self.profile, self.runs, log=lambda msg: None))
 
-def in_git_work_tree() -> bool:
-    if shutil.which("git") is None:
-        return False
-    res = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
-    return res.returncode == 0 and res.stdout.strip() == "true"
-
-
-def ignored(rel_path: str) -> bool:
-    return subprocess.run(["git", "check-ignore", "-q", "--no-index", rel_path], cwd=ROOT).returncode == 0
-
-
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class RunsLayout(unittest.TestCase):
     def test_what_git_keeps(self):
-        kept = (
+        assert_ignore_rules(self, kept=(
             "experiment/runs/E5/truth/bottleneck/rep01.json",
             "experiment/runs/E5/fits/bottleneck/rep01.rs.json",
             "experiment/runs/E5/boot/trunk500000/rep01.rs.json",
@@ -400,18 +361,13 @@ class RunsLayout(unittest.TestCase):
             "experiment/runs/E5/tables/E5_summary.csv",
             "experiment/runs/E5/figures/fig6_bootstrap_calibration.pdf",
             "experiment/runs/E5/figures/fig6_bootstrap_calibration.png",
-        )
-        dropped = (
+        ), ignored=(
             "experiment/runs/E5/sims/bottleneck/rep01/genome.psmcfa",
             "experiment/runs/E5/boot/trunk50000/rep10/replicate_050.psmc",
             "experiment/runs/E5/boot/trunk50000/rep10.rs.html",
             "experiment/runs/E5/fits/bottleneck/rep01.rs.html",
             "experiment/runs/E5/logs/jobs/boot-trunk50000/bottleneck/rep10.log",
-        )
-        for p in kept:
-            self.assertFalse(ignored(p), p)
-        for p in dropped:
-            self.assertTrue(ignored(p), p)
+        ))
 
 
 @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)

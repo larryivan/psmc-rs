@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import importlib.util
 import math
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import C_REF, has_modules  # noqa: E402
 
 from experiment.pipeline import config, demography, results, simulate  # noqa: E402
 
-C_REF = ROOT / "tests" / "data" / "c_reference" / "c_4+25x2+4+6_N5.psmc"
-HAS_NUMERIC = all(importlib.util.find_spec(m) is not None for m in ("numpy", "pandas", "scipy"))
+HAS_NUMERIC = has_modules("numpy", "pandas", "scipy")
 
 if HAS_NUMERIC:
     import numpy as np

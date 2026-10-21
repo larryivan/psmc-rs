@@ -5,30 +5,18 @@ The data stage has its own tests (test_pipeline_kg1000.py); the figures are FIG'
 
 from __future__ import annotations
 
-import csv
 import gzip
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, kg1000, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import REGISTRY, Context, e7  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import fake_ctx, read_csv  # noqa: E402
 
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-
-
-def read_csv(path: Path):
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
+from experiment.pipeline import config, kg1000, runner  # noqa: E402
+from experiment.pipeline.experiments import REGISTRY, e7  # noqa: E402
 
 
 def sample(sid, pop="YRI", sup="AFR", default=False, split=False, boot=False, giab=False):
@@ -39,10 +27,8 @@ def sample(sid, pop="YRI", sup="AFR", default=False, split=False, boot=False, gi
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name).resolve()
-        self.ctx = Context(config.PRODUCTION, self.runs, _tools={"c": FAKE_C, "rs02": FAKE_RS}, log=lambda msg: None)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        self.ctx = fake_ctx(config.PRODUCTION, self.runs, log=lambda msg: None)
         self.lay = e7.Layout(self.ctx.exp_dir("E7"))
 
     def stage(self, samples):

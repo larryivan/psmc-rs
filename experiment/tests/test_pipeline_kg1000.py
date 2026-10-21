@@ -16,14 +16,10 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tiny_runs  # noqa: E402  (its fixtures put the repository on sys.path)
 
 from experiment.pipeline import config, kg1000  # noqa: E402
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import tiny_runs  # noqa: E402
 
 PED = """FamilyID SampleID FatherID MotherID Sex Population Superpopulation
 F1 A1 0 0 1 YRI AFR
@@ -206,9 +202,7 @@ class Fetch(unittest.TestCase):
         return f"http://127.0.0.1:{server.server_address[1]}/chr21.vcf.gz"
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.tmp = Path(self._tmp.name)
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.data = bytes(range(256)) * 1_000 + b"end"
 
     def test_ranges_join_to_the_file(self):

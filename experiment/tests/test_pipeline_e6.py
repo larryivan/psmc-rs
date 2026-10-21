@@ -5,35 +5,17 @@ The analyses have their own tests (test_pipeline_e6_analysis.py); the figures ar
 
 from __future__ import annotations
 
-import csv
-import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from experiment.pipeline import config, paths, runner, tools  # noqa: E402
-from experiment.pipeline.experiments import Context, e1, e6  # noqa: E402
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
+from fixtures import ROOT, assert_ignore_rules, fake_ctx, in_git_work_tree, read_csv  # noqa: E402
 
-FAKE_C = tools.Tool("c-psmc", Path("/x/psmc"), {"version": "0.6.5", "sha256": "0" * 64})
-FAKE_RS = tools.Tool("psmc-rs-0.2", Path("/x/psmc-rs"), {"version": "psmc-rs 0.2.0", "source_commit": "a" * 40})
-
-
-def read_csv(path: Path):
-    with open(path, newline="") as f:
-        return list(csv.DictReader(f))
-
-
-def fake_ctx(profile: config.Profile, runs: Path) -> Context:
-    return Context(profile, runs, _tools={"c": FAKE_C, "rs02": FAKE_RS}, log=lambda msg: None)
+from experiment.pipeline import config, paths, runner  # noqa: E402
+from experiment.pipeline.experiments import e1, e6  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -43,10 +25,8 @@ def fake_ctx(profile: config.Profile, runs: Path) -> Context:
 
 class Jobs(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.runs = Path(self._tmp.name).resolve()
-        self.ctx = fake_ctx(config.SMOKE, self.runs)
+        self.runs = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        self.ctx = fake_ctx(config.SMOKE, self.runs, log=lambda msg: None)
         self.e1_jobs = e1.jobs(self.ctx)
         self.jobs = e6.jobs(self.ctx)
         self.by_id = {j.id: j for j in self.jobs}
@@ -98,24 +78,12 @@ class Jobs(unittest.TestCase):
         self.assertEqual(qc[0].inputs, [paths.REAL_DATA / config.SMOKE.e2.genomes[0].file])
 
     def test_production_plan(self):
-        jobs = e6.jobs(fake_ctx(config.PRODUCTION, self.runs))
+        jobs = e6.jobs(fake_ctx(config.PRODUCTION, self.runs, log=lambda msg: None))
         self.assertEqual(len([j for j in jobs if j.id.startswith("E6/s2/fit-")]), 8)
         graph = runner.Graph(e1.jobs(fake_ctx(config.PRODUCTION, self.runs)) + jobs, self.runs)
         plan = runner.plan(graph, config.Budget())
         self.assertLess(plan["E6"]["cpu_hours"], 1.0)
         self.assertTrue(all(j.mem_gb <= config.Budget().mem_gb for j in jobs))
-
-
-def in_git_work_tree() -> bool:
-    if shutil.which("git") is None:
-        return False
-    res = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=ROOT, capture_output=True, text=True)
-    return res.returncode == 0 and res.stdout.strip() == "true"
-
-
-def ignored(rel_path: str) -> bool:
-    # --no-index: judge by the ignore rules alone, whether or not the file exists.
-    return subprocess.run(["git", "check-ignore", "-q", "--no-index", rel_path], cwd=ROOT).returncode == 0
 
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
@@ -124,17 +92,15 @@ class RunsLayout(unittest.TestCase):
 
     def test_layout_paths_fall_on_the_right_side_of_the_ignore_rules(self):
         lay = e6.Layout(ROOT / "experiment" / "runs" / "E6")
-        rel = lambda p: Path(p).relative_to(ROOT).as_posix()  # noqa: E731
-        kept = [lay.s2_fit("constant", 1, "vcf"), lay.s2_fit_psmc("constant", 1, "multihetsep"),
-                lay.s3_decode("bottleneck", 1), lay.s5_qc("NA12878"), lay.table("s3", "track"),
-                lay.root / "figures" / "figS3_tmrca_decoding.pdf", lay.root / "provenance" / "s3" / "report.json"]
-        dropped = [lay.s2_vcf_psmcfa("constant", 1), lay.s2_multihetsep("constant", 1), lay.s2_mhs_psmcfa("zigzag", 1),
-                   lay.s3_true_track("bottleneck", 1), lay.s3_posterior("bottleneck", 1),
-                   lay.s2_fit("constant", 1, "vcf").with_suffix(".html"), lay.root / "logs" / "runner.log"]
-        for p in kept:
-            self.assertFalse(ignored(rel(p)), rel(p))
-        for p in dropped:
-            self.assertTrue(ignored(rel(p)), rel(p))
+        assert_ignore_rules(self, kept=(
+            lay.s2_fit("constant", 1, "vcf"), lay.s2_fit_psmc("constant", 1, "multihetsep"),
+            lay.s3_decode("bottleneck", 1), lay.s5_qc("NA12878"), lay.table("s3", "track"),
+            lay.root / "figures" / "figS3_tmrca_decoding.pdf", lay.root / "provenance" / "s3" / "report.json",
+        ), ignored=(
+            lay.s2_vcf_psmcfa("constant", 1), lay.s2_multihetsep("constant", 1), lay.s2_mhs_psmcfa("zigzag", 1),
+            lay.s3_true_track("bottleneck", 1), lay.s3_posterior("bottleneck", 1),
+            lay.s2_fit("constant", 1, "vcf").with_suffix(".html"), lay.root / "logs" / "runner.log",
+        ))
 
 
 class Checks(unittest.TestCase):
