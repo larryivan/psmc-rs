@@ -120,8 +120,13 @@ pub fn default_html_path(output_json: &Path) -> PathBuf {
     output_json.with_extension("html")
 }
 
-/// One `<tr>` of a two-column table; `value` is HTML.
+/// One `<tr>` of a two-column table, of text.
 fn row(out: &mut String, name: &str, value: impl Display) {
+    row_html(out, name, &escape_html(&value.to_string()));
+}
+
+/// [`row`] with a value that is HTML.
+fn row_html(out: &mut String, name: &str, value: &str) {
     let name = escape_html(name);
     let _ = writeln!(out, "<tr><th>{name}</th><td>{value}</td></tr>");
 }
@@ -158,13 +163,13 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
     let mut out = String::new();
     row(&mut out, "psmc-rs", env!("CARGO_PKG_VERSION"));
     row(&mut out, "HMM kernels", crate::hmm::simd_path().name());
-    row(&mut out, "Input", mono(d.input_file));
-    row(&mut out, "Output JSON", mono(d.output_json));
+    row_html(&mut out, "Input", &mono(d.input_file));
+    row_html(&mut out, "Output JSON", &mono(d.output_json));
     if let Some(i) = d.input {
         input_rows(&mut out, i);
     }
     for (name, value) in d.bin_callable.map(bin_callable_rows).unwrap_or_default() {
-        row(&mut out, name, escape_html(&value));
+        row(&mut out, name, value);
     }
     row(&mut out, "EM iterations", d.n_iter);
     let loglike = d
@@ -175,7 +180,7 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
         .pattern
         .as_deref()
         .unwrap_or("none (one lambda per state)");
-    row(&mut out, "Pattern", escape_html(pattern));
+    row(&mut out, "Pattern", pattern);
     let states = format!("{} / {}", m.n_steps + 1, m.lam.len());
     row(&mut out, "States / free lambdas", states);
     for (name, v) in [
@@ -190,7 +195,7 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
         row(&mut out, name, fmt_num(v));
     }
     for (name, value) in &d.settings {
-        row(&mut out, name, escape_html(value));
+        row(&mut out, name, value);
     }
     row(&mut out, "Curve points", points);
     for (name, (lo, hi)) in ["Time range (years)", "Ne range"].into_iter().zip(ranges) {
@@ -205,7 +210,7 @@ fn input_rows(out: &mut String, i: &InputSummary) {
         Some(mode) => format!("{} ({mode} mode)", i.format),
         None => i.format.clone(),
     };
-    row(out, "Input format", escape_html(&format));
+    row(out, "Input format", format);
     let (kept, dropped) = (count(i.sequences as u64), count(i.dropped_sequences as u64));
     let sequences = format!("{kept} analysed, {dropped} left out");
     row(out, "Sequences", sequences);
@@ -275,13 +280,13 @@ fn qc_metric_rows(out: &mut String, r: &QcReport) {
             crate::qc::callable_distribution(c),
             crate::qc::approximate_counts_note(r)
         );
-        row(out, "Callable bases of called bins", escape_html(&callable));
+        row(out, "Callable bases of called bins", callable);
     }
     let (n50, l50) = (count(r.lengths.n50_bases), count(r.lengths.l50 as u64));
     row(out, "N50 / L50", format!("{n50} bp / {l50}"));
     if let Some(run) = &r.longest_missing_run {
         let bins = counted(run.bins as usize, "bin", "bins");
-        let longest = format!("{bins} in {}", escape_html(&run.sequence));
+        let longest = format!("{bins} in {}", run.sequence);
         row(out, "Longest missing run", longest);
     }
     if let Some(s) = &r.saturation {
@@ -308,7 +313,7 @@ fn qc_metric_rows(out: &mut String, r: &QcReport) {
         row(out, "Read depth", depth);
     }
     for d in &r.dropped {
-        let left_out = format!("{} {}", count(d.count as u64), escape_html(&d.reason));
+        let left_out = format!("{} {}", count(d.count as u64), d.reason);
         row(out, "Left out", left_out);
     }
 }
@@ -377,7 +382,7 @@ fn bootstrap_section(b: &BootstrapReport) -> String {
         Some(path) => format!("the parameters in {}", path.display()),
         None => "a fresh start".to_string(),
     };
-    row(&mut out, "Replicates start from", escape_html(&start));
+    row(&mut out, "Replicates start from", start);
     let (fitted, saved_note) = match b.started_from {
         Some(_) => (
             "each fitted from the saved parameters the main fit continued (as C psmc -i -b does)",
