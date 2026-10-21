@@ -9,7 +9,9 @@ make            # numbers and tables from the results, then the three PDFs in bu
 make check      # exit 1 if numbers.tex or a table is not what the committed results give
 ```
 
-The build needs the experiment environment (`experiment/.venv`, see
+`make` rewrites only the numbers and tables whose text changed, and rebuilds
+only the PDFs whose text, numbers, tables or included figures
+(`experiment/runs/*/figures/*.pdf`) changed. The build needs the experiment environment (`experiment/.venv`, see
 Supplementary Note 1, section 2), [tectonic](https://tectonic-typesetting.github.io)
 and pandoc.
 

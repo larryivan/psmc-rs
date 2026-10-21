@@ -6,10 +6,10 @@ reads ``experiment/runs/<EXP>/tables/*.csv``, E7's ``inputs/MANIFEST.json``,
 the two runs of NA12878's bootstrap, ``experiment/crossplatform``, the
 README's diagnostic and ``experiment.pipeline.config`` (the production
 profile), and writes ``numbers.tex`` (one ``\\newcommand`` per number the text
-quotes, with its source) and Tables 1, 2 and S1. The text quotes no result
-that is not one of these, and the assertions check the claims it makes in
-words; ``--check`` exits 1 when the files on disk differ from what the
-results give.
+quotes, with its source) and Tables 1, 2 and S1, each only when its text
+changed. The text quotes no result that is not one of these, and the
+assertions check the claims it makes in words; ``--check`` writes nothing and
+exits 1 when the files on disk differ from what the results give.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT))
 
 import pandas as pd  # noqa: E402
 
-from experiment.pipeline import config, metrics, results  # noqa: E402
+from experiment.pipeline import config  # noqa: E402
 
 RUNS = ROOT / "experiment" / "runs"
 OUT = Path(__file__).resolve().parent
@@ -38,11 +38,6 @@ WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
 @functools.lru_cache(maxsize=None)
 def table(exp: str, name: str) -> pd.DataFrame:
     return pd.read_csv(RUNS / exp / "tables" / f"{name}.csv")
-
-
-def curve(df) -> results.Curve:
-    df = df.sort_values("interval")
-    return results.Curve(tuple(df["years"]), tuple(df["ne"]))
 
 
 # Formats: every macro expands in text and in math mode.
@@ -507,17 +502,20 @@ def render() -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--check", action="store_true", help="exit 1 if the files on disk are not what the tables give")
+    check = ap.parse_args().check
     files = render()
-    if ap.parse_args().check:
-        stale = [n for n, text in files.items() if not (OUT / n).exists() or (OUT / n).read_text() != text]
-        print("stale: " + ", ".join(stale) if stale else f"{len(MACROS)} numbers and {len(files) - 1} tables up to date")
-        return 1 if stale else 0
-    for n, text in files.items():
-        (OUT / n).write_text(text)
-    print(f"wrote {len(MACROS)} numbers and " + ", ".join(n for n in files if n != "numbers.tex"))
-    return 0
+    stale = [n for n, text in files.items() if not (OUT / n).exists() or (OUT / n).read_text() != text]
+    if not stale:
+        print(f"{len(MACROS)} numbers and {len(files) - 1} tables up to date")
+    elif check:
+        print("stale: " + ", ".join(stale))
+    else:
+        for n in stale:  # only these, so that make rebuilds only the PDFs whose numbers or tables changed
+            (OUT / n).write_text(files[n])
+        print("wrote " + ", ".join(stale))
+    return 1 if stale and check else 0
 
 
 if __name__ == "__main__":
