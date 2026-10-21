@@ -43,12 +43,11 @@ import tempfile
 import time
 import tomllib
 from dataclasses import dataclass, field
-from importlib import metadata
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 from . import config, paths
-from .provenance import sha256_file
+from .provenance import package_version, sha256_file
 
 RS_SOURCES = ("src", "Cargo.toml", "Cargo.lock")
 
@@ -581,13 +580,7 @@ def lock_differences(path: Path = LOCK) -> List[str]:
     """How the running interpreter differs from the requirements lock (empty when it matches)."""
     out = []
     for name, want in read_lock(path).items():
-        if name == "python":
-            have = platform.python_version()
-        else:
-            try:
-                have = metadata.version(name)
-            except metadata.PackageNotFoundError:
-                have = "missing"
+        have = platform.python_version() if name == "python" else package_version(name)
         if have != want:
             out.append(f"{name} {have} (the lock has {want})")
     return out

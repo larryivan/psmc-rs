@@ -74,12 +74,14 @@ def placeholders(runs_dir: Path) -> Dict[str, str]:
     Longest prefixes first, so that a runs directory inside the repository is
     written as ``<runs>``, not ``<repo>/experiment/runs``.
     """
-    pairs = {
-        str(Path(runs_dir).resolve()): "<runs>",
-        str(tools_dir()): "<tools>",
-        str(ROOT): "<repo>",
-        python(): "<python>",
-    }
+    return _placeholders(runs_dir, tools_dir())
+
+
+@functools.lru_cache(maxsize=None)
+def _placeholders(runs_dir: Path, tools: Path) -> Dict[str, str]:
+    # Cached: every job's key and record converts its paths (resolving the runs directory takes an lstat per
+    # component). Callers must not change the dictionary.
+    pairs = {str(Path(runs_dir).resolve()): "<runs>", str(tools): "<tools>", str(ROOT): "<repo>", python(): "<python>"}
     return dict(sorted(pairs.items(), key=lambda kv: -len(kv[0])))
 
 

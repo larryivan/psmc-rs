@@ -51,6 +51,7 @@ identifies the tools afresh.
 
 from __future__ import annotations
 
+import bisect
 import errno
 import fcntl
 import json
@@ -144,6 +145,8 @@ class Job:
     def __post_init__(self):
         if not _ID_RE.match(self.id):
             raise ValueError(f"bad job id {self.id!r}: use <experiment>/<name>[/...] of [A-Za-z0-9_.+=-]")
+        if self.cores < 1:
+            raise ValueError(f"{self.id}: a job needs at least one core, not {self.cores}")
         self.command = [str(c) for c in self.command]
         self.inputs = [Path(p) for p in self.inputs]
         self.outputs = [Path(p) for p in self.outputs]
@@ -186,14 +189,24 @@ class GraphError(ValueError):
     pass
 
 
-def path_key(p: Path) -> str:
+def path_key(p: Path, real_dirs: Dict[str, str]) -> str:
     """A path as the file system tells files apart: resolved, and without case on macOS and Windows.
 
     macOS's default file systems ignore case, so ``figS2.pdf`` and
     ``FigS2.pdf`` are one file there, and two jobs writing them would
-    overwrite each other's output.
+    overwrite each other's output. ``real_dirs`` holds the directories
+    resolved so far: resolving costs an ``lstat`` per component, and a
+    graph's files lie in far fewer directories than there are files (a file
+    that is itself a symbolic link is resolved whole).
     """
-    s = str(Path(p).resolve())
+    s = os.fspath(p)
+    head, name = os.path.split(s)
+    if os.path.isabs(s) and name not in ("", ".", "..") and not os.path.islink(s):
+        if head not in real_dirs:
+            real_dirs[head] = os.path.realpath(head)
+        s = os.path.join(real_dirs[head], name)
+    else:
+        s = os.path.realpath(s)
     return s.lower() if sys.platform in ("darwin", "win32") else s
 
 
@@ -223,9 +236,10 @@ class Graph:
                 raise GraphError(f"duplicate job id {j.id}")
             self.jobs[j.id] = j
         producer: Dict[str, str] = {}
+        real_dirs: Dict[str, str] = {}
         for j in jobs:
             for p in [*j.outputs, j.record_path(self.runs_dir)]:
-                key = path_key(p)
+                key = path_key(p, real_dirs)
                 if key in producer:
                     raise GraphError(f"{p} is an output of both {producer[key]} and {j.id}")
                 producer[key] = j.id
@@ -234,7 +248,7 @@ class Graph:
         for j in jobs:
             deps, static = [], []
             for p in j.inputs:
-                pid = producer.get(path_key(p))
+                pid = producer.get(path_key(p, real_dirs))
                 if pid is None:
                     static.append(p)
                 elif pid == j.id:
@@ -528,6 +542,11 @@ def fits_budget(job: Job, budget: config.Budget) -> Optional[str]:
     return None
 
 
+def priority_order(priority: Dict[str, float]) -> Callable[[Job], Tuple[float, str]]:
+    """The sort key of :func:`pick`'s order: the longest chain of dependent work first, then the id."""
+    return lambda j: (-priority.get(j.id, 0.0), j.id)
+
+
 def pick(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget, priority: Dict[str, float],
          now: float) -> List[Job]:
     """The ready jobs to start now.
@@ -539,16 +558,25 @@ def pick(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget, p
     not starved by small ones. An exclusive job starts only when nothing
     runs and no non-exclusive job is ready, and then alone.
     """
+    return pick_in_order(sorted(ready, key=priority_order(priority)), running, budget, priority, now)
+
+
+def pick_in_order(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget,
+                  priority: Dict[str, float], now: float) -> List[Job]:
+    """:func:`pick` of ready jobs already sorted by :func:`priority_order` (the schedule keeps them so)."""
     if any(s.job.exclusive for s in running):
         return []
-    order = sorted(ready, key=lambda j: (-priority.get(j.id, 0.0), j.id))
-    normal = [j for j in order if not j.exclusive]
-    exclusive = sorted((j for j in order if j.exclusive), key=lambda j: (j.rank, -priority.get(j.id, 0.0), j.id))
     free_cores = budget.cores - sum(s.job.cores for s in running)
     free_mem = budget.mem_gb - sum(s.job.mem_gb for s in running)
     chosen: List[Job] = []
     head_blocked_until: Optional[float] = None
-    for j in normal:
+    any_normal = False
+    for j in ready:
+        if j.exclusive:
+            continue
+        any_normal = True
+        if free_cores < 1:  # every job needs a core: no other one fits
+            break
         fits = j.cores <= free_cores and j.mem_gb <= free_mem + 1e-9
         if head_blocked_until is None and not fits:
             head_blocked_until = min((s.remaining(now) for s in running), default=0.0)
@@ -556,8 +584,8 @@ def pick(ready: Sequence[Job], running: Sequence[Slot], budget: config.Budget, p
             chosen.append(j)
             free_cores -= j.cores
             free_mem -= j.mem_gb
-    if not chosen and not running and not normal and exclusive:
-        chosen.append(exclusive[0])
+    if not chosen and not running and not any_normal and ready:  # all the ready jobs are exclusive
+        chosen.append(min(ready, key=lambda j: (j.rank, -priority.get(j.id, 0.0), j.id)))
     return chosen
 
 
@@ -567,8 +595,9 @@ def simulate_schedule(
     """Expected finish time (seconds from now) of each job in ``todo``.
 
     ``running`` maps running job ids to their expected remaining seconds.
-    Jobs not in ``todo`` or ``running`` count as done. Uses :func:`pick`,
-    whose choice does not depend on the order of the ready jobs.
+    Jobs not in ``todo`` or ``running`` count as done. The ready jobs stay
+    in :func:`pick`'s order, which thousands of them at a time (E7's fits)
+    would otherwise cost a sort at every step.
     """
     todo_set = set(todo)
     now = 0.0
@@ -580,16 +609,17 @@ def simulate_schedule(
     def runnable(jid: str) -> bool:
         return waiting[jid] == 0 and fits_budget(graph.jobs[jid], budget) is None
 
-    ready = {jid: graph.jobs[jid] for jid in pending if runnable(jid)}
+    order = priority_order(graph.priority)
+    ready = sorted((graph.jobs[jid] for jid in pending if runnable(jid)), key=order)
     finish: Dict[str, float] = {}
     guard = 0
     while pending or slots:
         guard += 1
         if guard > 100000:
             break
-        for j in pick(list(ready.values()), slots, budget, graph.priority, now):
+        for j in pick_in_order(ready, slots, budget, graph.priority, now):
             slots.append(Slot(j, now))
-            del pending[j.id], ready[j.id]
+            del pending[j.id], ready[bisect.bisect_left(ready, order(j), key=order)]
         if not slots:
             finish.update(dict.fromkeys(pending, math.inf))
             break
@@ -601,7 +631,7 @@ def simulate_schedule(
                 if d in pending:
                     waiting[d] -= 1
                     if runnable(d):
-                        ready[d] = graph.jobs[d]
+                        bisect.insort(ready, graph.jobs[d], key=order)
     return finish
 
 

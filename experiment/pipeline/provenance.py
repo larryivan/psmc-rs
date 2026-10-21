@@ -20,6 +20,7 @@ Checksums are cached by path, size and modification time in
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -261,10 +262,13 @@ def python_identity(modules: Sequence[str], packages: Sequence[str] = ()) -> Dic
     for m in sorted(modules):
         h.update(m.encode())
         h.update((base / m).read_bytes())
-    ident = {"code": h.hexdigest(), "python": platform.python_version()}
-    for pkg in packages:
-        try:
-            ident[pkg] = metadata.version(pkg)
-        except metadata.PackageNotFoundError:
-            ident[pkg] = "missing"
-    return ident
+    return {"code": h.hexdigest(), "python": platform.python_version(), **{p: package_version(p) for p in packages}}
+
+
+@functools.lru_cache(maxsize=None)
+def package_version(name: str) -> str:
+    """The installed version of a Python package, or "missing" (cached: reading it scans the installed packages)."""
+    try:
+        return metadata.version(name)
+    except metadata.PackageNotFoundError:
+        return "missing"
