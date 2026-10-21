@@ -122,12 +122,12 @@ import math
 import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .. import config, demography, metrics, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import rep, run_record, write_csv
+from .e1 import read_rs_fit, rep, run_record, step_rows, write_tables
 
 NAME = "E4"
 ROUTES = ("mask_auto", "mask_ignore", "fq2psmcfa", "multihetsep", "nomask")
@@ -292,13 +292,6 @@ def step_cmd(*args: str) -> List[str]:
     return [paths.python(), "-m", "experiment.pipeline.inputprep", *args]
 
 
-def utility(ctx: Context, name: str) -> tools.Tool:
-    """A utility of the tools directory, or the stand-in a test put in the context."""
-    if name not in ctx._tools:
-        ctx._tools[name] = tools.utility(name)
-    return ctx._tools[name]
-
-
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
@@ -329,8 +322,8 @@ def jobs(ctx: Context) -> List[Job]:
     htslib = tools.htslib_versions()
     sh = Shared(
         rs=ctx.rs02(),
-        fq2psmcfa=utility(ctx, "fq2psmcfa"),
-        generate_multihetsep=utility(ctx, "generate_multihetsep.py"),
+        fq2psmcfa=ctx.utility("fq2psmcfa"),
+        generate_multihetsep=ctx.utility("generate_multihetsep.py"),
         steps={"pipeline": provenance.python_identity(["inputprep.py"], ["numpy"])},
         htslib=htslib,
         mb=cfg.genome.length / 1e6,
@@ -592,9 +585,7 @@ def load_fits(cfg: config.E4, lay: Layout, r: int, mask: str, bins: Dict) -> Dic
     out: Dict[str, RouteFit] = {}
     for route in cfg.routes:
         where = f"{mask} {route} {rep(r)}"
-        params = results.read_rs_json(lay.fit(mask, route, r))
-        if int(params.get("n_iter", -1)) != cfg.inference.n_iter:
-            raise ValueError(f"{lay.fit(mask, route, r)}: not a fit of {cfg.inference.n_iter} iterations")
+        params = read_rs_fit(lay.fit(mask, route, r), cfg.inference.n_iter)
         counts = bins["exact"]["counts"] if route in MASK_ROUTES else bins["routes"][route]["counts"]
         check_fit_input(params, counts, where)
         check_fit_mode(params, route, where)
@@ -687,51 +678,90 @@ def crosscheck_rows(mask: str, r: int, xrec: Dict) -> List[Dict]:
             for c in xrec["chromosomes"]]
 
 
+@dataclass(frozen=True)
+class TrueModel:
+    """The simulated model, and the windows on which a fitted curve is compared with it and with the complete-data fit."""
+
+    epochs: List[demography.Epoch]
+    window: Any  # the informative window's times (years)
+    fixed: Any  # the fixed window's times
+    gen_years: float
+
+    def vs_truth(self, curve: results.Curve) -> Dict:
+        import numpy as np
+
+        e, w, g = self.epochs, self.window, self.gen_years
+        return {"rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, e, w, g),
+                "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(curve, e, self.fixed, g),
+                "mean_log10_bias": float(np.mean(metrics.log10_bias(curve, e, w, g)))}
+
+    def vs_complete(self, curve: results.Curve, complete: Optional[RouteFit]) -> Dict:
+        if complete is None:
+            return {"rmse_log10_ne_vs_complete": None, "max_abs_log10_ne_vs_complete": None}
+        diff = metrics.log_time_diff(curve, complete.curve, (self.window[0], self.window[-1]))
+        return {"rmse_log10_ne_vs_complete": diff.rmse, "max_abs_log10_ne_vs_complete": diff.max_abs}
+
+
+def route_row(cfg: config.E4, rf: RouteFit, fits: Dict[str, RouteFit], complete: Optional[RouteFit], brec: Dict,
+              missing_fraction: float, findings: Sequence[Dict], truth: TrueModel) -> Dict:
+    """The routes table's row of one fit: its input as read, its callable bases, the metrics and the QC codes."""
+    p, fit = rf.params, rf.fit
+    inp, qc, bc = p.get("input", {}), p.get("qc") or {}, p.get("bin_callable") or {}
+    return {
+        "mask": rf.mask, "route": rf.route, "replicate": rf.replicate,
+        "bin_callable": bc.get("mode"), "bin_model": bc.get("model"), "counts": bc.get("counts"),
+        "missing_fraction": missing_fraction,
+        "theta": fit.theta, "rho": fit.rho, "t_max": fit.t_max, "n0": fit.n0(cfg.scaling.mu, cfg.inference.bin_size),
+        "theta_rel_complete": (fit.theta / complete.fit.theta - 1.0) if complete else None,
+        "theta0_per_bin": qc.get("theta0_per_bin"),
+        "bins": inp.get("bins"), "het_bins": inp.get("het_bins"), "missing_bins": inp.get("missing_bins"),
+        "missing_bin_fraction": inp.get("missing_bins", 0) / inp["bins"] if inp.get("bins") else None,
+        "differing_bin_fraction": (brec["routes"][rf.route]["totals"]["differing_fraction"]
+                                   if rf.route in BIN_ROUTES else 0.0),
+        "called_bases": qc.get("called_bases"),
+        "mean_callable_fraction": mean_callable_fraction(p),
+        "partly_callable_fraction": partly_callable_fraction(p),
+        **truth.vs_truth(rf.curve),
+        **truth.vs_complete(rf.curve, complete),
+        "identical_to_mask_auto": same_fit(p, fits["mask_auto"].params),
+        "identical_to_mask_ignore": same_fit(p, fits["mask_ignore"].params),
+        "loglike_final": p.get("final_loglike"),
+        "qc_warnings": _codes(findings, "warning"),
+        "qc_notes": _codes(findings, "note"),
+        "wall_seconds": rf.run.get("wall_seconds"),
+        "peak_rss_mb": rf.run.get("peak_rss_mb"),
+    }
+
+
 def report(ctx: Context) -> Dict[str, Path]:
     """Write every E4 table from the jobs' outputs; returns the paths written."""
-    import numpy as np
-
     cfg = ctx.profile.e4
     check_routes(cfg)
     lay = Layout(ctx.exp_dir(NAME))
-    sc, g, s = cfg.scaling, cfg.scaling.gen_years, cfg.inference.bin_size
+    g = cfg.scaling.gen_years
     epochs = demography.epochs(config.MODELS[cfg.model])
-    window = metrics.model_grid(epochs, cfg.grid, g)
-    fixed = metrics.fixed_grid(cfg.grid)
+    truth = TrueModel(epochs, metrics.model_grid(epochs, cfg.grid, g), metrics.fixed_grid(cfg.grid), g)
     masks = mask_names(cfg)
     rows: Dict[str, List[Dict]] = {k: [] for k in TABLES}
     bias: Dict[Tuple[str, str], List] = {}  # (mask, route): log10 bias on the window, one array per replicate
     dense = metrics.log_grid(*config.TRUTH_TABLE_YEARS)
     rows["truth"] = [{"model": cfg.model, "years": float(t), "ne": float(ne)}
                      for t, ne in zip(dense, metrics.truth_on_grid(epochs, dense, g))]
-
-    def vs_truth(curve) -> Dict:
-        return {"rmse_log10_ne_vs_truth": metrics.rmse_vs_truth(curve, epochs, window, g),
-                "rmse_log10_ne_vs_truth_fixed": metrics.rmse_vs_truth(curve, epochs, fixed, g),
-                "mean_log10_bias": float(np.mean(metrics.log10_bias(curve, epochs, window, g)))}
-
-    def vs_complete(curve, complete: Optional[RouteFit]) -> Dict:
-        if complete is None:
-            return {"rmse_log10_ne_vs_complete": None, "max_abs_log10_ne_vs_complete": None}
-        diff = metrics.log_time_diff(curve, complete.curve, (window[0], window[-1]))
-        return {"rmse_log10_ne_vs_complete": diff.rmse, "max_abs_log10_ne_vs_complete": diff.max_abs}
-
     for r in range(1, cfg.replicates + 1):
-        truth = _read(lay.truth(r))
-        if demography.epochs_from_record(truth["truth"]) != epochs:
+        record = _read(lay.truth(r))
+        if demography.epochs_from_record(record["truth"]) != epochs:
             raise ValueError(f"{lay.truth(r)}: not the {cfg.model} model")
         rows["seeds"] += [{"replicate": r, "chromosome": ch["name"], "stage": stage, "seed": ch["seeds"][stage]}
-                          for ch in truth["chromosomes"] for stage in ("ancestry", "mutations")]
+                          for ch in record["chromosomes"] for stage in ("ancestry", "mutations")]
         complete: Optional[RouteFit] = None  # the control's mask_auto fit
         for mask in masks:
-            spec = mask_spec(cfg, mask)
             mrec = _read(lay.mask_record(mask, r))
             crec = _read(lay.consensus_record(mask, r))
             brec = _read(lay.bins_record(mask, r))
             if not brec.get("assertions_passed") or not brec["routes"]["fq2psmcfa"]["totals"]["identical"]:
                 raise ValueError(f"{lay.bins_record(mask, r)}: fq2psmcfa's bins differ from the exact bins")
             missing_fraction = mrec["summary"]["totals"]["missing_fraction"]
-            rows["masks"].append(mask_row(mask, spec, r, mrec, crec, truth["totals"]["het_sites"]))
+            rows["masks"].append(mask_row(mask, mask_spec(cfg, mask), r, mrec, crec, record["totals"]["het_sites"]))
             rows["seeds"] += [{"replicate": r, "chromosome": chrom, "stage": f"mask/{mask}", "seed": seed}
                               for chrom, seed in mrec["seeds"].items() if seed is not None]
             if mask == masks[0]:
@@ -747,47 +777,13 @@ def report(ctx: Context) -> Dict[str, Path]:
             for route, rf in fits.items():
                 findings = qc_findings(rf.params)
                 rows["qc"] += [{"mask": mask, "route": route, "replicate": r, **f} for f in findings]
-                bias.setdefault((mask, route), []).append(metrics.log10_bias(rf.curve, epochs, window, g))
-                inp, qc = rf.params.get("input", {}), rf.params.get("qc") or {}
-                bc = rf.params.get("bin_callable") or {}
-                rows["routes"].append(
-                    {
-                        "mask": mask, "route": route, "replicate": r,
-                        "bin_callable": bc.get("mode"), "bin_model": bc.get("model"), "counts": bc.get("counts"),
-                        "missing_fraction": missing_fraction,
-                        "theta": rf.fit.theta, "rho": rf.fit.rho, "t_max": rf.fit.t_max,
-                        "n0": rf.fit.n0(sc.mu, s),
-                        "theta_rel_complete": (rf.fit.theta / complete.fit.theta - 1.0) if complete else None,
-                        "theta0_per_bin": qc.get("theta0_per_bin"),
-                        "bins": inp.get("bins"), "het_bins": inp.get("het_bins"), "missing_bins": inp.get("missing_bins"),
-                        "missing_bin_fraction": inp.get("missing_bins", 0) / inp["bins"] if inp.get("bins") else None,
-                        "differing_bin_fraction": (brec["routes"][route]["totals"]["differing_fraction"]
-                                                   if route in BIN_ROUTES else 0.0),
-                        "called_bases": qc.get("called_bases"),
-                        "mean_callable_fraction": mean_callable_fraction(rf.params),
-                        "partly_callable_fraction": partly_callable_fraction(rf.params),
-                        **vs_truth(rf.curve),
-                        **vs_complete(rf.curve, complete),
-                        "identical_to_mask_auto": same_fit(rf.params, fits["mask_auto"].params),
-                        "identical_to_mask_ignore": same_fit(rf.params, fits["mask_ignore"].params),
-                        "loglike_final": rf.params.get("final_loglike"),
-                        "qc_warnings": _codes(findings, "warning"),
-                        "qc_notes": _codes(findings, "note"),
-                        "wall_seconds": rf.run.get("wall_seconds"),
-                        "peak_rss_mb": rf.run.get("peak_rss_mb"),
-                    }
-                )
-                rows["curves"] += [{"mask": mask, "route": route, "replicate": r, "interval": k,
-                                    "t_2n0": t, "years": y, "lambda": lam, "ne": ne}
-                                   for k, (t, y, lam, ne) in enumerate(zip(rf.fit.boundaries(), rf.curve.years,
-                                                                           rf.fit.lambdas, rf.curve.ne))]
-            rows["rescaling"].append(rescaling_row(cfg, mask, r, missing_fraction, fits, complete,
-                                                   vs_truth, vs_complete, window))
+                bias.setdefault((mask, route), []).append(metrics.log10_bias(rf.curve, epochs, truth.window, g))
+                rows["routes"].append(route_row(cfg, rf, fits, complete, brec, missing_fraction, findings, truth))
+                rows["curves"] += step_rows(rf.fit, rf.curve, mask=mask, route=route, replicate=r)
+            rows["rescaling"].append(rescaling_row(cfg, mask, r, missing_fraction, fits, complete, truth))
     rows["summary"] = summary_rows(cfg, rows["routes"])
-    rows["bias"] = bias_rows(bias, window, metrics.truth_on_grid(epochs, window, g))
-    for key in TABLES:
-        write_csv(lay.table(key), rows[key], fields=FIELDS.get(key))
-    return {key: lay.table(key) for key in TABLES}
+    rows["bias"] = bias_rows(bias, truth.window, metrics.truth_on_grid(epochs, truth.window, g))
+    return write_tables(lay.table, rows, FIELDS)
 
 
 def rescaled_curve(cfg: config.E4, rf: RouteFit, mean_fraction: float) -> results.Curve:
@@ -797,7 +793,7 @@ def rescaled_curve(cfg: config.E4, rf: RouteFit, mean_fraction: float) -> result
 
 
 def rescaling_row(cfg: config.E4, mask: str, r: int, missing_fraction: float, fits: Dict[str, RouteFit],
-                  complete: Optional[RouteFit], vs_truth: Callable, vs_complete: Callable, window) -> Dict:
+                  complete: Optional[RouteFit], truth: TrueModel) -> Dict:
     """The rescaling cross-check of one mask and replicate: mask_ignore rescaled after the fit, beside mask_auto."""
     auto, ignore = fits["mask_auto"], fits["mask_ignore"]
     f = mean_callable_fraction(ignore.params)
@@ -809,12 +805,12 @@ def rescaling_row(cfg: config.E4, mask: str, r: int, missing_fraction: float, fi
     theta_c = complete.fit.theta if complete else None
     for name, curve, theta in (("auto", auto.curve, auto.fit.theta), ("ignore", ignore.curve, ignore.fit.theta),
                                ("rescaled", rescaled, ignore.fit.theta / f if f else None)):
-        t, c = (vs_truth(curve), vs_complete(curve, complete)) if curve is not None else ({}, {})
+        t, c = (truth.vs_truth(curve), truth.vs_complete(curve, complete)) if curve is not None else ({}, {})
         row[f"theta_rel_complete_{name}"] = (theta / theta_c - 1.0) if (theta and theta_c) else None
         row[f"rmse_truth_{name}"] = t.get("rmse_log10_ne_vs_truth")
         row[f"rmse_complete_{name}"] = c.get("rmse_log10_ne_vs_complete")
         row[f"mean_log10_bias_{name}"] = t.get("mean_log10_bias")
-    diff = metrics.interval_diff(rescaled, auto.curve, (window[0], window[-1])) if rescaled else None
+    diff = metrics.interval_diff(rescaled, auto.curve, (truth.window[0], truth.window[-1])) if rescaled else None
     row["rmse_rescaled_vs_auto_per_interval"] = diff.rmse if diff else None
     row["max_abs_rescaled_vs_auto_per_interval"] = diff.max_abs if diff else None
     return row

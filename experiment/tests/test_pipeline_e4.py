@@ -238,19 +238,13 @@ class Summary(unittest.TestCase):
         from experiment.pipeline import demography, metrics
 
         cfg = config.E4()
+        g = cfg.scaling.gen_years
         epochs = demography.epochs(config.MODELS[cfg.model])
-        window = metrics.model_grid(epochs, cfg.grid, cfg.scaling.gen_years)
+        truth = e4.TrueModel(epochs, metrics.model_grid(epochs, cfg.grid, g), metrics.fixed_grid(cfg.grid), g)
         fits = self._fits("dispersed30", mask_auto=fit_json(theta=0.03), mask_ignore=fit_json(theta=0.021,
                                                                                                mean_fraction=0.7))
         complete = self._fits(config.E4_CONTROL_MASK, mask_auto=fit_json(theta=0.03))["mask_auto"]
-
-        def vs_truth(curve):
-            return {"rmse_log10_ne_vs_truth": 0.0, "mean_log10_bias": 0.0}
-
-        def vs_complete(curve, c):
-            return {"rmse_log10_ne_vs_complete": metrics.log_time_diff(curve, c.curve, (window[0], window[-1])).rmse}
-
-        row = e4.rescaling_row(cfg, "dispersed30", 1, 0.3, fits, complete, vs_truth, vs_complete, window)
+        row = e4.rescaling_row(cfg, "dispersed30", 1, 0.3, fits, complete, truth)
         self.assertAlmostEqual(row["scale"], 1 / 0.7)
         self.assertAlmostEqual(row["theta_rel_complete_ignore"], -0.3)
         self.assertAlmostEqual(row["theta_rel_complete_rescaled"], 0.0)

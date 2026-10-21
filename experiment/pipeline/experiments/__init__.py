@@ -30,15 +30,20 @@ class Context:
     def exp_dir(self, experiment: str) -> Path:
         return Path(self.runs_dir) / experiment
 
+    def _tool(self, key: str, identify: Callable[[], tools.Tool]) -> tools.Tool:
+        if key not in self._tools:
+            self._tools[key] = identify()
+        return self._tools[key]
+
     def rs02(self) -> tools.Tool:
-        if "rs02" not in self._tools:
-            self._tools["rs02"] = tools.psmc_rs_02(build=self.build_tools, log=self.log)
-        return self._tools["rs02"]
+        return self._tool("rs02", lambda: tools.psmc_rs_02(build=self.build_tools, log=self.log))
 
     def c_psmc(self) -> tools.Tool:
-        if "c" not in self._tools:
-            self._tools["c"] = tools.c_psmc()
-        return self._tools["c"]
+        return self._tool("c", tools.c_psmc)
+
+    def utility(self, name: str) -> tools.Tool:
+        """A utility of the tools directory (``fq2psmcfa``, ``generate_multihetsep.py``)."""
+        return self._tool(name, lambda: tools.utility(name))
 
     def pipeline_cmd(self, *args: str) -> List[str]:
         """``python -m experiment.pipeline ARGS``, with the interpreter that runs the pipeline."""
