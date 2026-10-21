@@ -11,16 +11,18 @@
 # shard under E3/logs/shards/ (they are not committed). Afterwards every
 # simulation and timing run must be done for the current code and tools.
 set -euo pipefail
+fail() { echo "merge_e3: $*" >&2; exit 1; }
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+[ -f "$DIR/site.env" ] || fail "$DIR/site.env is missing: copy site.env.example there and fill it in"
 # shellcheck source=/dev/null
 source "$DIR/site.env"
 PY=$MAIN/experiment/.venv/bin/python
 dest=$PROD/experiment/runs/E3
 repeats=$(cd "$PROD" && "$PY" -c 'from experiment.pipeline import config; print(config.get_profile("production").e3.repeats)')
 
-fail() { echo "merge_e3: $*" >&2; exit 1; }
-if squeue -h -u "$USER" -o %j | grep -q '^psmcrs-e3-rep'; then
-  fail "E3 jobs are still queued or running: $(squeue -h -u "$USER" -o '%j %i %T' | grep '^psmcrs-e3-rep' | tr '\n' ' ')"
+queue=$(squeue -h -u "$USER" -o '%j %i %T')
+if grep -q '^psmcrs-e3-rep' <<< "$queue"; then
+  fail "E3 jobs are still queued or running: $(grep '^psmcrs-e3-rep' <<< "$queue" | tr '\n' ' ')"
 fi
 for r in $(seq 1 "$repeats"); do
   s=$E3_SHARDS/rep$r
@@ -54,9 +56,10 @@ for r in $(seq 1 "$repeats"); do
 done
 
 # Every simulation and timing run done for the current code and tools?
-not_done=$(cd "$PROD" && PSMC_SLURM_DIR=$DIR bash -c 'source "$PSMC_SLURM_DIR/env.sh" && "$PY" -m experiment.pipeline status \
-  --profile production --runs-dir "$PROD/experiment/runs" --only "^E3/(sim|run)/" --jobs E3' \
-  | grep -E '^  (pending|running|failed|blocked|changed) ' || true)
+status=$(cd "$PROD" && PSMC_SLURM_DIR=$DIR bash -c 'source "$PSMC_SLURM_DIR/env.sh" && "$PY" -m experiment.pipeline status \
+  --profile production --runs-dir "$PROD/experiment/runs" --only "^E3/(sim|run)/" --jobs E3') ||
+  fail "cannot tell whether every run is done: the pipeline's status failed (above)"
+not_done=$(grep -E '^  (pending|running|failed|blocked) ' <<< "$status" || true)
 if [ -n "$not_done" ]; then
   echo "$not_done" | head -20 >&2
   fail "$(wc -l <<< "$not_done") simulations or runs are not done for the current code and tools"
