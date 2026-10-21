@@ -609,18 +609,20 @@ Reproduction package (`experiment/`):
 - psmcfa input is streamed instead of read whole, and the VCF reader is two
   to three times as fast.
 - Gzip and bgzip input is decoded in a thread of its own while it is
-  parsed: a 249 MB bgzip all-sites VCF (48 M records) is read in consensus
-  mode in 12.8 s instead of 19.0 s, and a bgzip SNP VCF with a callable
-  mask and a bgzip negative mask of a million rows in 0.13 s instead of
-  0.20 s, for the same CPU time.
-- Consensus mode reads FQ without the general float parser (to the same
-  double, for values of up to 15 digits) and finds the INFO keys at their
-  `=` instead of at every byte: on that VCF, uncompressed (2.7 GB), it
-  takes 5.8 s of CPU instead of 7.2 s with given depth bounds, and 10.3 s
-  instead of 11.8 s with `--depth auto`, which reads the file twice. Mask
+  parsed, which takes a little more CPU time but less wall time on a
+  machine with more than one core: a 249 MB bgzip all-sites VCF (48 M
+  records) is read in consensus mode with `--depth auto`, which reads it
+  twice, in 13.0 s instead of 20.1 s for about 1 s more CPU time, and a
+  bgzip SNP VCF with a callable mask and a bgzip negative mask of a
+  million rows in 0.15 s instead of 0.21 s.
+- Consensus mode reads FQ and AF1 without the general float parser (to the
+  same double; values of more than 15 digits still go through it) and
+  finds the INFO keys at their `=` instead of at every byte: on that VCF,
+  uncompressed (2.7 GB), it takes 5.8 s of CPU instead of 7.1 s with given
+  depth bounds, and 9.8 s instead of 11.7 s with `--depth auto`. Mask
   coordinates written as plain digits are read without the standard
   library's string parser: a callable mask of 24 M one-base rows (475 MB)
-  is read in 1.0 s of CPU instead of 1.4 s.
+  is read in 1.0 s of CPU instead of 1.3 s.
 - The M-step differentiates its objective in reverse mode (adjoints written
   out by hand) instead of with forward-mode dual numbers, which carried the
   derivatives with respect to every parameter, in a heap vector, through
