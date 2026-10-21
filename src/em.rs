@@ -412,14 +412,13 @@ pub fn em_train_with_options(
         });
         let e_opts = EStepOptions {
             progress_bars: config.progress,
-            label: "E",
             on_progress: on_e_step
                 .as_mut()
                 .map(|cb| cb as &mut dyn FnMut(EStepProgress)),
             cancel,
             thread_pool,
-            alpha_cache: None,
             callable,
+            ..EStepOptions::default()
         };
         let e = e_step_with_options(
             model.prior_matrix(),
