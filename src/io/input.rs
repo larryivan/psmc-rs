@@ -746,14 +746,11 @@ impl Dataset {
     /// (psmcfa). See [`crate::io::callable`].
     pub fn sequence_callable(&self) -> Option<Vec<Cow<'_, BinCounts>>> {
         let counts = self.obs.callable.as_ref()?.rows();
-        let ranges = sequence_ranges(&self.obs.row_starts);
-        Some(
-            self.seqs
-                .iter()
-                .zip(ranges)
-                .map(|(_, r)| join_counts(counts, r))
-                .collect(),
-        )
+        // Only the kept sequences, as `sequences` pairs them with their bins.
+        let ranges = sequence_ranges(&self.obs.row_starts)
+            .into_iter()
+            .take(self.seqs.len());
+        Some(ranges.map(|r| join_counts(counts, r)).collect())
     }
 
     /// Bins over all kept sequences.
