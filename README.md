@@ -66,9 +66,9 @@ psmc-rs calls.vcf.gz fit.json 25 --bootstrap 100    # fit with 100 bootstrap rep
 psmc-rs convert calls.vcf.gz --psmcfa sample.psmcfa.gz
 ```
 
-`fit.json` holds the parameters, `fit.html` the report. The run prints the
-input summary, a QC report and the model on stderr, and its results on
-stdout:
+`fit.json` holds the parameters, `fit.html` the report. The run prints how
+it read the input (for psmcfa, C psmc's `n_seqs`, `sum_L` and `sum_n`), the
+QC report and the model on stderr, and its results on stdout:
 
 ```text
 Last EM loglike: -402414.07486276847
