@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -158,6 +159,19 @@ class Paths(unittest.TestCase):
     def test_tools_dir_override(self):
         with mock.patch.dict(os.environ, {"PSMC_EXP_TOOLS": "/some/where"}):
             self.assertEqual(paths.tools_dir(), Path("/some/where").resolve())
+
+    def test_resolve_is_paths_resolve_with_each_directory_resolved_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "real").mkdir()
+            (d / "real" / "f").write_text("x")
+            (d / "linked").symlink_to(d / "real", target_is_directory=True)
+            (d / "real" / "f-link").symlink_to(d / "real" / "f")
+            real_dirs = {}
+            for p in (d / "linked" / "f", d / "linked" / "f-link", d / "linked" / "absent",
+                      d / "linked" / ".." / "linked" / "f", Path("relative/f")):
+                self.assertEqual(paths.resolve(p, real_dirs), str(p.resolve()), p)
+            self.assertEqual(real_dirs[str(d / "linked")], str((d / "real").resolve()))
 
 
 if __name__ == "__main__":

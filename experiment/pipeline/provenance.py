@@ -62,16 +62,17 @@ def write_json_atomic(path: Path, obj) -> None:
 
 
 class ChecksumCache:
-    """SHA-256 of files, cached by (size, mtime_ns)."""
+    """SHA-256 of files by their resolved paths, cached by (size, mtime_ns)."""
 
     def __init__(self, path: Optional[Path]):
         self.path = Path(path) if path is not None else None
         self._lock = threading.Lock()
         self._data: Dict[str, List] = read_json(self.path) if self.path is not None else {}
         self._dirty = False
+        self._real_dirs: Dict[str, str] = {}  # see paths.resolve
 
     def sha256(self, path: Path) -> str:
-        p = str(Path(path).resolve())
+        p = paths.resolve(path, self._real_dirs)
         st = os.stat(p)
         with self._lock:
             hit = self._data.get(p)

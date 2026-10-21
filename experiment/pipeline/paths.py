@@ -97,6 +97,22 @@ def replace_prefixes(text: str, prefixes: Dict[str, str]) -> str:
     return text
 
 
+def resolve(path: Path, real_dirs: Dict[str, str]) -> str:
+    """``str(Path(path).resolve())``, each directory resolved once: ``real_dirs`` holds those resolved so far.
+
+    Resolving costs an ``lstat`` per component, and the pipeline's files lie
+    in far fewer directories than there are files. A file that is itself a
+    symbolic link is resolved whole.
+    """
+    s = os.fspath(path)
+    head, name = os.path.split(s)
+    if not os.path.isabs(s) or name in ("", ".", "..") or os.path.islink(s):
+        return os.path.realpath(s)
+    if head not in real_dirs:
+        real_dirs[head] = os.path.realpath(head)
+    return os.path.join(real_dirs[head], name)
+
+
 def repo_relative(path: Path) -> str:
     """``path`` relative to the repository root when inside it, else absolute."""
     p = Path(path).resolve()

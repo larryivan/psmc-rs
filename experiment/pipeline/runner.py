@@ -195,19 +195,9 @@ def path_key(p: Path, real_dirs: Dict[str, str]) -> str:
 
     macOS's default file systems ignore case, so ``figS2.pdf`` and
     ``FigS2.pdf`` are one file there, and two jobs writing them would
-    overwrite each other's output. ``real_dirs`` holds the directories
-    resolved so far: resolving costs an ``lstat`` per component, and a
-    graph's files lie in far fewer directories than there are files (a file
-    that is itself a symbolic link is resolved whole).
+    overwrite each other's output. ``real_dirs``: see :func:`.paths.resolve`.
     """
-    s = os.fspath(p)
-    head, name = os.path.split(s)
-    if os.path.isabs(s) and name not in ("", ".", "..") and not os.path.islink(s):
-        if head not in real_dirs:
-            real_dirs[head] = os.path.realpath(head)
-        s = os.path.join(real_dirs[head], name)
-    else:
-        s = os.path.realpath(s)
+    s = paths.resolve(p, real_dirs)
     return s.lower() if sys.platform in ("darwin", "win32") else s
 
 
