@@ -87,8 +87,8 @@ from ..runner import Job
 from . import Context
 from .e1 import (check_same_input, compare_tools, loglike_diffs, loglikes, read_c_fit, read_rs_fit, run_record,
                  write_tables)
-from .e2 import (BootFiles, band, band_rows, display_grid, fitted_window, load_bootstrap, psmcfa_lengths,
-                 summary_difference)
+from .e2 import (BootFiles, band, band_rows, bootstrap_args, display_grid, fitted_window, load_bootstrap,
+                 psmcfa_lengths, summary_difference)
 from .e5 import trunk_count
 
 NAME = "E7"
@@ -171,16 +171,6 @@ def vcf_fit_args(cfg: config.E7, data: kg1000.Layout) -> List[str]:
     return out
 
 
-def bootstrap_args(cfg: config.E7, sid: str, boot_dir: Path) -> List[str]:
-    return [
-        "--bootstrap", str(cfg.bootstrap_replicates),
-        "--bootstrap-block-size", str(cfg.bootstrap_trunk_bins),
-        "--bootstrap-seed", str(bootstrap_seed(sid)),
-        "--bootstrap-iters", str(cfg.inference.n_iter),
-        "--bootstrap-dir", str(boot_dir),
-    ]
-
-
 def ready(ctx: Context) -> bool:
     """Whether the data stage has finished: ``assemble-samples``, its last step, wrote ``MANIFEST.json``."""
     return Layout(ctx.exp_dir(NAME)).data.manifest.exists()
@@ -242,16 +232,17 @@ def jobs(ctx: Context) -> List[Job]:
                     settings={"inference": inference}, tools={c_tool.name: c_tool.identity},
                     description=f"C psmc on {sid}'s psmcfa ({s.population})")
         if s.bootstrap:
-            boot = lay.boot(sid)
+            boot, trunk = lay.boot(sid), cfg.bootstrap_trunk_bins
             add("boot-rs", sid,
                 command=tools.rs02_fit(rs_tool, cfg.inference, cfg.scaling, psmcfa, boot.main,
-                                       threads=cfg.bootstrap_threads, extra=bootstrap_args(cfg, sid, boot.dir)),
+                                       threads=cfg.bootstrap_threads,
+                                       extra=bootstrap_args(cfg, trunk, bootstrap_seed(sid), boot.dir)),
                 inputs=[psmcfa],
                 outputs=[boot.main, boot.summary("json"), boot.summary("tsv")],
                 cores=cfg.bootstrap_threads, mem_gb=round(costs.rs02_gb * cfg.bootstrap_threads, 2),
                 est_seconds=fit_s + cfg.bootstrap_replicates * fit_s / max(cfg.bootstrap_threads, 1),
                 settings={"inference": inference, "scaling": scaling, "threads": cfg.bootstrap_threads,
-                          "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": cfg.bootstrap_trunk_bins,
+                          "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": trunk,
                                         "iterations": cfg.inference.n_iter}},
                 tools=rs_ident, seeds={"bootstrap": bootstrap_seed(sid)},
                 description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates) on {sid}")

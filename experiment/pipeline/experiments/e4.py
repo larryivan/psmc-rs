@@ -680,7 +680,8 @@ def crosscheck_rows(mask: str, r: int, xrec: Dict) -> List[Dict]:
 
 @dataclass(frozen=True)
 class TrueModel:
-    """The simulated model, and the windows on which a fitted curve is compared with it and with the complete-data fit."""
+    """The simulated model, and the windows on which a fitted curve is compared with it and with the complete-data
+    fit."""
 
     epochs: List[demography.Epoch]
     window: Any  # the informative window's times (years)

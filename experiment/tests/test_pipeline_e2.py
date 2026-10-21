@@ -163,7 +163,8 @@ class Jobs(unittest.TestCase):
         files = e2.Layout(self.runs / "E2").boot("NA12878", p.e7.bootstrap_trunk_bins)
         self.assertEqual(boot.command, tools.rs02_fit(
             fake_tools("rs02")["rs02"], p.e7.inference, p.e7.scaling, paths.REAL_DATA / human.file,
-            files.main, threads=p.e2.rs_threads, extra=e7.bootstrap_args(p.e7, "NA12878", files.dir),
+            files.main, threads=p.e2.rs_threads,
+            extra=e2.bootstrap_args(p.e7, p.e7.bootstrap_trunk_bins, e7.bootstrap_seed("NA12878"), files.dir),
         ))
         # One bootstrap: none on fine trunks, whose seed would be E2's own.
         self.assertEqual([j.id for j in self.jobs if j.id.startswith("E2/boot-rs/") and j.id.endswith("/NA12878")],

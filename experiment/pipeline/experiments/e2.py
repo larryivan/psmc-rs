@@ -429,11 +429,13 @@ def below_trunk_fraction(lengths: Sequence[int], trunk: int) -> float:
     return sum(n for n in lengths if n < trunk) / total if total else 0.0
 
 
-def bootstrap_args(cfg: config.E2, genome: config.RealGenome, trunk: int, boot_dir: Path) -> List[str]:
+def bootstrap_args(cfg, trunk: int, seed: int, boot_dir: Path) -> List[str]:
+    """psmc-rs's options of a bootstrap run of ``cfg``'s replicates and iterations (E2's or E7's: their shared
+    bootstrap of NA12878 is one command)."""
     return [
         "--bootstrap", str(cfg.bootstrap_replicates),
         "--bootstrap-block-size", str(trunk),
-        "--bootstrap-seed", str(bootstrap_seed(cfg, genome, trunk)),
+        "--bootstrap-seed", str(seed),
         "--bootstrap-iters", str(cfg.inference.n_iter),
         "--bootstrap-dir", str(boot_dir),
     ]
@@ -507,13 +509,13 @@ def genome_jobs(ctx: Context, lay: Layout, g: config.RealGenome) -> Tuple[List[J
     for trunk in trunk_sizes(cfg, lengths):
         # psmc-rs skips a replicate whose fresh start is invalid (it gets no
         # files); the report reads exactly the replicates summary.json names.
-        boot = lay.boot(sid, trunk)
+        boot, seed = lay.boot(sid, trunk), bootstrap_seed(cfg, g, trunk)
         outputs = [boot.main, boot.summary("json"), boot.summary("tsv")]
         boot_outputs += outputs
         out.append(Job(
             id=job_id(boot_kind(trunk), sid),
             command=tools.rs02_fit(rs_tool, cfg.inference, g.scaling, inp, boot.main, threads=cfg.rs_threads,
-                                   extra=bootstrap_args(cfg, g, trunk, boot.dir)),
+                                   extra=bootstrap_args(cfg, trunk, seed, boot.dir)),
             inputs=[inp],
             outputs=outputs,
             cores=cfg.rs_threads,
@@ -528,7 +530,7 @@ def genome_jobs(ctx: Context, lay: Layout, g: config.RealGenome) -> Tuple[List[J
                 "bootstrap": {"replicates": cfg.bootstrap_replicates, "trunk_bins": trunk, "iterations": n_iter},
             },
             tools=rs_ident,
-            seeds={"bootstrap": bootstrap_seed(cfg, g, trunk)},
+            seeds={"bootstrap": seed},
             description=f"psmc-rs 0.2 bootstrap ({cfg.bootstrap_replicates} replicates, trunks of {trunk} "
                         f"bins) on {g.label}",
         ))
@@ -573,8 +575,8 @@ def jobs(ctx: Context) -> List[Job]:
         est_seconds=ctx.profile.costs.report_s,
         settings={"e2": asdict(cfg)},
         tools={"pipeline": provenance.python_identity(
-            ["experiments/e2.py", "experiments/e1.py", "experiments/e5.py", "results.py", "metrics.py", "demography.py"],
-            ["numpy"],
+            ["experiments/e2.py", "experiments/e1.py", "experiments/e5.py", "results.py", "metrics.py",
+             "demography.py"], ["numpy"],
         )},
         description="E2 tables",
     ))
@@ -1118,8 +1120,8 @@ if __name__ == "__main__":
 
 __all__ = [
     "BootFiles", "Bootstrap", "GenomeResult", "Layout", "NAME", "Shape", "SplitFit", "TABLES", "band", "band_rows",
-    "below_trunk_fraction", "boot_kind", "bootstrap_seed", "display_grid", "fit_epochs", "fitted_window",
-    "input_lengths", "input_shape", "is_gzip", "jobs", "load_bootstrap", "load_genome", "load_split",
+    "below_trunk_fraction", "boot_kind", "bootstrap_args", "bootstrap_seed", "display_grid", "fit_epochs",
+    "fitted_window", "input_lengths", "input_shape", "is_gzip", "jobs", "load_bootstrap", "load_genome", "load_split",
     "main_fit_mismatch", "prefix_lengths", "psmcfa_lengths", "read_psmcfa", "recent_shape", "report",
     "shared_bootstrap_differences", "split_fits", "split_kind", "split_rows", "summary_difference", "trunk_sizes",
     "write_psmcfa_prefix",
