@@ -195,8 +195,8 @@ fn metrics(out: &mut String, r: &QcReport) {
         rows.push((
             "Bootstrap",
             format!(
-                "{} trunks of {} bins; {} of bins in sequences shorter than a trunk",
-                count(trunks),
+                "{} of {} bins; {} of bins in sequences shorter than a trunk",
+                counted(trunks as usize, "trunk", "trunks"),
                 count(r.bootstrap_trunk_bins as u64),
                 pct(below.fraction)
             ),
@@ -290,7 +290,10 @@ fn metrics(out: &mut String, r: &QcReport) {
     if r.empty_sequences > 0 {
         rows.push((
             "Empty",
-            format!("{} sequences without bins", count(r.empty_sequences as u64)),
+            format!(
+                "{} without bins",
+                counted(r.empty_sequences, "sequence", "sequences")
+            ),
         ));
     }
 

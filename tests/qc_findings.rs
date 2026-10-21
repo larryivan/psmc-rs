@@ -354,6 +354,11 @@ fn invalid_start() {
     assert_eq!(severity(&with(None), QcCode::InvalidStart), None);
     let valid = FitStart::new(&c_default, theta0, 0.15, false);
     assert_eq!(severity(&with(Some(valid)), QcCode::InvalidStart), None);
+    // Without a heterozygous bin theta0 is -0: FEW_HETS says so, and rho0
+    // is not too large.
+    let no_het = FitStart::new(&c_default, -0.0, -0.0, true);
+    assert!(!no_het.is_valid());
+    assert_eq!(severity(&with(Some(no_het)), QcCode::InvalidStart), None);
 
     let r = with(Some(start.clone()));
     let f = &r.findings[0];
@@ -592,7 +597,7 @@ fn short_sequences_below_the_trunk() {
     let f = r.finding(QcCode::ShortSequences).unwrap();
     assert!(
         f.message.starts_with(
-            "20.0% of bins lie in 1 sequences shorter than the bootstrap trunk (50,000 bins)"
+            "20.0% of bins lie in 1 sequence shorter than the bootstrap trunk (50,000 bins)"
         ),
         "{}",
         f.message

@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-use super::fmt::{bases, count, pct, plural, sig};
+use super::fmt::{bases, count, counted, pct, plural, sig};
 use super::names::SeqKind;
 use super::stats::{fraction, median};
 use super::{
@@ -621,7 +621,9 @@ fn het_outliers(report: &QcReport, seqs: &[SeqInfo], named: &mut Vec<usize>) -> 
 
 fn invalid_start(input: &QcInput, report: &QcReport) -> Option<Finding> {
     let start = input.context.start.as_ref()?;
-    if start.is_valid() {
+    // Without a heterozygous bin theta0 is -0 (or NaN), which FEW_HETS and
+    // the loader report: rho0 is then not too large, but missing.
+    if start.is_valid() || start.theta0.is_nan() || start.theta0 <= 0.0 {
         return None;
     }
     let (theta, rho, t_max) = (sig(start.theta0, 3), sig(start.rho0, 3), start.t_max);
@@ -974,9 +976,10 @@ fn few_hets(input: &QcInput, report: &QcReport) -> Option<Finding> {
     }
     let expected = report.expected_recombinations;
     let recomb = expected.map_or(String::new(), |n| {
+        let n = n.round() as usize;
         format!(
-            "; C psmc's starting model expects about {} recombinations in these data",
-            count(n.round() as u64)
+            "; C psmc's starting model expects about {} in these data",
+            counted(n, "recombination", "recombinations")
         )
     });
     let parameters = match (input.context.free_lambdas.filter(|&n| n > 0), expected) {
@@ -1053,11 +1056,10 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
     let mut advice = Vec::new();
     if short_1mb {
         parts.push(format!(
-            "{} of bins lie in {} sequences shorter than 1 Mb, where sequence ends (each \
-             sequence is a separate HMM chain) cut the long segments of recent common \
-             ancestry",
+            "{} of bins lie in {} shorter than 1 Mb, where sequence ends (each sequence is \
+             a separate HMM chain) cut the long segments of recent common ancestry",
             pct(l.below_1mb.fraction),
-            count(l.below_1mb.sequences as u64)
+            counted(l.below_1mb.sequences, "sequence", "sequences")
         ));
         advice.push(
             "Prefer a more contiguous assembly, or drop sequences shorter than 1 Mb if \
@@ -1067,10 +1069,10 @@ fn short_sequences(report: &QcReport, seq_bins: &[u64]) -> Option<Finding> {
     }
     if let Some(below) = short_trunk {
         parts.push(format!(
-            "{} of bins lie in {} sequences shorter than the bootstrap trunk ({} bins), \
-             which the bootstrap can only resample whole",
+            "{} of bins lie in {} shorter than the bootstrap trunk ({} bins), which the \
+             bootstrap can only resample whole",
             pct(below.fraction),
-            count(below.sequences as u64),
+            counted(below.sequences, "sequence", "sequences"),
             count(report.bootstrap_trunk_bins as u64)
         ));
         let trunk = largest_trunk_within(seq_bins, SHORT_SEQUENCES_MAX_FRACTION);
@@ -1216,12 +1218,14 @@ fn dropped_sequences(report: &QcReport) -> Option<Finding> {
         QcCode::DroppedSequences,
         Severity::Info,
         format!(
-            "{} {} left out of the analysis: {}.",
-            count(total as u64),
-            plural(total, "sequence was", "sequences were"),
+            "{} left out of the analysis: {}.",
+            counted(total, "sequence was", "sequences were"),
             reasons.join("; ")
         ),
-        "Check that these sequences were meant to be left out (for example, chromosome \
-         names in the mask or VCF that do not match).",
+        format!(
+            "Check that {} meant to be left out (for example, chromosome names in the mask \
+             or VCF that do not match).",
+            plural(total, "this sequence was", "these sequences were")
+        ),
     ))
 }

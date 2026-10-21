@@ -513,6 +513,9 @@ Reproduction package (`experiment/`):
   (reachable with `downcast_ref` through EM's and the bootstrap's
   context), and the M-step refuses a start where its objective is not
   finite.
+- QC's `INVALID_START` no longer fires for an input without a heterozygous
+  bin, where it called a ρ0 of `-0` too large for the time grid; the loader
+  and `FEW_HETS` report such an input.
 - Saved parameters reload bit for bit (exact JSON float parsing).
 - A closed stdout (`psmc-rs ... | head -1`) aborted the run before any file
   was written.
