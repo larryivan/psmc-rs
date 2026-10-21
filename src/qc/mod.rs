@@ -811,9 +811,8 @@ struct Counts {
     called_bases: Option<u64>,
     het_sites: Option<u64>,
     /// With callable bases: what θ0 per callable base is estimated from,
-    /// and the callable bases of the called bins, summed.
+    /// and how many called bins hold each count of callable bases.
     theta: Option<ThetaCounts>,
-    callable_sum: u64,
 }
 
 impl Counts {
@@ -883,12 +882,6 @@ impl Counts {
             for (row, cs) in rows.iter().zip(counts) {
                 theta.add(&ThetaCounts::of_counted(row, cs)?);
             }
-            out.callable_sum = theta
-                .called_by_count
-                .iter()
-                .enumerate()
-                .map(|(c, &n)| c as u64 * n)
-                .sum();
             out.theta = Some(theta);
         }
         Ok(out)
@@ -916,7 +909,6 @@ impl Counts {
                 (a @ None, Some(b)) => *a = Some(b.clone()),
                 _ => {}
             }
-            total.callable_sum += c.callable_sum;
         }
         total
     }
@@ -935,18 +927,17 @@ impl Counts {
             .called_bases
             .filter(|_| self.length_bases > 0)
             .map(|c| (1.0 - c as f64 / self.length_bases as f64).max(0.0));
-        let counted = self.theta.as_ref().filter(|_| called > 0);
-        let (mean_callable, partly) = match counted {
-            Some(theta) => {
-                let s = theta.called_by_count.len() - 1;
-                let full = theta.called_by_count[s];
-                (
-                    Some(self.callable_sum as f64 / (s as f64 * called as f64)),
-                    Some((called - full) as f64 / called as f64),
-                )
-            }
-            None => (None, None),
-        };
+        // With callable bases: their mean share in the called bins, and the
+        // share of called bins with fewer than the bin size.
+        let callable = self.theta.as_ref().filter(|_| called > 0).map(|t| {
+            let s = t.called_by_count.len() - 1;
+            let sum: u64 = (0..).zip(&t.called_by_count).map(|(c, &n)| c * n).sum();
+            let partial = called - t.called_by_count[s];
+            (
+                sum as f64 / (s as f64 * called as f64),
+                partial as f64 / called as f64,
+            )
+        });
         BinStats {
             bins,
             t_bins: self.t,
@@ -957,9 +948,9 @@ impl Counts {
             missing_fraction: frac(self.n),
             het_bin_fraction: (called > 0).then(|| self.k as f64 / called as f64),
             theta0_per_bin: theta0,
-            theta0_callable: counted.and_then(|t| t.theta0().ok()),
-            mean_callable_fraction: mean_callable,
-            partly_callable_fraction: partly,
+            theta0_callable: self.theta.as_ref().and_then(|t| t.theta0().ok()),
+            mean_callable_fraction: callable.map(|(mean, _)| mean),
+            partly_callable_fraction: callable.map(|(_, partly)| partly),
             called_next_to_missing: self.next_to_missing,
             theta_per_bp: theta_bp,
             het_per_kb: theta_bp.map(|t| 1000.0 * t),
@@ -971,6 +962,30 @@ impl Counts {
             length_bases: self.length_bases,
             longest_missing_run_bins: self.longest_run,
         }
+    }
+}
+
+/// [`CallableSummary::of`] the input, from the counts of all its sequences,
+/// `total`, and their `stats`, without another pass over its bins.
+fn callable_summary(bin_size: usize, total: &Counts, stats: &BinStats) -> CallableSummary {
+    let by_count = total.theta.as_ref().map_or(&[][..], |t| &t.called_by_count);
+    let mut histogram = [0u64; 10];
+    for (c, &n) in by_count.iter().enumerate() {
+        // Tenths of the bin size, the full bins apart.
+        let class = if c == bin_size {
+            9
+        } else {
+            (10 * c / bin_size).clamp(1, 9) - 1
+        };
+        histogram[class] += n;
+    }
+    let called = stats.t_bins + stats.k_bins;
+    CallableSummary {
+        bin_size,
+        called_bins: called,
+        partial_bins: called - histogram[9],
+        mean_fraction: stats.mean_callable_fraction.unwrap_or(0.0),
+        histogram,
     }
 }
 
@@ -1100,7 +1115,11 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
             Ok(c)
         })
         .collect::<Result<_>>()?;
-    let totals = Counts::sum(&counts).stats(bin_size);
+    let total = Counts::sum(&counts);
+    let totals = total.stats(bin_size);
+    let callable = input
+        .callable
+        .map(|c| callable_summary(c.bin_size(), &total, &totals));
 
     // min_by_key keeps the first sequence of the longest run.
     let longest_missing_run = counts
@@ -1145,7 +1164,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         totals,
         lengths,
         longest_missing_run,
-        callable: input.callable.map(|c| CallableSummary::of(input.rows, c)),
+        callable,
         saturation,
         het_reference,
         depth: input.context.consensus.as_ref().map(DepthReport::new),
