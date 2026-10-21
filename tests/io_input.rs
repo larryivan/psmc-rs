@@ -252,9 +252,11 @@ fn auto_mode_reads_call_c_output_as_consensus() {
 #[test]
 fn auto_mode_reads_variants_only_vcfs_with_masks() {
     let dir = TempDir::new("io_input");
-    let vcf = dir.write("in.vcf",
+    let vcf = dir.write(
+        "in.vcf",
         format!(
-            "{VCF_HEADER}c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\nc\t9\t.\tA\t.\t50\tPASS\tFQ=-3\tGT\t0/0\n\
+            "{VCF_HEADER}c\t5\t.\tA\tC\t50\tPASS\t.\tGT\t0/1\n\
+             c\t9\t.\tA\t.\t50\tPASS\tFQ=-3\tGT\t0/0\n\
              c\t12\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
         ),
     );
