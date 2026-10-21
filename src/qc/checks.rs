@@ -1014,17 +1014,12 @@ fn few_hets(input: &QcInput, report: &QcReport) -> Option<Finding> {
     ))
 }
 
-/// Called length: the loader's site count when every sequence has one,
-/// otherwise the bases of the called bins.
-fn called_length(report: &QcReport) -> (u64, &'static str) {
-    match report.totals.called_bases {
+fn too_short(report: &QcReport) -> Option<Finding> {
+    // The loader's site count when every sequence has one.
+    let (called, what) = match report.totals.called_bases {
         Some(n) => (n, "called sites"),
         None => (report.totals.called_bases_from_bins, "bases in called bins"),
-    }
-}
-
-fn too_short(report: &QcReport) -> Option<Finding> {
-    let (called, what) = called_length(report);
+    };
     if called >= MIN_CALLED_BASES {
         return None;
     }
