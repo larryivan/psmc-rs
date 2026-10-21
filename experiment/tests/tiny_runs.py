@@ -16,7 +16,6 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from unittest import mock
 
 import fixtures  # also puts the repository on sys.path
 
@@ -70,9 +69,9 @@ def runs_dir() -> Path:
     # Every core: what the jobs write does not depend on how many run at once.
     budget = config.Budget(cores=max(4, os.cpu_count() or 1), mem_gb=8)
     daemon = runner.Daemon(graph, tmp, budget, runner.Logger(tmp), {"profile": "tiny"})
-    # The runner looks for finished jobs every 0.25 s; most tiny jobs take less, and E3's timed runs
-    # follow one another, so a shorter interval saves a third of the runs' time.
-    with mock.patch.object(runner, "POLL_SECONDS", 0.05):
+    # Most tiny jobs end within the runner's 0.25 s between looks, and E3's timed runs (exclusive) follow one
+    # another at the end, each after a half-second sample of the busiest processes.
+    with fixtures.quick_runner():
         status = daemon.run()
     if status != 0:
         logs = []

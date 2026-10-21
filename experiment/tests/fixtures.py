@@ -40,6 +40,20 @@ def quiet() -> contextlib.ExitStack:
     return stack
 
 
+def quick_runner() -> contextlib.ExitStack:
+    """The runner in this process, for jobs of a second or less: it looks for finished jobs every 0.05 s (not
+    0.25 s), and samples the busiest other processes before an exclusive job for 0.05 s (not 0.5 s)."""
+    from unittest import mock
+
+    from experiment.pipeline import runner
+
+    stack = contextlib.ExitStack()
+    stack.enter_context(mock.patch.object(runner, "POLL_SECONDS", 0.05))
+    stack.enter_context(mock.patch.object(runner, "busiest_processes",
+                                          functools.partial(runner.busiest_processes, interval=0.05)))
+    return stack
+
+
 # Stand-ins for the tools a Context identifies (Context._tools): their identities enter the jobs, but no job runs.
 _FAKE_TOOLS = {
     "c": ("c-psmc", "/x/psmc", {"version": "0.6.5", "sha256": "0" * 64}),

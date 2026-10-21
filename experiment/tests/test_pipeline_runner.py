@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import ROOT, has_modules  # noqa: E402
+from fixtures import ROOT, has_modules, quick_runner  # noqa: E402
 
 from experiment.pipeline import config, provenance, runner  # noqa: E402
 from experiment.pipeline.__main__ import main  # noqa: E402
@@ -73,10 +73,10 @@ class Base(unittest.TestCase):
         return self.count.read_text().split().count(jid)
 
     def run_daemon(self, jobs, budget=config.Budget()):
-        graph = Graph(jobs, self.runs)
-        d = runner.Daemon(graph, self.runs, budget, runner.Logger(self.runs), {"budget": {"cores": budget.cores, "mem_gb": budget.mem_gb}})
-        rc = d.run()
-        return d, rc
+        d = runner.Daemon(Graph(jobs, self.runs), self.runs, budget, runner.Logger(self.runs),
+                          {"budget": {"cores": budget.cores, "mem_gb": budget.mem_gb}})
+        with quick_runner():  # the jobs take less than a second
+            return d, d.run()
 
     def span(self, name: str):
         d = json.loads((self.tmp / name).read_text())
