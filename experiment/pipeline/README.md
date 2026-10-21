@@ -20,7 +20,7 @@ PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline tools          # what will run: tool paths, versions, identities
 $PY -m experiment.pipeline plan           # CPU hours and wall time on the budget
 $PY -m experiment.pipeline start E1       # detached runner; returns at once
-$PY -m experiment.pipeline status         # done/running/failed/pending, ETA
+$PY -m experiment.pipeline status         # done, running, failed, blocked, pending; ETA
 $PY -m experiment.pipeline stop           # or: stop --drain (finish running jobs first)
 $PY -m experiment.pipeline start E1       # resume: only what is not done runs
 ```
@@ -206,9 +206,17 @@ processes, which with ~190 jobs at once on a 192-core node keeps the runner
 busy. Every attempt also records the host it ran on and `$SLURM_JOB_ID`;
 the runner's state records `provenance.machine()` (CPU model, memory, host,
 libc, usable CPUs and the SLURM job on Linux). None of this enters a job's
-key. `status` without experiments reports those of the running runner, or
-of the last one (with its `--only`, which it says; `--only ''` shows all
-jobs); a job whose input no job makes is reported blocked.
+key.
+
+`status` takes what it is not given (the experiments, `--only`, `--cores`,
+`--mem-gb`) from the running runner, or else the last one (it says when it
+keeps the last `--only`; `--only ''` shows all jobs). It reports a job
+blocked when no runner would start it: an input it reads is missing and no
+job makes it, it does not fit the budget, or it needs a blocked job. It
+lists at most 10 running, 10 failed and 10 blocked jobs of each
+experiment; `--jobs` lists every job that is not done, and why. `plan`
+names the jobs that never start on its budget (on the default 7 cores,
+E2's and E7's bootstraps), and its times of what needs them are `never`.
 
 `start`, `status`, `plan` and `list` take `--only REGEX`: only the jobs
 whose id matches (`re.search`) are run or shown, and the status, the ETA

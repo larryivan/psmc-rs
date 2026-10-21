@@ -28,8 +28,8 @@ host. A failed job is recorded (``logs/attempts.jsonl`` and its log file)
 and blocks the jobs that need its outputs; the next ``start`` retries it. A
 job that exits with status 75 (``EX_TEMPFAIL``: E3's timing wrapper when the
 machine is not quiet) is deferred instead: it runs again after
-:data:`DEFER_SECONDS`. ``status`` prints done/running/failed/pending per
-experiment with an ETA.
+:data:`DEFER_SECONDS`. ``status`` counts the done, running, failed,
+blocked and pending jobs of each experiment, with an ETA.
 
 Every attempt records its wall time, the peak RSS of its process tree
 (psutil, sampled every 50 ms or ``$PSMC_EXP_SAMPLE_SECONDS``, plus the main
@@ -82,6 +82,7 @@ POLL_SECONDS = 0.25
 EX_TEMPFAIL = 75  # a job's "not now": deferred, not failed
 DEFER_SECONDS = 60.0
 MACHINE_LOCK_ENV = "PSMC_EXP_MACHINE_LOCK"
+STATUS_LINES = 10  # the jobs of each experiment and state (running, failed, blocked) status lists without --jobs
 
 
 def sample_seconds(environ: Optional[Dict[str, str]] = None) -> float:
@@ -1215,10 +1216,14 @@ class JobStatus:
     elapsed: float = 0.0
 
 
-def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None) -> List[JobStatus]:
+def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None,
+                 budget: Optional[config.Budget] = None) -> List[JobStatus]:
     """The state of every job now, from its files, the daemon's state and the attempt records.
 
-    ``daemon_pid`` is the result of :func:`daemon_alive` (looked up when not given).
+    ``daemon_pid`` is the result of :func:`daemon_alive` (looked up when not
+    given). A job that is not done is blocked, as a runner would block it,
+    when an input it reads is missing and no job makes it, when it needs a
+    blocked job, and when it does not fit ``budget``.
     """
     runs_dir = Path(runs_dir)
     cache = provenance.ChecksumCache(runner_dir(runs_dir) / "checksums.json")
@@ -1226,42 +1231,42 @@ def job_statuses(graph: Graph, runs_dir: Path, daemon_pid: Optional[int] = None)
     state = read_state(runs_dir) if alive else {}
     running, deferred, blocked = (state.get(k, {}) for k in ("running", "deferred", "blocked"))
     attempts = last_attempts(runs_dir, graph.experiments())
-    out: List[JobStatus] = []
-    for jid in graph.order:
-        job = graph.jobs[jid]
+    out: Dict[str, JobStatus] = {}
+
+    def status(job: Job) -> JobStatus:
+        jid = job.id
         if jid in running:
-            out.append(JobStatus(job, RUNNING, elapsed=time.time() - running[jid]["start"]))
-            continue
+            return JobStatus(job, RUNNING, elapsed=time.time() - running[jid]["start"])
         absent = [p for p in graph.static_inputs[jid] if not p.exists()]
         if absent:  # no job of this graph makes it: waiting would be forever
-            out.append(JobStatus(job, BLOCKED, f"input missing, and no job makes it: {absent[0]}"))
-            continue
+            return JobStatus(job, BLOCKED, f"input missing, and no job makes it: {absent[0]}")
         missing = [p for p in job.inputs if not p.exists()]
-        if missing:
-            done, why = False, f"waiting for {missing[0].name}"
-        else:
-            done, why = provenance.check_done(job, runs_dir, cache)
+        done, why = (False, f"waiting for {missing[0].name}") if missing else provenance.check_done(job, runs_dir, cache)
         if done:
-            out.append(JobStatus(job, DONE))
-            continue
+            return JobStatus(job, DONE)
+        needs = next((d for d in graph.deps[jid] if out[d].state == BLOCKED), None)
+        if needs:
+            return JobStatus(job, BLOCKED, f"needs {needs}")
         last = attempts.get(jid)
         if last and last.get("status") == FAILED:
-            out.append(JobStatus(job, FAILED, last.get("error", "")))
-        elif jid in deferred:
+            return JobStatus(job, FAILED, last.get("error", ""))
+        if jid in deferred:
             d = deferred[jid]
-            out.append(JobStatus(job, PENDING, f"{d.get('why') or 'deferred'} ({d.get('times', 1)} time(s))"))
-        elif jid in blocked:
-            out.append(JobStatus(job, BLOCKED, blocked[jid]))
-        else:
-            over = fits_budget(job, config.Budget(**state["budget"])) if state.get("budget") else None
-            out.append(JobStatus(job, BLOCKED if over else PENDING, over or why))
+            return JobStatus(job, PENDING, f"{d.get('why') or 'deferred'} ({d.get('times', 1)} time(s))")
+        if jid in blocked:
+            return JobStatus(job, BLOCKED, blocked[jid])
+        over = fits_budget(job, budget) if budget else None
+        return JobStatus(job, BLOCKED if over else PENDING, over or why)
+
+    for jid in graph.order:  # a job's dependencies first
+        out[jid] = status(graph.jobs[jid])
     cache.save()
-    return out
+    return list(out.values())
 
 
 def fmt_duration(seconds: float) -> str:
     if math.isinf(seconds):
-        return "never (blocked)"
+        return "never"
     seconds = int(round(seconds))
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
@@ -1271,15 +1276,22 @@ def fmt_duration(seconds: float) -> str:
 def format_status(
     graph: Graph, statuses: List[JobStatus], budget: config.Budget, runs_dir: Path, pid: Optional[int], verbose: bool = False
 ) -> str:
-    """The status report; ``pid`` is the daemon's (None when it is not running)."""
+    """The status report; ``pid`` is the daemon's (None when it is not running).
+
+    A table per experiment, then its running, failed and blocked jobs, at
+    most :data:`STATUS_LINES` of each unless ``verbose``, which lists every
+    job that is not done (its pending ones too).
+    """
     lines = [f"runs: {runs_dir}", f"runner: {'running (pid %s)' % pid if pid else 'not running'}"]
     todo = [s.job.id for s in statuses if s.state in (PENDING, FAILED, READY)]
     running = {s.job.id: max(s.job.est_seconds - s.elapsed, 0.0) for s in statuses if s.state == RUNNING}
     finish = simulate_schedule(graph, todo, budget, running)
+    by_exp: Dict[str, List[JobStatus]] = {exp: [] for exp in graph.experiments()}
+    for s in statuses:
+        by_exp[s.job.experiment].append(s)
     lines.append(f"{'experiment':<11}{'done':>6}{'running':>9}{'failed':>8}{'blocked':>9}{'pending':>9}  {'ETA':>10}  CPU left")
-    for exp in graph.experiments():
-        mine = [s for s in statuses if s.job.experiment == exp]
-        c = {k: sum(1 for s in mine if s.state == k) for k in (DONE, RUNNING, FAILED, BLOCKED, PENDING)}
+    for exp, mine in by_exp.items():
+        c = Counter(s.state for s in mine)
         ids = [s.job.id for s in mine if s.job.id in finish]
         eta = max((finish[i] for i in ids), default=0.0)
         cpu = sum(s.job.est_seconds * s.job.cores for s in mine if s.state in (PENDING, FAILED)) + sum(
@@ -1290,14 +1302,18 @@ def format_status(
             f"{fmt_duration(eta) if (ids or c[RUNNING]) else '-':>10}  {cpu / 3600:.2f} h"
         )
     if pid is None and todo:
-        lines.append("(ETA assumes the runner is started now; failed jobs are retried)")
-    for s in statuses:
-        if s.state == RUNNING:
-            lines.append(f"  running  {s.job.id}  {fmt_duration(s.elapsed)} of ~{fmt_duration(s.job.est_seconds)}")
-        elif s.state in (FAILED, BLOCKED):
-            lines.append(f"  {s.state:<8} {s.job.id}  {s.reason}")
-        elif verbose and s.state == PENDING:
-            lines.append(f"  pending  {s.job.id}  {s.reason}")
+        lines.append(f"(ETA if a runner starts now on {budget.cores} cores and {budget.mem_gb:g} GB; failed jobs "
+                     "run again)")
+    for exp, mine in by_exp.items():
+        for state in (RUNNING, FAILED, BLOCKED, PENDING) if verbose else (RUNNING, FAILED, BLOCKED):
+            these = [s for s in mine if s.state == state]
+            for s in these if verbose else these[:STATUS_LINES]:
+                if state == RUNNING:
+                    lines.append(f"  running  {s.job.id}  {fmt_duration(s.elapsed)} of ~{fmt_duration(s.job.est_seconds)}")
+                else:
+                    lines.append(f"  {state:<8} {s.job.id}  {s.reason}")
+            if not verbose and len(these) > STATUS_LINES:
+                lines.append(f"  ... and {len(these) - STATUS_LINES} more {state} jobs of {exp} (--jobs lists them)")
     return "\n".join(lines)
 
 

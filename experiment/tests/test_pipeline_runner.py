@@ -101,6 +101,18 @@ class GraphTests(Base):
             Graph([self.job("T/a", ["x"], inputs=["y"]), self.job("T/b", ["y"], inputs=["x"])], self.runs)
         with self.assertRaises(ValueError):
             Job(id="no-experiment", command=["true"])
+        with self.assertRaisesRegex(ValueError, "at least one core"):
+            Job(id="T/a", command=["true"], cores=0)
+
+    def test_a_file_reached_through_a_symbolic_link_is_one_file(self):
+        (self.tmp / "real").mkdir()
+        (self.tmp / "linked").symlink_to(self.tmp / "real", target_is_directory=True)
+        with self.assertRaises(runner.GraphError):
+            Graph([self.job("T/a", ["real/x"]), self.job("T/b", ["linked/x"])], self.runs)
+        (self.tmp / "x-link").symlink_to(self.tmp / "real" / "x")
+        g = Graph([self.job("T/a", ["real/x"]), self.job("T/b", ["b"], inputs=["linked/x"]),
+                   self.job("T/c", ["c"], inputs=["x-link"])], self.runs)
+        self.assertEqual((g.deps["T/b"], g.deps["T/c"]), (["T/a"], ["T/a"]))
 
     @unittest.skipUnless(sys.platform == "darwin", "case-insensitive file systems")
     def test_outputs_that_differ_only_in_case_collide(self):
@@ -193,6 +205,76 @@ class Scheduling(unittest.TestCase):
         self.assertEqual(max(fin.values()), 10)
         p = runner.plan(g, config.Budget(cores=3, mem_gb=10))
         self.assertAlmostEqual(p["T"]["cpu_hours"], 25 / 3600)
+
+
+class Status(Base):
+    def statuses(self, jobs, **kw):
+        return {s.job.id: (s.state, s.reason) for s in runner.job_statuses(Graph(jobs, self.runs), self.runs, **kw)}
+
+    def test_a_job_the_budget_cannot_hold_is_blocked_and_so_is_what_needs_it(self):
+        jobs = [self.job("T/big", ["big.txt"], cores=8), self.job("T/after", ["after.txt"], inputs=["big.txt"]),
+                self.job("T/other", ["other.txt"])]
+        got = self.statuses(jobs, daemon_pid=None, budget=config.Budget(cores=7))
+        self.assertEqual((got["T/big"], got["T/after"]),
+                         ((runner.BLOCKED, "needs 8 cores, budget 7"), (runner.BLOCKED, "needs T/big")))
+        self.assertEqual(got["T/other"], (runner.PENDING, "not run yet"))
+        got = self.statuses(jobs, daemon_pid=None, budget=config.Budget(cores=8))
+        self.assertEqual({state for state, _ in got.values()}, {runner.PENDING})
+
+    def test_a_few_jobs_of_each_state_are_listed_unless_all_are_asked_for(self):
+        n = runner.STATUS_LINES + 3
+        g = Graph([self.job(f"T/j{i:02d}", [f"j{i}.txt"], inputs=[f"absent{i}.txt"]) for i in range(n)], self.runs)
+        statuses = runner.job_statuses(g, self.runs, daemon_pid=None)
+        short = runner.format_status(g, statuses, config.Budget(), self.runs, None)
+        self.assertEqual(short.count("\n  blocked  T/"), runner.STATUS_LINES)
+        self.assertIn("\n  ... and 3 more blocked jobs of T (--jobs lists them)", short)
+        full = runner.format_status(g, statuses, config.Budget(), self.runs, None, verbose=True)
+        self.assertEqual(full.count("\n  blocked  T/"), n)
+
+
+class CommandLine(Base):
+    """What a user sees: errors without tracebacks, experiments by name, the plan of what cannot run."""
+
+    def cli(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = main([*args, "--runs-dir", str(self.runs)])
+            except SystemExit as exc:  # argparse's status 2, or a message that Python prints with status 1
+                rc = exc.code if isinstance(exc.code, int) else 1
+                err.write("" if isinstance(exc.code, int) else exc.code)
+        return rc, out.getvalue(), err.getvalue()
+
+    def jobs_file(self, *jobs) -> str:
+        spec = self.tmp / "jobs.json"
+        spec.write_text(json.dumps([j.to_dict() for j in jobs]))
+        return str(spec)
+
+    def test_the_plan_names_what_never_starts_on_the_budget(self):
+        spec = self.jobs_file(self.job("T/big", ["big.txt"], cores=8), self.job("T/small", ["small.txt"]))
+        rc, out, _ = self.cli("plan", "--jobs-file", spec)
+        self.assertEqual(rc, 0)
+        self.assertRegex(out, r"\nT\s+2\s+[\d.]+\s+never\s+never\n")
+        self.assertIn("\n  T/big (1 job): needs 8 cores, budget 7\n", out)
+        rc, out, _ = self.cli("plan", "--jobs-file", spec, "--cores", "8")
+        self.assertNotIn("never", out)
+
+    def test_experiments_are_checked_by_name_in_any_case(self):
+        from experiment.pipeline.__main__ import build_parser
+
+        self.assertEqual(build_parser().parse_args(["plan", "e1", "fig"]).experiments, ["E1", "FIG"])
+        rc, _, err = self.cli("list", "E9")
+        self.assertEqual(rc, 2)
+        self.assertIn("invalid choice: 'E9'", err)
+
+    def test_errors_are_messages_not_tracebacks(self):
+        rc, _, err = self.cli("list", "--jobs-file", str(self.tmp / "absent.json"))
+        self.assertEqual((rc, err), (1, f"--jobs-file {self.tmp / 'absent.json'}: [Errno 2] No such file or "
+                                        f"directory: '{self.tmp / 'absent.json'}'"))
+        from experiment.pipeline import __main__ as cli, tools
+
+        with mock.patch.object(cli, "make_graph", side_effect=tools.ToolError("C psmc not found at /x/psmc")):
+            self.assertEqual(self.cli("list"), (1, "", "C psmc not found at /x/psmc\n"))
 
 
 @unittest.skipUnless(HAS_PSUTIL, "psutil not installed")
