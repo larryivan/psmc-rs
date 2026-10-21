@@ -17,6 +17,7 @@ figure of the manuscript is drawn here, and only here.
 from __future__ import annotations
 
 import importlib
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -24,6 +25,9 @@ from typing import Dict, List, Optional, Tuple
 from .. import config
 from . import style
 from .schemas import SCHEMAS
+
+HERE = Path(__file__).resolve().parent
+_FROM_SIBLING = re.compile(r"^from \.(\w+) import", re.M)  # a module of this package another one imports from
 
 
 @dataclass(frozen=True)
@@ -47,9 +51,20 @@ class FigureSpec:
         return [d / f"{self.name}.{ext}" for ext in style.FORMATS_OUT]
 
     def code_files(self) -> List[str]:
-        """The pipeline files (relative to experiment/pipeline) that draw it."""
+        """The pipeline files (relative to experiment/pipeline) that draw it.
+
+        The shared ones, its module and the modules of this package it imports from, at any depth (Fig S1
+        takes Fig 2's model names), so that a change to any of them redraws it.
+        """
+        modules, todo = set(), [self.module]
+        while todo:
+            m = todo.pop()
+            if m not in modules:
+                modules.add(m)
+                todo += _FROM_SIBLING.findall((HERE / f"{m}.py").read_text())
         return sorted({"config.py", "results.py", "metrics.py", "demography.py", "figures/__init__.py",
-                       "figures/style.py", "figures/data.py", "figures/schemas.py", f"figures/{self.module}.py"})
+                       "figures/style.py", "figures/data.py", "figures/schemas.py",
+                       *(f"figures/{m}.py" for m in modules)})
 
 
 FIGURES: Tuple[FigureSpec, ...] = (

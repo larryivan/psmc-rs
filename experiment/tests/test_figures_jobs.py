@@ -75,6 +75,14 @@ class Jobs(unittest.TestCase):
         self.assertIn("sha256", job.tools["font"])
         self.assertFalse(job.exclusive)
 
+    def test_a_figure_is_redrawn_when_a_figure_module_it_imports_changes(self):
+        from experiment.pipeline import figures
+
+        self.assertIn("figures/fig2.py", figures.spec("figS1").code_files())  # Fig 2's model names
+        self.assertIn("figures/fig3.py", figures.spec("figS_turtle_patterns").code_files())
+        self.assertNotIn("figures/fig2.py", figures.spec("fig3").code_files())
+        self.assertIn("figures/data.py", figures.spec("fig1").code_files())  # render() reads through it
+
     @unittest.skipIf(tiny_runs.SKIP, tiny_runs.SKIP)
     def test_report_draws_what_it_can(self):
         from experiment.pipeline import figures
