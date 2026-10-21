@@ -19,6 +19,8 @@ psmc_env_report
 # daemons keep more cores busy than the protocol allows would defer every run
 # until the time limit: stop at once instead, and say what kept it busy.
 "$PY" - <<'EOF'
+import sys
+
 from experiment.pipeline import config
 from experiment.pipeline.experiments.e3_run import machine_activity
 
@@ -30,7 +32,9 @@ print(f"  of them: user-space processes {act['process_cores']}, kernel threads {
       f"interrupts {act['interrupt_cores']} cores")
 for b in act["busiest"]:
     print(f"  {b['name']} (pid {b['pid']}): {b['cpu_percent']}% of a core")
-raise SystemExit(0 if act["busy_cores"] <= p.quiet_max_cores else 3)
+if act["busy_cores"] > p.quiet_max_cores:
+    print("the idle node is busier than the protocol allows: no run started", file=sys.stderr)
+    raise SystemExit(3)
 EOF
 
 # The simulations (identical in every shard) and this repeat's runs. E3's runs

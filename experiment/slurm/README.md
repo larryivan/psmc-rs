@@ -41,7 +41,7 @@ $MAIN/experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirem
 ## Runs
 
 ```bash
-cd $PROD/experiment/slurm
+cd $PROD/experiment/slurm         # ./submit.sh --help lists the jobs
 ./submit.sh build                 # its log ends with "all passed"
 ./submit.sh prod                  # E1 E2 E4 E5 E6; submit again if the time ran out
 ./submit.sh e3 1 2 3 4 5          # in parallel with prod
@@ -62,8 +62,8 @@ minutes (E3: 2 hours) before the limit the runner starts nothing new, and
 submitting again runs only what is not done. Status, from a login node:
 
 ```bash
-cd $PROD && PSMC_SLURM_DIR=$PROD/experiment/slurm bash -c 'source experiment/slurm/env.sh && \
-  $PY -m experiment.pipeline status --profile production --runs-dir $PROD/experiment/runs --only "" E1 E2 E3 E4 E5 E6 E7'
+cd $PROD && bash -c 'source experiment/slurm/env.sh && \
+  $PY -m experiment.pipeline status --profile production --runs-dir $PROD/experiment/runs E1 E2 E3 E4 E5 E6 E7'
 ```
 
 Draw the figures on a machine with Arial (`start FIG`) from the runs

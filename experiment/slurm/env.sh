@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # The environment of every job of experiment/slurm (sourced, not run).
 #
 # Every job gets the same environment, whatever shell submitted it (sbatch
