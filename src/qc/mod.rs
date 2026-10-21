@@ -975,30 +975,6 @@ impl Counts {
     }
 }
 
-/// [`CallableSummary::of`] the input, from the counts of all its sequences,
-/// `total`, and their `stats`, without another pass over its bins.
-fn callable_summary(bin_size: usize, total: &Counts, stats: &BinStats) -> CallableSummary {
-    let by_count = total.theta.as_ref().map_or(&[][..], |t| &t.called_by_count);
-    let mut histogram = [0u64; 10];
-    for (c, &n) in by_count.iter().enumerate() {
-        // Tenths of the bin size, the full bins apart.
-        let class = if c == bin_size {
-            9
-        } else {
-            (10 * c / bin_size).clamp(1, 9) - 1
-        };
-        histogram[class] += n;
-    }
-    let called = stats.t_bins + stats.k_bins;
-    CallableSummary {
-        bin_size,
-        called_bins: called,
-        partial_bins: called - histogram[9],
-        mean_fraction: stats.mean_callable_fraction.unwrap_or(0.0),
-        histogram,
-    }
-}
-
 /// One non-empty sequence of the input: its name, rows and loader facts.
 struct Span<'a> {
     name: Cow<'a, str>,
@@ -1117,11 +1093,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
             Ok(c)
         })
         .collect::<Result<_>>()?;
-    let total = Counts::sum(&counts);
-    let totals = total.stats(bin_size);
-    let callable = input
-        .callable
-        .map(|c| callable_summary(c.bin_size(), &total, &totals));
+    let totals = Counts::sum(&counts).stats(bin_size);
 
     // min_by_key keeps the first sequence of the longest run.
     let longest_missing_run = counts
@@ -1178,7 +1150,7 @@ pub fn try_analyze(input: &QcInput) -> Result<QcReport> {
         totals,
         lengths,
         longest_missing_run,
-        callable,
+        callable: input.callable.map(|c| CallableSummary::of(input.rows, c)),
         saturation,
         het_reference,
         depth: input.context.consensus.as_ref().map(DepthReport::new),
