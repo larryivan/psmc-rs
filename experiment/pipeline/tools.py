@@ -68,13 +68,12 @@ class ToolError(RuntimeError):
     pass
 
 
-def _run(cmd: Sequence[str], cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None,
-         timeout: float = 60) -> subprocess.CompletedProcess:
-    return subprocess.run([str(c) for c in cmd], cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
+def _run(cmd: Sequence[str], cwd: Optional[Path] = None, timeout: float = 60) -> subprocess.CompletedProcess:
+    return subprocess.run([str(c) for c in cmd], cwd=cwd, capture_output=True, text=True, timeout=timeout)
 
 
-def _git(*args: str, cwd: Path = paths.ROOT) -> str:
-    res = _run(["git", *args], cwd=cwd)
+def _git(*args: str) -> str:
+    res = _run(["git", *args], cwd=paths.ROOT)
     if res.returncode != 0:
         raise ToolError(f"git {' '.join(args)} failed: {res.stderr.strip()}")
     return res.stdout.strip()
