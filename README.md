@@ -722,17 +722,26 @@ transitions of the 16 after them, each segment on its own, and the sums
 are added in the order one thread adds them, so the results are the same to
 the bit. The forward pass stays on one thread. So a single sequence runs
 about twice as fast on 4 threads or more (the thread that reports progress
-counts as busy) with 64 states, and 1.4 times with 23, though more than 8
-threads gain less. On an AMD EPYC 7702, with E3's options (below), 1 M
+counts as busy) with 64 states, and 1.4 times with 23; it is fastest on
+about 8 threads, and on more it is slower than on 8, though still faster
+than before. On an AMD EPYC 7702, with E3's options (below), 1 M
 bins of a human chromosome took 17.5 s on 1 thread, and 17.3 s on 8 or 16
 threads before, 9.4 s on 8 and 11.5 s on 16 now; three such sequences on 8
 and 16 threads took 17.5 s and 17.7 s before, 14.5 s and 13.3 s now. Each
 sequence whose backward pass is pipelined holds three blocks of 16
 segments' forward vectors and backward weights and the transition sums of
 16 segments, 98,688 × n + 128 × n² + 61,440 bytes for n states rounded up
-to a multiple of 8: 6.9 MB with 64 states, 2.5 MB with 23. The threads
-waiting for work between blocks take CPU time: a single sequence on 8
-threads takes about 1.5 times the CPU time of one thread.
+to a multiple of 8: 6.9 MB with 64 states, 2.5 MB with 23. The blocks are
+allocated again at every E-step, and on macOS the allocator keeps the
+memory freed by earlier E-steps resident, so over many EM iterations the
+peak resident memory can grow by about twice that: on 8 threads Papuan
+chr1 peaked at 32 MB after 20 iterations, against 19 MB before (23 to
+26 MB after one). On Linux (glibc, on the EPYC) it grew by about the heap
+figure over E3's 25 iterations: three sequences of 1 M bins on 8 threads
+peaked at 41 MB against 18 MB. The threads waiting for work between blocks
+take CPU time: a single sequence on 8 threads takes about 1.6 times the CPU
+time of one thread with 64 states and about twice with 23, and more on
+more threads.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,

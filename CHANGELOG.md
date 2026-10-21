@@ -720,9 +720,14 @@ Reproduction package (`experiment/`):
   alternated runs at load averages of 4 to 27). A pipelined sequence holds
   6.9 MB more with 64 states (2.5 MB with 23), at most half the threads'
   sequences at a time: the human genome on 8 threads peaked at 129 MB
-  instead of 111 MB, the bootstrap at 42 MB instead of 17 MB. The threads
-  waiting for work between blocks take CPU time, about 1.5 times one
-  thread's for a single sequence on 8 threads.
+  instead of 111 MB, the bootstrap at 42 MB instead of 17 MB. The blocks
+  are allocated again at every E-step, and macOS's allocator keeps the
+  freed memory resident, so on macOS the peak can grow by about twice the
+  blocks' size over many EM iterations (Papuan chr1 on 8 threads: 32 MB
+  instead of 19 MB after 20 iterations); on Linux it grew by about their
+  size. The threads waiting for work between blocks take CPU time:
+  for a single sequence on 8 threads, about 1.6 times one thread's with
+  64 states and twice with 23, and more on more threads.
 - The x86-64 release binaries run the E-step, the log-likelihood and TMRCA
   decoding with AVX2 and FMA on CPUs that have them (Intel Core since
   Haswell, 2013, though some later Pentium, Celeron and Atom models lack
