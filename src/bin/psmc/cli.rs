@@ -152,20 +152,10 @@ fn explain(e: clap::Error, argv: &[OsString]) -> clap::Error {
     use clap::CommandFactory;
     use clap::error::{ContextKind, ContextValue, ErrorKind};
     let cmd = Cli::command();
-    let subcommand = |arg: &OsStr| {
-        arg.to_str()
-            .filter(|&name| name == "help" || cmd.find_subcommand(name).is_some())
-            .map(str::to_string)
-    };
-    let late_subcommand = match argv {
-        [_, first, rest @ ..] if subcommand(first).is_none() => {
-            rest.iter().find_map(|arg| subcommand(arg))
-        }
-        _ => None,
-    };
     let (mut e, tip) = match e.get(ContextKind::InvalidSubcommand) {
         Some(ContextValue::String(arg))
-            if e.kind() == ErrorKind::ArgumentConflict && subcommand(arg.as_ref()).is_none() =>
+            if e.kind() == ErrorKind::ArgumentConflict
+                && subcommand(&cmd, arg.as_ref()).is_none() =>
         {
             let mut unexpected = clap::Error::new(ErrorKind::UnknownArgument).with_cmd(&cmd);
             unexpected.insert(ContextKind::InvalidArg, ContextValue::String(arg.clone()));
@@ -178,7 +168,7 @@ fn explain(e: clap::Error, argv: &[OsString]) -> clap::Error {
         }
         _ => (e, None),
     };
-    let tip = match late_subcommand {
+    let tip = match late_subcommand(&cmd, argv) {
         Some(name) => format!("a subcommand must be the first argument: psmc-rs {name} ..."),
         None => match tip {
             Some(tip) => tip,
@@ -192,6 +182,45 @@ fn explain(e: clap::Error, argv: &[OsString]) -> clap::Error {
     tips.push(tip.into());
     e.insert(ContextKind::Suggested, ContextValue::StyledStrs(tips));
     e
+}
+
+/// `arg` if it names a subcommand of `cmd`.
+fn subcommand(cmd: &clap::Command, arg: &OsStr) -> Option<String> {
+    arg.to_str()
+        .filter(|&name| name == "help" || cmd.find_subcommand(name).is_some())
+        .map(str::to_string)
+}
+
+/// The subcommand named in `argv` after another argument, which is not the
+/// value of an option before it (`--qc-json qc` names a file).
+fn late_subcommand(cmd: &clap::Command, argv: &[OsString]) -> Option<String> {
+    let (first, rest) = argv.get(1..)?.split_first()?;
+    if subcommand(cmd, first).is_some() {
+        return None;
+    }
+    let mut is_value = takes_value(cmd, first);
+    for arg in rest {
+        if !is_value && let Some(name) = subcommand(cmd, arg) {
+            return Some(name);
+        }
+        is_value = !is_value && takes_value(cmd, arg);
+    }
+    None
+}
+
+/// Whether `arg` is an option of `cmd` whose value is the next argument:
+/// `--name` without `=VALUE`, or `-x`.
+fn takes_value(cmd: &clap::Command, arg: &OsStr) -> bool {
+    let arg = arg.to_str().unwrap_or_default();
+    let named = |a: &&clap::Arg| match arg.strip_prefix("--") {
+        Some(long) => {
+            a.get_long() == Some(long) || a.get_all_aliases().is_some_and(|all| all.contains(&long))
+        }
+        None => a.get_short().is_some_and(|c| arg == format!("-{c}")),
+    };
+    cmd.get_arguments()
+        .find(named)
+        .is_some_and(|a| a.get_action().takes_values())
 }
 
 /// The subcommands.
@@ -680,6 +709,9 @@ mod tests {
             late.contains("tip: a subcommand must be the first argument: psmc-rs qc ..."),
             "{late}"
         );
+        // An option's value is not a subcommand.
+        let value = err("psmc-rs --qc-json qc in.vcf");
+        assert!(!value.contains("tip: a subcommand"), "{value}");
         assert!(err("psmc-rs qc in.vcf --threads 4").contains("--threads"));
         let after = err("psmc-rs in out 3 convert");
         assert!(
