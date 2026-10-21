@@ -19,7 +19,7 @@ does psmc-rs 0.2 give the same result whatever its thread count?
    threads can use). Each run is an
    exclusive job (nothing else runs, on this runner or any other: see the
    runner's machine lock) with as many cores as threads, at most the
-   machine's (:func:`machine_cores`), timed by ``e3_run measure`` (wall
+   machine's (:func:`.e3_run.usable_cpus`), timed by ``e3_run measure`` (wall
    time, CPU time, peak RSS of the tool's process tree, machine load before
    and after, CPU used by other work during the run, power source). A run
    that is not clean (the whole machine not quiet before it; other work
@@ -97,7 +97,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from .. import config, paths, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import write_csv
+from .e1 import read_c_fit, read_rs_fit, write_tables
 from .e3_run import genome_for, machine_other_cores, measure_args, other_cores, other_method, other_share, usable_cpus
 
 NAME = "E3"
@@ -299,11 +299,6 @@ def measure_command(ctx: Context, cfg: config.E3, lay: Layout, run: Run, tool_cm
     ]
 
 
-def machine_cores() -> int:
-    """The cores this process may run on: its CPU affinity (a SLURM allocation's) where there is one, else all."""
-    return usable_cpus()
-
-
 def run_cores(threads: int, machine: int) -> int:
     """The cores of a timing job: its threads, at most the machine's.
 
@@ -321,7 +316,7 @@ def run_cores(threads: int, machine: int) -> int:
 
 def jobs(ctx: Context) -> List[Job]:
     cfg, costs = ctx.profile.e3, ctx.profile.costs
-    cores = machine_cores()
+    cores = usable_cpus()
     lay = Layout(ctx.exp_dir(NAME))
     out: List[Job] = []
     sim_identity = {
@@ -421,17 +416,13 @@ def read_output(path: Path, tool: str, n_iter: int) -> Output:
     """The model a run wrote, checked to be a complete fit of ``n_iter`` iterations where the format says."""
     digest = provenance.sha256_file(path)
     if tool == "c":
-        pf = results.parse_psmc(path)
+        pf = read_c_fit(path, n_iter)
         last = pf.last()
-        if last.round != n_iter:
-            raise ValueError(f"{path}: last complete round {last.round}, expected {n_iter}")
         fit = last.fit()
         return Output(digest, fit.theta, fit.rho, fit.t_max, fit.free_lambdas, last.lk,
                       pf.header.get("sum_L"), pf.header.get("sum_n"))
-    params = results.read_rs_json(path)
+    params = read_rs_fit(path, n_iter)
     fit = results.fit_from_rs(params)
-    if int(params.get("n_iter", -1)) != n_iter:
-        raise ValueError(f"{path}: n_iter {params.get('n_iter')}, expected {n_iter}")
     inp = params.get("input", {})
     loglike = params.get("final_loglike")
     return Output(digest, fit.theta, fit.rho, fit.t_max, fit.free_lambdas,
@@ -832,17 +823,14 @@ def report(ctx: Context) -> Dict[str, Path]:
     if len(kinds) > 1:
         ctx.log(f"[E3] warning: the clean runs were timed on {len(kinds)} kinds of machine ({'; '.join(kinds)}); "
                 "their medians and speed-ups mix them (E3_environment.csv: clean_runs_on_mixed_machines)")
-    tables = {
+    return write_tables(lay.table, {
         "table2": table2_rows(cfg, planned, rows),
         "runs": ordered,
         "scaling": scaling_rows(cfg, rows, outputs),
         "determinism": determinism_rows(outputs),
         "environment": environment_rows(cfg, lay, rows, timings, tools.read_c_build()),
         "seeds": seed_rows(truths),
-    }
-    for key, table in tables.items():
-        write_csv(lay.table(key), table)
-    return {key: lay.table(key) for key in tables}
+    })
 
 
 __all__ = [

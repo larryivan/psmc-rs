@@ -84,7 +84,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from .. import config, demography, metrics, provenance, results, simulate, tools
 from ..runner import Job
 from . import Context
-from .e1 import rep, run_record, write_csv
+from .e1 import read_rs_fit, rep, run_record, write_tables
 
 NAME = "E5"
 TABLES = {
@@ -367,9 +367,7 @@ def check_input(params: Dict, truth: Dict, what: str) -> None:
 
 def load_genome(lay: Layout, cfg: config.E5, r: int) -> GenomeFit:
     truth = json.loads(lay.truth(r).read_text())
-    params = results.read_rs_json(lay.fit_json(r))
-    if int(params.get("n_iter", -1)) != cfg.inference.n_iter:
-        raise ValueError(f"{lay.fit_json(r)}: not a fit of {cfg.inference.n_iter} iterations")
+    params = read_rs_fit(lay.fit_json(r), cfg.inference.n_iter)
     check_input(params, truth, f"{cfg.model} {rep(r)}")
     fit = results.fit_from_rs(params)
     sc = cfg.scaling
@@ -380,9 +378,7 @@ def load_genome(lay: Layout, cfg: config.E5, r: int) -> GenomeFit:
 def load_bootstrap(lay: Layout, cfg: config.E5, r: int, trunk: int, truth: Dict) -> Bootstrap:
     """Read one bootstrap run and check it is the run the configuration asks for."""
     what = f"{cfg.model} {rep(r)} {trunk_dir(trunk)}"
-    main = results.read_rs_json(lay.boot_json(r, trunk))
-    if int(main.get("n_iter", -1)) != cfg.inference.n_iter:
-        raise ValueError(f"{lay.boot_json(r, trunk)}: not a fit of {cfg.inference.n_iter} iterations")
+    main = read_rs_fit(lay.boot_json(r, trunk), cfg.inference.n_iter)
     check_input(main, truth, what)
     summary = json.loads(lay.boot_summary(r, trunk).read_text())
     seed = bootstrap_seed(cfg, r, trunk)
@@ -914,9 +910,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         if not row["main_fit_equals_fit"]:
             ctx.log(f"[E5] note: the main fit of bootstrap {rep(row['dataset'])} trunk{row['trunk_bins']} "
                     f"differs from the genome's own fit by {row['main_fit_max_abs_diff']:.3g}")
-    for key in TABLES:
-        write_csv(lay.table(key), tables[key])
-    return {key: lay.table(key) for key in TABLES}
+    return write_tables(lay.table, {key: tables[key] for key in TABLES})
 
 
 __all__ = [

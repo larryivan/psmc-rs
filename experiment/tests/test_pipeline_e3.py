@@ -109,7 +109,7 @@ class Jobs(unittest.TestCase):
         for opt, val in (("--pattern", "4+25*2+4+6"), ("--t-max", "15"), ("--smooth-lambda", "0")):
             self.assertEqual(option(cmd, opt), val)
         self.assertEqual(rs02.env, {"RAYON_NUM_THREADS": "2"})
-        self.assertEqual(rs02.cores, min(2, e3.machine_cores()))
+        self.assertEqual(rs02.cores, min(2, e3.usable_cpus()))
         self.assertEqual(rs02.settings["repeat"], 1)
         self.assertEqual(set(rs02.tools), {"psmc-rs-0.2", "timing"})
         capped = replace(config.PRODUCTION, e3=replace(config.PRODUCTION.e3, default_mstep_iters=5))
@@ -120,9 +120,8 @@ class Jobs(unittest.TestCase):
     def test_timing_jobs_get_their_threads_as_cores_up_to_the_machine(self):
         self.assertEqual([e3.run_cores(t, 128) for t in (1, 8, 30)], [1, 8, 30])
         self.assertEqual([e3.run_cores(t, 7) for t in (1, 8, 30)], [1, 7, 7])
-        self.assertGreaterEqual(e3.machine_cores(), 1)
         for machine in (192, 128, 40, 8):
-            with self.subTest(machine=machine), mock.patch.object(e3, "machine_cores", return_value=machine):
+            with self.subTest(machine=machine), mock.patch.object(e3, "usable_cpus", return_value=machine):
                 jobs = self.jobs(config.PRODUCTION)
                 big = jobs["E3/run/rs02/3000Mb/t30/rep5"]
                 self.assertEqual(big.cores, min(30, machine))  # not capped at the laptop's budget of 7
