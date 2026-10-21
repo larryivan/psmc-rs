@@ -178,7 +178,7 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
     }
     let report_html = default_html_path(output);
     check_outputs(cli, &input_file, output, &report_html, bootstrap.as_ref())?;
-    let trunk = bootstrap.as_ref().map_or(0, |plan| plan.trunk_size);
+    let trunk = bootstrap.as_ref().map_or(0, |plan| plan.cfg.trunk_size);
     let input = read_input(&input_file, cli, &layout, trunk, ctx)?;
     let obs = &input.data.obs;
     let resampled = bootstrap
@@ -340,7 +340,7 @@ fn write_report(
         bin_callable: Some(fit.bin_callable),
         bootstrap: bootstrap.map(|(b, summary)| BootstrapReport {
             summary,
-            em_iters: b.plan.em_iters,
+            em_iters: b.plan.cfg.em_iters,
             trunks: Some(b.trunks),
             started_from: cli.init_params.as_deref(),
         }),

@@ -610,7 +610,12 @@ iterations, the default of `--bootstrap-iters`: with fewer, the replicates
 have no round N_ITER and psmc_plot.pl stops with a division by zero; with
 more, it plots each replicate at round N_ITER instead of its final fit.
 Plot such replicates on their own, with `-n` set to their iteration count;
-the run warns and prints that command.
+the run warns and prints that command. With replicates of N_ITER
+iterations and `--psmc-out`, it prints the recipe:
+
+```text
+To plot it with the bootstrap: cat fit.psmc fit.bootstrap/replicate_*.psmc > combined.psmc; psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 25 PREFIX combined.psmc
+```
 
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;
 for VCF and multihetsep input, one more `MM` line after `n_seqs` says how

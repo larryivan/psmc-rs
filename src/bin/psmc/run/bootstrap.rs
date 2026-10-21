@@ -24,10 +24,9 @@ const FEW_TRUNKS: usize = 20;
 
 /// The bootstrap a run asks for.
 pub(super) struct BootstrapPlan {
-    replicates: usize,
-    pub(super) trunk_size: usize,
-    seed: u64,
-    pub(super) em_iters: usize,
+    /// The replicates' settings; the t_max and theta0/rho0 of their fresh
+    /// start are the main fit's, set by [`Bootstrap::new`].
+    pub(super) cfg: BootstrapConfig,
     pub(super) dir: PathBuf,
 }
 
@@ -55,16 +54,20 @@ impl BootstrapPlan {
                  --bootstrap-iters"
             );
         }
-        Ok(Some(Self {
+        let dir = cli
+            .bootstrap_dir
+            .clone()
+            .unwrap_or_else(|| default_bootstrap_dir(output));
+        let cfg = BootstrapConfig {
             replicates: cli.bootstrap,
             trunk_size: cli.bootstrap_block_size,
             seed: cli.bootstrap_seed,
             em_iters,
-            dir: cli
-                .bootstrap_dir
-                .clone()
-                .unwrap_or_else(|| default_bootstrap_dir(output)),
-        }))
+            batch_size: cli.input.batch_size,
+            out_dir: Some(dir.clone()),
+            ..BootstrapConfig::default()
+        };
+        Ok(Some(Self { cfg, dir }))
     }
 
     /// The input as sequences to resample, with the number of trunks they
@@ -76,16 +79,17 @@ impl BootstrapPlan {
         cli: &InferArgs,
         ctx: Context,
     ) -> Result<(Sequences, usize)> {
+        let cfg = &self.cfg;
         let seqs = observations_to_sequences(obs)?;
-        let trunks = bootstrap_trunk_count(&seqs.bins, self.trunk_size)
+        let trunks = bootstrap_trunk_count(&seqs.bins, cfg.trunk_size)
             .context("--bootstrap-block-size is too large for this input")?;
         ctx.info(format!(
             "Bootstrap: {} of {}, resampling {} of {} bins (seed {})",
-            counted(self.replicates, "replicate", "replicates"),
-            counted(self.em_iters, "EM iteration", "EM iterations"),
+            counted(cfg.replicates, "replicate", "replicates"),
+            counted(cfg.em_iters, "EM iteration", "EM iterations"),
             counted(trunks, "trunk", "trunks"),
-            count(self.trunk_size as u64),
-            self.seed
+            count(cfg.trunk_size as u64),
+            cfg.seed
         ));
         if let Some(path) = &cli.init_params {
             ctx.warn(format!(
@@ -95,7 +99,7 @@ impl BootstrapPlan {
                  understate the uncertainty further. For bands of the whole estimator, \
                  bootstrap a fit from a fresh start",
                 path.display(),
-                self.em_iters
+                cfg.em_iters
             ));
         }
         if trunks < FEW_TRUNKS {
@@ -103,30 +107,10 @@ impl BootstrapPlan {
                 "the input forms only {trunks} bootstrap trunks of {} bins, so replicates \
                  differ only in which of them they draw and the bands are coarse; a \
                  smaller --bootstrap-block-size gives more trunks",
-                count(self.trunk_size as u64)
+                count(cfg.trunk_size as u64)
             ));
         }
         Ok((seqs, trunks))
-    }
-
-    /// The warning of a bootstrap whose replicates ran another number of EM
-    /// iterations than the main fit's `n_iter`. psmc_plot.pl -n takes the
-    /// same round of every run in its input, so the replicates cannot share
-    /// a plot command with the main fit's `.psmc` output (as concatenated
-    /// for C psmc's bootstrap): with fewer rounds it fails, with more it
-    /// plots them at an intermediate round.
-    fn plot_warning(&self, cli: &InferArgs, n_iter: usize) -> Option<String> {
-        if self.em_iters == n_iter {
-            return None;
-        }
-        let replicates = self.dir.join("replicate_*.psmc");
-        Some(format!(
-            "the bootstrap replicates ran {} and the main fit {n_iter}; psmc_plot.pl -n takes the \
-             same round of every run it reads, so do not plot the replicates in one file with the \
-             main fit's .psmc output, but on their own: {}",
-            counted(self.em_iters, "EM iteration", "EM iterations"),
-            psmc_plot_command(cli, self.em_iters, &replicates.display().to_string())
-        ))
     }
 }
 
@@ -137,7 +121,6 @@ pub(super) struct Bootstrap {
     pub(super) seqs: Sequences,
     /// The number of trunks they form.
     pub(super) trunks: usize,
-    pub(super) cfg: BootstrapConfig,
     /// The saved parameters every replicate starts from (`--init-params`,
     /// as C psmc -i -b); `None` for fresh starts.
     pub(super) start: Option<PsmcModel>,
@@ -149,27 +132,18 @@ impl Bootstrap {
     /// from a fresh start at its t_max and theta0/rho0 (-b), or from the
     /// saved parameters (-i with -b).
     pub(super) fn new(
-        plan: BootstrapPlan,
+        mut plan: BootstrapPlan,
         (seqs, trunks): (Sequences, usize),
         model: &PsmcModel,
         cli: &InferArgs,
     ) -> Self {
-        let cfg = BootstrapConfig {
-            replicates: plan.replicates,
-            trunk_size: plan.trunk_size,
-            seed: plan.seed,
-            em_iters: plan.em_iters,
-            t_max: model.t_max,
-            tr_ratio: model.theta / model.rho,
-            batch_size: cli.input.batch_size,
-            out_dir: Some(plan.dir.clone()),
-        };
+        plan.cfg.t_max = model.t_max;
+        plan.cfg.tr_ratio = model.theta / model.rho;
         Self {
-            cfg,
-            start: cli.init_params.is_some().then(|| model.clone()),
             plan,
             seqs,
             trunks,
+            start: cli.init_params.is_some().then(|| model.clone()),
         }
     }
 
@@ -184,8 +158,7 @@ impl Bootstrap {
         n_iter: usize,
         ctx: Context,
     ) -> Result<BootstrapSummary> {
-        let cfg = &self.cfg;
-        let dir = self.plan.dir.as_path();
+        let BootstrapPlan { cfg, dir } = &self.plan;
         let progress = |done: usize| Event::Progress {
             stage: Stage::Bootstrap,
             done: done as u64,
@@ -223,15 +196,14 @@ impl Bootstrap {
             cfg.trunk_size,
             cfg.seed,
         )?;
-        let skipped_note = if skipped.is_empty() {
-            String::new()
-        } else {
-            format!(
+        let skipped_note = match skipped.as_slice() {
+            [] => String::new(),
+            numbers => format!(
                 "; {} of {}, {} skipped",
                 summary.n_replicates,
                 cfg.replicates,
-                list_replicates(&skipped)
-            )
+                list_replicates(numbers)
+            ),
         };
         summary.skipped_replicates = skipped;
         let (summary_tsv, summary_json) = write_bootstrap_summary(dir, &summary)?;
@@ -244,10 +216,37 @@ impl Bootstrap {
             summary_tsv.display(),
             summary_json.display()
         ));
-        if let Some(msg) = self.plan.plot_warning(cli, n_iter) {
-            ctx.warn(msg);
+        if let Some(advice) = self.plot_advice(cli, n_iter) {
+            (ctx.sink)(advice);
         }
         Ok(summary)
+    }
+
+    /// How to plot the replicates with psmc_plot.pl, which takes the same
+    /// round (-n) of every run in its input. Replicates of the main fit's
+    /// `n_iter` EM iterations are plotted with its `.psmc` output, in one
+    /// file, as C psmc's bootstrap is; others cannot share its command (with
+    /// fewer rounds psmc_plot.pl fails, with more it plots them at an
+    /// intermediate round), which is a warning.
+    fn plot_advice(&self, cli: &InferArgs, n_iter: usize) -> Option<Event> {
+        let em_iters = self.plan.cfg.em_iters;
+        let replicates = self.plan.dir.join("replicate_*.psmc");
+        let replicates = replicates.display();
+        if em_iters != n_iter {
+            return Some(Event::Warning(format!(
+                "the bootstrap replicates ran {} and the main fit {n_iter}; psmc_plot.pl -n takes \
+                 the same round of every run it reads, so do not plot the replicates in one file \
+                 with the main fit's .psmc output, but on their own: {}",
+                counted(em_iters, "EM iteration", "EM iterations"),
+                psmc_plot_command(cli, em_iters, &replicates.to_string())
+            )));
+        }
+        let main = cli.psmc_out.as_ref()?;
+        Some(Event::Info(format!(
+            "To plot it with the bootstrap: cat {} {replicates} > combined.psmc; {}",
+            main.display(),
+            psmc_plot_command(cli, n_iter, "combined.psmc")
+        )))
     }
 }
 

@@ -361,9 +361,10 @@ Reproduction package (`experiment/`):
 - `--mhs-pair I,J` selects the two haplotypes of a multihetsep file.
 - `--psmc-out FILE`: C psmc's `.psmc` output (rounds 0 to N_ITER) for
   `psmc_plot.pl`; with `--bootstrap`, `replicate_NNN.psmc` for every
-  replicate. The run prints the matching `psmc_plot.pl` command, and its
-  own command for replicates whose `--bootstrap-iters` differ from N_ITER,
-  which cannot share a plot with the main fit.
+  replicate. The run prints the matching `psmc_plot.pl` command, after a
+  bootstrap the commands that plot the replicates with the main fit (as C
+  psmc's), and their own command for replicates whose `--bootstrap-iters`
+  differ from N_ITER, which cannot share a plot with the main fit.
 - Bootstrap replicates whose fresh start, with θ0 from their own resampled
   data, has negative transition probabilities are found before the main
   fit and skipped, with a warning that gives the `--tr-ratio` or `--rho0`

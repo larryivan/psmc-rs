@@ -113,7 +113,9 @@ pub(super) fn check_starts(
     // replicates are found now, before the main fit, and the bootstrap
     // skips them.
     let invalid = match boot {
-        Some(b) if b.start.is_none() => invalid_replicate_starts_sequences(&b.seqs, model, &b.cfg)?,
+        Some(b) if b.start.is_none() => {
+            invalid_replicate_starts_sequences(&b.seqs, model, &b.plan.cfg)?
+        }
         _ => Vec::new(),
     };
     // EM would refuse a start it cannot move from; refuse it here, with
@@ -124,7 +126,7 @@ pub(super) fn check_starts(
         check_start(model, cli, replicates_tr_ratio(&invalid))?;
     }
     if let Some(b) = boot
-        && let Some(msg) = invalid_replicates_warning(cli, model, &b.cfg, &invalid)?
+        && let Some(msg) = invalid_replicates_warning(cli, model, &b.plan.cfg, &invalid)?
     {
         ctx.warn(msg);
     }

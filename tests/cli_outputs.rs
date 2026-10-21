@@ -381,6 +381,16 @@ fn the_psmc_plot_options_are_printed() {
     );
     let err = bootstrap("2");
     assert!(!err.contains("bootstrap replicates ran"), "{err}");
+    // Replicates of the main fit's count are plotted with it, as C psmc's.
+    assert!(
+        err.contains(&format!(
+            "To plot it with the bootstrap: cat {} {} > combined.psmc; psmc_plot.pl -s 100 \
+             -u 2.5e-8 -g 25 -n 2 PREFIX combined.psmc",
+            psmc.display(),
+            dir.path("fit.bootstrap/replicate_*.psmc").display()
+        )),
+        "{err}"
+    );
 }
 
 /// A bootstrap writes every replicate's JSON and .psmc file and the summary,
