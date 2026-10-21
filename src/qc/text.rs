@@ -4,9 +4,9 @@ use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-use super::fmt::{bases, count, counted, pct, plural, sig};
+use super::fmt::{bases, count, counted, pct, plural, sig, sig_or_na};
 use super::{
-    DepthReport, Finding, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE, SequenceRow, Severity,
+    DepthReport, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE, SequenceRow, Severity,
 };
 
 /// How [`render_text_with`] lays out a report.
@@ -51,7 +51,7 @@ pub fn render_text(report: &QcReport) -> String {
 pub fn render_text_with(report: &QcReport, opts: &TextOptions) -> String {
     let mut out = String::new();
     headline(&mut out, report);
-    findings(&mut out, &report.findings, opts.width);
+    findings(&mut out, report, opts.width);
     metrics(&mut out, report);
     if opts.sequence_rows > 0 && !report.sequences.is_empty() {
         sequence_table(&mut out, report, opts.sequence_rows);
@@ -98,23 +98,19 @@ fn wrap(out: &mut String, text: &str, first: &str, rest: &str, width: usize) {
     }
 }
 
-fn findings(out: &mut String, findings: &[Finding], width: usize) {
-    if findings.is_empty() {
+fn findings(out: &mut String, r: &QcReport, width: usize) {
+    if r.findings.is_empty() {
         out.push_str("No warnings or notes.\n");
         return;
     }
-    let warnings = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Warning)
-        .count();
-    let notes = findings.len() - warnings;
+    let (warnings, notes) = r.warnings_and_notes();
     let _ = writeln!(
         out,
         "{warnings} {}, {notes} {}",
         plural(warnings, "warning", "warnings"),
         plural(notes, "note", "notes")
     );
-    for f in findings {
+    for f in &r.findings {
         let label = match f.severity {
             Severity::Warning => "WARNING",
             Severity::Info => "INFO",
@@ -128,10 +124,6 @@ fn findings(out: &mut String, findings: &[Finding], width: usize) {
 /// A count with its share, e.g. `1,234 (5.6%)`.
 fn with_share(n: u64, fraction: f64) -> String {
     format!("{} ({})", count(n), pct(fraction))
-}
-
-fn opt_sig(v: Option<f64>, digits: usize) -> String {
-    v.map_or("n/a".to_string(), |x| sig(x, digits))
 }
 
 fn metrics(out: &mut String, r: &QcReport) {
@@ -160,9 +152,9 @@ fn metrics(out: &mut String, r: &QcReport) {
             "theta0",
             format!(
                 "{} per bin, {} per bp ({} per kb)",
-                opt_sig(t.theta0_per_bin, 3),
-                opt_sig(t.theta_per_bp, 3),
-                opt_sig(t.het_per_kb, 3)
+                sig_or_na(t.theta0_per_bin, 3),
+                sig_or_na(t.theta_per_bp, 3),
+                sig_or_na(t.het_per_kb, 3)
             ),
         ),
         ("Called length", called),
@@ -359,7 +351,7 @@ fn table_cells(row: &SequenceRow) -> Vec<String> {
         format!("{:.1}", 100.0 * s.t_fraction),
         format!("{:.1}", 100.0 * s.k_fraction),
         format!("{:.1}", 100.0 * s.missing_fraction),
-        opt_sig(s.het_per_kb_comparable(), 3),
+        sig_or_na(s.het_per_kb_comparable(), 3),
         row.het_vs_reference
             .map_or("n/a".to_string(), |x| format!("{x:.2}")),
         count(s.longest_missing_run_bins),

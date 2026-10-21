@@ -29,6 +29,11 @@ pub(crate) fn sig(v: f64, digits: usize) -> String {
     }
 }
 
+/// [`sig`] of a value that may be missing (`n/a`).
+pub(crate) fn sig_or_na(v: Option<f64>, digits: usize) -> String {
+    v.map_or("n/a".to_string(), |v| sig(v, digits))
+}
+
 /// A fraction as a percentage: one decimal, or two significant digits below
 /// 0.1% so that small non-zero shares do not print as `0.0%`.
 pub fn pct(fraction: f64) -> String {

@@ -14,8 +14,8 @@ use crate::bootstrap::{BootstrapCurvePoint, BootstrapSummary};
 use crate::hmm::TmrcaReportData;
 use crate::io::params::{BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary};
 use crate::model::PsmcModel;
-use crate::qc::fmt::{count, counted, pct, sig};
-use crate::qc::{QcReport, Severity};
+use crate::qc::fmt::{count, counted, pct, sig, sig_or_na};
+use crate::qc::{QcReport, fraction};
 
 /// Everything [`write_html_report`] shows.
 pub struct ReportData<'a> {
@@ -92,11 +92,6 @@ fn fmt_num(v: f64) -> String {
     } else {
         format!("{v:.6}")
     }
-}
-
-/// [`sig`] of a value that may be missing (`n/a`).
-fn sig_or_na(v: Option<f64>, digits: usize) -> String {
-    v.map_or("n/a".to_string(), |v| sig(v, digits))
 }
 
 /// Check that the ECharts bundle `PSMC_ECHARTS_JS` names, if any, can be
@@ -214,10 +209,7 @@ fn input_rows(out: &mut String, i: &InputSummary) {
     let (kept, dropped) = (count(i.sequences as u64), count(i.dropped_sequences as u64));
     let sequences = format!("{kept} analysed, {dropped} left out");
     row(out, "Sequences", sequences);
-    let share = |n: u64| match i.bins {
-        0 => "0.0%".to_string(),
-        bins => pct(n as f64 / bins as f64),
-    };
+    let share = |n: u64| pct(fraction(n, i.bins));
     let (het, missing) = (share(i.het_bins), share(i.missing_bins));
     let bins = format!("{} ({het} heterozygous, {missing} missing)", count(i.bins));
     row(out, "Bins", bins);
@@ -227,12 +219,7 @@ fn input_rows(out: &mut String, i: &InputSummary) {
 /// per-sequence table.
 fn qc_section(r: &QcReport) -> String {
     let mut out = String::new();
-    let warnings = r
-        .findings
-        .iter()
-        .filter(|f| f.severity == Severity::Warning)
-        .count();
-    let notes = r.findings.len() - warnings;
+    let (warnings, notes) = r.warnings_and_notes();
     let _ = writeln!(
         out,
         r#"<section class="card"><div class="meta"><h2>Input QC</h2>

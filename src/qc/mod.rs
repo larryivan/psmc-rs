@@ -57,7 +57,7 @@ mod stats;
 mod text;
 
 pub(crate) use checks::callable_distribution;
-use stats::fraction;
+pub(crate) use stats::fraction;
 
 pub use checks::{
     APPROX_PLACEMENT_WARN_FRACTION, Finding, HEMIZYGOUS_MAX_RATIO,
@@ -712,6 +712,16 @@ impl QcReport {
         self.findings
             .iter()
             .any(|f| f.severity == Severity::Warning)
+    }
+
+    /// How many findings are warnings, and how many notes.
+    pub(crate) fn warnings_and_notes(&self) -> (usize, usize) {
+        let warnings = self
+            .findings
+            .iter()
+            .filter(|f| f.severity == Severity::Warning)
+            .count();
+        (warnings, self.findings.len() - warnings)
     }
 
     /// The finding with this code, if any.
