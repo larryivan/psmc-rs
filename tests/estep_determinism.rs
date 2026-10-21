@@ -186,6 +186,21 @@ fn check_threads_and_nesting(inp: &Input) {
     }
 }
 
+/// A sequence of several blocks of the backward pass (of 32 segments)
+/// besides a short one: once the short one is done, the free threads of the
+/// pool share the long one's backward pass, which must give the bits of one
+/// thread on any number of them.
+#[test]
+fn a_long_sequence_gives_the_same_bits_on_any_thread_count() {
+    let _path = one_path();
+    let inp = input(17, "4+25*2+4+6", &[300, 3 * 32 * CHECKPOINT_STRIDE + 1000]);
+    let reference = bits(&pool(1).install(|| run(&inp)));
+    for threads in [2, 3, 4, 8, 16] {
+        let e = pool(threads).install(|| run(&inp));
+        assert_same(&e, &reference, &format!("{threads} threads"));
+    }
+}
+
 #[test]
 fn many_sequences_are_reduced_deterministically() {
     let _path = one_path();

@@ -12,18 +12,26 @@
 //! they run per site is `#[inline(always)]`, and generic over `FUSED`, the
 //! choice of fused or unfused multiply-adds that each build makes at
 //! compile time.
+//!
+//! While the pool has threads with no sequence to process, the E-step's
+//! backward pass over a long sequence takes some of them
+//! ([`backward_blocks`]), with the same results to the bit.
 
 use anyhow::{Result, bail};
+use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::budget::AlphaCacheBudget;
 use super::kernel::Kernel;
 use super::obs::{ObsTable, obs_class};
 use super::simd::dispatch;
-use super::{CHECKPOINT_STRIDE, Cancelled};
+use super::{CHECKPOINT_STRIDE, Cancelled, sched};
 use crate::io::BinCounts;
 
 const K: usize = CHECKPOINT_STRIDE;
+
+/// Segments per block of [`backward_blocks`].
+const BLOCK: usize = 16;
 
 /// The observations of one sequence: one or more rows chained into one HMM
 /// chain, with the callable bases of their bins when the input has them.
@@ -143,6 +151,10 @@ pub(crate) struct Workspace {
     /// The forward vector entering each segment of a sequence (row 0
     /// unused), when its forward pass keeps them.
     ckpt: Vec<f64>,
+    /// The blocks of [`backward_blocks`], and the transition sums of each
+    /// segment of one; empty until it first runs.
+    blocks: [Block; 3],
+    sums: Vec<f64>,
 }
 
 impl Workspace {
@@ -156,6 +168,29 @@ impl Workspace {
             beta: vec![0.0; np],
             beta_next: vec![0.0; np],
             ckpt: Vec::new(),
+            blocks: Default::default(),
+            sums: Vec::new(),
+        }
+    }
+}
+
+/// What the backward pass needs of [`BLOCK`] segments: per segment, the
+/// buffers of [`Workspace`] of the same names, one after another.
+#[derive(Default)]
+struct Block {
+    obs: Vec<u16>,
+    rows: Vec<f64>,
+    c: Vec<f64>,
+    w: Vec<f64>,
+}
+
+impl Block {
+    fn new(np: usize) -> Self {
+        Self {
+            obs: vec![0; BLOCK * K],
+            rows: vec![0.0; BLOCK * (K + 1) * np],
+            c: vec![0.0; BLOCK * K],
+            w: vec![0.0; BLOCK * K * np],
         }
     }
 }
@@ -378,6 +413,34 @@ fn e_step_impl<const FUSED: bool>(
     };
     acc.loglike += forward_pass::<FUSED>(k, seq, ws, keep, ctx)?;
 
+    ws.beta[..k.n_states()].fill(1.0);
+    ws.beta[k.n_states()..].fill(0.0);
+    match full {
+        // Other threads take part while some are free, for sequences of
+        // more than one block.
+        None if seq.n_segments() > BLOCK => {
+            backward_blocks::<FUSED>(k, seq, ws, acc, ctx, sched::spare_threads)
+        }
+        _ => backward_segments::<FUSED>(k, seq, 0..seq.n_segments(), full.as_ref(), ws, acc, ctx),
+    }
+}
+
+/// The backward pass over segments `segs` of a sequence, the last first, on
+/// this thread: each segment's forward vectors come from `full` or are
+/// recomputed from the checkpoints in `ws`; `ws.beta` holds the scaled
+/// backward vector of the last site of the last segment, and is left at the
+/// first site of the first.
+#[inline(always)]
+fn backward_segments<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    segs: Range<usize>,
+    full: Option<&FullRows>,
+    ws: &mut Workspace,
+    acc: &mut Partial,
+    ctx: &Ctx<'_>,
+) -> Result<()> {
+    let np = ws.np;
     let Workspace {
         obs,
         rows: seg_rows,
@@ -388,14 +451,12 @@ fn e_step_impl<const FUSED: bool>(
         ckpt,
         ..
     } = ws;
-    beta[..k.n_states()].fill(1.0);
-    beta[k.n_states()..].fill(0.0);
-    for s in (0..seq.n_segments()).rev() {
+    for s in segs.rev() {
         ctx.check_cancel()?;
         let (start, len) = seq.segment(s);
         let obs = &mut obs[..len];
         seq.read(start, obs);
-        let (rows, c): (&[f64], &[f64]) = match &full {
+        let (rows, c): (&[f64], &[f64]) = match full {
             Some(f) => (
                 &f.alpha[start * np..(start + len + 1) * np],
                 &f.c[start..start + len],
@@ -405,22 +466,9 @@ fn e_step_impl<const FUSED: bool>(
                 (&seg_rows[..(len + 1) * np], &seg_c[..len])
             }
         };
+        backward_segment::<FUSED>(k, s, obs, rows, c, w, beta, beta_next, &mut acc.g);
         // Site 0 of a sequence has no incoming transition.
         let t_first = usize::from(s == 0);
-        for t in (0..len).rev() {
-            let o = obs[t];
-            let alpha_t = &rows[(t + 1) * np..(t + 2) * np];
-            let at = usize::from(o) * np;
-            let g = &mut acc.g[at..at + np];
-            for ((gk, &a), &b) in g.iter_mut().zip(alpha_t).zip(beta.iter()) {
-                *gk += a * b;
-            }
-            if t < t_first {
-                break;
-            }
-            k.backward::<FUSED>(beta, o, 1.0 / c[t], &mut w[t * np..(t + 1) * np], beta_next);
-            std::mem::swap(beta, beta_next);
-        }
         k.accumulate_transitions(
             &rows[t_first * np..],
             &w[t_first * np..],
@@ -431,9 +479,278 @@ fn e_step_impl<const FUSED: bool>(
             .backward
             .fetch_add(len as u64, Ordering::Relaxed);
     }
-    drop(full);
-    drop(reservation);
     Ok(())
+}
+
+/// The backward recursion over segment `s` (observations `obs`, forward
+/// vectors `rows` as [`recompute_segment`] leaves them, normalisers `c`),
+/// from the scaled backward vector of its last site in `beta` to that of its
+/// first: adds the posterior of each site to `g`, and leaves in `w` the
+/// weights of [`Kernel::backward`] of its sites but site 0 of the sequence,
+/// which has no incoming transition.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn backward_segment<const FUSED: bool>(
+    k: &Kernel,
+    s: usize,
+    obs: &[u16],
+    rows: &[f64],
+    c: &[f64],
+    w: &mut [f64],
+    beta: &mut Vec<f64>,
+    beta_next: &mut Vec<f64>,
+    g: &mut [f64],
+) {
+    let np = k.np();
+    let t_first = usize::from(s == 0);
+    for t in (0..obs.len()).rev() {
+        let o = obs[t];
+        let alpha_t = &rows[(t + 1) * np..(t + 2) * np];
+        let at = usize::from(o) * np;
+        let g = &mut g[at..at + np];
+        for ((gk, &a), &b) in g.iter_mut().zip(alpha_t).zip(beta.iter()) {
+            *gk += a * b;
+        }
+        if t < t_first {
+            break;
+        }
+        k.backward::<FUSED>(beta, o, 1.0 / c[t], &mut w[t * np..(t + 1) * np], beta_next);
+        std::mem::swap(beta, beta_next);
+    }
+}
+
+/// The backward pass from the checkpoints, block by block of [`BLOCK`]
+/// segments, the last first. While `spare()` says that the pool has threads
+/// to spare, it is pipelined ([`pipeline_step`]): this thread runs the
+/// backward recursion over block `b` while the pool recomputes the forward
+/// vectors of block `b - 1` and sums the transitions of block `b + 1`.
+/// Otherwise a block runs as [`backward_segments`] runs it.
+///
+/// The recursion and its additions to `acc.g` stay on this thread, in
+/// order; every kernel runs on the inputs it has in [`backward_segments`];
+/// and [`Kernel::accumulate_transitions`] sums a segment on its own and adds
+/// the sums to `m` at its end, so `acc.m` gets the same additions in the
+/// same order. The results are the same to the bit whichever way each block
+/// runs.
+#[inline(always)]
+fn backward_blocks<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ws: &mut Workspace,
+    acc: &mut Partial,
+    ctx: &Ctx<'_>,
+    spare: impl Fn() -> bool,
+) -> Result<()> {
+    let np = ws.np;
+    let n_seg = seq.n_segments();
+    let segs = |b: usize| b * BLOCK..n_seg.min((b + 1) * BLOCK);
+    // Whether the block after the current one was pipelined: then the
+    // current one is recomputed, and the transition sums of the one after
+    // are not yet in acc.m.
+    let mut piped = false;
+    for b in (0..n_seg.div_ceil(BLOCK)).rev() {
+        if spare() {
+            let Workspace {
+                blocks,
+                sums,
+                beta,
+                beta_next,
+                ckpt,
+                ..
+            } = &mut *ws;
+            if sums.is_empty() {
+                *blocks = [(); 3].map(|()| Block::new(np));
+                *sums = vec![0.0; BLOCK * np * np];
+            }
+            let [prev, cur, next] = blocks
+                .get_disjoint_mut([(b + 2) % 3, b % 3, (b + 1) % 3])
+                .expect("three blocks");
+            let (ckpt, m): (&[f64], _) = (ckpt, &mut acc.m);
+            if !piped {
+                let this = Some((segs(b), &mut *cur));
+                pipeline_step::<FUSED>(k, seq, ckpt, this, None, sums, m, || Ok(()))?;
+            }
+            let before = (b > 0).then(|| (segs(b - 1), prev));
+            let after = piped.then(|| (segs(b + 1), &*next));
+            let g = &mut acc.g;
+            pipeline_step::<FUSED>(k, seq, ckpt, before, after, sums, m, || {
+                backward_block::<FUSED>(k, seq, segs(b), cur, beta, beta_next, g, ctx)
+            })?;
+            piped = true;
+        } else {
+            if piped {
+                let after = Some((segs(b + 1), &ws.blocks[(b + 1) % 3]));
+                let m = &mut acc.m;
+                pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, &mut ws.sums, m, || Ok(()))?;
+                piped = false;
+            }
+            backward_segments::<FUSED>(k, seq, segs(b), None, ws, acc, ctx)?;
+        }
+    }
+    if piped {
+        let after = Some((segs(0), &ws.blocks[0]));
+        let m = &mut acc.m;
+        pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, &mut ws.sums, m, || Ok(()))?;
+    }
+    Ok(())
+}
+
+/// Runs `here` on this thread while the pool takes, as tasks of one segment
+/// each, the recomputation of the segments of `before` into its block and
+/// the transition sums of the segments of `after`, each into a matrix of
+/// `sums`; then adds those to `m` from the last segment to the first.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn pipeline_step<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    ckpt: &[f64],
+    before: Option<(Range<usize>, &mut Block)>,
+    after: Option<(Range<usize>, &Block)>,
+    sums: &mut [f64],
+    m: &mut [f64],
+    here: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let np = k.np();
+    let (rl, wl, ml) = ((K + 1) * np, K * np, np * np);
+    let n_after = after.as_ref().map_or(0, |(segs, _)| segs.len());
+    let done = rayon::in_place_scope(|scope| {
+        if let Some((segs, blk)) = before {
+            let slots = blk.obs.chunks_mut(K).zip(blk.rows.chunks_mut(rl));
+            for (((obs, rows), c), s) in slots.zip(blk.c.chunks_mut(K)).zip(segs) {
+                scope.spawn(move |_| recompute::<FUSED>(k, seq, s, ckpt, obs, rows, c));
+            }
+        }
+        if let Some((segs, blk)) = after {
+            let slots = sums.chunks_mut(ml).zip(blk.rows.chunks(rl));
+            for (((sum, rows), w), s) in slots.zip(blk.w.chunks(wl)).zip(segs) {
+                let len = seq.segment(s).1;
+                scope.spawn(move |_| transitions::<FUSED>(k, s, len, rows, w, sum));
+            }
+        }
+        here()
+    });
+    for sum in sums[..n_after * ml].chunks(ml).rev() {
+        for (d, &x) in m.iter_mut().zip(sum) {
+            *d += x;
+        }
+    }
+    done
+}
+
+dispatch! {
+    /// The backward recursion over segments `segs` in `blk`, the last first,
+    /// as [`backward_segments`] runs it.
+    #[allow(clippy::too_many_arguments)]
+    fn backward_block<const FUSED: bool>(
+        k: &Kernel,
+        seq: &SeqObs<'_>,
+        segs: Range<usize>,
+        blk: &mut Block,
+        beta: &mut Vec<f64>,
+        beta_next: &mut Vec<f64>,
+        g: &mut [f64],
+        ctx: &Ctx<'_>,
+    ) -> Result<()> = backward_block_impl;
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn backward_block_impl<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    segs: Range<usize>,
+    blk: &mut Block,
+    beta: &mut Vec<f64>,
+    beta_next: &mut Vec<f64>,
+    g: &mut [f64],
+    ctx: &Ctx<'_>,
+) -> Result<()> {
+    let np = k.np();
+    let (rl, wl) = ((K + 1) * np, K * np);
+    for (l, s) in segs.enumerate().rev() {
+        ctx.check_cancel()?;
+        let len = seq.segment(s).1;
+        backward_segment::<FUSED>(
+            k,
+            s,
+            &blk.obs[l * K..l * K + len],
+            &blk.rows[l * rl..(l + 1) * rl],
+            &blk.c[l * K..(l + 1) * K],
+            &mut blk.w[l * wl..(l + 1) * wl],
+            beta,
+            beta_next,
+            g,
+        );
+        ctx.progress
+            .backward
+            .fetch_add(len as u64, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+dispatch! {
+    /// The observations, forward vectors and normalisers of segment `s`
+    /// ([`recompute_segment`]), on a thread of [`pipeline_step`].
+    fn recompute<const FUSED: bool>(
+        k: &Kernel,
+        seq: &SeqObs<'_>,
+        s: usize,
+        ckpt: &[f64],
+        obs: &mut [u16],
+        rows: &mut [f64],
+        c: &mut [f64],
+    ) = recompute_impl;
+}
+
+#[inline(always)]
+fn recompute_impl<const FUSED: bool>(
+    k: &Kernel,
+    seq: &SeqObs<'_>,
+    s: usize,
+    ckpt: &[f64],
+    obs: &mut [u16],
+    rows: &mut [f64],
+    c: &mut [f64],
+) {
+    let (start, len) = seq.segment(s);
+    let obs = &mut obs[..len];
+    seq.read(start, obs);
+    recompute_segment::<FUSED>(k, s, obs, ckpt, rows, c);
+}
+
+dispatch! {
+    /// The transition sums of segment `s` of `len` sites alone, into `sum`
+    /// (as [`backward_segments`] adds them to `acc.m`), on a thread of
+    /// [`pipeline_step`].
+    fn transitions<const FUSED: bool>(
+        k: &Kernel,
+        s: usize,
+        len: usize,
+        rows: &[f64],
+        w: &[f64],
+        sum: &mut [f64],
+    ) = transitions_impl;
+}
+
+#[inline(always)]
+fn transitions_impl<const FUSED: bool>(
+    k: &Kernel,
+    s: usize,
+    len: usize,
+    rows: &[f64],
+    w: &[f64],
+    sum: &mut [f64],
+) {
+    let np = k.np();
+    let t_first = usize::from(s == 0);
+    sum.fill(0.0);
+    k.accumulate_transitions(
+        &rows[t_first * np..],
+        &w[t_first * np..],
+        len - t_first,
+        sum,
+    );
 }
 
 /// Checkpoints for posterior decoding of one sequence.
@@ -675,9 +992,13 @@ mod tests {
 
     /// Rows of one sequence: mostly `T`, some `K` and `N`, over several segments.
     fn rows() -> Vec<Vec<u8>> {
+        rows_of(&[5 * K + 17, 2 * K, 3])
+    }
+
+    /// Rows of `lens` sites of one sequence, as [`rows`].
+    fn rows_of(lens: &[usize]) -> Vec<Vec<u8>> {
         let mut rng = SmallRng::seed_from_u64(11);
-        [5 * K + 17, 2 * K, 3]
-            .iter()
+        lens.iter()
             .map(|&len| {
                 (0..len)
                     .map(|_| match rng.gen_range(0..100) {
@@ -807,6 +1128,89 @@ mod tests {
                     };
                     assert!(close, "dense {dense}: output {i}: {x} fused, {y} unfused");
                 }
+            }
+        }
+    }
+
+    /// The E-step's sums over `rows` (one sequence), as bits, with the
+    /// backward pass of [`backward_blocks`] in a pool of `threads`, which
+    /// pipelines the blocks for which `piped` (of their count from the last
+    /// block) says so.
+    fn blocks_bits<const FUSED: bool>(
+        k: &Kernel,
+        rows: &[Vec<u8>],
+        threads: usize,
+        piped: &(dyn Fn(usize) -> bool + Sync),
+    ) -> Vec<u64> {
+        let table = ObsTable::plain();
+        let seq = SeqObs::new(rows, None, &table);
+        let progress = Progress::default();
+        let budget = AlphaCacheBudget::new(0);
+        let ctx = Ctx {
+            cancel: None,
+            progress: &progress,
+            budget: &budget,
+        };
+        let mut ws = Workspace::new(k.np());
+        let mut acc = Partial::new(table.len(), k.np());
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            let keep = Keep::Checkpoints;
+            acc.loglike = forward_pass::<FUSED>(k, &seq, &mut ws, keep, &ctx).unwrap();
+            ws.beta[..k.n_states()].fill(1.0);
+            let block = std::cell::Cell::new(0);
+            let spare = || {
+                block.set(block.get() + 1);
+                piped(block.get() - 1)
+            };
+            backward_blocks::<FUSED>(k, &seq, &mut ws, &mut acc, &ctx, spare).unwrap();
+        });
+        assert_eq!(progress.backward.into_inner(), seq.len() as u64);
+        let values = [&[acc.loglike][..], &acc.g, &acc.m, &ws.beta];
+        values
+            .iter()
+            .flat_map(|v| v.iter().map(|x| x.to_bits()))
+            .collect()
+    }
+
+    /// The pipelined backward pass gives the bits of the pass on one
+    /// thread, whichever blocks it pipelines, on one thread or several: on
+    /// sequences of a block and one site, of two whole blocks, and of
+    /// chained rows ending within a segment, with the semiseparable and the
+    /// dense kernels, fused and not.
+    #[test]
+    fn pipelined_blocks_give_the_bits_of_one_thread() {
+        fn check<const FUSED: bool>(k: &Kernel, rows: &[Vec<u8>]) {
+            let patterns: [(&str, &(dyn Fn(usize) -> bool + Sync)); 4] = [
+                ("every block", &|_| true),
+                ("every other block", &|b| b % 2 == 0),
+                ("all but the first", &|b| b > 0),
+                ("the first", &|b| b == 0),
+            ];
+            let want = blocks_bits::<FUSED>(k, rows, 1, &|_| false);
+            for threads in [1, 4] {
+                for (name, piped) in patterns {
+                    let got = blocks_bits::<FUSED>(k, rows, threads, piped);
+                    assert!(
+                        got == want,
+                        "fused {FUSED}, {threads} threads, {name} piped"
+                    );
+                }
+            }
+        }
+        for lens in [
+            &[BLOCK * K + 1][..],
+            &[2 * BLOCK * K],
+            &[3 * BLOCK * K + 5 * K + 17, 2 * K, 3],
+        ] {
+            let rows = rows_of(lens);
+            for dense in [false, true] {
+                let k = kernel(dense);
+                check::<true>(&k, &rows);
+                check::<false>(&k, &rows);
             }
         }
     }
