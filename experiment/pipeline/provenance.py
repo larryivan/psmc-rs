@@ -236,17 +236,15 @@ def check_done(job, runs_dir: Path, cache: ChecksumCache) -> Tuple[bool, str]:
     return True, ""
 
 
-def write_record(job, runs_dir: Path, cache: ChecksumCache, key: Dict, run: Dict) -> Dict:
+def write_record(job, runs_dir: Path, cache: ChecksumCache, key: Dict, run: Dict) -> None:
     """Write the provenance record of a successful run of ``job``."""
-    rec = {
+    write_json_atomic(job.record_path(runs_dir), {
         "record_version": RECORD_VERSION,
         "digest": digest(key),
         "key": key,
         "outputs": {name: cache.sha256(p) for p, name in zip(job.outputs, portable(job.outputs, runs_dir))},
         "run": run,
-    }
-    write_json_atomic(job.record_path(runs_dir), rec)
-    return rec
+    })
 
 
 def python_identity(modules: Sequence[str], packages: Sequence[str] = ()) -> Dict[str, str]:

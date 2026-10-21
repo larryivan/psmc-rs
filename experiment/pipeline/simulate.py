@@ -466,8 +466,9 @@ def build_parser():
         prog="python -m experiment.pipeline.simulate",
         description="Simulate one diploid genome of an experiment (settings from the profile in config.py).",
     )
-    p.add_argument("--profile", default="production")
-    p.add_argument("--experiment", required=True, help="experiment whose genome and simulation settings apply (E1, E4, E5, ...)")
+    p.add_argument("--profile", default="production", choices=sorted(config.PROFILES))
+    p.add_argument("--experiment", required=True, choices=("E1", "E4", "E5"),
+                   help="the experiment whose genome and simulation settings apply")
     p.add_argument("--model", required=True, choices=sorted(config.MODELS))
     p.add_argument("--replicate", type=int, required=True)
     p.add_argument("--out-dir", help="directory of genome.psmcfa and genome.vcf.gz")

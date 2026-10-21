@@ -47,7 +47,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 from . import config, paths
-from .provenance import package_version, sha256_file
+from .provenance import package_version, sha256_file, write_json_atomic
 
 RS_SOURCES = ("src", "Cargo.toml", "Cargo.lock")
 
@@ -455,9 +455,7 @@ def _save_c_build(src: Path, record: Dict) -> None:
         shutil.copy2(src / C_BUILD_RECORD, prev_record)
     elif prev_record.exists():
         prev_record.unlink()  # it describes no <program>.prev now
-    tmp_record = src / f".{C_BUILD_RECORD}.tmp"
-    tmp_record.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n")
-    os.replace(tmp_record, src / C_BUILD_RECORD)
+    write_json_atomic(src / C_BUILD_RECORD, record)
 
 
 def read_c_build(src: Optional[Path] = None) -> Optional[Dict]:
