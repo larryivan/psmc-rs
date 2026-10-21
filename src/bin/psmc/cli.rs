@@ -562,10 +562,20 @@ impl InferArgs {
     /// (without `--tui`), as the TUI shows and runs it.
     pub fn to_args(&self) -> Vec<String> {
         let defaults: InferArgs = defaults();
+        // The bootstrap's block size and seed only with a bootstrap, which
+        // alone uses them.
+        let this = &match self.bootstrap {
+            0 => InferArgs {
+                bootstrap_block_size: defaults.bootstrap_block_size,
+                bootstrap_seed: defaults.bootstrap_seed,
+                ..self.clone()
+            },
+            _ => self.clone(),
+        };
         let positional = [&self.input_file, &self.output_file].map(path);
         let flags = (INFER_FLAGS.iter())
-            .filter(|(_, spell)| spell(self) != spell(&defaults))
-            .filter_map(|&(flag, spell)| Some((flag, spell(self)?)));
+            .filter(|(_, spell)| spell(this) != spell(&defaults))
+            .filter_map(|&(flag, spell)| Some((flag, spell(this)?)));
         (positional.into_iter().chain([self.n_iter.and_then(one)]))
             .flatten()
             .flatten()
@@ -682,6 +692,9 @@ mod tests {
              --quiet --no-progress",
         );
         round_trip("psmc-rs in out 1 --init-params fit.json");
+        // The bootstrap's settings go with it.
+        let args = parse("--bootstrap-seed 7 --bootstrap-block-size 1000").unwrap();
+        assert_eq!(args.to_args(), ["in", "out", "1"]);
     }
 
     #[test]

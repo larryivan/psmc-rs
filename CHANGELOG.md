@@ -555,7 +555,8 @@ Reproduction package (`experiment/`):
   run). Its status line put READY before every message ("READY  Ready",
   "READY  Input is required") and now shows the message alone; a form
   that cannot run is "Not ready: ..." there and in the log (which said
-  "Input error: ..."), as in the Command panel.
+  "Input error: ..."), as in the Command panel. That panel no longer adds
+  `--no-progress`, so that a command copied from it draws progress bars.
 - The HTML report was blank, without a word, when ECharts could not be
   fetched; it now says how to fix that.
 - The HTML report stacked the bootstrap band on years instead of Ne, so
