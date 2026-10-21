@@ -81,15 +81,6 @@ fn history_records_loglike_before_and_after_each_iteration() {
     );
 }
 
-#[test]
-fn zero_iterations_leave_an_empty_history() {
-    let (rows, starts) = data();
-    let history = em_train(&mut start(), &rows, &starts, 0, &config()).unwrap();
-    assert!(history.loglike.is_empty());
-    assert_eq!(history.params.len(), 1);
-    assert_eq!(history.final_loglike(), None);
-}
-
 mod options {
     use super::*;
     use psmc_rs::em::{EmOptions, EmProgressEvent, em_train_with_options};

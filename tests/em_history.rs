@@ -110,6 +110,10 @@ fn zero_iterations_record_nothing() {
     let (rows, starts) = data();
     let mut model = c_start(&rows, "4+5*3+4", 4.0);
     let history = em_train(&mut model, &rows, &starts, 0, &mstep()).unwrap();
+    // The start's parameters alone.
+    assert_eq!(history.params.len(), 1);
+    assert_eq!(history.final_loglike(), None);
+    assert!(history.loglike.is_empty());
     assert!(history.post_sigma.is_empty());
     assert!(history.q.is_empty());
     assert!(history.mstep_evaluations.is_empty());
