@@ -107,9 +107,12 @@ psmc-rs convert sample.vcf.gz --depth auto --min-qual 20 --psmcfa sample.psmcfa
 psmc-rs sample.psmcfa sample.json 25 --psmc-out sample.psmc   # with --run 25
 ```
 
-(The script also passes `--input-format vcf --vcf-mode consensus`, which
-psmc-rs would otherwise detect, and `--no-version` to bcftools, so that the
-VCF header does not change from run to run; the log has the exact commands.)
+(The script gives mpileup each chromosome as a one-line regions file, `-R`,
+or `-T` when the alignments have no index, which keeps a name with colons
+whole where `-r` would read a range. It also passes `--input-format vcf
+--vcf-mode consensus`, which psmc-rs would otherwise detect, and
+`--no-version` to bcftools, so that the VCF header does not change from run
+to run; the log has the exact commands.)
 psmc-rs can also fit the VCF directly, `psmc-rs sample.vcf.gz fit.json 25
 --min-qual 20`, which bins it the same way. Note `--min-qual 20`: psmc-rs's
 default is fq2psmcfa's own default, 10.
