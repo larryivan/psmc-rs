@@ -801,16 +801,13 @@ fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<
         cols[9]
     } else {
         it.nth(sample_idx - 1).with_context(|| {
-            format!(
-                "invalid VCF row {}: missing sample column index {}",
-                row_no,
-                9 + sample_idx
-            )
+            let column = 9 + sample_idx;
+            format!("invalid VCF row {row_no}: missing sample column index {column}")
         })?
     };
     let pos = parse_pos(cols[1], row_no)?;
     if pos == 0 {
-        bail!("invalid VCF row {}: POS must be >= 1", row_no);
+        bail!("invalid VCF row {row_no}: POS must be >= 1");
     }
     Ok(Record {
         chrom: cols[0],
@@ -999,7 +996,7 @@ struct Pending {
 /// [`SeqBuilder`]. Positions before `cursor` are binned; the records at
 /// `pending` may still be joined by further records at the same POS.
 struct ChromBuilder {
-    name: Vec<u8>,
+    name: String,
     seq: SeqBuilder,
     uncallable: Uncallable,
     cursor: u64,
@@ -1021,17 +1018,41 @@ struct ChromBuilder {
 }
 
 impl ChromBuilder {
-    fn new(
-        name: &[u8],
-        uncallable: Uncallable,
+    /// The builder of chromosome `name`, whose sequence ends at `contig_len`
+    /// when given; notes in `summary` how the masks cover it and whether its
+    /// contig length is used.
+    fn start(
+        name: &str,
         contig_len: Option<u64>,
+        masks: &MaskEngine,
         opts: &VcfOptions,
         collect_het: bool,
-    ) -> Self {
-        Self {
-            name: name.to_vec(),
+        summary: &mut VcfSummary,
+    ) -> Result<Self> {
+        masks.note_coverage(
+            name,
+            &mut summary.chroms_outside_mask,
+            &mut summary.chroms_outside_some_masks,
+        );
+        if let Some(len) = contig_len {
+            if len > MAX_POS {
+                let len = if len == u64::MAX {
+                    "a number of 20 or more digits".to_string()
+                } else {
+                    len.to_string()
+                };
+                bail!(
+                    "invalid VCF header: the ##contig length of '{name}' ({len}) is beyond the \
+                     supported maximum {MAX_POS}; correct the header, or end each sequence at \
+                     its last record instead of the contig length"
+                );
+            }
+            summary.contig_lengths_used.push(name.to_string());
+        }
+        Ok(Self {
+            name: name.to_string(),
             seq: SeqBuilder::new(opts.bin_size, collect_het),
-            uncallable,
+            uncallable: masks.uncallable_for_chrom(name),
             cursor: 1,
             miss_until: 0,
             covered_until: 0,
@@ -1040,7 +1061,7 @@ impl ChromBuilder {
             last_pos: 0,
             last_block_end: 0,
             contig_len,
-        }
+        })
     }
 
     fn missing(&mut self, n: u64, s: &mut VcfSummary) {
@@ -1169,7 +1190,7 @@ impl ChromBuilder {
         self.flush_pending(s);
         self.fill_gap(end, s);
         s.sites += end;
-        self.seq.finish(lossy(&self.name).into_owned(), end)
+        self.seq.finish(self.name, end)
     }
 }
 
@@ -1293,7 +1314,7 @@ pub(crate) fn read_vcf_seqs_from(
     let mut depth = DepthCounter::default();
     let mut depth_reader = DepthReader::default();
     let mut contig_lens = HashMap::<Vec<u8>, u64>::new();
-    let mut finished_chroms = HashSet::<Vec<u8>>::new();
+    let mut finished_chroms = HashSet::<String>::new();
     let mut cur: Option<ChromBuilder> = None;
     let mut seqs = Vec::<BinnedSeq>::new();
 
@@ -1328,26 +1349,25 @@ pub(crate) fn read_vcf_seqs_from(
         depth.add(dp);
         summary.depth_from_info += u64::from(from_info && dp.is_some());
 
-        if cur.as_ref().is_none_or(|c| c.name != rec.chrom) {
+        if cur.as_ref().is_none_or(|c| c.name.as_bytes() != rec.chrom) {
             if let Some(done) = cur.take() {
                 finished_chroms.insert(done.name.clone());
                 seqs.push(done.finish(&mut summary));
             }
-            if finished_chroms.contains(rec.chrom) {
+            let name = utf8_chrom(rec.chrom, row_no)?;
+            if finished_chroms.contains(name) {
                 bail!(
-                    "invalid VCF row {row_no}: chromosome '{}' appears again after another \
-                     chromosome; the VCF must be sorted (e.g. with bcftools sort)",
-                    lossy(rec.chrom)
+                    "invalid VCF row {row_no}: chromosome '{name}' appears again after another \
+                     chromosome; the VCF must be sorted (e.g. with bcftools sort)"
                 );
             }
             let contig_len = opts
                 .to_contig_end
                 .then(|| contig_lens.get(rec.chrom).copied())
                 .flatten();
-            cur = Some(start_chrom(
-                rec.chrom,
+            cur = Some(ChromBuilder::start(
+                name,
                 contig_len,
-                row_no,
                 &masks,
                 opts,
                 collect_het,
@@ -1360,7 +1380,7 @@ pub(crate) fn read_vcf_seqs_from(
                 "invalid VCF row {row_no}: POS {} on '{}' comes after POS {}; the VCF must be \
                  sorted by position (e.g. with bcftools sort)",
                 rec.pos,
-                lossy(rec.chrom),
+                chrom.name,
                 chrom.last_pos
             );
         }
@@ -1368,7 +1388,7 @@ pub(crate) fn read_vcf_seqs_from(
             bail!(
                 "invalid VCF row {row_no}: POS {} on '{}' is beyond the ##contig length {len}",
                 rec.pos,
-                lossy(rec.chrom),
+                chrom.name,
             );
         }
         // A block reaching past the contig (or past any real chromosome)
@@ -1385,49 +1405,6 @@ pub(crate) fn read_vcf_seqs_from(
     summary.sequences = seqs.iter().filter(|s| !s.bins.is_empty()).count();
     summary.bins = seqs.iter().map(|s| s.bins.len()).sum();
     Ok((seqs, summary))
-}
-
-/// The builder of chromosome `chrom`, first met at row `row_no`, whose
-/// sequence ends at `contig_len` when given; notes in `summary` how the masks
-/// cover it and whether its contig length is used.
-fn start_chrom(
-    chrom: &[u8],
-    contig_len: Option<u64>,
-    row_no: usize,
-    masks: &MaskEngine,
-    opts: &VcfOptions,
-    collect_het: bool,
-    summary: &mut VcfSummary,
-) -> Result<ChromBuilder> {
-    let name = utf8_chrom(chrom, row_no)?;
-    masks.note_coverage(
-        name,
-        &mut summary.chroms_outside_mask,
-        &mut summary.chroms_outside_some_masks,
-    );
-    if let Some(len) = contig_len {
-        if len > MAX_POS {
-            let len = if len == u64::MAX {
-                "a number of 20 or more digits".to_string()
-            } else {
-                len.to_string()
-            };
-            bail!(
-                "invalid VCF header: the ##contig length of '{name}' ({len}) is beyond the \
-                 supported maximum {MAX_POS}; correct the header, or end each sequence at its \
-                 last record instead of the contig length"
-            );
-        }
-        summary.contig_lengths_used.push(name.to_string());
-    }
-    let uncallable = masks.uncallable_for_chrom(name);
-    Ok(ChromBuilder::new(
-        chrom,
-        uncallable,
-        contig_len,
-        opts,
-        collect_het,
-    ))
 }
 
 /// [`read_vcf_with`] with the default options for everything not given here.
