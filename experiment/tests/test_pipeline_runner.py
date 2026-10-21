@@ -67,6 +67,12 @@ class Base(unittest.TestCase):
         return Job(id=jid, command=[sys.executable, str(self.script), json.dumps(args)], inputs=ins, outputs=outs,
                    est_seconds=max(sleep, 0.1), **kw)
 
+    def jobs_file(self, *jobs) -> str:
+        """``jobs`` in a file for ``--jobs-file``."""
+        spec = self.tmp / "jobs.json"
+        spec.write_text(json.dumps([j.to_dict() for j in jobs]))
+        return str(spec)
+
     def runs_of(self, jid: str) -> int:
         if not self.count.exists():
             return 0
@@ -250,11 +256,6 @@ class CommandLine(Base):
                 err.write("" if isinstance(exc.code, int) else exc.code)
         return rc, out.getvalue(), err.getvalue()
 
-    def jobs_file(self, *jobs) -> str:
-        spec = self.tmp / "jobs.json"
-        spec.write_text(json.dumps([j.to_dict() for j in jobs]))
-        return str(spec)
-
     def test_the_plan_names_what_never_starts_on_the_budget(self):
         spec = self.jobs_file(self.job("T/big", ["big.txt"], cores=8), self.job("T/small", ["small.txt"]))
         rc, out, _ = self.cli("plan", "--jobs-file", spec)
@@ -431,14 +432,13 @@ class DetachedRunner(Base):
 
     def test_start_status_stop_resume(self):
         jobs = [self.job(f"T/s{i}", [f"s{i}.txt"], sleep=2.0 if i < 2 else 0.1) for i in range(3)]
-        spec = self.tmp / "jobs.json"
-        spec.write_text(json.dumps([j.to_dict() for j in jobs]))
-        res = self.cli("start", "--jobs-file", str(spec), "--cores", "2")
+        spec = self.jobs_file(*jobs)
+        res = self.cli("start", "--jobs-file", spec, "--cores", "2")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertIn("runner started", res.stdout)
         self.assertTrue(self.wait_for(lambda: (self.runs / "_runner" / "state.json").exists()
                                       and json.loads((self.runs / "_runner" / "state.json").read_text()).get("running")))
-        res = self.cli("start", "--jobs-file", str(spec))
+        res = self.cli("start", "--jobs-file", spec)
         self.assertEqual(res.returncode, 1)  # one runner per runs directory
         st = self.cli("status")
         self.assertIn("runner: running", st.stdout)
@@ -448,12 +448,12 @@ class DetachedRunner(Base):
         self.assertIsNone(runner.daemon_alive(self.runs))
         attempts = [json.loads(x) for x in runner.attempts_path(self.runs, "T").read_text().splitlines()]
         self.assertIn("interrupted", {a["status"] for a in attempts})
-        st = self.cli("status", "--jobs-file", str(spec))
+        st = self.cli("status", "--jobs-file", spec)
         self.assertIn("runner: not running", st.stdout)
         self.assertNotIn("failed  T/", st.stdout)
         # Resume: the interrupted jobs run again, the finished one does not.
         done_before = {j.id for j in jobs if runner.provenance.check_done(j, self.runs, provenance.ChecksumCache(None))[0]}
-        res = self.cli("start", "--jobs-file", str(spec), "--cores", "2")
+        res = self.cli("start", "--jobs-file", spec, "--cores", "2")
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertTrue(self.wait_for(lambda: runner.daemon_alive(self.runs) is None, timeout=60))
         for j in jobs:
@@ -472,15 +472,14 @@ class DetachedRunner(Base):
                 self.job("T/run/x/rep1", ["x1.txt"], inputs=["a.txt"]),
                 self.job("T/run/x/rep2", ["x2.txt"], inputs=["a.txt"]),
                 self.job("T/run/y/rep2", ["y2.txt"], inputs=["b.txt"])]
-        spec = self.tmp / "jobs.json"
-        spec.write_text(json.dumps([j.to_dict() for j in jobs]))
+        spec = self.jobs_file(*jobs)
         only = "T/(a$|run/.*/rep2$)"
-        listed = self.cli("list", "--jobs-file", str(spec), "--only", only)
+        listed = self.cli("list", "--jobs-file", spec, "--only", only)
         self.assertEqual(listed.returncode, 0, listed.stderr)
         self.assertEqual(re.findall(r"^(T/\S+)  \[", listed.stdout, re.M), ["T/a", "T/run/x/rep2", "T/run/y/rep2"])
-        planned = self.cli("plan", "--jobs-file", str(spec), "--only", only)
+        planned = self.cli("plan", "--jobs-file", spec, "--only", only)
         self.assertRegex(planned.stdout, r"\nT\s+3\s")
-        res = self.cli("start", "--foreground", "--jobs-file", str(spec), "--only", only)
+        res = self.cli("start", "--foreground", "--jobs-file", spec, "--only", only)
         self.assertEqual(res.returncode, 1, res.stderr)  # T/run/y/rep2 is blocked
         self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 0, 0, 1, 0])
         state = json.loads((self.runs / "_runner" / "state.json").read_text())
@@ -498,34 +497,32 @@ class DetachedRunner(Base):
         self.assertNotIn("--only", st.stdout)
         # Once the file exists (merged in from another shard), the kept job runs.
         (self.tmp / "b.txt").write_text("from another runs directory")
-        res = self.cli("start", "--foreground", "--jobs-file", str(spec), "--only", only)
+        res = self.cli("start", "--foreground", "--jobs-file", spec, "--only", only)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 0, 0, 1, 1])
         # Without the filter, the jobs it kept are done and the others run; y/rep2
         # again, because b now makes the b.txt it reads, with another content.
-        res = self.cli("start", "--foreground", "--jobs-file", str(spec))
+        res = self.cli("start", "--foreground", "--jobs-file", spec)
         self.assertEqual(res.returncode, 0, res.stderr)
         self.assertEqual([self.runs_of(j.id) for j in jobs], [1, 1, 1, 1, 2])
 
     def test_a_bad_sample_interval_stops_only_start(self):
-        spec = self.tmp / "jobs.json"
-        spec.write_text(json.dumps([self.job("T/a", ["a.txt"]).to_dict()]))
+        spec = self.jobs_file(self.job("T/a", ["a.txt"]))
         bad = {runner.SAMPLE_SECONDS_ENV: "fast"}
-        for args in (("status", "--jobs-file", str(spec)), ("stop",)):
+        for args in (("status", "--jobs-file", spec), ("stop",)):
             res = self.cli(*args, **bad)
             self.assertEqual(res.returncode, 0, res.stderr)
-        res = self.cli("start", "--foreground", "--jobs-file", str(spec), **bad)
+        res = self.cli("start", "--foreground", "--jobs-file", spec, **bad)
         self.assertEqual((res.returncode, self.runs_of("T/a")), (1, 0))
         self.assertEqual(res.stderr.strip(), f"{runner.SAMPLE_SECONDS_ENV}='fast': give a number of seconds, "
                          f"at least {runner.MIN_SAMPLE_SECONDS:g}")
 
     def test_only_rejects_a_bad_or_unmatched_pattern(self):
-        spec = self.tmp / "jobs.json"
-        spec.write_text(json.dumps([self.job("T/a", ["a.txt"]).to_dict()]))
-        res = self.cli("list", "--jobs-file", str(spec), "--only", "T/(")
+        spec = self.jobs_file(self.job("T/a", ["a.txt"]))
+        res = self.cli("list", "--jobs-file", spec, "--only", "T/(")
         self.assertEqual(res.returncode, 2)
         self.assertIn("not a regular expression", res.stderr)
-        res = self.cli("start", "--jobs-file", str(spec), "--only", "T/rep02$")
+        res = self.cli("start", "--jobs-file", spec, "--only", "T/rep02$")
         self.assertEqual(res.returncode, 1)
         self.assertIn("matches none of the 1 jobs", res.stderr)
         self.assertIsNone(runner.daemon_alive(self.runs))
