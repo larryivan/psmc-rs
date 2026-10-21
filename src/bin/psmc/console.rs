@@ -162,8 +162,9 @@ impl Bars {
         let mut shown = self.shown.lock().unwrap_or_else(PoisonError::into_inner);
         match ev {
             Event::Iteration { iter, total } => {
-                let em =
-                    (shown.em).get_or_insert_with(|| self.multi.insert(0, bar(None, total as u64)));
+                let em = shown
+                    .em
+                    .get_or_insert_with(|| self.multi.insert(0, bar(None, total as u64)));
                 em.set_position(iter.saturating_sub(1) as u64);
             }
             Event::Progress {
@@ -178,7 +179,8 @@ impl Bars {
                 if read {
                     return;
                 }
-                let (_, pb) = (shown.stage)
+                let (_, pb) = shown
+                    .stage
                     .get_or_insert_with(|| (stage, self.multi.add(bar(Some(stage), total))));
                 pb.set_length(total);
                 pb.set_position(done.min(total));

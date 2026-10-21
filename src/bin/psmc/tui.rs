@@ -184,7 +184,8 @@ impl App {
 
     /// [`App::parsed`] for a field that must be filled.
     fn required<T>(&self, idx: usize, parse: fn(&str) -> Result<T, String>) -> Result<T> {
-        (self.parsed(idx, parse)?).ok_or_else(|| anyhow!("{} is required", FIELDS[idx].0))
+        self.parsed(idx, parse)?
+            .ok_or_else(|| anyhow!("{} is required", FIELDS[idx].0))
     }
 }
 

@@ -148,7 +148,8 @@ pub fn check_destinations(
     dir: Option<(&str, &Path)>,
 ) -> Result<()> {
     let input = resolved(input);
-    let files: Vec<(&str, &Path)> = (files.iter())
+    let files: Vec<(&str, &Path)> = files
+        .iter()
         .filter_map(|&(what, path)| Some((what, path?)))
         .collect();
     let mut seen: Vec<(&str, &Path, PathBuf)> = Vec::new();

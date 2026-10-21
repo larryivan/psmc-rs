@@ -276,7 +276,8 @@ impl InputArgs {
     /// they apply to and their values as spelt ([`Spelling`]).
     fn given(&self) -> Vec<(&'static str, AppliesTo, Vec<String>)> {
         let defaults: InputArgs = defaults();
-        (FLAGS.iter())
+        FLAGS
+            .iter()
             .filter(|(_, _, spell)| spell(self) != spell(&defaults))
             .filter_map(|&(flag, applies, spell)| Some((flag, applies, spell(self)?)))
             .collect()

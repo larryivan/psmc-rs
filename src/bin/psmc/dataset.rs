@@ -75,7 +75,8 @@ pub fn default_qc_report(
     bootstrap_trunk: usize,
 ) -> Result<QcReport> {
     let auto = BinCallableArg::Auto;
-    let counts = (data.obs.callable.as_ref()).filter(|_| fit_uses_counts(data, auto));
+    let callable = data.obs.callable.as_ref();
+    let counts = callable.filter(|_| fit_uses_counts(data, auto));
     let start = || {
         let theta0 = initial_theta_with_callable(&data.obs.rows, counts).ok()?;
         let (n_steps, pattern) = model_layout(None, None).ok()?;
@@ -190,8 +191,10 @@ fn source_context(source: &SourceSummary) -> QcContext {
 
 /// The dropped sequences of `data`, counted by reason.
 fn dropped_groups(data: &Dataset) -> Vec<DroppedSequences> {
-    let (empty, filtered): (Vec<_>, Vec<_>) =
-        (data.dropped.iter()).partition(|d| matches!(d.reason, DropReason::Empty));
+    let (empty, filtered): (Vec<_>, Vec<_>) = data
+        .dropped
+        .iter()
+        .partition(|d| matches!(d.reason, DropReason::Empty));
     let mut out = Vec::new();
     if !empty.is_empty() {
         out.push(DroppedSequences {

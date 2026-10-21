@@ -572,11 +572,17 @@ impl InferArgs {
             },
             _ => self.clone(),
         };
-        let positional = [&self.input_file, &self.output_file].map(path);
-        let flags = (INFER_FLAGS.iter())
+        let positional = [
+            path(&self.input_file),
+            path(&self.output_file),
+            self.n_iter.and_then(one),
+        ];
+        let flags = INFER_FLAGS
+            .iter()
             .filter(|(_, spell)| spell(this) != spell(&defaults))
             .filter_map(|&(flag, spell)| Some((flag, spell(this)?)));
-        (positional.into_iter().chain([self.n_iter.and_then(one)]))
+        positional
+            .into_iter()
             .flatten()
             .flatten()
             .chain(self.input.to_args())
