@@ -178,7 +178,11 @@ Command line and outputs:
   to run and with any `--threads`. Their size changes little on real
   data (NA12878's psmcfa.gz 0.4% smaller, TMRCA output 1.2% smaller to
   1.5% larger) and more on text that repeats one pattern (a synthetic
-  psmcfa.gz 34% larger).
+  psmcfa.gz 34% larger). gzip and BGZF input is decoded by zlib-rs too:
+  a corrupt deflate stream that refers back before its start is now
+  reported as `corrupt deflate stream` where it occurs, rather than later
+  as a checksum mismatch or as an error on the garbled text; such an
+  input is refused as before.
 
 Library API:
 
