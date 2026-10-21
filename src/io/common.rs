@@ -116,7 +116,7 @@ fn check_text_start(mut reader: Box<dyn BufRead>, path: &Path) -> Result<Box<dyn
 /// Decodes gzip in a thread of its own, a few chunks ahead of the reader,
 /// so that decoding and parsing a compressed input run side by side (a
 /// third faster for a large bgzip VCF). The reader gets the same bytes and
-/// errors, in the same order, as from a decoder in its own thread.
+/// errors, in the same order, as from the decoder itself.
 struct DecoderThread {
     /// Decoded chunks, an empty one at the end.
     chunks: Receiver<io::Result<Vec<u8>>>,

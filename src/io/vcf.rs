@@ -874,16 +874,14 @@ fn genotype(rec: &Record<'_>, row_no: usize) -> Result<Genotype> {
             return Ok(Genotype::Missing);
         }
         let idx = parse_u64(a)
-            .with_context(|| format!("invalid VCF row {}: bad GT '{}'", row_no, lossy(gt)))?;
+            .with_context(|| format!("invalid VCF row {row_no}: bad GT '{}'", lossy(gt)))?;
         let al = usize::try_from(idx)
             .ok()
             .and_then(|i| allele(rec, i))
             .with_context(|| {
                 format!(
-                    "invalid VCF row {}: GT '{}' refers to allele {} but ALT is '{}'",
-                    row_no,
+                    "invalid VCF row {row_no}: GT '{}' refers to allele {idx} but ALT is '{}'",
                     lossy(gt),
-                    idx,
                     lossy(rec.alt)
                 )
             })?;
