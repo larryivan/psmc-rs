@@ -109,16 +109,17 @@ for `target-cpu=native` benchmarks).
 
 ### Experiment and reproduction package
 
-The scripts and notebook under `experiment/` regenerate the manuscript's
-figures and tables; see `experiment/README.md`. If you change them:
+The pipeline in `experiment/pipeline/` (`python -m experiment.pipeline`)
+runs the manuscript's experiments and makes its tables and figures; see
+`experiment/README.md`. If you change it:
 
 ```bash
 python3 -m unittest discover -s experiment/tests -v
 ```
 
-Scripts must keep working from any working directory and must not contain
-machine-specific paths; paths written into result tables are
-repository-relative.
+The pipeline must find its files from its own location, not from the
+working directory, and must not contain machine-specific paths; paths
+written into result tables are repository-relative.
 
 ## Commit messages
 

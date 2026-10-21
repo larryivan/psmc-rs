@@ -704,15 +704,15 @@ Measured on the inputs in `experiment/real_data` with pattern
 release builds), one run each on a machine shared with other work (load
 average 1 to 6); wall time and peak resident memory from `/usr/bin/time -l`:
 
-| input | EM iterations | threads | psmc-rs 0.2 | psmc-rs 0.1 | C psmc 0.6.5 (`-O1`) |
-| --- | --- | --- | --- | --- | --- |
-| Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 24.7 s, 21 MB | 139 s, 1.95 GB | 312 s, 2.63 GB |
-| | 20 | 8 | 24.9 s, 22 MB | | |
-| HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 44.2 s, 87 MB | | 588 s, 3.40 GB |
-| | 5 | 8 | 9.9 s, 96 MB | 78.7 s, 6.88 GB | |
+| input | EM iterations | threads | psmc-rs 0.2 | C psmc 0.6.5 (`-O1`) |
+| --- | --- | --- | --- | --- |
+| Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 24.7 s, 21 MB | 312 s, 2.63 GB |
+| | 20 | 8 | 24.9 s, 22 MB | |
+| HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 44.2 s, 87 MB | 588 s, 3.40 GB |
+| | 5 | 8 | 9.9 s, 96 MB | |
 
 The psmc-rs 0.2 figure for the first row is the median of three runs
-(24.7 to 24.8 s); C psmc is single-threaded, and 0.1 started from θ0/5.
+(24.7 to 24.8 s); C psmc is single-threaded.
 The JSON outputs at 1 and 8 threads were byte-identical.
 
 The manuscript's experiment E3 timed the tools under a controlled protocol
