@@ -566,6 +566,10 @@ Reproduction package (`experiment/`):
   state 1 when the replicate's own state 1 began later; without a pattern
   (0.1's default), or with a first pattern group of one interval, states
   0 and 1 differ, and that first row could be wrong several-fold.
+- The bootstrap's `summary.json` was written through a buffer that was
+  never flushed, so an error on its last write (a full disk, a quota) left
+  a truncated file and still exited 0; the error is now reported, naming
+  the file.
 - Release checksums named `dist/` paths, so `sha256sum -c` failed next to
   the downloaded assets, and the Windows `.sha256` line ended in CRLF,
   whose CR macOS's `shasum -c` reads as part of the file name. The release
@@ -676,7 +680,9 @@ Reproduction package (`experiment/`):
 ### Removed
 
 - `psmc_rs::utils::logsumexp` (unused).
-- `psmc_rs::progress::spinner` (unused; `progress::spinner_raw` remains).
+- `psmc_rs::progress::spinner` (unused): the new `progress::spinner_raw`
+  has its style and draws on stderr; call its `enable_steady_tick`
+  (`Duration::from_millis(80)` as `spinner` did) for it to tick on its own.
 - `em_train_with_progress` (also re-exported from `opt`) and
   `opt::m_step_lbfgs_with_progress`: pass the callback as
   `EmOptions::on_progress` to `em::em_train_with_options`, or to
