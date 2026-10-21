@@ -66,13 +66,15 @@ stopped at its bound on every free lambda, 1e4, C psmc's reached about
 curves at fixed times would instead read whole steps wherever a time falls
 between two nearly equal boundaries.
 
-The helpers the other experiments share are here too: every table is
-written by :func:`write_tables` and every fit read by :func:`read_c_fit` or
-:func:`read_rs_fit`; E2 and E7 (both tools on one input) compare the tools
-with :func:`read_fits`, :func:`check_same_input`, :func:`compare_tools` and
-:func:`loglike_diffs`, and the step curves, true curves, traces and runs are
-rows of :func:`step_rows`, :func:`truth_rows`, :func:`trace_rows` and
-:func:`run_fields`.
+The helpers the other experiments share are here too: :func:`write_csv`
+writes one table and :func:`write_tables` a report's set of them;
+:func:`read_c_fit` and :func:`read_rs_fit` read a fit after checking that it
+ran ``n_iter`` iterations, and :func:`read_fits` both tools' fits of one
+input. E2 and E7 (both tools on one input) compare the tools with
+:func:`check_same_input`, :func:`compare_tools` and :func:`loglike_diffs`.
+:func:`step_rows`, :func:`truth_rows` and :func:`trace_rows` give the rows
+of the step curves, true curves and traces, and :func:`run_fields` the
+columns of how a fit ran.
 """
 
 from __future__ import annotations
@@ -253,7 +255,7 @@ def jobs(ctx: Context) -> List[Job]:
 
 
 # ---------------------------------------------------------------------------
-# Tables (write_tables and the readers serve every experiment; read_fits to run_fields E2 and E7 too)
+# Tables, fit readers and rows (shared by the experiments)
 # ---------------------------------------------------------------------------
 
 
