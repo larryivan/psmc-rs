@@ -272,16 +272,18 @@ mod avx2 {
     }
 }
 
-// Compiled everywhere so that the aarch64 build tests it against NEON.
-#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 mod portable {
-    //! Plain Rust kernels for other targets. Their products are not fused
-    //! (Rust never contracts `a * b + c`; [`semisep_sums`] fuses where
-    //! `FUSED` says so), so they give the same bits with or without FMA in
-    //! the target features, at any vector width.
+    //! Plain Rust kernels: the products of targets other than aarch64, the
+    //! transition sums where neither the NEON nor the AVX2 kernel runs, and
+    //! everywhere those of the last sites, one at a time. Their products
+    //! are not fused (Rust never contracts `a * b + c`; [`semisep_sums`]
+    //! fuses where `FUSED` says so), so they give the same bits with or
+    //! without FMA in the target features, at any vector width.
 
     use super::{LANES, MAX_CHUNK, Semiseparable, TILE, fmadd, sums_mut};
 
+    // Unused on aarch64 outside the tests, which check NEON against it.
+    #[cfg_attr(target_arch = "aarch64", allow(dead_code))]
     #[inline(always)]
     pub(super) fn vec_mat(x: &[f64], m: &[f64], np: usize, y: &mut [f64]) {
         for (jt, y_tile) in y.as_chunks_mut::<TILE>().0.iter_mut().enumerate() {

@@ -418,11 +418,7 @@ fn e_step_impl<const FUSED: bool>(
         alpha: vec![0.0; (len + 1) * np],
         c: vec![0.0; len],
     });
-
-    let keep = match full.as_mut() {
-        Some(rows) => Keep::Rows(rows),
-        None => Keep::Checkpoints,
-    };
+    let keep = full.as_mut().map_or(Keep::Checkpoints, Keep::Rows);
     acc.loglike += forward_pass::<FUSED>(k, seq, ws, keep, ctx)?;
 
     ws.beta[..k.n_states()].fill(1.0);
