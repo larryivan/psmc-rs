@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 use psmc_rs::io::input::{Dataset, InputFormat};
 use psmc_rs::io::write::{MultihetsepOptions, write_multihetsep, write_psmcfa};
+use psmc_rs::qc::QcReport;
 use psmc_rs::qc::fmt::{counted, pct};
 
 use crate::cli::{ConvertArgs, FormatArg, usage_bail};
@@ -50,41 +51,9 @@ pub fn run(args: &ConvertArgs) -> Result<ExitCode> {
     if let Some(path) = &args.psmcfa {
         write_psmcfa_file(path, &data, args.input.bin_size, &sink)?;
     }
-    if want_sites
-        && data.source.format() == InputFormat::Vcf
-        && let Some(uncalled) = qc
-            .as_ref()
-            .and_then(|r| r.totals.uncalled_site_fraction)
-            .filter(|&u| u > 0.0)
-    {
-        sink(Event::Info(format!(
-            "multihetsep records how many sites between two rows are called, not which ({} \
-             of the sites here are uncalled); psmc-rs reads the uncalled sites of each interval \
-             back at its start, which biases theta and Ne low whatever --bin-callable (QC's \
-             APPROX_MISSING_PLACEMENT on the multihetsep says how much), so to fit with psmc-rs, \
-             fit the VCF itself",
-            pct(uncalled)
-        )));
-    }
-    // The whole input, then each sequence on its own.
-    let whole = args.multihetsep.as_deref().map(|path| (path, None));
-    let each = per_chrom
-        .iter()
-        .map(|(name, path)| (path.as_path(), Some(name.as_str())));
-    for (path, sequence) in whole.into_iter().chain(each) {
-        let opts = MultihetsepOptions {
-            sequence: sequence.map(str::to_string),
-        };
-        write_multihetsep(path, &data, &opts)?;
-        sink(Event::Output(format!(
-            "multihetsep: {} ({})",
-            path.display(),
-            counted(
-                het_sites(&data, sequence),
-                "heterozygous site",
-                "heterozygous sites"
-            )
-        )));
+    if want_sites {
+        let whole = args.multihetsep.as_deref();
+        write_multihetsep_files(whole, &per_chrom, &data, qc.as_ref(), &sink)?;
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -161,6 +130,51 @@ fn partial_bins_warning(data: &Dataset, bin_size: usize, path: &Path) -> Option<
         path.display(),
         pct(1.0 - c.mean_fraction)
     ))
+}
+
+/// Write `data` as multihetsep, the whole input to `whole` and then each
+/// sequence to its file of `per_chrom`, after what multihetsep cannot
+/// record of a VCF whose QC report `qc` finds uncalled sites.
+fn write_multihetsep_files(
+    whole: Option<&Path>,
+    per_chrom: &[(String, PathBuf)],
+    data: &Dataset,
+    qc: Option<&QcReport>,
+    sink: Sink,
+) -> Result<()> {
+    let uncalled = qc.and_then(|r| r.totals.uncalled_site_fraction);
+    if data.source.format() == InputFormat::Vcf
+        && let Some(uncalled) = uncalled.filter(|&u| u > 0.0)
+    {
+        sink(Event::Info(format!(
+            "multihetsep records how many sites between two rows are called, not which ({} \
+             of the sites here are uncalled); psmc-rs reads the uncalled sites of each interval \
+             back at its start, which biases theta and Ne low whatever --bin-callable (QC's \
+             APPROX_MISSING_PLACEMENT on the multihetsep says how much), so to fit with psmc-rs, \
+             fit the VCF itself",
+            pct(uncalled)
+        )));
+    }
+    let whole = whole.map(|path| (path, None));
+    let each = per_chrom
+        .iter()
+        .map(|(name, path)| (path.as_path(), Some(name.as_str())));
+    for (path, sequence) in whole.into_iter().chain(each) {
+        let opts = MultihetsepOptions {
+            sequence: sequence.map(str::to_string),
+        };
+        write_multihetsep(path, data, &opts)?;
+        sink(Event::Output(format!(
+            "multihetsep: {} ({})",
+            path.display(),
+            counted(
+                het_sites(data, sequence),
+                "heterozygous site",
+                "heterozygous sites"
+            )
+        )));
+    }
+    Ok(())
 }
 
 /// The files `convert` writes whose names are known before the input is
