@@ -14,8 +14,9 @@ echo "== $(hostname), job ${SLURM_JOB_ID:-}, $(date -Is)"
 lscpu | sed -n 's/^Model name: *//p'
 psmc_env_report
 echo "commit $(git rev-parse HEAD)"
-step "the production worktree is clean"
-[ -z "$(git status --porcelain --untracked-files=no)" ]; check
+# Its sources, that is: a production writes its results into the committed experiment/runs.
+step "the production worktree's sources are committed"
+[ -z "$(git status --porcelain --untracked-files=no -- . ':!experiment/runs')" ]; check
 
 step "psmc-rs 0.2: cargo build --release"
 cargo build --release --locked --offline; check
