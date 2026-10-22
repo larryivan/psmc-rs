@@ -715,37 +715,14 @@ memory still grows with sequence length, but at 1/128 of the rate: about
 bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
 at 19 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
-of eight copies of it (19.9 M bins).
-
-Sequences are processed in parallel. While at least half the threads are
-free (the thread that reports progress counts as busy), as with a single
-sequence on 4 threads or more, or during the last sequences of an input,
-the E-step's backward pass over each sequence of more than 16 segments
-(2,048 bins) is pipelined over the free threads: one thread runs the
-backward recursion over 16 segments while the others recompute the
-forward vectors of the 16 before them and sum the expected transitions of
-the 16 after them, each segment on its own, and the sums are added in the
-order one thread adds them, so the results are the same to the bit. The
-forward pass stays on one thread. Most of what is left of a bin's work is
-the forward pass and the backward recursion, so a single sequence gains
-less from more threads than when its transition sums took O(states²). With
-E3's options (below), 25 EM iterations on 1 M bins of a simulated human
-chromosome took 7.96 s on 1 thread, 5.13 s on 4 and 5.33 s on 8 on an
-Apple M1 Pro with 64 states (1.55 and 1.49 times as fast; medians of three
-runs at load averages of 4 to 14), and 4.01, 2.71 and 2.82 s with 23 (1.48
-and 1.42 times). In a job of 32 CPUs on an AMD EPYC 7702 node shared with
-other jobs (load averages of 79 to 164 on its 128 cores), the fit with 64
-states took 10.65 s on 1 thread, 9.99 s on 4, 11.2 s on 8 and 11.9 s on
-16, and the runs on 4 threads or more varied by up to 50% from one repeat
-to the next (8.8 to 13.4 s on 8). Each pipelined sequence holds
-99,328 × n + 61,440 more bytes (n states rounded up to a multiple of 8):
-6.4 MB with 64 states, 2.4 MB with 23. These blocks are reallocated at
-every E-step, so over many EM iterations the peak resident memory grows by
-about their size on Linux and about twice it on macOS, whose allocator
-keeps freed memory resident. The threads waiting between blocks use CPU
-time: on 8 threads a single sequence took 1.9 times one thread's CPU time
-with 64 states and 2.5 times with 23 on the M1 Pro (2.8 and 2.9 times on
-the EPYC 7702), and more on more threads.
+of eight copies of it (19.9 M bins). Sequences are processed in parallel,
+each on one thread, so `--threads` helps inputs of many sequences: a
+single long sequence runs on one thread, and t threads are up to t times
+as fast only on at least t sequences of similar length. The threads left
+without a sequence add no CPU time: with E3's options (below), 25 EM
+iterations on 1 M bins of a simulated human chromosome took 10.5 to
+10.6 s, of wall and of CPU time alike, on 1, 4, 8, 16 or 30 threads of an
+AMD EPYC 7702 alone on its node.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
@@ -755,9 +732,9 @@ from `/usr/bin/time -l`:
 | input | EM iterations | threads | psmc-rs 0.2 | C psmc 0.6.5 (`-O1`) |
 | --- | --- | --- | --- | --- |
 | Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 15.8 s, 19 MB | 312 s, 2.63 GB |
-| | 20 | 8 | 10.6 s, 30 MB | |
+| | 20 | 8 | 15.9 s, 19 MB | |
 | HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 30.8 s, 46 MB | 588 s, 3.40 GB |
-| | 5 | 8 | 5.8 s, 102 MB | |
+| | 5 | 8 | 7.2 s, 92 MB | |
 
 psmc-rs: medians of three runs, at load averages of 3 to 11; C psmc: one
 run each, at load averages of 1 to 6. C psmc is single-threaded. The

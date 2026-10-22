@@ -445,14 +445,8 @@ Library API:
   chromosome 1 in `experiment/real_data` (one sequence of 2.49 M bins,
   `4+25*2+4+6`, 20 iterations, 1 thread, Apple M1 Pro) a fit takes 16 s
   and 19 MB instead of 139 s and 1.95 GB; on HLhydTec1 (34 sequences,
-  18.5 M bins, 5 iterations, 8 threads) 5.8 s and 102 MB instead of 79 s
+  18.5 M bins, 5 iterations, 8 threads) 7.2 s and 92 MB instead of 79 s
   and 6.9 GB.
-- While at least half the threads are free, the E-step's backward pass
-  over a sequence of more than 2,048 bins is pipelined over them, with the
-  same results to the bit: the human chromosome 1 above took 10.6 s on 8
-  threads. Each pipelined sequence holds 6.4 MB more with 64 states, and
-  the threads waiting for work use CPU time (README, *Determinism and
-  performance*).
 - The E-step and the log-likelihood merge each work item's sums as soon as
   those before it are merged, instead of holding them all, with results
   unchanged to the bit: a bootstrap of 8 replicates on 8 threads of a
