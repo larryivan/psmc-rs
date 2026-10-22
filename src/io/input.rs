@@ -136,13 +136,13 @@ impl Input {
         Ok((n > 0).then(|| &self.kept[start..]))
     }
 
-    /// The sample names of the `#CHROM` line of a VCF header, or `None` when
+    /// The sample names of the `#CHROM` line of a VCF header, or none when
     /// a data line, a blank line or the end of the input comes first.
-    fn vcf_samples(&mut self, path: &Path) -> Result<Option<Vec<String>>> {
+    fn vcf_samples(&mut self, path: &Path) -> Result<Vec<String>> {
         let mut start = 0;
         loop {
             if start >= self.kept.len() && self.next_line(path)?.is_none() {
-                return Ok(None);
+                return Ok(Vec::new());
             }
             let end = self.kept[start..]
                 .iter()
@@ -150,11 +150,11 @@ impl Input {
                 .map_or(self.kept.len(), |i| start + i);
             let line = &self.kept[start..end];
             if line.first() != Some(&b'#') {
-                return Ok(None);
+                return Ok(Vec::new());
             }
             if line.starts_with(b"#CHROM") {
                 let text = String::from_utf8_lossy(line.trim_ascii_end());
-                return Ok(Some(text.split('\t').skip(9).map(str::to_string).collect()));
+                return Ok(text.split('\t').skip(9).map(str::to_string).collect());
             }
             start = end + 1;
         }
@@ -251,12 +251,7 @@ pub struct VcfModeChoice {
 ///   also carries FQ, but is far sparser.
 /// - Any other VCF is read in mask mode.
 pub fn detect_vcf_mode(path: &Path) -> Result<VcfModeChoice> {
-    detect_mode(&mut Input::open(path)?, path)
-}
-
-/// [`detect_vcf_mode`] on the next lines of `input`.
-fn detect_mode(input: &mut Input, path: &Path) -> Result<VcfModeChoice> {
-    choose_mode(inspect_records(input, path)?, path)
+    choose_mode(inspect_records(&mut Input::open(path)?, path)?, path)
 }
 
 /// The counts of [`VcfModeChoice`] over the next data records of `input`,
@@ -942,23 +937,16 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
         Some(f) => f,
         None => sniff_format(&mut input, path)?,
     };
-    let (raw, source, filter) = match format {
-        InputFormat::Psmcfa => {
-            let (raw, summary) = load_psmcfa(input, path)?;
-            (raw, SourceSummary::Psmcfa(summary), None)
-        }
-        InputFormat::Mhs => {
-            let (raw, summary) = load_mhs(input, path, opts)?;
-            (raw, SourceSummary::Mhs(summary), Some(opts.filter))
-        }
-        InputFormat::Vcf => {
-            let (raw, summary) = load_vcf(input, path, opts)?;
-            (raw, SourceSummary::Vcf(summary), Some(opts.filter))
-        }
+    let (raw, source) = match format {
+        InputFormat::Psmcfa => load_psmcfa(input, path)?,
+        InputFormat::Mhs => load_mhs(input, path, opts)?,
+        InputFormat::Vcf => load_vcf(input, path, opts)?,
     };
     // Every reader but psmcfa's bins the input, counting the callable bases
-    // of each bin when the bins are small enough.
+    // of each bin when the bins are small enough, and its sequences go
+    // through the output filter.
     let binned = format != InputFormat::Psmcfa;
+    let filter = binned.then_some(opts.filter);
 
     let mut kept_bins = Vec::new();
     let mut kept_callable = Vec::new();
@@ -1023,7 +1011,7 @@ pub fn load(path: &Path, opts: &InputOptions) -> Result<Dataset> {
     })
 }
 
-fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)> {
+fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, SourceSummary)> {
     let (records, stats) = read_psmcfa_from(input.into_reader(), path)?;
     let mut summary = PsmcfaSummary {
         records: records.len(),
@@ -1041,17 +1029,24 @@ fn load_psmcfa(input: Input, path: &Path) -> Result<(Vec<RawSeq>, PsmcfaSummary)
             RawSeq::from(r)
         })
         .collect();
-    Ok((raw, summary))
+    Ok((raw, SourceSummary::Psmcfa(summary)))
 }
 
-fn load_mhs(input: Input, path: &Path, opts: &InputOptions) -> Result<(Vec<RawSeq>, MhsSummary)> {
+fn load_mhs(
+    input: Input,
+    path: &Path,
+    opts: &InputOptions,
+) -> Result<(Vec<RawSeq>, SourceSummary)> {
     let mhs_opts = MhsOptions {
         bin_size: opts.bin_size,
         batch_size: opts.batch_size,
         pair: opts.mhs_pair,
     };
     match read_mhs_seqs_from(input.into_reader(), &mhs_opts, opts.collect_het_sites) {
-        Ok((seqs, summary)) => Ok((seqs.into_iter().map(RawSeq::from).collect(), summary)),
+        Ok((seqs, summary)) => Ok((
+            seqs.into_iter().map(RawSeq::from).collect(),
+            SourceSummary::Mhs(summary),
+        )),
         Err(e) => {
             // Multihetsep is also what the format guess falls back to, so
             // an error that suggests another format says how the format
@@ -1093,12 +1088,12 @@ fn load_vcf(
     mut input: Input,
     path: &Path,
     opts: &InputOptions,
-) -> Result<(Vec<RawSeq>, VcfInputSummary)> {
+) -> Result<(Vec<RawSeq>, SourceSummary)> {
     if opts.bin_size == 0 {
         bail!("vcf bin_size must be > 0");
     }
     let choice = match opts.vcf_mode {
-        VcfMode::Auto => detect_mode(&mut input, path)?,
+        VcfMode::Auto => choose_mode(inspect_records(&mut input, path)?, path)?,
         // Mask mode reads a gVCF as one, so the first records are inspected
         // for its blocks.
         VcfMode::Mask => VcfModeChoice {
@@ -1115,7 +1110,7 @@ fn load_vcf(
         },
     };
     if choice.mode == VcfMode::Consensus {
-        let samples = input.vcf_samples(path)?.unwrap_or_default();
+        let samples = input.vcf_samples(path)?;
         if let Some(name) = &opts.sample
             && !samples.iter().any(|s| s == name)
         {
@@ -1142,7 +1137,7 @@ fn load_vcf(
             details: VcfDetails::Consensus(read.summary),
             keep_filtered: false,
         };
-        return Ok((raw, summary));
+        return Ok((raw, SourceSummary::Vcf(summary)));
     }
     let vopts = VcfOptions {
         bin_size: opts.bin_size,
@@ -1157,12 +1152,13 @@ fn load_vcf(
     let (seqs, summary) =
         read_vcf_seqs_from(input.into_reader(), path, &vopts, opts.collect_het_sites)
             .with_context(|| format!("failed to read VCF {path:?} in mask mode"))?;
+    let summary = VcfInputSummary {
+        mode: choice,
+        details: VcfDetails::Mask(summary),
+        keep_filtered: opts.keep_filtered,
+    };
     Ok((
         seqs.into_iter().map(RawSeq::from).collect(),
-        VcfInputSummary {
-            mode: choice,
-            details: VcfDetails::Mask(summary),
-            keep_filtered: opts.keep_filtered,
-        },
+        SourceSummary::Vcf(summary),
     ))
 }
