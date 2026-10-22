@@ -68,7 +68,6 @@ cargo build --release --locked
 T=experiment/.tools
 git clone https://github.com/lh3/psmc $T/psmc_c && git -C $T/psmc_c checkout 82fa2ad
 git clone https://github.com/stschiff/msmc-tools $T/msmc-tools
-curl -fsSLo $T/vcfutils.pl https://raw.githubusercontent.com/samtools/bcftools/1.24/misc/vcfutils.pl
 PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline tools --build-c   # builds C psmc; exits 1 if a tool is missing
 ```
