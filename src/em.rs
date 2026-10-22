@@ -10,10 +10,7 @@ use crate::hmm::{
 };
 use crate::io::CallableBases;
 use crate::model::PsmcModel;
-use crate::opt::{
-    MStepConfig, MStepProgress, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome,
-    pack_params, unpack_params,
-};
+use crate::opt::{MStepConfig, MStepProgress, MStepStop, m_step, pack_params, unpack_params};
 use crate::progress;
 
 #[derive(Debug)]
@@ -182,10 +179,8 @@ pub fn em_train_with_options(
         mstep_iterations: Vec::with_capacity(n_iter),
         mstep_stops: Vec::with_capacity(n_iter),
     };
-    let mut params = pack_params(model);
-    history.params.push(params.clone());
+    history.params.push(pack_params(model));
 
-    let bounds = bounds_from_config(model, config);
     let pb_em =
         (config.progress && n_iter > 0).then(|| progress::bar(n_iter as u64, "EM", "overall"));
 
@@ -256,22 +251,19 @@ pub fn em_train_with_options(
                 })
             }
         });
-        let outcome = m_step_lbfgs_with_outcome(
+        let outcome = m_step(
             model,
             &stats,
-            &params,
-            &bounds,
             config,
             on_m_step
                 .as_mut()
                 .map(|cb| cb as &mut dyn FnMut(MStepProgress)),
         )?;
-        params = outcome.params;
-        unpack_params(model, &params)?;
+        unpack_params(model, &outcome.params)?;
         // Keep the model's matrices in step with its parameters, also when
         // a later cancellation ends training early.
         model.param_recalculate()?;
-        history.params.push(params.clone());
+        history.params.push(outcome.params);
         history.post_sigma.push(posterior_sigma(&stats));
         history.mstep_evaluations.push(outcome.evaluations);
         history.mstep_iterations.push(outcome.iterations);

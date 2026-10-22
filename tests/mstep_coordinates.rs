@@ -12,7 +12,7 @@ mod common;
 use common::{c_start_free, e_step, fixture_obs, model_at, mstep, params};
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::SufficientStats;
-use psmc_rs::opt::{bounds_from_config, m_step_lbfgs_with_outcome};
+use psmc_rs::opt::{bounds_from_config, m_step};
 
 /// C psmc's Q at `params` (θ, ρ, t_max, λ...) of `template`'s layout, from
 /// the sums of the expected transition counts: in row `k` of the transition
@@ -58,8 +58,7 @@ fn first_m_step_ends_at_a_maximum_along_every_parameter() {
     let stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
     let config = mstep();
     let bounds = bounds_from_config(&model, &config);
-    let outcome =
-        m_step_lbfgs_with_outcome(&model, &stats, &params(&model), &bounds, &config, None).unwrap();
+    let outcome = m_step(&model, &stats, &config, None).unwrap();
     let q = q_at(&model, &stats, &outcome.params);
     let q_start = q_at(&model, &stats, &params(&model));
     assert!(q > q_start, "Q {q_start} -> {q} ({:?})", outcome.stop);

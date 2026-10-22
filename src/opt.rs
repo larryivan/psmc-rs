@@ -167,36 +167,22 @@ pub(crate) fn unpack_params(model: &mut PsmcModel, params: &[f64]) -> Result<()>
 /// within ±`logit(1 - BOUND_MARGIN)` (27.6).
 const BOUND_MARGIN: f64 = 1e-12;
 
-fn to_unconstrained(params: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
-    ensure!(params.len() == bounds.len(), "bounds length mismatch");
-    Ok(params
+fn to_unconstrained(params: &[f64], bounds: &[Bounds]) -> Vec<f64> {
+    params
         .iter()
         .zip(bounds)
         .map(|(x, b)| logit(((x - b.lo) / (b.hi - b.lo)).clamp(BOUND_MARGIN, 1.0 - BOUND_MARGIN)))
-        .collect())
+        .collect()
 }
 
-fn from_unconstrained(p: &[f64], bounds: &[Bounds]) -> Result<Vec<f64>> {
-    ensure!(p.len() == bounds.len(), "bounds length mismatch");
-    Ok(p.iter()
+fn from_unconstrained(x: &[f64], bounds: &[Bounds]) -> Vec<f64> {
+    x.iter()
         .zip(bounds)
         .map(|(&v, b)| b.lo + (b.hi - b.lo) * sigmoid(v))
-        .collect())
+        .collect()
 }
 
-/// The M-step's new parameters ([`MStepOutcome::params`]).
-pub fn m_step_lbfgs(
-    model: &PsmcModel,
-    stats: &SufficientStats,
-    init_params: &[f64],
-    bounds: &[Bounds],
-    config: &MStepConfig,
-) -> Result<Vec<f64>> {
-    m_step_lbfgs_with_outcome(model, stats, init_params, bounds, config, None)
-        .map(|outcome| outcome.params)
-}
-
-/// Why [`m_step_lbfgs_with_outcome`] stopped.
+/// Why [`m_step`] stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MStepStop {
     /// The search converged: in each of two consecutive iterations the
@@ -216,14 +202,13 @@ pub enum MStepStop {
     MaxIters,
 }
 
-/// The result of [`m_step_lbfgs_with_outcome`].
+/// The result of [`m_step`].
 #[derive(Debug, Clone)]
 pub struct MStepOutcome {
-    /// The new parameters, in the order of `init_params`: θ, ρ, t_max, then
-    /// the free λ.
+    /// The new parameters: θ, ρ, t_max, then the free λ.
     pub params: Vec<f64>,
-    /// Evaluations of the objective (with its gradient): the one at
-    /// `init_params`, one per parameter for the curvatures that scale the
+    /// Evaluations of the objective (with its gradient): the one at the
+    /// start, one per parameter for the curvatures that scale the
     /// search, those of the line searches, and those of each check before
     /// the search stops (one per parameter, and the moves of flat ones).
     /// C psmc prints its M-step's count of objective evaluations on the `IT`
@@ -231,26 +216,27 @@ pub struct MStepOutcome {
     pub evaluations: usize,
     /// L-BFGS iterations, each of which moved the parameters to a lower
     /// objective (at most [`MStepConfig::max_iters`]; 0 when the result is
-    /// `init_params`).
+    /// the start).
     pub iterations: usize,
     /// Why the search stopped.
     pub stop: MStepStop,
 }
 
-/// The M-step from `init_params`, reporting its progress to `on_progress`:
-/// the new parameters, how many times the objective was evaluated, how
-/// many iterations ran and why the search stopped. See the [module
+/// The M-step from `model`'s parameters, within the bounds of `config`
+/// ([`bounds_from_config`]), reporting its progress to `on_progress`: the
+/// new parameters, how many times the objective was evaluated, how many
+/// iterations ran and why the search stopped. See the [module
 /// documentation](self) for the search.
-pub fn m_step_lbfgs_with_outcome(
+pub fn m_step(
     model: &PsmcModel,
     stats: &SufficientStats,
-    init_params: &[f64],
-    bounds: &[Bounds],
     config: &MStepConfig,
     mut on_progress: Option<&mut dyn FnMut(MStepProgress)>,
 ) -> Result<MStepOutcome> {
-    let mut objective = Objective::new(model, stats, bounds, config.lambda)?;
-    let x0 = to_unconstrained(init_params, bounds)?;
+    let bounds = bounds_from_config(model, config);
+    let start = pack_params(model);
+    let mut objective = Objective::new(model, stats, &bounds, config.lambda)?;
+    let x0 = to_unconstrained(&start, &bounds);
     // The search moves only to points whose rows sum to 1 within
     // ROW_SUM_TOLERANCE, or within the start's own deviation when that is
     // larger (as from parameters that EM did not fit), so that it never
@@ -314,9 +300,9 @@ pub fn m_step_lbfgs_with_outcome(
     // trip through the unconstrained coordinates (which can move a
     // parameter clamped near its bound).
     let params = if minimum.iterations == 0 {
-        init_params.to_vec()
+        start
     } else {
-        from_unconstrained(&minimum.x, bounds)?
+        from_unconstrained(&minimum.x, &bounds)
     };
     Ok(MStepOutcome {
         params,
@@ -720,7 +706,7 @@ mod tests {
         bounds: &[Bounds],
         which: &[usize],
     ) -> Vec<f64> {
-        let mut x = to_unconstrained(&pack_params(model), bounds).unwrap();
+        let mut x = to_unconstrained(&pack_params(model), bounds);
         for &i in which {
             if rng.next() < 0.5 {
                 let depth = 14.0 + 16.0 * rng.next();
@@ -773,7 +759,7 @@ mod tests {
     /// HMM computed.
     fn model_at(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> PsmcModel {
         let mut at_x = model.clone();
-        unpack_params(&mut at_x, &from_unconstrained(x, bounds).unwrap()).unwrap();
+        unpack_params(&mut at_x, &from_unconstrained(x, bounds)).unwrap();
         at_x.param_recalculate().unwrap();
         at_x
     }
@@ -853,7 +839,7 @@ mod tests {
             format!(
                 "{:?} lambda={lambda} at {:?}",
                 model.pattern,
-                from_unconstrained(x, bounds).unwrap()
+                from_unconstrained(x, bounds)
             )
         };
         seen.points += 1;
@@ -959,13 +945,13 @@ mod tests {
                 } else {
                     synthetic_stats(&mut rng, n + 1, 1e6, 0.0)
                 };
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let stats = synthetic_stats(&mut rng, n + 1, 1e6, 0.05);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
 
                 let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 // θ, ρ, t_max and the last λ near their bounds.
                 let last = bounds.len() - 1;
@@ -1011,7 +997,7 @@ mod tests {
                 };
                 let bounds = bounds_from_config(&model, &config);
                 let stats = synthetic_stats(&mut rng, n + 1, 1e6, 0.05);
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let all: Vec<usize> = (0..bounds.len()).collect();
                 let model = random_model(&mut rng, n, pattern);
@@ -1062,13 +1048,13 @@ mod tests {
                     let counted = synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.05);
                     stats.callable = counted.callable;
                 }
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 let compare = |model: &PsmcModel, x: &[f64], seen: &mut Compared| {
                     compare_with_forward_mode(model, &stats, Some(&xi), x, &bounds, lambda, seen)
                 };
                 compare(&model, &x, &mut seen);
                 let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 compare(&model, &x, &mut seen);
                 let last = bounds.len() - 1;
                 let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
@@ -1107,7 +1093,7 @@ mod tests {
                     let model = random_model(&mut rng, n, pattern);
                     let stats = stats(&mut rng, &model, 20_000);
                     let bounds = bounds_from_config(&model, &config);
-                    let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                    let x = to_unconstrained(&pack_params(&model), &bounds);
                     let (_, grad) = eval_adjoint(&model, &stats, &x, &bounds, lambda);
                     let f = |x: &[f64]| eval_adjoint(&model, &stats, x, &bounds, lambda).0;
                     // Richardson-extrapolated central differences: O(h^4).
@@ -1155,12 +1141,12 @@ mod tests {
                 } else {
                     synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.0)
                 };
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let stats = synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.05);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
-                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let x = to_unconstrained(&pack_params(&model), &bounds);
                 compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let last = bounds.len() - 1;
                 let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
@@ -1194,7 +1180,7 @@ mod tests {
                 let full = as_full_counts(&stats);
                 let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
                 for lambda in [0.0, 1e-2] {
-                    let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                    let x = to_unconstrained(&pack_params(&model), &bounds);
                     let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, lambda);
                     let (f_full, g_full) = eval_adjoint(&model, &full, &x, &bounds, lambda);
                     assert_eq!(f.to_bits(), f_full.to_bits(), "{pattern:?}");
@@ -1203,17 +1189,7 @@ mod tests {
                         eval_dual_in::<f64>(&model, &full, None, &x, &bounds, lambda).unwrap();
                     assert_eq!(f.to_bits(), f_dual.to_bits(), "{pattern:?}");
                 }
-                let run = |s: &SufficientStats| {
-                    m_step_lbfgs_with_outcome(
-                        &model,
-                        s,
-                        &pack_params(&model),
-                        &bounds,
-                        &config,
-                        None,
-                    )
-                    .unwrap()
-                };
+                let run = |s: &SufficientStats| m_step(&model, s, &config, None).unwrap();
                 let (plain, counted) = (run(&stats), run(&full));
                 assert_eq!(bits(&plain.params), bits(&counted.params), "{pattern:?}");
                 assert_eq!(plain.evaluations, counted.evaluations);
@@ -1237,7 +1213,7 @@ mod tests {
             let (synthetic, xi) = synthetic_counts(&mut rng, n + 1, 20_000.0, 0.0);
             stats.transitions = synthetic.transitions;
             let bounds = bounds_from_config(&model, &config);
-            let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+            let x = to_unconstrained(&pack_params(&model), &bounds);
             let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
             let at_x = model_at(&model, &x, &bounds);
             let avg = at_x.avg_t();
@@ -1293,7 +1269,7 @@ mod tests {
         model.param_recalculate().unwrap();
         model.check_transitions().unwrap();
         let bounds = bounds_from_config(&model, &config);
-        let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+        let x = to_unconstrained(&pack_params(&model), &bounds);
         let (valid, deviation) = hmm_validity(&model, &x, &bounds);
         assert!(valid && deviation > 1e-3, "rows within {deviation:e}");
         // Counts of an E-step under the model with that λ at 1.
@@ -1308,7 +1284,7 @@ mod tests {
         assert!(g.iter().all(|v| v.is_nan()));
         // A third λ of 3e-3 keeps the survival normal: feasible.
         let mut x = x;
-        x[3 + 2] = to_unconstrained(&[3e-3], &bounds[5..6]).unwrap()[0];
+        x[3 + 2] = to_unconstrained(&[3e-3], &bounds[5..6])[0];
         let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
         assert!(f.is_finite() && g.iter().all(|v| v.is_finite()), "{f}");
     }
@@ -1335,13 +1311,13 @@ mod tests {
                     ..config.clone()
                 },
             );
-            let x = to_unconstrained(&pack_params(&at), &bounds).unwrap();
+            let x = to_unconstrained(&pack_params(&at), &bounds);
             let mut bad = 0;
             for i in 1..=100 {
                 let mut moved = at.clone();
                 moved.t_max *= 1.0 + 1e-9 * i as f64;
                 let mut x = x.clone();
-                x[2] = to_unconstrained(&[moved.t_max], &bounds[2..3]).unwrap()[0];
+                x[2] = to_unconstrained(&[moved.t_max], &bounds[2..3])[0];
                 if !eval_adjoint(&at, &stats, &x, &bounds, 0.0).0.is_finite() {
                     bad += 1;
                 }
@@ -1379,7 +1355,7 @@ mod tests {
             let model = random_model(&mut rng, n, pattern);
             let (stats, xi) = synthetic_counts(&mut rng, n + 1, 5_000.0, 0.0);
             let bounds = bounds_from_config(&model, &config);
-            let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+            let x = to_unconstrained(&pack_params(&model), &bounds);
             let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, config.lambda);
             let at_x = model_at(&model, &x, &bounds);
             // C's hmm_Q: the emissions of T and K, and the transitions.
@@ -1410,19 +1386,10 @@ mod tests {
         stats: &SufficientStats,
         config: &MStepConfig,
     ) -> (MStepOutcome, usize, usize) {
-        let bounds = bounds_from_config(model, config);
         let mut last = None;
         let mut on_progress = |p: MStepProgress| last = Some((p.done, p.total));
         let calls_before = EVAL_CALLS.with(|c| c.get());
-        let outcome = m_step_lbfgs_with_outcome(
-            model,
-            stats,
-            &pack_params(model),
-            &bounds,
-            config,
-            Some(&mut on_progress),
-        )
-        .unwrap();
+        let outcome = m_step(model, stats, config, Some(&mut on_progress)).unwrap();
         let calls = EVAL_CALLS.with(|c| c.get()) - calls_before;
         let (done, total) = last.unwrap();
         assert_eq!(done, total, "the last progress event");
@@ -1465,8 +1432,7 @@ mod tests {
         assert_eq!((outcome.evaluations, done, calls), (expected, 0, expected));
 
         // The default search: the start, one evaluation per parameter for
-        // the curvatures, then at least one per iteration. The parameters
-        // are those of m_step_lbfgs.
+        // the curvatures, then at least one per iteration.
         let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
         assert_eq!(outcome.evaluations, calls);
         assert_eq!(outcome.iterations, done);
@@ -1474,9 +1440,6 @@ mod tests {
             calls >= 1 + n_params + done,
             "{calls} evaluations, {done} iterations"
         );
-        let bounds = bounds_from_config(&model, &base);
-        let params = m_step_lbfgs(&model, &stats, &pack_params(&model), &bounds, &base).unwrap();
-        assert_eq!(outcome.params, params);
     }
 
     /// When Q keeps rising as a parameter approaches its bound, the search
@@ -1566,7 +1529,7 @@ mod tests {
         assert!(done <= precise.iterations && calls < precise.evaluations);
         let bounds = bounds_from_config(&model, &base);
         let objective = |params: &[f64]| {
-            let x = to_unconstrained(params, &bounds).unwrap();
+            let x = to_unconstrained(params, &bounds);
             eval_adjoint(&model, &stats, &x, &bounds, 0.0).0
         };
         let (f, f_precise) = (objective(&outcome.params), objective(&precise.params));

@@ -130,6 +130,11 @@ Library API:
   `lbfgs_m` 20 (7), `lambda` 0 (1e-3) and `lam_hi` 1e4 (1e6; see
   Defaults). The last `MStepProgress` event of an M-step has `total` equal
   to the iterations taken.
+- `opt::m_step(model, stats, config, on_progress)` replaces `m_step_lbfgs`
+  and `m_step_lbfgs_with_progress`: it starts from the model's parameters,
+  searches within `config`'s bounds and returns an `MStepOutcome` (the
+  parameters, the objective's evaluations, the iterations and why it
+  stopped).
 - The M-step's objective is infinite where the f64 HMM is invalid
   (negative or NaN probabilities, or transition rows that do not sum to 1
   within 1e-9), so the search no longer moves where λ underflows.
@@ -262,9 +267,8 @@ Library API:
   `model::{n_steps_for_pattern, T_INF, MAX_STATES}`, `bootstrap::{
   run_bootstrap, run_bootstrap_with_options, BootstrapConfig,
   BootstrapOptions, split_for_bootstrap, resample_chunks,
-  bootstrap_trunk_count, replicate_rng}` and
-  `opt::m_step_lbfgs_with_outcome`; for the callable bases of each bin,
-  `io::callable` (`CallableBases`, `BinCounts`, `CallableSummary`),
+  bootstrap_trunk_count, replicate_rng}`; for the callable bases of each
+  bin, `io::callable` (`CallableBases`, `BinCounts`, `CallableSummary`),
   `io::Sequences`, the `callable` options of `EStepOptions`, `EmOptions`
   and `hmm::TmrcaOptions`, `initial_theta_with_callable`,
   `model::ThetaCounts` and `bootstrap::run_bootstrap_sequences`.
@@ -485,9 +489,10 @@ Library API:
 
 - `utils::logsumexp`; `progress::spinner` (use `progress::spinner_raw` and
   call its `enable_steady_tick(Duration::from_millis(80))`);
-  `opt::em_train_with_progress` and `opt::m_step_lbfgs_with_progress`
-  (pass the callback as `EmOptions::on_progress` to
-  `em::em_train_with_options`, or to `opt::m_step_lbfgs_with_outcome`).
+  `opt::em_train_with_progress` (pass the callback as
+  `EmOptions::on_progress` to `em::em_train_with_options`);
+  `opt::m_step_lbfgs` and `opt::m_step_lbfgs_with_progress` (use
+  `opt::m_step`).
 - The CLI's within-sequence bootstrap (`sample_sequences_block_bootstrap`
   remains).
 - 0.1's reproduction package (`experiment/run.py`, its notebook,

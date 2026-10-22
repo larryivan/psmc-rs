@@ -2,10 +2,10 @@
 
 mod common;
 
-use common::{REFERENCE_PSMCFA, c_start, e_step, fixture_obs, mstep, params};
+use common::{REFERENCE_PSMCFA, c_start, e_step, fixture_obs, mstep};
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{SufficientStats, TransitionSums};
-use psmc_rs::opt::{MStepConfig, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome};
+use psmc_rs::opt::{MStepConfig, MStepStop, m_step};
 
 /// C psmc's starting point on the 180,000-bin reference input with pattern
 /// 4+25*2+4+6, and the statistics of the first E-step there.
@@ -44,21 +44,10 @@ fn m_step_iterates_do_not_depend_on_the_amount_of_data() {
         lambda: 0.0,
         ..mstep()
     };
-    let bounds = bounds_from_config(&model, &config);
-    let init = params(&model);
-
-    let base = m_step_lbfgs_with_outcome(&model, &stats, &init, &bounds, &config, None).unwrap();
+    let base = m_step(&model, &stats, &config, None).unwrap();
     assert_eq!(base.stop, MStepStop::Converged);
     for k in [2, 4, 6, 8] {
-        let out = m_step_lbfgs_with_outcome(
-            &model,
-            &scaled(&stats, f64::powi(2.0, k)),
-            &init,
-            &bounds,
-            &config,
-            None,
-        )
-        .unwrap();
+        let out = m_step(&model, &scaled(&stats, f64::powi(2.0, k)), &config, None).unwrap();
         assert_eq!(
             (out.iterations, out.evaluations, out.stop),
             (base.iterations, base.evaluations, base.stop),

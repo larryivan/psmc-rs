@@ -6,10 +6,10 @@
 
 mod common;
 
-use common::{e_step, model, mstep, params};
+use common::{e_step, model, mstep};
 use psmc_rs::initial_theta;
 use psmc_rs::model::NegativeTransitions;
-use psmc_rs::opt::{MStepConfig, bounds_from_config, em_train, m_step_lbfgs_with_outcome};
+use psmc_rs::opt::{MStepConfig, em_train, m_step};
 
 /// `n_seqs` sequences of `len` bins, each heterozygous with probability
 /// `p_het`, from a fixed xorshift stream.
@@ -114,11 +114,7 @@ fn m_step_refuses_a_start_where_its_objective_is_infeasible() {
     let valid = model("4+5*3+4", 0.36, 0.09);
     let stats = e_step(&valid, &rows, &starts).stats;
     let invalid = model("4+5*3+4", 0.9, 0.3);
-    let config = config();
-    let bounds = bounds_from_config(&invalid, &config);
-    let start = params(&invalid);
-    let err =
-        m_step_lbfgs_with_outcome(&invalid, &stats, &start, &bounds, &config, None).unwrap_err();
+    let err = m_step(&invalid, &stats, &config(), None).unwrap_err();
     // Negative transition probabilities: no HMM, so the objective is +inf.
     assert!(err.to_string().contains("objective is inf"), "{err}");
 }
