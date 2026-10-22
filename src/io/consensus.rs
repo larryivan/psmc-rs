@@ -1061,7 +1061,11 @@ fn read_consensus_from(
         let (row_no, f) = match line {
             Line::Header(header) => {
                 if header.starts_with(b"#CHROM") {
-                    summary.samples = header.split(|&b| b == b'\t').count().saturating_sub(9);
+                    summary.samples = header
+                        .trim_ascii_end()
+                        .split(|&b| b == b'\t')
+                        .count()
+                        .saturating_sub(9);
                 }
                 continue;
             }
