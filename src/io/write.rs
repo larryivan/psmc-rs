@@ -11,50 +11,25 @@ use std::path::Path;
 
 use crate::io::input::{Dataset, HetSite};
 
-/// An output file, gzip-compressed when its name ends in `.gz`.
-// One per file written, so the size of the gzip variant does not matter.
-#[allow(clippy::large_enum_variant)]
-enum Output {
-    Plain(BufWriter<File>),
-    Gzip(BufWriter<GzEncoder<BufWriter<File>>>),
-}
-
-impl Output {
-    fn create(path: &Path) -> Result<Self> {
-        let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
-        let buf = BufWriter::with_capacity(1 << 16, file);
-        Ok(if path.to_string_lossy().ends_with(".gz") {
-            // Lines reach the compressor 64 KiB at a time, not one by one.
-            Output::Gzip(BufWriter::with_capacity(
-                1 << 16,
-                GzEncoder::new(buf, Compression::default()),
-            ))
-        } else {
-            Output::Plain(buf)
+/// Create `path` and write it with `write`, gzip-compressed when its name
+/// ends in `.gz`.
+fn write_file(path: &Path, write: impl FnOnce(&mut dyn Write) -> Result<()>) -> Result<()> {
+    let file = File::create(path).with_context(|| format!("failed to create {path:?}"))?;
+    let mut out = BufWriter::with_capacity(1 << 16, file);
+    let written = if path.to_string_lossy().ends_with(".gz") {
+        // Lines reach the compressor 64 KiB at a time, not one by one.
+        let gz = GzEncoder::new(&mut out, Compression::default());
+        let mut gz = BufWriter::with_capacity(1 << 16, gz);
+        write(&mut gz).and_then(|()| {
+            gz.into_inner().map_err(|e| e.into_error())?.finish()?;
+            Ok(())
         })
-    }
-
-    fn writer(&mut self) -> &mut dyn Write {
-        match self {
-            Output::Plain(w) => w,
-            Output::Gzip(w) => w,
-        }
-    }
-
-    fn finish(self, path: &Path) -> Result<()> {
-        let mut buf = match self {
-            Output::Plain(w) => w,
-            Output::Gzip(w) => w
-                .into_inner()
-                .map_err(|e| e.into_error())
-                .with_context(|| format!("failed to write {path:?}"))?
-                .finish()
-                .with_context(|| format!("failed to write {path:?}"))?,
-        };
-        buf.flush()
-            .with_context(|| format!("failed to write {path:?}"))?;
-        Ok(())
-    }
+    } else {
+        write(&mut out)
+    };
+    written
+        .and_then(|()| Ok(out.flush()?))
+        .with_context(|| format!("failed to write {path:?}"))
 }
 
 const PSMCFA_SYMBOLS: [u8; 3] = *b"TKN";
@@ -122,9 +97,7 @@ pub fn write_psmcfa(path: &Path, data: &Dataset) -> Result<()> {
         Ok(())
     };
     check().with_context(|| format!("failed to write {path:?}"))?;
-    let mut out = Output::create(path)?;
-    write_psmcfa_to(out.writer(), named()).with_context(|| format!("failed to write {path:?}"))?;
-    out.finish(path)
+    write_file(path, |out| write_psmcfa_to(out, named()))
 }
 
 /// Options for [`write_multihetsep`].
@@ -201,8 +174,5 @@ fn multihetsep_selection<'a>(
 /// missing heterozygous sites leave an existing file as it was.
 pub fn write_multihetsep(path: &Path, data: &Dataset, opts: &MultihetsepOptions) -> Result<()> {
     multihetsep_selection(data, opts).with_context(|| format!("failed to write {path:?}"))?;
-    let mut out = Output::create(path)?;
-    write_multihetsep_to(out.writer(), data, opts)
-        .with_context(|| format!("failed to write {path:?}"))?;
-    out.finish(path)
+    write_file(path, |out| write_multihetsep_to(out, data, opts))
 }
