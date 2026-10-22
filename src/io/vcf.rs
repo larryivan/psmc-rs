@@ -571,7 +571,7 @@ impl Default for VcfOptions {
 }
 
 /// What [`read_vcf_with`] read, for reporting and sanity warnings.
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct VcfSummary {
     /// Data records (non-header lines).
     pub records: u64,

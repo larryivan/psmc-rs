@@ -19,7 +19,6 @@
 //! the tool that wrote it already did.
 
 use anyhow::{Context, Result, bail};
-use serde::Serialize;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::io::{BufRead, Cursor, Read};
@@ -39,7 +38,7 @@ use crate::io::{BinCounts, CallableBases, Observations, Sequences, sequence_rang
 use crate::qc::fmt::{count, counted, plural};
 
 /// Input file formats.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputFormat {
     /// PSMC's binned FASTA (`fq2psmcfa` output).
     Psmcfa,
@@ -171,7 +170,7 @@ impl Input {
 }
 
 /// How a VCF is read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VcfMode {
     /// Pick `Consensus` or `Mask` from the first records ([`detect_vcf_mode`]).
     #[default]
@@ -203,7 +202,7 @@ pub const MODE_DETECTION_RECORDS: u64 = 10_000;
 pub const MODE_DETECTION_BYTES: usize = 64 << 20;
 
 /// The mode a VCF is read in, and why.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VcfModeChoice {
     /// `Consensus` or `Mask`, never `Auto`.
     pub mode: VcfMode,
@@ -409,7 +408,7 @@ fn choose_mode(seen: VcfModeChoice, path: &Path) -> Result<VcfModeChoice> {
 /// `fq2psmcfa`'s per-sequence output filter: a sequence is kept when at least
 /// `min_good_bases` of its positions are called and they make up at least
 /// `min_good_fraction` of the sequence. 0 disables either test.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SeqFilter {
     /// `fq2psmcfa -g`, default 10000.
     pub min_good_bases: u64,
@@ -513,7 +512,7 @@ impl Default for InputOptions {
 }
 
 /// One kept sequence, in the order of [`Dataset::obs`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SeqInfo {
     /// The psmcfa record name, VCF chromosome or multihetsep first column.
     pub name: String,
@@ -528,7 +527,7 @@ pub struct SeqInfo {
 }
 
 /// Why a sequence is not in [`Dataset::obs`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropReason {
     /// The sequence has no bins (an empty psmcfa record, or a VCF chromosome
     /// with no base).
@@ -544,7 +543,7 @@ pub enum DropReason {
 }
 
 /// A sequence of the input that was dropped.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DroppedSeq {
     pub name: String,
     pub n_bins: usize,
@@ -589,7 +588,7 @@ impl DroppedSeq {
 }
 
 /// psmcfa input counts, as C psmc reports them.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PsmcfaSummary {
     /// Records in the file.
     pub records: usize,
@@ -642,7 +641,7 @@ impl PsmcfaSummary {
 }
 
 /// The mode-specific part of [`VcfInputSummary`].
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum VcfDetails {
     /// Filter counts, depth statistics and warnings of consensus mode.
     Consensus(ConsensusSummary),
@@ -651,7 +650,7 @@ pub enum VcfDetails {
 }
 
 /// What [`load`] read from a VCF.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VcfInputSummary {
     /// The mode the VCF was read in, and why.
     pub mode: VcfModeChoice,
@@ -664,7 +663,7 @@ pub struct VcfInputSummary {
 /// Per-format summary of the input.
 // One value per load, so the size of the VCF variant does not matter.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SourceSummary {
     Psmcfa(PsmcfaSummary),
     Mhs(MhsSummary),
@@ -683,7 +682,7 @@ impl SourceSummary {
 }
 
 /// A heterozygous site, for multihetsep output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HetSite {
     /// Index into [`Dataset::seqs`].
     pub seq: u32,

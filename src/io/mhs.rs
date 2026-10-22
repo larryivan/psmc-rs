@@ -194,7 +194,7 @@ pub fn read_mhs_with(path: &Path, opts: &MhsOptions) -> Result<Observations> {
 }
 
 /// Counts over a whole multihetsep file, for the selected pair.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MhsSummary {
     /// Data rows.
     pub rows: u64,

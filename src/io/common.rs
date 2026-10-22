@@ -4,7 +4,6 @@
 
 use anyhow::{Context, Result, bail};
 use flate2::read::MultiGzDecoder;
-use serde::Serialize;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Cursor, Read, Seek};
 use std::path::Path;
@@ -519,7 +518,7 @@ impl SeqBuilder {
 /// Distribution of read depth (DP) over VCF records: INFO/DP of vcf2fq's
 /// SNP/reference records in consensus mode, the sample's DP of every record
 /// in mask mode ([`crate::io::vcf::VcfSummary::depth`]).
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct DepthStats {
     /// Records counted.
     pub records: u64,

@@ -88,7 +88,6 @@
 
 use anyhow::{Context, Result, bail};
 use foldhash::{HashSet, HashSetExt};
-use serde::Serialize;
 use std::collections::VecDeque;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -101,7 +100,7 @@ use crate::io::common::{
 use crate::io::vcf::{MaskEngine, Uncallable, list_names, mask_coverage_hints, parse_pos};
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DepthThresholds {
     /// Fixed bounds on INFO/DP: bases are kept when `min <= DP <= max`.
     Fixed { min: u64, max: u64 },
@@ -125,7 +124,7 @@ impl Default for DepthThresholds {
 
 /// The thresholds of `vcfutils.pl vcf2fq` and `fq2psmcfa`, with their
 /// defaults.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ConsensusFilters {
     /// INFO/DP bounds (`vcf2fq -d`, `-D`; default 3 and 100000).
     pub depth: DepthThresholds,
@@ -178,7 +177,7 @@ impl Default for ConsensusOptions {
 
 /// Why a base of the consensus is missing. Each missing base is counted once,
 /// under the first reason in declaration order that applies to it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LossReason {
     /// No record at this position (`n` from vcf2fq).
     NoRecord,
@@ -231,7 +230,7 @@ impl LossReason {
 }
 
 /// Missing bases by [`LossReason`] ([`LostBases::get`]).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LostBases([u64; LossReason::ALL.len()]);
 
 impl LostBases {
@@ -257,7 +256,7 @@ impl LostBases {
 }
 
 /// What [`read_vcf_consensus`] read.
-#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ConsensusSummary {
     /// Data records.
     pub records: u64,
