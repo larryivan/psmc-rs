@@ -21,4 +21,4 @@
 - [ ] `cargo test --workspace` passes, including `tests/c_equivalence.rs` (tolerances and reference outputs unchanged)
 - [ ] Behavioural fixes come with a test that fails before and passes after
 - [ ] New public items have rustdoc; user-visible changes are listed in `CHANGELOG.md` under *Unreleased*
-- [ ] If `experiment/` changed: `python3 -m unittest discover -s experiment/tests` passes
+- [ ] If `experiment/` changed: `experiment/.venv/bin/python -m unittest discover -s experiment/tests` passes (with a bare `python3` most of them skip)
