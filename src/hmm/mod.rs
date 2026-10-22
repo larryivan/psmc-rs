@@ -100,10 +100,22 @@ pub struct TransitionSums {
     pub diagonal: Vec<f64>,
 }
 
-#[cfg(test)]
 impl TransitionSums {
-    /// The sums of the counts `xi[(k, l)]`.
-    pub(crate) fn of(xi: &Array2<f64>) -> Self {
+    /// The five sums, in the order of the fields.
+    pub fn parts(&self) -> [&[f64]; 5] {
+        [
+            &self.lower_rows,
+            &self.lower_cols,
+            &self.upper_rows,
+            &self.upper_cols,
+            &self.diagonal,
+        ]
+    }
+
+    /// The sums of the counts `xi[(k, l)]` (for the tests, which compute
+    /// the whole matrix).
+    #[doc(hidden)]
+    pub fn of(xi: &Array2<f64>) -> Self {
         let n = xi.nrows();
         let sum = |cells: &mut dyn Iterator<Item = (usize, usize)>| cells.map(|c| xi[c]).sum();
         Self {

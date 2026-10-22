@@ -34,7 +34,7 @@ fn e_step_counts_add_up_for_independent_and_chained_rows() {
     for (row_starts, transitions) in [([true, true], 10), ([true, false], 11)] {
         let out = e_step(&model, &rows, &row_starts);
         assert!(out.loglike.is_finite(), "loglike should be finite");
-        let sums = common::transition_values(&out.stats.transitions);
+        let sums = out.stats.transitions.parts().concat();
         assert_eq!(sums.len(), 5 * n_states);
         for (obs, count) in obs_counts.iter().enumerate() {
             assert_eq!(out.stats.gobs[obs].len(), n_states);

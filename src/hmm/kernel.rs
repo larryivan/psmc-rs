@@ -665,35 +665,6 @@ fn semisep_sums<const FUSED: bool>(
     portable::semisep_sums::<FUSED, 1>(s, &u[full * np..], &w[full * np..], out);
 }
 
-/// [`semisep_sums`] for any `n x n` matrix `a` (row-major, padded to `np`,
-/// with its transpose `at`), factors included: each site's sums are its
-/// rows' and columns' products with `w` and `u`, O(n²) per site.
-#[allow(clippy::too_many_arguments)]
-#[inline(always)]
-fn dense_sums(
-    a: &[f64],
-    at: &[f64],
-    n: usize,
-    np: usize,
-    u: &[f64],
-    w: &[f64],
-    rows: usize,
-    out: &mut [f64],
-) {
-    let [lower_rows, lower_cols, upper_rows, upper_cols, diagonal] = sums_mut(out, np);
-    let dot = |x: &[f64], y: &[f64]| x.iter().zip(y).fold(0.0, |acc, (p, q)| acc + p * q);
-    for (ut, wt) in u.chunks_exact(np).zip(w.chunks_exact(np)).take(rows) {
-        for k in 0..n {
-            let (row, col) = (&a[k * np..k * np + n], &at[k * np..k * np + n]);
-            lower_rows[k] += ut[k] * dot(&row[..k], &wt[..k]);
-            upper_rows[k] += ut[k] * dot(&row[k + 1..], &wt[k + 1..n]);
-            lower_cols[k] += wt[k] * dot(&col[k + 1..], &ut[k + 1..n]);
-            upper_cols[k] += wt[k] * dot(&col[..k], &ut[..k]);
-            diagonal[k] += ut[k] * row[k] * wt[k];
-        }
-    }
-}
-
 /// Model parameters laid out for the per-site recursions.
 #[derive(Debug, Clone)]
 pub(crate) struct Kernel {
@@ -872,7 +843,27 @@ impl Kernel {
         out.fill(0.0);
         match &self.semi {
             Some(s) => semisep_sums::<FUSED>(s, u, w, rows, out),
-            None => dense_sums(&self.a, &self.at, self.n, np, u, w, rows, out),
+            None => self.dense_sums(u, w, rows, out),
+        }
+    }
+
+    /// [`semisep_sums`] for any matrix, factors included: each site's sums
+    /// are its rows' and columns' products with `w` and `u`, O(n²) per site.
+    #[inline(always)]
+    fn dense_sums(&self, u: &[f64], w: &[f64], rows: usize, out: &mut [f64]) {
+        let (n, np) = (self.n, self.np);
+        let [lower_rows, lower_cols, upper_rows, upper_cols, diagonal] = sums_mut(out, np);
+        let dot = |x: &[f64], y: &[f64]| x.iter().zip(y).fold(0.0, |acc, (p, q)| acc + p * q);
+        for (ut, wt) in u.chunks_exact(np).zip(w.chunks_exact(np)).take(rows) {
+            for k in 0..n {
+                let row = &self.a[k * np..k * np + n];
+                let col = &self.at[k * np..k * np + n];
+                lower_rows[k] += ut[k] * dot(&row[..k], &wt[..k]);
+                upper_rows[k] += ut[k] * dot(&row[k + 1..], &wt[k + 1..n]);
+                lower_cols[k] += wt[k] * dot(&col[k + 1..], &ut[k + 1..n]);
+                upper_cols[k] += wt[k] * dot(&col[..k], &ut[..k]);
+                diagonal[k] += ut[k] * row[k] * wt[k];
+            }
         }
     }
 
@@ -1045,18 +1036,9 @@ mod tests {
 
     /// The largest relative difference between two transition sums.
     fn sums_rel(a: &TransitionSums, b: &TransitionSums) -> f64 {
-        let parts = |t: &TransitionSums| {
-            [
-                t.lower_rows.clone(),
-                t.lower_cols.clone(),
-                t.upper_rows.clone(),
-                t.upper_cols.clone(),
-                t.diagonal.clone(),
-            ]
-        };
-        let (pa, pb) = (parts(a), parts(b));
-        pa.iter()
-            .zip(&pb)
+        a.parts()
+            .iter()
+            .zip(b.parts())
             .map(|(x, y)| max_rel(x, y))
             .fold(0.0, f64::max)
     }

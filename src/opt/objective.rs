@@ -315,23 +315,16 @@ impl<'a> Objective<'a> {
             "{} bounds for 3 + {n_free} free parameters",
             bounds.len()
         );
-        let transitions = &stats.transitions;
-        let sums = [
-            &transitions.lower_rows,
-            &transitions.lower_cols,
-            &transitions.upper_rows,
-            &transitions.upper_cols,
-            &transitions.diagonal,
-        ];
+        let sums = stats.transitions.parts();
         ensure!(
             sums.iter().all(|v| v.len() == states),
             "expected transition counts' sums of {:?} states for a model of {states} states",
-            sums.map(Vec::len)
+            sums.map(<[f64]>::len)
         );
         let emissions = EmissionCounts::of(stats, states)?;
         Ok(Self {
             emissions,
-            transitions,
+            transitions: &stats.transitions,
             bounds,
             lambda,
             n,

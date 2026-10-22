@@ -266,7 +266,7 @@ fn full_bins_fit_as_c_psmc_to_the_bit() {
     };
     let (plain, with) = (e(None), e(Some(&full)));
     let counts = |s: &SufficientStats| {
-        let t = common::transition_values(&s.transitions);
+        let t = s.transitions.parts().concat();
         bits(s.gobs.iter().flatten().chain(&t))
     };
     assert_eq!(counts(&plain), counts(&with));

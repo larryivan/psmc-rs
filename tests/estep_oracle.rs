@@ -15,11 +15,10 @@
 mod common;
 
 use common::reference_hmm::{forward_fill_row, obs_to_idx, row_major};
-use common::{transition_sums, transition_values};
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
-    AlphaCacheBudget, CHECKPOINT_STRIDE, CallableStats, EStepOptions, EStepResult,
+    AlphaCacheBudget, CHECKPOINT_STRIDE, CallableStats, EStepOptions, EStepResult, TransitionSums,
     e_step_with_options, log_likelihood, log_likelihood_with_options,
 };
 use psmc_rs::io::CallableBases;
@@ -204,7 +203,7 @@ fn reference_e_step(
     EStepResult {
         stats: psmc_rs::hmm::SufficientStats {
             gobs: [gobs0, gobs1, gobs2],
-            transitions: transition_sums(
+            transitions: TransitionSums::of(
                 &Array2::from_shape_vec((n_states, n_states), xi_flat).unwrap(),
             ),
             callable: counts.map(|(_, s)| CallableStats {
@@ -414,7 +413,7 @@ fn max_rel(xs: &[f64], refs: &[f64]) -> f64 {
 /// statistics of the callable-length model.
 fn errors(got: &EStepResult, want: &EStepResult, rows: &[Vec<u8>]) -> Vec<(&'static str, f64)> {
     let n_sites = rows.iter().map(Vec::len).sum();
-    let xi = |e: &EStepResult| transition_values(&e.stats.transitions);
+    let xi = |e: &EStepResult| e.stats.transitions.parts().concat();
     let mut errs = vec![
         ("loglike", loglike_err(got.loglike, want.loglike, n_sites)),
         (

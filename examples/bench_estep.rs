@@ -100,14 +100,7 @@ fn checksum(e: &EStepResult) -> u64 {
     for g in &e.stats.gobs {
         g.iter().for_each(|v| mix(v.to_bits()));
     }
-    let t = &e.stats.transitions;
-    for v in [
-        &t.lower_rows,
-        &t.lower_cols,
-        &t.upper_rows,
-        &t.upper_cols,
-        &t.diagonal,
-    ] {
+    for v in e.stats.transitions.parts() {
         v.iter().for_each(|v| mix(v.to_bits()));
     }
     if let Some(c) = &e.stats.callable {
