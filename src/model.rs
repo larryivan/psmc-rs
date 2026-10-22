@@ -94,7 +94,7 @@ impl PsmcModel {
             );
         }
         check_t_max(t_max)?;
-        let lam = vec![1.0; n_free_params(n_steps, pattern_spec.as_deref()) - 3];
+        let lam = vec![1.0; n_free_lambdas(n_steps, pattern_spec.as_deref())];
         let n_states = n_steps + 1;
         let mut model = Self {
             n_steps,
@@ -116,8 +116,9 @@ impl PsmcModel {
         Ok(model)
     }
 
+    /// The parameters EM fits: θ, ρ, t_max and the free λ.
     pub fn n_free_params(&self) -> usize {
-        n_free_params(self.n_steps, self.pattern_spec.as_deref())
+        3 + n_free_lambdas(self.n_steps, self.pattern_spec.as_deref())
     }
 
     /// `theta / (4 mu)`: N0 only if `theta` were per base pair.
@@ -212,7 +213,7 @@ impl PsmcModel {
     /// Expand per-group λ (as stored in `lam`) to one value per state.
     /// Errors unless the result has `n_steps + 1` values.
     pub fn map_lam(&self, lam_grouped: &[f64]) -> Result<Vec<f64>> {
-        let expected = self.n_free_params() - 3;
+        let expected = n_free_lambdas(self.n_steps, self.pattern_spec.as_deref());
         if lam_grouped.len() != expected {
             let what = match self.pattern_spec {
                 Some(_) => "grouped parameters",
@@ -926,10 +927,11 @@ fn n_states_of_spec(spec: &[(usize, usize)]) -> usize {
     spec.iter().map(|(nr, gl)| nr * gl).sum()
 }
 
-fn n_free_params(n_steps: usize, spec: Option<&[(usize, usize)]>) -> usize {
+/// One λ per state without a pattern, else one per group of its intervals.
+fn n_free_lambdas(n_steps: usize, spec: Option<&[(usize, usize)]>) -> usize {
     match spec {
-        None => 4 + n_steps,
-        Some(v) => 3 + v.iter().map(|(nr, _)| nr).sum::<usize>(),
+        None => n_steps + 1,
+        Some(v) => v.iter().map(|(nr, _)| nr).sum(),
     }
 }
 
