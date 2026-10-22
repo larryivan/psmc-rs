@@ -80,12 +80,14 @@ pub enum Event {
 pub type Sink<'a> = &'a (dyn Fn(Event) + Sync);
 
 /// What the stages of a run share: the flag that cancels it, where its
-/// events go, and its thread pool.
+/// events go, its thread pool, and whether the TMRCA decoding draws its own
+/// progress bar on stderr.
 #[derive(Clone, Copy)]
 struct Context<'a> {
     cancel: &'a AtomicBool,
     sink: Sink<'a>,
     pool: &'a ThreadPool,
+    progress_bars: bool,
 }
 
 impl Context<'_> {
@@ -131,8 +133,9 @@ pub fn run_inference(
         cancel,
         sink,
         pool: &pool,
+        progress_bars,
     };
-    pool.install(|| infer(cli, ctx, progress_bars))
+    pool.install(|| infer(cli, ctx))
 }
 
 /// The input of a run, as read.
@@ -145,7 +148,7 @@ struct Input {
 }
 
 /// [`run_inference`] inside its pool.
-fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
+fn infer(cli: &InferArgs, ctx: Context) -> Result<()> {
     // The command line requires them; the TUI's form fills them.
     let (Some(given_input), Some(output), Some(n_iter)) =
         (&cli.input_file, &cli.output_file, cli.n_iter)
@@ -223,7 +226,7 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
     let tmrca = cli
         .tmrca_out
         .as_deref()
-        .map(|path| decode_tmrca(&model, obs, path, cli, progress_bars, ctx))
+        .map(|path| decode_tmrca(&model, obs, path, cli, ctx))
         .transpose()?;
     let bootstrap = boot.as_ref().zip(boot_summary.as_ref());
     write_report(

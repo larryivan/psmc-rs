@@ -129,7 +129,6 @@ pub(super) fn decode_tmrca(
     obs: &Observations,
     path: &Path,
     cli: &InferArgs,
-    progress_bars: bool,
     ctx: Context,
 ) -> Result<TmrcaReportData> {
     // Each state's average coalescent time, the time of its emission
@@ -144,7 +143,7 @@ pub(super) fn decode_tmrca(
         &tmrca_years,
         path,
         TmrcaOptions {
-            progress_bars,
+            progress_bars: ctx.progress_bars,
             max_points: 20_000,
             callable: obs.callable.as_ref(),
         },
