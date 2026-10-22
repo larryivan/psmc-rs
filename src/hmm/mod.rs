@@ -329,13 +329,9 @@ impl<'a> Pass<'a> {
         merge: impl Fn(&mut A, A) + Sync,
     ) -> Result<A> {
         let progress = Progress::default();
-        let budget = opts
-            .alpha_cache
-            .unwrap_or_else(|| AlphaCacheBudget::global());
         let ctx = Ctx {
             cancel: opts.cancel,
             progress: &progress,
-            budget,
         };
         let mut reporter = Reporter::new(
             self.plan.total_sites,
@@ -429,11 +425,14 @@ pub fn e_step_with_options(
     let pass = Pass::new(pi, a, em, rows, row_starts, opts.callable, opts.thread_pool)?;
     let (kernel, table) = (&pass.kernel, &pass.table);
     let np = kernel.np();
+    let budget = opts
+        .alpha_cache
+        .unwrap_or_else(|| AlphaCacheBudget::global());
     let total = pass.fold(
         opts,
         true,
         || Partial::new(table.len(), np),
-        |seq, ws, acc, ctx| fb::e_step(kernel, seq, ws, acc, ctx),
+        |seq, ws, acc, ctx| fb::e_step(kernel, seq, ws, acc, budget, ctx),
         |total, p| total.merge(&p),
     )?;
     let (gobs, callable) = table.reduce(&total.g, kernel.n_states(), np);

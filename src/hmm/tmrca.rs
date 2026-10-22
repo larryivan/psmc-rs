@@ -25,7 +25,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use super::fb::{self, Ctx, DecodeCheckpoints, Progress, Workspace};
-use super::{AlphaCacheBudget, CHECKPOINT_STRIDE, Pass, TmrcaReportData};
+use super::{CHECKPOINT_STRIDE, Pass, TmrcaReportData};
 use crate::io::CallableBases;
 use crate::progress;
 
@@ -663,7 +663,6 @@ pub fn write_tmrca_posterior_tsv_with_options(
         total_sites.div_ceil(max_points).max(1)
     };
     let progress = Progress::default();
-    let budget = AlphaCacheBudget::new(0);
     let mut sink = Sink::create(out_path)?;
     let gzip = sink.gzip;
     sink.write(&Sink::encode(gzip, HEADER.to_string())?)?;
@@ -676,7 +675,6 @@ pub fn write_tmrca_posterior_tsv_with_options(
         ctx: Ctx {
             cancel: None,
             progress: &progress,
-            budget: &budget,
         },
         free: Mutex::new(Vec::new()),
     };

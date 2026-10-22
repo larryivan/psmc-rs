@@ -13,9 +13,10 @@ const DEFAULT_LIMIT_MB: usize = 2048;
 /// rest during the backward pass. Recomputed rows are bit-identical to stored
 /// ones, so the budget only trades memory for speed; results never depend on it.
 ///
-/// Rows are cached only where recomputing them is expensive, i.e. for
-/// transition matrices without PSMC's semiseparable structure (dense O(n²)
-/// steps). For PSMC models a forward step is O(n) and nothing is reserved.
+/// Rows are cached only where recomputing them is expensive: where the
+/// forward step is dense, O(n²), as for transition matrices without PSMC's
+/// semiseparable structure and for models of more than 256 states. Other
+/// PSMC models reserve nothing.
 ///
 /// Reservations are atomic, so concurrent E-steps (sequences processed in
 /// parallel, bootstrap replicates) together never exceed the limit.

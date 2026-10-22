@@ -125,7 +125,6 @@ pub(crate) struct Progress {
 pub(crate) struct Ctx<'a> {
     pub(crate) cancel: Option<&'a AtomicBool>,
     pub(crate) progress: &'a Progress,
-    pub(crate) budget: &'a AlphaCacheBudget,
 }
 
 impl Ctx<'_> {
@@ -381,12 +380,14 @@ fn log_likelihood_impl<const FUSED: bool>(
 
 dispatch! {
     /// Forward-backward over one sequence, adding its log-likelihood,
-    /// expected emissions and transition sums to `acc`.
+    /// expected emissions and transition sums to `acc`; a dense kernel keeps
+    /// every forward vector while `budget` has room for them.
     pub(crate) fn e_step(
         k: &Kernel,
         seq: &SeqObs<'_>,
         ws: &mut Workspace,
         acc: &mut Partial,
+        budget: &AlphaCacheBudget,
         ctx: &Ctx<'_>,
     ) -> Result<()> = e_step_impl;
 }
@@ -397,6 +398,7 @@ fn e_step_impl<const FUSED: bool>(
     seq: &SeqObs<'_>,
     ws: &mut Workspace,
     acc: &mut Partial,
+    budget: &AlphaCacheBudget,
     ctx: &Ctx<'_>,
 ) -> Result<()> {
     let np = ws.np;
@@ -409,7 +411,7 @@ fn e_step_impl<const FUSED: bool>(
     let reservation = if k.cheap_forward() {
         None
     } else {
-        ctx.budget.try_reserve(full_bytes)
+        budget.try_reserve(full_bytes)
     };
     let mut full = reservation.as_ref().map(|_| FullRows {
         alpha: vec![0.0; (len + 1) * np],
@@ -1035,7 +1037,6 @@ mod tests {
         let ctx = Ctx {
             cancel: None,
             progress: &progress,
-            budget: &budget,
         };
         let np = k.np();
         let mut ws = Workspace::new(np);
@@ -1045,7 +1046,11 @@ mod tests {
             log_likelihood_impl | log_likelihood(k, &seq, &mut ws, &ctx)
         );
         let mut out = vec![vec![ll.unwrap()]];
-        run!(run, e_step_impl | e_step(k, &seq, &mut ws, &mut acc, &ctx)).unwrap();
+        run!(
+            run,
+            e_step_impl | e_step(k, &seq, &mut ws, &mut acc, &budget, &ctx)
+        )
+        .unwrap();
         out.extend([vec![acc.loglike], acc.g, acc.trans]);
         let ckpt = DecodeCheckpoints {
             alpha: run!(
@@ -1146,11 +1151,9 @@ mod tests {
         let table = ObsTable::plain();
         let seq = SeqObs::new(rows, None, &table);
         let progress = Progress::default();
-        let budget = AlphaCacheBudget::new(0);
         let ctx = Ctx {
             cancel: None,
             progress: &progress,
-            budget: &budget,
         };
         let mut ws = Workspace::new(k.np());
         let mut acc = Partial::new(table.len(), k.np());
