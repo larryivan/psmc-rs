@@ -21,7 +21,7 @@ use anyhow::{Result, ensure};
 use ndarray::Array2;
 
 use super::Bounds;
-use super::objective::EmissionCounts;
+use super::objective::{EmissionCounts, LN_GUARD};
 use crate::hmm::SufficientStats;
 use crate::model::{GRID_ALPHA, PsmcModel, T_INF};
 
@@ -370,30 +370,21 @@ fn sigmoid_dual<T: Real>(x: &Dual<T>) -> Dual<T> {
     &one / &denom
 }
 
-fn from_unconstrained_dual<T: Real>(p: &[Dual<T>], bounds: &[Bounds]) -> Result<Vec<Dual<T>>> {
-    ensure!(p.len() == bounds.len(), "bounds length mismatch");
-    Ok(p.iter()
+fn from_unconstrained_dual<T: Real>(x: &[Dual<T>], bounds: &[Bounds]) -> Vec<Dual<T>> {
+    x.iter()
         .zip(bounds)
         .map(|(v, b)| &(&sigmoid_dual(v) * (b.hi - b.lo)) + b.lo)
-        .collect())
+        .collect()
 }
 
-/// The λ of each state of `model`'s layout ([`PsmcModel::map_lam`]).
-pub(super) fn expand_lam_dual<T: Real>(
-    model: &PsmcModel,
-    lam_grouped: &[Dual<T>],
-) -> Result<Vec<Dual<T>>> {
-    let n_free = model.n_free_params() - 3;
-    ensure!(
-        lam_grouped.len() == n_free,
-        "{} λ for {n_free} free ones",
-        lam_grouped.len()
-    );
-    Ok(model
+/// The λ of each state of `model`'s layout from its free λ
+/// ([`PsmcModel::map_lam`]).
+pub(super) fn expand_lam_dual<T: Real>(model: &PsmcModel, free: &[Dual<T>]) -> Vec<Dual<T>> {
+    model
         .par_map()
         .into_iter()
-        .map(|i| lam_grouped[i].clone())
-        .collect())
+        .map(|i| free[i].clone())
+        .collect()
 }
 
 /// The result of [`compute_params_dual`]: the transition and emission
@@ -452,6 +443,7 @@ pub(super) fn compute_params_dual<T: Real>(
         let term = (-&ratio).exp();
         alpha[k] = &alpha[k - 1] * &term;
     }
+    let dalpha: Vec<Dual<T>> = (0..=n).map(|k| &alpha[k] - &alpha[k + 1]).collect();
 
     let mut beta_arr = vec![Dual::constant(0.0, n_params); n + 1];
     for k in 1..=n {
@@ -464,16 +456,14 @@ pub(super) fn compute_params_dual<T: Real>(
 
     let mut c_pi = Dual::constant(0.0, n_params);
     for i in 0..=n {
-        let diff = &alpha[i] - &alpha[i + 1];
-        c_pi = &c_pi + &(&lam_full[i] * &diff);
+        c_pi = &c_pi + &(&lam_full[i] * &dalpha[i]);
     }
     let c_sigma = &(1.0 / &(&c_pi * rho)) + 0.5;
 
     let mut q_aux = vec![Dual::constant(0.0, n_params); n];
     for m in 0..n {
-        let diff_alpha = &alpha[m] - &alpha[m + 1];
         let term = &beta_arr[m] - &(&lam_full[m] / &alpha[m]);
-        q_aux[m] = &(&diff_alpha * &term) + &tau[m];
+        q_aux[m] = &(&dalpha[m] * &term) + &tau[m];
     }
 
     let mut sigma = vec![Dual::constant(0.0, n_params); n + 1];
@@ -488,12 +478,12 @@ pub(super) fn compute_params_dual<T: Real>(
     let mut sum_t = Dual::constant(0.0, n_params);
 
     for k in 0..=n {
-        let ak1 = &alpha[k] - &alpha[k + 1];
-        let lak = lam_full[k].clone();
+        let ak1 = &dalpha[k];
+        let lak = &lam_full[k];
 
-        let cpik = &(&ak1 * &(&sum_t + &lak)) - &(&alpha[k + 1] * &tau[k]);
+        let cpik = &(ak1 * &(&sum_t + lak)) - &(&alpha[k + 1] * &tau[k]);
         let pik = &cpik / &c_pi;
-        sigma[k] = &(&(&ak1 / &(&c_pi * rho)) + &(&pik / 2.0)) / &c_sigma;
+        sigma[k] = &(&(ak1 / &(&c_pi * rho)) + &(&pik / 2.0)) / &c_sigma;
 
         let tmp_avg = -(&(&one - &(&pik / &(&c_sigma * &sigma[k]))).ln());
         let mut avg_t = &tmp_avg / rho;
@@ -501,37 +491,35 @@ pub(super) fn compute_params_dual<T: Real>(
         let sum_re = sum_t.re;
         let tau_re = tau[k].re;
         if !avg_re.is_finite() || avg_re < sum_re || avg_re > (sum_re + tau_re) {
-            // (tau * alpha[k+1]) / denom, in C's (and param_recalculate's)
+            // (tau * alpha[k+1]) / ak1, in C's (and param_recalculate's)
             // order: the cancellation in lak - term magnifies any rounding
             // difference.
-            let denom = &alpha[k] - &alpha[k + 1];
-            let term = &(&tau[k] * &alpha[k + 1]) / &denom;
-            avg_t = &sum_t + &(&lak - &term);
+            let term = &(&tau[k] * &alpha[k + 1]) / ak1;
+            avg_t = &sum_t + &(lak - &term);
             fallbacks.push(k);
         }
 
-        let tmp = &ak1 / &cpik;
+        let tmp = ak1 / &cpik;
         for m in 0..k {
             q[m] = &tmp * &q_aux[m];
         }
-        let term1 = &(&ak1 * &ak1) * &(&beta_arr[k] - &(&lak / &alpha[k]));
-        let term2 = &(&lak * 2.0) * &ak1;
+        let term1 = &(ak1 * ak1) * &(&beta_arr[k] - &(lak / &alpha[k]));
+        let term2 = &(lak * 2.0) * ak1;
         let term3 = &(&alpha[k + 1] * 2.0) * &tau[k];
         q[k] = &(&term1 + &term2) - &term3;
         q[k] = &q[k] / &cpik;
 
-        if k < n {
-            let tmp2 = &q_aux[k] / &cpik;
+        let tmp2 = (k < n).then(|| &q_aux[k] / &cpik);
+        if let Some(tmp2) = &tmp2 {
             for m in (k + 1)..=n {
-                let diff_alpha = &alpha[m] - &alpha[m + 1];
-                q[m] = &diff_alpha * &tmp2;
+                q[m] = &dalpha[m] * tmp2;
             }
         }
 
         let tmp3 = &pik / &(&c_sigma * &sigma[k]);
         lower.push(&tmp3 * &tmp);
-        if k < n {
-            upper.push(&tmp3 * &(&q_aux[k] / &cpik));
+        if let Some(tmp2) = &tmp2 {
+            upper.push(&tmp3 * tmp2);
         }
         for m in 0..=n {
             p_kl[k][m] = &tmp3 * &q[m];
@@ -548,7 +536,6 @@ pub(super) fn compute_params_dual<T: Real>(
         sum_t = &sum_t + &tau[k];
     }
 
-    let dalpha = (0..=n).map(|m| &alpha[m] - &alpha[m + 1]).collect();
     Ok(DualParams {
         p_kl,
         em,
@@ -562,23 +549,18 @@ pub(super) fn compute_params_dual<T: Real>(
 }
 
 fn smooth_penalty_dual<T: Real>(lam_full: &[Dual<T>]) -> Dual<T> {
-    let n_params = lam_full[0].grad.len();
-    let mut sum = Dual::constant(0.0, n_params);
-    if lam_full.len() < 2 {
-        return sum;
-    }
-    for k in 0..(lam_full.len() - 1) {
-        let d = &lam_full[k + 1].ln() - &lam_full[k].ln();
-        sum = &sum + &(&d * &d);
-    }
-    sum
+    let zero = Dual::constant(0.0, lam_full[0].grad.len());
+    lam_full.windows(2).fold(zero, |sum, pair| {
+        let d = &pair[1].ln() - &pair[0].ln();
+        &sum + &(&d * &d)
+    })
 }
 
 /// Q, C psmc's EM Q: with `xi`, from every expected transition count and
 /// probability, in C's order; otherwise, as the adjoint objective sums it,
 /// from the sums of the counts in `stats` over each triangle's rows and
 /// columns and the factors of the probabilities. Each probability or
-/// factor has the guard `ln(p + 1e-300)`, and zero counts are left out.
+/// factor has the guard `ln(p + LN_GUARD)`, and zero counts are left out.
 // The loops index parallel arrays (matrices and expected counts) by state.
 #[allow(clippy::needless_range_loop)]
 fn q_function_stats_dual<T: Real>(
@@ -590,17 +572,18 @@ fn q_function_stats_dual<T: Real>(
     let n_params = a[0][0].grad.len();
     let n_states = a.len();
     let counts = EmissionCounts::of(stats, n_states)?;
-    let mut q = Dual::constant(0.0, n_params);
-    let mut add = |c: f64, p: &Dual<T>| {
+    // Adds the term of `c` counts of probability `p` to `q`.
+    let add = |q: &mut Dual<T>, c: f64, p: &Dual<T>| {
         if c != 0.0 {
-            q = &q + &(&(p + 1e-300).ln() * c);
+            *q = &*q + &(&(p + LN_GUARD).ln() * c);
         }
     };
+    let mut q = Dual::constant(0.0, n_params);
     match xi {
         Some(xi) => {
             for i in 0..n_states {
                 for j in 0..n_states {
-                    add(xi[(i, j)], &a[i][j]);
+                    add(&mut q, xi[(i, j)], &a[i][j]);
                 }
             }
         }
@@ -608,51 +591,35 @@ fn q_function_stats_dual<T: Real>(
             let t = &stats.transitions;
             for k in 0..n_states {
                 if k > 0 {
-                    add(t.lower_rows[k], &params.lower[k]);
+                    add(&mut q, t.lower_rows[k], &params.lower[k]);
                 }
-                add(t.diagonal[k], &a[k][k]);
+                add(&mut q, t.diagonal[k], &a[k][k]);
                 if k + 1 < n_states {
-                    add(t.upper_rows[k], &params.upper[k]);
+                    add(&mut q, t.upper_rows[k], &params.upper[k]);
                 }
             }
             for m in 0..n_states {
                 if m + 1 < n_states {
-                    add(t.lower_cols[m], &params.q_aux[m]);
+                    add(&mut q, t.lower_cols[m], &params.q_aux[m]);
                 }
                 if m > 0 {
-                    add(t.upper_cols[m], &params.dalpha[m]);
+                    add(&mut q, t.upper_cols[m], &params.dalpha[m]);
                 }
             }
         }
     }
-    let ln_safe = |v: &Dual<T>| (v + 1e-300).ln();
     for k in 0..n_states {
-        let c0 = counts.t[k];
-        if c0 != 0.0 {
-            q = &q + &(&ln_safe(&em[0][k]) * c0);
-        }
+        add(&mut q, counts.t[k], &em[0][k]);
         // The K bins of each share f of callable bases emit with
         // probability 1 - exp(-(θ avg) f), summed per state first, as the
         // adjoint objective sums them.
-        let mut k_term: Option<Dual<T>> = None;
+        let mut k_terms = Dual::constant(0.0, n_params);
         for &(f, g) in &counts.k {
-            let c1 = g[k];
-            if c1 != 0.0 {
-                let e = (-&(&params.prod[k] * f)).exp();
-                let term = &ln_safe(&(1.0 - &e)) * c1;
-                k_term = Some(match k_term {
-                    None => term,
-                    Some(sum) => &sum + &term,
-                });
-            }
+            let e = (-&(&params.prod[k] * f)).exp();
+            add(&mut k_terms, g[k], &(1.0 - &e));
         }
-        if let Some(term) = k_term {
-            q = &q + &term;
-        }
-        let c2 = counts.n[k];
-        if c2 != 0.0 {
-            q = &q + &(&ln_safe(&em[2][k]) * c2);
-        }
+        q = &q + &k_terms;
+        add(&mut q, counts.n[k], &em[2][k]);
     }
     Ok(q)
 }
@@ -671,13 +638,12 @@ pub(super) fn eval_dual_in<T: Real>(
 ) -> Result<(T, Vec<T>, Vec<usize>)> {
     let n = params.len();
     let vars: Vec<Dual<T>> = (0..n).map(|i| Dual::variable(params[i], n, i)).collect();
-    let constrained = from_unconstrained_dual(&vars, bounds)?;
+    let constrained = from_unconstrained_dual(&vars, bounds);
 
     let theta = &constrained[0];
     let rho = &constrained[1];
     let t_max = &constrained[2];
-    let lam_grouped = &constrained[3..];
-    let lam_full = expand_lam_dual(base_model, lam_grouped)?;
+    let lam_full = expand_lam_dual(base_model, &constrained[3..]);
 
     let params = compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
     let q = q_function_stats_dual(&params, stats, xi)?;

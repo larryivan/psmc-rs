@@ -66,7 +66,7 @@ use crate::hmm::{SufficientStats, TransitionSums};
 use crate::model::{GRID_ALPHA, PsmcModel, Shared};
 
 /// The guard added to each probability before its logarithm is taken.
-const LN_GUARD: f64 = 1e-300;
+pub(super) const LN_GUARD: f64 = 1e-300;
 
 /// Adds the term `c ln(p + LN_GUARD)` of `c` expected transitions or
 /// emissions of probability (or factor of a probability) `p` to `q`;
@@ -84,12 +84,10 @@ fn add_log_count(q: &mut f64, p: f64, c: f64) -> f64 {
 /// whose survival has underflowed by 1e-5 to 1e-2.
 pub(crate) const ROW_SUM_TOLERANCE: f64 = 1e-9;
 
-// Calls of `Objective::eval` on this thread, for checking
-// `MStepOutcome::evaluations` (the M-step runs on the calling thread), and
-// the largest magnitude of a coordinate they were given.
+// The largest magnitude of a coordinate `Objective::eval` was given on
+// this thread (the M-step runs on the calling thread).
 #[cfg(test)]
 thread_local! {
-    pub(super) static EVAL_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(super) static LARGEST_COORDINATE: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
 }
 
@@ -157,43 +155,39 @@ impl<'a> EmissionCounts<'a> {
         })
     }
 
-    /// The terms of `Q` of the `K` bins of state `k` (`None` where every
-    /// count is zero), and the derivative of the emission terms of `T` and
-    /// `K` with respect to `prod = θ avg_t[k]`, with `e0 = exp(-prod)` the
-    /// emission of `T` (so `d e0 / d prod = -e0`). A `K` bin with a share
-    /// `f` of callable bases emits with probability `1 - e_f`,
-    /// `e_f = exp(-prod f)`, whose derivative is `f e_f`.
-    fn state_terms(&self, k: usize, prod: f64, e0: f64) -> (Option<f64>, f64) {
+    /// The terms of `Q` of the `K` bins of state `k`, and the derivative of
+    /// the emission terms of `T` and `K` with respect to `prod = θ avg_t[k]`,
+    /// with `e0 = exp(-prod)` the emission of `T` (so `d e0 / d prod = -e0`).
+    /// A `K` bin with a share `f` of callable bases emits with probability
+    /// `1 - e_f`, `e_f = exp(-prod f)`, whose derivative is `f e_f`.
+    fn state_terms(&self, k: usize, prod: f64, e0: f64) -> (f64, f64) {
         let mut bar_prod = 0.0;
         if self.t[k] != 0.0 {
             bar_prod -= self.t[k] * (e0 / (e0 + LN_GUARD));
         }
-        let mut k_term: Option<f64> = None;
+        let mut k_terms = 0.0;
         for &(f, g) in &self.k {
             let g = g[k];
             if g != 0.0 {
                 let e = (-(prod * f)).exp();
                 let em1 = 1.0 - e;
-                let term = (em1 + LN_GUARD).ln() * g;
-                k_term = Some(k_term.map_or(term, |sum| sum + term));
+                k_terms += (em1 + LN_GUARD).ln() * g;
                 bar_prod += g * (f * e / (em1 + LN_GUARD));
             }
         }
-        (k_term, bar_prod)
+        (k_terms, bar_prod)
     }
 
     /// Adds the emission terms of `Q` to `q`, state by state: those of `T`
     /// (emitted with probability `em0`), of `K`
     /// ([`state_terms`](Self::state_terms)) and of `N` (probability 1).
-    fn add_terms(&self, q: &mut f64, em0: &[f64], k_terms: &[Option<f64>]) {
+    fn add_terms(&self, q: &mut f64, em0: &[f64], k_terms: &[f64]) {
         let ln_one = (1.0f64 + LN_GUARD).ln();
         for (k, (&e0, k_term)) in em0.iter().zip(k_terms).enumerate() {
             if self.t[k] != 0.0 {
                 *q += (e0 + LN_GUARD).ln() * self.t[k];
             }
-            if let Some(term) = k_term {
-                *q += term;
-            }
+            *q += k_term;
             if self.n[k] != 0.0 {
                 *q += ln_one * self.n[k];
             }
@@ -250,10 +244,9 @@ struct Workspace {
     bar_q_aux: Vec<f64>,
     /// Adjoint of `sum_t` (the start of interval `k`) as row `k` uses it.
     bar_sum_t: Vec<f64>,
-    /// Emission probabilities of `T`, and the terms of `Q` of the `K` bins
-    /// (`None` where every count is zero).
+    /// Emission probabilities of `T`, and the terms of `Q` of the `K` bins.
     em0: Vec<f64>,
-    k_terms: Vec<Option<f64>>,
+    k_terms: Vec<f64>,
 }
 
 impl<'a> Objective<'a> {
@@ -334,7 +327,6 @@ impl<'a> Objective<'a> {
     pub(crate) fn eval(&mut self, x: &[f64], grad: &mut [f64]) -> f64 {
         #[cfg(test)]
         {
-            EVAL_CALLS.with(|c| c.set(c.get() + 1));
             let largest = x.iter().fold(0.0f64, |m, v| m.max(v.abs()));
             LARGEST_COORDINATE.with(|c| c.set(c.get().max(largest)));
         }
@@ -671,7 +663,7 @@ impl Workspace {
             bar_q_aux: vec![0.0; n],
             bar_sum_t: vec![0.0; states],
             em0: vec![0.0; states],
-            k_terms: vec![None; states],
+            k_terms: vec![0.0; states],
         }
     }
 

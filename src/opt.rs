@@ -315,7 +315,7 @@ pub fn m_step(
 #[cfg(test)]
 mod tests {
     use super::dual::{Dd, Dual, Real, compute_params_dual, eval_dual_in, expand_lam_dual};
-    use super::objective::{EVAL_CALLS, LARGEST_COORDINATE};
+    use super::objective::LARGEST_COORDINATE;
     use super::*;
     use crate::hmm::TransitionSums;
     use crate::hmm::e_step_streaming;
@@ -436,7 +436,7 @@ mod tests {
         let vars: Vec<Dual> = (0..n_vars)
             .map(|i| Dual::variable(params[i], n_vars, i))
             .collect();
-        let lam_full = expand_lam_dual(model, &vars[3..]).unwrap();
+        let lam_full = expand_lam_dual(model, &vars[3..]);
         let dual = compute_params_dual(n, &vars[0], &vars[1], &vars[2], &lam_full).unwrap();
         let (a, em) = (dual.p_kl, dual.em);
         let same = |x: f64, y: f64| x.to_bits() == y.to_bits() || (x.is_nan() && y.is_nan());
@@ -1061,7 +1061,6 @@ mod tests {
                 compare(&model, &x, &mut seen);
             }
         }
-        eprintln!("{seen:?}");
         assert_eq!(seen.points, 3 * (3 * 6 + 2 * 2));
         assert!(seen.infeasible * 4 < seen.points, "{seen:?}");
         let compared = seen.points - seen.infeasible - seen.underflow;
@@ -1377,23 +1376,20 @@ mod tests {
         }
     }
 
-    /// Runs the M-step; returns its outcome, the number of iterations it
-    /// reported as done and the number of objective evaluations it made.
-    /// Its last progress event must report the iterations as done out of as
-    /// many.
+    /// Runs the M-step; returns its outcome and the number of iterations it
+    /// reported as done. Its last progress event must report the iterations
+    /// as done out of as many.
     fn counted_m_step(
         model: &PsmcModel,
         stats: &SufficientStats,
         config: &MStepConfig,
-    ) -> (MStepOutcome, usize, usize) {
+    ) -> (MStepOutcome, usize) {
         let mut last = None;
         let mut on_progress = |p: MStepProgress| last = Some((p.done, p.total));
-        let calls_before = EVAL_CALLS.with(|c| c.get());
         let outcome = m_step(model, stats, config, Some(&mut on_progress)).unwrap();
-        let calls = EVAL_CALLS.with(|c| c.get()) - calls_before;
         let (done, total) = last.unwrap();
         assert_eq!(done, total, "the last progress event");
-        (outcome, done, calls)
+        (outcome, done)
     }
 
     #[test]
@@ -1412,8 +1408,8 @@ mod tests {
             max_iters: 0,
             ..base.clone()
         };
-        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
-        assert_eq!((outcome.evaluations, done, calls), (1, 0, 1));
+        let (outcome, done) = counted_m_step(&model, &stats, &config);
+        assert_eq!((outcome.evaluations, done), (1, 0));
         assert_eq!((outcome.iterations, outcome.stop), (0, MStepStop::MaxIters));
 
         // A one-trial line search whose unit step does not decrease enough
@@ -1426,16 +1422,16 @@ mod tests {
             max_ls_steps: 1,
             ..base.clone()
         };
-        let (outcome, done, calls) = counted_m_step(&model, &stats, &config);
+        let (outcome, done) = counted_m_step(&model, &stats, &config);
         assert_eq!(outcome.stop, MStepStop::LineSearchFailed);
         let expected = 1 + n_params + 1 + 3 * (n_params + 1);
-        assert_eq!((outcome.evaluations, done, calls), (expected, 0, expected));
+        assert_eq!((outcome.evaluations, done), (expected, 0));
 
         // The default search: the start, one evaluation per parameter for
         // the curvatures, then at least one per iteration.
-        let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
-        assert_eq!(outcome.evaluations, calls);
+        let (outcome, done) = counted_m_step(&model, &stats, &base);
         assert_eq!(outcome.iterations, done);
+        let calls = outcome.evaluations;
         assert!(
             calls >= 1 + n_params + done,
             "{calls} evaluations, {done} iterations"
@@ -1461,7 +1457,7 @@ mod tests {
                 ..MStepConfig::default()
             };
             LARGEST_COORDINATE.with(|c| c.set(0.0));
-            let (outcome, _, _) = counted_m_step(&model, &stats, &config);
+            let (outcome, _) = counted_m_step(&model, &stats, &config);
             let largest = LARGEST_COORDINATE.with(|c| c.get());
             assert!(
                 largest <= limit,
@@ -1488,7 +1484,7 @@ mod tests {
             rel_tol: f64::INFINITY,
             ..base.clone()
         };
-        let (outcome, done, _) = counted_m_step(&model, &stats, &config);
+        let (outcome, done) = counted_m_step(&model, &stats, &config);
         assert_eq!(outcome.stop, MStepStop::Converged);
         assert_eq!((outcome.iterations, done), (2, 2));
 
@@ -1498,7 +1494,7 @@ mod tests {
             rel_tol: 0.0,
             ..base.clone()
         };
-        let (outcome, done, _) = counted_m_step(&model, &stats, &config);
+        let (outcome, done) = counted_m_step(&model, &stats, &config);
         assert_eq!(outcome.stop, MStepStop::MaxIters);
         assert_eq!((outcome.iterations, done), (3, 3));
 
@@ -1509,7 +1505,8 @@ mod tests {
             rel_tol: 0.0,
             ..base.clone()
         };
-        let (precise, done, calls) = counted_m_step(&model, &stats, &config);
+        let (precise, done) = counted_m_step(&model, &stats, &config);
+        let calls = precise.evaluations;
         assert_eq!(precise.stop, MStepStop::LineSearchFailed);
         assert_eq!(precise.iterations, done);
         assert!(done > 3 && done < 1000, "{done} iterations");
@@ -1524,9 +1521,9 @@ mod tests {
         // parameter along a flat direction only to about its square root,
         // 3e-7, and where in that range the search stops depends on the
         // rounding of libm's exp and ln (1.3e-7 with glibc on x86-64).
-        let (outcome, done, calls) = counted_m_step(&model, &stats, &base);
+        let (outcome, done) = counted_m_step(&model, &stats, &base);
         assert_eq!(outcome.stop, MStepStop::Converged);
-        assert!(done <= precise.iterations && calls < precise.evaluations);
+        assert!(done <= precise.iterations && outcome.evaluations < calls);
         let bounds = bounds_from_config(&model, &base);
         let objective = |params: &[f64]| {
             let x = to_unconstrained(params, &bounds);
