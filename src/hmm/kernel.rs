@@ -41,7 +41,7 @@ mod neon {
     //! NEON kernels. Fused multiply-adds are explicit, and every product has
     //! enough independent accumulators (16) to cover the FMA latency.
 
-    use super::{CHUNK, Semiseparable};
+    use super::{MAX_CHUNK, Semiseparable};
     use std::arch::aarch64::*;
 
     /// Columns `col..col + 2V` of `y = xᵀ m`, with rows interleaved over `P`
@@ -136,7 +136,7 @@ mod neon {
                 }
             };
             // The scans of each pair of sites: P and V, then U and S.
-            let mut scans = [[vdupq_n_f64(0.0); 2]; CHUNK / 2];
+            let mut scans = [[vdupq_n_f64(0.0); 2]; MAX_CHUNK / 2];
             let scans = &mut scans[..groups];
             let zero = [vdupq_n_f64(0.0); 4];
             for k in (0..np).step_by(4) {
@@ -182,7 +182,7 @@ mod avx2 {
     //! features ([`super::super::simd`]): they give the bits of the
     //! portable kernels instantiated fused.
 
-    use super::{CHUNK, Semiseparable};
+    use super::{MAX_CHUNK, Semiseparable};
     use std::arch::x86_64::*;
 
     /// States `k` and `k + 1` of the four sites from `x`, `np` values
@@ -228,7 +228,7 @@ mod avx2 {
         let splat = |v: &[f64], k: usize| [_mm256_set1_pd(v[k]), _mm256_set1_pd(v[k + 1])];
         // The scans of each group of sites: P and V, then U and S.
         let zero = [_mm256_setzero_pd(); 2];
-        let mut scans = [zero; CHUNK / 4];
+        let mut scans = [zero; MAX_CHUNK / 4];
         let scans = &mut scans[..groups];
         unsafe {
             let [lower_rows, lower_cols, upper_rows, upper_cols, diagonal] =
@@ -280,7 +280,7 @@ mod portable {
     //! `FUSED` says so), so they give the same bits with or without FMA in
     //! the target features, at any vector width.
 
-    use super::{CHUNK, Semiseparable, TILE, fmadd, sums_mut};
+    use super::{LANES, MAX_CHUNK, Semiseparable, TILE, fmadd, sums_mut};
 
     #[inline(always)]
     pub(super) fn vec_mat(x: &[f64], m: &[f64], np: usize, y: &mut [f64]) {
@@ -329,8 +329,9 @@ mod portable {
             }
             v[0]
         };
-        // The scans of each group of sites: P and V, then U and S.
-        let mut scans = [[[0.0; L]; 2]; CHUNK];
+        // The scans of each group of sites (of `LANES`, or fewer than
+        // `LANES` sites one at a time): P and V, then U and S.
+        let mut scans = [[[0.0; L]; 2]; MAX_CHUNK / LANES];
         let scans = &mut scans[..u.len() / (L * np)];
         let sites = || u.chunks_exact(L * np).zip(w.chunks_exact(L * np));
         for k in (0..np).step_by(2) {
@@ -578,18 +579,28 @@ fn sums_mut(out: &mut [f64], np: usize) -> [&mut [f64]; N_SUMS] {
 /// Sites in the lanes of a vector of [`semisep_sums`]'s kernels.
 const LANES: usize = if cfg!(target_arch = "aarch64") { 2 } else { 4 };
 
-/// Sites that [`semisep_sums`]'s kernels take at once. Their scans go over
-/// every state of each of them, reading the same columns of their rows
-/// state after state, and with more sites the rows of a model of 64 states
-/// or more (512 bytes apart) evict each other from the L1 cache: the
-/// fastest on an Apple M1 Pro (128 KB of L1 data cache) and on an AMD EPYC
-/// 7702 (32 KB) with 23 to 128 states.
-const CHUNK: usize = if cfg!(target_arch = "aarch64") {
-    32
-} else {
-    16
-};
-const _: () = assert!(CHUNK.is_multiple_of(LANES));
+/// The most sites [`semisep_sums`]'s kernels take at once: a segment's.
+const MAX_CHUNK: usize = 128;
+
+/// The sites that [`semisep_sums`]'s kernels take at once with `np`
+/// states. Their scans read the same column of the chunk's rows of `u` and
+/// `w` state after state, and these rows are `8 np` bytes apart: in the L1
+/// data cache of an AMD EPYC 7702 (64 sets of 8 ways of 64-byte lines) a
+/// column of them falls into `64 / 2^z` sets, `2^z` the largest power of
+/// two that divides `np / 8`, so that the rows of more than about
+/// `128 / 2^z` sites evict each other. That many sites, but at least 16,
+/// were the fastest there with 23 to 128 states (E-step of Papuan chr1 on
+/// one thread: 128 sites with 23 states, 5% faster than 16; 16 sites with
+/// 64 states, 16% faster than 128). The L1 cache of an Apple M1 Pro
+/// (128 KB) holds the rows of more sites: 64 were within 0.5% of the
+/// fastest chunk with 23 to 100 states.
+fn chunk(np: usize) -> usize {
+    if cfg!(target_arch = "aarch64") {
+        64
+    } else {
+        (MAX_CHUNK >> (np / TILE).trailing_zeros()).max(16)
+    }
+}
 
 /// Adds to the sums `out` ([`N_SUMS`] vectors of `np` values) the
 /// transitions into the `rows` sites of `w` from those of `u`, without the
@@ -613,7 +624,7 @@ const _: () = assert!(CHUNK.is_multiple_of(LANES));
 /// So this adds `u P`, `w S`, `u U`, `w V` and, for the diagonal `d[k]`,
 /// `u w`: four scans and five multiply-adds per state and site. The scans
 /// run along the states, so the kernels put [`LANES`] sites in the lanes
-/// of a vector: for every [`CHUNK`] sites, each scan goes state by state
+/// of a vector: for every [`chunk`] of sites, each scan goes state by state
 /// (up for `P` and `V`, down for `U` and `S`), and each sum over the
 /// chunk's sites is added up lane by lane, then the lanes in halves. The
 /// last sites, fewer than [`LANES`], follow one at a time.
@@ -628,13 +639,13 @@ fn semisep_sums<const FUSED: bool>(
     let np = s.d.len();
     assert!(out.len() == N_SUMS * np);
     let (u, w) = (&u[..rows * np], &w[..rows * np]);
-    let full = rows / LANES * LANES;
-    for c in (0..full).step_by(CHUNK) {
-        let sites = c * np..full.min(c + CHUNK) * np;
+    let (full, chunk) = (rows / LANES * LANES, chunk(np));
+    for c in (0..full).step_by(chunk) {
+        let sites = c * np..full.min(c + chunk) * np;
         let (u, w) = (&u[sites.clone()], &w[sites]);
         #[cfg(target_arch = "aarch64")]
         // SAFETY: `u` and `w` hold the same whole number of pairs of sites,
-        // at most `CHUNK`, and `out` the sums of `np` states.
+        // at most `MAX_CHUNK`, and `out` the sums of `np` states.
         unsafe {
             neon::semisep_sums(
                 s,
@@ -1105,9 +1116,9 @@ mod tests {
                 let mut fast = vec![0.0; N_SUMS * np];
                 semisep_sums::<true>(s, &u, &w, rows, &mut fast);
                 let mut plain = vec![0.0; N_SUMS * np];
-                let full = rows / LANES * LANES;
-                for c in (0..full).step_by(CHUNK) {
-                    let sites = c * np..full.min(c + CHUNK) * np;
+                let (full, chunk) = (rows / LANES * LANES, chunk(np));
+                for c in (0..full).step_by(chunk) {
+                    let sites = c * np..full.min(c + chunk) * np;
                     let (u, w) = (&u[sites.clone()], &w[sites]);
                     portable::semisep_sums::<true, LANES>(s, u, w, &mut plain);
                 }
