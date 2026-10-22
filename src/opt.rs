@@ -19,7 +19,6 @@ use crate::model::PsmcModel;
 
 pub use crate::em::{EmHistory, EmProgressEvent, em_train};
 use crate::progress;
-use crate::utils::{logit, sigmoid};
 
 #[cfg(test)]
 mod dual;
@@ -166,6 +165,14 @@ pub(crate) fn unpack_params(model: &mut PsmcModel, params: &[f64]) -> Result<()>
 /// M-step keeps parameters from their bounds: the logit coordinates stay
 /// within ±`logit(1 - BOUND_MARGIN)` (27.6).
 const BOUND_MARGIN: f64 = 1e-12;
+
+fn logit(x: f64) -> f64 {
+    (x / (1.0 - x)).ln()
+}
+
+fn sigmoid(x: f64) -> f64 {
+    1.0 / (1.0 + (-x).exp())
+}
 
 fn to_unconstrained(params: &[f64], bounds: &[Bounds]) -> Vec<f64> {
     params

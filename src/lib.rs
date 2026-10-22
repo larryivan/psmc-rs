@@ -8,6 +8,5 @@ mod progress;
 pub mod psmc_out;
 pub mod qc;
 pub mod report;
-mod utils;
 
 pub use model::{PsmcModel, initial_theta, initial_theta_with_callable};
