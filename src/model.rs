@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use anyhow::{Result, bail};
 use ndarray::Array2;
 
@@ -200,14 +198,9 @@ impl PsmcModel {
     /// (`n_steps + 2` values, in units of 2N0 generations), spaced
     /// log-linearly with C psmc's `alpha` (`-l`, 0.1): C `psmc_update_intv`.
     pub fn compute_t(&self) -> Vec<f64> {
-        let beta = (1.0 + self.t_max / GRID_ALPHA).ln() / self.n_steps as f64;
-        let mut t = Vec::with_capacity(self.n_steps + 2);
-        for k in 0..self.n_steps {
-            t.push(GRID_ALPHA * ((beta * k as f64).exp() - 1.0));
-        }
-        t.push(self.t_max);
-        t.push(T_INF);
-        t
+        let mut shared = Shared::default();
+        shared.update_grid(self.t_max, self.n_steps);
+        shared.t
     }
 
     /// Expand per-group λ (as stored in `lam`) to one value per state.
@@ -261,6 +254,7 @@ impl PsmcModel {
             avg_t,
         } = self.coalescent()?;
         let Shared {
+            t,
             tau,
             alpha,
             dalpha,
@@ -310,7 +304,7 @@ impl PsmcModel {
             e[(2, k)] = 1.0;
         }
 
-        self.t = self.compute_t();
+        self.t = t;
         self.p_kl = p_kl;
         self.em = e;
         self.sigma = sigma;
@@ -631,9 +625,11 @@ struct Coalescent {
 /// compute them with this code.
 #[derive(Debug, Default)]
 pub(crate) struct Shared {
-    /// `exp(beta k)` of the time grid, for `k < n`.
+    /// The time grid ([`Shared::update_grid`]): `exp(grid_beta k)` for
+    /// `k < n`, and the `n + 2` boundaries `t`.
     pub(crate) grid_exp: Vec<f64>,
-    /// Interval lengths `t_{k+1} - t_k` (the last one up to `T_INF`).
+    pub(crate) t: Vec<f64>,
+    /// Interval lengths `t[k + 1] - t[k]` (the last one up to `T_INF`).
     pub(crate) tau: Vec<f64>,
     /// Survival to `t_k` (`alpha[n + 1] = 0`), and `alpha[k] - alpha[k + 1]`.
     pub(crate) alpha: Vec<f64>,
@@ -647,13 +643,12 @@ pub(crate) struct Shared {
 
 impl Shared {
     /// Computes them for the λ of each state `lam`, `rho` and `t_max` (in
-    /// `(0, T_INF)`), reusing the vectors: the time grid is C
-    /// psmc_update_intv's, `t[k] = 0.1 (exp(beta k) - 1)` for `k < n`,
-    /// `t[n] = t_max` and `t[n + 1] = T_INF`.
+    /// `(0, T_INF)`), reusing the vectors.
     pub(crate) fn update(&mut self, lam: &[f64], rho: f64, t_max: f64) {
         let n = lam.len() - 1;
+        self.update_grid(t_max, n);
         let Self {
-            grid_exp,
+            t,
             tau,
             alpha,
             dalpha,
@@ -662,8 +657,6 @@ impl Shared {
             ..
         } = self;
         for (v, len) in [
-            (&mut *grid_exp, n),
-            (&mut *tau, n + 1),
             (&mut *alpha, n + 2),
             (&mut *dalpha, n + 1),
             (&mut *beta, n + 1),
@@ -671,20 +664,8 @@ impl Shared {
         ] {
             v.resize(len, 0.0);
         }
-        let grid_beta = (1.0 + t_max / GRID_ALPHA).ln() / n as f64;
-        for (k, e) in grid_exp.iter_mut().enumerate() {
-            *e = (grid_beta * k as f64).exp();
-        }
-        let t = |k: usize| -> f64 {
-            match k.cmp(&n) {
-                Ordering::Less => GRID_ALPHA * (grid_exp[k] - 1.0),
-                Ordering::Equal => t_max,
-                Ordering::Greater => T_INF,
-            }
-        };
-        for (k, v) in tau.iter_mut().enumerate() {
-            *v = t(k + 1) - t(k);
-        }
+        tau.clear();
+        tau.extend(t.windows(2).map(|w| w[1] - w[0]));
         alpha[0] = 1.0;
         for k in 1..=n {
             alpha[k] = alpha[k - 1] * (-(tau[k - 1] / lam[k - 1])).exp();
@@ -704,6 +685,20 @@ impl Shared {
         }
         self.c_pi = c_pi;
         self.c_sigma = 1.0 / (c_pi * rho) + 0.5;
+    }
+
+    /// C psmc_update_intv's time grid of `n` intervals up to `t_max`:
+    /// `t[k] = 0.1 (exp(grid_beta k) - 1)` for `k < n` with
+    /// `grid_beta = ln(1 + t_max / 0.1) / n`, `t[n] = t_max` and
+    /// `t[n + 1] = T_INF`.
+    fn update_grid(&mut self, t_max: f64, n: usize) {
+        let grid_beta = (1.0 + t_max / GRID_ALPHA).ln() / n as f64;
+        self.grid_exp.clear();
+        self.grid_exp
+            .extend((0..n).map(|k| (grid_beta * k as f64).exp()));
+        let below_t_max = self.grid_exp.iter().map(|e| GRID_ALPHA * (e - 1.0));
+        self.t.clear();
+        self.t.extend(below_t_max.chain([t_max, T_INF]));
     }
 }
 
