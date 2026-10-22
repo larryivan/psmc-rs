@@ -11,11 +11,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::bootstrap::{BootstrapCurvePoint, BootstrapSummary};
-use crate::hmm::TmrcaReportData;
+use crate::hmm::{TmrcaReportData, simd_path};
 use crate::io::params::{BinCallableRecord, CALLABLE_LENGTH_MODEL, InputSummary};
 use crate::model::PsmcModel;
 use crate::qc::fmt::{count, counted, pct, sig, sig_or_na};
-use crate::qc::{QcReport, fraction};
+use crate::qc::{
+    HET_PER_CALLABLE_KB_NOTE, QcReport, approximate_counts_note, callable_distribution, fraction,
+};
 
 /// Everything [`write_html_report`] shows.
 pub struct ReportData<'a> {
@@ -131,28 +133,6 @@ fn row_html(out: &mut String, name: &str, value: &str) {
     let _ = writeln!(out, "<tr><th>{name}</th><td>{value}</td></tr>");
 }
 
-/// The rows of the run summary that say how the fit used the callable bases
-/// of each bin: the emission model, and what the counts hold.
-pub fn bin_callable_rows(b: &BinCallableRecord) -> Vec<(&'static str, String)> {
-    let model = if b.model == CALLABLE_LENGTH_MODEL {
-        "each called bin by its callable bases (callable-length model)"
-    } else {
-        "every called bin as the bin size in bases (C psmc's model)"
-    };
-    let mut rows = vec![("Bin model", format!("{model}; --bin-callable {}", b.mode))];
-    if let (Some(c), Some(source)) = (&b.callable, &b.counts) {
-        rows.push((
-            "Callable bases of called bins",
-            format!(
-                "{} on average; {} of called bins partly callable (counts {source})",
-                pct(c.mean_fraction),
-                pct(c.partial_fraction())
-            ),
-        ));
-    }
-    rows
-}
-
 /// The run summary table.
 fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) -> String {
     let m = d.model;
@@ -162,14 +142,14 @@ fn meta_rows(d: &ReportData, n0: f64, ranges: [(f64, f64); 2], points: usize) ->
     };
     let mut out = String::new();
     row(&mut out, "psmc-rs", env!("CARGO_PKG_VERSION"));
-    row(&mut out, "HMM kernels", crate::hmm::simd_path().name());
+    row(&mut out, "HMM kernels", simd_path().name());
     row_html(&mut out, "Input", &mono(d.input_file));
     row_html(&mut out, "Output JSON", &mono(d.output_json));
     if let Some(i) = d.input {
         input_rows(&mut out, i);
     }
-    for (name, value) in d.bin_callable.map(bin_callable_rows).unwrap_or_default() {
-        row(&mut out, name, value);
+    if let Some(b) = d.bin_callable {
+        bin_callable_rows(&mut out, b);
     }
     row(&mut out, "EM iterations", d.n_iter);
     let loglike = d
@@ -218,6 +198,26 @@ fn input_rows(out: &mut String, i: &InputSummary) {
     let (het, missing) = (share(i.het_bins), share(i.missing_bins));
     let bins = format!("{} ({het} heterozygous, {missing} missing)", count(i.bins));
     row(out, "Bins", bins);
+}
+
+/// The run summary's rows on how the fit used the callable bases of each
+/// bin: the emission model, and what the counts hold.
+fn bin_callable_rows(out: &mut String, b: &BinCallableRecord) {
+    let model = if b.model == CALLABLE_LENGTH_MODEL {
+        "each called bin by its callable bases (callable-length model)"
+    } else {
+        "every called bin as the bin size in bases (C psmc's model)"
+    };
+    let model = format!("{model}; --bin-callable {}", b.mode);
+    row(out, "Bin model", model);
+    if let (Some(c), Some(source)) = (&b.callable, &b.counts) {
+        let callable = format!(
+            "{} on average; {} of called bins partly callable (counts {source})",
+            pct(c.mean_fraction),
+            pct(c.partial_fraction())
+        );
+        row(out, "Callable bases of called bins", callable);
+    }
 }
 
 /// The input QC section: findings, then the key metrics and the
@@ -277,8 +277,8 @@ fn qc_metric_rows(out: &mut String, r: &QcReport) {
         let callable = format!(
             "{} on average; {}{}",
             pct(c.mean_fraction),
-            crate::qc::callable_distribution(c),
-            crate::qc::approximate_counts_note(r)
+            callable_distribution(c),
+            approximate_counts_note(r)
         );
         row(out, "Callable bases of called bins", callable);
     }
@@ -348,7 +348,7 @@ fn sequence_table(out: &mut String, r: &QcReport) {
     }
     out.push_str("</table>");
     if per_callable {
-        let note = escape_html(crate::qc::HET_PER_CALLABLE_KB_NOTE);
+        let note = escape_html(HET_PER_CALLABLE_KB_NOTE);
         let _ = write!(out, "<div class=\"note\">* {note}</div>");
     }
     out.push_str("</details>");
