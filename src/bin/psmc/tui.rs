@@ -13,7 +13,7 @@ use ratatui::prelude::*;
 use std::collections::VecDeque;
 use std::io;
 use std::panic;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -215,14 +215,9 @@ fn build_cli_from_form(app: &App) -> Result<InferArgs> {
     Ok(cli)
 }
 
-/// The command line of the run the form describes, or why there is none.
-fn command_line(app: &App) -> Result<String> {
-    let cli = build_cli_from_form(app)?;
-    Ok(format!(
-        "{} {}",
-        app.self_bin.display(),
-        cli.to_args().join(" ")
-    ))
+/// The command line that runs `cli`.
+fn command_line(self_bin: &Path, cli: &InferArgs) -> String {
+    format!("{} {}", self_bin.display(), cli.to_args().join(" "))
 }
 
 /// Take the events of the run under way and, once it has ended, its
@@ -299,7 +294,7 @@ fn start_run(app: &mut App) -> Result<()> {
     }
     // As the Command panel says it.
     let cli = build_cli_from_form(app).context("Not ready")?;
-    app.append_log(format!("$ {}", command_line(app)?));
+    app.append_log(format!("$ {}", command_line(&app.self_bin, &cli)));
     app.stages = Default::default();
     app.results.clear();
     app.scroll_back = 0;
@@ -523,7 +518,7 @@ mod tests {
         assert!(!build_cli_from_form(&a).unwrap().tui);
         // The command line gives back every setting (`InferArgs::to_args`).
         assert_eq!(
-            command_line(&a).unwrap(),
+            command_line(&a.self_bin, &build_cli_from_form(&a).unwrap()),
             "psmc-rs data/in.vcf.gz out/fit.json 30 --input-format vcf --bin-size 50 --vcf-mask \
              m.bed --pattern 4+25*2+4+6 --mu 1.25e-8 --threads 2 --gen-years 29 --bootstrap 5"
         );
@@ -548,7 +543,7 @@ mod tests {
     #[test]
     fn invalid_form_values_are_explained() {
         let mut a = app(&[]);
-        let err = |a: &App| command_line(a).unwrap_err().to_string();
+        let err = |a: &App| build_cli_from_form(a).unwrap_err().to_string();
         assert_eq!(err(&a), "Input is required");
         set(&mut a, FIELD_INPUT, "in.psmcfa");
         set(&mut a, FIELD_GEN_YEARS, "old");

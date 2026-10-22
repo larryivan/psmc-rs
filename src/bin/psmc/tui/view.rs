@@ -10,7 +10,9 @@ use std::time::Instant;
 use psmc_rs::qc::fmt::{count, counted};
 
 use super::picker::{FilePicker, PickerMode};
-use super::{App, FIELD_INPUT_FORMAT, FIELDS, Page, STAGES, StageSnapshot, command_line};
+use super::{
+    App, FIELD_INPUT_FORMAT, FIELDS, Page, STAGES, StageSnapshot, build_cli_from_form, command_line,
+};
 use crate::cli::FormatArg;
 use crate::run::Stage;
 
@@ -144,7 +146,7 @@ fn render_setup_page(f: &mut Frame, area: Rect, app: &mut App) {
         Constraint::Min(6),
     ])
     .areas(side);
-    let text = match command_line(app) {
+    let text = match build_cli_from_form(app).map(|cli| command_line(&app.self_bin, &cli)) {
         Ok(line) => Text::raw(line),
         Err(e) => Text::raw(format!("Not ready: {e:#}")).yellow(),
     };
