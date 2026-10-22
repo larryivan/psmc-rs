@@ -873,18 +873,18 @@ Hudson, μ = 2.5e-8, r = 1e-8), the curves are 7.7e-5 apart (at most
 traced. The M-steps are not what keeps them apart. psmc-rs's default fit
 is within 5e-7 of one whose M-steps run to the precision limit, and a port
 of C's Hooke-Jeeves search in place of its L-BFGS gives a curve 7.5e-5
-from C's. Nearly all the rest comes from
-C's expected counts, which leave out the last bin of each sequence
-(`em::posterior_sigma`): with that bin left out of psmc-rs's counts too,
-its curve is within 6.4e-6 of C's (the Hooke-Jeeves port within 8.0e-6),
-and on the reference data rounds 2 to 5 agree with C's log-likelihoods to
-a relative 2.8e-9 instead of 7.3e-8. Before the window starts the curves
-can differ more: the first λ, which the data barely determine, ran to the
-M-step's upper bound of 1e4 in psmc-rs (the run says so) and to 1.5e5 in
-C psmc, whose search has no bound; Ne in the first four intervals (up to
-about 8,600 years) is then 1.2 log10 units apart, and neither is an
-estimate. In E1 this happened in one of the 40 genomes (an expansion
-replicate, C psmc's first λ at 1.08e6), 2.03 log10 units apart.
+from C's. Nearly all the rest comes from C's expected counts, which leave
+out the last bin of each sequence (`em::posterior_sigma`): with that bin
+left out of psmc-rs's counts too, its curve is within 6.4e-6 of C's (the
+Hooke-Jeeves port within 8.0e-6), and on the reference data rounds 2 to 5
+agree with C's log-likelihoods to a relative 2.8e-9 instead of 7.3e-8.
+Before the window starts the curves can differ more: the first λ, which
+the data barely determine, ran to the M-step's upper bound of 1e4 in
+psmc-rs (the run says so) and to 1.5e5 in C psmc, whose search has no
+bound; Ne in the first four intervals (up to about 8,600 years) is then
+1.2 log10 units apart, and neither is an estimate. In E1 this happened in
+one of the 40 genomes (an expansion replicate, C psmc's first λ at
+1.08e6), 2.03 log10 units apart.
 
 Two ignored tests run the tools themselves:
 `VCFUTILS=/path/to/vcfutils.pl FQ2PSMCFA=/path/to/fq2psmcfa cargo test
