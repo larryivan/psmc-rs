@@ -34,6 +34,7 @@
 use anyhow::{Result, bail};
 use ndarray::Array2;
 use rayon::ThreadPool;
+use std::ops::Range;
 use std::sync::atomic::AtomicBool;
 
 use crate::io::CallableBases;
@@ -84,8 +85,8 @@ pub struct SufficientStats {
 /// a factor of its row times a factor of its column, and so is each above
 /// it, so the logarithms that Q weighs by the counts split into a row's and
 /// a column's (see `opt::objective`). The E-step computes these sums in
-/// O(states) per bin (`hmm::kernel`), the whole matrix of counts would
-/// take O(states²).
+/// O(states) per bin (`hmm::kernel`), where the whole matrix of counts
+/// would take O(states²).
 #[derive(Debug, Clone, PartialEq)]
 pub struct TransitionSums {
     /// `sum_{l < k} xi[k][l]`: from state `k` to an earlier interval.
@@ -117,16 +118,13 @@ impl TransitionSums {
     #[doc(hidden)]
     pub fn of(xi: &Array2<f64>) -> Self {
         let n = xi.nrows();
-        let sum = |cells: &mut dyn Iterator<Item = (usize, usize)>| cells.map(|c| xi[c]).sum();
+        let row = |k: usize, cols: Range<usize>| -> f64 { cols.map(|l| xi[(k, l)]).sum() };
+        let col = |l: usize, rows: Range<usize>| -> f64 { rows.map(|k| xi[(k, l)]).sum() };
         Self {
-            lower_rows: (0..n).map(|k| sum(&mut (0..k).map(|l| (k, l)))).collect(),
-            lower_cols: (0..n)
-                .map(|l| sum(&mut (l + 1..n).map(|k| (k, l))))
-                .collect(),
-            upper_rows: (0..n)
-                .map(|k| sum(&mut (k + 1..n).map(|l| (k, l))))
-                .collect(),
-            upper_cols: (0..n).map(|l| sum(&mut (0..l).map(|k| (k, l)))).collect(),
+            lower_rows: (0..n).map(|k| row(k, 0..k)).collect(),
+            lower_cols: (0..n).map(|l| col(l, l + 1..n)).collect(),
+            upper_rows: (0..n).map(|k| row(k, k + 1..n)).collect(),
+            upper_cols: (0..n).map(|l| col(l, 0..l)).collect(),
             diagonal: (0..n).map(|k| xi[(k, k)]).collect(),
         }
     }

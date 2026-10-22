@@ -404,10 +404,11 @@ fn e_step_impl<const FUSED: bool>(
     let np = k.np();
     let len = seq.len();
     let full_bytes = ((len + 1) * np + len) * std::mem::size_of::<f64>();
-    // With the O(n) kernel, recomputing a segment costs ~15% of a
-    // single-threaded E-step; keeping 8 * n bytes per site for that is not
-    // worth it (and its page faults and memory traffic make multi-threaded
-    // runs no faster).
+    // With the O(n) kernel, keeping every forward vector would save the
+    // recomputation, a quarter (64 states) to a third (23) of an E-step on
+    // one thread, for 8 * n bytes per site: 1.3 GB on Papuan chr1 with 64
+    // states, where the checkpoints take 10 MB. Its page faults and memory
+    // traffic made multi-threaded runs no faster.
     let reservation = if k.cheap_forward() {
         None
     } else {
