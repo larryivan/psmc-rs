@@ -281,7 +281,7 @@ fn read_rows(
 
     let mut seqs = Vec::new();
     let mut cur: Option<MhsChrom> = None;
-    let mut finished = HashSet::<String>::new();
+    let mut seen = HashSet::<String>::new();
     let mut file_haps = None;
 
     loop {
@@ -336,10 +336,9 @@ fn read_rows(
 
         if cur.as_ref().is_none_or(|c| c.name != chrom) {
             if let Some(done) = cur.take() {
-                finished.insert(done.name.clone());
                 seqs.push(done.seq.finish(done.name, done.prev_pos));
             }
-            if finished.contains(chrom) {
+            if !seen.insert(chrom.to_string()) {
                 bail!(
                     "invalid mhs row {row_no}: chromosome '{chrom}' appears again after another \
                      chromosome; the rows of each chromosome must form one block in position \

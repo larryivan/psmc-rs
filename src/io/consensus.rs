@@ -94,13 +94,11 @@ use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
 use crate::io::BinCounts;
-pub use crate::io::common::{DP_HISTOGRAM_CAP, DepthStats};
+pub use crate::io::common::DepthStats;
 use crate::io::common::{
     DepthCounter, HetCall, LineReader, SeqBuilder, is_regular_file, open_reader, reopen_reader,
 };
-use crate::io::vcf::{
-    MaskEngine, Uncallable, list_names, outside_mask_hint, outside_some_masks_hint, parse_pos,
-};
+use crate::io::vcf::{MaskEngine, Uncallable, list_names, mask_coverage_hints, parse_pos};
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -373,8 +371,10 @@ impl ConsensusSummary {
                 list_names(&self.discarded_chroms)
             ));
         }
-        out.extend(outside_mask_hint(&self.chroms_outside_mask));
-        out.extend(outside_some_masks_hint(&self.chroms_outside_some_masks));
+        out.extend(mask_coverage_hints(
+            &self.chroms_outside_mask,
+            &self.chroms_outside_some_masks,
+        ));
         out
     }
 }

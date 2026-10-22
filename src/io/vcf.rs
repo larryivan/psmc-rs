@@ -378,33 +378,34 @@ impl Uncallable {
     }
 }
 
-/// The warning for VCF chromosomes that no positive mask has a row for.
-pub(crate) fn outside_mask_hint(names: &[String]) -> Option<String> {
-    (!names.is_empty()).then(|| {
+/// The warnings about the VCF chromosomes the callable masks leave out
+/// entirely ([`MaskEngine::note_coverage`]): those no positive mask has a
+/// row for, and those some positive masks have rows for and others do not.
+pub(crate) fn mask_coverage_hints(
+    outside_mask: &[String],
+    outside_some_masks: &[String],
+) -> impl Iterator<Item = String> {
+    let outside = (!outside_mask.is_empty()).then(|| {
         format!(
             "the callable mask has no interval on {} ({} of the VCF's chromosomes), so every \
              position there is missing; check that the chromosome names in the mask match \
              the VCF (e.g. 'chr1' vs '1')",
-            list_names(names),
-            names.len()
+            list_names(outside_mask),
+            outside_mask.len()
         )
-    })
-}
-
-/// The warning for VCF chromosomes that some positive masks have rows for
-/// and others do not.
-pub(crate) fn outside_some_masks_hint(names: &[String]) -> Option<String> {
-    (!names.is_empty()).then(|| {
+    });
+    let outside_some = (!outside_some_masks.is_empty()).then(|| {
         format!(
             "some of the callable masks have intervals on {} ({} of the VCF's chromosomes) and \
              the others do not, so every position there is missing: the masks given with \
              --vcf-mask are intersected (a position must be in every one). To combine \
              per-chromosome masks, concatenate them into one file (e.g. cat mask_chr*.bed > \
              mask.bed) and give that file once",
-            list_names(names),
-            names.len()
+            list_names(outside_some_masks),
+            outside_some_masks.len()
         )
-    })
+    });
+    outside.into_iter().chain(outside_some)
 }
 
 /// Up to five names, comma-separated, then `...` if there are more.
@@ -682,14 +683,8 @@ impl VcfSummary {
         out
     }
 
-    /// The warnings about chromosomes the callable masks leave out entirely.
     fn mask_coverage_hints(&self) -> impl Iterator<Item = String> {
-        [
-            outside_mask_hint(&self.chroms_outside_mask),
-            outside_some_masks_hint(&self.chroms_outside_some_masks),
-        ]
-        .into_iter()
-        .flatten()
+        mask_coverage_hints(&self.chroms_outside_mask, &self.chroms_outside_some_masks)
     }
 }
 
@@ -1308,7 +1303,7 @@ pub(crate) fn read_vcf_seqs_from(
     let mut depth = DepthCounter::default();
     let mut depth_reader = DepthReader::default();
     let mut contig_lens = HashMap::<Vec<u8>, u64>::new();
-    let mut finished_chroms = HashSet::<String>::new();
+    let mut seen_chroms = HashSet::<String>::new();
     let mut cur: Option<ChromBuilder> = None;
     let mut seqs = Vec::<BinnedSeq>::new();
 
@@ -1332,7 +1327,7 @@ pub(crate) fn read_vcf_seqs_from(
             }
             continue;
         }
-        let idx = sample_idx.with_context(|| "VCF header '#CHROM' not found before records")?;
+        let idx = sample_idx.context("VCF header '#CHROM' not found before records")?;
         let rec = parse_record(s, idx, row_no)?;
         summary.records += 1;
         let (dp, from_info) = depth_reader.depth(&rec, single_sample);
@@ -1341,11 +1336,10 @@ pub(crate) fn read_vcf_seqs_from(
 
         if cur.as_ref().is_none_or(|c| c.name.as_bytes() != rec.chrom) {
             if let Some(done) = cur.take() {
-                finished_chroms.insert(done.name.clone());
                 seqs.push(done.finish(&mut summary));
             }
             let name = utf8_chrom(rec.chrom, row_no)?;
-            if finished_chroms.contains(name) {
+            if !seen_chroms.insert(name.to_string()) {
                 bail!(
                     "invalid VCF row {row_no}: chromosome '{name}' appears again after another \
                      chromosome; the VCF must be sorted (e.g. with bcftools sort)"

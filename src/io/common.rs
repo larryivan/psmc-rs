@@ -394,11 +394,8 @@ impl Binner {
 
     /// Add one called heterozygous site.
     pub fn add_het(&mut self) {
-        self.len += 1;
         self.has_het = true;
-        if self.len == self.bin_size {
-            self.emit();
-        }
+        self.add_run(1, false);
     }
 
     /// Flush the trailing partial bin (if any) and return the binned sequence,
