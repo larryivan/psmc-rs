@@ -369,7 +369,13 @@ on 32: the two runs wrote the same 103 files byte for byte
 \textbf{Run-time HMM kernels.} For models of up to 256 states the forward and
 backward steps take O(states) time per bin, from the rank-one triangles of
 PSMC's transition matrix, as Harris, Sheehan, Kamm and Song (2014, RECOMB,
-LNCS 8394:100--114) used them to decode coalescent HMMs in linear time. On
+LNCS 8394:100--114) used them to decode coalescent HMMs in linear time. So
+do the expected transition counts, for models of any size: within each
+triangle a transition probability is a factor of its row times a factor
+of its column, so C psmc's EM Q needs the counts only summed over each
+triangle's rows and columns and over the diagonal, which the E-step adds
+up from each bin's prefix and suffix sums (C's \texttt{QD} line, which needs
+every count, is not in psmc-rs's \texttt{.psmc} output). On
 x86-64 the release binary picks its kernels when it starts: code compiled
 for AVX2 and FMA on CPUs that have both, the portable code otherwise (or
 with \texttt{PSMC\_\allowbreak{}RS\_\allowbreak{}SIMD=portable}); aarch64 runs NEON code. The output JSON's
@@ -379,8 +385,9 @@ with \texttt{PSMC\_\allowbreak{}RS\_\allowbreak{}SIMD=portable}); aarch64 runs N
 \tightlist
 \item
   The AVX2 and FMA kernels fuse the multiply-adds of the O(states) forward
-  and backward products, as the NEON kernels do; no other x86-64 kernel
-  fuses, and no sum changes its order with the vector width. Their results
+  and backward products and transition sums, as the NEON kernels do; no
+  other x86-64 kernel fuses, and no sum changes its order with the vector
+  width. Their results
   are identical, to the bit, to those of a build for \texttt{x86-64-v3}, and from
   one CPU with AVX2 and FMA to another as long as the system math library
   gives the same \texttt{log} and \texttt{exp} on both (glibc picks a variant of them by
