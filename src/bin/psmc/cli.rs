@@ -215,19 +215,15 @@ fn subcommand(cmd: &clap::Command, arg: &OsStr) -> Option<String> {
 /// The subcommand named in `argv` after another argument, which is not the
 /// value of an option before it (`--qc-json qc` names a file).
 fn late_subcommand(cmd: &clap::Command, argv: &[OsString]) -> Option<String> {
-    let (first, rest) = argv.get(1..)?.split_first()?;
-    if first == "--" || subcommand(cmd, first).is_some() {
-        return None;
-    }
-    let mut is_value = takes_value(cmd, first);
-    for arg in rest {
+    let mut is_value = false;
+    for (i, arg) in argv.iter().enumerate().skip(1) {
         if !is_value {
             // Everything after `--` is a positional argument.
             if arg == "--" {
                 break;
             }
             if let Some(name) = subcommand(cmd, arg) {
-                return Some(name);
+                return (i > 1).then_some(name);
             }
         }
         is_value = !is_value && takes_value(cmd, arg);
