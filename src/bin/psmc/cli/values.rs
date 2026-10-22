@@ -13,10 +13,9 @@ use psmc_rs::opt::MStepConfig;
 use super::usage_bail;
 
 /// `--bin-callable`.
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, ValueEnum)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
 pub enum BinCallableArg {
     /// Weigh each called bin by its callable bases when they are counted exactly (VCF)
-    #[default]
     Auto,
     /// Treat every called bin as BIN_SIZE bases, as fq2psmcfa and C psmc do
     Ignore,

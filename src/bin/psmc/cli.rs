@@ -113,7 +113,7 @@ Examples:
   psmc-rs qc sample.psmcfa --json qc.json";
 
 /// The command line: inference unless a subcommand is given.
-#[derive(Parser, Debug, Clone)]
+#[derive(Parser, Debug)]
 #[command(
     name = "psmc-rs",
     version,
@@ -251,7 +251,7 @@ fn takes_value(cmd: &clap::Command, arg: &OsStr) -> bool {
 }
 
 /// The subcommands.
-#[derive(Subcommand, Debug, Clone)]
+#[derive(Subcommand, Debug)]
 pub enum Command {
     /// Write an input as psmcfa or multihetsep.
     ///
@@ -274,7 +274,7 @@ psmc-rs convert [OPTIONS] <INPUT> --psmcfa <FILE>
        psmc-rs convert [OPTIONS] <INPUT> --multihetsep-per-chrom <PREFIX>";
 
 /// `psmc-rs convert`.
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug)]
 #[command(override_usage = CONVERT_USAGE)]
 #[command(group(
     ArgGroup::new("outputs")
@@ -321,7 +321,7 @@ pub struct ConvertArgs {
 }
 
 /// `psmc-rs qc`.
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug)]
 pub struct QcArgs {
     /// Input file: psmcfa, multihetsep or VCF (gzip/bgzip allowed)
     #[arg(value_name = "INPUT")]

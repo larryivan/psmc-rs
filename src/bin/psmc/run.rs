@@ -54,7 +54,7 @@ pub enum Stage {
 }
 
 /// What the pipeline reports while it runs.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Event {
     /// A line of information.
     Info(String),
