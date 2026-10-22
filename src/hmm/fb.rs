@@ -551,6 +551,12 @@ fn backward_blocks<const FUSED: bool>(
     let np = k.np();
     let n_seg = seq.n_segments();
     let segs = |b: usize| b * BLOCK..n_seg.min((b + 1) * BLOCK);
+    // Adds the transition sums of pipelined block `b` to `trans`.
+    let flush = |ws: &mut Workspace, trans: &mut [f64], b: usize| {
+        let after = Some((segs(b), &ws.blocks[b % 3]));
+        let sums = &mut ws.block_sums;
+        pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, sums, trans, || Ok(()))
+    };
     // Whether the block after the current one was pipelined: then the
     // current one is recomputed, and the transition sums of the one after
     // are not yet in acc.trans.
@@ -586,18 +592,14 @@ fn backward_blocks<const FUSED: bool>(
             piped = true;
         } else {
             if piped {
-                let after = Some((segs(b + 1), &ws.blocks[(b + 1) % 3]));
-                let (sums, trans) = (&mut ws.block_sums, &mut acc.trans);
-                pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, sums, trans, || Ok(()))?;
+                flush(ws, &mut acc.trans, b + 1)?;
                 piped = false;
             }
             backward_segments::<FUSED>(k, seq, segs(b), None, ws, acc, ctx)?;
         }
     }
     if piped {
-        let after = Some((segs(0), &ws.blocks[0]));
-        let (sums, trans) = (&mut ws.block_sums, &mut acc.trans);
-        pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, sums, trans, || Ok(()))?;
+        flush(ws, &mut acc.trans, 0)?;
     }
     Ok(())
 }
