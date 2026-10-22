@@ -163,7 +163,13 @@ fn warnings_come_before_notes() {
 #[test]
 fn brief_text_has_no_sequence_table() {
     let r = report();
-    let brief = render_text_with(&r, &TextOptions::brief());
+    let brief = render_text_with(
+        &r,
+        &TextOptions {
+            sequence_rows: 0,
+            ..TextOptions::default()
+        },
+    );
     assert!(!brief.contains("Sequences ("));
     let full = render_text(&r);
     assert!(full.starts_with(&brief));

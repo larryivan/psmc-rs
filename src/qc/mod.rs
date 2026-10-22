@@ -8,14 +8,13 @@
 //! [`QcCode`], the measured numbers and a recommendation. The rationale of
 //! each check is documented on its code. The report serialises to JSON with
 //! serde ([`QcReport::to_json`]) and renders as aligned text
-//! ([`render_text`], or [`render_text_with`] and [`TextOptions::brief`] for
-//! the short block printed before a fit).
+//! ([`render_text`], or [`render_text_with`] and its [`TextOptions`]).
 //!
 //! Bins follow the psmcfa convention: 0 = `T` (called, no heterozygous site),
 //! 1 = `K` (at least one heterozygous site), anything else = `N` (missing).
 //!
 //! ```
-//! use psmc_rs::qc::{QcCode, QcContext, QcInput, QcSeq, TextOptions, analyze, render_text_with};
+//! use psmc_rs::qc::{QcCode, QcContext, QcInput, QcSeq, analyze, render_text};
 //!
 //! // chr1 is split into two rows of one HMM chain; chrM is one row.
 //! let rows = vec![vec![0, 1, 0, 2], vec![2, 0, 1], vec![0; 166]];
@@ -35,7 +34,7 @@
 //! assert_eq!(report.totals.k_bins, 2);
 //! assert_eq!(report.sequences[0].stats.longest_missing_run_bins, 2);
 //! assert!(report.finding(QcCode::SexOrOrganelle).is_some());
-//! println!("{}", render_text_with(&report, &TextOptions::brief()));
+//! println!("{}", render_text(&report));
 //! let json = report.to_json();
 //! # assert!(json.contains("\"SEX_OR_ORGANELLE\""));
 //! ```

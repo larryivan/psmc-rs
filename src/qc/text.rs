@@ -30,17 +30,6 @@ impl Default for TextOptions {
     }
 }
 
-impl TextOptions {
-    /// Findings and metrics without the sequence table, for the QC block
-    /// printed before a fit.
-    pub fn brief() -> Self {
-        Self {
-            sequence_rows: 0,
-            ..Self::default()
-        }
-    }
-}
-
 /// [`render_text_with`] with [`TextOptions::default`].
 pub fn render_text(report: &QcReport) -> String {
     render_text_with(report, &TextOptions::default())
