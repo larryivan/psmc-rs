@@ -1134,16 +1134,35 @@ impl ChromBuilder {
         self.cursor = p.pos + 1;
     }
 
-    /// Add a record; `pos` must not be smaller than any earlier record's.
-    /// `block_end` is the END of a gVCF block, `ref_end` the last position
-    /// of its REF allele.
+    /// Add the record of data row `row_no`, which must not come before the
+    /// previous one nor lie beyond the contig length.
     fn add_record(
         &mut self,
-        pos: u64,
-        class: Class,
-        (ref_end, block_end): (u64, Option<u64>),
+        rec: &Record<'_>,
+        keep_filtered: bool,
+        row_no: usize,
         s: &mut VcfSummary,
-    ) {
+    ) -> Result<()> {
+        let pos = rec.pos;
+        if pos < self.last_pos {
+            bail!(
+                "invalid VCF row {row_no}: POS {pos} on '{}' comes after POS {}; the VCF must be \
+                 sorted by position (e.g. with bcftools sort)",
+                self.name,
+                self.last_pos
+            );
+        }
+        if let Some(len) = self.contig_len.filter(|&len| pos > len) {
+            bail!(
+                "invalid VCF row {row_no}: POS {pos} on '{}' is beyond the ##contig length {len}",
+                self.name,
+            );
+        }
+        // A block reaching past the contig (or past any real chromosome)
+        // ends there.
+        let block_end = gvcf_block_end(pos, rec.alt, rec.info)
+            .map(|end| end.min(self.contig_len.unwrap_or(MAX_POS)));
+        let class = classify(rec, keep_filtered, block_end, row_no, s)?;
         self.last_block_end = max(self.last_block_end, block_end.unwrap_or(0));
         match self.pending.as_mut() {
             Some(p) if p.pos == pos => {
@@ -1165,8 +1184,10 @@ impl ChromBuilder {
         if let Some(e) = class.span_end {
             self.miss_until = max(self.miss_until, e);
         }
-        self.covered_until = max(self.covered_until, max(ref_end, block_end.unwrap_or(0)));
+        let covered = max(rec.ref_end(), block_end.unwrap_or(0));
+        self.covered_until = max(self.covered_until, covered);
         self.last_pos = pos;
+        Ok(())
     }
 
     /// Emit everything up to the end of the sequence and return it, with
@@ -1359,28 +1380,7 @@ pub(crate) fn read_vcf_seqs_from(
             )?);
         }
         let chrom = cur.as_mut().expect("chromosome state was just set");
-        if rec.pos < chrom.last_pos {
-            bail!(
-                "invalid VCF row {row_no}: POS {} on '{}' comes after POS {}; the VCF must be \
-                 sorted by position (e.g. with bcftools sort)",
-                rec.pos,
-                chrom.name,
-                chrom.last_pos
-            );
-        }
-        if let Some(len) = chrom.contig_len.filter(|&len| rec.pos > len) {
-            bail!(
-                "invalid VCF row {row_no}: POS {} on '{}' is beyond the ##contig length {len}",
-                rec.pos,
-                chrom.name,
-            );
-        }
-        // A block reaching past the contig (or past any real chromosome)
-        // ends there.
-        let block_end = gvcf_block_end(rec.pos, rec.alt, rec.info)
-            .map(|end| end.min(chrom.contig_len.unwrap_or(MAX_POS)));
-        let class = classify(&rec, opts.keep_filtered, block_end, row_no, &mut summary)?;
-        chrom.add_record(rec.pos, class, (rec.ref_end(), block_end), &mut summary);
+        chrom.add_record(&rec, opts.keep_filtered, row_no, &mut summary)?;
     }
     if let Some(done) = cur.take() {
         seqs.push(done.finish(&mut summary));
