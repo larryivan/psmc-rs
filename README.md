@@ -715,7 +715,7 @@ recomputes each 128-bin segment for the backward pass, so its
 memory still grows with sequence length, but at 1/128 of the rate: about
 bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
-at 21 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
+at 19 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
 of eight copies of it (19.9 M bins).
 
 Sequences are processed in parallel. While at least half the threads are
