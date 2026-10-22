@@ -744,12 +744,15 @@ The manuscript's experiment E3 timed the tools under a controlled protocol
 on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
 exclusive node, 5 repeats on five nodes, 25 EM iterations of
 `-N25 -t15 -r5 -p "4+25*2+4+6"` on simulated genomes of 100 Mb
-chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`. On 3000 Mb
-(30 chromosomes) psmc-rs 0.2 took a median 519 s on 1 thread, 36.0 s on
-16 and 18.3 s on 30, against 4,446 s for C psmc: 8.6, 123 and 243 times as
-fast. psmc-rs 0.2 peaked at 36 MB of resident memory on 1 thread and
-148 MB on 30, C psmc at 1,062 MB. Every size and thread count, the ranges
-over the repeats, the thread scaling and the outputs' determinism are in
+chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`, psmc-rs in
+an earlier build of 0.2, whose E-step still summed the expected
+transitions in O(states²): one chromosome took it 17.2 s on 1, 8 and 30
+threads, against the 10.5 to 10.6 s above. On 3000 Mb (30 chromosomes) it
+took a median 519 s on 1 thread, 36.0 s on 16 and 18.3 s on 30, against
+4,446 s for C psmc: 8.6, 123 and 243 times as fast. It peaked at 36 MB of
+resident memory on 1 thread and 148 MB on 30, C psmc at 1,062 MB. Every
+size and thread count, the ranges over the repeats, the thread scaling
+and the outputs' determinism are in
 [Supplementary Note 1, section 10](experiment/Supplementary_Note_1_Reproducibility.md#10-performance-e3).
 
 Use a release build, and `-q --no-progress` for batch runs. The model has
