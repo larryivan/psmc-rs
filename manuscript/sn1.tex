@@ -728,8 +728,8 @@ peak memory (MB) & 35.8 & 39.8 & 46.2 & 61.5 & 93.9 & 148.0 \\
 \end{longtable}
 }
 
-The psmc-rs of these runs processed sequences in parallel, each on one
-thread, so its wall time stops improving once the threads reach the
+psmc-rs processes sequences in parallel, and a single sequence runs on
+one thread, so its wall time stops improving once the threads reach the
 number of chromosomes: on 100 Mb (one chromosome) it took 17.25, 17.24 and
 17.25 s on 1, 8 and 30 threads, on 300 Mb (three) 18.27 s on both 8 and
 30, and every genome took 17.2 to 18.3 s on at least as many threads as
