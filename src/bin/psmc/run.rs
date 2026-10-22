@@ -28,7 +28,7 @@ use psmc_rs::report::{
 };
 
 use self::bootstrap::{Bootstrap, BootstrapPlan, earlier_bootstrap_warning};
-use self::fit::{decode_tmrca, fit, model_loglike, near_bounds_warning};
+use self::fit::{decode_tmrca, fit};
 use self::start::{check_starts, fit_start, saved_start, starting_model};
 use crate::cli::{BinCallableArg, InferArgs, layout_model, usage_bail};
 use crate::dataset::{
@@ -198,19 +198,7 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
         progress: false,
         ..MStepConfig::default()
     };
-    let history = fit(&mut model, obs, n_iter, &mstep_config, ctx)?;
-    let final_loglike = match history.final_loglike() {
-        Some(ll) => ll,
-        // EM evaluates no parameters in 0 iterations; the written model is
-        // the starting one, and the JSON's loglike starts with its value.
-        None => model_loglike(&model, obs, ctx)?,
-    };
-    ctx.output(format!("Last EM loglike: {final_loglike}"));
-    if n_iter > 0
-        && let Some(msg) = near_bounds_warning(&model, &mstep_config)
-    {
-        ctx.warn(msg);
-    }
+    let (history, final_loglike) = fit(&mut model, obs, n_iter, &mstep_config, ctx)?;
     ctx.check_cancel()?;
 
     // The main fit's outputs are written before the bootstrap, which can

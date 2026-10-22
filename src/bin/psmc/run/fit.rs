@@ -16,48 +16,17 @@ use psmc_rs::opt::{MStepConfig, bounds_from_config};
 use super::{Context, Event, Stage};
 use crate::cli::InferArgs;
 
-/// `n_iter` EM iterations of `model` on `obs`, reporting progress.
+/// `n_iter` EM iterations of `model` on `obs`, reporting progress, the
+/// log-likelihood of the fitted model and the parameters left on the
+/// M-step's bounds; returns the EM history and that log-likelihood.
 pub(super) fn fit(
     model: &mut PsmcModel,
     obs: &Observations,
     n_iter: usize,
     mstep_config: &MStepConfig,
     ctx: Context,
-) -> Result<EmHistory> {
-    let mut on_progress = |ev: EmProgressEvent| {
-        (ctx.sink)(match ev {
-            EmProgressEvent::IterStart { iter, total_iters } => Event::Iteration {
-                iter,
-                total: total_iters,
-            },
-            EmProgressEvent::EStep {
-                iter,
-                total_iters,
-                phase,
-                done,
-                total,
-            } => Event::Progress {
-                stage: match phase {
-                    EStepPhase::Forward => Stage::EForward,
-                    EStepPhase::Backward => Stage::EBackward,
-                },
-                done,
-                total,
-                iter: Some((iter, total_iters)),
-            },
-            EmProgressEvent::MStep {
-                iter,
-                total_iters,
-                done,
-                total,
-            } => Event::Progress {
-                stage: Stage::MStep,
-                done: done as u64,
-                total: total as u64,
-                iter: Some((iter, total_iters)),
-            },
-        })
-    };
+) -> Result<(EmHistory, f64)> {
+    let mut on_progress = |ev| (ctx.sink)(em_event(ev));
     let history = em_train_with_options(
         model,
         &obs.rows,
@@ -72,13 +41,61 @@ pub(super) fn fit(
         },
     )?;
     model.param_recalculate()?;
-    Ok(history)
+    let final_loglike = match history.final_loglike() {
+        Some(ll) => ll,
+        // EM evaluates no parameters in 0 iterations; the written model is
+        // the starting one, and the JSON's loglike starts with its value.
+        None => model_loglike(model, obs, ctx)?,
+    };
+    ctx.output(format!("Last EM loglike: {final_loglike}"));
+    if n_iter > 0
+        && let Some(msg) = near_bounds_warning(model, mstep_config)
+    {
+        ctx.warn(msg);
+    }
+    Ok((history, final_loglike))
+}
+
+/// The pipeline's event for a progress event of EM.
+fn em_event(ev: EmProgressEvent) -> Event {
+    match ev {
+        EmProgressEvent::IterStart { iter, total_iters } => Event::Iteration {
+            iter,
+            total: total_iters,
+        },
+        EmProgressEvent::EStep {
+            iter,
+            total_iters,
+            phase,
+            done,
+            total,
+        } => Event::Progress {
+            stage: match phase {
+                EStepPhase::Forward => Stage::EForward,
+                EStepPhase::Backward => Stage::EBackward,
+            },
+            done,
+            total,
+            iter: Some((iter, total_iters)),
+        },
+        EmProgressEvent::MStep {
+            iter,
+            total_iters,
+            done,
+            total,
+        } => Event::Progress {
+            stage: Stage::MStep,
+            done: done as u64,
+            total: total as u64,
+            iter: Some((iter, total_iters)),
+        },
+    }
 }
 
 /// Log-likelihood of `model` on `obs` (with its callable bases when the fit
 /// uses them), by the forward pass with which EM evaluates the parameters
 /// it ends with.
-pub(super) fn model_loglike(model: &PsmcModel, obs: &Observations, ctx: Context) -> Result<f64> {
+fn model_loglike(model: &PsmcModel, obs: &Observations, ctx: Context) -> Result<f64> {
     let mut on_progress = |p: EStepProgress| {
         (ctx.sink)(Event::Progress {
             stage: Stage::EForward,
@@ -154,7 +171,7 @@ fn near(v: f64, lo: f64, hi: f64) -> (bool, bool) {
 
 /// A warning when fitted parameters sit on the M-step's bounds, saying
 /// what that means for each kind (the CLI has no option to move them).
-pub(super) fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
+fn near_bounds_warning(model: &PsmcModel, cfg: &MStepConfig) -> Option<String> {
     // The parameters in the order of their bounds: theta, rho, t_max, then
     // the lambdas.
     let names = ["theta", "rho", "t_max"].map(String::from).into_iter();
