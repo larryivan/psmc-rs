@@ -161,12 +161,14 @@ pub struct EStepResult {
     pub loglike: f64,
 }
 
+/// The pass that an [`EStepProgress`] reports on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EStepPhase {
     Forward,
     Backward,
 }
 
+/// `done` of the `total` sites of an E-step or log-likelihood, in `phase`.
 #[derive(Debug, Clone, Copy)]
 pub struct EStepProgress {
     pub phase: EStepPhase,
@@ -174,6 +176,10 @@ pub struct EStepProgress {
     pub total: u64,
 }
 
+/// What the HTML report draws of a TMRCA decoding: `[bin, years]` of the
+/// posterior mean, the most probable state and the 2.5% and 97.5%
+/// quantiles at the sampled bins, and each state's posterior mass over all
+/// bins and its time.
 #[derive(Debug, Clone)]
 pub struct TmrcaReportData {
     pub sampled_mean: Vec<[f64; 2]>,
