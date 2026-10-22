@@ -19,7 +19,10 @@ fn styled(pb: ProgressBar, prefix: &str, msg: &str) -> ProgressBar {
     )
     .expect("a valid template")
     .progress_chars("█▇▆▅▄▃▂▁ ");
-    pb.with_style(style)
-        .with_prefix(prefix.to_string())
-        .with_message(msg.to_string())
+    let pb = pb.with_style(style);
+    // The setters draw, unlike `with_prefix` and `with_message`: a bar shows
+    // at 0% as soon as it is made.
+    pb.set_prefix(prefix.to_string());
+    pb.set_message(msg.to_string());
+    pb
 }
