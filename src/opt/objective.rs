@@ -346,9 +346,9 @@ impl<'a> Objective<'a> {
         } else {
             f64::NAN
         };
-        // Not a valid HMM (a NaN probability made `valid` false, so
-        // `row_deviation`, whose `max` skips NaN, is a number), or a value
-        // that is not finite.
+        // Not a valid HMM: a probability negative or not a number (which
+        // `row_deviation` cannot show, as `max` skips NaN), or a row that
+        // does not sum to 1; or a value that is not finite.
         if !rows.valid || rows.row_deviation > self.row_tolerance || !rows.q.is_finite() {
             grad.fill(f64::NAN);
             return f64::INFINITY;

@@ -2,10 +2,10 @@
 //! written for Heng Li's psmc.
 //!
 //! [`write_psmc`] writes what C psmc (lh3/psmc 0.6.5) writes for a run
-//! without decoding, but C's `QD` line: a `CC` block describing the format
-//! (C's), `MM` lines with the settings and the size of the data, then one
-//! block per round, for round 0 (the starting parameters) and each EM
-//! iteration:
+//! without decoding, except its `QD` line (below): a `CC` block describing
+//! the format (C's), `MM` lines with the settings and the size of the data,
+//! then one block per round, for round 0 (the starting parameters) and each
+//! EM iteration:
 //!
 //! ```text
 //! IT  objective evaluations of the round's M-step (not before round 0)

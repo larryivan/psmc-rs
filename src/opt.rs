@@ -349,6 +349,16 @@ mod tests {
         fn log_uniform(&mut self, lo: f64, hi: f64) -> f64 {
             (lo.ln() + (hi.ln() - lo.ln()) * self.next()).exp()
         }
+
+        /// An expected count of 1e-4 to 1 times `scale`, or 0 with
+        /// probability `zeros`.
+        fn count(&mut self, scale: f64, zeros: f64) -> f64 {
+            if self.next() < zeros {
+                0.0
+            } else {
+                scale * self.log_uniform(1e-4, 1.0)
+            }
+        }
     }
 
     /// The model of `n_steps` and `pattern` with θ, ρ and t_max as given and
@@ -532,13 +542,7 @@ mod tests {
         n_bins: f64,
         zeros: f64,
     ) -> (SufficientStats, Array2<f64>) {
-        let mut count = |scale: f64| {
-            if rng.next() < zeros {
-                0.0
-            } else {
-                scale * rng.log_uniform(1e-4, 1.0)
-            }
-        };
+        let mut count = |scale: f64| rng.count(scale, zeros);
         let per_state = n_bins / states as f64;
         let mut xi = Array2::zeros((states, states));
         for ((k, l), v) in xi.indexed_iter_mut() {
@@ -635,13 +639,7 @@ mod tests {
     ) -> SufficientStats {
         let mut stats = synthetic_stats(rng, states, n_bins, zeros);
         let per_state = n_bins / states as f64;
-        let mut count = |scale: f64| {
-            if rng.next() < zeros {
-                0.0
-            } else {
-                scale * rng.log_uniform(1e-4, 1.0)
-            }
-        };
+        let mut count = |scale: f64| rng.count(scale, zeros);
         let t_weighted = (0..states).map(|_| count(per_state)).collect();
         let k_by_count = [1u16, 10, 37, 64, 99, 100]
             .into_iter()
