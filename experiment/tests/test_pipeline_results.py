@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 import sys
@@ -72,6 +73,17 @@ class CReference(unittest.TestCase):
         first = self.psmc.complete_rounds()[0]
         self.assertEqual((first.round, first.t_max), (0, 15.0))
         self.assertNotIn(-1, self.psmc.loglikes())  # its LK is a placeholder, not a log-likelihood
+
+    def test_files_without_qd_lines(self):
+        # psmc-rs writes C's lines but QD: such a file reads as C's, without QD.
+        self.assertEqual(self.psmc.rounds[1].qd, (-91.874311, -34.981231))
+        lines = C_REF.read_text().splitlines(keepends=True)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "rs.psmc"
+            path.write_text("".join(line for line in lines if not line.startswith("QD\t")))
+            rs = results.parse_psmc(path)
+        self.assertEqual(rs.header, self.psmc.header)
+        self.assertEqual(rs.rounds, [dataclasses.replace(r, qd=None) for r in self.psmc.rounds])
 
 
 class RsJson(unittest.TestCase):

@@ -154,7 +154,7 @@ class Round:
 
     round: int
     lk: Optional[float] = None
-    qd: Optional[Tuple[float, float]] = None
+    qd: Optional[Tuple[float, float]] = None  # C psmc's files only: psmc-rs writes no QD line
     ri: Optional[float] = None
     theta: Optional[float] = None
     rho: Optional[float] = None
@@ -229,7 +229,7 @@ def _parse_pa(rest: str) -> Dict:
 
 
 def parse_psmc(path: Path) -> PsmcFile:
-    """Every round of a ``.psmc`` file: LK, QD, RI, TR, MT, C_pi/n_recomb, RS and PA lines."""
+    """Every round of a ``.psmc`` file: LK, QD (C psmc's only), RI, TR, MT, C_pi/n_recomb, RS and PA lines."""
     header: Dict = {}
     rounds: List[Round] = []
     cur: Optional[Round] = None
