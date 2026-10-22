@@ -1077,16 +1077,14 @@ fn read_consensus_from(
             let name = utf8_chrom(f[0], row_no)?;
             // Each name is listed once, from its first or second block, so
             // no list is searched (assemblies can have a million scaffolds).
-            let first_block = seen.insert(f[0].to_vec());
-            if !first_block && repeated.insert(f[0].to_vec()) {
-                summary.repeated_chroms.push(name.to_string());
-            }
-            if first_block {
+            if seen.insert(f[0].to_vec()) {
                 masks.note_coverage(
                     name,
                     &mut summary.chroms_outside_mask,
                     &mut summary.chroms_outside_some_masks,
                 );
+            } else if repeated.insert(f[0].to_vec()) {
+                summary.repeated_chroms.push(name.to_string());
             }
             let uncallable = masks.uncallable_for_chrom(name);
             cur = Some(Chrom::new(
