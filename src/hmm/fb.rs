@@ -139,7 +139,6 @@ impl Ctx<'_> {
 
 /// Per-thread scratch buffers, reused across the sequences of one work item.
 pub(crate) struct Workspace {
-    np: usize,
     obs: Vec<u16>,
     /// Forward vectors of one segment: row 0 is the vector before the segment.
     rows: Vec<f64>,
@@ -161,7 +160,6 @@ pub(crate) struct Workspace {
 impl Workspace {
     pub(crate) fn new(np: usize) -> Self {
         Self {
-            np,
             obs: vec![0; K],
             rows: vec![0.0; (K + 1) * np],
             c: vec![0.0; K],
@@ -269,7 +267,7 @@ fn forward_pass<const FUSED: bool>(
     keep: Keep<'_>,
     ctx: &Ctx<'_>,
 ) -> Result<f64> {
-    let np = ws.np;
+    let np = k.np();
     let n_seg = seq.n_segments();
     let mut loglike = 0.0;
     match keep {
@@ -359,23 +357,25 @@ fn recompute_segment<const FUSED: bool>(
 }
 
 dispatch! {
-    /// Log-likelihood of one sequence (forward pass only, nothing stored).
-    pub(crate) fn log_likelihood(
+    /// [`forward_pass`] as a pass of its own: the log-likelihood, and the
+    /// forward checkpoints of posterior decoding.
+    fn forward(
         k: &Kernel,
         seq: &SeqObs<'_>,
         ws: &mut Workspace,
+        keep: Keep<'_>,
         ctx: &Ctx<'_>,
-    ) -> Result<f64> = log_likelihood_impl;
+    ) -> Result<f64> = forward_pass;
 }
 
-#[inline(always)]
-fn log_likelihood_impl<const FUSED: bool>(
+/// Log-likelihood of one sequence (forward pass only, nothing stored).
+pub(crate) fn log_likelihood(
     k: &Kernel,
     seq: &SeqObs<'_>,
     ws: &mut Workspace,
     ctx: &Ctx<'_>,
 ) -> Result<f64> {
-    forward_pass::<FUSED>(k, seq, ws, Keep::Nothing, ctx)
+    forward(k, seq, ws, Keep::Nothing, ctx)
 }
 
 dispatch! {
@@ -401,7 +401,7 @@ fn e_step_impl<const FUSED: bool>(
     budget: &AlphaCacheBudget,
     ctx: &Ctx<'_>,
 ) -> Result<()> {
-    let np = ws.np;
+    let np = k.np();
     let len = seq.len();
     let full_bytes = ((len + 1) * np + len) * std::mem::size_of::<f64>();
     // With the O(n) kernel, recomputing a segment costs ~15% of a
@@ -451,7 +451,7 @@ fn backward_segments<const FUSED: bool>(
     acc: &mut Partial,
     ctx: &Ctx<'_>,
 ) -> Result<()> {
-    let np = ws.np;
+    let np = k.np();
     let Workspace {
         obs,
         rows: seg_rows,
@@ -547,7 +547,7 @@ fn backward_blocks<const FUSED: bool>(
     ctx: &Ctx<'_>,
     spare: impl Fn() -> bool,
 ) -> Result<()> {
-    let np = ws.np;
+    let np = k.np();
     let n_seg = seq.n_segments();
     let segs = |b: usize| b * BLOCK..n_seg.min((b + 1) * BLOCK);
     // Whether the block after the current one was pipelined: then the
@@ -772,31 +772,15 @@ pub(crate) fn decode_checkpoints(
     seq: &SeqObs<'_>,
     ctx: &Ctx<'_>,
 ) -> Result<DecodeCheckpoints> {
-    let (fwd, bwd) = rayon::join(
-        || forward_checkpoints(k, seq, ctx),
-        || backward_checkpoints(k, seq, ctx),
-    );
+    let alpha = || {
+        let mut ws = Workspace::new(k.np());
+        forward(k, seq, &mut ws, Keep::Checkpoints, ctx).map(|_| ws.ckpt)
+    };
+    let (alpha, beta) = rayon::join(alpha, || backward_checkpoints(k, seq, ctx));
     Ok(DecodeCheckpoints {
-        alpha: fwd?,
-        beta: bwd?,
+        alpha: alpha?,
+        beta: beta?,
     })
-}
-
-dispatch! {
-    /// [`DecodeCheckpoints::alpha`].
-    fn forward_checkpoints(k: &Kernel, seq: &SeqObs<'_>, ctx: &Ctx<'_>) -> Result<Vec<f64>> =
-        forward_checkpoints_impl;
-}
-
-#[inline(always)]
-fn forward_checkpoints_impl<const FUSED: bool>(
-    k: &Kernel,
-    seq: &SeqObs<'_>,
-    ctx: &Ctx<'_>,
-) -> Result<Vec<f64>> {
-    let mut ws = Workspace::new(k.np());
-    forward_pass::<FUSED>(k, seq, &mut ws, Keep::Checkpoints, ctx)?;
-    Ok(ws.ckpt)
 }
 
 dispatch! {
@@ -893,7 +877,7 @@ fn segment_posteriors_impl<'w, const FUSED: bool>(
     s: usize,
     ws: &'w mut Workspace,
 ) -> Result<(&'w [u16], &'w [f64])> {
-    let np = ws.np;
+    let np = k.np();
     let (start, len) = seq.segment(s);
     let Workspace {
         obs,
@@ -932,7 +916,7 @@ fn sequence_posteriors_impl<'w, const FUSED: bool>(
     seq: &SeqObs<'_>,
     ws: &'w mut Workspace,
 ) -> Result<(&'w [u16], &'w [f64])> {
-    let np = ws.np;
+    let np = k.np();
     let len = seq.len();
     let Workspace {
         obs,
@@ -1043,7 +1027,7 @@ mod tests {
         let mut acc = Partial::new(table.len(), np);
         let ll = run!(
             run,
-            log_likelihood_impl | log_likelihood(k, &seq, &mut ws, &ctx)
+            forward_pass | forward(k, &seq, &mut ws, Keep::Nothing, &ctx)
         );
         let mut out = vec![vec![ll.unwrap()]];
         run!(
@@ -1052,12 +1036,13 @@ mod tests {
         )
         .unwrap();
         out.extend([vec![acc.loglike], acc.g, acc.trans]);
+        run!(
+            run,
+            forward_pass | forward(k, &seq, &mut ws, Keep::Checkpoints, &ctx)
+        )
+        .unwrap();
         let ckpt = DecodeCheckpoints {
-            alpha: run!(
-                run,
-                forward_checkpoints_impl | forward_checkpoints(k, &seq, &ctx)
-            )
-            .unwrap(),
+            alpha: std::mem::take(&mut ws.ckpt),
             beta: run!(
                 run,
                 backward_checkpoints_impl | backward_checkpoints(k, &seq, &ctx)
