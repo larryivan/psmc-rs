@@ -280,7 +280,7 @@ fn rounds_report_the_em_history() {
         let model = model_at(template, p);
         assert_eq!(r.sigma, model.sigma);
         assert_eq!(r.lambda, model.map_lam(&model.lam).unwrap());
-        assert_eq!(r.t, model.compute_t(0.1)[..r.sigma.len()]);
+        assert_eq!(r.t, model.compute_t()[..r.sigma.len()]);
         assert_eq!(
             (r.c_pi, r.n_recomb),
             (model.c_pi(), model.n_recomb(150_947))

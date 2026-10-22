@@ -102,7 +102,7 @@ fn avg_t_matches_an_independent_computation() {
     // itself as the fallback when that leaves the interval.
     for model in random_models(0x2545_F491_4F6C_DD1D, 10) {
         let avg = model.avg_t();
-        let t = model.compute_t(0.1);
+        let t = model.compute_t();
         let lam = model.map_lam(&model.lam).unwrap();
         let n = model.n_steps;
         for k in 0..=n {

@@ -766,8 +766,7 @@ mod tests {
     /// parameters at the unconstrained point `x`.
     fn log_survival_to_t_max(model: &PsmcModel, x: &[f64], bounds: &[Bounds]) -> f64 {
         let at_x = model_at(model, x, bounds);
-        let t = at_x.compute_t(crate::model::GRID_ALPHA);
-        let lam = at_x.map_lam(&at_x.lam).unwrap();
+        let (t, lam) = (&at_x.t, at_x.map_lam(&at_x.lam).unwrap());
         (0..at_x.n_steps).map(|k| (t[k + 1] - t[k]) / lam[k]).sum()
     }
 

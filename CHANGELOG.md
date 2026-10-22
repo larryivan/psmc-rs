@@ -155,6 +155,8 @@ Library API:
 - `PsmcModel::new` rejects `n_steps` 0, single-state and overflowing
   patterns, more than `model::MAX_STATES` (10,000) states, and `t_max`
   outside (0, 1000).
+- `PsmcModel::compute_t` takes no argument: the grid's `alpha` is
+  C psmc's 0.1, the one the model's HMM is computed with.
 - `read_psmcfa` fails on input without a `>` record; `read_vcf` fails on
   unsorted positions, a chromosome that comes back, a record beyond its
   `##contig` length and a genotype allele that ALT lacks.

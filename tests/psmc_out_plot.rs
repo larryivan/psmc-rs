@@ -364,7 +364,7 @@ fn check_curve(run: &Run, options: &str, expected_round: usize, n_points: usize)
     model.mu = o.u;
     model.param_recalculate().unwrap();
     let curve = model.ne_curve(o.s, o.g).unwrap();
-    let t = model.compute_t(0.1);
+    let t = model.compute_t();
     let lam = model.map_lam(&model.lam).unwrap();
 
     assert_eq!(data[0].rows.len(), n_points, "{options}");

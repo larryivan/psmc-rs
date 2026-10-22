@@ -339,7 +339,7 @@ fn input_with_lengths(seed: u64, lens: &[usize]) -> Input {
         *l = rng.gen_range(0.3..3.0);
     }
     model.param_recalculate().unwrap();
-    let t = model.compute_t(0.1);
+    let t = model.compute_t();
     let n0 = model.theta / (4.0 * model.mu * 100.0);
     let years = (0..=model.n_steps)
         .map(|k| t[k] * 2.0 * n0 * 25.0)

@@ -31,7 +31,7 @@ fn ne_curve_follows_psmc_plot_scaling() {
     let (bin, gen_years) = (100.0, 25.0);
     let n0 = model.n0_for_bin(bin);
     let curve = model.ne_curve(bin, gen_years).unwrap();
-    let t = model.compute_t(0.1);
+    let t = model.compute_t();
     let lam = model.map_lam(&model.lam).unwrap();
 
     assert_eq!(curve.len(), model.n_steps + 1);

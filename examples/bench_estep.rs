@@ -166,7 +166,7 @@ fn main() {
 
     let run = || {
         if let Some(out) = &args.tmrca {
-            let t = model.compute_t(0.1);
+            let t = model.compute_t();
             let years: Vec<f64> = t[..=model.n_steps].iter().map(|v| v * 1e4).collect();
             let opts = TmrcaOptions {
                 progress_bars: false,

@@ -154,7 +154,7 @@ impl PsmcModel {
     /// the pattern does not allow.
     pub fn ne_curve(&self, bin_size: f64, gen_years: f64) -> Result<Vec<[f64; 2]>> {
         let n0 = self.checked_n0(bin_size, gen_years)?;
-        let t = self.compute_t(GRID_ALPHA);
+        let t = self.compute_t();
         let lam = self.map_lam(&self.lam)?;
         Ok((0..=self.n_steps)
             .map(|k| [t[k] * 2.0 * n0 * gen_years, lam[k] * n0])
@@ -199,11 +199,11 @@ impl PsmcModel {
     /// The interval boundaries `t_0 = 0 < ... < t_n = t_max < t_{n+1} = T_INF`
     /// (`n_steps + 2` values, in units of 2N0 generations), spaced
     /// log-linearly with C psmc's `alpha` (`-l`, 0.1): C `psmc_update_intv`.
-    pub fn compute_t(&self, alpha: f64) -> Vec<f64> {
-        let beta = (1.0 + self.t_max / alpha).ln() / self.n_steps as f64;
+    pub fn compute_t(&self) -> Vec<f64> {
+        let beta = (1.0 + self.t_max / GRID_ALPHA).ln() / self.n_steps as f64;
         let mut t = Vec::with_capacity(self.n_steps + 2);
         for k in 0..self.n_steps {
-            t.push(alpha * ((beta * k as f64).exp() - 1.0));
+            t.push(GRID_ALPHA * ((beta * k as f64).exp() - 1.0));
         }
         t.push(self.t_max);
         t.push(T_INF);
@@ -310,7 +310,7 @@ impl PsmcModel {
             e[(2, k)] = 1.0;
         }
 
-        self.t = self.compute_t(GRID_ALPHA);
+        self.t = self.compute_t();
         self.p_kl = p_kl;
         self.em = e;
         self.sigma = sigma;
@@ -973,7 +973,7 @@ mod tests {
     /// `C_pi` from its definition, written independently of `coalescent`:
     /// the integral of the survival function `exp(-int_0^t ds / lambda(s))`.
     fn c_pi_direct(model: &PsmcModel) -> f64 {
-        let t = model.compute_t(GRID_ALPHA);
+        let t = model.compute_t();
         let lam = model.map_lam(&model.lam).unwrap();
         let mut survival = 1.0;
         let mut sum = 0.0;

@@ -55,7 +55,7 @@ use std::io::{self, Write};
 
 use crate::em::EmHistory;
 use crate::io::CallableSummary;
-use crate::model::{GRID_ALPHA, PsmcModel};
+use crate::model::PsmcModel;
 use crate::opt::unpack_params;
 
 /// The `CC` block that starts every C `.psmc` file (C psmc's cli.c).
@@ -246,7 +246,7 @@ impl PsmcRound {
     /// ([`PsmcModel::param_recalculate`]).
     pub fn initial(model: &PsmcModel, sum_l: u64) -> Result<Self> {
         let n_states = model.n_steps + 1;
-        let t = model.compute_t(GRID_ALPHA);
+        let t = model.compute_t();
         let lambda = model.map_lam(&model.lam)?;
         if model.sigma.len() != n_states {
             bail!(
