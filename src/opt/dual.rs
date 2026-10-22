@@ -2,7 +2,10 @@
 //! the adjoint gradient of [`super::objective`]: every value carries its
 //! derivatives with respect to all parameters (a heap vector per
 //! operation). `compute_params_dual` is a line-by-line copy of
-//! [`PsmcModel::param_recalculate`] on dual numbers.
+//! [`PsmcModel::param_recalculate`] on dual numbers. Q's transition terms
+//! are those of the objective, from the sums of the expected counts and the
+//! factors of the probabilities, or C psmc's, from every expected count and
+//! probability (the test oracle of those sums).
 //!
 //! The dual numbers are generic over their scalar: in `f64` they perform
 //! the objective's operations in its order, so its value to the bit; in
@@ -15,6 +18,7 @@ use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use anyhow::{Result, ensure};
+use ndarray::Array2;
 
 use super::Bounds;
 use super::objective::EmissionCounts;
@@ -393,12 +397,17 @@ pub(super) fn expand_lam_dual<T: Real>(
 }
 
 /// The result of [`compute_params_dual`]: the transition and emission
-/// matrices, row by row, `θ avg_t[k]` of each state (whose exponential is
-/// the emission of `T`), and the states whose average time is the
-/// fallback.
+/// matrices, row by row, the factors of the transition probabilities below
+/// and above the diagonal (`lower[k] q_aux[m]` and `upper[k] dalpha[m]` in
+/// row `k`), `θ avg_t[k]` of each state (whose exponential is the emission
+/// of `T`), and the states whose average time is the fallback.
 pub(super) struct DualParams<T: Real> {
     pub(super) p_kl: Vec<Vec<Dual<T>>>,
     pub(super) em: Vec<Vec<Dual<T>>>,
+    lower: Vec<Dual<T>>,
+    upper: Vec<Dual<T>>,
+    q_aux: Vec<Dual<T>>,
+    dalpha: Vec<Dual<T>>,
     pub(super) prod: Vec<Dual<T>>,
     pub(super) fallbacks: Vec<usize>,
 }
@@ -469,6 +478,8 @@ pub(super) fn compute_params_dual<T: Real>(
 
     let mut sigma = vec![Dual::constant(0.0, n_params); n + 1];
     let mut p_kl = vec![vec![Dual::constant(0.0, n_params); n + 1]; n + 1];
+    let mut lower = Vec::with_capacity(n + 1);
+    let mut upper = Vec::with_capacity(n);
     let mut em = vec![vec![Dual::constant(0.0, n_params); n + 1]; 3];
     let mut q = vec![Dual::constant(0.0, n_params); n + 1];
     let mut prods = Vec::with_capacity(n + 1);
@@ -518,6 +529,10 @@ pub(super) fn compute_params_dual<T: Real>(
         }
 
         let tmp3 = &pik / &(&c_sigma * &sigma[k]);
+        lower.push(&tmp3 * &tmp);
+        if k < n {
+            upper.push(&tmp3 * &(&q_aux[k] / &cpik));
+        }
         for m in 0..=n {
             p_kl[k][m] = &tmp3 * &q[m];
         }
@@ -533,9 +548,14 @@ pub(super) fn compute_params_dual<T: Real>(
         sum_t = &sum_t + &tau[k];
     }
 
+    let dalpha = (0..=n).map(|m| &alpha[m] - &alpha[m + 1]).collect();
     Ok(DualParams {
         p_kl,
         em,
+        lower,
+        upper,
+        q_aux,
+        dalpha,
         prod: prods,
         fallbacks,
     })
@@ -554,29 +574,58 @@ fn smooth_penalty_dual<T: Real>(lam_full: &[Dual<T>]) -> Dual<T> {
     sum
 }
 
+/// Q, C psmc's EM Q: with `xi`, from every expected transition count and
+/// probability, in C's order; otherwise, as the adjoint objective sums it,
+/// from the sums of the counts in `stats` over each triangle's rows and
+/// columns and the factors of the probabilities. Each probability or
+/// factor has the guard `ln(p + 1e-300)`, and zero counts are left out.
 // The loops index parallel arrays (matrices and expected counts) by state.
 #[allow(clippy::needless_range_loop)]
 fn q_function_stats_dual<T: Real>(
     params: &DualParams<T>,
     stats: &SufficientStats,
+    xi: Option<&Array2<f64>>,
 ) -> Result<Dual<T>> {
     let (a, em) = (&params.p_kl, &params.em);
     let n_params = a[0][0].grad.len();
     let n_states = a.len();
     let counts = EmissionCounts::of(stats, n_states)?;
     let mut q = Dual::constant(0.0, n_params);
-    // Numerical guard:
-    // - skip exact zero-count terms so we never evaluate 0 * log(0)
-    // - add a tiny epsilon before log to keep AD stable near boundaries
-    let ln_safe = |v: &Dual<T>| (v + 1e-300).ln();
-    for i in 0..n_states {
-        for j in 0..n_states {
-            let c = stats.xi[(i, j)];
-            if c != 0.0 {
-                q = &q + &(&ln_safe(&a[i][j]) * c);
+    let mut add = |c: f64, p: &Dual<T>| {
+        if c != 0.0 {
+            q = &q + &(&(p + 1e-300).ln() * c);
+        }
+    };
+    match xi {
+        Some(xi) => {
+            for i in 0..n_states {
+                for j in 0..n_states {
+                    add(xi[(i, j)], &a[i][j]);
+                }
+            }
+        }
+        None => {
+            let t = &stats.transitions;
+            for k in 0..n_states {
+                if k > 0 {
+                    add(t.lower_rows[k], &params.lower[k]);
+                }
+                add(t.diagonal[k], &a[k][k]);
+                if k + 1 < n_states {
+                    add(t.upper_rows[k], &params.upper[k]);
+                }
+            }
+            for m in 0..n_states {
+                if m + 1 < n_states {
+                    add(t.lower_cols[m], &params.q_aux[m]);
+                }
+                if m > 0 {
+                    add(t.upper_cols[m], &params.dalpha[m]);
+                }
             }
         }
     }
+    let ln_safe = |v: &Dual<T>| (v + 1e-300).ln();
     for k in 0..n_states {
         let c0 = counts.t[k];
         if c0 != 0.0 {
@@ -609,10 +658,13 @@ fn q_function_stats_dual<T: Real>(
 }
 
 /// The objective at the unconstrained point `params`, its gradient and the
-/// states whose average time is the fallback, in the scalar `T`.
+/// states whose average time is the fallback, in the scalar `T`; with
+/// `xi`, of C psmc's Q from every expected transition count
+/// ([`q_function_stats_dual`]).
 pub(super) fn eval_dual_in<T: Real>(
     base_model: &PsmcModel,
     stats: &SufficientStats,
+    xi: Option<&Array2<f64>>,
     params: &[f64],
     bounds: &[Bounds],
     lambda: f64,
@@ -628,7 +680,7 @@ pub(super) fn eval_dual_in<T: Real>(
     let lam_full = expand_lam_dual(base_model, lam_grouped)?;
 
     let params = compute_params_dual(base_model.n_steps, theta, rho, t_max, &lam_full)?;
-    let q = q_function_stats_dual(&params, stats)?;
+    let q = q_function_stats_dual(&params, stats, xi)?;
     let penalty = smooth_penalty_dual(&lam_full);
     let neg_q = -&q;
     let pen = &penalty * lambda;

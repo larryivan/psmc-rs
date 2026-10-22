@@ -11,23 +11,44 @@ mod common;
 
 use common::{c_start_free, e_step, fixture_obs, model_at, mstep, params};
 use psmc_rs::PsmcModel;
-use psmc_rs::em::{hmm_q, hmm_q0};
 use psmc_rs::hmm::SufficientStats;
 use psmc_rs::opt::{bounds_from_config, m_step_lbfgs_with_outcome};
 
-/// C psmc's Q at `params` (θ, ρ, t_max, λ...) of `template`'s layout;
-/// -inf where the transition matrix is not stochastic.
+/// C psmc's Q at `params` (θ, ρ, t_max, λ...) of `template`'s layout, from
+/// the sums of the expected transition counts: in row `k` of the transition
+/// matrix `a` (`n + 1` states), the probabilities below the diagonal are
+/// `a[k][0] a[n][l] / a[n][0]` and those above it `a[k][n] a[0][l] / a[0][n]`
+/// (a factor of the row times one of the column); -inf where a probability
+/// is not positive or the transition matrix is not stochastic.
 fn q_at(template: &PsmcModel, stats: &SufficientStats, params: &[f64]) -> f64 {
     let m = model_at(template, params);
-    let rows_ok = m
-        .transition_matrix()
+    let (a, e) = (m.transition_matrix(), m.emission_matrix());
+    let rows_ok = a
         .rows()
         .into_iter()
         .all(|row| (row.iter().fold(0.0, |a, &p| a + p) - 1.0).abs() <= 1e-9);
-    if !rows_ok {
+    let positive = a
+        .iter()
+        .chain(e.rows().into_iter().take(2).flatten())
+        .all(|&p| p > 0.0);
+    if !(rows_ok && positive) {
         return f64::NEG_INFINITY;
     }
-    hmm_q(m.transition_matrix(), m.emission_matrix(), stats) - hmm_q0(stats)
+    let (t, n, ln) = (&stats.transitions, a.nrows() - 1, f64::ln);
+    let mut q = 0.0;
+    for k in 0..=n {
+        if k > 0 {
+            q += t.lower_rows[k] * (ln(a[(k, 0)]) - ln(a[(n, 0)]));
+            q += t.upper_cols[k] * ln(a[(0, k)]);
+        }
+        if k < n {
+            q += t.upper_rows[k] * (ln(a[(k, n)]) - ln(a[(0, n)]));
+            q += t.lower_cols[k] * ln(a[(n, k)]);
+        }
+        q += t.diagonal[k] * ln(a[(k, k)]);
+        q += stats.gobs[0][k] * ln(e[(0, k)]) + stats.gobs[1][k] * ln(e[(1, k)]);
+    }
+    q
 }
 
 #[test]
@@ -40,7 +61,8 @@ fn first_m_step_ends_at_a_maximum_along_every_parameter() {
     let outcome =
         m_step_lbfgs_with_outcome(&model, &stats, &params(&model), &bounds, &config, None).unwrap();
     let q = q_at(&model, &stats, &outcome.params);
-    assert!(q > -4.45, "Q - Q0 = {q} ({:?})", outcome.stop);
+    let q_start = q_at(&model, &stats, &params(&model));
+    assert!(q > q_start, "Q {q_start} -> {q} ({:?})", outcome.stop);
 
     // Each parameter alone, by factors 10^(k/20) from 1e-3 to 1e3 within
     // its bounds: Q may not rise by more than its rounding.

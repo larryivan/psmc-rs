@@ -1,6 +1,9 @@
 //! Accuracy of the E-step and the log-likelihood against a reference: the
 //! straightforward f64 forward-backward of psmc-rs before the checkpointed
-//! engine (`e_step_sequence_no_cache` at commit ac53c53), copied below.
+//! engine (`e_step_sequence_no_cache` at commit ac53c53), copied below. The
+//! reference sums the whole matrix of expected transition counts, site by
+//! site, and its sums over each triangle's rows and columns and the
+//! diagonal are compared with those the E-step sums in O(states) per site.
 //!
 //! Inputs cover chained rows, single-site sequences, sequences and rows whose
 //! lengths straddle the checkpoint stride, all-N stretches, PSMC models of
@@ -12,6 +15,7 @@
 mod common;
 
 use common::reference_hmm::{forward_fill_row, obs_to_idx, row_major};
+use common::{transition_sums, transition_values};
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
 use psmc_rs::hmm::{
@@ -200,7 +204,9 @@ fn reference_e_step(
     EStepResult {
         stats: psmc_rs::hmm::SufficientStats {
             gobs: [gobs0, gobs1, gobs2],
-            xi: Array2::from_shape_vec((n_states, n_states), xi_flat).unwrap(),
+            transitions: transition_sums(
+                &Array2::from_shape_vec((n_states, n_states), xi_flat).unwrap(),
+            ),
             callable: counts.map(|(_, s)| CallableStats {
                 bin_size: usize::from(s),
                 t_weighted,
@@ -348,6 +354,7 @@ fn cases() -> Vec<Case> {
         (22, Some("4+5*3+4")),
         (63, Some("4+25*2+4+6")),
         (30, None),
+        (300, Some("1+30*10")),
     ];
     for (mi, (n_steps, pattern)) in models.iter().enumerate() {
         for rep in 0..6 {
@@ -407,7 +414,7 @@ fn max_rel(xs: &[f64], refs: &[f64]) -> f64 {
 /// statistics of the callable-length model.
 fn errors(got: &EStepResult, want: &EStepResult, rows: &[Vec<u8>]) -> Vec<(&'static str, f64)> {
     let n_sites = rows.iter().map(Vec::len).sum();
-    let xi = |e: &EStepResult| e.stats.xi.iter().copied().collect::<Vec<f64>>();
+    let xi = |e: &EStepResult| transition_values(&e.stats.transitions);
     let mut errs = vec![
         ("loglike", loglike_err(got.loglike, want.loglike, n_sites)),
         (

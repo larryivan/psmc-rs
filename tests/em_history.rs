@@ -1,10 +1,11 @@
 //! The per-iteration quantities EmHistory records for C-style `.psmc`
-//! output: post_sigma, Q before and after the M-step, M-step evaluations.
+//! output: post_sigma and the M-step's evaluations.
 
 mod common;
 
 use common::{c_start, e_step, model_at, mstep};
-use psmc_rs::em::{hmm_q, hmm_q0, posterior_sigma};
+use psmc_rs::em::posterior_sigma;
+use psmc_rs::hmm::{SufficientStats, TransitionSums};
 use psmc_rs::opt::{MStepConfig, MStepStop, em_train};
 
 fn data() -> (Vec<Vec<u8>>, Vec<bool>) {
@@ -22,57 +23,31 @@ fn data() -> (Vec<Vec<u8>>, Vec<bool>) {
     (rows, vec![true, false, true])
 }
 
-fn check(lambda: f64) {
+#[test]
+fn history_records_c_round_quantities() {
     let (rows, starts) = data();
     let template = c_start(&rows, "4+5*3+4", 4.0);
     let mut model = template.clone();
     let config = MStepConfig {
         max_iters: 30,
-        lambda,
         ..mstep()
     };
     let n_iter = 4;
     let history = em_train(&mut model, &rows, &starts, n_iter, &config).unwrap();
     assert_eq!(history.post_sigma.len(), n_iter);
-    assert_eq!(history.q.len(), n_iter);
     assert_eq!(history.mstep_evaluations.len(), n_iter);
     assert_eq!(history.mstep_iterations.len(), n_iter);
     assert_eq!(history.mstep_stops.len(), n_iter);
 
     for i in 0..n_iter {
-        // Recompute iteration i: its E-step runs at params[i], its M-step
-        // leaves params[i + 1].
+        // Recompute iteration i's E-step, which runs at params[i].
         let entering = model_at(&template, &history.params[i]);
-        let leaving = model_at(&template, &history.params[i + 1]);
         let stats = e_step(&entering, &rows, &starts).stats;
-        let q0 = hmm_q0(&stats);
-        let q_before = hmm_q(
-            entering.transition_matrix(),
-            entering.emission_matrix(),
-            &stats,
-        ) - q0;
-        let q_after = hmm_q(
-            leaving.transition_matrix(),
-            leaving.emission_matrix(),
-            &stats,
-        ) - q0;
         assert_eq!(
             history.post_sigma[i],
             posterior_sigma(&stats),
             "iteration {i}"
         );
-        assert_eq!(history.q[i], (q_before, q_after), "iteration {i}");
-
-        let (before, after) = history.q[i];
-        assert!(
-            before < 0.0 && after < 0.0,
-            "iteration {i}: {:?}",
-            history.q[i]
-        );
-        if lambda == 0.0 {
-            // Without the smoothing penalty the M-step maximises Q itself.
-            assert!(after > before, "iteration {i}: {:?}", history.q[i]);
-        }
         let total: f64 = history.post_sigma[i].iter().sum();
         assert!((total - 1.0).abs() < 1e-12, "iteration {i}: {total}");
         assert!(history.post_sigma[i].iter().all(|&p| p > 0.0));
@@ -94,18 +69,6 @@ fn check(lambda: f64) {
 }
 
 #[test]
-fn history_records_c_round_quantities() {
-    check(0.0);
-}
-
-#[test]
-fn q_excludes_the_smoothing_penalty() {
-    // With the penalty the recorded Q is still C's unpenalised Q, which is
-    // what the recomputation in `check` evaluates.
-    check(1e-2);
-}
-
-#[test]
 fn zero_iterations_record_nothing() {
     let (rows, starts) = data();
     let mut model = c_start(&rows, "4+5*3+4", 4.0);
@@ -115,8 +78,25 @@ fn zero_iterations_record_nothing() {
     assert_eq!(history.final_loglike(), None);
     assert!(history.loglike.is_empty());
     assert!(history.post_sigma.is_empty());
-    assert!(history.q.is_empty());
     assert!(history.mstep_evaluations.is_empty());
     assert!(history.mstep_iterations.is_empty());
     assert!(history.mstep_stops.is_empty());
+}
+
+#[test]
+fn posterior_sigma_is_the_normalised_non_missing_count() {
+    // Two states; the missing symbol's counts are left out.
+    let none = || vec![0.0; 2];
+    let stats = SufficientStats {
+        gobs: [vec![3.0, 0.5], vec![1.0, 0.0], vec![7.0, 2.0]],
+        transitions: TransitionSums {
+            lower_rows: none(),
+            lower_cols: none(),
+            upper_rows: none(),
+            upper_cols: none(),
+            diagonal: none(),
+        },
+        callable: None,
+    };
+    assert_eq!(posterior_sigma(&stats), vec![4.0 / 4.5, 0.5 / 4.5]);
 }

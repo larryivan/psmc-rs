@@ -3,8 +3,9 @@
 //!
 //! The header and round 0 depend only on the data and the starting
 //! parameters, so they must equal C's as text (apart from the `Version`
-//! line). Later rounds depend on the M-step (L-BFGS here, Hooke-Jeeves in C),
-//! which both run to convergence, and agree within tolerances in line with
+//! line, and C's `QD` lines, which psmc-rs does not write). Later rounds
+//! depend on the M-step (L-BFGS here, Hooke-Jeeves in C), which both run to
+//! convergence, and agree within tolerances in line with
 //! `tests/c_equivalence.rs`, with and without a pattern.
 //!
 //! A run of one round on many short sequences checks the header counts and
@@ -94,10 +95,19 @@ fn shape(line: &str) -> String {
     out
 }
 
-/// Checks the format: line tags in C's order, the header (but `Version`)
-/// and round 0 identical to C's, and every line of the later rounds printed
-/// with C's conversions (see [`shape`]).
+/// C's `.psmc` text `c` without its `QD` lines.
+fn without_qd(c: &str) -> String {
+    c.lines()
+        .filter(|l| tag(l) != "QD")
+        .map(|l| format!("{l}\n"))
+        .collect()
+}
+
+/// Checks the format: line tags in C's order but `QD`, the header (but
+/// `Version`) and round 0 identical to C's, and every line of the later
+/// rounds printed with C's conversions (see [`shape`]).
 fn check_format(ours: &str, c: &str) {
+    let c = &without_qd(c);
     fn tags(text: &str) -> Vec<&str> {
         text.lines().map(tag).collect()
     }
@@ -130,10 +140,6 @@ fn shapes_keep_the_printed_precision() {
     assert_eq!(shape("RI\t0.1017096683"), "RI\t#.dddddddddd");
     assert_eq!(shape("RI\tinf"), "RI\tinf");
     assert_eq!(shape("IT\t7002"), "IT\t#");
-    assert_eq!(
-        shape("QD\t-93.804750 -> -33.557910"),
-        "QD\t-#.dddddd -> -#.dddddd"
-    );
     assert_eq!(shape("RS\t12\t1.25\t140.538959"), "RS\t#\t#.dd\t#.dddddd");
     assert_eq!(shape("PA\t4+5*3+4 0.050078200"), "PA\t#+#*#+# #.ddddddddd");
     assert_ne!(shape("RI\t0.101710"), shape("RI\t0.1017096683"));
@@ -158,15 +164,8 @@ fn check_rounds(ours: &str, c: &str) {
         } else {
             assert!(rel(a.lk, b.lk) < 1e-5, "round {i} LK {} vs {}", a.lk, b.lk);
         }
-        assert!(
-            a.qd.0 <= 0.0 && a.qd.1 <= 0.0 && a.qd.1 > a.qd.0,
-            "{:?}",
-            a.qd
-        );
         assert!(a.ri.is_finite() && a.ri > 0.0, "round {i} RI {}", a.ri);
         for (what, x, y, tol) in [
-            ("QD before", a.qd.0, b.qd.0, 5e-3),
-            ("QD after", a.qd.1, b.qd.1, 5e-3),
             ("RI", a.ri, b.ri, 0.1),
             ("theta", a.tr.0, b.tr.0, 2e-3),
             ("rho", a.tr.1, b.tr.1, 2e-3),
@@ -206,14 +205,14 @@ fn check_against_c(pattern: Option<&str>, c_file: &str) {
 #[test]
 fn matches_c_psmc_output_pattern_4_5x3_4() {
     // Measured (relative): LK 6.8e-8, lambda 2.5e-4, theta, rho and t_max
-    // 2.4e-4, RI 1.1e-4, QD 6.2e-5.
+    // 2.4e-4, RI 1.1e-4.
     check_against_c(Some("4+5*3+4"), "c_reference/c_4+5x3+4_N5.psmc");
 }
 
 #[test]
 fn matches_c_psmc_output_pattern_4_25x2_4_6() {
     // Measured (relative): LK 7.3e-8, lambda 3.3e-4, theta, rho and t_max
-    // 2.3e-4, RI 2.6e-5, QD 1.2e-4.
+    // 2.3e-4, RI 2.6e-5.
     check_against_c(Some("4+25*2+4+6"), "c_reference/c_4+25x2+4+6_N5.psmc");
 }
 
@@ -223,7 +222,7 @@ fn matches_c_psmc_output_without_pattern() {
     // 100 L-BFGS iterations, as psmc-rs's default was, the fits drifted
     // apart in every state: by round 5 lambda_0 was 4.33 vs C's 6.52.)
     // Measured (relative): LK 7.1e-8, lambda 4.1e-4, theta, rho and t_max
-    // 2.3e-4, RI 2.5e-4, QD 1.5e-4.
+    // 2.3e-4, RI 2.5e-4.
     check_against_c(None, "psmc_out/c_23x1_N5.psmc");
 }
 
@@ -287,15 +286,11 @@ fn rounds_report_the_em_history() {
             (model.c_pi(), model.n_recomb(150_947))
         );
         if i == 0 {
-            assert_eq!(
-                (r.loglike, r.q, r.mstep_evaluations),
-                (0.0, (0.0, 0.0), None)
-            );
+            assert_eq!((r.loglike, r.mstep_evaluations), (0.0, None));
             assert!(r.post_sigma.iter().all(|&x| x == 0.0));
             assert_eq!(r.relative_information(), f64::INFINITY);
         } else {
             assert_eq!(r.loglike, h.loglike[i - 1].0);
-            assert_eq!(r.q, h.q[i - 1]);
             assert_eq!(r.post_sigma, h.post_sigma[i - 1]);
             assert_eq!(r.mstep_evaluations, Some(h.mstep_evaluations[i - 1]));
             let ri: f64 = (0..r.sigma.len())
@@ -364,14 +359,13 @@ fn inconsistent_history_is_rejected() {
         loglike: history.loglike.clone(),
         params: history.params.clone(),
         post_sigma: history.post_sigma.clone(),
-        q: history.q.clone(),
         mstep_evaluations: history.mstep_evaluations.clone(),
         mstep_iterations: history.mstep_iterations.clone(),
         mstep_stops: history.mstep_stops.clone(),
     };
-    h.q.pop();
+    h.mstep_evaluations.pop();
     assert!(psmc_rounds(template, &h, 150_947).is_err());
-    h.q.push((0.0, 0.0));
+    h.mstep_evaluations.push(0);
     h.post_sigma[1].pop();
     assert!(psmc_rounds(template, &h, 150_947).is_err());
 

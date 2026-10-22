@@ -1,6 +1,6 @@
-//! The E-step quantities of C psmc's `.psmc` rounds (`QD` before the M-step,
-//! `post_sigma`, `RI`) against C's output on `tests/data/c_reference` and on
-//! the fragmented input of `tests/data/psmc_out` (see the READMEs there).
+//! The E-step quantities of C psmc's `.psmc` rounds (`post_sigma`, `RI`)
+//! against C's output on `tests/data/c_reference` and on the fragmented
+//! input of `tests/data/psmc_out` (see the READMEs there).
 //!
 //! Round 1's E-step runs at C's initial parameters, which ours reproduce, so
 //! C's printed values are matched to every printed decimal once the one
@@ -13,8 +13,7 @@ mod common;
 use common::psmc_text::round_lines;
 use common::{c_start, e_step, fixture, fixture_obs, read};
 use psmc_rs::PsmcModel;
-use psmc_rs::em::{hmm_q, hmm_q0, posterior_sigma};
-use psmc_rs::hmm::SufficientStats;
+use psmc_rs::em::posterior_sigma;
 
 /// The filtered state distribution at the last bin of `row`, which is the
 /// posterior there (the backward vector of the last bin is uniform).
@@ -55,8 +54,6 @@ struct Gap {
     share: f64,
     /// Largest absolute difference of a `post_sigma` value.
     post_sigma: f64,
-    /// Relative difference of `QD` before the M-step.
-    qd: f64,
     /// Relative difference of `RI` at C's round-1 `sigma`.
     ri: f64,
 }
@@ -69,10 +66,6 @@ fn check(psmcfa: &str, pattern: &str, c_file: &str) -> Gap {
     assert!(obs.row_starts.iter().all(|&s| s), "one row per sequence");
     let model = c_start(&obs.rows, pattern, 4.0);
     let mut stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
-    let q = |s: &SufficientStats| {
-        hmm_q(model.transition_matrix(), model.emission_matrix(), s) - hmm_q0(s)
-    };
-    let q_all_bins = q(&stats);
     let post_all_bins = posterior_sigma(&stats);
 
     let mut n_skipped = 0;
@@ -88,7 +81,6 @@ fn check(psmcfa: &str, pattern: &str, c_file: &str) -> Gap {
             }
         }
     }
-    let q_c = q(&stats);
     let post_c = posterior_sigma(&stats);
 
     let c_text = read(fixture(c_file));
@@ -99,8 +91,6 @@ fn check(psmcfa: &str, pattern: &str, c_file: &str) -> Gap {
             .find_map(|l| l.strip_prefix(tag))
             .unwrap_or_else(|| panic!("no {tag} line"))
     };
-    let (c_qd, _) = field("QD\t").split_once(" -> ").unwrap();
-    assert_eq!(format!("{q_c:.6}"), c_qd, "{pattern}: QD before");
     let rs: Vec<Vec<&str>> = round
         .iter()
         .filter_map(|l| l.strip_prefix("RS\t"))
@@ -149,21 +139,19 @@ fn check(psmcfa: &str, pattern: &str, c_file: &str) -> Gap {
     Gap {
         share,
         post_sigma,
-        qd: ((q_all_bins - q_c) / q_c).abs(),
         ri: ((ri_all_bins - ri_c) / ri_c).abs(),
     }
 }
 
-/// `QD` and `RI` move by a relative amount of the order of the share of
-/// skipped bins (measured: 0.49 to 2.03 times it).
+/// `RI` moves by a relative amount of the order of the share of skipped
+/// bins (measured: 0.48 to 0.75 times it).
 fn check_scale(gap: &Gap) {
-    for (what, rel) in [("QD", gap.qd), ("RI", gap.ri)] {
-        assert!(
-            rel > gap.share / 10.0 && rel < 3.0 * gap.share,
-            "{what} moves by {rel}, the share is {}",
-            gap.share
-        );
-    }
+    assert!(
+        gap.ri > gap.share / 10.0 && gap.ri < 3.0 * gap.share,
+        "RI moves by {}, the share is {}",
+        gap.ri,
+        gap.share
+    );
 }
 
 /// 3 sequences, 150,947 non-missing bins: the share is 2.0e-5.
@@ -174,8 +162,8 @@ fn check_reference(pattern: &str, c_file: &str) {
         &format!("c_reference/{c_file}"),
     );
     assert_eq!(gap.share, 3.0 / 150_947.0);
-    // Measured: post_sigma 2.4e-6 (4+5*3+4) and 8.6e-7 (4+25*2+4+6), QD
-    // 4.0e-5, RI 1.5e-5.
+    // Measured: post_sigma 2.4e-6 (4+5*3+4) and 8.6e-7 (4+25*2+4+6), RI
+    // 1.5e-5.
     assert!(gap.post_sigma < 1e-5, "{gap:?}");
     check_scale(&gap);
 }
@@ -201,7 +189,7 @@ fn first_round_matches_c_on_fragments() {
         "psmc_out/c_4+5x3+4_fragmented_N1.psmc",
     );
     assert_eq!(gap.share, 893.0 / 35_465.0);
-    // Measured: post_sigma 9.3e-5, QD 3.5%, RI 1.2%.
+    // Measured: post_sigma 9.3e-5, RI 1.2%.
     assert!(gap.post_sigma > 1e-5, "{gap:?}");
     check_scale(&gap);
 }

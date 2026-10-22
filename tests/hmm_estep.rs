@@ -34,14 +34,23 @@ fn e_step_counts_add_up_for_independent_and_chained_rows() {
     for (row_starts, transitions) in [([true, true], 10), ([true, false], 11)] {
         let out = e_step(&model, &rows, &row_starts);
         assert!(out.loglike.is_finite(), "loglike should be finite");
-        assert_eq!(out.stats.xi.shape(), &[n_states, n_states]);
+        let sums = common::transition_values(&out.stats.transitions);
+        assert_eq!(sums.len(), 5 * n_states);
         for (obs, count) in obs_counts.iter().enumerate() {
             assert_eq!(out.stats.gobs[obs].len(), n_states);
             let gobs_sum: f64 = out.stats.gobs[obs].iter().sum();
             approx_eq(gobs_sum, *count as f64, 1e-5);
         }
-        let xi_sum: f64 = out.stats.xi.iter().sum();
+        // Every transition is in a row of one triangle or on the diagonal.
+        let t = &out.stats.transitions;
+        let xi_sum: f64 = [&t.lower_rows, &t.upper_rows, &t.diagonal]
+            .into_iter()
+            .flatten()
+            .sum();
         approx_eq(xi_sum, f64::from(transitions), 1e-5);
+        let cols: f64 = t.lower_cols.iter().chain(&t.upper_cols).sum();
+        let rows: f64 = t.lower_rows.iter().chain(&t.upper_rows).sum();
+        approx_eq(cols, rows, 1e-9);
     }
 }
 

@@ -11,9 +11,8 @@
 
 mod common;
 
-use common::{c_start_free, e_step, fixture_obs, model_at, mstep};
+use common::{c_start_free, fixture_obs, model_at, mstep};
 use psmc_rs::PsmcModel;
-use psmc_rs::em::{hmm_q, hmm_q0};
 use psmc_rs::opt::{EmHistory, MStepConfig, em_train};
 
 /// The largest deviation of a row of `model`'s transition matrix from
@@ -48,15 +47,6 @@ fn fit_and_check(n_iter: usize, config: &MStepConfig) -> EmHistory {
              {valid}) at {params:?}"
         );
     }
-    for (i, &(before, after)) in history.q.iter().enumerate() {
-        // The M-step only accepts decreases of -Q, and C's Q (Q - Q0) of an
-        // HMM is at most 0.
-        assert!(
-            after >= before && after <= 0.0,
-            "iteration {}: Q {before} -> {after}",
-            i + 1
-        );
-    }
     for (i, &(before, after)) in history.loglike.iter().enumerate() {
         // EM does not lower the log-likelihood, up to rounding and the
         // initial state's term, which C's Q leaves out.
@@ -66,11 +56,6 @@ fn fit_and_check(n_iter: usize, config: &MStepConfig) -> EmHistory {
             i + 1
         );
     }
-
-    // The fitted model is the last one evaluated.
-    let stats = e_step(&model, &obs.rows, &obs.row_starts).stats;
-    let q = hmm_q(model.transition_matrix(), model.emission_matrix(), &stats) - hmm_q0(&stats);
-    assert!(q <= 0.0, "Q - Q0 = {q} at the fitted model");
     history
 }
 

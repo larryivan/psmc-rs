@@ -5,8 +5,8 @@
 //! its position between its bounds ([`bounds_from_config`]). The objective
 //! and its gradient are computed together, the gradient by reverse-mode
 //! (adjoint) differentiation of C's `psmc_update_hmm` and Q, written out by
-//! hand: one evaluation costs O(states²) time and O(states) memory besides
-//! the expected counts, whatever the number of free λ. L-BFGS minimises the
+//! hand: one evaluation costs O(states) time and memory, whatever the
+//! number of free λ. L-BFGS minimises the
 //! objective, with an initial matrix from its curvature in each coordinate
 //! (estimated from the gradient at the start of each M-step), until a
 //! scale-free convergence test holds ([`MStepStop`]). The search runs to
@@ -332,8 +332,10 @@ mod tests {
     use super::dual::{Dd, Dual, Real, compute_params_dual, eval_dual_in, expand_lam_dual};
     use super::objective::{EVAL_CALLS, LARGEST_COORDINATE};
     use super::*;
+    use crate::hmm::TransitionSums;
     use crate::hmm::e_step_streaming;
     use crate::model::T_INF;
+    use ndarray::Array2;
 
     /// The objective and its adjoint gradient at `x`.
     fn eval_adjoint(
@@ -536,8 +538,15 @@ mod tests {
     }
 
     /// Random expected counts for `states` states: positive, of the sizes an
-    /// E-step on `n_bins` bins gives, with a share `zeros` of them 0.
-    fn synthetic_stats(rng: &mut Rng, states: usize, n_bins: f64, zeros: f64) -> SufficientStats {
+    /// E-step on `n_bins` bins gives, with a share `zeros` of them 0, and
+    /// as large a share of the rows and of the columns of each triangle of
+    /// the transitions' counts `xi` (returned too) all 0.
+    fn synthetic_counts(
+        rng: &mut Rng,
+        states: usize,
+        n_bins: f64,
+        zeros: f64,
+    ) -> (SufficientStats, Array2<f64>) {
         let mut count = |scale: f64| {
             if rng.next() < zeros {
                 0.0
@@ -546,7 +555,7 @@ mod tests {
             }
         };
         let per_state = n_bins / states as f64;
-        let mut xi = ndarray::Array2::zeros((states, states));
+        let mut xi = Array2::zeros((states, states));
         for ((k, l), v) in xi.indexed_iter_mut() {
             *v = count(if k == l { per_state } else { 1e-3 * per_state });
         }
@@ -555,11 +564,33 @@ mod tests {
             (0..states).map(|_| count(0.05 * per_state)).collect(),
             (0..states).map(|_| count(0.02 * per_state)).collect(),
         ];
-        SufficientStats {
-            gobs,
-            xi,
-            callable: None,
+        for k in 0..states {
+            for lower in [true, false] {
+                let cells: Vec<(usize, usize)> = (0..states)
+                    .filter(|&l| if lower { l < k } else { l > k })
+                    .map(|l| (k, l))
+                    .collect();
+                // A row of the triangle, then a column.
+                for transpose in [false, true] {
+                    if rng.next() < zeros {
+                        for &(r, c) in &cells {
+                            xi[if transpose { (c, r) } else { (r, c) }] = 0.0;
+                        }
+                    }
+                }
+            }
         }
+        let stats = SufficientStats {
+            gobs,
+            transitions: TransitionSums::of(&xi),
+            callable: None,
+        };
+        (stats, xi)
+    }
+
+    /// The counts of [`synthetic_counts`].
+    fn synthetic_stats(rng: &mut Rng, states: usize, n_bins: f64, zeros: f64) -> SufficientStats {
+        synthetic_counts(rng, states, n_bins, zeros).0
     }
 
     /// Sufficient statistics of an E-step on a random sequence with callable
@@ -708,6 +739,9 @@ mod tests {
         /// sum to 1), and those of these where forward mode's objective
         /// is finite (rows that do not sum to 1).
         points: usize,
+        /// The largest relative difference of the values, against C
+        /// psmc's Q from every expected count.
+        worst_value: f64,
         infeasible: usize,
         infeasible_dual_finite: usize,
         /// Points where every gradient component agreed with forward mode
@@ -788,12 +822,14 @@ mod tests {
         (valid, deviation)
     }
 
-    /// Checks the adjoint objective against the forward-mode one at `x`.
+    /// Checks the adjoint objective against the forward-mode one at `x`:
+    /// with `xi`, against that of C psmc's Q from the expected transition
+    /// counts `xi` (whose sums `stats` holds) and every probability.
     ///
     /// Where the HMM is valid (probabilities in [0, 1], rows summing to 1
-    /// within `ROW_SUM_TOLERANCE`), the values must be equal to the bit,
-    /// and the adjoint gradient finite; elsewhere the adjoint objective must
-    /// be `+inf`. Every gradient component must agree with forward mode
+    /// within `ROW_SUM_TOLERANCE`), the values must be equal to the bit
+    /// (to a relative 1e-13 with `xi`), and the adjoint gradient finite;
+    /// elsewhere the adjoint objective must be `+inf`. Every gradient component must agree with forward mode
     /// to 1e-10 relative, with a floor of 1e-3 of the largest component
     /// ([`worst_relative_error`]), unless the two gradients' own rounding
     /// errors are larger: then the forward-mode code evaluated in
@@ -804,6 +840,7 @@ mod tests {
     fn compare_with_forward_mode(
         model: &PsmcModel,
         stats: &SufficientStats,
+        xi: Option<&Array2<f64>>,
         x: &[f64],
         bounds: &[Bounds],
         lambda: f64,
@@ -811,7 +848,7 @@ mod tests {
     ) {
         let (f, g) = eval_adjoint(model, stats, x, bounds, lambda);
         let (f_dual, g_dual, fallbacks) =
-            eval_dual_in::<f64>(model, stats, x, bounds, lambda).unwrap();
+            eval_dual_in::<f64>(model, stats, xi, x, bounds, lambda).unwrap();
         let what = || {
             format!(
                 "{:?} lambda={lambda} at {:?}",
@@ -835,11 +872,17 @@ mod tests {
             }
             return;
         }
+        let value_error = ((f - f_dual) / f_dual).abs();
         assert!(
-            f.to_bits() == f_dual.to_bits(),
+            if xi.is_some() {
+                value_error <= 1e-13
+            } else {
+                f.to_bits() == f_dual.to_bits()
+            },
             "{}: value {f} vs forward mode {f_dual}",
             what()
         );
+        seen.worst_value = seen.worst_value.max(value_error);
         assert!(g.iter().all(|v| v.is_finite()), "{}: {g:?}", what());
         for &k in &fallbacks {
             if k < model.n_steps {
@@ -858,7 +901,8 @@ mod tests {
             seen.worst_agreed = seen.worst_agreed.max(vs_dual);
             return;
         }
-        let (_, g_dd, fallbacks_dd) = eval_dual_in::<Dd>(model, stats, x, bounds, lambda).unwrap();
+        let (_, g_dd, fallbacks_dd) =
+            eval_dual_in::<Dd>(model, stats, xi, x, bounds, lambda).unwrap();
         if fallbacks_dd != fallbacks {
             seen.other_branches += 1;
             return;
@@ -898,7 +942,7 @@ mod tests {
     /// than that (at small ρ, the average times' -ln(1 - u) / ρ cancels in
     /// its derivative with respect to ρ). The points include the average
     /// time's fallback for inner and last states, θ, ρ, t_max and the last
-    /// λ near their bounds, and zero counts.
+    /// λ near their bounds, and zero counts and sums of counts.
     #[test]
     fn adjoint_matches_forward_mode() {
         let mut rng = Rng(0x243F_6A88_85A3_08D3);
@@ -916,17 +960,17 @@ mod tests {
                     synthetic_stats(&mut rng, n + 1, 1e6, 0.0)
                 };
                 let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let stats = synthetic_stats(&mut rng, n + 1, 1e6, 0.05);
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
 
                 let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
                 let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 // θ, ρ, t_max and the last λ near their bounds.
                 let last = bounds.len() - 1;
                 let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
             }
         }
         assert_eq!(seen.points, 4 * (3 * 10 + 2 * 3));
@@ -968,11 +1012,11 @@ mod tests {
                 let bounds = bounds_from_config(&model, &config);
                 let stats = synthetic_stats(&mut rng, n + 1, 1e6, 0.05);
                 let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let all: Vec<usize> = (0..bounds.len()).collect();
                 let model = random_model(&mut rng, n, pattern);
                 let x = near_bounds_point(&mut rng, &model, &bounds, &all);
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
             }
         }
         // About half the points of this region are no HMM in f64: ρ near
@@ -992,6 +1036,51 @@ mod tests {
             seen.inner_fallbacks >= 5 && seen.last_fallbacks >= 10,
             "{seen:?}"
         );
+    }
+
+    /// Q's transition terms from the sums of the expected counts are C
+    /// psmc's from every count: at points drawn as in
+    /// [`adjoint_matches_forward_mode`], with and without callable bases,
+    /// the adjoint objective agrees with forward mode's of C's formula as
+    /// [`compare_with_forward_mode`] says, its value to a relative 1e-13.
+    /// Measured: the values to 1.2e-14; every gradient component to 1e-10
+    /// (5.8e-12 at most) at 45 of the 59 points of a valid HMM, and at the
+    /// other 14 within 1.001 times forward mode's error of the derivatives.
+    #[test]
+    fn sums_give_c_psmc_q_and_gradient() {
+        let mut rng = Rng(0x7C15_9E37_79B9_7F4A);
+        let config = MStepConfig::default();
+        let mut seen = Compared::default();
+        for (n, pattern) in ORACLE_LAYOUTS {
+            for case in 0..(if n >= 100 { 2 } else { 6 }) {
+                let lambda = if case % 2 == 0 { 0.0 } else { 1e-2 };
+                let model = random_model(&mut rng, n, pattern);
+                let bounds = bounds_from_config(&model, &config);
+                let (mut stats, xi) =
+                    synthetic_counts(&mut rng, n + 1, 1e6, 0.05 * (case % 3) as f64);
+                if case % 3 == 2 {
+                    let counted = synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.05);
+                    stats.callable = counted.callable;
+                }
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                let compare = |model: &PsmcModel, x: &[f64], seen: &mut Compared| {
+                    compare_with_forward_mode(model, &stats, Some(&xi), x, &bounds, lambda, seen)
+                };
+                compare(&model, &x, &mut seen);
+                let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
+                let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
+                compare(&model, &x, &mut seen);
+                let last = bounds.len() - 1;
+                let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
+                compare(&model, &x, &mut seen);
+            }
+        }
+        eprintln!("{seen:?}");
+        assert_eq!(seen.points, 3 * (3 * 6 + 2 * 2));
+        assert!(seen.infeasible * 4 < seen.points, "{seen:?}");
+        let compared = seen.points - seen.infeasible - seen.underflow;
+        assert!(seen.agreed * 4 >= compared * 3, "{seen:?}");
+        assert!(seen.error_ratios.iter().all(|&r| r <= 1.1), "{seen:?}");
     }
 
     #[test]
@@ -1067,15 +1156,15 @@ mod tests {
                     synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.0)
                 };
                 let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let stats = synthetic_counted_stats(&mut rng, n + 1, 1e6, 0.05);
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let model = fallback_model(&mut rng, n, pattern, case % 2 == 0);
                 let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
                 let last = bounds.len() - 1;
                 let x = near_bounds_point(&mut rng, &model, &bounds, &[0, 1, 2, last]);
-                compare_with_forward_mode(&model, &stats, &x, &bounds, lambda, &mut seen);
+                compare_with_forward_mode(&model, &stats, None, &x, &bounds, lambda, &mut seen);
             }
         }
         assert_eq!(seen.points, 4 * (3 * 6 + 2 * 2));
@@ -1111,7 +1200,7 @@ mod tests {
                     assert_eq!(f.to_bits(), f_full.to_bits(), "{pattern:?}");
                     assert_eq!(bits(&g), bits(&g_full), "{pattern:?}");
                     let (f_dual, _, _) =
-                        eval_dual_in::<f64>(&model, &full, &x, &bounds, lambda).unwrap();
+                        eval_dual_in::<f64>(&model, &full, None, &x, &bounds, lambda).unwrap();
                     assert_eq!(f.to_bits(), f_dual.to_bits(), "{pattern:?}");
                 }
                 let run = |s: &SufficientStats| {
@@ -1143,7 +1232,10 @@ mod tests {
         let config = MStepConfig::default();
         for (n, pattern) in LAYOUTS {
             let model = random_model(&mut rng, n, pattern);
-            let stats = random_counted_stats(&mut rng, &model, 20_000);
+            // The E-step's emission counts, synthetic transition counts.
+            let mut stats = random_counted_stats(&mut rng, &model, 20_000);
+            let (synthetic, xi) = synthetic_counts(&mut rng, n + 1, 20_000.0, 0.0);
+            stats.transitions = synthetic.transitions;
             let bounds = bounds_from_config(&model, &config);
             let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
             let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
@@ -1151,7 +1243,7 @@ mod tests {
             let avg = at_x.avg_t();
             let c = stats.callable.as_ref().unwrap();
             let mut q = 0.0;
-            for (&count, &p) in stats.xi.iter().zip(at_x.transition_matrix().iter()) {
+            for (&count, &p) in xi.iter().zip(at_x.transition_matrix().iter()) {
                 q += count * p.ln();
             }
             for k in 0..=n {
@@ -1208,7 +1300,7 @@ mod tests {
         healthy.lam[2] = 1.0;
         healthy.param_recalculate().unwrap();
         let stats = random_stats(&mut rng, &healthy, 20_000);
-        let q = crate::em::hmm_q(model.transition_matrix(), model.emission_matrix(), &stats);
+        let (q, _, _) = eval_dual_in::<f64>(&model, &stats, None, &x, &bounds, 0.0).unwrap();
         assert!(q.is_finite());
         let (f, g) = eval_adjoint(&model, &stats, &x, &bounds, 0.0);
         assert_eq!(f, f64::INFINITY);
@@ -1284,12 +1376,22 @@ mod tests {
         for (n, pattern) in LAYOUTS {
             // Random λ, so a smoothing penalty would not vanish.
             let model = random_model(&mut rng, n, pattern);
-            let stats = random_stats(&mut rng, &model, 5_000);
+            let (stats, xi) = synthetic_counts(&mut rng, n + 1, 5_000.0, 0.0);
             let bounds = bounds_from_config(&model, &config);
             let x = to_unconstrained(&pack_params(&model), &bounds).unwrap();
             let (f, _) = eval_adjoint(&model, &stats, &x, &bounds, config.lambda);
             let at_x = model_at(&model, &x, &bounds);
-            let q = crate::em::hmm_q(at_x.transition_matrix(), at_x.emission_matrix(), &stats);
+            // C's hmm_Q: the emissions of T and K, and the transitions.
+            let (a, em) = (at_x.transition_matrix(), at_x.emission_matrix());
+            let mut q = 0.0;
+            for (b, counts) in stats.gobs[..2].iter().enumerate() {
+                for (k, &count) in counts.iter().enumerate() {
+                    q += count * em[(b, k)].ln();
+                }
+            }
+            for (&count, &p) in xi.iter().zip(a.iter()) {
+                q += count * p.ln();
+            }
             assert!(
                 (f + q).abs() <= 1e-12 * q.abs(),
                 "{pattern:?}: objective {f} vs -Q {}",

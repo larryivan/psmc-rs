@@ -2,17 +2,16 @@
 //!
 //! - the starting θ0 solves `sum_i (1 - exp(-θ c_i / s)) = K` and is C psmc's
 //!   `-ln(1 - K/L)` when every called bin is full;
-//! - with every called bin full, EM is C psmc's to the bit: its history, Q
-//!   and Q0;
-//! - with partly called bins, EM does not lower the likelihood, `Q - Q0`
-//!   stays at most 0, and on data simulated from the callable-length model
-//!   the fit recovers θ, which C psmc's model underestimates by about the
-//!   missing share.
+//! - with every called bin full, EM is C psmc's to the bit: its history and
+//!   the expected counts of its E-steps;
+//! - with partly called bins, EM does not lower the likelihood, and on data
+//!   simulated from the callable-length model the fit recovers θ, which C
+//!   psmc's model underestimates by about the missing share.
 
 mod common;
 
 use common::{bits, full_bins, model, mstep};
-use psmc_rs::em::{EmHistory, EmOptions, em_train_with_options, hmm_q, hmm_q0};
+use psmc_rs::em::{EmHistory, EmOptions, em_train_with_options};
 use psmc_rs::hmm::{EStepOptions, SufficientStats, e_step_with_options};
 use psmc_rs::io::CallableBases;
 use psmc_rs::model::ThetaCounts;
@@ -139,7 +138,6 @@ fn history_bits(h: &EmHistory) -> Vec<u64> {
     let values: Vec<f64> = pairs(&h.loglike)
         .into_iter()
         .chain(h.params.iter().chain(&h.post_sigma).flatten().copied())
-        .chain(pairs(&h.q))
         .collect();
     let mut v = bits(&values);
     v.extend(h.mstep_evaluations.iter().map(|&n| n as u64));
@@ -249,7 +247,7 @@ fn full_bins_fit_as_c_psmc_to_the_bit() {
     assert_eq!(history_bits(&h_full), history_bits(&h_plain));
     assert_eq!(m_full.theta.to_bits(), m_plain.theta.to_bits());
 
-    // Q and Q0 of an E-step with full counts are C's, to the bit.
+    // An E-step with full counts gives C's expected counts, to the bit.
     let starts = vec![true; rows.len()];
     let e = |callable| -> SufficientStats {
         e_step_with_options(
@@ -267,90 +265,25 @@ fn full_bins_fit_as_c_psmc_to_the_bit() {
         .stats
     };
     let (plain, with) = (e(None), e(Some(&full)));
-    let q = |s: &SufficientStats| hmm_q(m_plain.transition_matrix(), m_plain.emission_matrix(), s);
-    assert_eq!(q(&plain).to_bits(), q(&with).to_bits());
-    assert_eq!(hmm_q0(&plain).to_bits(), hmm_q0(&with).to_bits());
+    let counts = |s: &SufficientStats| {
+        let t = common::transition_values(&s.transitions);
+        bits(s.gobs.iter().flatten().chain(&t))
+    };
+    assert_eq!(counts(&plain), counts(&with));
+    let c = with.callable.unwrap();
+    assert_eq!(bits(&c.t_weighted), bits(&plain.gobs[0]));
+    assert_eq!(c.k_by_count.len(), 1);
+    assert_eq!(bits(&c.k_by_count[0].1), bits(&plain.gobs[1]));
 }
 
 #[test]
-fn em_with_partly_called_bins_raises_the_likelihood_and_keeps_q_below_q0() {
+fn em_with_partly_called_bins_raises_the_likelihood() {
     let truth = true_model(0.02);
     let (rows, callable) = simulate(&truth, 4, 5000, 4, dispersed(0.3));
     let (_, h) = fit(&rows, Some(&callable), 6);
     for &(before, after) in &h.loglike {
         assert!(after >= before - 1e-9 * before.abs(), "{before} -> {after}");
     }
-    for &(before, after) in &h.q {
-        assert!(before <= 1e-9 && after <= 1e-9, "QD {before} -> {after}");
-        assert!(
-            after >= before - 1e-9 * before.abs(),
-            "QD {before} -> {after}"
-        );
-    }
-}
-
-/// Q0 with counts is the largest Q over each state's emission parameter:
-/// above Q at any parameter, and equal to Q at the best one found by a
-/// golden-section search.
-#[test]
-fn q0_with_counts_is_the_maximum_over_the_emissions() {
-    let truth = true_model(0.03);
-    let (rows, callable) = simulate(&truth, 2, 4000, 5, dispersed(0.4));
-    let starts = vec![true; rows.len()];
-    let stats = e_step_with_options(
-        truth.prior_matrix(),
-        truth.transition_matrix(),
-        truth.emission_matrix(),
-        &rows,
-        &starts,
-        EStepOptions {
-            callable: Some(&callable),
-            ..EStepOptions::default()
-        },
-    )
-    .unwrap()
-    .stats;
-    let c = stats.callable.as_ref().unwrap();
-    assert!(c.k_by_count.len() > 20);
-    let q0 = hmm_q0(&stats);
-    // The emission part of state k's Q at e_T = exp(-mu).
-    let h = |k: usize, mu: f64| -> f64 {
-        let mut v = -c.t_weighted[k] * mu;
-        for (n, g) in &c.k_by_count {
-            if g[k] != 0.0 {
-                v += g[k] * (-(-mu * f64::from(*n) / 100.0).exp_m1()).ln();
-            }
-        }
-        v
-    };
-    let mut best = 0.0;
-    for k in 0..c.t_weighted.len() {
-        // Golden-section search for the maximum of the concave h on a log scale.
-        let (mut a, mut b) = ((1e-9f64).ln(), (10.0f64).ln());
-        let g = (5f64.sqrt() - 1.0) / 2.0;
-        for _ in 0..200 {
-            let (x1, x2) = (b - g * (b - a), a + g * (b - a));
-            if h(k, x1.exp()) < h(k, x2.exp()) {
-                a = x1;
-            } else {
-                b = x2;
-            }
-        }
-        best += h(k, (0.5 * (a + b)).exp());
-    }
-    // The transitions' part, at the normalised counts.
-    for row in stats.xi.rows() {
-        let total: f64 = row.sum();
-        for &x in row {
-            if x > 0.0 {
-                best += x * (x / total).ln();
-            }
-        }
-    }
-    assert!((q0 - best).abs() <= 1e-9 * q0.abs(), "{q0} vs {best}");
-    // Q at the model is below.
-    let q = hmm_q(truth.transition_matrix(), truth.emission_matrix(), &stats);
-    assert!(q < q0);
 }
 
 /// The expected heterozygosity of a full bin under `m`'s coalescent, θ

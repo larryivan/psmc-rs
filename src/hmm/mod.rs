@@ -68,12 +68,56 @@ pub struct SufficientStats {
     /// (0 = `T`, 1 = `K`, 2 = `N`) in state `k`, whatever their callable
     /// bases.
     pub gobs: [Vec<f64>; 3],
-    /// `xi[(k, l)]`: expected number of `k -> l` transitions.
-    pub xi: Array2<f64>,
+    /// The expected numbers of transitions between states, summed as the
+    /// M-step needs them.
+    pub transitions: TransitionSums,
     /// With callable bases, the expected counts of the callable-length
     /// emission model, which the M-step uses in place of `gobs[0]` and
     /// `gobs[1]`; `None` without counts (C psmc's model).
     pub callable: Option<CallableStats>,
+}
+
+/// Sums of `xi[k][l]`, the expected number of `k -> l` transitions, over
+/// the rows and the columns of the transition matrix's triangles below and
+/// above the diagonal, and its diagonal: all that C psmc's EM Q needs of
+/// them. In PSMC's transition matrix each probability below the diagonal is
+/// a factor of its row times a factor of its column, and so is each above
+/// it, so the logarithms that Q weighs by the counts split into a row's and
+/// a column's (see `opt::objective`). The E-step computes these sums in
+/// O(states) per bin (`hmm::kernel`), the whole matrix of counts would
+/// take O(states²).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransitionSums {
+    /// `sum_{l < k} xi[k][l]`: from state `k` to an earlier interval.
+    pub lower_rows: Vec<f64>,
+    /// `sum_{k > l} xi[k][l]`: into state `l` from a later interval.
+    pub lower_cols: Vec<f64>,
+    /// `sum_{l > k} xi[k][l]`: from state `k` to a later interval.
+    pub upper_rows: Vec<f64>,
+    /// `sum_{k < l} xi[k][l]`: into state `l` from an earlier interval.
+    pub upper_cols: Vec<f64>,
+    /// `xi[k][k]`.
+    pub diagonal: Vec<f64>,
+}
+
+#[cfg(test)]
+impl TransitionSums {
+    /// The sums of the counts `xi[(k, l)]`.
+    pub(crate) fn of(xi: &Array2<f64>) -> Self {
+        let n = xi.nrows();
+        let sum = |cells: &mut dyn Iterator<Item = (usize, usize)>| cells.map(|c| xi[c]).sum();
+        Self {
+            lower_rows: (0..n).map(|k| sum(&mut (0..k).map(|l| (k, l)))).collect(),
+            lower_cols: (0..n)
+                .map(|l| sum(&mut (l + 1..n).map(|k| (k, l))))
+                .collect(),
+            upper_rows: (0..n)
+                .map(|k| sum(&mut (k + 1..n).map(|l| (k, l))))
+                .collect(),
+            upper_cols: (0..n).map(|l| sum(&mut (0..l).map(|k| (k, l)))).collect(),
+            diagonal: (0..n).map(|k| xi[(k, k)]).collect(),
+        }
+    }
 }
 
 /// The expected emission counts of an E-step on bins with callable bases
@@ -384,7 +428,7 @@ pub fn e_step_with_options(
     Ok(EStepResult {
         stats: SufficientStats {
             gobs,
-            xi: kernel.transition_counts(&total.m),
+            transitions: kernel.transitions(&total.trans),
             callable,
         },
         loglike: total.loglike,

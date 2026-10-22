@@ -22,7 +22,6 @@ pub fn round_lines(text: &str, round: usize) -> Vec<&str> {
 #[derive(Debug)]
 pub struct Round {
     pub lk: f64,
-    pub qd: (f64, f64),
     pub ri: f64,
     pub tr: (f64, f64),
     pub mt: f64,
@@ -38,7 +37,6 @@ pub fn parse_round(lines: &[&str]) -> Round {
             .unwrap_or_else(|| panic!("no {t} line"))
     };
     let num = |s: &str| s.parse::<f64>().unwrap();
-    let (q0, q1) = field("QD").split_once(" -> ").unwrap();
     let (theta, rho) = field("TR").split_once('\t').unwrap();
     let rs = lines
         .iter()
@@ -52,7 +50,6 @@ pub fn parse_round(lines: &[&str]) -> Round {
         .collect();
     Round {
         lk: num(field("LK")),
-        qd: (num(q0), num(q1)),
         ri: num(field("RI")),
         tr: (num(theta), num(rho)),
         mt: num(field("MT")),

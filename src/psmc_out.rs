@@ -2,15 +2,15 @@
 //! written for Heng Li's psmc.
 //!
 //! [`write_psmc`] writes what C psmc (lh3/psmc 0.6.5) writes for a run
-//! without decoding: a `CC` block describing the format, `MM` lines with the
-//! settings and the size of the data, then one block per round, for round 0
-//! (the starting parameters) and each EM iteration:
+//! without decoding, but C's `QD` line: a `CC` block describing the format
+//! (C's), `MM` lines with the settings and the size of the data, then one
+//! block per round, for round 0 (the starting parameters) and each EM
+//! iteration:
 //!
 //! ```text
 //! IT  objective evaluations of the round's M-step (not before round 0)
 //! RD  round number
 //! LK  log-likelihood of the round's E-step
-//! QD  EM Q before -> after the M-step
 //! RI  relative information sum_k sigma_k ln(sigma_k / post_sigma_k)
 //! TR  theta_0 rho_0
 //! MT  t_max
@@ -20,18 +20,23 @@
 //! //
 //! ```
 //!
-//! Round `i >= 1` reports the E-step of EM iteration `i` (`LK`, `QD`,
+//! Round `i >= 1` reports the E-step of EM iteration `i` (`LK`, and
 //! `post_sigma`, which C computes from the expectations of that E-step) and
 //! the parameters its M-step produced (everything else). Round 0 has no
-//! E-step: as in C, `LK` and `QD` are 0 and `post_sigma` is 0, so `RI` is
-//! `inf`. Numbers are formatted as C's `printf` formats them.
+//! E-step: as in C, `LK` is 0 and `post_sigma` is 0, so `RI` is `inf`.
+//! Numbers are formatted as C's `printf` formats them.
+//!
+//! C's `QD` line, its EM Q before and after the M-step less Q's largest
+//! value over all HMMs, is left out: that value needs every expected
+//! transition count, while the E-step here sums only what Q needs, and
+//! psmc_plot.pl does not read the line.
 //!
 //! The values differ from C's only where the methods differ: the M-step
 //! (L-BFGS here, Hooke-Jeeves in C) and its evaluation count (`IT`), the
 //! expected emission counts (C leaves out the last bin of each sequence; this
-//! moves `QD` and `RI` by a relative amount of the order of the number of
-//! sequences per non-missing bin, negligible for chromosomes but percents
-//! for fragmented assemblies, see
+//! moves `RI` by a relative amount of the order of the number of sequences
+//! per non-missing bin, negligible for chromosomes but percents for
+//! fragmented assemblies, see
 //! [`posterior_sigma`](crate::em::posterior_sigma)), and the `Version` line.
 //!
 //! Both M-steps run until their searches converge (ours caps them at
@@ -212,8 +217,6 @@ pub struct PsmcRound {
     pub mstep_evaluations: Option<usize>,
     /// Log-likelihood of the round's E-step (`LK`).
     pub loglike: f64,
-    /// EM Q before and after the M-step (`QD`), see [`EmHistory::q`].
-    pub q: (f64, f64),
     /// Posterior state distribution of the round's E-step (`RS` column 6).
     pub post_sigma: Vec<f64>,
     /// θ0 (`TR`).
@@ -238,8 +241,7 @@ pub struct PsmcRound {
 
 impl PsmcRound {
     /// Round 0 of a run starting from `model` on `sum_l` non-missing bins:
-    /// the model's parameters with no E-step (`LK` and `QD` 0, `post_sigma`
-    /// all 0). The model's matrices must be up to date
+    /// the model's parameters with no E-step (`LK` 0, `post_sigma` all 0). The model's matrices must be up to date
     /// ([`PsmcModel::param_recalculate`]).
     pub fn initial(model: &PsmcModel, sum_l: u64) -> Result<Self> {
         let n_states = model.n_steps + 1;
@@ -255,7 +257,6 @@ impl PsmcRound {
             round: 0,
             mstep_evaluations: None,
             loglike: 0.0,
-            q: (0.0, 0.0),
             post_sigma: vec![0.0; n_states],
             theta: model.theta,
             rho: model.rho,
@@ -294,7 +295,6 @@ pub fn psmc_rounds(
     let n_iter = history.loglike.len();
     if history.params.len() != n_iter + 1
         || history.post_sigma.len() != n_iter
-        || history.q.len() != n_iter
         || history.mstep_evaluations.len() != n_iter
     {
         bail!("inconsistent EM history lengths");
@@ -312,7 +312,6 @@ pub fn psmc_rounds(
             }
             round.mstep_evaluations = Some(history.mstep_evaluations[i - 1]);
             round.loglike = history.loglike[i - 1].0;
-            round.q = history.q[i - 1];
             round.post_sigma = history.post_sigma[i - 1].clone();
         }
         rounds.push(round);
@@ -377,7 +376,6 @@ fn write_round<W: Write>(w: &mut W, pattern: &str, r: &PsmcRound) -> io::Result<
     }
     writeln!(w, "RD\t{}", r.round)?;
     writeln!(w, "LK\t{}", fixed(r.loglike, 6))?;
-    writeln!(w, "QD\t{} -> {}", fixed(r.q.0, 6), fixed(r.q.1, 6))?;
     writeln!(w, "RI\t{}", fixed(r.relative_information(), 10))?;
     writeln!(w, "TR\t{}\t{}", fixed(r.theta, 6), fixed(r.rho, 6))?;
     writeln!(w, "MT\t{}", fixed(r.t_max, 6))?;

@@ -9,7 +9,7 @@ pub mod psmc_text;
 pub mod reference_hmm;
 
 use ndarray::Array2;
-use psmc_rs::hmm::{EStepResult, e_step_streaming};
+use psmc_rs::hmm::{EStepResult, TransitionSums, e_step_streaming};
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{
     Dataset, InputFormat, InputOptions, SeqFilter, SourceSummary, VcfDetails, VcfInputSummary,
@@ -579,6 +579,40 @@ pub fn e_step(m: &PsmcModel, rows: &[Vec<u8>], starts: &[bool]) -> EStepResult {
         "E",
     )
     .unwrap()
+}
+
+/// The sums of the expected transition counts `xi[(k, l)]` that an E-step
+/// returns: over the rows and the columns of each triangle, and the
+/// diagonal.
+pub fn transition_sums(xi: &Array2<f64>) -> TransitionSums {
+    let n = xi.nrows();
+    let sum = |cells: &mut dyn Iterator<Item = (usize, usize)>| cells.map(|c| xi[c]).sum();
+    TransitionSums {
+        lower_rows: (0..n).map(|k| sum(&mut (0..k).map(|l| (k, l)))).collect(),
+        lower_cols: (0..n)
+            .map(|l| sum(&mut (l + 1..n).map(|k| (k, l))))
+            .collect(),
+        upper_rows: (0..n)
+            .map(|k| sum(&mut (k + 1..n).map(|l| (k, l))))
+            .collect(),
+        upper_cols: (0..n).map(|l| sum(&mut (0..l).map(|k| (k, l)))).collect(),
+        diagonal: (0..n).map(|k| xi[(k, k)]).collect(),
+    }
+}
+
+/// The five sums of `t`, one after another.
+pub fn transition_values(t: &TransitionSums) -> Vec<f64> {
+    [
+        &t.lower_rows,
+        &t.lower_cols,
+        &t.upper_rows,
+        &t.upper_cols,
+        &t.diagonal,
+    ]
+    .into_iter()
+    .flatten()
+    .copied()
+    .collect()
 }
 
 /// Make `a` a transition matrix without PSMC's semiseparable structure, on

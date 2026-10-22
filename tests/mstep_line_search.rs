@@ -4,7 +4,7 @@ mod common;
 
 use common::{REFERENCE_PSMCFA, c_start, e_step, fixture_obs, mstep, params};
 use psmc_rs::PsmcModel;
-use psmc_rs::hmm::SufficientStats;
+use psmc_rs::hmm::{SufficientStats, TransitionSums};
 use psmc_rs::opt::{MStepConfig, MStepStop, bounds_from_config, m_step_lbfgs_with_outcome};
 
 /// C psmc's starting point on the 180,000-bin reference input with pattern
@@ -17,12 +17,17 @@ fn first_e_step() -> (PsmcModel, SufficientStats) {
 }
 
 fn scaled(stats: &SufficientStats, factor: f64) -> SufficientStats {
+    let scale = |v: &Vec<f64>| -> Vec<f64> { v.iter().map(|x| x * factor).collect() };
+    let t = &stats.transitions;
     SufficientStats {
-        gobs: stats
-            .gobs
-            .each_ref()
-            .map(|g| g.iter().map(|v| v * factor).collect()),
-        xi: stats.xi.mapv(|v| v * factor),
+        gobs: stats.gobs.each_ref().map(scale),
+        transitions: TransitionSums {
+            lower_rows: scale(&t.lower_rows),
+            lower_cols: scale(&t.lower_cols),
+            upper_rows: scale(&t.upper_rows),
+            upper_cols: scale(&t.upper_cols),
+            diagonal: scale(&t.diagonal),
+        },
         callable: None,
     }
 }

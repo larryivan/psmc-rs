@@ -88,8 +88,8 @@ fn n_states(pattern: &str) -> usize {
 
 /// FNV-1a over the bit patterns of the log-likelihood and every sufficient
 /// statistic the M-step reads: the expected symbol counts, the transition
-/// counts and, with callable bases, the count-weighted `T` sums and the `K`
-/// sums of each count (with the counts themselves).
+/// counts' sums and, with callable bases, the count-weighted `T` sums and
+/// the `K` sums of each count (with the counts themselves).
 fn checksum(e: &EStepResult) -> u64 {
     let mut h = 0xcbf2_9ce4_8422_2325u64;
     let mut mix = |bits: u64| {
@@ -100,7 +100,16 @@ fn checksum(e: &EStepResult) -> u64 {
     for g in &e.stats.gobs {
         g.iter().for_each(|v| mix(v.to_bits()));
     }
-    e.stats.xi.iter().for_each(|v| mix(v.to_bits()));
+    let t = &e.stats.transitions;
+    for v in [
+        &t.lower_rows,
+        &t.lower_cols,
+        &t.upper_rows,
+        &t.upper_cols,
+        &t.diagonal,
+    ] {
+        v.iter().for_each(|v| mix(v.to_bits()));
+    }
     if let Some(c) = &e.stats.callable {
         mix(c.bin_size as u64);
         c.t_weighted.iter().for_each(|v| mix(v.to_bits()));

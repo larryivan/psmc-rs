@@ -80,7 +80,7 @@ fn values(e: &EStepResult) -> Vec<f64> {
     for g in &e.stats.gobs {
         v.extend(g.iter());
     }
-    v.extend(e.stats.xi.iter());
+    v.extend(common::transition_values(&e.stats.transitions));
     v
 }
 

@@ -22,7 +22,7 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::budget::AlphaCacheBudget;
-use super::kernel::Kernel;
+use super::kernel::{Kernel, N_SUMS};
 use super::obs::{ObsTable, obs_class};
 use super::simd::dispatch;
 use super::{CHECKPOINT_STRIDE, Cancelled, sched};
@@ -151,10 +151,12 @@ pub(crate) struct Workspace {
     /// The forward vector entering each segment of a sequence (row 0
     /// unused), when its forward pass keeps them.
     ckpt: Vec<f64>,
+    /// The transition sums of one segment ([`Kernel::transition_sums`]).
+    sums: Vec<f64>,
     /// The blocks of [`backward_blocks`], and the transition sums of each
     /// segment of one; empty until it first runs.
     blocks: [Block; 3],
-    sums: Vec<f64>,
+    block_sums: Vec<f64>,
 }
 
 impl Workspace {
@@ -168,8 +170,9 @@ impl Workspace {
             beta: vec![0.0; np],
             beta_next: vec![0.0; np],
             ckpt: Vec::new(),
+            sums: vec![0.0; N_SUMS * np],
             blocks: Default::default(),
-            sums: Vec::new(),
+            block_sums: Vec::new(),
         }
     }
 }
@@ -196,14 +199,16 @@ impl Block {
 }
 
 /// Per-work-item sums: log-likelihood, expected emissions per observation
-/// index, and the matrix whose product with A gives expected transitions.
+/// index, and the sums of the expected transitions.
 #[derive(Debug, Clone)]
 pub(crate) struct Partial {
     pub(crate) loglike: f64,
     /// `g[i * np + k]`: the posterior of state `k` summed over the bins of
     /// observation index `i`.
     pub(crate) g: Vec<f64>,
-    pub(crate) m: Vec<f64>,
+    /// The sums of [`Kernel::transition_sums`] over the segments, the last
+    /// first.
+    pub(crate) trans: Vec<f64>,
 }
 
 impl Partial {
@@ -212,18 +217,22 @@ impl Partial {
         Self {
             loglike: 0.0,
             g: vec![0.0; n_obs * np],
-            m: vec![0.0; np * np],
+            trans: vec![0.0; N_SUMS * np],
         }
     }
 
     pub(crate) fn merge(&mut self, other: &Partial) {
         self.loglike += other.loglike;
-        for (d, s) in self.g.iter_mut().zip(&other.g) {
-            *d += *s;
-        }
-        for (d, s) in self.m.iter_mut().zip(&other.m) {
-            *d += *s;
-        }
+        add(&mut self.g, &other.g);
+        add(&mut self.trans, &other.trans);
+    }
+}
+
+/// `dst += src`, elementwise.
+#[inline]
+fn add(dst: &mut [f64], src: &[f64]) {
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d += *s;
     }
 }
 
@@ -449,6 +458,7 @@ fn backward_segments<const FUSED: bool>(
         beta,
         beta_next,
         ckpt,
+        sums,
         ..
     } = ws;
     for s in segs.rev() {
@@ -467,14 +477,8 @@ fn backward_segments<const FUSED: bool>(
             }
         };
         backward_segment::<FUSED>(k, s, obs, rows, c, w, beta, beta_next, &mut acc.g);
-        // Site 0 of a sequence has no incoming transition.
-        let t_first = usize::from(s == 0);
-        k.accumulate_transitions(
-            &rows[t_first * np..],
-            &w[t_first * np..],
-            len - t_first,
-            &mut acc.m,
-        );
+        transitions_impl::<FUSED>(k, s, len, rows, w, sums);
+        add(&mut acc.trans, sums);
         ctx.progress
             .backward
             .fetch_add(len as u64, Ordering::Relaxed);
@@ -528,10 +532,10 @@ fn backward_segment<const FUSED: bool>(
 ///
 /// The recursion and its additions to `acc.g` stay on this thread, in
 /// order; every kernel runs on the inputs it has in [`backward_segments`];
-/// and [`Kernel::accumulate_transitions`] sums a segment on its own and adds
-/// the sums to `m` at its end, so `acc.m` gets the same additions in the
-/// same order. The results are the same to the bit whichever way each block
-/// runs.
+/// and the transition sums of each segment are summed on their own
+/// ([`Kernel::transition_sums`]) and added to `acc.trans` from the last
+/// segment to the first, as there. The results are the same to the bit
+/// whichever way each block runs.
 #[inline(always)]
 fn backward_blocks<const FUSED: bool>(
     k: &Kernel,
@@ -546,13 +550,13 @@ fn backward_blocks<const FUSED: bool>(
     let segs = |b: usize| b * BLOCK..n_seg.min((b + 1) * BLOCK);
     // Whether the block after the current one was pipelined: then the
     // current one is recomputed, and the transition sums of the one after
-    // are not yet in acc.m.
+    // are not yet in acc.trans.
     let mut piped = false;
     for b in (0..n_seg.div_ceil(BLOCK)).rev() {
         if spare() {
             let Workspace {
                 blocks,
-                sums,
+                block_sums: sums,
                 beta,
                 beta_next,
                 ckpt,
@@ -560,28 +564,28 @@ fn backward_blocks<const FUSED: bool>(
             } = &mut *ws;
             if sums.is_empty() {
                 *blocks = [(); 3].map(|()| Block::new(np));
-                *sums = vec![0.0; BLOCK * np * np];
+                *sums = vec![0.0; BLOCK * N_SUMS * np];
             }
             let [prev, cur, next] = blocks
                 .get_disjoint_mut([(b + 2) % 3, b % 3, (b + 1) % 3])
                 .expect("three blocks");
-            let (ckpt, m): (&[f64], _) = (ckpt, &mut acc.m);
+            let (ckpt, trans): (&[f64], _) = (ckpt, &mut acc.trans);
             if !piped {
                 let this = Some((segs(b), &mut *cur));
-                pipeline_step::<FUSED>(k, seq, ckpt, this, None, sums, m, || Ok(()))?;
+                pipeline_step::<FUSED>(k, seq, ckpt, this, None, sums, trans, || Ok(()))?;
             }
             let before = (b > 0).then(|| (segs(b - 1), prev));
             let after = piped.then(|| (segs(b + 1), &*next));
             let g = &mut acc.g;
-            pipeline_step::<FUSED>(k, seq, ckpt, before, after, sums, m, || {
+            pipeline_step::<FUSED>(k, seq, ckpt, before, after, sums, trans, || {
                 backward_block::<FUSED>(k, seq, segs(b), cur, beta, beta_next, g, ctx)
             })?;
             piped = true;
         } else {
             if piped {
                 let after = Some((segs(b + 1), &ws.blocks[(b + 1) % 3]));
-                let m = &mut acc.m;
-                pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, &mut ws.sums, m, || Ok(()))?;
+                let (sums, trans) = (&mut ws.block_sums, &mut acc.trans);
+                pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, sums, trans, || Ok(()))?;
                 piped = false;
             }
             backward_segments::<FUSED>(k, seq, segs(b), None, ws, acc, ctx)?;
@@ -589,16 +593,16 @@ fn backward_blocks<const FUSED: bool>(
     }
     if piped {
         let after = Some((segs(0), &ws.blocks[0]));
-        let m = &mut acc.m;
-        pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, &mut ws.sums, m, || Ok(()))?;
+        let (sums, trans) = (&mut ws.block_sums, &mut acc.trans);
+        pipeline_step::<FUSED>(k, seq, &ws.ckpt, None, after, sums, trans, || Ok(()))?;
     }
     Ok(())
 }
 
 /// Runs `here` on this thread while the pool takes, as tasks of one segment
 /// each, the recomputation of the segments of `before` into its block and
-/// the transition sums of the segments of `after`, each into a matrix of
-/// `sums`; then adds those to `m` from the last segment to the first.
+/// the transition sums of the segments of `after`, each into its part of
+/// `sums`; then adds those to `trans` from the last segment to the first.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 fn pipeline_step<const FUSED: bool>(
@@ -608,11 +612,11 @@ fn pipeline_step<const FUSED: bool>(
     before: Option<(Range<usize>, &mut Block)>,
     after: Option<(Range<usize>, &Block)>,
     sums: &mut [f64],
-    m: &mut [f64],
+    trans: &mut [f64],
     here: impl FnOnce() -> Result<()>,
 ) -> Result<()> {
     let np = k.np();
-    let (rl, wl, ml) = ((K + 1) * np, K * np, np * np);
+    let (rl, wl, ml) = ((K + 1) * np, K * np, N_SUMS * np);
     let n_after = after.as_ref().map_or(0, |(segs, _)| segs.len());
     let done = rayon::in_place_scope(|scope| {
         if let Some((segs, blk)) = before {
@@ -631,9 +635,7 @@ fn pipeline_step<const FUSED: bool>(
         here()
     });
     for sum in sums[..n_after * ml].chunks(ml).rev() {
-        for (d, &x) in m.iter_mut().zip(sum) {
-            *d += x;
-        }
+        add(trans, sum);
     }
     done
 }
@@ -720,9 +722,8 @@ fn recompute_impl<const FUSED: bool>(
 }
 
 dispatch! {
-    /// The transition sums of segment `s` of `len` sites alone, into `sum`
-    /// (as [`backward_segments`] adds them to `acc.m`), on a thread of
-    /// [`pipeline_step`].
+    /// The transition sums of segment `s` of `len` sites alone, into `sum`,
+    /// as [`backward_segments`] sums them, on a thread of [`pipeline_step`].
     fn transitions<const FUSED: bool>(
         k: &Kernel,
         s: usize,
@@ -743,9 +744,9 @@ fn transitions_impl<const FUSED: bool>(
     sum: &mut [f64],
 ) {
     let np = k.np();
+    // Site 0 of a sequence has no incoming transition.
     let t_first = usize::from(s == 0);
-    sum.fill(0.0);
-    k.accumulate_transitions(
+    k.transition_sums::<FUSED>(
         &rows[t_first * np..],
         &w[t_first * np..],
         len - t_first,
@@ -1045,7 +1046,7 @@ mod tests {
         );
         let mut out = vec![vec![ll.unwrap()]];
         run!(run, e_step_impl | e_step(k, &seq, &mut ws, &mut acc, &ctx)).unwrap();
-        out.extend([vec![acc.loglike], acc.g, acc.m]);
+        out.extend([vec![acc.loglike], acc.g, acc.trans]);
         let ckpt = DecodeCheckpoints {
             alpha: run!(
                 run,
@@ -1169,7 +1170,7 @@ mod tests {
             backward_blocks::<FUSED>(k, &seq, &mut ws, &mut acc, &ctx, spare).unwrap();
         });
         assert_eq!(progress.backward.into_inner(), seq.len() as u64);
-        let values = [&[acc.loglike][..], &acc.g, &acc.m, &ws.beta];
+        let values = [&[acc.loglike][..], &acc.g, &acc.trans, &ws.beta];
         values
             .iter()
             .flat_map(|v| v.iter().map(|x| x.to_bits()))

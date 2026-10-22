@@ -140,7 +140,8 @@ fn bits(e: &EStepResult) -> Vec<u64> {
     for g in &e.stats.gobs {
         v.extend(g.iter().map(|x| x.to_bits()));
     }
-    v.extend(e.stats.xi.iter().map(|x| x.to_bits()));
+    let transitions = common::transition_values(&e.stats.transitions);
+    v.extend(transitions.iter().map(|x| x.to_bits()));
     if let Some(c) = &e.stats.callable {
         v.push(c.bin_size as u64);
         v.extend(c.t_weighted.iter().map(|x| x.to_bits()));

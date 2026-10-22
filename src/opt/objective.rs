@@ -3,8 +3,9 @@
 //!
 //! The objective is `f(x) = -Q(x) + lambda * penalty(x)`: `Q` is C psmc's
 //! expected complete-data log-likelihood of the transitions and emissions
-//! (with the `ln(p + 1e-300)` guard, and zero counts skipped, as in the
-//! forward-mode test oracle, `opt/dual.rs`), or with callable bases that of the
+//! (with the `ln(p + 1e-300)` guard on each probability, or each factor of
+//! one, and zero counts skipped, as in the forward-mode test oracle,
+//! `opt/dual.rs`), or with callable bases that of the
 //! callable-length model ([`EmissionCounts`]), at the parameters
 //! `p_i = lo_i + (hi_i - lo_i) sigmoid(x_i)` (θ, ρ, t_max, then the free λ),
 //! whose HMM is C `psmc_update_hmm` as [`PsmcModel::param_recalculate`]
@@ -17,27 +18,37 @@
 //!
 //! The transition probabilities of row `k` are `tmp3_k q_k[m]` (plus
 //! `1 - tmp3_k` on the diagonal), where `q_k[m]` is `tmp_k q_aux[m]` below
-//! the diagonal and `(alpha_m - alpha_{m+1}) tmp2_k` above it. A row
-//! therefore depends on the shared quantities (α, the β sums, `q_aux`, C_pi,
-//! C_sigma, ρ, the interval lengths) only through a few scalars of its own,
-//! and its expected counts are known before it is computed. Each row is
-//! evaluated and immediately differentiated, accumulating adjoints of the
-//! shared quantities, which are then propagated back to the parameters in
-//! one O(states) sweep. An evaluation thus costs O(states²), a logarithm (as
-//! the value alone needs) and a division per expected transition count, and
-//! O(states) memory besides the counts: the transition matrix is never
-//! stored, and nothing is allocated once the workspace exists. With
-//! callable bases, the `K` bins of each count add an exponential, a
-//! logarithm and a division per state (a `K` bin holds `ceil(s / 10)` to
-//! `s` callable bases, so there are at most `s - ceil(s / 10) + 1` counts,
-//! 91 for bins of 100 bases). Forward mode would carry the derivatives
-//! with respect to every parameter through each transition probability,
-//! at O(states² × parameters) time and memory.
+//! the diagonal and `(alpha_m - alpha_{m+1}) tmp2_k` above it: below and
+//! above the diagonal, a factor of the row times a factor of the column. So
+//! the logarithm of each splits into the row's and the column's, and with
+//! the expected counts `xi[k][m]` summed over each triangle's rows (`R<`,
+//! `R>`) and columns (`C<`, `C>`) and the diagonal (`D`)
+//! ([`TransitionSums`]), Q's transition terms are
+//!
+//! ```text
+//! sum_{k,m} xi[k][m] ln p[k][m]
+//!     = sum_k R<[k] ln(tmp3_k tmp_k) + D[k] ln p[k][k] + R>[k] ln(tmp3_k tmp2_k)
+//!     + sum_m C<[m] ln q_aux[m] + C>[m] ln(alpha_m - alpha_{m+1}).
+//! ```
+//!
+//! A row depends on the shared quantities (α, the β sums, `q_aux`, C_pi,
+//! C_sigma, ρ, the interval lengths) only through a few scalars of its own.
+//! Each row is evaluated and immediately differentiated, accumulating
+//! adjoints of the shared quantities, which are then propagated back to the
+//! parameters in one O(states) sweep. An evaluation thus costs O(states)
+//! time, five logarithms and divisions per state for the transitions, and
+//! O(states) memory: the transition matrix is never stored, and nothing is
+//! allocated once the workspace exists. With callable bases, the `K` bins
+//! of each count add an exponential, a logarithm and a division per state
+//! (a `K` bin holds `ceil(s / 10)` to `s` callable bases, so there are at
+//! most `s - ceil(s / 10) + 1` counts, 91 for bins of 100 bases). Forward
+//! mode would carry the derivatives with respect to every parameter through
+//! each of these, at O(states × parameters) time and memory.
 //!
 //! The objective is `+inf` where the HMM computed in f64 is not one: where a
-//! transition or emission probability is negative or not a number, or where
-//! a row of the transition matrix does not sum to 1 within
-//! [`ROW_SUM_TOLERANCE`]. In exact arithmetic every row sums to 1, but the
+//! transition or emission probability, or a factor of one, is negative or
+//! not a number, or where a row of the transition matrix does not sum to 1
+//! within [`ROW_SUM_TOLERANCE`]. In exact arithmetic every row sums to 1, but the
 //! formulas square the survival `alpha` (C's `ak1 * ak1`): once it falls
 //! below about 1e-154, which a small λ of an early interval causes (a
 //! cumulative coalescence rate above about 354), those squares lose their
@@ -46,19 +57,18 @@
 //! no HMM's, so the M-step must not move there: on a simulated genome, an
 //! E-step with one lowered the log-likelihood by 367 and EM never left it.
 
-use std::borrow::Cow;
-
-use anyhow::{Result, bail, ensure};
+use anyhow::{Result, ensure};
 
 use super::Bounds;
-use crate::hmm::SufficientStats;
+use crate::hmm::{SufficientStats, TransitionSums};
 use crate::model::{GRID_ALPHA, PsmcModel, T_INF};
 
 /// The guard added to each probability before its logarithm is taken.
 const LN_GUARD: f64 = 1e-300;
 
-/// Adds the term `c ln(p + LN_GUARD)` of `c` expected transitions of
-/// probability `p` to `q`; returns its derivative with respect to `p`.
+/// Adds the term `c ln(p + LN_GUARD)` of `c` expected transitions or
+/// emissions of probability (or factor of a probability) `p` to `q`;
+/// returns its derivative with respect to `p`.
 #[inline]
 fn add_log_count(q: &mut f64, p: f64, c: f64) -> f64 {
     let guarded = p + LN_GUARD;
@@ -194,8 +204,8 @@ impl<'a> EmissionCounts<'a> {
 pub(crate) struct Objective<'a> {
     /// The expected emission counts.
     emissions: EmissionCounts<'a>,
-    /// `stats.xi`, row-major.
-    xi: Cow<'a, [f64]>,
+    /// The expected transition counts' sums.
+    transitions: &'a TransitionSums,
     bounds: &'a [Bounds],
     lambda: f64,
     /// C psmc's `n`: the model has `n + 1` states.
@@ -305,21 +315,23 @@ impl<'a> Objective<'a> {
             "{} bounds for 3 + {n_free} free parameters",
             bounds.len()
         );
-        if stats.xi.dim() != (states, states) {
-            bail!(
-                "expected counts of {} x {} transitions for a model of {states} states",
-                stats.xi.nrows(),
-                stats.xi.ncols()
-            );
-        }
+        let transitions = &stats.transitions;
+        let sums = [
+            &transitions.lower_rows,
+            &transitions.lower_cols,
+            &transitions.upper_rows,
+            &transitions.upper_cols,
+            &transitions.diagonal,
+        ];
+        ensure!(
+            sums.iter().all(|v| v.len() == states),
+            "expected transition counts' sums of {:?} states for a model of {states} states",
+            sums.map(Vec::len)
+        );
         let emissions = EmissionCounts::of(stats, states)?;
-        let xi = match stats.xi.as_slice() {
-            Some(rows) => Cow::Borrowed(rows),
-            None => Cow::Owned(stats.xi.iter().copied().collect()),
-        };
         Ok(Self {
             emissions,
-            xi,
+            transitions,
             bounds,
             lambda,
             n,
@@ -444,6 +456,9 @@ impl<'a> Objective<'a> {
         // not negative), and the largest deviation of a row sum from 1.
         let mut valid = true;
         let mut row_deviation = 0.0f64;
+        let counts = self.transitions;
+        // sum_{m < k} q_aux[m], for the sum of row k.
+        let mut q_aux_before = 0.0;
         for k in 0..=n {
             // Forward, as param_recalculate.
             let (a_k, a_next) = (alpha[k], alpha[k + 1]);
@@ -479,49 +494,38 @@ impl<'a> Objective<'a> {
             em0[k] = e0;
             valid &= (0.0..=1.0).contains(&e0);
 
-            // The transitions out of state k, summed in C's order; the row's
-            // sum covers the probabilities of zero counts too.
-            let row = &self.xi[k * (n + 1)..(k + 1) * (n + 1)];
+            // The transitions out of state k: below the diagonal with
+            // probabilities `lower q_aux[m]`, above it `upper dalpha[m]`, of
+            // which the rows' factors are weighed here and the columns'
+            // after the rows. The row sums to `lower sum_{m < k} q_aux[m] +
+            // p_kk + upper alpha[k + 1]`, zero counts or not.
+            let (lower, upper) = (tmp3 * tmp, tmp3 * tmp2);
+            let p_kk = tmp3 * qk + (1.0 - tmp3);
+            valid &= (k == 0 || lower >= 0.0) && p_kk >= 0.0 && (k == n || upper >= 0.0);
+            let row_sum = lower * q_aux_before + p_kk + upper * alpha[k + 1];
+            row_deviation = row_deviation.max((row_sum - 1.0).abs());
             let (mut bar_tmp3, mut bar_tmp, mut bar_tmp2, mut bar_qk) = (0.0, 0.0, 0.0, 0.0);
-            let mut row_sum = 0.0;
-            for m in 0..k {
-                let q = tmp * q_aux[m];
-                let p = tmp3 * q;
-                row_sum += p;
-                valid &= p >= 0.0;
-                let c = row[m];
-                if c != 0.0 {
-                    let bar_p = add_log_count(&mut q_sum, p, c);
-                    bar_tmp3 += bar_p * q;
-                    let bar_q = bar_p * tmp3;
-                    bar_tmp += bar_q * q_aux[m];
-                    bar_q_aux[m] += bar_q * tmp;
-                }
+            let c = counts.lower_rows[k];
+            if k > 0 && c != 0.0 {
+                let bar_lower = add_log_count(&mut q_sum, lower, c);
+                bar_tmp3 += bar_lower * tmp;
+                bar_tmp += bar_lower * tmp3;
             }
-            let p = tmp3 * qk + (1.0 - tmp3);
-            row_sum += p;
-            valid &= p >= 0.0;
-            let c = row[k];
+            let c = counts.diagonal[k];
             if c != 0.0 {
-                let bar_p = add_log_count(&mut q_sum, p, c);
+                let bar_p = add_log_count(&mut q_sum, p_kk, c);
                 bar_tmp3 += bar_p * (qk - 1.0);
                 bar_qk = bar_p * tmp3;
             }
-            for m in (k + 1)..=n {
-                let q = dalpha[m] * tmp2;
-                let p = tmp3 * q;
-                row_sum += p;
-                valid &= p >= 0.0;
-                let c = row[m];
-                if c != 0.0 {
-                    let bar_p = add_log_count(&mut q_sum, p, c);
-                    bar_tmp3 += bar_p * q;
-                    let bar_q = bar_p * tmp3;
-                    bar_tmp2 += bar_q * dalpha[m];
-                    bar_dalpha[m] += bar_q * tmp2;
-                }
+            let c = counts.upper_rows[k];
+            if k < n && c != 0.0 {
+                let bar_upper = add_log_count(&mut q_sum, upper, c);
+                bar_tmp3 += bar_upper * tmp2;
+                bar_tmp2 += bar_upper * tmp3;
             }
-            row_deviation = row_deviation.max((row_sum - 1.0).abs());
+            if k < n {
+                q_aux_before += q_aux[k];
+            }
 
             // The emissions of T and K; their terms are added to Q after all
             // transitions, as C adds them.
@@ -591,6 +595,24 @@ impl<'a> Objective<'a> {
             bar_sum_t[k] = bar_start;
 
             sum_t += tau_k;
+        }
+        // The columns' factors: q_aux[m] below the diagonal, dalpha[m]
+        // above it.
+        for m in 0..=n {
+            if m < n {
+                valid &= q_aux[m] >= 0.0;
+                let c = counts.lower_cols[m];
+                if c != 0.0 {
+                    bar_q_aux[m] += add_log_count(&mut q_sum, q_aux[m], c);
+                }
+            }
+            if m > 0 {
+                valid &= dalpha[m] >= 0.0;
+                let c = counts.upper_cols[m];
+                if c != 0.0 {
+                    bar_dalpha[m] += add_log_count(&mut q_sum, dalpha[m], c);
+                }
+            }
         }
         self.emissions.add_terms(&mut q_sum, em0, k_terms);
         RowSums {
