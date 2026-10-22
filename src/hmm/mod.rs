@@ -4,12 +4,9 @@
 //! All three run on one per-sequence forward-backward engine in f64 with
 //! bounded memory (checkpoints every [`CHECKPOINT_STRIDE`] sites). Sequences
 //! are processed in parallel in whichever rayon pool the caller runs in, at
-//! any nesting level, and per-sequence results are combined in input order;
-//! while half the pool has no sequence to process, the E-step's backward
-//! pass over a long sequence also runs on those threads, adding its sums in
-//! the same order. So results are bit-identical for any thread count, any
-//! alpha-cache budget, and whether or not the call is nested inside other
-//! rayon work.
+//! any nesting level, and per-sequence results are combined in input order,
+//! so results are bit-identical for any thread count, any alpha-cache budget,
+//! and whether or not the call is nested inside other rayon work.
 //!
 //! # Callable bases
 //!

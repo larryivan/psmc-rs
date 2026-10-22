@@ -178,14 +178,8 @@ fn check_threads_and_nesting(inp: &Input) {
     }
 }
 
-/// A sequence of several blocks of the backward pass besides a short one:
-/// once the short one is done, the free threads of the pool share the long
-/// one's backward pass, which must give the bits of one thread on any number
-/// of them. The count of free threads is the whole process's, and the other
-/// tests of this file run E-steps meanwhile, so this test reaches the
-/// pipelined path only when they leave threads spare; the unit test
-/// `pipelined_blocks_give_the_bits_of_one_thread` in `src/hmm/fb.rs`, which
-/// pipelines blocks whatever the count, is what guarantees the pipeline's bits.
+/// A sequence of about a hundred segments beside a short one, which leaves
+/// the other threads of the pool nothing to do while it runs.
 #[test]
 fn a_long_sequence_gives_the_same_bits_on_any_thread_count() {
     let _path = one_path();

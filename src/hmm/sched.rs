@@ -55,17 +55,6 @@ pub(crate) fn busy<T>(f: impl FnOnce() -> T) -> T {
     f()
 }
 
-/// Whether at least as many threads of the current pool are free as work
-/// items and progress pumps keep busy, so that the busy ones may share the
-/// free ones for their backward passes. With fewer free threads each would
-/// get too little help to be worth the memory of its blocks (on the human
-/// genome on 8 threads, sharing every free thread kept 24 MB more and
-/// gained nothing). An estimate, for speed only: which thread runs which
-/// part of a pass does not change its results.
-pub(crate) fn spare_threads() -> bool {
-    2 * BUSY.load(Ordering::Relaxed) <= rayon::current_num_threads()
-}
-
 /// Rows of each sequence and the grouping of sequences into work items.
 pub(crate) struct Plan {
     /// Row range of each sequence.
