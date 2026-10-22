@@ -234,15 +234,13 @@ fn ignored_options(args: &InputArgs, data: &Dataset) -> Option<String> {
     let format = data.source.format();
     let flags = args.ignored_flags(format, vcf_mode);
     let mut parts = Vec::new();
-    if !flags.is_empty() {
-        let (list, verb) = match flags.as_slice() {
-            [one] => (one.to_string(), "does"),
-            [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "do"),
-            [] => unreachable!(),
+    if let [rest @ .., last] = flags.as_slice() {
+        let (list, does, was) = match rest {
+            [] => (last.to_string(), "does", "was"),
+            _ => (format!("{} and {last}", rest.join(", ")), "do", "were"),
         };
         parts.push(format!(
-            "{list} {verb} not apply to {what} and {} ignored",
-            if flags.len() == 1 { "was" } else { "were" }
+            "{list} {does} not apply to {what} and {was} ignored"
         ));
     }
     if args.sample_only_checked(format, vcf_mode) {

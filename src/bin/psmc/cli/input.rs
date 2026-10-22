@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use psmc_rs::io::consensus::{ConsensusFilters, DepthThresholds};
 use psmc_rs::io::input::{InputFormat, InputOptions, SeqFilter, VcfMode};
 
-use super::values::{positive_usize, whole_number};
+use super::values::{number, positive_usize, whole_number};
 use super::{Spelling, defaults, on, one, spelt};
 
 /// `--input-format`.
@@ -114,11 +114,7 @@ fn parse_depth(s: &str) -> Result<DepthThresholds, String> {
 
 /// A share between 0 and 1.
 fn parse_fraction(s: &str) -> Result<f64, String> {
-    let v: f64 = s.parse().map_err(|_| format!("'{s}' is not a number"))?;
-    if !(0.0..=1.0).contains(&v) {
-        return Err(format!("must be between 0 and 1, got {v}"));
-    }
-    Ok(v)
+    number(s, |v| (0.0..=1.0).contains(&v), "between 0 and 1")
 }
 
 /// How to read the input; shared by inference, `convert` and `qc`, so that

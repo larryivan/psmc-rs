@@ -76,22 +76,23 @@ pub fn whole_number<T: FromStr<Err = ParseIntError>>(s: &str) -> Result<T, Strin
     })
 }
 
-/// A positive, finite number.
-pub fn positive_f64(s: &str) -> Result<f64, String> {
+/// A number that `ok` accepts; otherwise it `must` be what the error says.
+pub(super) fn number(s: &str, ok: fn(f64) -> bool, must: &str) -> Result<f64, String> {
     match s.parse::<f64>() {
-        Ok(v) if v > 0.0 && v.is_finite() => Ok(v),
-        Ok(v) => Err(format!("must be a positive number, got {v}")),
+        Ok(v) if ok(v) => Ok(v),
+        Ok(v) => Err(format!("must be {must}, got {v}")),
         Err(_) => Err(format!("'{s}' is not a number")),
     }
 }
 
+/// A positive, finite number.
+pub fn positive_f64(s: &str) -> Result<f64, String> {
+    number(s, |v| v > 0.0 && v.is_finite(), "a positive number")
+}
+
 /// A finite number of at least 0.
 pub fn non_negative_f64(s: &str) -> Result<f64, String> {
-    match s.parse::<f64>() {
-        Ok(v) if v >= 0.0 && v.is_finite() => Ok(v),
-        Ok(v) => Err(format!("must be 0 or more, got {v}")),
-        Err(_) => Err(format!("'{s}' is not a number")),
-    }
+    number(s, |v| v >= 0.0 && v.is_finite(), "0 or more")
 }
 
 /// `--t-max`: inside the range the M-step searches. A start outside it
