@@ -502,11 +502,12 @@ fn sex_or_organelle(
         };
         let note = match judged {
             Some((ratio, expected)) if expected >= HEMIZYGOUS_MIN_EXPECTED_HET_BINS => {
-                let hemi = ratio < HEMIZYGOUS_MAX_RATIO;
-                if hemi {
+                let hemi = if ratio < HEMIZYGOUS_MAX_RATIO {
                     hemizygous.push(s.name.clone());
-                }
-                let hemi = if hemi { ", hemizygous?" } else { "" };
+                    ", hemizygous?"
+                } else {
+                    ""
+                };
                 format!("{}x the autosomal heterozygosity{hemi}", sig(ratio, 2))
             }
             Some(_) => "too few called bins to judge".to_string(),
