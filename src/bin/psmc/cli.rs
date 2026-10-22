@@ -371,8 +371,8 @@ pub struct InferArgs {
 
     /// Worker threads (default: one per core); results do not depend on it.
     ///
-    /// They run the E-step (sequences in parallel, and a long sequence's
-    /// backward pass on free threads), the bootstrap and the TMRCA decoding.
+    /// They run the E-step (sequences in parallel), the bootstrap and the
+    /// TMRCA decoding.
     #[arg(long, value_name = "N", value_parser = positive_usize, help_heading = "Run")]
     pub threads: Option<usize>,
 
