@@ -595,29 +595,6 @@ pub struct TmrcaOptions<'a> {
 }
 
 /// Posterior decoding of the time to the most recent common ancestor, one
-/// TSV line per bin (gzip-compressed when `out_path` ends in `.gz`), without
-/// callable bases; see [`write_tmrca_posterior_tsv_with_options`].
-#[allow(clippy::too_many_arguments)]
-pub fn write_tmrca_posterior_tsv(
-    pi: &[f64],
-    a: &Array2<f64>,
-    em: &Array2<f64>,
-    rows: &[Vec<u8>],
-    row_starts: &[bool],
-    tmrca_years: &[f64],
-    out_path: &Path,
-    progress_enabled: bool,
-    max_points: usize,
-) -> Result<TmrcaReportData> {
-    let opts = TmrcaOptions {
-        progress_bars: progress_enabled,
-        max_points,
-        callable: None,
-    };
-    write_tmrca_posterior_tsv_with_options(pi, a, em, rows, row_starts, tmrca_years, out_path, opts)
-}
-
-/// Posterior decoding of the time to the most recent common ancestor, one
 /// TSV line per bin (gzip-compressed when `out_path` ends in `.gz`). The
 /// `obs` column is the bin's symbol; with callable bases
 /// ([`TmrcaOptions::callable`]) each bin is decoded with the emissions of
@@ -740,9 +717,9 @@ mod tests {
     const K: usize = CHECKPOINT_STRIDE;
 
     /// Walks every window, in spans ending at each sequence longer than a
-    /// window as `write_tmrca_posterior_tsv` does, and checks that the units
-    /// cover each site once, in order, within the size limits. Returns the
-    /// number of units per window.
+    /// window as `write_tmrca_posterior_tsv_with_options` does, and checks
+    /// that the units cover each site once, in order, within the size
+    /// limits. Returns the number of units per window.
     fn check_windows(lens: &[usize]) -> Vec<usize> {
         let seq_start = starts(lens.iter().copied());
         let n = lens.len();

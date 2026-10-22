@@ -160,7 +160,10 @@ Library API:
 - `read_psmcfa` fails on input without a `>` record; `read_vcf` fails on
   unsorted positions, a chromosome that comes back, a record beyond its
   `##contig` length and a genotype allele that ALT lacks.
-- `hmm::write_tmrca_posterior_tsv` writes gzip when the path ends in `.gz`.
+- `hmm::write_tmrca_posterior_tsv` and `hmm::e_step_streaming_with_progress`
+  are gone: `hmm::write_tmrca_posterior_tsv_with_options` (`TmrcaOptions`)
+  and `hmm::e_step_with_options` (`EStepOptions::on_progress`) take their
+  arguments. The TMRCA output is gzip when the path ends in `.gz`.
 
 ### Added
 

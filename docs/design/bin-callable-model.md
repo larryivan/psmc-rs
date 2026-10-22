@@ -385,10 +385,9 @@ likelihood of another model than the one fitted:
 - `hmm::write_tmrca_posterior_tsv_with_options` (`TmrcaOptions::callable`),
   the posterior decoding, whose `obs` column stays the symbol.
 
-`hmm::e_step_streaming`, `e_step_streaming_with_progress`,
-`log_likelihood`, `write_tmrca_posterior_tsv` and `em::em_train` keep
-their signatures and C's model, so `tests/c_equivalence.rs` and every
-caller without counts is untouched. Passing `&Observations` in place of
+`hmm::e_step_streaming`, `log_likelihood` and `em::em_train` keep their
+signatures and C's model, so `tests/c_equivalence.rs` and every caller
+without counts is untouched. Passing `&Observations` in place of
 `rows` and `row_starts`, the other option the plan named, would have
 changed every one of those signatures.
 

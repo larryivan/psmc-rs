@@ -4,7 +4,7 @@
 mod common;
 
 use common::{model, pool};
-use psmc_rs::hmm::{EStepPhase, EStepProgress, e_step_streaming_with_progress};
+use psmc_rs::hmm::{EStepOptions, EStepPhase, EStepProgress, e_step_with_options};
 
 fn check_events(events: &[EStepProgress], total: u64) {
     assert!(!events.is_empty());
@@ -45,15 +45,17 @@ fn progress_is_monotonic_and_complete() {
         let mut events = Vec::new();
         let mut cb = |e: EStepProgress| events.push(e);
         pool(threads).install(|| {
-            e_step_streaming_with_progress(
+            let opts = EStepOptions {
+                on_progress: Some(&mut cb),
+                ..EStepOptions::default()
+            };
+            e_step_with_options(
                 model.prior_matrix(),
                 model.transition_matrix(),
                 model.emission_matrix(),
                 &rows,
                 &row_starts,
-                false,
-                "E",
-                Some(&mut cb),
+                opts,
             )
             .unwrap()
         });

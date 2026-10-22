@@ -10,7 +10,9 @@ use common::reference_hmm::{forward_fill_row, obs_to_idx, row_major};
 use common::{TempDir, gunzipped, pool};
 use ndarray::Array2;
 use psmc_rs::PsmcModel;
-use psmc_rs::hmm::{CHECKPOINT_STRIDE, TmrcaReportData, write_tmrca_posterior_tsv};
+use psmc_rs::hmm::{
+    CHECKPOINT_STRIDE, TmrcaOptions, TmrcaReportData, write_tmrca_posterior_tsv_with_options,
+};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use std::fs::File;
@@ -376,7 +378,7 @@ fn input_with_lengths(seed: u64, lens: &[usize]) -> Input {
 }
 
 fn write_new(inp: &Input, path: &Path) -> TmrcaReportData {
-    write_tmrca_posterior_tsv(
+    write_tmrca_posterior_tsv_with_options(
         inp.model.prior_matrix(),
         inp.model.transition_matrix(),
         inp.model.emission_matrix(),
@@ -384,8 +386,10 @@ fn write_new(inp: &Input, path: &Path) -> TmrcaReportData {
         &inp.row_starts,
         &inp.years,
         path,
-        false,
-        500,
+        TmrcaOptions {
+            max_points: 500,
+            ..TmrcaOptions::default()
+        },
     )
     .unwrap()
 }

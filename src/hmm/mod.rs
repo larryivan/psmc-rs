@@ -48,7 +48,7 @@ mod tmrca;
 
 pub use budget::AlphaCacheBudget;
 pub use simd::{SimdPath, set_force_portable, simd_path};
-pub use tmrca::{TmrcaOptions, write_tmrca_posterior_tsv, write_tmrca_posterior_tsv_with_options};
+pub use tmrca::{TmrcaOptions, write_tmrca_posterior_tsv_with_options};
 
 pub(crate) use sched::busy;
 
@@ -364,7 +364,7 @@ impl<'a> Pass<'a> {
 
 /// The E-step with default options; draws progress bars labelled `label`
 /// when `progress_enabled`. See [`e_step_with_options`], which also takes
-/// callable bases.
+/// a progress callback and callable bases.
 pub fn e_step_streaming(
     pi: &[f64],
     a: &Array2<f64>,
@@ -374,36 +374,12 @@ pub fn e_step_streaming(
     progress_enabled: bool,
     label: &str,
 ) -> Result<EStepResult> {
-    e_step_streaming_with_progress(pi, a, em, rows, row_starts, progress_enabled, label, None)
-}
-
-/// [`e_step_streaming`] with a progress callback. See [`e_step_with_options`].
-#[allow(clippy::too_many_arguments)]
-pub fn e_step_streaming_with_progress(
-    pi: &[f64],
-    a: &Array2<f64>,
-    em: &Array2<f64>,
-    rows: &[Vec<u8>],
-    row_starts: &[bool],
-    progress_enabled: bool,
-    label: &str,
-    on_progress: Option<&mut dyn FnMut(EStepProgress)>,
-) -> Result<EStepResult> {
-    // Shorten the callback's object lifetime to match `label`.
-    let on_progress = on_progress.map(|cb| cb as &mut dyn FnMut(EStepProgress));
-    e_step_with_options(
-        pi,
-        a,
-        em,
-        rows,
-        row_starts,
-        EStepOptions {
-            progress_bars: progress_enabled,
-            label,
-            on_progress,
-            ..EStepOptions::default()
-        },
-    )
+    let opts = EStepOptions {
+        progress_bars: progress_enabled,
+        label,
+        ..EStepOptions::default()
+    };
+    e_step_with_options(pi, a, em, rows, row_starts, opts)
 }
 
 /// The E-step: log-likelihood and expected sufficient statistics of the

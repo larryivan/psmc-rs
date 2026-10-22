@@ -10,9 +10,9 @@ mod common;
 use common::{densify, model, pool};
 use ndarray::Array2;
 use psmc_rs::hmm::{
-    AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, SimdPath, TmrcaReportData,
-    e_step_streaming, e_step_with_options, log_likelihood, set_force_portable, simd_path,
-    write_tmrca_posterior_tsv,
+    AlphaCacheBudget, CHECKPOINT_STRIDE, EStepOptions, EStepResult, SimdPath, TmrcaOptions,
+    TmrcaReportData, e_step_streaming, e_step_with_options, log_likelihood, set_force_portable,
+    simd_path, write_tmrca_posterior_tsv_with_options,
 };
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -405,7 +405,11 @@ fn simd_paths_agree() {
         let loglike = log_likelihood_of(inp);
         let years: Vec<f64> = (0..inp.pi.len()).map(|k| 1000.0 * k as f64).collect();
         let tsv = dir.join(format!("simd_{}_{}.tsv", std::process::id(), path));
-        let tmrca = write_tmrca_posterior_tsv(
+        let opts = TmrcaOptions {
+            max_points: 500,
+            ..TmrcaOptions::default()
+        };
+        let tmrca = write_tmrca_posterior_tsv_with_options(
             &inp.pi,
             &inp.a,
             &inp.em,
@@ -413,8 +417,7 @@ fn simd_paths_agree() {
             &inp.row_starts,
             &years,
             &tsv,
-            false,
-            500,
+            opts,
         )
         .unwrap();
         let text = std::fs::read(&tsv).unwrap();
