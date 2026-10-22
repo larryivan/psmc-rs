@@ -409,11 +409,10 @@ EM iterations of the recipe, 5 repeats each: C psmc on its one thread;
 psmc-rs 0.2 on 1, 8 and 30 threads (and with capped M-steps,
 `rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2
 on the 3000 Mb genome with 1, 2, 4, 8, 16 and 30 threads (thread scaling):
-19 setups, 95 timed runs. psmc-rs runs sequences in parallel, and threads
-left free (while at least half are) share each sequence's backward pass,
-so the smaller genomes also gain from threads (a single sequence is
-fastest on about 8). A setup whose estimated peak memory exceeds 64 GB is
-not run and Table 2 says why (none with 100 Mb chromosomes: C psmc holds about 1 GB,
+19 setups, 95 timed runs. psmc-rs works on one sequence per thread, so the
+30 chromosomes of the largest genome make 30 threads the most that can
+help. A setup whose estimated peak memory exceeds 64 GB is not run and
+Table 2 says why (none with 100 Mb chromosomes: C psmc holds about 1 GB,
 psmc-rs 0.2 well under 1 GB).
 
 Every run is an exclusive job (nothing else runs, on this runner or any

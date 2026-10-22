@@ -581,7 +581,9 @@ class E3:
     scaling: Scaling = SIMULATION_SCALING  # psmc-rs --mu and --gen-years: the scaling of its report only
     repeats: int = 5
     inference: Inference = INFERENCE
-    # Thread counts; every run is exclusive, and gets as many cores as threads.
+    # Thread counts. psmc-rs works on one sequence per thread, so the 30
+    # chromosomes of the largest genome make 30 threads the most that can
+    # help; every run is exclusive, and gets as many cores as threads.
     rs02_threads: Tuple[int, ...] = (1, 8, 30)
     # psmc-rs 0.2 timed with its M-steps capped at default_mstep_iters too
     # ("rs02-default"), at these thread counts (those of rs02_threads); None:

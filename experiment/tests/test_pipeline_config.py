@@ -112,7 +112,7 @@ class Design(unittest.TestCase):
         self.assertEqual(p.e3.genome_sizes_mb, (100, 300, 1000, 3000))
         self.assertEqual(p.e2.rs_threads, 50)
         self.assertEqual(p.e3.thread_scaling_threads, (1, 2, 4, 8, 16, 30))
-        # 30 chromosomes of 100 Mb: thread scaling up to one thread per chromosome
+        # 30 chromosomes of 100 Mb: psmc-rs, one sequence per thread, can use no more threads
         self.assertEqual(max(p.e3.thread_scaling_threads), p.e3.thread_scaling_size_mb * 1_000_000 // p.e3.chromosome_length)
         self.assertEqual((p.e3.rs02_threads, p.e3.rs02_default_threads), ((1, 8, 30),) * 2)
         self.assertEqual((p.e3.repeats, p.e3.memory_limit_gb), (5, 64.0))

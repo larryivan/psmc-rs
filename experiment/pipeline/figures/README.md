@@ -92,9 +92,9 @@ so that it can be turned into the caption. The article numbers its figures in it
   genomes, to one significant digit.
 - **The article's Fig 2** (`art2_performance`): a and b are the medians of
   E3's clean repeats on the thread-scaling genome (30 chromosomes of 100 Mb
-  in production), each run alone on its machine. psmc-rs fits sequences
-  in parallel, so a large speed-up on many threads needs many sequences of
-  similar length (see Fig 4). c's times are one-thread fits of the 1000 Genomes cohort on cores of nodes
+  in production), each run alone on its machine. psmc-rs fits each
+  sequence on one thread, in parallel across sequences, so the speed-up on
+  many threads needs as many sequences of similar length (see Fig 4). c's times are one-thread fits of the 1000 Genomes cohort on cores of nodes
   shared with other fits (`E7_fits.wall_seconds`): their ratio compares
   the programs, their absolute values are not comparable with a's.
 - **The article's Fig 3** (`fig7_1000_genomes`): medians over genomes of
@@ -151,14 +151,15 @@ so that it can be turned into the caption. The article numbers its figures in it
   the caption should say whether Fig 3's recent peaks persist.
 - **Fig 4**: medians of E3's clean repeats (each repeat is a dot under its
   marker); sizes a tool was not run at are named in panel a with the reason
-  E3 recorded. The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the
-  second line of the size ticks). psmc-rs fits sequences in parallel and,
-  while at least half the threads are idle, pipelines each sequence's
-  backward pass over them, so one 100 Mb chromosome runs at most about
-  twice as fast on many threads as on one. Large speed-ups need many
-  sequences of similar length: the 30-thread speed-up at 3,000 Mb (243x)
-  holds because its 30 equal chromosomes give each thread one. On a real
-  genome the longest sequence sets the floor (Fig S4). Panel b's peak memory is the larger of the tool's
+  E3 recorded. psmc-rs runs the E-step of each sequence on one thread, in
+  parallel across sequences, so on t threads a genome of n equal
+  chromosomes takes about ceil(n / t) times one chromosome's time: 17.2 to
+  18.3 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
+  10). The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the second
+  line of the size ticks). Threads beyond the chromosome count add nothing:
+  the 30-thread lines are flat, and the 30-thread speed-up at 3,000 Mb
+  (243x) holds because its 30 equal chromosomes give each thread one. On a
+  real genome the longest sequence sets the floor (Fig S4). Panel b's peak memory is the larger of the tool's
   `ru_maxrss` and its sampled peak; for psmc-rs 0.2 on 100 and 300 Mb, and
   on 1000 Mb on one thread, it is `ru_maxrss`'s 25.0 MB in every repeat,
   above the sampled 7.0 to 20.2 MB, so the caption should call those points
