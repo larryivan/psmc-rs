@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use anyhow::{Result, bail};
 use ndarray::Array2;
 
@@ -251,25 +253,23 @@ impl PsmcModel {
     /// `psmc_update_hmm`.
     pub fn param_recalculate(&mut self) -> Result<()> {
         let Coalescent {
-            t,
             lam,
-            tau,
-            alpha,
-            c_pi,
-            c_sigma,
+            shared,
             cpi,
             sigma,
             avg_t,
         } = self.coalescent()?;
+        let Shared {
+            tau,
+            alpha,
+            dalpha,
+            beta,
+            q_aux,
+            c_pi,
+            c_sigma,
+            ..
+        } = shared;
         let n = self.n_steps;
-
-        let mut beta = vec![0.0f64; n + 1];
-        for k in 1..=n {
-            beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
-        }
-        let q_aux: Vec<f64> = (0..n)
-            .map(|m| (alpha[m] - alpha[m + 1]) * (beta[m] - lam[m] / alpha[m]) + tau[m])
-            .collect();
 
         // Row k of the transition matrix is tmp3 q (plus 1 - tmp3 on the
         // diagonal).
@@ -277,7 +277,7 @@ impl PsmcModel {
         let mut e = Array2::zeros((3, n + 1));
         let mut p_kl = Array2::zeros((n + 1, n + 1));
         for k in 0..=n {
-            let ak1 = alpha[k] - alpha[k + 1];
+            let ak1 = dalpha[k];
             let lak = lam[k];
             let cpik = cpi[k];
             let pik = cpik / c_pi;
@@ -293,7 +293,7 @@ impl PsmcModel {
             if k < n {
                 let tmp2 = q_aux[k] / cpik;
                 for m in (k + 1)..=n {
-                    q[m] = (alpha[m] - alpha[m + 1]) * tmp2;
+                    q[m] = dalpha[m] * tmp2;
                 }
             }
 
@@ -309,7 +309,7 @@ impl PsmcModel {
             e[(2, k)] = 1.0;
         }
 
-        self.t = t;
+        self.t = self.compute_t(GRID_ALPHA);
         self.p_kl = p_kl;
         self.em = e;
         self.sigma = sigma;
@@ -367,35 +367,30 @@ impl PsmcModel {
             .avg_t
     }
 
-    /// Quantities of C `psmc_update_hmm` that depend only on the interval
-    /// structure; shared by `param_recalculate` and `avg_t` so that the two
-    /// cannot disagree. Names follow the C code.
+    /// The quantities of C `psmc_update_hmm` up to each state's initial
+    /// probability and average time; shared by `param_recalculate` and
+    /// `avg_t` so that the two cannot disagree. Names follow the C code.
     fn coalescent(&self) -> Result<Coalescent> {
         check_t_max(self.t_max)?;
-        let t = self.compute_t(GRID_ALPHA);
         let n = self.n_steps;
         let lam = self.map_lam(&self.lam)?;
-        let tau: Vec<f64> = (0..=n).map(|k| t[k + 1] - t[k]).collect();
-
-        let mut alpha = vec![0.0f64; n + 2];
-        alpha[0] = 1.0;
-        for k in 1..=n {
-            alpha[k] = alpha[k - 1] * (-tau[k - 1] / lam[k - 1]).exp();
-        }
-        alpha[n + 1] = 0.0;
-
-        let mut c_pi = 0.0;
-        for i in 0..=n {
-            c_pi += lam[i] * (alpha[i] - alpha[i + 1]);
-        }
-        let c_sigma = 1.0 / (c_pi * self.rho) + 0.5;
+        let mut shared = Shared::default();
+        shared.update(&lam, self.rho, self.t_max);
+        let Shared {
+            tau,
+            alpha,
+            dalpha,
+            c_pi,
+            c_sigma,
+            ..
+        } = &shared;
 
         let mut cpi = vec![0.0f64; n + 1];
         let mut sigma = vec![0.0f64; n + 1];
         let mut avg_t = vec![0.0f64; n + 1];
         let mut sum_t = 0.0;
         for k in 0..=n {
-            let ak1 = alpha[k] - alpha[k + 1];
+            let ak1 = dalpha[k];
             let lak = lam[k];
 
             let cpik = ak1 * (sum_t + lak) - alpha[k + 1] * tau[k];
@@ -404,7 +399,7 @@ impl PsmcModel {
 
             let mut avg = -(1.0 - pik / (c_sigma * sigma[k])).ln() / self.rho;
             if !avg.is_finite() || avg < sum_t || avg > sum_t + tau[k] {
-                avg = sum_t + (lak - tau[k] * alpha[k + 1] / (alpha[k] - alpha[k + 1]));
+                avg = sum_t + (lak - tau[k] * alpha[k + 1] / ak1);
             }
             cpi[k] = cpik;
             avg_t[k] = avg;
@@ -413,12 +408,8 @@ impl PsmcModel {
         }
 
         Ok(Coalescent {
-            t,
             lam,
-            tau,
-            alpha,
-            c_pi,
-            c_sigma,
+            shared,
             cpi,
             sigma,
             avg_t,
@@ -623,18 +614,96 @@ impl std::error::Error for NegativeTransitions {}
 
 /// See [`PsmcModel::coalescent`].
 struct Coalescent {
-    t: Vec<f64>,
     /// λ expanded to one value per state.
     lam: Vec<f64>,
-    tau: Vec<f64>,
-    alpha: Vec<f64>,
-    c_pi: f64,
-    c_sigma: f64,
+    shared: Shared,
     /// `C_pi * pi_k`: the integral of t times the coalescent density over
     /// interval k (C `cpik`).
     cpi: Vec<f64>,
     sigma: Vec<f64>,
     avg_t: Vec<f64>,
+}
+
+/// The quantities of C `psmc_update_hmm` that all rows of the HMM share, in
+/// C's names, for `n + 1` states: [`PsmcModel::param_recalculate`] and the
+/// M-step's objective (`opt/objective.rs`, which differentiates them)
+/// compute them with this code.
+#[derive(Debug, Default)]
+pub(crate) struct Shared {
+    /// `exp(beta k)` of the time grid, for `k < n`.
+    pub(crate) grid_exp: Vec<f64>,
+    /// Interval lengths `t_{k+1} - t_k` (the last one up to `T_INF`).
+    pub(crate) tau: Vec<f64>,
+    /// Survival to `t_k` (`alpha[n + 1] = 0`), and `alpha[k] - alpha[k + 1]`.
+    pub(crate) alpha: Vec<f64>,
+    pub(crate) dalpha: Vec<f64>,
+    /// C's `beta` sums and `q_aux`.
+    pub(crate) beta: Vec<f64>,
+    pub(crate) q_aux: Vec<f64>,
+    pub(crate) c_pi: f64,
+    pub(crate) c_sigma: f64,
+}
+
+impl Shared {
+    /// Computes them for the λ of each state `lam`, `rho` and `t_max` (in
+    /// `(0, T_INF)`), reusing the vectors: the time grid is C
+    /// psmc_update_intv's, `t[k] = 0.1 (exp(beta k) - 1)` for `k < n`,
+    /// `t[n] = t_max` and `t[n + 1] = T_INF`.
+    pub(crate) fn update(&mut self, lam: &[f64], rho: f64, t_max: f64) {
+        let n = lam.len() - 1;
+        let Self {
+            grid_exp,
+            tau,
+            alpha,
+            dalpha,
+            beta,
+            q_aux,
+            ..
+        } = self;
+        for (v, len) in [
+            (&mut *grid_exp, n),
+            (&mut *tau, n + 1),
+            (&mut *alpha, n + 2),
+            (&mut *dalpha, n + 1),
+            (&mut *beta, n + 1),
+            (&mut *q_aux, n),
+        ] {
+            v.resize(len, 0.0);
+        }
+        let grid_beta = (1.0 + t_max / GRID_ALPHA).ln() / n as f64;
+        for (k, e) in grid_exp.iter_mut().enumerate() {
+            *e = (grid_beta * k as f64).exp();
+        }
+        let t = |k: usize| -> f64 {
+            match k.cmp(&n) {
+                Ordering::Less => GRID_ALPHA * (grid_exp[k] - 1.0),
+                Ordering::Equal => t_max,
+                Ordering::Greater => T_INF,
+            }
+        };
+        for (k, v) in tau.iter_mut().enumerate() {
+            *v = t(k + 1) - t(k);
+        }
+        alpha[0] = 1.0;
+        for k in 1..=n {
+            alpha[k] = alpha[k - 1] * (-(tau[k - 1] / lam[k - 1])).exp();
+        }
+        alpha[n + 1] = 0.0;
+        beta[0] = 0.0;
+        for k in 1..=n {
+            beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
+        }
+        let mut c_pi = 0.0;
+        for k in 0..=n {
+            dalpha[k] = alpha[k] - alpha[k + 1];
+            c_pi += lam[k] * dalpha[k];
+        }
+        for m in 0..n {
+            q_aux[m] = dalpha[m] * (beta[m] - lam[m] / alpha[m]) + tau[m];
+        }
+        self.c_pi = c_pi;
+        self.c_sigma = 1.0 / (c_pi * rho) + 0.5;
+    }
 }
 
 /// Initial per-bin θ0 from the data, as in C `psmc_new_data`:

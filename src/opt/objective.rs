@@ -9,9 +9,10 @@
 //! callable-length model ([`EmissionCounts`]), at the parameters
 //! `p_i = lo_i + (hi_i - lo_i) sigmoid(x_i)` (θ, ρ, t_max, then the free λ),
 //! whose HMM is C `psmc_update_hmm` as [`PsmcModel::param_recalculate`]
-//! ports it. The forward pass performs the operations of
-//! `param_recalculate` in the same order, so the value is the one the
-//! model's own matrices give, to the bit; the backward pass follows the same
+//! ports it. The forward pass computes the quantities all rows share with
+//! `param_recalculate`'s own code ([`Shared`]) and each row with its
+//! operations in its order, so the value is the one the model's own
+//! matrices give, to the bit; the backward pass follows the same
 //! branches (the average time's fallback to the interval's conditional mean,
 //! the last interval up to `T_INF`, the guards), so the gradient is that of
 //! the function actually evaluated.
@@ -38,7 +39,7 @@
 //! parameters in one O(states) sweep. An evaluation thus costs O(states)
 //! time, five logarithms and divisions per state for the transitions, and
 //! O(states) memory: the transition matrix is never stored, and nothing is
-//! allocated once the workspace exists. With callable bases, the `K` bins
+//! allocated after the first evaluation. With callable bases, the `K` bins
 //! of each count add an exponential, a logarithm and a division per state
 //! (a `K` bin holds `ceil(s / 10)` to `s` callable bases, so there are at
 //! most `s - ceil(s / 10) + 1` counts, 91 for bins of 100 bases). Forward
@@ -62,7 +63,7 @@ use anyhow::{Result, ensure};
 
 use super::Bounds;
 use crate::hmm::{SufficientStats, TransitionSums};
-use crate::model::{GRID_ALPHA, PsmcModel, T_INF};
+use crate::model::{GRID_ALPHA, PsmcModel, Shared};
 
 /// The guard added to each probability before its logarithm is taken.
 const LN_GUARD: f64 = 1e-300;
@@ -232,26 +233,20 @@ struct Workspace {
     lam: Vec<f64>,
     ln_lam: Vec<f64>,
     bar_lam: Vec<f64>,
-    /// `exp(beta * k)` of the time grid, for `k < n`.
-    grid_exp: Vec<f64>,
-    /// Interval lengths `t_{k+1} - t_k` (the last one up to `T_INF`).
-    tau: Vec<f64>,
+    /// The quantities all rows share, as `param_recalculate` computes them.
+    shared: Shared,
+    /// Adjoints of the interval lengths, of the survival and of
+    /// `alpha[k] - alpha[k + 1]`, of their uses other than through each
+    /// other.
     bar_tau: Vec<f64>,
-    /// Survival to `t_k` (`alpha[n + 1] = 0`) and `alpha[k] - alpha[k + 1]`,
-    /// with the adjoints of their uses other than through each other.
-    alpha: Vec<f64>,
-    dalpha: Vec<f64>,
     bar_alpha: Vec<f64>,
     bar_dalpha: Vec<f64>,
     /// Adjoints of `-ln alpha[k]` and of the rate `tau[k] / lam[k]` at which
     /// it grows over interval k.
     bar_log_surv: Vec<f64>,
     bar_rate: Vec<f64>,
-    /// C's `beta` sums.
-    beta: Vec<f64>,
+    /// Adjoints of C's `beta` sums and `q_aux`.
     bar_beta: Vec<f64>,
-    /// C's `q_aux`.
-    q_aux: Vec<f64>,
     bar_q_aux: Vec<f64>,
     /// Adjoint of `sum_t` (the start of interval `k`) as row `k` uses it.
     bar_sum_t: Vec<f64>,
@@ -259,35 +254,6 @@ struct Workspace {
     /// (`None` where every count is zero).
     em0: Vec<f64>,
     k_terms: Vec<Option<f64>>,
-}
-
-impl Workspace {
-    fn new(n_params: usize, n: usize) -> Self {
-        let states = n + 1;
-        Self {
-            p: vec![0.0; n_params],
-            dp_dx: vec![0.0; n_params],
-            lam: vec![0.0; states],
-            ln_lam: vec![0.0; states],
-            bar_lam: vec![0.0; states],
-            grid_exp: vec![0.0; n],
-            tau: vec![0.0; states],
-            bar_tau: vec![0.0; states],
-            alpha: vec![0.0; states + 1],
-            dalpha: vec![0.0; states],
-            bar_alpha: vec![0.0; states + 1],
-            bar_dalpha: vec![0.0; states],
-            bar_log_surv: vec![0.0; states],
-            bar_rate: vec![0.0; states],
-            beta: vec![0.0; states],
-            bar_beta: vec![0.0; states],
-            q_aux: vec![0.0; n],
-            bar_q_aux: vec![0.0; n],
-            bar_sum_t: vec![0.0; states],
-            em0: vec![0.0; states],
-            k_terms: vec![None; states],
-        }
-    }
 }
 
 impl<'a> Objective<'a> {
@@ -381,8 +347,8 @@ impl<'a> Objective<'a> {
             self.bounds.len()
         );
         let [theta, rho, t_max] = self.ws.set_params(x, self.bounds, &self.group);
-        let shared = self.ws.forward_shared(self.n, rho, t_max);
-        let rows = self.rows(theta, rho, &shared);
+        self.ws.shared.update(&self.ws.lam, rho, t_max);
+        let rows = self.rows(theta, rho);
         self.row_deviation = if rows.valid {
             rows.row_deviation
         } else {
@@ -395,41 +361,41 @@ impl<'a> Objective<'a> {
             grad.fill(f64::NAN);
             return f64::INFINITY;
         }
-        let [bar_rho, bar_t_max] = self.ws.backward_shared(self.n, rho, &shared, &rows);
+        let [bar_rho, bar_t_max] = self.ws.backward_shared(self.n, rho, t_max, &rows);
         self.penalised(rows.q, [rows.bar_theta, bar_rho, bar_t_max], grad)
     }
 
     /// `Q`, row by row: each row's probabilities and their terms, then the
     /// adjoints the row adds to θ, ρ and the quantities all rows share (the
     /// scalars returned, the vectors in the workspace).
-    fn rows(&mut self, theta: f64, rho: f64, shared: &Shared) -> RowSums {
+    fn rows(&mut self, theta: f64, rho: f64) -> RowSums {
         let n = self.n;
-        let &Shared {
-            c_pi,
-            c_pi_rho,
-            c_sigma,
-            ..
-        } = shared;
         let Workspace {
             lam,
             bar_lam,
-            tau,
+            shared,
             bar_tau,
-            alpha,
-            dalpha,
             bar_alpha,
             bar_dalpha,
             bar_log_surv,
             bar_rate,
-            beta,
             bar_beta,
-            q_aux,
             bar_q_aux,
             bar_sum_t,
             em0,
             k_terms,
             ..
         } = &mut self.ws;
+        let Shared {
+            tau,
+            alpha,
+            dalpha,
+            beta,
+            q_aux,
+            ..
+        } = &*shared;
+        let (c_pi, c_sigma) = (shared.c_pi, shared.c_sigma);
+        let c_pi_rho = c_pi * rho;
         for v in [
             &mut *bar_lam,
             &mut *bar_tau,
@@ -456,7 +422,7 @@ impl<'a> Objective<'a> {
         for k in 0..=n {
             // Forward, as param_recalculate.
             let (a_k, a_next) = (alpha[k], alpha[k + 1]);
-            let ak1 = a_k - a_next;
+            let ak1 = dalpha[k];
             let lak = lam[k];
             let tau_k = tau[k];
             let start_plus_lam = sum_t + lak;
@@ -469,12 +435,11 @@ impl<'a> Objective<'a> {
             let tmp3 = pik / d3;
             let one_minus = 1.0 - tmp3;
             let mut avg = -(one_minus.ln()) / rho;
-            // The fallback to the interval's conditional mean coalescent time.
-            let fallback = !avg.is_finite() || avg < sum_t || avg > sum_t + tau_k;
-            let (mut fb_den, mut fb_term) = (0.0, 0.0);
-            if fallback {
-                fb_den = a_k - a_next;
-                fb_term = (tau_k * a_next) / fb_den;
+            // The fallback to the interval's conditional mean coalescent
+            // time, with its term `(tau_k a_next) / ak1`.
+            let fallback = (!avg.is_finite() || avg < sum_t || avg > sum_t + tau_k)
+                .then(|| (tau_k * a_next) / ak1);
+            if let Some(fb_term) = fallback {
                 avg = sum_t + (lak - fb_term);
             }
             let tmp = ak1 / cpik;
@@ -494,7 +459,7 @@ impl<'a> Objective<'a> {
             // after the rows. The row sums to `lower sum_{m < k} q_aux[m] +
             // p_kk + upper alpha[k + 1]`, zero counts or not.
             let (lower, upper) = (tmp3 * tmp, tmp3 * tmp2);
-            let p_kk = tmp3 * qk + (1.0 - tmp3);
+            let p_kk = tmp3 * qk + one_minus;
             valid &= (k == 0 || lower >= 0.0) && p_kk >= 0.0 && (k == n || upper >= 0.0);
             let row_sum = lower * q_aux_before + p_kk + upper * alpha[k + 1];
             row_deviation = row_deviation.max((row_sum - 1.0).abs());
@@ -531,15 +496,14 @@ impl<'a> Objective<'a> {
             // Backward through the row's scalars.
             let (mut bar_ak1, mut bar_lak, mut bar_tau_k) = (0.0, 0.0, 0.0);
             let (mut bar_cpik, mut bar_pik, mut bar_start) = (0.0, 0.0, 0.0);
-            if fallback {
-                // avg = sum_t + (lak - (tau_k a_next) / (a_k - a_next))
+            if let Some(fb_term) = fallback {
+                // avg = sum_t + (lak - (tau_k a_next) / ak1)
                 bar_start += bar_avg;
                 bar_lak += bar_avg;
-                let bar_num = -bar_avg / fb_den;
+                let bar_num = -bar_avg / ak1;
                 bar_tau_k += bar_num * a_next;
                 bar_alpha[k + 1] += bar_num * tau_k;
-                // The denominator is a_k - a_next, as ak1 is.
-                bar_ak1 += bar_avg * fb_term / fb_den;
+                bar_ak1 += bar_avg * fb_term / ak1;
             } else {
                 // avg = -ln(1 - tmp3) / rho
                 bar_rho -= bar_avg * avg / rho;
@@ -671,15 +635,6 @@ impl<'a> Objective<'a> {
     }
 }
 
-/// The scalars among the quantities all rows share.
-struct Shared {
-    /// `1 + t_max / 0.1`: the time grid's exponent is its logarithm over `n`.
-    grid_arg: f64,
-    c_pi: f64,
-    c_pi_rho: f64,
-    c_sigma: f64,
-}
-
 /// What [`Objective::rows`] adds up.
 struct RowSums {
     /// `Q`.
@@ -698,6 +653,28 @@ struct RowSums {
 }
 
 impl Workspace {
+    fn new(n_params: usize, n: usize) -> Self {
+        let states = n + 1;
+        Self {
+            p: vec![0.0; n_params],
+            dp_dx: vec![0.0; n_params],
+            lam: vec![0.0; states],
+            ln_lam: vec![0.0; states],
+            bar_lam: vec![0.0; states],
+            shared: Shared::default(),
+            bar_tau: vec![0.0; states],
+            bar_alpha: vec![0.0; states + 1],
+            bar_dalpha: vec![0.0; states],
+            bar_log_surv: vec![0.0; states],
+            bar_rate: vec![0.0; states],
+            bar_beta: vec![0.0; states],
+            bar_q_aux: vec![0.0; n],
+            bar_sum_t: vec![0.0; states],
+            em0: vec![0.0; states],
+            k_terms: vec![None; states],
+        }
+    }
+
     /// Sets the parameters `lo + (hi - lo) sigmoid(x)`, their derivatives,
     /// and each state's λ; returns θ, ρ and t_max.
     fn set_params(&mut self, x: &[f64], bounds: &[Bounds], group: &[usize]) -> [f64; 3] {
@@ -715,91 +692,34 @@ impl Workspace {
         [p[0], p[1], p[2]]
     }
 
-    /// The quantities all rows share, as `param_recalculate` computes them:
-    /// the time grid (C psmc_update_intv: `t[k] = 0.1 (exp(beta k) - 1)`
-    /// for `k < n`, `t[n] = t_max` and `t[n + 1] = T_INF`), the interval
-    /// lengths, the survival, C's β sums, `C_pi`, `C_sigma` and `q_aux`.
-    fn forward_shared(&mut self, n: usize, rho: f64, t_max: f64) -> Shared {
-        let Self {
-            lam,
-            grid_exp,
-            tau,
-            alpha,
-            dalpha,
-            beta,
-            q_aux,
-            ..
-        } = self;
-        let grid_arg = 1.0 + t_max / GRID_ALPHA;
-        let grid_beta = grid_arg.ln() / n as f64;
-        for (k, e) in grid_exp.iter_mut().enumerate() {
-            *e = (grid_beta * k as f64).exp();
-        }
-        let t = |k: usize| -> f64 {
-            match k.cmp(&n) {
-                std::cmp::Ordering::Less => GRID_ALPHA * (grid_exp[k] - 1.0),
-                std::cmp::Ordering::Equal => t_max,
-                std::cmp::Ordering::Greater => T_INF,
-            }
-        };
-        for (k, v) in tau.iter_mut().enumerate() {
-            *v = t(k + 1) - t(k);
-        }
-        alpha[0] = 1.0;
-        for k in 1..=n {
-            alpha[k] = alpha[k - 1] * (-(tau[k - 1] / lam[k - 1])).exp();
-        }
-        alpha[n + 1] = 0.0;
-        beta[0] = 0.0;
-        for k in 1..=n {
-            beta[k] = beta[k - 1] + lam[k - 1] * (1.0 / alpha[k] - 1.0 / alpha[k - 1]);
-        }
-        let mut c_pi = 0.0;
-        for k in 0..=n {
-            dalpha[k] = alpha[k] - alpha[k + 1];
-            c_pi += lam[k] * dalpha[k];
-        }
-        let c_pi_rho = c_pi * rho;
-        let c_sigma = 1.0 / c_pi_rho + 0.5;
-        for m in 0..n {
-            q_aux[m] = dalpha[m] * (beta[m] - lam[m] / alpha[m]) + tau[m];
-        }
-        Shared {
-            grid_arg,
-            c_pi,
-            c_pi_rho,
-            c_sigma,
-        }
-    }
-
     /// Takes the adjoints the rows left back through the quantities all
     /// rows share, into the adjoint of each state's λ (`bar_lam`); returns
     /// those of ρ and t_max.
-    fn backward_shared(&mut self, n: usize, rho: f64, shared: &Shared, rows: &RowSums) -> [f64; 2] {
+    fn backward_shared(&mut self, n: usize, rho: f64, t_max: f64, rows: &RowSums) -> [f64; 2] {
         let Self {
             lam,
             bar_lam,
-            grid_exp,
-            tau,
+            shared,
             bar_tau,
-            alpha,
-            dalpha,
             bar_alpha,
             bar_dalpha,
             bar_log_surv,
             bar_rate,
-            beta,
             bar_beta,
             bar_q_aux,
             bar_sum_t,
             ..
         } = self;
-        let &Shared {
-            grid_arg,
-            c_pi,
-            c_pi_rho,
+        let Shared {
+            grid_exp,
+            tau,
+            alpha,
+            dalpha,
+            beta,
             ..
-        } = shared;
+        } = &*shared;
+        let c_pi = shared.c_pi;
+        let c_pi_rho = c_pi * rho;
         let (mut bar_c_pi, mut bar_c_pi_rho) = (rows.bar_c_pi, rows.bar_c_pi_rho);
         let mut bar_rho = rows.bar_rho;
         // c_sigma = 1 / (c_pi rho) + 1/2
@@ -870,7 +790,7 @@ impl Workspace {
         // most of their size (the later intervals' start times), so the
         // derivative is the sum of tau's adjoints times tau's derivatives,
         // as forward mode forms it, not the difference of the adjoints.
-        let d_grid_beta = 1.0 / grid_arg / GRID_ALPHA / n as f64;
+        let d_grid_beta = 1.0 / (1.0 + t_max / GRID_ALPHA) / GRID_ALPHA / n as f64;
         let dt = |k: usize| -> f64 {
             match k.cmp(&n) {
                 std::cmp::Ordering::Less => GRID_ALPHA * (d_grid_beta * k as f64 * grid_exp[k]),
