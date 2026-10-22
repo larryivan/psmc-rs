@@ -489,8 +489,8 @@ Library API:
 
 ### Removed
 
-- `utils::logsumexp`; `progress::spinner` (use `progress::spinner_raw` and
-  call its `enable_steady_tick(Duration::from_millis(80))`);
+- The public `progress` and `utils` modules, which only the library itself
+  uses (0.1's `progress::spinner` and `utils::logsumexp` are gone);
   `opt::em_train_with_progress` (pass the callback as
   `EmOptions::on_progress` to `em::em_train_with_options`);
   `opt::m_step_lbfgs` and `opt::m_step_lbfgs_with_progress` (use

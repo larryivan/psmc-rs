@@ -4,10 +4,10 @@ pub mod hmm;
 pub mod io;
 pub mod model;
 pub mod opt;
-pub mod progress;
+mod progress;
 pub mod psmc_out;
 pub mod qc;
 pub mod report;
-pub mod utils;
+mod utils;
 
 pub use model::{PsmcModel, initial_theta, initial_theta_with_callable};
