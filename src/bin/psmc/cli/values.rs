@@ -75,7 +75,8 @@ pub fn whole_number<T: FromStr<Err = ParseIntError>>(s: &str) -> Result<T, Strin
     })
 }
 
-/// A number that `ok` accepts; otherwise it `must` be what the error says.
+/// `s` as a number that `ok` accepts; otherwise an error that it must be
+/// `must` (or that it is not a number).
 pub(super) fn number(s: &str, ok: fn(f64) -> bool, must: &str) -> Result<f64, String> {
     match s.parse::<f64>() {
         Ok(v) if ok(v) => Ok(v),
@@ -128,7 +129,10 @@ pub(super) fn parse_n_steps(s: &str) -> Result<usize, String> {
 /// `--n-steps` alone. Given both, `--n-steps` must match the pattern;
 /// its number of intervals (`n_steps + 1`, the form psmc-rs 0.1 used) is
 /// accepted too. An invalid pattern or a mismatch is a [`UsageError`].
-fn model_layout(pattern: Option<&str>, n_steps: Option<usize>) -> Result<(usize, Option<String>)> {
+fn steps_and_pattern(
+    pattern: Option<&str>,
+    n_steps: Option<usize>,
+) -> Result<(usize, Option<String>)> {
     let Some(pattern) = pattern else {
         return match n_steps {
             Some(n) => Ok((n, None)),
@@ -159,10 +163,11 @@ fn model_layout(pattern: Option<&str>, n_steps: Option<usize>) -> Result<(usize,
     }
 }
 
-/// A model of the layout of `--pattern` and `--n-steps` ([`model_layout`])
-/// on the time grid of `t_max`, for its free lambdas and time grid only:
-/// its rates are small enough for a valid transition matrix at every t_max
-/// the command line accepts (ρ0 per bin must stay below about 2 / t_max).
+/// A model of the layout of `--pattern` and `--n-steps`
+/// ([`steps_and_pattern`]) on the time grid of `t_max`, for its free lambdas
+/// and time grid only: its rates are small enough for a valid transition
+/// matrix at every t_max the command line accepts (ρ0 per bin must stay
+/// below about 2 / t_max).
 pub fn layout_model(
     pattern: Option<&str>,
     n_steps: Option<usize>,
@@ -170,7 +175,7 @@ pub fn layout_model(
     mu: f64,
 ) -> Result<PsmcModel> {
     const RATE: f64 = 1e-4;
-    let (n_steps, pattern) = model_layout(pattern, n_steps)?;
+    let (n_steps, pattern) = steps_and_pattern(pattern, n_steps)?;
     PsmcModel::new(t_max, n_steps, RATE, RATE, mu, pattern)
 }
 
@@ -183,29 +188,29 @@ mod tests {
     #[test]
     fn the_layout_follows_c_psmc() {
         assert_eq!(
-            model_layout(None, None).unwrap(),
+            steps_and_pattern(None, None).unwrap(),
             (22, Some("4+5*3+4".to_string()))
         );
-        assert_eq!(model_layout(None, Some(63)).unwrap(), (63, None));
+        assert_eq!(steps_and_pattern(None, Some(63)).unwrap(), (63, None));
         let human = Some("4+25*2+4+6".to_string());
         assert_eq!(
-            model_layout(human.as_deref(), None).unwrap(),
+            steps_and_pattern(human.as_deref(), None).unwrap(),
             (63, human.clone())
         );
         assert_eq!(
-            model_layout(human.as_deref(), Some(63)).unwrap(),
+            steps_and_pattern(human.as_deref(), Some(63)).unwrap(),
             (63, human.clone())
         );
         // psmc-rs 0.1 took the number of intervals.
         assert_eq!(
-            model_layout(human.as_deref(), Some(64)).unwrap(),
+            steps_and_pattern(human.as_deref(), Some(64)).unwrap(),
             (63, human.clone())
         );
-        let err = model_layout(human.as_deref(), Some(30)).unwrap_err();
+        let err = steps_and_pattern(human.as_deref(), Some(30)).unwrap_err();
         assert!(UsageError::is_in(&err));
         let err = err.to_string();
         assert!(err.contains("has 64 intervals (n_steps 63)"), "{err}");
-        let err = model_layout(Some("4+x"), None).unwrap_err();
+        let err = steps_and_pattern(Some("4+x"), None).unwrap_err();
         assert!(UsageError::is_in(&err));
         let err = format!("{err:#}");
         assert!(err.contains("invalid --pattern '4+x'"), "{err}");
