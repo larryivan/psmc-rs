@@ -26,7 +26,7 @@ psmc-rs
 - writes JSON parameters, an interactive HTML report, C psmc's `.psmc` output
   for `psmc_plot.pl`, and per-bin TMRCA posteriors;
 - is deterministic and multithreaded, and its E-step keeps 1/128 of the
-  forward-backward matrices (a fit of human chromosome 1 peaks at 21 MB).
+  forward-backward matrices (a fit of human chromosome 1 peaks at 19 MB).
 
 Version 0.2.0 changed several defaults to C psmc's, so its results are not
 comparable with 0.1 runs made with default settings; see
@@ -590,9 +590,8 @@ from cdn.jsdelivr.net; for offline use set `PSMC_ECHARTS_JS` to a local
 the page says so).
 
 **.psmc for psmc_plot.pl.** The file follows C psmc's format line for line,
-but for C's `QD` line (below).
-It does not record the bin size, so give psmc_plot.pl the run's settings;
-the run prints the command, for example
+but for C's `QD` line (below). It does not record the bin size, so give
+psmc_plot.pl the run's settings; the run prints the command, for example
 
 ```text
 To plot it: psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 25 PREFIX fit.psmc (-s is the bin size, which the .psmc file does not record)
@@ -872,8 +871,9 @@ Hudson, μ = 2.5e-8, r = 1e-8), the curves are 7.7e-5 apart (at most
 2.6e-4), with θ, ρ and t_max within 1.4e-4 and the log-likelihood within
 4e-9 (relative); on this genome the sources of the difference were
 traced. The M-steps are not what keeps them apart. psmc-rs's default fit
-is within 5e-7 of one whose M-steps run to the precision limit, and a port of C's Hooke-Jeeves search in place of
-its L-BFGS gives a curve 7.5e-5 from C's. Nearly all the rest comes from
+is within 5e-7 of one whose M-steps run to the precision limit, and a port
+of C's Hooke-Jeeves search in place of its L-BFGS gives a curve 7.5e-5
+from C's. Nearly all the rest comes from
 C's expected counts, which leave out the last bin of each sequence
 (`em::posterior_sigma`): with that bin left out of psmc-rs's counts too,
 its curve is within 6.4e-6 of C's (the Hooke-Jeeves port within 8.0e-6),
