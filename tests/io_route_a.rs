@@ -10,7 +10,7 @@
 mod common;
 
 use common::{OptionSet, TempDir, gunzipped, mask_summary, route_a_option_sets, vcf_summary};
-use psmc_rs::io::consensus::{ConsensusFilters, ConsensusSummary, DepthThresholds};
+use psmc_rs::io::consensus::{ConsensusFilters, ConsensusSummary, DepthThresholds, LossReason};
 use psmc_rs::io::input::{
     Dataset, InputFormat, InputOptions, SeqFilter, VcfDetails, VcfMode, detect_vcf_mode, load,
 };
@@ -240,14 +240,17 @@ fn the_default_pipeline_keeps_only_the_chromosome_with_10000_called_bases() {
     // Every kind of loss the simulation was built to cause shows up.
     let c = consensus_summary(&data);
     let lost = &c.lost;
-    assert!(lost.no_record >= 400, "{lost:?}");
-    assert!(lost.low_depth > 0 && lost.indel_window > 0, "{lost:?}");
+    assert!(lost.get(LossReason::NoRecord) >= 400, "{lost:?}");
+    assert!(
+        lost.get(LossReason::LowDepth) > 0 && lost.get(LossReason::IndelWindow) > 0,
+        "{lost:?}"
+    );
     assert_eq!(c.good_bases + lost.total(), c.bases);
     assert_eq!((c.extra_bases_at_pos, c.positions_without_base), (0, 0));
     assert!(c.indel_records > 0 && c.records_without_fq == 0);
     let data = load_set(&option_set("mq_window"));
     let lost = &consensus_summary(&data).lost;
-    assert!(lost.low_mq >= 700, "{lost:?}");
+    assert!(lost.get(LossReason::LowMq) >= 700, "{lost:?}");
 }
 
 #[test]

@@ -203,7 +203,7 @@ pub enum LossReason {
 }
 
 impl LossReason {
-    /// Every reason, in attribution order.
+    /// Every reason, in attribution (declaration) order: `ALL[r as usize]` is `r`.
     pub const ALL: [LossReason; 9] = [
         LossReason::NoRecord,
         LossReason::LowMq,
@@ -232,67 +232,28 @@ impl LossReason {
     }
 }
 
-/// Missing bases by [`LossReason`] (one field per reason, in the same order).
+/// Missing bases by [`LossReason`] ([`LostBases::get`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
-pub struct LostBases {
-    /// [`LossReason::NoRecord`].
-    pub no_record: u64,
-    /// [`LossReason::LowMq`].
-    pub low_mq: u64,
-    /// [`LossReason::LowDepth`].
-    pub low_depth: u64,
-    /// [`LossReason::HighDepth`].
-    pub high_depth: u64,
-    /// [`LossReason::LowQuality`].
-    pub low_quality: u64,
-    /// [`LossReason::NoHetCode`].
-    pub no_het_code: u64,
-    /// [`LossReason::NotABase`].
-    pub not_a_base: u64,
-    /// [`LossReason::IndelWindow`].
-    pub indel_window: u64,
-    /// [`LossReason::OutsideMask`].
-    pub outside_mask: u64,
-}
+pub struct LostBases([u64; LossReason::ALL.len()]);
 
 impl LostBases {
-    fn slot(&mut self, r: LossReason) -> &mut u64 {
-        match r {
-            LossReason::NoRecord => &mut self.no_record,
-            LossReason::LowMq => &mut self.low_mq,
-            LossReason::LowDepth => &mut self.low_depth,
-            LossReason::HighDepth => &mut self.high_depth,
-            LossReason::LowQuality => &mut self.low_quality,
-            LossReason::NoHetCode => &mut self.no_het_code,
-            LossReason::NotABase => &mut self.not_a_base,
-            LossReason::IndelWindow => &mut self.indel_window,
-            LossReason::OutsideMask => &mut self.outside_mask,
-        }
-    }
-
     /// Bases lost to `r`.
     pub fn get(&self, r: LossReason) -> u64 {
-        match r {
-            LossReason::NoRecord => self.no_record,
-            LossReason::LowMq => self.low_mq,
-            LossReason::LowDepth => self.low_depth,
-            LossReason::HighDepth => self.high_depth,
-            LossReason::LowQuality => self.low_quality,
-            LossReason::NoHetCode => self.no_het_code,
-            LossReason::NotABase => self.not_a_base,
-            LossReason::IndelWindow => self.indel_window,
-            LossReason::OutsideMask => self.outside_mask,
-        }
+        self.0[r as usize]
     }
 
     /// All missing bases.
     pub fn total(&self) -> u64 {
-        LossReason::ALL.iter().map(|&r| self.get(r)).sum()
+        self.0.iter().sum()
     }
 
-    fn add(&mut self, other: &LostBases) {
-        for r in LossReason::ALL {
-            *self.slot(r) += other.get(r);
+    fn add(&mut self, r: LossReason, n: u64) {
+        self.0[r as usize] += n;
+    }
+
+    fn add_all(&mut self, other: &LostBases) {
+        for (n, m) in self.0.iter_mut().zip(other.0) {
+            *n += m;
         }
     }
 }
@@ -941,7 +902,7 @@ impl Chrom {
                 }
                 Base::Lost(r) => {
                     self.seq.missing(take);
-                    *self.lost.slot(r) += take;
+                    self.lost.add(r, take);
                 }
             }
         }
@@ -1026,15 +987,6 @@ pub fn auto_depth_thresholds(mean: f64) -> (u64, u64) {
     )
 }
 
-/// The INFO/DP bounds of one read, fixed or chosen from the data.
-#[derive(Debug, Clone, Copy)]
-struct DepthBounds {
-    min: u64,
-    max: u64,
-    /// Whether they come from [`DepthThresholds::Auto`].
-    auto: bool,
-}
-
 /// Read an all-sites VCF from `bcftools call -c` the way `vcfutils.pl vcf2fq`
 /// and `fq2psmcfa` read it; see the module docs.
 ///
@@ -1056,15 +1008,8 @@ pub(crate) fn read_consensus(
     open: impl FnOnce() -> Result<Box<dyn BufRead>>,
 ) -> Result<ConsensusRead> {
     let context = || format!("failed to read VCF {path:?} in consensus mode");
-    let (reader, bounds) = match opts.filters.depth {
-        DepthThresholds::Fixed { min, max } => {
-            let bounds = DepthBounds {
-                min,
-                max,
-                auto: false,
-            };
-            (open()?, bounds)
-        }
+    let (reader, depth) = match opts.filters.depth {
+        DepthThresholds::Fixed { min, max } => (open()?, (min, max)),
         DepthThresholds::Auto => {
             if !is_regular_file(path) {
                 bail!(
@@ -1081,42 +1026,36 @@ pub(crate) fn read_consensus(
                      {path:?} has INFO/DP; give the thresholds explicitly"
                 );
             }
-            let (min, max) = auto_depth_thresholds(stats.mean);
-            let bounds = DepthBounds {
-                min,
-                max,
-                auto: true,
-            };
-            (reopen_reader(path)?, bounds)
+            (reopen_reader(path)?, auto_depth_thresholds(stats.mean))
         }
     };
-    read_consensus_from(reader, path, opts, bounds).with_context(context)
+    read_consensus_from(reader, path, opts, depth).with_context(context)
 }
 
-/// [`read_vcf_consensus`] over an opened input with the depth bounds already
-/// chosen (`opts.filters.depth` is not used); `path` names the input in
-/// messages.
+/// [`read_vcf_consensus`] over an opened input, with the INFO/DP bounds
+/// `(min_depth, max_depth)` that `opts.filters.depth` chose; `path` names the
+/// input in messages.
 fn read_consensus_from(
     reader: impl BufRead,
     path: &Path,
     opts: &ConsensusOptions,
-    bounds: DepthBounds,
+    (min_depth, max_depth): (u64, u64),
 ) -> Result<ConsensusRead> {
     let filters = &opts.filters;
+    let t = Thresholds {
+        min_depth,
+        max_depth,
+        min_mq: filters.min_mq,
+        min_qual: filters.min_qual,
+    };
     let mut summary = ConsensusSummary {
-        min_depth: bounds.min,
-        max_depth: bounds.max,
-        auto_depth: bounds.auto,
+        min_depth,
+        max_depth,
+        auto_depth: filters.depth == DepthThresholds::Auto,
         min_mq: filters.min_mq,
         indel_window: filters.indel_window,
         min_qual: filters.min_qual,
         ..ConsensusSummary::default()
-    };
-    let t = Thresholds {
-        min_depth: bounds.min,
-        max_depth: bounds.max,
-        min_mq: filters.min_mq,
-        min_qual: filters.min_qual,
     };
     let masks = MaskEngine::new(&opts.masks, &opts.negative_masks)?;
     summary.masked = !opts.masks.is_empty() || !opts.negative_masks.is_empty();
@@ -1214,7 +1153,7 @@ fn read_consensus_from(
         summary.bases += s.bases;
         summary.good_bases += s.good_bases;
         summary.het_bases += s.het_bases;
-        summary.lost.add(&s.lost);
+        summary.lost.add_all(&s.lost);
     }
     Ok(ConsensusRead { seqs, summary })
 }

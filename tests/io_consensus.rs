@@ -6,9 +6,10 @@
 mod common;
 
 use common::{TempDir, VCF_HEADER};
+use psmc_rs::io::consensus::LossReason::{self, *};
 use psmc_rs::io::consensus::{
-    ConsensusFilters, ConsensusOptions, ConsensusRead, DepthThresholds, LossReason,
-    auto_depth_thresholds, read_vcf_consensus, scan_depth,
+    ConsensusFilters, ConsensusOptions, ConsensusRead, DepthThresholds, auto_depth_thresholds,
+    read_vcf_consensus, scan_depth,
 };
 
 /// INFO of a confident reference call that passes the default filters.
@@ -116,7 +117,7 @@ fn snp_or_reference_branch_follows_vcf2fq() {
     // The window of the INDEL at 4 (l = 2) starts at string index 2, the
     // third base.
     assert_eq!(bases(&r, 0), "TKN");
-    assert_eq!(s.lost.indel_window, 1);
+    assert_eq!(s.lost.get(IndelWindow), 1);
     let het: Vec<_> = r.seqs[0].het_sites().collect();
     assert!(het.is_empty(), "het sites are only collected on request");
 }
@@ -147,8 +148,8 @@ fn homozygous_and_heterozygous_calls() {
     let r = read(&records, &het_sites()).unwrap();
     assert_eq!(bases(&r, 0), "TTTKNNNKNT");
     let lost = &r.seqs[0].lost;
-    assert_eq!(lost.no_het_code, 3);
-    assert_eq!(lost.not_a_base, 1);
+    assert_eq!(lost.get(NoHetCode), 3);
+    assert_eq!(lost.get(NotABase), 1);
     // REF then ALT for vcf2fq's heterozygous branch, the IUPAC pair (in
     // ACGT order) for an ambiguous REF.
     let het: Vec<_> = r.seqs[0].het_sites().collect();
@@ -167,7 +168,7 @@ fn missing_fq_is_a_heterozygous_call_of_quality_zero() {
     // Quality 0 is below -q 10.
     assert_eq!(bases(&r, 0), "NN");
     assert_eq!(r.summary.records_without_fq, 2);
-    assert_eq!(r.summary.lost.low_quality, 2);
+    assert_eq!(r.summary.lost.get(LowQuality), 2);
     let warning = |r: &ConsensusRead| {
         let warnings = r.summary.warnings();
         let found = warnings.iter().find(|w| w.contains("no INFO/FQ")).cloned();
@@ -218,11 +219,8 @@ fn depth_and_mapping_quality_bounds_are_inclusive() {
     let r = read(&records, &opts()).unwrap();
     assert_eq!(bases(&r, 0), "TTNNNNNN");
     let lost = &r.summary.lost;
-    assert_eq!(
-        (lost.low_depth, lost.high_depth, lost.low_mq),
-        (2, 1, 3),
-        "{lost:?}"
-    );
+    let got = [LowDepth, HighDepth, LowMq].map(|r| lost.get(r));
+    assert_eq!(got, [2, 1, 3], "{lost:?}");
 
     let o = filtered(ConsensusFilters {
         depth: DepthThresholds::Fixed { min: 2, max: 3 },
@@ -253,7 +251,8 @@ fn info_values_are_found_like_vcf2fq_regular_expressions() {
     let r = read(&records, &opts()).unwrap();
     assert_eq!(bases(&r, 0), "NTNTNT");
     let lost = &r.summary.lost;
-    assert_eq!((lost.low_depth, lost.low_mq, lost.low_quality), (1, 1, 1));
+    let got = [LowDepth, LowMq, LowQuality].map(|r| lost.get(r));
+    assert_eq!(got, [1, 1, 1]);
 }
 
 #[test]
@@ -287,7 +286,7 @@ fn indel_windows_cover_l_bases_on_each_side() {
         bases(&r, 0),
         format!("{}{}{}", "T".repeat(5), "N".repeat(13), "T".repeat(7))
     );
-    assert_eq!(r.summary.lost.indel_window, 13);
+    assert_eq!(r.summary.lost.get(IndelWindow), 13);
 
     // l = 0 leaves POS itself and masks the REF bases after it.
     let r = read(&records, &indel_window(0)).unwrap();
@@ -337,7 +336,7 @@ fn gaps_are_missing_and_the_sequence_ends_at_the_last_record() {
     let r = read(&records, &opts()).unwrap();
     assert_eq!(bases(&r, 0), "NNTTNNNT");
     assert_eq!(r.seqs[0].bases, 8);
-    assert_eq!(r.summary.lost.no_record, 5);
+    assert_eq!(r.summary.lost.get(NoRecord), 5);
 }
 
 #[test]
@@ -521,7 +520,7 @@ fn masks_are_an_optional_extra_filter() {
     assert_eq!(bases(&r, 0), "NNTTTN");
     assert_eq!(bases(&r, 1), "NN");
     assert!(r.summary.masked);
-    assert_eq!(r.summary.lost.outside_mask, 5);
+    assert_eq!(r.summary.lost.get(OutsideMask), 5);
     assert_eq!(r.summary.chroms_outside_mask, ["d"]);
 }
 
