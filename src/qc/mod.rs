@@ -879,13 +879,6 @@ impl Counts {
         // A called run at the end borders only the missing run before it.
         out.next_to_missing += called_run.min(u64::from(after_missing));
         if let Some(counts) = counts {
-            if counts.len() != rows.len() {
-                bail!(
-                    "QC: callable bases for {} rows, but the sequence has {}",
-                    counts.len(),
-                    rows.len()
-                );
-            }
             let mut theta = ThetaCounts::new(counts.first().map(BinCounts::bin_size));
             for (row, cs) in rows.iter().zip(counts) {
                 theta.add(&ThetaCounts::of_counted(row, cs)?);
