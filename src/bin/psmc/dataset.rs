@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use psmc_rs::initial_theta_with_callable;
 use psmc_rs::io::CallableSummary;
 use psmc_rs::io::consensus::{
     ConsensusSummary, DepthStats as ReadDepth, DepthThresholds, LossReason,
@@ -16,26 +17,12 @@ use psmc_rs::qc::{
     ConsensusStats, DepthStats, DroppedSequences, FilterCount, FitStart, QcContext, QcInput,
     QcReport, QcSeq, Severity, render_text, try_analyze,
 };
-use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
 use crate::cli::{
-    BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, model_layout,
+    BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, FormatArg, InputArgs, layout_model,
 };
 use crate::output::{is_stdout, write_qc_json};
 use crate::run::{Event, Sink};
-
-/// A model of this layout, for its free lambdas and time grid only: its
-/// rates are small enough for a valid transition matrix at every t_max the
-/// command line accepts (ρ0 per bin must stay below about 2 / t_max).
-pub fn layout_model(
-    t_max: f64,
-    n_steps: usize,
-    pattern: Option<String>,
-    mu: f64,
-) -> Result<PsmcModel> {
-    const RATE: f64 = 1e-4;
-    PsmcModel::new(t_max, n_steps, RATE, RATE, mu, pattern)
-}
 
 /// How the callable bases of `data`'s bins were counted: exactly from a VCF,
 /// or approximately from multihetsep (whose uncalled sites are placed at the
@@ -79,8 +66,7 @@ pub fn default_qc_report(
     let counts = callable.filter(|_| fit_uses_counts(data, auto));
     let start = || {
         let theta0 = initial_theta_with_callable(&data.obs.rows, counts).ok()?;
-        let (n_steps, pattern) = model_layout(None, None).ok()?;
-        let layout = layout_model(DEFAULT_T_MAX, n_steps, pattern, DEFAULT_MU).ok()?;
+        let layout = layout_model(None, None, DEFAULT_T_MAX, DEFAULT_MU).ok()?;
         Some(FitStart::new(
             &layout,
             theta0,

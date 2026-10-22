@@ -13,7 +13,7 @@ mod values;
 
 pub use input::{DEFAULT_BIN_SIZE, FormatArg, InputArgs};
 pub use values::{
-    BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, model_layout, non_negative_f64,
+    BinCallableArg, DEFAULT_MU, DEFAULT_T_MAX, DEFAULT_TR_RATIO, layout_model, non_negative_f64,
     positive_f64, positive_usize, whole_number,
 };
 use values::{parse_n_steps, parse_t_max};

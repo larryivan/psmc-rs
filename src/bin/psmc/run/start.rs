@@ -16,8 +16,7 @@ use psmc_rs::{PsmcModel, initial_theta_with_callable};
 
 use super::Context;
 use super::bootstrap::{Bootstrap, list_replicates};
-use crate::cli::{InferArgs, model_layout, usage_bail};
-use crate::dataset::layout_model;
+use crate::cli::{InferArgs, layout_model, usage_bail};
 
 /// The starting model of `--init-params`: the saved parameters, with the
 /// layout checked against `--pattern` and `--n-steps` when they are given
@@ -28,8 +27,7 @@ pub(super) fn saved_start(path: &Path, cli: &InferArgs) -> Result<PsmcModel> {
     let saved = load_params(path).context("--init-params")?;
     let mut model = PsmcModel::from_params_file(&saved).with_context(what)?;
     if cli.pattern.is_some() || cli.n_steps.is_some() {
-        let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
-        let wanted = layout_model(model.t_max, n_steps, pattern, model.mu)?;
+        let wanted = layout_model(cli.pattern.as_deref(), cli.n_steps, model.t_max, model.mu)?;
         if (wanted.n_steps, c_pattern(&wanted)) != (model.n_steps, c_pattern(&model)) {
             usage_bail!(
                 "{} holds a model with pattern {} ({} intervals), but --pattern/--n-steps ask \
@@ -62,19 +60,26 @@ fn start_rates(
     Ok((theta0, cli.rho0.unwrap_or(theta0 / cli.tr_ratio)))
 }
 
-/// The model the fit of `obs` starts from: the `saved` parameters, or a
-/// fresh start of `n_steps` and `pattern` with flat lambdas.
+/// The model the fit of `obs` starts from: `layout` itself when it holds
+/// the saved parameters of `--init-params`, otherwise a fresh start of its
+/// layout with flat lambdas.
 pub(super) fn starting_model(
-    saved: Option<PsmcModel>,
-    (n_steps, pattern): (usize, Option<String>),
+    layout: PsmcModel,
     obs: &Observations,
     cli: &InferArgs,
 ) -> Result<PsmcModel> {
-    if let Some(model) = saved {
-        return Ok(model);
+    if cli.init_params.is_some() {
+        return Ok(layout);
     }
     let (theta0, rho0) = start_rates(cli, &obs.rows, obs.callable.as_ref())?;
-    PsmcModel::new(cli.t_max, n_steps, theta0, rho0, cli.mu, pattern)
+    PsmcModel::new(
+        layout.t_max,
+        layout.n_steps,
+        theta0,
+        rho0,
+        layout.mu,
+        layout.pattern,
+    )
 }
 
 /// The start of the fit, as QC checks it ([`FitStart`]): the saved

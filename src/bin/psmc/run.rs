@@ -30,10 +30,10 @@ use psmc_rs::report::{
 use self::bootstrap::{Bootstrap, BootstrapPlan, earlier_bootstrap_warning};
 use self::fit::{decode_tmrca, fit, model_loglike, near_bounds_warning};
 use self::start::{check_starts, fit_start, saved_start, starting_model};
-use crate::cli::{BinCallableArg, InferArgs, model_layout, usage_bail};
+use crate::cli::{BinCallableArg, InferArgs, layout_model, usage_bail};
 use crate::dataset::{
-    announce_input, callable_summary, counts_source, ensure_usable, fit_uses_counts, layout_model,
-    load_input, qc_report, report_qc, resolve_input_path,
+    announce_input, callable_summary, counts_source, ensure_usable, fit_uses_counts, load_input,
+    qc_report, report_qc, resolve_input_path,
 };
 use crate::output::{FitRecord, check_destinations, is_stdout, save_fit, write_main_psmc};
 
@@ -152,18 +152,12 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
     else {
         bail!("INPUT, OUTPUT and N_ITER are required");
     };
-    // Settings that can be checked without the data fail first.
-    let saved = cli
-        .init_params
-        .as_deref()
-        .map(|path| saved_start(path, cli))
-        .transpose()?;
-    let (n_steps, pattern) = model_layout(cli.pattern.as_deref(), cli.n_steps)?;
-    // The layout of the starting model: its free lambdas, and the time grid
-    // on which QC checks the start.
-    let layout = match &saved {
-        Some(model) => model.clone(),
-        None => layout_model(cli.t_max, n_steps, pattern.clone(), cli.mu)?,
+    // Settings that can be checked without the data fail first. The layout
+    // of the start (its free lambdas, and the time grid on which QC checks
+    // it): the saved model, or a fresh start's.
+    let layout = match &cli.init_params {
+        Some(path) => saved_start(path, cli)?,
+        None => layout_model(cli.pattern.as_deref(), cli.n_steps, cli.t_max, cli.mu)?,
     };
     let bootstrap = BootstrapPlan::of(cli, n_iter, output)?;
     ctx.check_cancel()?;
@@ -184,7 +178,7 @@ fn infer(cli: &InferArgs, ctx: Context, progress_bars: bool) -> Result<()> {
         .map(|plan| plan.resample(obs, cli, ctx))
         .transpose()?;
 
-    let mut model = starting_model(saved, (n_steps, pattern), obs, cli)?;
+    let mut model = starting_model(layout, obs, cli)?;
     if let Some(path) = &cli.init_params {
         ctx.info(format!(
             "Starting from the parameters in {}",

@@ -6,6 +6,7 @@ use clap::ValueEnum;
 use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
+use psmc_rs::PsmcModel;
 use psmc_rs::model::{MAX_STATES, n_steps_for_pattern};
 use psmc_rs::opt::MStepConfig;
 
@@ -127,10 +128,7 @@ pub(super) fn parse_n_steps(s: &str) -> Result<usize, String> {
 /// `--n-steps` alone. Given both, `--n-steps` must match the pattern;
 /// its number of intervals (`n_steps + 1`, the form psmc-rs 0.1 used) is
 /// accepted too. An invalid pattern or a mismatch is a [`UsageError`].
-pub fn model_layout(
-    pattern: Option<&str>,
-    n_steps: Option<usize>,
-) -> Result<(usize, Option<String>)> {
+fn model_layout(pattern: Option<&str>, n_steps: Option<usize>) -> Result<(usize, Option<String>)> {
     let Some(pattern) = pattern else {
         return match n_steps {
             Some(n) => Ok((n, None)),
@@ -159,6 +157,21 @@ pub fn model_layout(
             derived + 1
         ),
     }
+}
+
+/// A model of the layout of `--pattern` and `--n-steps` ([`model_layout`])
+/// on the time grid of `t_max`, for its free lambdas and time grid only:
+/// its rates are small enough for a valid transition matrix at every t_max
+/// the command line accepts (ρ0 per bin must stay below about 2 / t_max).
+pub fn layout_model(
+    pattern: Option<&str>,
+    n_steps: Option<usize>,
+    t_max: f64,
+    mu: f64,
+) -> Result<PsmcModel> {
+    const RATE: f64 = 1e-4;
+    let (n_steps, pattern) = model_layout(pattern, n_steps)?;
+    PsmcModel::new(t_max, n_steps, RATE, RATE, mu, pattern)
 }
 
 #[cfg(test)]
