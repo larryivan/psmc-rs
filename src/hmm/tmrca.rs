@@ -685,7 +685,7 @@ pub fn write_tmrca_posterior_tsv_with_options(
         state_mass: vec![0.0; n_states],
         samples: Vec::new(),
         pb: (progress_enabled && total_sites > 0)
-            .then(|| progress::bar_raw(total_sites as u64, "TMRCA", "posterior")),
+            .then(|| progress::bar(total_sites as u64, "TMRCA", "posterior")),
     };
 
     // The output is decoded in spans that end at each sequence longer than a

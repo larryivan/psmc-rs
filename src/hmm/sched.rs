@@ -148,7 +148,7 @@ impl<'a> Reporter<'a> {
         let fwd = progress.forward.load(Ordering::Relaxed).min(self.total);
         if self.last_forward != Some(fwd) {
             if self.last_forward.is_none() && self.bars {
-                self.bar = Some(progress::bar_raw(self.total, self.label, "forward"));
+                self.bar = Some(progress::bar(self.total, self.label, "forward"));
             }
             self.last_forward = Some(fwd);
             if let Some(bar) = &self.bar {
@@ -165,7 +165,7 @@ impl<'a> Reporter<'a> {
                 && let Some(bar) = self.bar.take()
             {
                 bar.finish_with_message(format!("{} forward done", self.label));
-                self.bar = Some(progress::bar_raw(self.total, self.label, "backward"));
+                self.bar = Some(progress::bar(self.total, self.label, "backward"));
             }
             self.last_backward = Some(bwd);
             if let Some(bar) = &self.bar {
