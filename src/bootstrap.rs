@@ -981,9 +981,7 @@ fn run_replicates(
         if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
             return Err(Cancelled.into());
         }
-        // Its thread is busy between its E-steps too.
-        let replicate = crate::hmm::busy(|| fit(rep))
-            .with_context(|| format!("bootstrap replicate {}", rep + 1))?;
+        let replicate = fit(rep).with_context(|| format!("bootstrap replicate {}", rep + 1))?;
         let mut n = finished.lock().unwrap_or_else(PoisonError::into_inner);
         *n += 1;
         if let Some(on_done) = on_done {

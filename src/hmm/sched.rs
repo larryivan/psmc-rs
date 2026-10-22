@@ -25,36 +25,6 @@ use crate::progress;
 /// bounded however many sequences (e.g. scaffolds) the input has.
 const MAX_WORK_ITEMS: usize = 256;
 
-/// What keeps threads of the pools of this process busy: the work items of
-/// the folds ([`fold_in_order`], nested ones included), the threads pumping
-/// their progress events, and the other work counted by [`busy`].
-static BUSY: AtomicUsize = AtomicUsize::new(0);
-
-/// Counts a busy thread in [`BUSY`] while it lives.
-struct Busy;
-
-impl Busy {
-    fn start() -> Self {
-        BUSY.fetch_add(1, Ordering::Relaxed);
-        Busy
-    }
-}
-
-impl Drop for Busy {
-    fn drop(&mut self) {
-        BUSY.fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-/// Runs `f` counted in [`BUSY`]: a work item, or work that runs folds among
-/// other work on a thread of the pool, as a bootstrap replicate runs its
-/// E-steps between its M-steps, so that no backward pass counts on its
-/// thread meanwhile.
-pub(crate) fn busy<T>(f: impl FnOnce() -> T) -> T {
-    let _busy = Busy::start();
-    f()
-}
-
 /// Rows of each sequence and the grouping of sequences into work items.
 pub(crate) struct Plan {
     /// Row range of each sequence.
@@ -284,7 +254,7 @@ where
             if i >= n_items {
                 break;
             }
-            let result = busy(|| work(i));
+            let result = work(i);
             if result.is_err() {
                 failed.store(true, Ordering::Relaxed);
             }
@@ -329,9 +299,6 @@ fn spawn_and_pump<'scope, W>(
 ) where
     W: Fn() + Sync,
 {
-    // Waiting for events, a thread of the pool takes pending work only now
-    // and then.
-    let _busy = rayon::current_thread_index().map(|_| Busy::start());
     let (tx, rx) = mpsc::channel::<()>();
     for _ in 0..n_workers {
         let done = DoneGuard(tx.clone());
