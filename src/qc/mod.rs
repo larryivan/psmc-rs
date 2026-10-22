@@ -75,19 +75,6 @@ pub use stats::{
     max_bin_size_for_share, multi_het_share, n50, theta0_per_bin,
 };
 
-/// What the reports add to the callable bases of the called bins when they
-/// follow multihetsep's placement of the uncalled sites, which
-/// [`QcCode::ApproxMissingPlacement`] describes (that finding is given for
-/// every multihetsep input); empty otherwise.
-pub(crate) fn approximate_counts_note(r: &QcReport) -> &'static str {
-    if r.callable.is_some() && r.finding(QcCode::ApproxMissingPlacement).is_some() {
-        " (approximate: they follow multihetsep's placement of the uncalled sites, see \
-         APPROX_MISSING_PLACEMENT)"
-    } else {
-        ""
-    }
-}
-
 /// Share of `K` bins holding two or more heterozygous sites
 /// ([`Saturation::multi_het_share`]) above which bins are saturated.
 ///
@@ -761,8 +748,7 @@ impl QcReport {
     /// Whether the per-sequence tables give heterozygosity per kb of
     /// callable bases ([`BinStats::het_per_kb_comparable`]) rather than per
     /// kb of called bins, as they do when the input records callable bases;
-    /// the reports then mark the column and say so under it
-    /// ([`HET_PER_CALLABLE_KB_NOTE`]).
+    /// the reports then mark the column and say so under it.
     pub fn het_per_callable_kb(&self) -> bool {
         self.totals.theta0_callable.is_some()
     }
@@ -770,11 +756,24 @@ impl QcReport {
 
 /// What the reports say under a per-sequence table whose heterozygosity is
 /// per kb of callable bases ([`QcReport::het_per_callable_kb`]).
-pub const HET_PER_CALLABLE_KB_NOTE: &str = "het/kb* is per kb of callable bases (from theta0 of \
-     the callable-length model), so that sequences with more missing data do not look less \
-     heterozygous; the totals' theta0 and het per kb, and qc.het_per_kb of the output JSON, are \
-     per kb of called bins (C psmc's -ln(1 - K/L)), and qc.het_per_callable_kb is the total per \
-     kb of callable bases.";
+pub(crate) const HET_PER_CALLABLE_KB_NOTE: &str = "het/kb* is per kb of callable bases (from \
+     theta0 of the callable-length model), so that sequences with more missing data do not look \
+     less heterozygous; the totals' theta0 and het per kb, and qc.het_per_kb of the output JSON, \
+     are per kb of called bins (C psmc's -ln(1 - K/L)), and qc.het_per_callable_kb is the total \
+     per kb of callable bases.";
+
+/// What the reports add to the callable bases of the called bins when they
+/// follow multihetsep's placement of the uncalled sites, which
+/// [`QcCode::ApproxMissingPlacement`] describes (that finding is given for
+/// every multihetsep input); empty otherwise.
+pub(crate) fn approximate_counts_note(r: &QcReport) -> &'static str {
+    if r.callable.is_some() && r.finding(QcCode::ApproxMissingPlacement).is_some() {
+        " (approximate: they follow multihetsep's placement of the uncalled sites, see \
+         APPROX_MISSING_PLACEMENT)"
+    } else {
+        ""
+    }
+}
 
 /// The codes of a [`QcReport`]'s findings and its key metrics
 /// ([`QcReport::summary`]), as stored with a fit.
@@ -948,6 +947,7 @@ impl Counts {
                 partial as f64 / called as f64,
             )
         });
+        let (mean_callable_fraction, partly_callable_fraction) = callable.unzip();
         BinStats {
             bins,
             t_bins: self.t,
@@ -959,8 +959,8 @@ impl Counts {
             het_bin_fraction: (called > 0).then(|| self.k as f64 / called as f64),
             theta0_per_bin: theta0,
             theta0_callable: self.theta.as_ref().and_then(|t| t.theta0().ok()),
-            mean_callable_fraction: callable.map(|(mean, _)| mean),
-            partly_callable_fraction: callable.map(|(_, partly)| partly),
+            mean_callable_fraction,
+            partly_callable_fraction,
             called_next_to_missing: self.next_to_missing,
             theta_per_bp: theta_bp,
             het_per_kb: theta_bp.map(|t| 1000.0 * t),

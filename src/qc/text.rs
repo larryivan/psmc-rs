@@ -6,7 +6,8 @@ use std::fmt::Write as _;
 
 use super::fmt::{bases, count, counted, pct, plural, sig, sig_or_na};
 use super::{
-    DepthReport, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE, SequenceRow, Severity,
+    DepthReport, HET_PER_CALLABLE_KB_NOTE, QcReport, ReferenceMethod, SATURATION_TARGET_SHARE,
+    SequenceRow, Severity, approximate_counts_note, callable_distribution,
 };
 
 /// How [`render_text_with`] lays out a report.
@@ -106,9 +107,9 @@ fn findings(out: &mut String, r: &QcReport, width: usize) {
     let (warnings, notes) = r.warnings_and_notes();
     let _ = writeln!(
         out,
-        "{warnings} {}, {notes} {}",
-        plural(warnings, "warning", "warnings"),
-        plural(notes, "note", "notes")
+        "{}, {}",
+        counted(warnings, "warning", "warnings"),
+        counted(notes, "note", "notes")
     );
     for f in &r.findings {
         let label = match f.severity {
@@ -166,8 +167,8 @@ fn metrics(out: &mut String, r: &QcReport) {
                 "called bins hold {} of their {} bases on average; {}{}",
                 pct(c.mean_fraction),
                 c.bin_size,
-                super::checks::callable_distribution(c),
-                super::approximate_counts_note(r)
+                callable_distribution(c),
+                approximate_counts_note(r)
             ),
         ));
     }
@@ -237,10 +238,9 @@ fn metrics(out: &mut String, r: &QcReport) {
         rows.push((
             "Autosomal het",
             format!(
-                "{} per kb ({how} {} {}{per})",
+                "{} per kb ({how} {}{per})",
                 sig(h.het_per_kb, 3),
-                count(h.sequences as u64),
-                plural(h.sequences, "sequence", "sequences")
+                counted(h.sequences, "sequence", "sequences")
             ),
         ));
     }
@@ -439,6 +439,6 @@ fn sequence_table(out: &mut String, r: &QcReport, cap: usize) {
         );
     }
     if per_callable {
-        let _ = writeln!(out, "  * {}", super::HET_PER_CALLABLE_KB_NOTE);
+        let _ = writeln!(out, "  * {HET_PER_CALLABLE_KB_NOTE}");
     }
 }

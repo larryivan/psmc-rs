@@ -544,9 +544,8 @@ fn sex_or_organelle(
         QcCode::SexOrOrganelle,
         severity,
         format!(
-            "{} {} named like a sex chromosome or organelle: {}. {consequence}",
-            count(flagged.len() as u64),
-            plural(flagged.len(), "sequence is", "sequences are"),
+            "{} named like a sex chromosome or organelle: {}. {consequence}",
+            counted(flagged.len(), "sequence is", "sequences are"),
             listing(&described),
         ),
         advice,
@@ -797,19 +796,16 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
         pct(c.mean_fraction),
         callable_distribution(c)
     );
-    let bias = format!(
-        "Treated as {s} bases, as fq2psmcfa's psmcfa and C psmc treat every called bin, they \
-         would make theta, the times and Ne about {} low or more (in simulations 1.1 to 1.3 \
-         times the missing share)",
-        pct(1.0 - c.mean_fraction)
-    );
+    let missing = pct(1.0 - c.mean_fraction);
     if counts_used(input) {
         return Some(Finding::new(
             QcCode::PartlyCallableBins,
             Severity::Info,
             format!(
-                "{measured} {bias}; the fit weighs each called bin by its callable bases \
-                 (--bin-callable auto), which removes most of that bias."
+                "{measured} Treated as {s} bases, as fq2psmcfa's psmcfa and C psmc treat every \
+                 called bin, they would make theta, the times and Ne about {missing} low or more \
+                 (in simulations 1.1 to 1.3 times the missing share); the fit weighs each called \
+                 bin by its callable bases (--bin-callable auto), which removes most of that bias."
             ),
             "Nothing to do: keep --bin-callable auto (the default). A psmcfa written from this \
              input (psmc-rs convert --psmcfa, fq2psmcfa) cannot record the counts, so fit the \
@@ -826,9 +822,8 @@ fn partly_callable_bins(input: &QcInput, report: &QcReport) -> Option<Finding> {
         severity,
         format!(
             "{measured} The fit treats every called bin as {s} bases (--bin-callable ignore): \
-             theta, the times and Ne come out about {} low or more (in simulations 1.1 to 1.3 \
-             times the missing share of the called bins).",
-            pct(1.0 - c.mean_fraction)
+             theta, the times and Ne come out about {missing} low or more (in simulations 1.1 to \
+             1.3 times the missing share of the called bins)."
         ),
         "Fit with --bin-callable auto (the default), which weighs each called bin by its \
          callable bases.",
@@ -841,10 +836,7 @@ fn partly_callable_psmcfa(report: &QcReport) -> Option<Finding> {
     let (s, t) = (report.bin_size, &report.totals);
     let next = t.called_next_to_missing;
     let called = t.t_bins + t.k_bins;
-    if t.missing_bins == 0
-        || (next as f64) < PARTLY_CALLABLE_NOTE_FRACTION * called as f64
-        || next == 0
-    {
+    if next == 0 || (next as f64) < PARTLY_CALLABLE_NOTE_FRACTION * called as f64 {
         return None;
     }
     Some(Finding::new(
