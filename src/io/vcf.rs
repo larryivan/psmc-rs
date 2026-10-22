@@ -678,12 +678,11 @@ impl VcfSummary {
                 self.gvcf_blocks, self.gvcf_unusable_blocks
             ));
         }
-        out.extend(self.mask_coverage_hints());
+        out.extend(mask_coverage_hints(
+            &self.chroms_outside_mask,
+            &self.chroms_outside_some_masks,
+        ));
         out
-    }
-
-    fn mask_coverage_hints(&self) -> impl Iterator<Item = String> {
-        mask_coverage_hints(&self.chroms_outside_mask, &self.chroms_outside_some_masks)
     }
 }
 
@@ -1294,7 +1293,10 @@ pub(crate) fn no_het_snp_message(summary: &VcfSummary, keep_filtered: bool) -> S
             )
         ));
     }
-    for h in summary.mask_coverage_hints() {
+    for h in mask_coverage_hints(
+        &summary.chroms_outside_mask,
+        &summary.chroms_outside_some_masks,
+    ) {
         hint.push_str(&format!("; {h}"));
     }
     format!(
