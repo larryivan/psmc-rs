@@ -120,10 +120,11 @@ fn auto_simd() -> &'static str {
 /// in `tests/estep_determinism.rs`), and the M-step stops where its
 /// objective is flat, which fixes the parameters to far fewer digits (see
 /// `tests/c_equivalence.rs`). Measured with the two roundings of the
-/// kernels on this input: log-likelihoods 1.4e-11, parameters 1.9e-7, TMRCA
-/// posteriors 2.4e-7; on the whole input of `tests/c_equivalence.rs`, 5
-/// iterations with its pattern 4+25*2+4+6: log-likelihoods 2.1e-10,
-/// parameters 1.2e-6, and 2.0e-6 in the derived values of the .psmc output.
+/// kernels on this input, on an EPYC 7702: log-likelihoods 8.2e-13,
+/// parameters 1.6e-8, TMRCA posteriors 2.7e-8; on the whole input of
+/// `tests/c_equivalence.rs`, 5 iterations with its pattern 4+25*2+4+6:
+/// log-likelihoods 4.2e-11, parameters 8.6e-7, and 3.0e-6 in the values
+/// of the .psmc output (one unit in their last printed digit).
 const PATHS_LOGLIKE: f64 = 1e-9;
 const PATHS_REL: f64 = 1e-5;
 

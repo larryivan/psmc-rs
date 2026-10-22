@@ -413,17 +413,6 @@ equals the adjoint's to the bit. Each count adds an exponential, a
 logarithm and a division per state to an evaluation. The transition part
 is unchanged.
 
-`em::hmm_q` evaluates the same Q with the E-step's emissions (for the `QD`
-lines of the `.psmc` output), and `em::hmm_q0` its maximum: over the
-transition probabilities as before, and over one emission parameter per
-state, `e_T(k)`, which is the model's own freedom. The emission part of
-each state, `-t μ + sum_f g ln(1 - exp(-f μ))` in `μ = -ln e_T`, is concave
-with a derivative falling from `+inf` to `-t`, so Newton's method from the
-left (from C's closed form with every count raised to `s`) finds its
-maximum; with every `K` bin full it is C's closed form, with `G_T` in place
-of `gobs[0]`. So `Q - Q0` stays at most 0 (checked on EM runs) and is C's
-with full bins.
-
 **Posterior decoding.** The TMRCA output decodes with the same per-bin
 emissions as the fit, through the same table; its columns stay as they are
 (`obs` is the symbol).

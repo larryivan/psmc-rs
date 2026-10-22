@@ -47,7 +47,7 @@
 //! per state; what is left comes from the expected counts, not from the
 //! M-steps: with the last bin of each sequence left out of ours too, rounds
 //! 2 to 5 agree to 2.8e-9, and C's own Hooke-Jeeves search in place of ours
-//! changes that by less than 1e-9. Ours evaluates its objective 30 to 120
+//! changes that by less than 1e-9. Ours evaluates its objective 30 to 130
 //! times per round with C psmc's patterns, C's 1,000 to 7,000.
 
 use anyhow::{Result, bail};

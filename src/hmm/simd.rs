@@ -9,7 +9,7 @@
 //!
 //! Each build fixes at compile time, by the `FUSED` parameter of the passes,
 //! whether the multiply-adds of the O(states) forward and backward products
-//! are fused: in the AVX2 and FMA build and on aarch64, where it is one
+//! and transition sums are fused: in the AVX2 and FMA build and on aarch64, where it is one
 //! instruction, but not in the portable build ([`DEFAULT_FUSED`]), where
 //! `f64::mul_add` would call libm's `fma` (a fit took 3.75 times as long on
 //! AMD Zen 5, and CPUs without FMA emulate it in software). Nothing else

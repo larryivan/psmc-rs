@@ -336,9 +336,9 @@ fn tmrca_bits(d: &TmrcaReportData) -> Vec<u64> {
 /// How far apart the portable and the AVX2 and FMA kernels may be: a
 /// relative 1e-12, as the E-step oracle allows (`tests/estep_oracle.rs`).
 /// They differ only in whether the O(states) forward and backward products
-/// fuse their multiply-adds, which moved no value by more than a relative
-/// 1.4e-14 over a sequence of 15,000 sites (`src/hmm/fb.rs` checks the same
-/// bound on every target).
+/// and transition sums fuse their multiply-adds, which moved no value by
+/// more than a relative 1.4e-14 over a sequence of 15,000 sites
+/// (`src/hmm/fb.rs` checks the same bound on every target), 3.0e-15 here.
 const PATHS_REL: f64 = 1e-12;
 
 /// Assert two vectors agree to [`PATHS_REL`], reporting the worst difference.

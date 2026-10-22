@@ -98,6 +98,10 @@ Command line and outputs:
 - The output JSON is written after the main fit, before the bootstrap.
 - For VCF and multihetsep input, the `.psmc` output has an
   `MM bin_model:...` line after `n_seqs`, which psmc_plot.pl skips.
+- The `.psmc` output has no `QD` line: C psmc's EM Q before and after each
+  M-step, less Q's largest value over all HMMs, needs every expected
+  transition count, which the E-step no longer keeps (*Performance*).
+  psmc_plot.pl does not read it.
 - A bootstrap first removes the `replicate_NNN.*` and `summary.*` files in
   its directory, and warns when there were more replicates than it makes.
   A fit without `--bootstrap` warns when `OUTPUT.bootstrap` holds
@@ -115,7 +119,7 @@ Command line and outputs:
 Library API:
 
 - EM lives in the new `em` module; `opt` re-exports `em_train`, `EmHistory`
-  and `EmProgressEvent`. `EmHistory` gains `post_sigma`, `q`,
+  and `EmProgressEvent`. `EmHistory` gains `post_sigma`,
   `mstep_evaluations`, `mstep_iterations` and `mstep_stops`
   (`opt::MStepStop`), and `loglike[i].1` is the log-likelihood after
   iteration i (0.1: a copy of `.0`). `em_train` returns the model with its
@@ -134,6 +138,10 @@ Library API:
 - `bootstrap::new_rng` returns `BootstrapRng` (ChaCha8) instead of
   `SmallRng`. `sample_sequences_block_bootstrap` (0.1's scheme) takes any
   `Rng`. `BootstrapSummary` gains `skipped_replicates`.
+- `hmm::SufficientStats::xi`, the matrix of expected transition counts,
+  becomes `transitions` (`hmm::TransitionSums`): their sums over the rows
+  and the columns of each triangle of the transition matrix and over its
+  diagonal, all that C psmc's Q needs of them (*Performance*).
 - `Observations` and `hmm::SufficientStats` gain a `callable` field (the
   callable bases of each bin, `docs/design/bin-callable-model.md`), which
   breaks struct literals (add `callable: None`); `read_vcf` and `read_mhs`
@@ -247,8 +255,8 @@ Library API:
   `io::consensus`, `io::write` (psmcfa and multihetsep writers),
   `io::mhs::read_mhs_with`, `io::vcf::read_vcf_with`, the `qc` and
   `psmc_out` modules, `em::em_train_with_options` with `EmOptions`
-  (cancellation, explicit thread pool), `em::{hmm_q, hmm_q0,
-  posterior_sigma}`, `hmm::{log_likelihood, e_step_with_options,
+  (cancellation, explicit thread pool), `em::posterior_sigma`,
+  `hmm::{log_likelihood, e_step_with_options,
   EStepOptions, AlphaCacheBudget, Cancelled}`, `PsmcModel::{avg_t,
   n0_for_bin, ne_curve, state_tmrca_years, c_pi, c_sigma, n_recomb}`,
   `model::{n_steps_for_pattern, T_INF, MAX_STATES}`, `bootstrap::{
@@ -417,19 +425,23 @@ Library API:
   of O(states²) for PSMC transition matrices of up to 256 states (their
   triangles are rank one, which Harris et al. 2014 used to decode
   coalescent HMMs in linear time; larger models use the dense O(states²)
-  kernels); the expected transition counts are still accumulated in
-  O(states²) per bin, by a blocked kernel with NEON code on aarch64, so the
-  E-step as a whole still grows with the square of the number of states.
-  The E-step keeps one forward vector every 128 bins instead of whole
-  forward and backward matrices. On the human chromosome 1 in
-  `experiment/real_data` (one sequence of 2.49 M bins, `4+25*2+4+6`, 20
-  iterations, 1 thread, Apple M1 Pro) a fit takes 25 s and 21 MB instead of
-  139 s and 1.95 GB; on HLhydTec1 (34 sequences, 18.5 M bins, 5 iterations,
-  8 threads) 9.4 s and 117 MB instead of 79 s and 6.9 GB.
+  kernels), and so do its expected transition counts, for models of any
+  size: C psmc's Q needs them only summed over each triangle's rows and
+  columns and over the diagonal (`hmm::TransitionSums`), which the E-step
+  adds up from prefix and suffix sums at every bin, with NEON code on
+  aarch64 and AVX2 code on x86-64, instead of the whole states × states
+  matrix of counts (38% of an E-step's time with 64 states on an M1 Pro;
+  their sums take 12%). The E-step keeps one forward vector every 128
+  bins instead of whole forward and backward matrices. On the human
+  chromosome 1 in `experiment/real_data` (one sequence of 2.49 M bins,
+  `4+25*2+4+6`, 20 iterations, 1 thread, Apple M1 Pro) a fit takes 16 s
+  and 19 MB instead of 139 s and 1.95 GB; on HLhydTec1 (34 sequences,
+  18.5 M bins, 5 iterations, 8 threads) 5.8 s and 108 MB instead of 79 s
+  and 6.9 GB.
 - While at least half the threads are free, the E-step's backward pass
   over a sequence of more than 2,048 bins is pipelined over them, with the
-  same results to the bit: the human chromosome 1 above took 11.3 s on 8
-  threads. Each pipelined sequence holds 6.9 MB more with 64 states, and
+  same results to the bit: the human chromosome 1 above took 10.4 s on 8
+  threads. Each pipelined sequence holds 6.4 MB more with 64 states, and
   the threads waiting for work use CPU time (README, *Determinism and
   performance*).
 - The E-step and the log-likelihood merge each work item's sums as soon as
@@ -444,16 +456,17 @@ Library API:
   per-site rows: 646 MB to 3.9 MB).
 - The M-step differentiates its objective in reverse mode instead of with
   forward-mode dual numbers, which carried the derivatives with respect to
-  every parameter through every operation: an evaluation takes O(states²)
-  time and O(states) memory besides the expected counts, however many λ
-  are free (about 27 µs instead of 1.0 ms for `4+25*2+4+6`). With one λ
-  per interval, one EM iteration on the 180,000-bin test input with 401
-  intervals peaked at 235 MB of resident memory instead of 1.30 GB and
-  took 13.8 s instead of 36.7 s. With that gradient and a curvature-scaled
-  L-BFGS, the converged M-step (see *Changed*) takes a small fraction of
-  the E-step's time: with `4+25*2+4+6` on one thread, 2.1 ms per EM
-  iteration on a simulated 500 Mb sequence (E-step 2.3 s), where 100
-  forward-mode L-BFGS iterations took 123 ms and 1000 took 1.35 s.
+  every parameter through every operation, and evaluates it from the sums
+  of the expected transition counts: an evaluation takes O(states) time
+  and memory, however many λ are free (about 7.5 µs instead of 1.0 ms for
+  `4+25*2+4+6`). With one λ per interval, one EM iteration on the
+  180,000-bin test input with 401 intervals peaked at 417 MB of resident
+  memory instead of 1.30 GB and took 11.0 s instead of 36.7 s. With that
+  gradient and a curvature-scaled L-BFGS, the converged M-step (see
+  *Changed*) takes a small fraction of the E-step's time: with
+  `4+25*2+4+6` on one thread, 0.55 to 0.87 ms per EM iteration on a
+  simulated 100 Mb chromosome (E-step 0.32 s), where 100 forward-mode
+  L-BFGS iterations took 123 ms and 1000 took 1.35 s.
 - On x86-64 the E-step, log-likelihood and TMRCA decoding use AVX2 and FMA
   when the CPU has both, chosen at run time: a 1.9 Gb genome (5 EM
   iterations, 1 thread) took 71.7 s instead of 161 s on an AMD EPYC 7702.

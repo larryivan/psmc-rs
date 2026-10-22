@@ -589,7 +589,8 @@ from cdn.jsdelivr.net; for offline use set `PSMC_ECHARTS_JS` to a local
 `echarts.min.js` when running psmc-rs, which embeds it (without either,
 the page says so).
 
-**.psmc for psmc_plot.pl.** The file follows C psmc's format line for line.
+**.psmc for psmc_plot.pl.** The file follows C psmc's format line for line,
+but for C's `QD` line (below).
 It does not record the bin size, so give psmc_plot.pl the run's settings;
 the run prints the command, for example
 
@@ -624,12 +625,15 @@ partial_bins:0.850000` (bootstrap replicates fitted with the counts get it
 without `counts`; psmc_plot.pl skips `MM` lines it does not know, and
 psmcfa input gets none);
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
-pattern (per round with the default pattern, 32 to 36 on the 180,000-bin
-test input and 32 to 56 on Papuan chr1, where C's Hooke-Jeeves needs 1,132
-to 1,540 and 939 to 1,334); `QD` leaves out the smoothing penalty; and
-`post_sigma`, `QD` and `RI` include the emission of each sequence's last bin,
-which C skips (differences of the order of the number of sequences divided
-by the called length: 2e-5 on the reference data).
+pattern (per round with the default pattern, 32 to 57 on the 180,000-bin
+test input and 32 to 72 on Papuan chr1, where C's Hooke-Jeeves needs 1,132
+to 1,540 and 939 to 1,334); `post_sigma` and `RI` include the emission of
+each sequence's last bin, which C skips (differences of the order of the
+number of sequences divided by the called length: 2e-5 on the reference
+data); and there is no `QD` line, C's EM Q before and after the M-step less
+Q's largest value over all HMMs, because that value needs every expected
+transition count, which psmc-rs does not keep (see *Determinism and
+performance*; psmc_plot.pl does not read `QD`).
 
 **TMRCA TSV** (`--tmrca-out`). One line per bin: `seq_id`, `seq_bin`,
 `global_bin`, `obs` (T, K or N), `map_state`, `tmrca_map_years`,
@@ -699,10 +703,15 @@ With models of up to
 256 states, the E-step's forward and backward steps take O(states) time per
 bin instead of O(states²), from the rank-one triangles of PSMC's transition
 matrix, with which Harris et al. (2014) decode coalescent HMMs in linear
-time (see [Citing](#citing)); the expected transition counts still take
-O(states²) per bin. Instead of whole forward and backward matrices, the
-E-step keeps one forward vector every
-128 bins and recomputes each 128-bin segment for the backward pass, so its
+time (see [Citing](#citing)). With models of any size, so do the expected
+transition counts: below and above the diagonal, a transition probability
+is a factor of its row times a factor of its column, so C psmc's EM Q, and
+the M-step with it, needs the counts only summed over each triangle's rows
+and columns and over the diagonal, 5 × states sums, which the E-step adds
+up from each bin's prefix and suffix sums instead of the whole
+states × states matrix of counts. Instead of whole forward and backward
+matrices, the E-step keeps one forward vector every 128 bins and
+recomputes each 128-bin segment for the backward pass, so its
 memory still grows with sequence length, but at 1/128 of the rate: about
 bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
@@ -718,18 +727,19 @@ backward recursion over 16 segments while the others recompute the
 forward vectors of the 16 before them and sum the expected transitions of
 the 16 after them, each segment on its own, and the sums are added in the
 order one thread adds them, so the results are the same to the bit. The
-forward pass stays on one thread. So a single sequence runs about twice as
-fast on 4 threads or more with 64 states (1.4 times with 23), fastest on
-about 8: on an AMD EPYC 7702 with E3's options (below), 1 M bins of a
-human chromosome took 17.5 s on 1 thread, 9.4 s on 8 and 11.5 s on 16.
-Each pipelined sequence holds 98,688 × n + 128 × n² + 61,440 more bytes
-(n states rounded up to a multiple of 8): 6.9 MB with 64 states, 2.5 MB
-with 23. These blocks are reallocated at every E-step, so over many EM
-iterations the peak resident memory grows by about their size on Linux
-and about twice it on macOS, whose allocator keeps freed memory resident.
-The threads waiting between blocks use CPU time: a single sequence on 8
-threads takes about 1.6 times one thread's CPU time with 64 states, twice
-with 23, and more on more threads.
+forward pass stays on one thread. Most of what is left of a bin's work is
+the forward pass and the backward recursion, so a single sequence runs
+only about 1.1 times as fast on 8 threads as on one, with 64 states and
+with 23, and slower on 16: on an AMD EPYC 7702 with E3's options (below),
+1 M bins of a simulated human chromosome took 10.8 s on 1 thread, 9.6 s
+on 8 and 10.6 s on 16. Each pipelined sequence holds 99,328 × n + 61,440
+more bytes (n states rounded up to a multiple of 8): 6.4 MB with 64
+states, 2.4 MB with 23. These blocks are reallocated at every E-step, so
+over many EM iterations the peak resident memory grows by about their
+size on Linux and about twice it on macOS, whose allocator keeps freed
+memory resident. The threads waiting between blocks use CPU time: a
+single sequence on 8 threads took 2.2 times one thread's CPU time with
+64 states and 2.3 times with 23, and more on more threads.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
@@ -738,15 +748,14 @@ from `/usr/bin/time -l`:
 
 | input | EM iterations | threads | psmc-rs 0.2 | C psmc 0.6.5 (`-O1`) |
 | --- | --- | --- | --- | --- |
-| Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 24.7 s, 21 MB | 312 s, 2.63 GB |
-| | 20 | 8 | 11.3 s, 32 MB | |
-| HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 44.2 s, 87 MB | 588 s, 3.40 GB |
-| | 5 | 8 | 9.4 s, 117 MB | |
+| Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 15.8 s, 19 MB | 312 s, 2.63 GB |
+| | 20 | 8 | 10.4 s, 30 MB | |
+| HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 30.7 s, 48 MB | 588 s, 3.40 GB |
+| | 5 | 8 | 5.8 s, 108 MB | |
 
-psmc-rs on Papuan chr1 and on 8 threads: medians of three runs; the other
-cells are one run each. Load averages were 1 to 6, and 7 to 16 on 8
-threads. C psmc is single-threaded. The JSON outputs at 1 and 8 threads
-were byte-identical.
+psmc-rs: medians of three runs, at load averages of 3 to 14; C psmc: one
+run each, at load averages of 1 to 6. C psmc is single-threaded. The
+JSON outputs at 1 and 8 threads were byte-identical.
 
 The manuscript's experiment E3 timed the tools under a controlled protocol
 on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
@@ -773,9 +782,11 @@ fitted a 1.9 Gb genome (5 EM iterations, 1 thread) in 71.7 s on an AMD
 EPYC 7702 and in 47.1 s on an EPYC 9655, as fast as a
 `-C target-cpu=x86-64-v3` build, against 161 s and 97.0 s for the
 portable code (timed in the release build that preceded the AVX2 and
-FMA code; the portable code is unchanged). The AVX2 and FMA code fuses
-the multiply-adds of the O(states) forward and backward products (Harris
-et al. 2014's linear-time recursion), as the NEON code of aarch64 does;
+FMA code, whose E-step still summed the expected transitions in
+O(states²)). The AVX2 and FMA code fuses the multiply-adds of the
+O(states) forward and backward products (Harris et al. 2014's
+linear-time recursion) and of the transition sums, as the NEON code of
+aarch64 does;
 the other x86-64 kernels never fuse, and no sum changes its order with
 the vector width, so its results are identical to the bit to an
 `x86-64-v3` build's, and on every CPU with AVX2 and FMA that gets the
@@ -785,36 +796,34 @@ machines and emulators that hide them, run the portable code, which does
 not fuse those multiply-adds (each would be a call to libm's `fma`,
 several times slower), so its results differ in the last digits: by a
 relative 1e-14 or so in an E-step (1.4e-14 at most on the test inputs),
-which the M-step, stopping on a flat optimum, turns into about 1e-7 to
-1e-6 in the fitted parameters (1.9e-7 on a 20,000-bin test input after 3
-EM iterations, 1.2e-6 on the 180,000-bin one after 5 with the pattern
-`4+25*2+4+6`). `PSMC_RS_SIMD=portable` forces the
+which the M-step, stopping on a flat optimum, turns into about 1e-8 to
+1e-6 in the fitted parameters (on an EPYC 7702, 1.6e-8 on a 20,000-bin
+test input after 3 EM iterations, 8.6e-7 on the 180,000-bin one after 5
+with the pattern `4+25*2+4+6`). `PSMC_RS_SIMD=portable` forces the
 portable code, to compare speeds or results; the output JSON's `simd`
 and the report say which ran (`avx2+fma`, `portable`, or `neon` on Apple
 silicon and other aarch64).
 
-The M-step needs little memory, however many λ are free. It
+The M-step needs little memory and time, however many λ are free. It
 differentiates its objective in reverse mode, one row of the transition
-matrix at a time: an evaluation holds O(states) values besides the
-expected counts and costs O(states²) time, 27 µs with 64 states on one
-thread, about what the E-step spends on 60 bins. An M-step evaluates its
-objective once per free parameter for the curvatures that scale its
-search, once or twice per L-BFGS iteration, and once per free parameter
-again for the check before it stops, so its time grows with the number of
-free parameters times states². With pattern `4+25*2+4+6` (31 parameters)
-on one thread, an M-step took 12 iterations, 78 evaluations and 2.1 ms on
-a simulated 500 Mb sequence, whose E-steps took 2.3 s (0.09%), and 2.2 ms
-on a simulated 4 × 25 Mb genome, against 0.46 s (0.5%; medians of three
-runs of 25 EM iterations).
-With one λ per interval (`--n-steps` alone) on the 180,000-bin test
-input, M-steps over 104 parameters took 13 to 18 ms and over 304 took
-0.29 to 0.60 s, against E-steps of 0.17 s and 4.9 to 5.0 s: on so small
-an input, many free λ make the M-step a noticeable share. One EM
-iteration there on one thread peaked at 6.2, 9.0, 176 and 235 MB of
-resident memory with 101, 201, 301 and 401 intervals and took 0.22, 0.71,
-7.6 and 13.8 s (medians of three runs). Above 256 intervals
-the memory is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`):
-without it, the iteration with 401 intervals peaked at 20 MB.
+matrix at a time, from the sums of the expected transition counts: an
+evaluation holds O(states) values and costs O(states) time, 7.5 µs with
+64 states on one thread, about what the E-step spends on 25 bins. An
+M-step evaluates its objective once per free parameter for the
+curvatures that scale its search, once or twice per L-BFGS iteration, and
+once per free parameter again for the check before it stops, so its time
+grows with the number of free parameters times states. With pattern
+`4+25*2+4+6` (31 parameters) on one thread, an M-step took 10 to 12
+iterations, 74 to 113 evaluations and 0.55 to 0.87 ms on a simulated
+100 Mb chromosome (E3's), whose E-steps took 0.32 s (0.2%; three runs of
+25 EM iterations). With one λ per interval (`--n-steps` alone) on the
+180,000-bin test input, M-steps over 104 parameters took 2.8 to 3.4 ms
+and over 304 took 22 to 44 ms, against E-steps of 0.09 s and 4.1 s. One
+EM iteration there on one thread peaked at 5.6, 8.6, 311 and 417 MB of
+resident memory with 101, 201, 301 and 401 intervals and took 0.12,
+0.25, 6.2 and 11.0 s (medians of three runs). Above 256 intervals the
+memory is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`):
+without it, the iteration with 401 intervals peaked at 14 MB.
 
 ## Testing and C equivalence
 
@@ -830,8 +839,9 @@ The suite compares psmc-rs with the original tools' outputs, stored under
   0.6.5-r74 (patterns `4+5*3+4` and `4+25*2+4+6`): round 1 equal to C's
   printed precision, rounds 2 to 5 within a relative 2e-7.
 - `tests/psmc_out_c_reference.rs`, `tests/em_c_reference.rs` and
-  `tests/psmc_out_plot.rs`: the `.psmc` output line by line against C's,
-  C's expectations (`post_sigma`, Q) and psmc_plot.pl's reading of the file.
+  `tests/psmc_out_plot.rs`: the `.psmc` output line by line against C's
+  (but `QD`), C's expectations (`post_sigma`, `RI`) and psmc_plot.pl's
+  reading of the file.
 - `tests/io_text_psmcfa_c.rs`: psmcfa parsing against C psmc's counts on the
   turtle and Papuan psmcfa files in `experiment/real_data`.
 - `tests/io_route_a.rs`: consensus mode against goldens made with
@@ -896,8 +906,9 @@ If you use psmc-rs, please cite it as given in [CITATION.cff](CITATION.cff)
 > individual whole-genome sequences. *Nature* 475:493-496.
 > doi:10.1038/nature10231
 
-Its O(states) forward and backward steps use the rank-one triangles of the
-transition matrix, as in:
+Its O(states) forward and backward steps, and its sums of the expected
+transition counts, use the rank-one triangles of the transition matrix, as
+in:
 
 > Harris K, Sheehan S, Kamm JA, Song YS (2014). Decoding coalescent hidden
 > Markov models in linear time. In *Research in Computational Molecular
