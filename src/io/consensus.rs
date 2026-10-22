@@ -97,7 +97,9 @@ pub use crate::io::common::DepthStats;
 use crate::io::common::{
     DepthCounter, HetCall, LineReader, SeqBuilder, is_regular_file, open_reader, reopen_reader,
 };
-use crate::io::vcf::{MaskEngine, Uncallable, list_names, mask_coverage_hints, parse_pos};
+use crate::io::vcf::{
+    MaskEngine, Uncallable, list_names, mask_coverage_hints, parse_pos, utf8_chrom,
+};
 
 /// Depth thresholds of `vcfutils.pl vcf2fq` (`-d` and `-D`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -932,18 +934,6 @@ impl Chrom {
             het_sites: seq.het_sites,
         })
     }
-}
-
-/// A chromosome name as text. VCF is UTF-8; another encoding is an error
-/// rather than a lossy conversion, which could give two chromosomes one name.
-pub(crate) fn utf8_chrom(name: &[u8], row_no: usize) -> Result<&str> {
-    std::str::from_utf8(name).map_err(|_| {
-        anyhow::anyhow!(
-            "invalid VCF row {row_no}: the chromosome name '{}' is not valid UTF-8, which VCF \
-             requires",
-            name.escape_ascii()
-        )
-    })
 }
 
 /// Whether INFO has a value vcf2fq reads as FQ.

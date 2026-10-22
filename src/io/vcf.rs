@@ -61,7 +61,6 @@ use std::path::{Path, PathBuf};
 use crate::io::common::{
     BinnedSeq, DepthCounter, DepthStats, LineReader, SeqBuilder, chunk_sequences, open_reader,
 };
-use crate::io::consensus::utf8_chrom;
 use crate::io::{Observations, Sequences};
 use crate::qc::fmt::{count, counted};
 
@@ -778,6 +777,18 @@ pub(crate) fn parse_pos(b: &[u8], row_no: usize) -> Result<u64> {
         bail!("invalid VCF row {row_no}: POS {pos} is beyond the supported maximum {MAX_POS}");
     }
     Ok(pos)
+}
+
+/// A chromosome name as text. VCF is UTF-8; another encoding is an error
+/// rather than a lossy conversion, which could give two chromosomes one name.
+pub(crate) fn utf8_chrom(name: &[u8], row_no: usize) -> Result<&str> {
+    std::str::from_utf8(name).map_err(|_| {
+        anyhow::anyhow!(
+            "invalid VCF row {row_no}: the chromosome name '{}' is not valid UTF-8, which VCF \
+             requires",
+            name.escape_ascii()
+        )
+    })
 }
 
 fn parse_record(line: &[u8], sample_idx: usize, row_no: usize) -> Result<Record<'_>> {
