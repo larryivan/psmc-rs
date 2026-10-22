@@ -116,7 +116,7 @@ impl PsmcModel {
         Ok(model)
     }
 
-    /// The parameters EM fits: θ, ρ, t_max and the free λ.
+    /// How many parameters EM fits: θ, ρ, t_max and the free λ.
     pub fn n_free_params(&self) -> usize {
         3 + n_free_lambdas(self.n_steps, self.pattern_spec.as_deref())
     }

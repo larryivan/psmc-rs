@@ -264,16 +264,16 @@ impl<'a> Objective<'a> {
         let n = model.n_steps;
         let states = n + 1;
         let group = model.par_map();
-        let n_free = group.last().map_or(0, |g| g + 1);
         ensure!(
             group.len() == states,
             "the pattern gives {} states for n_steps {n}",
             group.len()
         );
         ensure!(
-            bounds.len() == 3 + n_free,
-            "{} bounds for 3 + {n_free} free parameters",
-            bounds.len()
+            bounds.len() == model.n_free_params(),
+            "{} bounds for the model's {} parameters",
+            bounds.len(),
+            model.n_free_params()
         );
         let sums = stats.transitions.parts();
         ensure!(
