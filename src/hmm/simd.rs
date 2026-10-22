@@ -138,32 +138,7 @@ const _: () = assert!(!DEFAULT_FUSED);
 /// target, with [`DEFAULT_FUSED`], otherwise. Everything `imp` runs per site
 /// must be `#[inline(always)]` too: a function that is not inlined is
 /// compiled once, without the features.
-///
-/// So is a closure, which does not get the features of the pass it is
-/// written in: work that a pass hands to other threads calls a function
-/// defined by `dispatch! { vis fn name<const FUSED: bool>(arg: Type, ...) =
-/// imp; }`, whose `name::<FUSED>` calls `imp::<FUSED>` with the caller's
-/// `FUSED`, compiled with AVX2 and FMA when it is fused and the CPU has both.
 macro_rules! dispatch {
-    (
-        $(#[$doc:meta])*
-        $vis:vis fn $name:ident<const FUSED: bool>($($arg:ident: $ty:ty),* $(,)?) $(-> $ret:ty)?
-            = $imp:ident;
-    ) => {
-        $(#[$doc])*
-        $vis fn $name<const FUSED: bool>($($arg: $ty),*) $(-> $ret)? {
-            #[cfg(target_arch = "x86_64")]
-            if FUSED && $crate::hmm::simd::cpu_has_avx2_fma() {
-                #[target_feature(enable = "avx2,fma")]
-                unsafe fn avx2_fma($($arg: $ty),*) $(-> $ret)? {
-                    $imp::<true>($($arg),*)
-                }
-                // SAFETY: the CPU has AVX2 and FMA.
-                return unsafe { avx2_fma($($arg),*) };
-            }
-            $imp::<FUSED>($($arg),*)
-        }
-    };
     (
         $(#[$doc:meta])*
         $vis:vis fn $name:ident $(<$($lt:lifetime),*>)? ($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty
