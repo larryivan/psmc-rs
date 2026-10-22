@@ -104,8 +104,11 @@ FQ2PSMCFA=/path/to/fq2psmcfa cargo test --release --test io_vcf_exact -- --ignor
 
 Measure old and new builds back to back on the same idle machine, interleaved,
 and report the median of at least three runs together with the input size,
-thread count and hardware (`cargo build --release`; see `.cargo/config.toml`
-for `target-cpu=native` benchmarks).
+thread count and hardware. Build with `cargo build --release` and no
+`RUSTFLAGS`: on x86-64 the HMM kernels pick AVX2 and FMA at run time, and
+`-C target-cpu=native` adds little (with AVX-512 on AMD Zen 5 it was
+slower). `cargo run --release --example bench_estep -- INPUT` times the
+E-step alone and prints a checksum of its results for exact comparisons.
 
 ### Experiment and reproduction package
 
