@@ -175,7 +175,7 @@ impl ObsTable {
     }
 
     /// Whether the table has callable bases.
-    pub(crate) fn is_counted(&self) -> bool {
+    fn is_counted(&self) -> bool {
         self.bin_size > 0
     }
 

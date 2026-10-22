@@ -102,21 +102,24 @@ pub fn simd_path() -> SimdPath {
     }
 }
 
-/// Whether to run the AVX2 and FMA build of a pass: the CPU has both and
-/// the portable path is not forced. Only then may the `avx2_fma` functions
-/// of [`dispatch`] be called.
+/// Whether the CPU has AVX2 and FMA, which code compiled with them needs.
 #[inline]
-pub(crate) fn avx2_fma() -> bool {
+pub(crate) fn cpu_has_avx2_fma() -> bool {
     #[cfg(target_arch = "x86_64")]
     {
-        std::is_x86_feature_detected!("avx2")
-            && std::is_x86_feature_detected!("fma")
-            && !portable_forced()
+        std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma")
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
         false
     }
+}
+
+/// Whether to run the AVX2 and FMA build of a pass: the CPU has both and
+/// the portable path is not forced.
+#[inline]
+pub(crate) fn avx2_fma() -> bool {
+    cpu_has_avx2_fma() && !portable_forced()
 }
 
 /// Whether the passes compiled for the target as given fuse the
@@ -150,7 +153,7 @@ macro_rules! dispatch {
         $(#[$doc])*
         $vis fn $name<const FUSED: bool>($($arg: $ty),*) $(-> $ret)? {
             #[cfg(target_arch = "x86_64")]
-            if FUSED && std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma") {
+            if FUSED && $crate::hmm::simd::cpu_has_avx2_fma() {
                 #[target_feature(enable = "avx2,fma")]
                 unsafe fn avx2_fma($($arg: $ty),*) $(-> $ret)? {
                     $imp::<true>($($arg),*)

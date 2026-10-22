@@ -17,7 +17,7 @@ use super::TransitionSums;
 use super::obs::ObsTable;
 
 /// Width (in f64) of the column tiles the matrix-vector products are blocked into.
-pub(crate) const TILE: usize = 8;
+const TILE: usize = 8;
 
 /// `y[j] = sum_r x[r] * m[r][j]` for a row-major `np x np` matrix `m`
 /// (`np` a multiple of [`TILE`]).
@@ -656,7 +656,7 @@ fn semisep_sums<const FUSED: bool>(
             )
         }
         #[cfg(target_arch = "x86_64")]
-        if FUSED && std::is_x86_feature_detected!("avx2") && std::is_x86_feature_detected!("fma") {
+        if FUSED && super::simd::cpu_has_avx2_fma() {
             // SAFETY: as for NEON, with groups of four sites; the CPU has
             // AVX2 and FMA.
             unsafe {
@@ -694,7 +694,7 @@ pub(crate) struct Kernel {
 }
 
 /// The padded state dimension of `n` states: a multiple of [`TILE`].
-pub(crate) fn padded(n: usize) -> usize {
+fn padded(n: usize) -> usize {
     n.div_ceil(TILE).max(1) * TILE
 }
 
@@ -944,6 +944,24 @@ mod tests {
         )
     }
 
+    /// A random transition matrix of `n` states, which is not semiseparable.
+    fn random_matrix(rng: &mut SmallRng, n: usize) -> Array2<f64> {
+        let mut a = Array2::from_shape_fn((n, n), |_| rng.gen_range(0.01..1.0));
+        for mut row in a.rows_mut() {
+            let s: f64 = row.sum();
+            row.mapv_inplace(|v| v / s);
+        }
+        a
+    }
+
+    /// The kernel of transition matrix `a`, with a uniform prior and
+    /// emissions of one half.
+    fn kernel_of(a: &Array2<f64>) -> Kernel {
+        let n = a.nrows();
+        let em = Array2::from_elem((3, n), 0.5);
+        Kernel::new(&vec![1.0 / n as f64; n], a, &em, &ObsTable::plain())
+    }
+
     fn max_rel(a: &[f64], b: &[f64]) -> f64 {
         a.iter()
             .zip(b)
@@ -1085,18 +1103,7 @@ mod tests {
             worst = worst.max(check::<true>(&k, &mut rng, &what));
             worst = worst.max(check::<false>(&k, &mut rng, &what));
         }
-        let n = 12;
-        let mut a = Array2::from_shape_fn((n, n), |_| rng.gen_range(0.01..1.0));
-        for mut row in a.rows_mut() {
-            let s: f64 = row.sum();
-            row.mapv_inplace(|v| v / s);
-        }
-        let k = Kernel::new(
-            &[1.0 / n as f64; 12],
-            &a,
-            &Array2::from_elem((3, n), 0.5),
-            &ObsTable::plain(),
-        );
+        let k = kernel_of(&random_matrix(&mut rng, 12));
         assert!(k.semi.is_none());
         worst = worst.max(check::<true>(&k, &mut rng, "dense"));
         eprintln!("worst relative difference {worst:e}");
@@ -1151,25 +1158,16 @@ mod tests {
     #[test]
     fn other_matrices_use_the_dense_kernel() {
         let mut rng = SmallRng::seed_from_u64(8);
-        let n = 12;
-        let pi = vec![1.0 / n as f64; n];
-        let em = Array2::from_elem((3, n), 0.5);
-        let mut a = Array2::from_shape_fn((n, n), |_| rng.gen_range(0.01..1.0));
-        for mut row in a.rows_mut() {
-            let s: f64 = row.sum();
-            row.mapv_inplace(|v| v / s);
-        }
-        assert!(Kernel::new(&pi, &a, &em, &ObsTable::plain()).semi.is_none());
+        assert!(kernel_of(&random_matrix(&mut rng, 12)).semi.is_none());
 
         // A PSMC matrix with one entry perturbed beyond rounding.
-        let mut k = psmc_kernel(&mut rng, 11, None);
+        let k = psmc_kernel(&mut rng, 11, None);
         let mut a = Array2::from_shape_fn((12, 12), |(i, j)| k.a[i * k.np() + j]);
         a[(5, 2)] *= 1.0 + 1e-10;
-        k = Kernel::new(&pi, &a, &em, &ObsTable::plain());
-        assert!(k.semi.is_none());
+        assert!(kernel_of(&a).semi.is_none());
 
         // An underflowed reference entry falls back too.
         a[(11, 0)] = 0.0;
-        assert!(Kernel::new(&pi, &a, &em, &ObsTable::plain()).semi.is_none());
+        assert!(kernel_of(&a).semi.is_none());
     }
 }

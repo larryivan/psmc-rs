@@ -67,16 +67,16 @@ impl<'a> SeqObs<'a> {
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
+    fn len(&self) -> usize {
         *self.offsets.last().expect("offsets is never empty")
     }
 
-    pub(crate) fn n_segments(&self) -> usize {
+    fn n_segments(&self) -> usize {
         self.len().div_ceil(K)
     }
 
     /// First site and length of segment `s`.
-    pub(crate) fn segment(&self, s: usize) -> (usize, usize) {
+    fn segment(&self, s: usize) -> (usize, usize) {
         let start = s * K;
         (start, K.min(self.len() - start))
     }
@@ -84,7 +84,7 @@ impl<'a> SeqObs<'a> {
     /// Observation indices of sites `start..start + out.len()`: the symbol
     /// classes without counts, the indices of the observation table with
     /// them.
-    pub(crate) fn read(&self, start: usize, out: &mut [u16]) {
+    fn read(&self, start: usize, out: &mut [u16]) {
         let mut r = self.offsets.partition_point(|&o| o <= start) - 1;
         let mut pos = start;
         let mut k = 0;

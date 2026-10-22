@@ -50,11 +50,6 @@ impl AlphaCacheBudget {
         })
     }
 
-    /// Total bytes this budget allows.
-    pub fn limit_bytes(&self) -> usize {
-        self.limit
-    }
-
     /// Bytes currently reserved.
     pub fn used_bytes(&self) -> usize {
         self.used.load(Ordering::Relaxed)
