@@ -241,7 +241,8 @@ pub struct PsmcRound {
 
 impl PsmcRound {
     /// Round 0 of a run starting from `model` on `sum_l` non-missing bins:
-    /// the model's parameters with no E-step (`LK` 0, `post_sigma` all 0). The model's matrices must be up to date
+    /// the model's parameters with no E-step (`LK` 0, `post_sigma` all 0).
+    /// The model's matrices must be up to date
     /// ([`PsmcModel::param_recalculate`]).
     pub fn initial(model: &PsmcModel, sum_l: u64) -> Result<Self> {
         let n_states = model.n_steps + 1;

@@ -9,14 +9,15 @@
 //!
 //! Each build fixes at compile time, by the `FUSED` parameter of the passes,
 //! whether the multiply-adds of the O(states) forward and backward products
-//! and transition sums are fused: in the AVX2 and FMA build and on aarch64, where it is one
-//! instruction, but not in the portable build ([`DEFAULT_FUSED`]), where
-//! `f64::mul_add` would call libm's `fma` (a fit took 3.75 times as long on
-//! AMD Zen 5, and CPUs without FMA emulate it in software). Nothing else
-//! fuses (Rust never contracts `a * b + c`) and no sum changes its order
-//! with the vector width, so the AVX2 and FMA build gives the bits of the
-//! portable code instantiated fused (and of an `x86-64-v3` build, which
-//! takes the same path); the portable build differs in the last digits.
+//! and transition sums are fused: in the AVX2 and FMA build and on aarch64,
+//! where it is one instruction, but not in the portable build
+//! ([`DEFAULT_FUSED`]), where `f64::mul_add` would call libm's `fma` (a fit
+//! took 3.75 times as long on AMD Zen 5, and CPUs without FMA emulate it in
+//! software). Nothing else fuses (Rust never contracts `a * b + c`) and no
+//! sum changes its order with the vector width, so the AVX2 and FMA build
+//! gives the bits of the portable code instantiated fused (and of an
+//! `x86-64-v3` build, which takes the same path); the portable build differs
+//! in the last digits.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU8, Ordering};

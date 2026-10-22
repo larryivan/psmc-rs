@@ -538,13 +538,11 @@ line that reproduces a run (`InferArgs::to_args`, which the TUI shows).
 ## What stage 2 built
 
 The model, the counts and their storage are as planned above. Stage 2
-departs from the plan of stage 1 in six places, each said in its section:
+departs from the plan of stage 1 in five places, each said in its section:
 
 - θ0 is the moment estimate of the callable-length model, not C's
   estimate divided by the mean share of callable bases, which starts low
   when the counts vary (*Starting values*);
-- Q0, which the plan did not cover, is maximised over one emission
-  parameter per state, so that `Q - Q0` stays at most 0 (*M-step*);
 - the passes take the counts as an option rather than `&Observations`,
   so that the C-compatible entry points keep their signatures (*E-step*);
 - `--bin-callable` is an inference option, and the warning for psmcfa
@@ -656,13 +654,12 @@ Stage 2 (in the test suite):
   directly from the model; with full counts the objective, the gradient
   and the whole M-step are C's to the bit (`src/opt.rs`);
 - EM: θ0 (above); EM with full counts is C psmc's to the bit, in its
-  history, Q and Q0; with partly callable bins it does not lower the
-  likelihood and keeps `Q - Q0 <= 0`; Q0 equals a golden-section
-  maximisation; and on bins simulated from the callable-length model with
-  30% of the bases missing at random, the fit with counts recovers the
-  diversity per bin (θ C_pi) of the fit of the same genealogy without
-  missing data (ratio 0.999), where the fit without counts gives 0.70
-  (`tests/em_callable.rs`);
+  history and the expected counts of its E-steps; with partly callable
+  bins it does not lower the likelihood; and on bins simulated from the
+  callable-length model with 30% of the bases missing at random, the fit
+  with counts recovers the diversity per bin (θ C_pi) of the fit of the
+  same genealogy without missing data (ratio 0.999), where the fit without
+  counts gives 0.70 (`tests/em_callable.rs`);
 - the bootstrap: each replicate is the fit of its resampled bins and
   counts, by hand; full counts give the replicates without counts to the
   bit; replicates do not depend on threads or batching; and

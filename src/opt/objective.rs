@@ -48,14 +48,15 @@
 //! The objective is `+inf` where the HMM computed in f64 is not one: where a
 //! transition or emission probability, or a factor of one, is negative or
 //! not a number, or where a row of the transition matrix does not sum to 1
-//! within [`ROW_SUM_TOLERANCE`]. In exact arithmetic every row sums to 1, but the
-//! formulas square the survival `alpha` (C's `ak1 * ak1`): once it falls
-//! below about 1e-154, which a small λ of an early interval causes (a
+//! within [`ROW_SUM_TOLERANCE`]. In exact arithmetic every row sums to 1,
+//! but the formulas square the survival `alpha` (C's `ak1 * ak1`): once it
+//! falls below about 1e-154, which a small λ of an early interval causes (a
 //! cumulative coalescence rate above about 354), those squares lose their
 //! digits or vanish, rows sum to anything (1.014 was seen), and `Q` can
-//! exceed its maximum `Q0`. Such a point evaluates to a finite `Q` that is
-//! no HMM's, so the M-step must not move there: on a simulated genome, an
-//! E-step with one lowered the log-likelihood by 367 and EM never left it.
+//! exceed the largest value any HMM gives these counts. Such a point
+//! evaluates to a finite `Q` that is no HMM's, so the M-step must not move
+//! there: on a simulated genome, an E-step with one lowered the
+//! log-likelihood by 367 and EM never left it.
 
 use anyhow::{Result, ensure};
 

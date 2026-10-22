@@ -5,13 +5,12 @@
 //! its position between its bounds ([`bounds_from_config`]). The objective
 //! and its gradient are computed together, the gradient by reverse-mode
 //! (adjoint) differentiation of C's `psmc_update_hmm` and Q, written out by
-//! hand: one evaluation costs O(states) time and memory, whatever the
-//! number of free λ. L-BFGS minimises the
-//! objective, with an initial matrix from its curvature in each coordinate
-//! (estimated from the gradient at the start of each M-step), until a
-//! scale-free convergence test holds ([`MStepStop`]). The search runs to
-//! convergence, as C psmc's Hooke-Jeeves search does;
-//! [`MStepConfig::max_iters`] only caps it.
+//! hand: one evaluation costs O(states) time and memory, whatever the number
+//! of free λ. L-BFGS minimises the objective, with an initial matrix from
+//! its curvature in each coordinate (estimated from the gradient at the
+//! start of each M-step), until a scale-free convergence test holds
+//! ([`MStepStop`]). The search runs to convergence, as C psmc's Hooke-Jeeves
+//! search does; [`MStepConfig::max_iters`] only caps it.
 
 use anyhow::{Result, bail, ensure};
 
@@ -827,16 +826,17 @@ mod tests {
     /// counts `xi` (whose sums `stats` holds) and every probability.
     ///
     /// Where the HMM is valid (probabilities in [0, 1], rows summing to 1
-    /// within `ROW_SUM_TOLERANCE`), the values must be equal to the bit
-    /// (to a relative 1e-13 with `xi`), and the adjoint gradient finite;
-    /// elsewhere the adjoint objective must be `+inf`. Every gradient component must agree with forward mode
-    /// to 1e-10 relative, with a floor of 1e-3 of the largest component
-    /// ([`worst_relative_error`]), unless the two gradients' own rounding
-    /// errors are larger: then the forward-mode code evaluated in
-    /// double-double arithmetic gives the objective's derivatives (when
-    /// exact arithmetic takes the same fallback branches), and the adjoint
-    /// gradient must be within 1e-10 of them or at most four times as far
-    /// from them as the forward-mode gradient.
+    /// within `ROW_SUM_TOLERANCE`), the values must be equal to the bit (to
+    /// a relative 1e-13 with `xi`), and the adjoint gradient finite;
+    /// elsewhere the adjoint objective must be `+inf`. Every gradient
+    /// component must agree with forward mode to 1e-10 relative, with a
+    /// floor of 1e-3 of the largest component ([`worst_relative_error`]),
+    /// unless the two gradients' own rounding errors are larger: then the
+    /// forward-mode code evaluated in double-double arithmetic gives the
+    /// objective's derivatives (when exact arithmetic takes the same
+    /// fallback branches), and the adjoint gradient must be within 1e-10 of
+    /// them or at most four times as far from them as the forward-mode
+    /// gradient.
     fn compare_with_forward_mode(
         model: &PsmcModel,
         stats: &SufficientStats,
@@ -1271,8 +1271,9 @@ mod tests {
     /// 1e-154, the squares of `param_recalculate`'s formulas underflow: its
     /// transition probabilities are finite and not negative (so
     /// `check_transitions` accepts them) but its rows do not sum to 1, and
-    /// Q can exceed Q0. The objective calls such a point infeasible
-    /// (`tests/em_valid_hmm.rs` has the EM fit that reached it).
+    /// Q can exceed the largest value any HMM gives these counts. The
+    /// objective calls such a point infeasible (`tests/em_valid_hmm.rs` has
+    /// the EM fit that reached it).
     #[test]
     fn underflowed_survival_is_infeasible() {
         let mut rng = Rng(0x6A09_E667_F3BC_C908);
