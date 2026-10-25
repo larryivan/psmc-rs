@@ -484,6 +484,9 @@ used.
 
 **Runs.** Before its runs, each `e3` job measured its idle node for 30 s,
 to stop if the node was busier than the protocol allows; none stopped.
+The protocol deferred runs while a node was busy and ran them again
+later: the runner logs have one deferral line in each of repeats 1, 2, 4
+and 5 and none in repeat 3, and every deferred run was clean when it ran.
 `merge_e3.sh` merged the five repeats and found every run
 done for the current code. All 95 runs (20 of C psmc and 75 of psmc-rs)
 are clean (`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean`
