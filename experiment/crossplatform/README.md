@@ -26,7 +26,7 @@ this directory, in this order:
 | `scripts/inputs.py` | step 1: the laptop's genomes against the Ibex records |
 | `scripts/compare.py` | the comparisons (the CSV tables, `summary.json`) |
 | `scripts/reports.py` | E1, E2, E4 and E5's tables written again on the laptop, against the committed ones (`reports_laptop_vs_ibex.csv`, `reports.json`) |
-| `scripts/make_summary.py` | `summary.md`; `scripts/tables.py` prints its tables |
+| `scripts/make_summary.py` | `summary.md`, every number in it from the files the scripts above write and the Ibex records |
 | `scripts/tiers_2026-10-07.py` | the earlier laptop-against-Ibex review that fixed the agreement tiers on 2026-10-07, before these runs, kept as it was |
 
 ```bash
