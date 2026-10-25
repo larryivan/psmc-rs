@@ -292,6 +292,8 @@ rs_rows = rs_compare(X / "runs", X / "records")
 rs199_rows = rs_compare(X / "runs-rustc1.99", X / "records-rustc1.99")
 lap199_vs_197 = rs_compare(X / "runs-rustc1.99", X / "records-rustc1.99", X / "runs", ibex_b=False)
 repeat_rows = rs_compare(X / "runs-repeat", X / "records-repeat", X / "runs", ibex_b=False)
+assert len(rs_rows) == len(rs199_rows) == len(lap199_vs_197) == len(RS_JOBS), "every fit and both controls' fits"
+assert len(repeat_rows) == len(json.loads((X / "jobs_repeat.json").read_text())), "the repeat control's fits"
 
 # --------------------------------------------------------------------------
 # C psmc: laptop (.production) vs Ibex

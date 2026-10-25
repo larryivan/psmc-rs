@@ -1,0 +1,59 @@
+{
+ "job": "E1/fit-rs/expansion/rep10",
+ "command": [
+  "<xplat>/bin/psmc-rs-rustc1.99",
+  "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa",
+  "<xplat>/runs-rustc1.99/E1/fits/expansion/rep10.rs.json",
+  "25",
+  "--pattern",
+  "4+25*2+4+6",
+  "--t-max",
+  "15",
+  "--tr-ratio",
+  "5",
+  "--smooth-lambda",
+  "0",
+  "--mstep-iters",
+  "1000",
+  "--bin-size",
+  "100",
+  "--mu",
+  "2.5e-08",
+  "--gen-years",
+  "25",
+  "--threads",
+  "1",
+  "--no-progress",
+  "--psmc-out",
+  "<xplat>/runs-rustc1.99/E1/fits/expansion/rep10.rs.psmc"
+ ],
+ "ibex_record": "experiment/runs/E1/provenance/fit-rs/expansion/rep10.json",
+ "inputs": {
+  "<repo>/experiment/.production/experiment/runs/E1/sims/expansion/rep10/genome.psmcfa": "cef2a314f3064310a8099d8835414d3f579749dc8b32bc1f3c36235ca931e131"
+ },
+ "outputs": {
+  "<xplat>/runs-rustc1.99/E1/fits/expansion/rep10.rs.json": "7fbbb408c334aaed018d8f836c1ddfa15067c82b338e6a7f15be9458d710d7f2",
+  "<xplat>/runs-rustc1.99/E1/fits/expansion/rep10.rs.psmc": "49fc26d9f6fa5ffdd7af71b53442ad8e07e82c32402ec4afc60efbc09baa7d0d"
+ },
+ "binary_sha256": "698e09766beba028ff6f92e8fe0b867abf895a06caa93c99dfdbc148dfb3a3dd",
+ "exit_status": 0,
+ "start": "2026-10-25T15:40:12",
+ "wall_seconds": 41.14,
+ "user_seconds": 40.229,
+ "system_seconds": 0.194,
+ "maxrss_mb": 13.5,
+ "loadavg_before": [
+  7.76,
+  8.38,
+  6.91
+ ],
+ "loadavg_after": [
+  7.61,
+  8.24,
+  6.92
+ ],
+ "nice": 19,
+ "host": "Larryivanhans-MacBook-Pro.local",
+ "machine": "arm64",
+ "platform": "macOS-27.0-arm64-arm-64bit-Mach-O"
+}

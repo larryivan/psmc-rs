@@ -1,0 +1,59 @@
+{
+ "job": "E1/fit-rs/zigzag/rep01",
+ "command": [
+  "<xplat>/bin/psmc-rs-rustc1.99",
+  "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep01/genome.psmcfa",
+  "<xplat>/runs-rustc1.99/E1/fits/zigzag/rep01.rs.json",
+  "25",
+  "--pattern",
+  "4+25*2+4+6",
+  "--t-max",
+  "15",
+  "--tr-ratio",
+  "5",
+  "--smooth-lambda",
+  "0",
+  "--mstep-iters",
+  "1000",
+  "--bin-size",
+  "100",
+  "--mu",
+  "2.5e-08",
+  "--gen-years",
+  "25",
+  "--threads",
+  "1",
+  "--no-progress",
+  "--psmc-out",
+  "<xplat>/runs-rustc1.99/E1/fits/zigzag/rep01.rs.psmc"
+ ],
+ "ibex_record": "experiment/runs/E1/provenance/fit-rs/zigzag/rep01.json",
+ "inputs": {
+  "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep01/genome.psmcfa": "7f594a3c6becc69e66b5c8a1743fdcf167e8368a7ee63914fd52c76f199855a0"
+ },
+ "outputs": {
+  "<xplat>/runs-rustc1.99/E1/fits/zigzag/rep01.rs.json": "c52bfb0c926f8290a34b0e522117622d30f0cc44ba1ec1a52664cea323d0d0c6",
+  "<xplat>/runs-rustc1.99/E1/fits/zigzag/rep01.rs.psmc": "03bffc27611d684974477c858c381c58b4df2cc4d2537fa81712443b899723c3"
+ },
+ "binary_sha256": "698e09766beba028ff6f92e8fe0b867abf895a06caa93c99dfdbc148dfb3a3dd",
+ "exit_status": 0,
+ "start": "2026-10-25T15:40:42",
+ "wall_seconds": 41.103,
+ "user_seconds": 40.292,
+ "system_seconds": 0.193,
+ "maxrss_mb": 15.3,
+ "loadavg_before": [
+  7.9,
+  8.32,
+  6.93
+ ],
+ "loadavg_after": [
+  7.16,
+  8.07,
+  6.91
+ ],
+ "nice": 19,
+ "host": "Larryivanhans-MacBook-Pro.local",
+ "machine": "arm64",
+ "platform": "macOS-27.0-arm64-arm-64bit-Mach-O"
+}

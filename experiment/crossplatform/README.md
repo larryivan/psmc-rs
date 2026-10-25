@@ -53,8 +53,10 @@ simulated genomes and C psmc fits from a frozen laptop run,
 are copied to `laptop_c/`, and `compare.py` checks the copies);
 `toolchain.py` also reads the laptop's C psmc builds in
 `experiment/.tools/psmc_c`. `runs/` holds the laptop's psmc-rs fits and
-`records/` one record per laptop run; paths in the job lists and records
-are written as `<repo>` (this repository) and `<xplat>` (this directory),
-which `run_job.py` expands. Not kept: the binaries (`bin/`), the control
-runs (`runs-rustc1.99/`, `runs-repeat/`, their job lists and records),
+`records/` one record per laptop run; the two controls' fits are in
+`runs-rustc1.99/` and `runs-repeat/`, their job lists in
+`jobs_rustc1.99.json` and `jobs_repeat.json` and their records in
+`records-rustc1.99/` and `records-repeat/`. Paths in the job lists and
+records are written as `<repo>` (this repository) and `<xplat>` (this
+directory), which `run_job.py` expands. Not kept: the binaries (`bin/`),
 logs and the HTML reports psmc-rs writes beside each JSON.

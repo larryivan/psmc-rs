@@ -421,12 +421,14 @@ for fname, desc in (
     ("`side_by_side_E1.csv`", "the three agreements per E1 replicate, and their ratios"),
     ("`params_rel_per_fit.csv`", "relative difference of θ, ρ, t_max and each of the 28 free λ, per fit"),
     ("`rs_laptop_rustc1.99_vs_ibex.csv`, `control_rustc1.99_vs_rustc1.97_laptop.csv`, `control_repeat_laptop.csv`", "the controls"),
+    ("`runs-rustc1.99/`, `runs-repeat/`", f"the controls' fits ({len(ctl199)} by the rustc {ctl_b['rustc'].split()[0]} build{', byte-identical to `runs/`' if ctl_same == len(ctl199) else ''}; {len(rep)} by the same binary run again); "
+     "`jobs_rustc1.99.json`, `jobs_repeat.json`: their job lists; `records-rustc1.99/`, `records-repeat/`: their records"),
     ("`reports_laptop_vs_ibex.csv`, `reports.json`", "the tables written again on the laptop, table by table (section 4.6)"),
     ("`summary.json`", "every number above; `toolchain.txt`: the laptop, its two rustc builds, the binaries' checksums and the C psmc binary's forensics"),
     ("`jobs.json`", "the Ibex and the laptop command of each job"),
     ("`runs/`", "the laptop psmc-rs fits (JSON and `.psmc`); `records/`: one record per laptop run (command, checksums, exit status, times)"),
     ("`laptop_c/`", "the laptop C psmc fits compared here, copied from the frozen laptop run `experiment/.production` (not in the repository)"),
-    ("not kept", "the control runs' fits and records (`runs-rustc1.99/`, byte-identical to `runs/`; `runs-repeat/`), their job lists, logs, the binaries (`bin/`) and the build directories"),
+    ("not kept", "logs, the HTML reports, the binaries (`bin/`) and the build directories"),
 ):
     w(f"- {fname}: {desc}")
 (X / "summary.md").write_text("\n".join(out) + "\n")
