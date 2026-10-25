@@ -366,7 +366,7 @@ The model options follow C psmc:
 - `--mstep-iters` (1000) caps the L-BFGS iterations of each M-step, which
   runs to convergence, as C psmc's does: in the manuscript's 40 E1 fits
   with `4+25*2+4+6`, an M-step took a median 76 evaluations of its
-  objective and at most 160 (the `.psmc` output's `IT`; these include the
+  objective and at most 135 (the `.psmc` output's `IT`; these include the
   evaluations for its curvatures and its stopping check, two per free
   parameter), where C psmc's Hooke-Jeeves search took a median 3,934.
   The cap is a safeguard that normal fits do not reach.
@@ -719,10 +719,10 @@ of eight copies of it (19.9 M bins). Sequences are processed in parallel,
 each on one thread, so `--threads` helps inputs of many sequences: a
 single long sequence runs on one thread, and t threads are up to t times
 as fast only on at least t sequences of similar length. The threads left
-without a sequence add no CPU time: with E3's options (below), 25 EM
-iterations on 1 M bins of a simulated human chromosome took 10.5 to
-10.6 s, of wall and of CPU time alike, on 1, 4, 8, 16 or 30 threads of an
-AMD EPYC 7702 alone on its node.
+without a sequence add no CPU time: in E3 (below), 25 EM iterations on
+one simulated 100 Mb chromosome (1 M bins) took a median 10.3 to 10.5 s
+of CPU time and 10.45 to 10.98 s of wall time on 1, 8 or 30 threads of
+an AMD EPYC 7702 alone on its node.
 
 Measured on the inputs in `experiment/real_data` with pattern
 `4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
@@ -744,13 +744,11 @@ The manuscript's experiment E3 timed the tools under a controlled protocol
 on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
 exclusive node, 5 repeats on five nodes, 25 EM iterations of
 `-N25 -t15 -r5 -p "4+25*2+4+6"` on simulated genomes of 100 Mb
-chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`, psmc-rs in
-an earlier build of 0.2, whose E-step still summed the expected
-transitions in O(states²): one chromosome took it 17.2 s on 1, 8 and 30
-threads, against the 10.5 to 10.6 s above. On 3000 Mb (30 chromosomes) it
-took a median 519 s on 1 thread, 36.0 s on 16 and 18.3 s on 30, against
-4,446 s for C psmc: 8.6, 123 and 243 times as fast. It peaked at 36 MB of
-resident memory on 1 thread and 148 MB on 30, C psmc at 1,062 MB. Every
+chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`. On 3000 Mb
+(30 chromosomes) psmc-rs took a median 318 s on 1 thread, 22.5 s on 16
+and 11.5 s on 30, against 4,425 s for C psmc: 13.9, 197 and 384 times as
+fast (13.9 to 14.2 times on 1 thread at every size). It peaked at 36 MB
+of resident memory on 1 thread and 149 MB on 30, C psmc at 1,063 MB. Every
 size and thread count, the ranges over the repeats, the thread scaling
 and the outputs' determinism are in
 [Supplementary Note 1, section 10](experiment/Supplementary_Note_1_Reproducibility.md#10-performance-e3).
@@ -767,12 +765,12 @@ release binaries need no `-C target-cpu` flags for full speed: they
 fitted a 1.9 Gb genome (5 EM iterations, 1 thread) in 71.7 s on an AMD
 EPYC 7702 and in 47.1 s on an EPYC 9655, as fast as a
 `-C target-cpu=x86-64-v3` build, against 161 s and 97.0 s for the
-portable code (timed in the release build that preceded the AVX2 and
-FMA code, whose E-step still summed the expected transitions in
-O(states²)). The AVX2 and FMA code fuses the multiply-adds of the
-O(states) forward and backward products (Harris et al. 2014's
-linear-time recursion) and of the transition sums, as the NEON code of
-aarch64 does;
+portable code (all four timed while the E-step still summed the expected
+transitions in O(states²), the portable ones in the release build that
+preceded the AVX2 and FMA code). The AVX2 and FMA code fuses the
+multiply-adds of the O(states) forward and backward products (Harris et
+al. 2014's linear-time recursion) and of the transition sums, as the NEON
+code of aarch64 does;
 the other x86-64 kernels never fuse, and no sum changes its order with
 the vector width, so its results are identical to the bit to an
 `x86-64-v3` build's, and on every CPU with AVX2 and FMA that gets the
@@ -799,12 +797,13 @@ M-step evaluates its objective once per free parameter for the
 curvatures that scale its search, once or twice per L-BFGS iteration, and
 once per free parameter again for the check before it stops, so its time
 grows with the number of free parameters times states. With pattern
-`4+25*2+4+6` (31 parameters) on one thread, an M-step took 10 to 12
-iterations, 74 to 113 evaluations and 0.55 to 0.87 ms on a simulated
-100 Mb chromosome (E3's), whose E-steps took 0.32 s (0.2%; three runs of
-25 EM iterations). With one λ per interval (`--n-steps` alone) on the
-180,000-bin test input, M-steps over 104 parameters took 2.8 to 3.4 ms
-and over 304 took 22 to 44 ms, against E-steps of 0.09 s and 4.1 s. One
+`4+25*2+4+6` (31 parameters) on one thread of the Apple M1 Pro, an M-step
+took 10 to 12 iterations, 74 to 113 evaluations and 0.55 to 0.87 ms on a
+simulated 100 Mb chromosome (E3's), whose E-steps took 0.32 s there
+(0.2%; three runs of 25 EM iterations). With one λ per interval
+(`--n-steps` alone) on the 180,000-bin test input, M-steps over 104
+parameters took 2.8 to 3.4 ms and over 304 took 22 to 44 ms, against
+E-steps of 0.09 s and 4.1 s. One
 EM iteration there on one thread peaked at 5.6, 8.6, 311 and 417 MB of
 resident memory with 101, 201, 301 and 401 intervals and took 0.12,
 0.25, 6.2 and 11.0 s (medians of three runs). Above 256 intervals the

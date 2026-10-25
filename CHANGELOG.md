@@ -468,11 +468,12 @@ Library API:
   gradient and a curvature-scaled L-BFGS, the converged M-step (see
   *Changed*) takes a small fraction of the E-step's time: with
   `4+25*2+4+6` on one thread, 0.55 to 0.87 ms per EM iteration on a
-  simulated 100 Mb chromosome (E-step 0.32 s), where 100 forward-mode
-  L-BFGS iterations took 123 ms and 1000 took 1.35 s.
+  simulated 100 Mb chromosome (E-step 0.32 s, on an Apple M1 Pro), where
+  100 forward-mode L-BFGS iterations took 123 ms and 1000 took 1.35 s.
 - On x86-64 the E-step, log-likelihood and TMRCA decoding use AVX2 and FMA
   when the CPU has both, chosen at run time: a 1.9 Gb genome (5 EM
-  iterations, 1 thread) took 71.7 s instead of 161 s on an AMD EPYC 7702.
+  iterations, 1 thread) took 71.7 s instead of 161 s on an AMD EPYC 7702
+  (both timed before the expected transitions were summed in O(states)).
   Results are bit-identical on any CPU with AVX2 and FMA that gets the
   same libm `log` and `exp`. The portable code (CPUs without AVX2 or FMA,
   or `PSMC_RS_SIMD=portable`) does not fuse multiply-adds, so its fitted
