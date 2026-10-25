@@ -1,7 +1,12 @@
-"""Run one job of xplat/jobs.json (by index) and write xplat/records/<job>.json.
+"""Run a job of jobs.json (by index) and write records/<job>.json, or run them all.
 
-Usage: run_job.py <index> [<jobs file> <records dir>]   (default: xplat/jobs.json, xplat/records)
-Skips a job whose record says it finished with exit status 0 and whose outputs still match.
+Usage: run_job.py <index> [<jobs file> <records dir>]   (default: jobs.json, records/)
+       run_job.py all [<jobs file> <records dir>] [-P 4]
+'all' runs every job of the file, each in a process of its own (so that
+its CPU time and memory are its own), at most -P at once, under nice 19.
+Skips a job whose record says it finished with exit status 0 and whose
+outputs still match. The record's paths are written as <repo> (this
+repository) and <xplat> (this directory), as in the jobs file.
 """
 import hashlib
 import json
@@ -12,9 +17,19 @@ import socket
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parents[3]  # the repository root
 X = Path(__file__).resolve().parent.parent
+
+
+def expand(arg: str) -> str:
+    if arg.startswith("<xplat>/"):
+        return str(X / arg[len("<xplat>/"):])
+    if arg.startswith("<repo>/"):
+        return str(REPO / arg[len("<repo>/"):])
+    return arg
 
 
 def sha(p: Path) -> str:
@@ -27,16 +42,37 @@ def sha(p: Path) -> str:
 
 def outputs_of(cmd):
     # positional: binary, input, output json, n_iter; plus the --psmc-out value
-    out = [Path(cmd[2])]
+    out = [cmd[2]]
     if "--psmc-out" in cmd:
-        out.append(Path(cmd[cmd.index("--psmc-out") + 1]))
+        out.append(cmd[cmd.index("--psmc-out") + 1])
     return out
 
 
+def run_all(jobs_file: Path, records: Path, parallel: int):
+    os.nice(19 - os.nice(0))
+    n = len(json.loads(jobs_file.read_text()))
+
+    def one(i):
+        return subprocess.run([sys.executable, "-I", "-B", __file__, str(i), str(jobs_file), str(records)]).returncode
+
+    with ThreadPoolExecutor(parallel) as pool:
+        codes = list(pool.map(one, range(n)))
+    print(f"{jobs_file.name}: {n} jobs, {sum(c != 0 for c in codes)} failed")
+    return max(codes, default=0)
+
+
 def main():
-    idx = int(sys.argv[1])
-    jobs_file = Path(sys.argv[2]) if len(sys.argv) > 2 else X / "jobs.json"
-    records = Path(sys.argv[3]) if len(sys.argv) > 3 else X / "records"
+    args = [a for a in sys.argv[1:]]
+    parallel = 4
+    if "-P" in args:
+        k = args.index("-P")
+        parallel = int(args[k + 1])
+        del args[k:k + 2]
+    jobs_file = Path(args[1]) if len(args) > 1 else X / "jobs.json"
+    records = Path(args[2]) if len(args) > 2 else X / "records"
+    if args[0] == "all":
+        sys.exit(run_all(jobs_file.resolve(), records.resolve(), parallel))
+    idx = int(args[0])
     jobs = json.loads(jobs_file.read_text())
     job = jobs[idx]
     name = job["job"]
@@ -48,16 +84,16 @@ def main():
     outs = outputs_of(cmd)
     if rec_path.exists():
         old = json.loads(rec_path.read_text())
-        if old.get("exit_status") == 0 and all(p.exists() and sha(p) == old["outputs"].get(str(p)) for p in outs):
+        if old.get("exit_status") == 0 and all(Path(expand(p)).exists() and sha(Path(expand(p))) == old["outputs"].get(p) for p in outs):
             print(f"[skip] {name}")
             return
     for p in outs:
-        p.parent.mkdir(parents=True, exist_ok=True)
-    binary = Path(cmd[0])
+        Path(expand(p)).parent.mkdir(parents=True, exist_ok=True)
+    binary = Path(expand(cmd[0]))
     load_before = os.getloadavg()
     start = time.time()
     with open(log_path, "w") as log:
-        res = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)
+        res = subprocess.run([expand(a) for a in cmd], stdout=log, stderr=subprocess.STDOUT)
     wall = time.time() - start
     ru = resource.getrusage(resource.RUSAGE_CHILDREN)
     record = {
@@ -65,7 +101,7 @@ def main():
         "command": cmd,
         "ibex_record": job["ibex_record"],
         "inputs": {k: v["laptop_sha256"] for k, v in job["inputs"].items()},
-        "outputs": {str(p): (sha(p) if p.exists() else None) for p in outs},
+        "outputs": {p: (sha(Path(expand(p))) if Path(expand(p)).exists() else None) for p in outs},
         "binary_sha256": sha(binary),
         "exit_status": res.returncode,
         "start": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(start)),
@@ -81,7 +117,7 @@ def main():
         "platform": platform.platform(),
     }
     rec_path.write_text(json.dumps(record, indent=1))
-    print(f"[done] {name} exit {res.returncode} wall {wall:.0f}s")
+    print(f"[done] {name} exit {res.returncode} wall {wall:.0f}s", flush=True)
 
 
 if __name__ == "__main__":

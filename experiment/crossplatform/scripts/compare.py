@@ -1,9 +1,10 @@
 """Steps 4-5: laptop vs Ibex, psmc-rs and C psmc, against the pre-registered tiers.
 
 Comparisons (a = laptop, b = Ibex, the reference):
-  rs: this session's laptop psmc-rs fits (xplat/runs) vs the committed Ibex fits (experiment/runs),
-      40 E1 replicates and E2's NA12878 whole-genome fit;
-  c:  the laptop C psmc fits of the frozen .production run vs the committed Ibex C fits, 40 E1 replicates;
+  rs: the laptop psmc-rs fits (runs/) vs the committed Ibex fits of the production (experiment/runs),
+      40 E1 replicates and E2's NA12878 whole-genome fit, both from the same sources;
+  c:  the laptop C psmc fits of the frozen .production run (copied in laptop_c/) vs the committed
+      Ibex C fits, 40 E1 replicates;
   and, side by side, the committed Ibex psmc-rs vs C psmc agreement (E1_rs_vs_c.csv).
 
 Pre-registered tiers (review/xplatform.py, unchanged):
@@ -139,12 +140,23 @@ def it_counts(p: Path):
     return [int(l.split("\t")[1]) for l in p.read_text().splitlines() if l.startswith("IT\t")]
 
 
+def interval_lambda(fit, k):
+    """The free lambda (its index) that interval k belongs to."""
+    widths = [b for a, b in results.pattern_groups(fit.pattern) for _ in range(a)] if fit.pattern else [1] * (fit.n + 1)
+    return int(np.searchsorted(np.cumsum(widths), k, side="right"))
+
+
 def curve_metrics(fa, fb, scal, window):
     mu, g, bin_size = scal
     ca, cb = fa.curve(mu, g, bin_size), fb.curve(mu, g, bin_size)
     d = metrics.interval_diff(ca, cb, window)
+    diffs = np.abs(np.log10(np.asarray(fa.lambdas) * fa.theta) - np.log10(np.asarray(fb.lambdas) * fb.theta))
+    k = int(np.argmax(diffs))
     return {
         "dlog10ne_max_all_intervals": interval_maxdiff(fa, fb),  # the pre-registered d
+        "dlog10ne_argmax_interval": k,
+        "dlog10ne_argmax_lambda": interval_lambda(fb, k),
+        "dlog10ne_argmax_in_window": k in d.interval,
         "dlog10ne_max_any_interval_pipeline": d.max_abs_any,
         "dlog10ne_max_window": d.max_abs,
         "dlog10ne_rmse_window": d.rmse,
@@ -255,6 +267,7 @@ def rs_one(exp, m, r, runs_a, records_a, runs_b, ibex_b):
         "loglike_abs_final": abs(ma["final_loglike"] - mb["final_loglike"]),
         "loglike_rel_max_trace": max(ll_rels),
         "loglike_iter0_rel": ll_rels[0],
+        "loglike_iter0_ulps": round(abs(lla[0] - llb[0]) / math.ulp(llb[0])),
         "loglike_first_diff_iter": ll_first,
         "loglike_iters_identical": sum(x == y for x, y in zip(lla, llb)),
         "n_iter": len(lla) - 1,
@@ -312,6 +325,7 @@ for m in MODELS:
             "headers_equal": a.header.get("sum_L") == b.header.get("sum_L") and a.header.get("sum_n") == b.header.get("sum_n")
                              and a.header.get("n_seqs") == b.header.get("n_seqs"),
             "laptop_file_matches_its_record": sha(pa_) == lap_prov["outputs"][f"<runs>/{rp}"],
+            "laptop_file_eq_laptop_c_copy": pa_.read_bytes() == (X / "laptop_c" / rp).read_bytes(),
             "ibex_file_matches_its_record": sha(pb_) == ibx_prov["outputs"][f"<runs>/{rp}"],
             "laptop_c_sha256": lap_prov["key"]["tools"]["c-psmc"]["sha256"],
             "ibex_c_sha256": ibx_prov["key"]["tools"]["c-psmc"]["sha256"],
@@ -461,11 +475,39 @@ def block(rows):
 
 
 e1rs = [x for x in rs_rows if x["exp"] == "E1"]
+
+
+def runaway():
+    """C psmc's fit with the largest parameter difference, and psmc-rs's same lambda on that replicate, round by round."""
+    c_top = max(c_rows, key=lambda x: x["param_max_rel"])
+    m, r, name = c_top["model"], c_top["replicate"], c_top["param_max_rel_name"]
+    if not name.startswith("lam"):
+        return {"model": m, "replicate": r, "c_param": name}
+    i = int(name[3:])
+    stem = f"E1/fits/{m}/rep{r:02d}"
+    ja, jb = (json.loads((root / f"{stem}.rs.json").read_text()) for root in (X / "runs", IBX))
+    fa, fb = results.fit_from_rs(ja), results.fit_from_rs(jb)
+    ra, rb = (results.parse_psmc(root / f"{stem}.rs.psmc").complete_rounds() for root in (X / "runs", IBX))
+    per_round = [(x.round, rel(x.fit().free_lambdas[i], y.fit().free_lambdas[i])) for x, y in zip(ra, rb) if x.pa is not None]
+    worst = max(per_round, key=lambda t: t[1])
+    ca, cb = results.parse_psmc(LAP / f"{stem}.c.psmc").last().fit(), results.parse_psmc(IBX / f"{stem}.c.psmc").last().fit()
+    return {
+        "model": m, "replicate": r, "c_param": name, "lambda_index": i,
+        "c_lambda_laptop": ca.free_lambdas[i], "c_lambda_ibex": cb.free_lambdas[i],
+        "c_param_max_rel": c_top["param_max_rel"], "c_d": c_top["dlog10ne_max_all_intervals"],
+        "c_max_window": c_top["dlog10ne_max_window"],
+        "rs_lambda_laptop": fa.free_lambdas[i], "rs_lambda_ibex": fb.free_lambdas[i],
+        "rs_rel_final": rel(fa.free_lambdas[i], fb.free_lambdas[i]),
+        "rs_rel_max_over_rounds": worst[1], "rs_rel_max_round": worst[0],
+    }
+
+
 summary = {
     "references": {"model_mean_primary": REF_MODEL, "all40_mean": REF_ALL40, "min_model_mean": REF_MIN,
                    "pre_B1_model_mean_superseded": REF_PRE_B1_MODEL, "pre_B1_all40_superseded": REF_PRE_B1_ALL40,
                    "NA12878_pair": REF_PAIR[("NA12878", 0)], "windows": WINDOW},
     "repro_committed_rs_vs_c_max_abs_error": repro_max,
+    "runaway": runaway(),
     "rs": {
         "n": len(rs_rows), "n_E1": len(e1rs),
         "json_bytes_identical": sum(x["json_bytes_identical"] for x in rs_rows),
@@ -486,6 +528,7 @@ summary = {
         "inputs_identical": sum(x["laptop_input_sha_eq_ibex"] for x in c_rows),
         "headers_equal": sum(x["headers_equal"] for x in c_rows),
         "laptop_files_match_record": sum(x["laptop_file_matches_its_record"] for x in c_rows),
+        "laptop_files_eq_laptop_c_copy": sum(x["laptop_file_eq_laptop_c_copy"] for x in c_rows),
         "ibex_files_match_record": sum(x["ibex_file_matches_its_record"] for x in c_rows),
         "binaries": {f"laptop {k[0][:12]} / ibex {k[1][:12]}": v for k, v in Counter((x["laptop_c_sha256"], x["ibex_c_sha256"]) for x in c_rows).items()},
         "psmc_bytes_identical": sum(x["psmc_bytes_identical"] for x in c_rows),
