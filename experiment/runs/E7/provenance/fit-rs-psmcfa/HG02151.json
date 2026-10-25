@@ -1,5 +1,5 @@
 {
-  "digest": "20e1b75d6f427a9bfe36a34801ba56fe1aa9026638609382d66711e013066a14",
+  "digest": "88d152309b1cf82e7a3358e385f4e4237ac6a416b9dc3a7ab69e5f3f5f1daa82",
   "key": {
     "command": [
       "<repo>/target/release/psmc-rs",
@@ -57,43 +57,43 @@
         "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
         "rustflags": "",
         "source_dirty": "",
-        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
         "target_features": "none",
         "version": "psmc-rs 0.2.0"
       }
     }
   },
   "outputs": {
-    "<runs>/E7/fits/rs-psmcfa/HG02151.json": "dccf73cce89a6d7c6f345996453ea678f4907d60657a6a6035fef042123b92f6"
+    "<runs>/E7/fits/rs-psmcfa/HG02151.json": "7280904095d1ab523b2bb121ad61cc17500add95ed9563c4cf364a98cfc66c25"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-08T07:55:10",
+    "end": "2026-10-22T22:09:03",
     "exclusive": false,
     "executables": {
-      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+      "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn514-14-r",
+    "host": "cn513-11-l",
     "loadavg_after": [
-      132.8,
-      131.88,
-      131.12
+      70.91,
+      71.79,
+      72.41
     ],
     "loadavg_before": [
-      130.44,
-      131.07,
-      130.65
+      74.37,
+      73.18,
+      72.92
     ],
-    "maxrss_main_mb": 105.0,
+    "maxrss_main_mb": 118.9,
     "mem_gb": 0.2,
-    "peak_rss_mb": 105.0,
-    "peak_rss_tree_sampled_mb": 41.3,
-    "slurm_job_id": "53452276",
-    "start": "2026-10-08T07:43:06",
-    "system_seconds": 0.957,
-    "user_seconds": 707.212,
-    "wall_seconds": 723.771
+    "peak_rss_mb": 118.9,
+    "peak_rss_tree_sampled_mb": 37.2,
+    "slurm_job_id": "54256959",
+    "start": "2026-10-22T22:03:40",
+    "system_seconds": 0.158,
+    "user_seconds": 310.521,
+    "wall_seconds": 323.104
   }
 }

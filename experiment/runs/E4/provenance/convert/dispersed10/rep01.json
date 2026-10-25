@@ -1,5 +1,5 @@
 {
-  "digest": "536a8079e06f01b8c785a442024b702799e2f0c81c7bf23ed3cecb28733ffa11",
+  "digest": "5a7aac1f08fce1cbdb49f451980b8b5e28e3873fd2447c2a39eb667ef2ea6911",
   "key": {
     "command": [
       "<repo>/target/release/psmc-rs",
@@ -36,7 +36,7 @@
         "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
         "rustflags": "",
         "source_dirty": "",
-        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
         "target_features": "none",
         "version": "psmc-rs 0.2.0"
       }
@@ -49,31 +49,31 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-07T00:23:52",
+    "end": "2026-10-22T19:27:45",
     "exclusive": false,
     "executables": {
-      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+      "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn514-11-r",
+    "host": "cn513-11-l",
     "loadavg_after": [
-      56.59,
-      63.76,
-      50.61
+      81.05,
+      60.41,
+      41.52
     ],
     "loadavg_before": [
-      55.86,
-      63.74,
-      50.53
+      81.05,
+      60.41,
+      41.52
     ],
-    "maxrss_main_mb": 80.3,
+    "maxrss_main_mb": 107.8,
     "mem_gb": 0.3,
-    "peak_rss_mb": 80.3,
-    "peak_rss_tree_sampled_mb": 0.0,
-    "slurm_job_id": "53386770",
-    "start": "2026-10-07T00:23:47",
-    "system_seconds": 0.042,
-    "user_seconds": 1.006,
-    "wall_seconds": 5.104
+    "peak_rss_mb": 107.8,
+    "peak_rss_tree_sampled_mb": 4.0,
+    "slurm_job_id": "54256959",
+    "start": "2026-10-22T19:27:44",
+    "system_seconds": 0.043,
+    "user_seconds": 0.693,
+    "wall_seconds": 0.744
   }
 }

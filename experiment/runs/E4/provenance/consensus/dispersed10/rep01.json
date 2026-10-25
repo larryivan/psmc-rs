@@ -1,5 +1,5 @@
 {
-  "digest": "a34d3a879079543c060177a9092a8a7416b2058178caf7ea1f04e6aae4cbac4b",
+  "digest": "4d9721867df8c73294fcadc4d2653f94ce4abc2b0784cd4c9cfc27a307f3589a",
   "key": {
     "command": [
       "<python>",
@@ -51,7 +51,7 @@
         "sha256": "8312a96eed34d274691a8726dca3619b7fe2436871aa616bbfaef564a87c9caf"
       },
       "pipeline": {
-        "code": "2367d1dd063d3eca2481d309d62ed406f2c4a62b96852e370ddd7052c4377b7e",
+        "code": "5d0aa7fdd940007502419f356092b9e29802b1b92a67e41b5e4f96438216fa83",
         "numpy": "2.5.3",
         "python": "3.13.13"
       }
@@ -64,32 +64,32 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-07T00:25:48",
+    "end": "2026-10-22T08:02:13",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
       "<tools>/psmc_c/utils/fq2psmcfa": "8312a96eed34d274691a8726dca3619b7fe2436871aa616bbfaef564a87c9caf"
     },
     "exit_status": 0,
-    "host": "cn514-11-r",
+    "host": "cn511-12",
     "loadavg_after": [
-      62.19,
-      63.44,
-      52.02
+      171.56,
+      144.91,
+      120.51
     ],
     "loadavg_before": [
-      59.62,
-      63.13,
-      51.55
+      170.68,
+      143.82,
+      119.9
     ],
-    "maxrss_main_mb": 527.1,
+    "maxrss_main_mb": 528.3,
     "mem_gb": 1.5,
-    "peak_rss_mb": 527.1,
-    "peak_rss_tree_sampled_mb": 428.6,
-    "slurm_job_id": "53386770",
-    "start": "2026-10-07T00:25:17",
-    "system_seconds": 1.629,
-    "user_seconds": 24.299,
-    "wall_seconds": 30.214
+    "peak_rss_mb": 528.3,
+    "peak_rss_tree_sampled_mb": 384.7,
+    "slurm_job_id": "54232546",
+    "start": "2026-10-22T08:02:01",
+    "system_seconds": 0.884,
+    "user_seconds": 11.293,
+    "wall_seconds": 12.735
   }
 }

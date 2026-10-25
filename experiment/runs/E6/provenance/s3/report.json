@@ -1,5 +1,5 @@
 {
-  "digest": "de68ab1ebc1952c745a465adbe57daa7270e79fa5b19f3b570d6f36b24b0f91b",
+  "digest": "a2597a91e983b831fbacbc554a6aa0aa58f62df626105546be79f7df8d4142c3",
   "key": {
     "command": [
       "<python>",
@@ -15,11 +15,11 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E1/fits/bottleneck/rep01.rs.json": "ff9649a69153a8769e78370ab6c9691556092a2e67e4b2a6553d539ca673613d",
+      "<runs>/E1/fits/bottleneck/rep01.rs.json": "5efb49006e98f131cd719486970532ca83823ed77dc4e9af7ac980cb68c419b2",
       "<runs>/E1/truth/bottleneck/rep01.json": "6491bbde2d8fcbf2429459970853e4836ccef18906ec78094987b32fdd7fba3b",
-      "<runs>/E6/fits/s3/bottleneck/rep01.decode.json": "6af3bfc1b944b1c5ff8e8b72cf55b03ae83505365ffa502d3920011e790a7e99",
-      "<runs>/E6/sims/s3/bottleneck/rep01/posterior.tsv.gz": "42e673cad4ced03f7ea33275ebbde031d750c43e8b14c6f7af41a71be4766185",
-      "<runs>/E6/sims/s3/bottleneck/rep01/tmrca_true.tsv.gz": "4a18747f22ac1433ad8f61597378eec59cf50868e2bd0f05135bcbd2c4174229"
+      "<runs>/E6/fits/s3/bottleneck/rep01.decode.json": "1091aec9ba666133c77eac3a129eccfb6843e31d5e1a7b0a4a0866788e7f1db0",
+      "<runs>/E6/sims/s3/bottleneck/rep01/posterior.tsv.gz": "1d0e2fb792110f88b6fe4b42cf66ffb035bcaa54901609c8f8ea1905f0a6aedc",
+      "<runs>/E6/sims/s3/bottleneck/rep01/tmrca_true.tsv.gz": "00ae84c3a90cb30f0c15e1733962b685fea06d0a4374df274ac178f52dbbba4a"
     },
     "job": "E6/s3/report",
     "seeds": {},
@@ -56,7 +56,7 @@
     },
     "tools": {
       "pipeline": {
-        "code": "4bcd18057c2f4cde68182b0a911a942cfa739189c2ab514824f61d7c1b62452a",
+        "code": "f0e434e86c1624edea82a7a7181a28abd0110889402004a1c9ba6bf91cb1b07f",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
         "python": "3.13.13",
@@ -65,39 +65,39 @@
     }
   },
   "outputs": {
-    "<runs>/E6/tables/E6_S3_calibration.csv": "379c913760b1bcaba303c2e25150014359a667e0205395b3953554b3ba21b083",
+    "<runs>/E6/tables/E6_S3_calibration.csv": "c6613a72972702178c0a59c6ae93697e7de17a77fabd7ad8a363c07e20619e5a",
     "<runs>/E6/tables/E6_S3_density.csv": "8bebe3d9f0a16f5cd40842352754d973d9e704d195d98da39e2fcff46e7364bd",
-    "<runs>/E6/tables/E6_S3_summary.csv": "9ad9738455cc06711dc5e6d2fe7bab91f1456df9345ea2b2e42b7bc0f2254074",
-    "<runs>/E6/tables/E6_S3_track.csv": "1125635902667284372361872e5c06a6a4835d118d548e95eafdd4c00dc3810b"
+    "<runs>/E6/tables/E6_S3_summary.csv": "8a2b6d45bd3ed5e7b4430933f94e434d48b65c63fd2b027e9ac29d669f004c2d",
+    "<runs>/E6/tables/E6_S3_track.csv": "c880f73b28103bef108ea4f825278cfebae0a6de278cc839313e644e622337c9"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-08T13:52:52",
+    "end": "2026-10-22T08:19:57",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn511-19",
+    "host": "cn511-12",
     "loadavg_after": [
-      116.08,
-      122.18,
-      124.29
+      230.24,
+      229.84,
+      190.88
     ],
     "loadavg_before": [
-      116.23,
-      122.41,
-      124.39
+      243.62,
+      232.23,
+      191.0
     ],
-    "maxrss_main_mb": 1263.8,
+    "maxrss_main_mb": 1303.7,
     "mem_gb": 2.5,
-    "peak_rss_mb": 1263.8,
-    "peak_rss_tree_sampled_mb": 881.3,
-    "slurm_job_id": "53467834",
-    "start": "2026-10-08T13:52:42",
-    "system_seconds": 1.596,
-    "user_seconds": 7.492,
-    "wall_seconds": 9.702
+    "peak_rss_mb": 1303.7,
+    "peak_rss_tree_sampled_mb": 1113.8,
+    "slurm_job_id": "54232546",
+    "start": "2026-10-22T08:19:45",
+    "system_seconds": 2.048,
+    "user_seconds": 9.167,
+    "wall_seconds": 12.288
   }
 }

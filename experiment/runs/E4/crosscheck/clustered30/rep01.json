@@ -19,7 +19,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "f7c3bb52c1eb7946d45d05dd57397ba71f1aaa5e169c830f4b21af026167a16e",
       "sha256_psmc_rs": "f7c3bb52c1eb7946d45d05dd57397ba71f1aaa5e169c830f4b21af026167a16e",
-      "seconds": 50.21
+      "seconds": 30.99
     },
     {
       "name": "chr2",
@@ -30,7 +30,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "d497688f84a140671268d11280861d7b2ee292dcbb4a844f40bd1358c09b02ee",
       "sha256_psmc_rs": "d497688f84a140671268d11280861d7b2ee292dcbb4a844f40bd1358c09b02ee",
-      "seconds": 44.97
+      "seconds": 31.76
     },
     {
       "name": "chr3",
@@ -41,7 +41,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "5dbf24a76f95d17670aa50cdea93a42d863184e6494d0765d87795f3a8d1b7b7",
       "sha256_psmc_rs": "5dbf24a76f95d17670aa50cdea93a42d863184e6494d0765d87795f3a8d1b7b7",
-      "seconds": 44.61
+      "seconds": 43.21
     },
     {
       "name": "chr4",
@@ -52,7 +52,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "318cb21a6455f1d1c33a53ea26f4f1b0811b3ffc2e7939d77e9b5c3bf7c6f156",
       "sha256_psmc_rs": "318cb21a6455f1d1c33a53ea26f4f1b0811b3ffc2e7939d77e9b5c3bf7c6f156",
-      "seconds": 46.84
+      "seconds": 31.85
     },
     {
       "name": "chr5",
@@ -63,7 +63,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "bec820ca871d0dc9d46e81f23891f926bd35221624eb153c3dcf842264aa318e",
       "sha256_psmc_rs": "bec820ca871d0dc9d46e81f23891f926bd35221624eb153c3dcf842264aa318e",
-      "seconds": 50.4
+      "seconds": 41.64
     },
     {
       "name": "chr6",
@@ -74,7 +74,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "d37d524dbf0f821fe1b3c092a773c3a2126da8f1ac642ed488c933536fe31d32",
       "sha256_psmc_rs": "d37d524dbf0f821fe1b3c092a773c3a2126da8f1ac642ed488c933536fe31d32",
-      "seconds": 45.73
+      "seconds": 31.43
     },
     {
       "name": "chr7",
@@ -85,7 +85,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "171ad4e24b7da892c48e3aa1777393ff7b38dd20b6f370204633d6dd46b82998",
       "sha256_psmc_rs": "171ad4e24b7da892c48e3aa1777393ff7b38dd20b6f370204633d6dd46b82998",
-      "seconds": 48.99
+      "seconds": 33.69
     },
     {
       "name": "chr8",
@@ -96,7 +96,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "58debcc660a07995a2c51eeb78ce715c4ef811b73ed367635b213ebfd5b459e7",
       "sha256_psmc_rs": "58debcc660a07995a2c51eeb78ce715c4ef811b73ed367635b213ebfd5b459e7",
-      "seconds": 47.96
+      "seconds": 37.65
     },
     {
       "name": "chr9",
@@ -107,7 +107,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "a94670d902afbbacab6245186d87f1a357f95965f37e8d62c03fe1b99055ce4f",
       "sha256_psmc_rs": "a94670d902afbbacab6245186d87f1a357f95965f37e8d62c03fe1b99055ce4f",
-      "seconds": 38.67
+      "seconds": 32.42
     },
     {
       "name": "chr10",
@@ -118,7 +118,7 @@
       "first_difference": null,
       "sha256_generate_multihetsep": "44a4d41387febfd5b07623778929287095843cc23e5034942c0b627a3a37bd2d",
       "sha256_psmc_rs": "44a4d41387febfd5b07623778929287095843cc23e5034942c0b627a3a37bd2d",
-      "seconds": 33.74
+      "seconds": 37.89
     }
   ],
   "psmc_rs_rows_on_other_chromosomes": [],

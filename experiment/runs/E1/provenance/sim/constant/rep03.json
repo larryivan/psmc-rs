@@ -1,5 +1,5 @@
 {
-  "digest": "c8b9eaa841b65d716d28227d056f20f1139ba2f63fcfad127d55ffb2027c5873",
+  "digest": "d7cdac428d862fc14e3b5658b479e8b3884d8131d7acfe702ba3dce8060f1ca4",
   "key": {
     "command": [
       "<python>",
@@ -94,7 +94,7 @@
         "tabix": "tabix (htslib) 1.24"
       },
       "pipeline": {
-        "code": "d18629043b1b64c7524db2bd58953cd63e13120e43663bc09ece6c91a8ba5379",
+        "code": "7efdacbb8450bf1d89736f082811ba2cd300671c16c87c55bf3c612e91e5c57b",
         "msprime": "1.4.4",
         "numpy": "2.5.3",
         "python": "3.13.13",
@@ -112,31 +112,31 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-07T00:05:16",
+    "end": "2026-10-22T01:36:12",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn514-11-r",
+    "host": "cn513-15-r",
     "loadavg_after": [
-      46.15,
-      16.36,
-      8.6
+      60.89,
+      31.39,
+      23.71
     ],
     "loadavg_before": [
-      4.8,
-      4.6,
-      4.56
+      43.49,
+      23.63,
+      20.93
     ],
-    "maxrss_main_mb": 157.0,
+    "maxrss_main_mb": 154.1,
     "mem_gb": 1.0,
-    "peak_rss_mb": 157.0,
-    "peak_rss_tree_sampled_mb": 150.6,
-    "slurm_job_id": "53386770",
-    "start": "2026-10-07T00:04:15",
-    "system_seconds": 0.177,
-    "user_seconds": 57.86,
-    "wall_seconds": 60.277
+    "peak_rss_mb": 154.1,
+    "peak_rss_tree_sampled_mb": 148.1,
+    "slurm_job_id": "54211974",
+    "start": "2026-10-22T01:35:19",
+    "system_seconds": 0.185,
+    "user_seconds": 50.665,
+    "wall_seconds": 52.704
   }
 }

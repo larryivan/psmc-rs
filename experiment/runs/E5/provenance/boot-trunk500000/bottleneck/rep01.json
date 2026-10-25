@@ -1,5 +1,5 @@
 {
-  "digest": "34cf2a6b23baa60f9e2633cbf05e8b6d199b954110221c81f4e017e43a0d7ebf",
+  "digest": "5ed85f7f5b13bb1b9322153b48ff08b4038b2368c898f625c939674ede72de5b",
   "key": {
     "command": [
       "<repo>/target/release/psmc-rs",
@@ -73,45 +73,45 @@
         "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
         "rustflags": "",
         "source_dirty": "",
-        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
         "target_features": "none",
         "version": "psmc-rs 0.2.0"
       }
     }
   },
   "outputs": {
-    "<runs>/E5/boot/trunk500000/rep01.rs.json": "02174fb20abdb05bd086a5a95a721f4b2f814d7ef4a8417aaff0dd9ce3d6f708",
-    "<runs>/E5/boot/trunk500000/rep01/summary.json": "6920fd0b7f8ea3ce893ff63d744dbd1d9b5ff52c030766fe224fa53ee05b7ebf",
-    "<runs>/E5/boot/trunk500000/rep01/summary.tsv": "61f95e8c14a865e7c6e0342ce276d3e0fd759801a7988e6dc49963fb93af4b51"
+    "<runs>/E5/boot/trunk500000/rep01.rs.json": "8f4aeca3e56ebacb70f3ca057e84478ae5c55986fde77c9b69f256e145d0bb10",
+    "<runs>/E5/boot/trunk500000/rep01/summary.json": "bf0df3cb18059d78f37d1abf1d338bea335d56cd258f66143f492fc8b8aca7fe",
+    "<runs>/E5/boot/trunk500000/rep01/summary.tsv": "667b25115134be5e4ce53cc4b412bb653c179a62c911e32d171b6d0d7649e829"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-07T00:59:02",
+    "end": "2026-10-22T19:58:30",
     "exclusive": false,
     "executables": {
-      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+      "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn514-11-r",
+    "host": "cn513-11-l",
     "loadavg_after": [
-      30.44,
-      32.29,
-      40.75
+      74.88,
+      74.0,
+      69.78
     ],
     "loadavg_before": [
-      17.41,
-      7.4,
-      5.48
+      14.03,
+      21.03,
+      25.49
     ],
-    "maxrss_main_mb": 79.5,
+    "maxrss_main_mb": 103.7,
     "mem_gb": 0.2,
-    "peak_rss_mb": 79.5,
-    "peak_rss_tree_sampled_mb": 18.2,
-    "slurm_job_id": "53386770",
-    "start": "2026-10-07T00:04:29",
-    "system_seconds": 3.006,
-    "user_seconds": 3234.682,
-    "wall_seconds": 3272.845
+    "peak_rss_mb": 103.7,
+    "peak_rss_tree_sampled_mb": 14.2,
+    "slurm_job_id": "54256959",
+    "start": "2026-10-22T19:22:27",
+    "system_seconds": 0.219,
+    "user_seconds": 2136.321,
+    "wall_seconds": 2163.423
   }
 }

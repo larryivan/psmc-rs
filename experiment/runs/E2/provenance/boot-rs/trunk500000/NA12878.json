@@ -1,5 +1,5 @@
 {
-  "digest": "3c22be412e82c433f7aff3e5014565e989370f407e752bd0e06c80ae36d8efa0",
+  "digest": "0cdc229e766f53882069f38947e69dde2b10daa3a14e72fe86ab181c068019f7",
   "key": {
     "command": [
       "<repo>/target/release/psmc-rs",
@@ -74,45 +74,45 @@
         "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
         "rustflags": "",
         "source_dirty": "",
-        "source_tree": "src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889;Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635;Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b",
+        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
         "target_features": "none",
         "version": "psmc-rs 0.2.0"
       }
     }
   },
   "outputs": {
-    "<runs>/E2/bootstrap/NA12878/trunk500000/main.json": "1f0affaf69a47a1e35a96fc48e97f20566edea62322490ee8d5b6e3b029e3f1a",
-    "<runs>/E2/bootstrap/NA12878/trunk500000/summary.json": "b480379818cb370c84916c93c61770a6065570cd00a0274bd6cf27c39ef057d3",
-    "<runs>/E2/bootstrap/NA12878/trunk500000/summary.tsv": "72d59efb2559f5e4d3743fa0057ba16eee92cbed8141e1deb88489ac6cdafa38"
+    "<runs>/E2/bootstrap/NA12878/trunk500000/main.json": "fa051ce551674033b3a63fa0ae788b4a6bb012d832c45e0dbda9b7b8fc40e1d5",
+    "<runs>/E2/bootstrap/NA12878/trunk500000/summary.json": "35e795cf10dac175bbcd7ea6efb6bc55338f790a557dbb45b002f3fe303eb6fd",
+    "<runs>/E2/bootstrap/NA12878/trunk500000/summary.tsv": "d067219ac117c623e8c782e2ae2e70a3754c89a0551e06ac4c2b26244eef8a30"
   },
   "record_version": 1,
   "run": {
     "cores": 50,
-    "end": "2026-10-08T05:43:06",
+    "end": "2026-10-22T20:38:37",
     "exclusive": false,
     "executables": {
-      "<repo>/target/release/psmc-rs": "2085fe3a6b6c6fa5cd530c1ab58a954e85237cd323e3e065828c0bf079d74850"
+      "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn514-14-r",
+    "host": "cn513-11-l",
     "loadavg_after": [
-      70.12,
-      80.49,
-      90.92
+      71.3,
+      71.56,
+      71.19
     ],
     "loadavg_before": [
-      81.61,
-      92.07,
-      107.53
+      53.03,
+      67.92,
+      70.94
     ],
-    "maxrss_main_mb": 1857.0,
+    "maxrss_main_mb": 1947.2,
     "mem_gb": 10.0,
-    "peak_rss_mb": 1857.0,
-    "peak_rss_tree_sampled_mb": 1857.0,
-    "slurm_job_id": "53452276",
-    "start": "2026-10-08T05:21:15",
-    "system_seconds": 22.195,
-    "user_seconds": 62099.061,
-    "wall_seconds": 1310.263
+    "peak_rss_mb": 1947.2,
+    "peak_rss_tree_sampled_mb": 1947.2,
+    "slurm_job_id": "54256959",
+    "start": "2026-10-22T20:25:20",
+    "system_seconds": 24.531,
+    "user_seconds": 37250.105,
+    "wall_seconds": 797.089
   }
 }

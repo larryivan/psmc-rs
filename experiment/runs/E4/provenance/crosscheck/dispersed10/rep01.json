@@ -1,5 +1,5 @@
 {
-  "digest": "a3d37959bc93bd4ea890aa496bb7e9b78c77a35c7b6829dc1fd5266ac37a1105",
+  "digest": "e9bb39a9f4969eb564b6859146ea8922f292fa56789cf4ba62f51a76d17d4815",
   "key": {
     "command": [
       "<python>",
@@ -33,43 +33,43 @@
         "sha256": "caaa87a07e0fe2dc7228f30c9aff759cf86e9f61b8332aabd41398399ea6331b"
       },
       "pipeline": {
-        "code": "2367d1dd063d3eca2481d309d62ed406f2c4a62b96852e370ddd7052c4377b7e",
+        "code": "5d0aa7fdd940007502419f356092b9e29802b1b92a67e41b5e4f96438216fa83",
         "numpy": "2.5.3",
         "python": "3.13.13"
       }
     }
   },
   "outputs": {
-    "<runs>/E4/crosscheck/dispersed10/rep01.json": "575243545f3a81140ff632c6895489c90cef2ca8d4d81e0a7b97a8349d2aedcb"
+    "<runs>/E4/crosscheck/dispersed10/rep01.json": "7705fa6fbecbf0d12a19c19c62e4d59df6f3970e5d7b68198c68b21f9c7dd7f8"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-07T00:44:29",
+    "end": "2026-10-23T01:12:43",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn514-11-r",
+    "host": "cn513-11-l",
     "loadavg_after": [
-      46.77,
-      58.87,
-      55.51
+      62.22,
+      62.9,
+      66.36
     ],
     "loadavg_before": [
-      33.32,
-      45.08,
-      48.97
+      40.6,
+      60.43,
+      67.76
     ],
-    "maxrss_main_mb": 244.9,
+    "maxrss_main_mb": 241.0,
     "mem_gb": 0.5,
-    "peak_rss_mb": 244.9,
-    "peak_rss_tree_sampled_mb": 233.0,
-    "slurm_job_id": "53386770",
-    "start": "2026-10-07T00:36:44",
-    "system_seconds": 12.635,
-    "user_seconds": 436.907,
-    "wall_seconds": 464.549
+    "peak_rss_mb": 241.0,
+    "peak_rss_tree_sampled_mb": 223.8,
+    "slurm_job_id": "54256959",
+    "start": "2026-10-23T01:06:41",
+    "system_seconds": 8.852,
+    "user_seconds": 342.102,
+    "wall_seconds": 361.867
   }
 }

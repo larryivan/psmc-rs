@@ -1,5 +1,5 @@
 {
-  "digest": "2906bc835593c16b5dedc16d7a889ad4a9d53f43992e7324be56b9951b90f724",
+  "digest": "725e94ab6cf496c4b4c2104f5d511aa008d40ee9a1d369bcb0a05422a350e227",
   "key": {
     "command": [
       "<python>",
@@ -15,10 +15,10 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E1/fits/bottleneck/rep01.rs.json": "ff9649a69153a8769e78370ab6c9691556092a2e67e4b2a6553d539ca673613d",
-      "<runs>/E1/fits/constant/rep01.rs.json": "cf16bdbf8e148cf33759b02d0598764606e1bf8ab0b762011d882f40fb9f33d9",
-      "<runs>/E1/fits/expansion/rep01.rs.json": "0d05b286ad1d27cb8fa8ae2674b2586eb30ebd84314188a8b84c73727814e46c",
-      "<runs>/E1/fits/zigzag/rep01.rs.json": "f19000336d09b2f34ac19540dc732c2cae0ef5447067831506a5fbe9e53bf9b1",
+      "<runs>/E1/fits/bottleneck/rep01.rs.json": "5efb49006e98f131cd719486970532ca83823ed77dc4e9af7ac980cb68c419b2",
+      "<runs>/E1/fits/constant/rep01.rs.json": "cb2515e5f546233f7c90b940c34f464f3fd63e185d10f0a847f3f9d827a940ed",
+      "<runs>/E1/fits/expansion/rep01.rs.json": "a06c9ae64b3544ee3ecd77d1104b613e42aaf67e95e84a46f9f28087972d576d",
+      "<runs>/E1/fits/zigzag/rep01.rs.json": "4b5f663e24a183391867d719156ab8d6adb08e24025203475e15c7bbd494fcfe",
       "<runs>/E1/sims/bottleneck/rep01/genome.psmcfa": "c1fbcd57350cf8429fd30e2c672c3925b53c08c7f3c1f59f734b62534eaba3ba",
       "<runs>/E1/sims/constant/rep01/genome.psmcfa": "719bc89a784620e27fd59e7dd2f9e131367b8be7fbedca071b18dbc4e20a0a29",
       "<runs>/E1/sims/expansion/rep01/genome.psmcfa": "1d992b3e9d735f5b2865d6c15d89b30003ee7ac1cb3ab1e208bc9db502e64f0c",
@@ -27,14 +27,14 @@
       "<runs>/E1/truth/constant/rep01.json": "3bf8bd9f2dd46f5cd322e41998a7f5fdb5ef9f56f3561797740628483c38ec2c",
       "<runs>/E1/truth/expansion/rep01.json": "37c14b8aec1831426c3d7c210715c54767226de46864c993c34fbd71cacdb1af",
       "<runs>/E1/truth/zigzag/rep01.json": "94c88b3c3e861b3e2415dae76ecd7384dfc805da2e8bb07d581d2da1cb7db7d3",
-      "<runs>/E6/fits/s2/bottleneck/rep01.multihetsep.json": "93a759e3a5bf3f66b63ca4ba0e75b52e73d8bcbb431664a3c6a97375a51cef9a",
-      "<runs>/E6/fits/s2/bottleneck/rep01.vcf.json": "b4b29210c01beee6ad6a3837348e576359ad7685b2c0ea5abd2a48062bf4ed30",
-      "<runs>/E6/fits/s2/constant/rep01.multihetsep.json": "500e5ca839d414b8e9505f404b82bb458efd9a28cb3e7a570d5952ddf93b7ee7",
-      "<runs>/E6/fits/s2/constant/rep01.vcf.json": "a936ba519ab12931f033af95b4e16fa407d5e7bec7a4c65970dc80203e690e57",
-      "<runs>/E6/fits/s2/expansion/rep01.multihetsep.json": "606244627d64f94b1a3ddb181fc2a717ed953610cce9535463c96129a13269f0",
-      "<runs>/E6/fits/s2/expansion/rep01.vcf.json": "b9215538d5df8f303924b82dcbb81f42e64230b705927c9f1653cc242de1d116",
-      "<runs>/E6/fits/s2/zigzag/rep01.multihetsep.json": "13986f4baf50c578826bf5e222b2dd88a763066a6e76191cf383aa217aeac732",
-      "<runs>/E6/fits/s2/zigzag/rep01.vcf.json": "451463cd5bb8d6bb5a1c45d299ae02b1934149b3ff9f5e004e07dc0b4c7783d3",
+      "<runs>/E6/fits/s2/bottleneck/rep01.multihetsep.json": "f24e88bfb6b775c15166325595bba409d8d2978466ab9961bf439b766e4011b6",
+      "<runs>/E6/fits/s2/bottleneck/rep01.vcf.json": "07b02407223311bc2dba3dcd4747ae36880549fcc7bdb4c69157b3d4c3d60ef6",
+      "<runs>/E6/fits/s2/constant/rep01.multihetsep.json": "3967c90d9ef1e17b5797a4b2442592d053419c7403656b410a580de9485722c4",
+      "<runs>/E6/fits/s2/constant/rep01.vcf.json": "e7df5b79847b25a5c9761a86617a9ef124c5006291bb5246f3584e7c0a131d03",
+      "<runs>/E6/fits/s2/expansion/rep01.multihetsep.json": "d5981f84d3dee370345cea4ebd27a1444e3f47c40cc1a16399094a5a26463ca8",
+      "<runs>/E6/fits/s2/expansion/rep01.vcf.json": "836f1f8601b7d4de364a9abc16624fe97b2d8c9eaaa88614d60867b4eea798bf",
+      "<runs>/E6/fits/s2/zigzag/rep01.multihetsep.json": "8a8b5b7685434f64b8c8e3da4bc37b56145a86cdd970e9446d05a5cd4a5d8753",
+      "<runs>/E6/fits/s2/zigzag/rep01.vcf.json": "018e97054a2cc7096001dea4d31157fb684434d388c2d8233144bfde51ec5fc3",
       "<runs>/E6/sims/s2/bottleneck/rep01/from_multihetsep.psmcfa": "074251de4578489c80b52faa897ec4abb79fe3481f2cf43dbaa4ff148eb5d5e3",
       "<runs>/E6/sims/s2/bottleneck/rep01/from_vcf.psmcfa": "c1fbcd57350cf8429fd30e2c672c3925b53c08c7f3c1f59f734b62534eaba3ba",
       "<runs>/E6/sims/s2/constant/rep01/from_multihetsep.psmcfa": "1ce11f36dd55498989c7f30e63813e2ddf8f9c28b1c2c3405140e5d609d7c3a1",
@@ -85,7 +85,7 @@
     },
     "tools": {
       "pipeline": {
-        "code": "4bcd18057c2f4cde68182b0a911a942cfa739189c2ab514824f61d7c1b62452a",
+        "code": "f0e434e86c1624edea82a7a7181a28abd0110889402004a1c9ba6bf91cb1b07f",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
         "python": "3.13.13",
@@ -95,37 +95,37 @@
   },
   "outputs": {
     "<runs>/E6/tables/E6_S2_bins.csv": "28d713dd8def52ffcf639601abeac3ab6fa11083f180018a7533839eb407c2ac",
-    "<runs>/E6/tables/E6_S2_curves.csv": "418f49ead196f4966abb83aca4bd790635fc51b46d78179079daeae0006804ed",
-    "<runs>/E6/tables/E6_S2_fits.csv": "faf111d4474841f6e5c7480905edcb0993f57d529a9f9e33667759a200e80b3e"
+    "<runs>/E6/tables/E6_S2_curves.csv": "9621d6d100c9740eb291170d14e7693114d21fc7552b1a7ee339a8e6a1bc6212",
+    "<runs>/E6/tables/E6_S2_fits.csv": "9451e356b70c3e76bb38d43c4b3acdec5cbe10a19edde5330f978deeaa9aa36c"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-08T13:52:43",
+    "end": "2026-10-22T08:22:17",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn511-19",
+    "host": "cn511-12",
     "loadavg_after": [
-      116.23,
-      122.41,
-      124.39
+      238.18,
+      235.33,
+      198.53
     ],
     "loadavg_before": [
-      116.23,
-      122.41,
-      124.39
+      238.18,
+      235.33,
+      198.53
     ],
-    "maxrss_main_mb": 104.0,
+    "maxrss_main_mb": 105.1,
     "mem_gb": 1.0,
-    "peak_rss_mb": 104.0,
-    "peak_rss_tree_sampled_mb": 15.0,
-    "slurm_job_id": "53467834",
-    "start": "2026-10-08T13:52:43",
-    "system_seconds": 0.038,
-    "user_seconds": 0.259,
-    "wall_seconds": 0.435
+    "peak_rss_mb": 105.1,
+    "peak_rss_tree_sampled_mb": 37.3,
+    "slurm_job_id": "54232546",
+    "start": "2026-10-22T08:22:17",
+    "system_seconds": 0.053,
+    "user_seconds": 0.293,
+    "wall_seconds": 0.533
   }
 }
