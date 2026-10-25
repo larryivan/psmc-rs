@@ -120,17 +120,18 @@ the decoded TMRCA with the true one re-simulated from the replicate's
 seeds. Both need the simulated genomes, which section 4 regenerates.
 
 The analysis does not depend on the platform beyond its last digits.
-The analysis code of the production commit (34f2b00), run on an Apple M1
-Pro laptop (macOS, arm64) on the fits made on the Ibex cluster (Linux,
-x86-64), wrote tables of E1, E2, E4 and E5 (E2 then with the Papuan
-chromosome 1 in place of NA12878) that agreed with those it had
+The analysis code of an earlier production's commit (34f2b00), run on an
+Apple M1 Pro laptop (macOS, arm64) on that production's fits made on the
+Ibex cluster (Linux, x86-64), wrote tables of E1, E2, E4 and E5 (E2
+then with the Papuan chromosome 1 in place of NA12878) that agreed with those it had
 written on Ibex to a relative 1e-13 in every value above 1e-3 in
 magnitude (at most 9.3e-14), and to a relative 2.2e-11 in the
 differences between psmc-rs and C psmc, of order 1e-5 (about 1e-15
 absolute); the differences come from the two platforms' math libraries.
 The tables shipped now come from later analysis code (the tools compared
 interval by interval, E4's RMSE against the complete-data fit integrated
-over log time), which reads the same fits.
+over log time), run on Ibex on the fits of the production of section 5,
+whose psmc-rs fits were made again by later code.
 
 ## 4) The runs, on one machine
 
@@ -194,34 +195,35 @@ cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the producti
 ./submit.sh e7-prep                # E7's inputs from the 1000 Genomes VCFs; then prod again for E7's fits
 ```
 
-The production ran in two `prod` jobs, each on one AMD EPYC 7702 node
-(128 cores). The first (SLURM job 53386770, commit 34f2b00, a runner
-budget of 62 cores and 180 GB; 1 hour 48 minutes) made E1, E4, E5, E6's
-S1 to S3 and the turtles' C psmc fits and QC. The second (53452276, commit
-d338500, 94 cores and 324 GB; 8 hours 11 minutes) made, once NA12878 had
-replaced the Papuan chromosome 1 in E2 and the turtles had their own
-scaling, the rest of E2 (NA12878's fits, bootstrap and QC, the turtles'
-psmc-rs fits and bootstraps, the six split-first-window fits), E6's S5 QC
-of NA12878 and E7's 2,637 fits and bootstraps; a short job (53467834)
-wrote the reports. From the jobs' provenance records, in CPU hours (user
-and system time):
+The production ran in one `prod` job (SLURM job 54256959, commit 4b2c636,
+on node cn513-11-l on 22 and 23 October 2026; 5 hours 53 minutes). It ran
+every job whose key the code had changed: the psmc-rs fits, bootstraps,
+conversions, decoding and QC of E1, E2 and E4 to E7, E4's cross-checks,
+and the reports of E1, E2, E4, E5 and E7. The jobs whose keys had not
+changed were kept from earlier jobs: the C psmc fits of E1 and the
+turtles (53386770, commit 34f2b00), those of NA12878 and E7 (53452276,
+commit d338500), and the simulations, E4's masks, consensus calls and
+bins, E6's reports and S3's true TMRCA and E7's GIAB comparison (54211974
+and 54232546, two `prod` jobs of 22 October). From the jobs' provenance
+records, in CPU hours (user and system time):
 
 | experiment | jobs | CPU hours | made in |
 | --- | --- | --- | --- |
-| E1 | 121 | 13.0 | 53386770 (report: 53467834) |
-| E2 | 23 | 59.8 | 6 in 53386770, 16 in 53452276 (report: 53467834) |
-| E3 | 100 | 15.1 | five exclusive nodes, 53420812 to 53420816 (section 10; report: 53467842) |
-| E4 | 286 | 5.2 | 53386770 (report: 53467834) |
-| E5 | 121 | 19.1 | 53386770 (report: 53467834) |
-| E6 | 26 | 0.3 | 53386770 and 53452276 (reports: 53467834) |
-| E7 | 2,639 | 642.9 | 53452276 (GIAB comparison and report: 53467834) |
+| E1 | 121 | 12.3 | 41 in 54256959; C psmc fits 53386770; simulations 54211974 |
+| E2 | 23 | 36.1 | 19 in 54256959; C psmc fits 53386770 (turtles) and 53452276 (NA12878) |
+| E3 | 100 | 13.0 | five exclusive nodes, 54256961 to 54256965 (section 10; report: 54528410) |
+| E4 | 286 | 2.7 | 206 in 54256959; simulations, masks, consensus calls and bins (80) 54232546 |
+| E5 | 121 | 11.2 | 71 in 54256959; simulations 54211974 (13) and 54232546 (37) |
+| E6 | 26 | 0.2 | 21 in 54256959; S3's truth 54211974; reports 54232546 |
+| E7 | 2,639 | 380.9 | 2,586 in 54256959; C psmc fits 53452276 (52); GIAB comparison 54232546 |
 
 The fits of each `prod` job shared their node with one another (1-minute
-load averages of 5 to 72 and of 33 to 133 when they started), so these
+load averages of 14 to 81 in 54256959, and of 5 to 71 and 33 to 37 for
+the C psmc fits of 53386770 and 53452276, when they started), so these
 are costs, not timings; E3 measures performance (section 10). E7's data
-stage ran before the second job, as SLURM jobs of `kg1000`'s steps, and
-read 1.68 TB of VCFs (each step's host and job are in
-`runs/E7/inputs/records/`, the sources and checks in `MANIFEST.json`).
+stage ran on 7 and 8 October 2026, before E7's C psmc fits, as SLURM jobs
+of `kg1000`'s steps, and read 1.68 TB of VCFs (each step's host and job
+are in `runs/E7/inputs/records/`, the sources and checks in `MANIFEST.json`).
 
 ## 6) Provenance
 
@@ -248,8 +250,8 @@ The record then adds the SHA-256 of every output and how the job ran: host,
 SLURM job, cores, wall, user and system time, peak resident memory, load
 average and the SHA-256 of the executables it ran. Every psmc-rs 0.2 job
 of the production, E1 to E7 (3,009 records), ran a build of the same
-sources (the `src/` tree 4c0d777, `Cargo.toml` 7ff6ee3 and `Cargo.lock`
-b552a2a, which commits 0c84f05 to d338500 share, without uncommitted
+sources (the `src/` tree dcf29ca, `Cargo.toml` c0be5cf and `Cargo.lock`
+ae10354, which commits 3969ebb to c7234cd share, without uncommitted
 changes), made by rustc 1.99.0 without build flags, and the JSON of every
 fit and of every bootstrap run's main fit records the HMM kernels that ran
 (`simd`: `avx2+fma` in all 2,898; section 8).
@@ -345,15 +347,18 @@ two builds of it differ is part of section 9.
 
 ## 9) Cross-platform comparison
 
-The production ran on Ibex (x86-64). To measure how much its results
-depend on the platform, the 40 E1 genomes and NA12878 were fitted again
-with psmc-rs on the development laptop, with the production's commands
-(only the paths changed), and the laptop's C psmc fits of the same 40
-genomes, from an earlier laptop run, were compared with Ibex's. The
-scripts, tables and laptop fits are in `experiment/crossplatform/`, whose
-`summary.md` gives every number below.
+An earlier production, with psmc-rs from the `src/` tree 4c0d777, ran on
+Ibex (x86-64). To measure how much its results depend on the platform,
+its 40 E1 genomes and NA12878 were fitted again with psmc-rs on the
+development laptop, with that production's commands (only the paths
+changed), and the laptop's C psmc fits of the same 40 genomes, from an
+earlier laptop run, were compared with Ibex's. The production of section
+5 fitted every psmc-rs job again, from the `src/` tree dcf29ca, and the
+comparison was not repeated for it. The scripts, tables and laptop fits
+are in `experiment/crossplatform/`, whose `summary.md` gives every number
+below.
 
-| | laptop | Ibex (production) |
+| | laptop | Ibex (earlier production) |
 | --- | --- | --- |
 | CPU and system | Apple M1 Pro (arm64), macOS 27.0, Apple's math library | AMD EPYC 7702 (x86-64), Linux, glibc 2.34 |
 | psmc-rs | the same sources (`src/` 4c0d777, no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
@@ -367,7 +372,7 @@ all 400 chromosomes), and both platforms fitted the same NA12878 file.
 program (psmc-rs 0 of 41, C psmc 0 of 40), but psmc-rs agreed with itself
 far more closely than the two builds of C psmc agreed with each other
 (minimum / median / maximum over the 40 E1 fits; the last column is the
-difference between the programs on Ibex, as in E1):
+difference between the programs in the earlier production on Ibex):
 
 | | psmc-rs, laptop vs Ibex | C psmc, laptop vs Ibex | psmc-rs vs C psmc, Ibex |
 | --- | --- | --- | --- |
@@ -426,10 +431,10 @@ machine code, not by a build record, and a laptop build without
 floating-point contraction was not run. Only E1 and NA12878 were refitted
 on the laptop; E2's turtles, the bootstraps and E3 to E7 were not.
 
-**Conclusion.** psmc-rs's results depend on the platform only in their
-last digits: across two processor architectures, operating systems and
-math libraries its curves agreed to an RMSE of at most 1.0e-6 in log10
-Ne, two orders of magnitude below the difference between psmc-rs and C
+**Conclusion.** The results of the earlier production's psmc-rs depended
+on the platform only in their last digits: across two processor
+architectures, operating systems and math libraries its curves agreed to
+an RMSE of at most 1.0e-6 in log10 Ne, two orders of magnitude below the difference between psmc-rs and C
 psmc and below the difference between two builds of C psmc on these
 platforms. Byte-identical results across platforms need the same kernels
 and the same math library on both (section 8).
@@ -451,15 +456,15 @@ all five of one CPU model: AMD EPYC 7702, 128 cores, 503.7 GB of
 memory, the cpufreq governor `performance` (acpi-cpufreq) with boost on,
 Linux 5.14.0-427.20.1.el9_4.0.1.x86_64 and glibc 2.34
 (`E3_environment.csv`, whose `clean_runs_on_mixed_machines` is False). Repeats 1 to 5 ran on
-cn506-02-l, cn506-18-l, cn514-07-r, cn513-19-l and cn514-04-l, as SLURM
-jobs 53420812 to 53420816 in that order (`E3_runs.csv`: `hostname`,
-`slurm_job_id`); each repeat's 19 runs took 2.19 to 2.22 hours of wall
+cn513-10-r, cn506-18-r, cn506-15-l, cn514-02-l and cn513-17-l, as SLURM
+jobs 54256961 to 54256965 in that order (`E3_runs.csv`: `hostname`,
+`slurm_job_id`); each repeat's 19 runs took 2.04 to 2.06 hours of wall
 time (the sum of its `wall_seconds`).
 
 | tool | build |
 | --- | --- |
 | C psmc | lh3/psmc 0.6.5-r74, built on 2026-10-07 by `tools --build-c` with gcc 11.4.1 (Red Hat 11.4.1-3) and CFLAGS `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function` (its `BUILD.json`): the production build of section 7 |
-| psmc-rs | 0.2.0, built with rustc 1.99.0, the release profile and no build flags from the `src/` tree 4c0d777 with `Cargo.toml` 7ff6ee3 and `Cargo.lock` b552a2a, and no uncommitted changes (`tool.rs02.source_tree`, `source_dirty`): the sources that commits 0c84f05 to 3ed8a64 share, from which the earlier production run's fits were made too (section 6); it picks its AVX2 and FMA kernels at run time (section 8) |
+| psmc-rs | 0.2.0, built with rustc 1.99.0, the release profile and no build flags from the `src/` tree dcf29ca with `Cargo.toml` c0be5cf and `Cargo.lock` ae10354, and no uncommitted changes (`tool.rs02.source_tree`, `source_dirty`): the binary that made every psmc-rs fit of the production (section 6); it picks its AVX2 and FMA kernels at run time (section 8) |
 
 `E3_environment.csv` also holds the SHA-256 of every binary, the fit
 settings and the protocol's limits.
@@ -479,18 +484,15 @@ used.
 
 **Runs.** Before its runs, each `e3` job measured its idle node for 30 s,
 to stop if the node was busier than the protocol allows; none stopped.
-The protocol deferred runs while a node was busy and ran them again
-later: the runner logs have 4 deferral lines in repeat 2 and 2 in
-repeat 3 and none in repeats 1, 4 and 5, and every deferred run was clean
-when it ran. `merge_e3.sh` merged the five repeats and found every run
+`merge_e3.sh` merged the five repeats and found every run
 done for the current code. All 95 runs (20 of C psmc and 75 of psmc-rs)
 are clean (`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean`
-are 0). In the quiet check's 2 s window before them the node had 0.215 to
-0.715 core busy, median 0.31 (the limit is 1; the five nodes' medians
-0.285 to 0.32): in 60 runs less than the 0.35 to 0.49 busy core of an idle
-node given above, in 30 within it and in 5 more. During them the other
-processes kept a median 0.26 and at most 0.42 core busy (the limit is
-0.5), at most 0.33% of all cores (the limit is 5%), and steal time was
+are 0). In the quiet check's 2 s window before them the node had 0.20 to
+0.925 core busy, median 0.32 (the limit is 1; the five nodes' medians
+0.26 to 0.335): in 64 runs less than the 0.35 to 0.49 busy core of an idle
+node given above, in 25 within it and in 6 more. During them the other
+processes kept a median 0.27 and at most 0.48 core busy (the limit is
+0.5), at most 0.37% of all cores (the limit is 5%), and steal time was
 0 (`E3_runs.csv`: `busy_before_cores`, `other_cores_during`,
 `other_cpu_share_during`, `steal_cores_during`). Each median below is
 taken over the five repeats, one per node, so the spread of the repeats
@@ -502,31 +504,32 @@ run:
 
 | tool | threads | 100 Mb | 300 Mb | 1000 Mb | 3000 Mb |
 | --- | --- | --- | --- | --- | --- |
-| C psmc | 1 | 152.5 (151.4–153.7) | 450.8 (442.4–453.7) | 1,480.1 (1,466.0–1,499.2) | 4,445.9 (4,404.8–4,470.1) |
-| psmc-rs | 1 | 17.25 (17.24–18.27) | 51.72 (51.14–52.25) | 174.6 (172.4–176.2) | 519.1 (517.7–522.5) |
-| psmc-rs | 2 | – | – | – | 262.1 (261.7–264.9) |
-| psmc-rs | 4 | – | – | – | 139.9 (139.6–141.0) |
-| psmc-rs | 8 | 17.24 (17.23–17.77) | 18.27 (17.75–18.29) | 35.01 (34.97–35.03) | 70.57 (70.54–71.06) |
-| psmc-rs | 16 | – | – | – | 36.04 (35.61–36.09) |
-| psmc-rs | 30 | 17.25 (17.23–17.78) | 18.27 (17.78–18.32) | 18.30 (18.26–18.32) | 18.32 (18.31–18.84) |
+| C psmc | 1 | 152.2 (152.0–155.1) | 446.6 (445.9–454.7) | 1,479.1 (1,477.0–1,494.1) | 4,424.6 (4,414.2–4,455.8) |
+| psmc-rs | 1 | 10.98 (10.97–10.99) | 31.85 (31.32–31.89) | 103.9 (103.7–105.1) | 317.7 (315.7–318.1) |
+| psmc-rs | 2 | – | – | – | 163.4 (163.0–163.8) |
+| psmc-rs | 4 | – | – | – | 87.44 (86.89–87.90) |
+| psmc-rs | 8 | 10.46 (10.46–10.96) | 11.01 (11.00–11.53) | 21.46 (21.44–21.46) | 43.93 (43.90–44.49) |
+| psmc-rs | 16 | – | – | – | 22.50 (22.49–22.56) |
+| psmc-rs | 30 | 10.45 (10.43–10.47) | 11.48 (10.97–11.52) | 11.52 (11.49–11.56) | 11.53 (11.52–12.04) |
 
-The fastest and the slowest repeat were less than 3.5% of the median
-apart in every setup but one, psmc-rs on 100 Mb on one thread (6.0%).
+The fastest and the slowest repeat were at most 2.0% of the median apart
+in every setup but four, all psmc-rs: 100 and 300 Mb on 8 threads and
+300 and 3000 Mb on 30 (4.6 to 4.8%).
 
 **Speed-ups** (`E3_table2.csv`, `speedup_vs_c`: C psmc's median wall time
-on the same genome over the tool's). psmc-rs on one thread was 8.5 to
-8.8 times as fast as C psmc at every size: 8.6 on 3000 Mb, 519.1 s
-against 4,445.9 s, or 20.8 s against 177.8 s per EM iteration
-(`seconds_per_iteration_median`). On 3000 Mb it was 63.0 times as fast on
-8 threads, 123 on 16 and 243 on 30. Paired within each repeat, on one
-node, C psmc's wall time over psmc-rs's on 3000 Mb was 8.51 to 8.60
-on one thread, and 62.3 to 63.3, 122.2 to 125.5 and 237.2 to 243.7 on 8,
-16 and 30 threads; on one thread it was 8.30 to 8.91 over the four sizes
-(`E3_runs.csv`, `wall_seconds`). psmc-rs's
-threads added less than 1% to its CPU time on 1000 and 3000 Mb and at
-most 2.3% on 100 and 300 Mb: its median on 3000 Mb was 516.6 s on one
-thread and 516.1 to 521.5 s on any number, and on 300 Mb 51.1 s on one
-thread and 52.1 and 52.3 s on 8 and 30 (`cpu_median_s`).
+on the same genome over the tool's). psmc-rs on one thread was 13.9 to
+14.2 times as fast as C psmc at every size: 13.9 on 3000 Mb, 317.7 s
+against 4,424.6 s, or 12.7 s against 177.0 s per EM iteration
+(`seconds_per_iteration_median`). On 3000 Mb it was 101 times as fast on
+8 threads, 197 on 16 and 384 on 30. Paired within each repeat, on one
+node, C psmc's wall time over psmc-rs's on 3000 Mb was 13.91 to 14.05
+on one thread, and 100.2 to 101.0, 196.1 to 198.0 and 367.4 to 386.4 on
+8, 16 and 30 threads; on one thread it was 13.84 to 14.52 over the four
+sizes (`E3_runs.csv`, `wall_seconds`). psmc-rs's threads added at most
+4.8% to its CPU time, and none on 100 Mb: its median on 3000 Mb was
+315.8 s on one thread and 320.3 to 325.1 s on 2 to 30, on 1000 Mb 103.1 s
+on one thread and 106.9 and 108.0 s on 8 and 30, and on 300 Mb 31.2 s on
+one thread and 32.1 s on both 8 and 30 (`cpu_median_s`).
 
 **Peak memory** in MB of 2^20 bytes (`E3_table2.csv`,
 `peak_rss_median_mb`: the median over the repeats of the larger of the
@@ -535,25 +538,25 @@ every 0.5 s):
 
 | tool | threads | 100 Mb | 300 Mb | 1000 Mb | 3000 Mb |
 | --- | --- | --- | --- | --- | --- |
-| C psmc | 1 | 1,035 | 1,037 | 1,044 | 1,062 |
-| psmc-rs | 1 | 25.0\* | 25.0\* | 25.0\* | 35.8 |
-| psmc-rs | 2 | – | – | – | 39.8 |
-| psmc-rs | 4 | – | – | – | 46.2 |
-| psmc-rs | 8 | 25.0\* | 25.0\* | 43.3 | 61.5 |
-| psmc-rs | 16 | – | – | – | 93.9 |
-| psmc-rs | 30 | 25.0\* | 25.0\* | 73.0 | 148.0 |
+| C psmc | 1 | 1,035 | 1,037 | 1,043 | 1,063 |
+| psmc-rs | 1 | 26.0\* | 26.0\* | 26.0\* | 35.7 |
+| psmc-rs | 2 | – | – | – | 38.9 |
+| psmc-rs | 4 | – | – | – | 45.0 |
+| psmc-rs | 8 | 26.0\* | 26.0\* | 40.8 | 60.7 |
+| psmc-rs | 16 | – | – | – | 90.5 |
+| psmc-rs | 30 | 26.0\* | 26.0\* | 74.5 | 148.9 |
 
-\* In these 35 runs the tool's `ru_maxrss` was 25.0 MB whatever the size
-and the threads, and the sampled peak 7.0 to 20.2 MB (`E3_runs.csv`:
+\* In these 35 runs the tool's `ru_maxrss` was 26.0 MB whatever the size
+and the threads, and the sampled peak 7.0 to 19.6 MB (`E3_runs.csv`:
 `maxrss_mb`, `peak_rss_tree_sampled_mb`). `ru_maxrss` is never below the
 tool's peak and the sampled peak never above it, so these cells are an
 upper bound: psmc-rs's own peak lies between the two. Where its peak
 is larger (1000 Mb on 8 and 30 threads, 3000 Mb), `ru_maxrss` equals the
 sampled peak or exceeds it by at most 1.0 MB.
 
-C psmc held about 1 GB whatever the size. psmc-rs peaked at 35.8 MB
-on 3000 Mb on one thread and at 148.0 MB on 30, where C psmc held 29.7
-and 7.2 times as much (`c_rss_over_rss`).
+C psmc held about 1 GB whatever the size. psmc-rs peaked at 35.7 MB
+on 3000 Mb on one thread and at 148.9 MB on 30, where C psmc held 29.7
+and 7.1 times as much (`c_rss_over_rss`).
 
 **Thread scaling** of psmc-rs on 3000 Mb (`E3_thread_scaling.csv`;
 speed-up: the one-thread median wall time over the median on t threads;
@@ -561,24 +564,24 @@ efficiency: the speed-up over t):
 
 | threads | 1 | 2 | 4 | 8 | 16 | 30 |
 | --- | --- | --- | --- | --- | --- | --- |
-| median wall time (s) | 519.1 | 262.1 | 139.9 | 70.57 | 36.04 | 18.32 |
-| speed-up | 1 | 1.98 | 3.71 | 7.36 | 14.40 | 28.33 |
-| efficiency | 1 | 0.99 | 0.93 | 0.92 | 0.90 | 0.94 |
-| peak memory (MB) | 35.8 | 39.8 | 46.2 | 61.5 | 93.9 | 148.0 |
+| median wall time (s) | 317.7 | 163.4 | 87.44 | 43.93 | 22.50 | 11.53 |
+| speed-up | 1 | 1.94 | 3.63 | 7.23 | 14.12 | 27.55 |
+| efficiency | 1 | 0.97 | 0.91 | 0.90 | 0.88 | 0.92 |
+| peak memory (MB) | 35.7 | 38.9 | 45.0 | 60.7 | 90.5 | 148.9 |
 
 psmc-rs processes sequences in parallel, and a single sequence runs on
 one thread, so its wall time stops improving once the threads reach the
-number of chromosomes: on 100 Mb (one chromosome) it took 17.25, 17.24 and
-17.25 s on 1, 8 and 30 threads, on 300 Mb (three) 18.27 s on both 8 and
-30, and every genome took 17.2 to 18.3 s on at least as many threads as
-chromosomes, about the time of one chromosome on one thread. With
+number of chromosomes: on 100 Mb (one chromosome) it took 10.98, 10.46 and
+10.45 s on 1, 8 and 30 threads, on 300 Mb (three) 11.01 and 11.48 s on 8
+and 30, and every genome took 10.5 to 11.5 s on at least as many threads
+as chromosomes, about the time of one chromosome on one thread. With
 chromosomes of equal length, t threads need at least ⌈chromosomes/t⌉
 times one chromosome's time, and the median wall time divided by
-⌈chromosomes/t⌉ is 17.2 to 18.3 s in every psmc-rs setup
+⌈chromosomes/t⌉ is 10.4 to 11.5 s in every psmc-rs setup
 (`E3_table2.csv`: `wall_median_s`, `chromosomes`, `threads`). On the 30
 chromosomes of 3000 Mb this caps the efficiency at 30/(t⌈30/t⌉): 1 on 2
-and 30 threads and 0.94 on 4, 8 and 16, which the measured 0.93, 0.92 and
-0.90 approach.
+and 30 threads and 0.94 on 4, 8 and 16, which the measured 0.91, 0.90 and
+0.88 approach.
 
 **Determinism** (`E3_determinism.csv`: every output, C psmc's `.psmc` and
 psmc-rs's JSON, against its tool's output at the same size on the fewest
