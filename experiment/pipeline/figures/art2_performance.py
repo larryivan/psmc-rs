@@ -2,15 +2,15 @@
 
 One row of three panels on one rule: cost on the y axis, C psmc in orange
 high in the panel, psmc-rs in blue low. a and c show the advantage as a
-double arrow with a bold fold label ("8.6× faster"; 7 pt, 3 pt from its
+double arrow with a bold fold label ("13.9× faster"; 7 pt, 3 pt from its
 arrow, on two lines in c's narrow gap between the columns); b shows it as
 the empty height on a linear axis from zero. No legend and no grid: each
 program is named once per panel beside its data, in a text colour darker
 than its mark (:data:`.style.ORANGE_TEXT`, :data:`.style.BLUE_TEXT`), as
-one line of name and value ("C psmc  74 min"), and every number the text
+one line of name and value ("C psmc  73.7 min"), and every number the text
 cites is printed on the data, to the precision that reproduces the printed
-folds (74 min over 8.65 min and over 18.3 s give 8.6× and 243×; 104.3 min
-over 12.1 min, the text's medians, give 8.6×).
+folds (73.7 min over 5.29 min and over 11.5 s give 13.9× and 384×; 104.3
+min over 6.68 min give 15.6×).
 
 * a, b (E3, ``E3_table2``): the thread-scaling genome
   (``config.E3.thread_scaling_size_mb``: 3,000 Mb, 30 chromosomes of 100
@@ -23,8 +23,8 @@ over 12.1 min, the text's medians, give 8.6×).
   thread) is drawn flat across the thread counts.
 
   * a: wall time (log scale). Two arrows give the speed-up over C psmc
-    (``speedup_vs_c``) on one thread (per-core efficiency, 8.6×) and on
-    the most threads (243× on 30; drawn when they are at least four times
+    (``speedup_vs_c``) on one thread (per-core efficiency, 13.9×) and on
+    the most threads (384× on 30; drawn when they are at least four times
     the fewest, so that the two labels have room), with C psmc's time and
     psmc-rs's on one thread and on the most threads printed beside them.
     The upper limit puts C psmc's line at the same height of the axes as in
@@ -79,11 +79,11 @@ SEED = 7  # the jitter of c's points
 
 
 def fmt_time(seconds: float) -> str:
-    """A run time as people say it: 0.35 s, 18.3 s, 8.65 min, 74 min, 2.5 h.
+    """A run time as people say it: 0.35 s, 11.5 s, 5.29 min, 73.7 min, 2.5 h.
 
-    Seconds keep one decimal (as the text's macros do) and minutes below ten keep three figures, so
-    that C psmc's time over psmc-rs's printed beside it gives the printed fold (74 min / 18.3 s = 243×,
-    where 18 s would give 247×; 74 min / 8.65 min = 8.6×, where 8.7 min would give 8.5×).
+    Seconds keep one decimal (as the text's macros do) and minutes three figures, so that C psmc's
+    time over psmc-rs's printed beside it gives the printed fold (73.7 min / 5.29 min = 13.9×, where
+    74 min would give 14.0×).
     """
     if seconds < 1:
         return f"{seconds:.2g} s"
@@ -91,13 +91,13 @@ def fmt_time(seconds: float) -> str:
         return f"{seconds:.1f} s"
     minutes = seconds / 60.0
     if minutes < 100:
-        return f"{minutes:.3g} min" if minutes < 10 else f"{minutes:.0f} min"
+        return f"{minutes:.3g} min"
     return f"{minutes / 60.0:.1f} h"
 
 
 def fmt_fold(x: float) -> str:
-    """A fold change: 8.6×, 17×, 243×, 7,000×."""
-    return f"{x:.1f}{style.TIMES}" if x < 10 else f"{x:,.0f}{style.TIMES}"
+    """A fold change: 8.6×, 13.9×, 384×, 7,000×, with one decimal below 100 as the text gives them."""
+    return f"{x:.1f}{style.TIMES}" if x < 100 else f"{x:,.0f}{style.TIMES}"
 
 
 def _fmt_value(v: float) -> str:
