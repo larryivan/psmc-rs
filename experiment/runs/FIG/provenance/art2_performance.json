@@ -1,5 +1,5 @@
 {
-  "digest": "e163da149dd26738e775d6bc5f90b0c0185009e629a53129245b63e2e533b174",
+  "digest": "e671b204a6f96ca9b52ffc7330e9b109605e12035bbbc93e3df387c9ccf4892b",
   "key": {
     "command": [
       "<python>",
@@ -13,8 +13,8 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E3/tables/E3_table2.csv": "3145f49259b923e653048d5701590283dcb240ee21f15f5546edeae2b9f0decc",
-      "<runs>/E7/tables/E7_fits.csv": "804c8bc0f3de803eaf26c918661a4294523eeb7572914140f5162088a77e4193"
+      "<runs>/E3/tables/E3_table2.csv": "36a5c5560493cb762025aa9a9d989b871c7fac454e3583cf4d9e00abcdda4e98",
+      "<runs>/E7/tables/E7_fits.csv": "f45c1f9b88247f14ba09bc9139c35f23e8aa9e2272df289bcfaf50d8a582972e"
     },
     "job": "FIG/art2_performance",
     "seeds": {},
@@ -47,26 +47,12 @@
             "c_mb_per_mb_longest": 10.05,
             "c_s_per_mb_iter": 0.05,
             "parallel_efficiency": 0.7,
-            "rs01_cache_mb": 2048.0,
-            "rs01_mb_base": 5.0,
-            "rs01_mb_per_mb_buffer": 4.96,
-            "rs01_mb_per_mb_cache": 2.48,
-            "rs01_mb_per_mb_input": 0.0095,
-            "rs01_mstep_s_per_iter_1000": 8.0,
-            "rs01_s_per_mb_iter": 0.03,
-            "rs01_uncached_extra": 0.5,
             "rs02_mb_base": 10.8,
             "rs02_mb_per_extra_thread": 4.0,
             "rs02_mb_per_mb_input": 0.0103,
             "rs02_mstep_s_per_iter": 0.02,
             "rs02_s_per_mb_iter": 0.006
           },
-          "rs01_commit": "e50d69d",
-          "rs01_threads": [
-            1,
-            8,
-            30
-          ],
           "rs02_default_threads": [
             1,
             8,
@@ -273,7 +259,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "44d48ee72de88ddf599338846a1c37eda099fd20087147af8df5b1213866c5b5",
+        "code": "760cc7c6e847ccc5967c22db549e08f6e5df6106ea37c26318ff14eb16f2e484",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -282,14 +268,14 @@
     }
   },
   "outputs": {
-    "<runs>/E3/figures/art2_performance.pdf": "9acc7be5595a92cadf8ab957760dce061a95020c74ab2dce8966476c93b0d4d1",
-    "<runs>/E3/figures/art2_performance.png": "37c94b3df228f496caf933bd84459adbb2d64cf7f20b8c878bbf3df9d6ae0a4e",
-    "<runs>/E3/figures/art2_performance.svg": "d84bc8de9eaada5cf0194f374ec55e6f4c1fd611226465a035444a0bcc2a95d0"
+    "<runs>/E3/figures/art2_performance.pdf": "cfc258b508f39c7f959238ed83e05a446da033181e0f70b83e6bf537eda6718d",
+    "<runs>/E3/figures/art2_performance.png": "c580d93476a1e8dbc5c6796e738ca23f77f96d98b0a84a0029729f46f6ec27b6",
+    "<runs>/E3/figures/art2_performance.svg": "bad38f29f1cab1cd25cf163108c4ba34aa44500b9735e391b1bf9e7c75ea83f4"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-12T19:08:34",
+    "end": "2026-10-25T14:02:20",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -297,22 +283,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      1.92,
-      3.4,
-      3.39
+      12.18,
+      7.56,
+      6.2
     ],
     "loadavg_before": [
-      1.92,
-      3.4,
-      3.39
+      12.18,
+      7.56,
+      6.2
     ],
-    "maxrss_main_mb": 146.1,
+    "maxrss_main_mb": 147.5,
     "mem_gb": 1.0,
-    "peak_rss_mb": 146.1,
-    "peak_rss_tree_sampled_mb": 145.8,
-    "start": "2026-10-12T19:08:31",
-    "system_seconds": 0.217,
-    "user_seconds": 1.562,
-    "wall_seconds": 2.695
+    "peak_rss_mb": 147.5,
+    "peak_rss_tree_sampled_mb": 146.7,
+    "start": "2026-10-25T14:02:17",
+    "system_seconds": 0.209,
+    "user_seconds": 1.463,
+    "wall_seconds": 2.834
   }
 }

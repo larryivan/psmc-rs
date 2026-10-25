@@ -1,5 +1,5 @@
 {
-  "digest": "763f8018c3fb3e35f2d13c40c6ca3349ff57ba10f06d3a6e67de13fcb5d71b7a",
+  "digest": "65e9d63665b700699dc57a1d91079a6b6d0cd11aade2b34782d00c772b62710a",
   "key": {
     "command": [
       "<python>",
@@ -13,14 +13,14 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E1/tables/E1_curves.csv": "cfe60db2726c88ad0f60a749d8f304bda42696b5629c6fb0abd8e463e7733e2e",
-      "<runs>/E1/tables/E1_replicates.csv": "fb5d83e49829aa06dfa1ba0e1ea0601f0f0861529accb447a2bb0294be4844ce",
-      "<runs>/E1/tables/E1_rs_vs_c.csv": "ed3fd4ba80affeabdcfc206f620b83a3aa0d8b5cd8c988f88e1f577bdc28bcc3",
-      "<runs>/E1/tables/E1_table1.csv": "bbb2429776fe9d63d48fbebb0bd9beddc45f8b2c9abcabe936fc332dbd029a55",
-      "<runs>/E2/tables/E2_bands.csv": "d083aef8b86705d399009ac3415e6ce59b6e486509789a5524daa4abc3291562",
-      "<runs>/E2/tables/E2_curves.csv": "bbfebe5e0f5f260a4223854c4bf392f3a72c18a2fd164ad262f337466fc22382",
-      "<runs>/E2/tables/E2_rs_vs_c.csv": "936c9727d3f2d537311eead78008dd6cd6e5c43e972234975006e8b4df4a37af",
-      "<runs>/E7/tables/E7_rs_vs_c.csv": "11846ce9431f1df3fa32187739a3400181fadaf4a2ae8a9ecfac15fe2d0665ce"
+      "<runs>/E1/tables/E1_curves.csv": "644d79cde988624aa0121dc9bbd98ce8606d69b334fb52d5f6dbd426abc93b7a",
+      "<runs>/E1/tables/E1_replicates.csv": "c869f43092e63ce94e836d514b2b08ea2ecc7b4c60d736598616188c3b54f371",
+      "<runs>/E1/tables/E1_rs_vs_c.csv": "16131cbff4c0cdb6cf9e9a0273b73ff99514a4500d11078dd7df52aff87f28f9",
+      "<runs>/E1/tables/E1_table1.csv": "6cbe152fe80ae8bb5a017347c708d1b20565f474039948b59bb9a1dbd0448187",
+      "<runs>/E2/tables/E2_bands.csv": "ea647bfec86cf57302fd077ab3bb4c9c0c06e156384c6d199c281cac4738b9e1",
+      "<runs>/E2/tables/E2_curves.csv": "e39fdb0de30c776315df344d3c96b2616f8cd58e3a4ce5f7706e80b05a13a774",
+      "<runs>/E2/tables/E2_rs_vs_c.csv": "827930b6083ff2e1579b9c54c3ff6108feceb6dbc5dc18013a1c573f41b8679a",
+      "<runs>/E7/tables/E7_rs_vs_c.csv": "260211af05211e4f377819bfc99b2df431b856d1f4237b8691f10cd63946488e"
     },
     "job": "FIG/art1_agreement",
     "seeds": {},
@@ -358,7 +358,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "4cd4babab130adfa0f15c071b340af752207488359bf21ab7c970329b10cf7a5",
+        "code": "085fe14bbd21b37f91ab9fd46f2d678572d7f310f8689a4587b9e19907e0732d",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -367,14 +367,14 @@
     }
   },
   "outputs": {
-    "<runs>/FIG/figures/art1_agreement.pdf": "1cf59ee6b83baf970225a8bc1db3e6602a685348c15187d1c4a802ab16aa0266",
-    "<runs>/FIG/figures/art1_agreement.png": "3f435dffb2d413dc1777a8b2536211e9b48900f1f4c56253bed7db775df11012",
-    "<runs>/FIG/figures/art1_agreement.svg": "5e9e19bfd31fdadfc30e8c550c5e467026391d1055bbfb27fb1875531c15170e"
+    "<runs>/FIG/figures/art1_agreement.pdf": "8fb879c120e57cf26871733f449b41cabeb0c044e46b125d894bd3fbf52eb0d8",
+    "<runs>/FIG/figures/art1_agreement.png": "4e7186b34bbb175f59fd08b98904bbdb491fc5e555d0ef06572b2088a1b5e3f9",
+    "<runs>/FIG/figures/art1_agreement.svg": "ee84fa59f7d5e5e6b78746b0db49ca86e5b0fc67b007f8602dcb9cf0e0830dc6"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-12T19:21:40",
+    "end": "2026-10-25T14:02:21",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -382,22 +382,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      5.48,
-      3.88,
-      3.46
+      12.18,
+      7.56,
+      6.2
     ],
     "loadavg_before": [
-      5.48,
-      3.88,
-      3.46
+      12.18,
+      7.56,
+      6.2
     ],
-    "maxrss_main_mb": 172.0,
+    "maxrss_main_mb": 171.3,
     "mem_gb": 1.0,
-    "peak_rss_mb": 172.0,
-    "peak_rss_tree_sampled_mb": 170.8,
-    "start": "2026-10-12T19:21:37",
-    "system_seconds": 0.184,
-    "user_seconds": 1.879,
-    "wall_seconds": 2.298
+    "peak_rss_mb": 171.3,
+    "peak_rss_tree_sampled_mb": 170.1,
+    "start": "2026-10-25T14:02:17",
+    "system_seconds": 0.224,
+    "user_seconds": 2.315,
+    "wall_seconds": 3.981
   }
 }
