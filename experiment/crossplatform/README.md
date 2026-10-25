@@ -11,9 +11,8 @@ results are those of `experiment/runs` (the production committed at
 cbab860c, whose psmc-rs fits ran at 4b2c636f; its C psmc fits come from
 earlier jobs of the same C psmc binary). Supplementary Note 1, section 9,
 gives the results; `summary.md` gives every number, the toolchains, the
-controls, the agreement tiers and the deviations from them. A first run of
-this comparison, on 2026-10-11, compared an earlier build with an earlier
-production; git history keeps it (c6bbb340).
+controls, the agreement tiers and the deviations from them. An earlier
+version of this directory is in git history (c6bbb340).
 
 The analysis is a one-off, outside the pipeline, run on 2026-10-25 from
 this directory, in this order:
