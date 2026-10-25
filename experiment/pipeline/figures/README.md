@@ -153,16 +153,16 @@ so that it can be turned into the caption. The article numbers its figures in it
   marker); sizes a tool was not run at are named in panel a with the reason
   E3 recorded. psmc-rs runs the E-step of each sequence on one thread, in
   parallel across sequences, so on t threads a genome of n equal
-  chromosomes takes about ceil(n / t) times one chromosome's time: 17.2 to
-  18.3 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
+  chromosomes takes about ceil(n / t) times one chromosome's time: 10.4 to
+  11.5 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
   10). The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the second
   line of the size ticks). Threads beyond the chromosome count add nothing:
   the 30-thread lines are flat, and the 30-thread speed-up at 3,000 Mb
-  (243x) holds because its 30 equal chromosomes give each thread one. On a
+  (384x) holds because its 30 equal chromosomes give each thread one. On a
   real genome the longest sequence sets the floor (Fig S4). Panel b's peak memory is the larger of the tool's
   `ru_maxrss` and its sampled peak; for psmc-rs 0.2 on 100 and 300 Mb, and
-  on 1000 Mb on one thread, it is `ru_maxrss`'s 25.0 MB in every repeat,
-  above the sampled 7.0 to 20.2 MB, so the caption should call those points
+  on 1000 Mb on one thread, it is `ru_maxrss`'s 26.0 MB in every repeat,
+  above the sampled 7.0 to 19.6 MB, so the caption should call those points
   an upper bound (Supplementary Note 1, section 10).
 - **Fig 5** (the supplement's Fig S2): binning with partly callable bins
   biases PSMC, and psmc-rs's per-bin model removes most of the bias. With a
