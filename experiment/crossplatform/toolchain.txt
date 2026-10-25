@@ -21,6 +21,7 @@ release: 1.97.1
 LLVM version: 22.1.6
 cargo 1.97.1 (c980f4866 2026-06-30)
 44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5  <xplat>/bin/psmc-rs
+sha256 without LC_UUID and code signature: 0fd9e91263c564fedab68719a8e623127190959fef159c90b0bc216699e1616b  <xplat>/bin/psmc-rs
 psmc-rs 0.2.0
 rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh"
 
@@ -34,6 +35,7 @@ release: 1.99.0
 LLVM version: 23.1.1
 cargo 1.99.0 (5f94df478 2026-08-27)
 698e09766beba028ff6f92e8fe0b867abf895a06caa93c99dfdbc148dfb3a3dd  <xplat>/bin/psmc-rs-rustc1.99
+sha256 without LC_UUID and code signature: 79eeea94ff496b2014c076fd64aa27548a5c47de38aa52b825fe3d5dbe2325d3  <xplat>/bin/psmc-rs-rustc1.99
 psmc-rs 0.2.0
 rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh"
 

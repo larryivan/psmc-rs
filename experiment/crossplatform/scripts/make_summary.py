@@ -106,6 +106,7 @@ for k, v in blocks.items():
             "llvm": re.search(r"LLVM version: (\S+)", v).group(1),
             "host": re.search(r"host: (\S+)", v).group(1),
             "sha": re.search(r"^([0-9a-f]{64})  ", v, re.M).group(1),
+            "digest": re.search(r"^sha256 without LC_UUID and code signature: ([0-9a-f]{64})  ", v, re.M).group(1),
             "version": re.search(r"^(psmc-rs \S+)$", v, re.M).group(1),
             "neon": 'target_feature="neon"' in v,
         }
@@ -212,11 +213,12 @@ simd = Counter((r["simd_laptop"], r["simd_ibex"]) for r in rs)
 assert len(simd) == 1
 (sl, si), ns = simd.popitem()
 w(f"| HMM kernels (`simd` in the fit JSON) | `{sl}` ({ns}/{n_rs} fits) | `{si}` ({ns}/{n_rs} fits) |")
-w(f"| psmc-rs binary | `{main_b['version']}`, sha256 {main_b['sha'][:8]}… (rustc {main_b['rustc'].split()[0]}), {ctl_b['sha'][:8]}… (rustc {ctl_b['rustc'].split()[0]}) | `{rs_tool['version']}`, sha256 {ib_bin[:8]}…"
+w(f"| psmc-rs binary | `{main_b['version']}`, sha256 {main_b['sha'][:8]}… (rustc {main_b['rustc'].split()[0]}), {ctl_b['sha'][:8]}… (rustc {ctl_b['rustc'].split()[0]}); without the Mach-O UUID and the code signature, {main_b['digest'][:8]}… and {ctl_b['digest'][:8]}… | `{rs_tool['version']}`, sha256 {ib_bin[:8]}…"
   + (" (also the binary of E3's timings)" if env.get("tool.rs02.binary_sha256") == ib_bin else "") + " |")
 w(f"| C psmc | 0.6.5-r74-dirty, sha256 {c_sha[:8]}… (the frozen `.production` run, fits of {', '.join(lap_c_days)}). Compiler and CFLAGS are in no provenance record. Its machine code (`__text`) is identical to the `psmc_O1` and `psmc_O` binaries beside it in `experiment/.tools/psmc_c` (so: -O1); the DWARF of the sibling ASan build names {producer}; it contains {n_fma} fused multiply-add instructions (in `psmc_update_hmm`, `hmm_forward`, `hmm_backward`, `hmm_expect`, `hmm_Q`, `hmm_Q0`, …), i.e. clang's default FP contraction was on | {c_tool['version']}, sha256 {c_tool['sha256'][:8]}…, {c_tool['cc'].replace('gcc (GCC) ', 'gcc ').replace(' 20231218', '')}, `{c_tool['cflags']}` (fits of {', '.join(c_days)}) |")
 w("| threads | psmc-rs `--threads 1` (as recorded on Ibex); C psmc single-threaded | the same |")
 w("")
+w("The laptop binaries' whole-file sha256 depends on the target directory they were built in: rebuilt from the same sources by the same toolchain in another target directory, each differed in its Mach-O UUID (LC_UUID), and so in its ad-hoc code signature, and nowhere else. The sha256 with those bytes zeroed (`toolchain.txt`; `scripts/toolchain.py --digest <binary>` computes it) is the same for such a rebuild. Both still depend on the source paths a binary holds in its panic messages, under the builder's home directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build is not expected to reproduce either.\n")
 w(f"psmc-rs wall time per E1 fit (not a controlled timing): laptop {min(float(r['laptop_wall_seconds']) for r in rs1):.0f}–{mx(rs1, 'laptop_wall_seconds'):.0f} s (4 jobs at once, `nice 19`); Ibex {min(float(r['ibex_wall_seconds']) for r in rs1):.0f}–{mx(rs1, 'ibex_wall_seconds'):.0f} s (the production's fits shared their node). NA12878: laptop {float(na['laptop_wall_seconds']):.0f} s, Ibex {float(na['ibex_wall_seconds']):.0f} s.\n")
 
 w("## 2. Inputs (step 1)\n")

@@ -40,7 +40,7 @@ $PY -I -B scripts/make_jobs.py --runs runs-repeat --out jobs_repeat.json --only 
 $PY -I -B scripts/run_job.py all jobs.json records
 $PY -I -B scripts/run_job.py all jobs_rustc1.99.json records-rustc1.99
 $PY -I -B scripts/run_job.py all jobs_repeat.json records-repeat
-$PY -I -B scripts/toolchain.py
+$PY -I -B scripts/toolchain.py                                   # run again later: --built-at ac4fed5d, the builds' HEAD
 $PY -I -B scripts/inputs.py
 $PY -I -B scripts/compare.py
 $PY -B scripts/reports.py
@@ -60,3 +60,13 @@ are copied to `laptop_c/`, and `compare.py` checks the copies);
 records are written as `<repo>` (this repository) and `<xplat>` (this
 directory), which `run_job.py` expands. Not kept: the binaries (`bin/`),
 logs and the HTML reports psmc-rs writes beside each JSON.
+
+A binary's whole-file sha256 (`toolchain.txt`, the records) depends on
+the target directory it was built in, through its Mach-O UUID and the
+ad-hoc code signature over it; `toolchain.txt` also gives each build's
+sha256 with those bytes zeroed, which a rebuild of the same sources by
+the same toolchain in another target directory reproduces
+(`scripts/toolchain.py --digest <binary>`). Both depend on the source
+paths the binary holds in its panic messages, under the builder's home
+directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build
+is not expected to reproduce either.
