@@ -2,6 +2,8 @@
 
 Computed on 2026-10-11 by the scripts of `scripts/` (`make_jobs.py`, `run_job.py`, `inputs.py`, `compare.py`, `tables.py`, `make_summary.py`), in a scratch directory `xplat/` that this directory reproduces (README.md). The tiers of section 5 are those `scripts/tiers_2026-10-07.py` defined on 2026-10-07, before these runs.
 
+The Ibex fits compared are those of an earlier production (`experiment/runs` before cbab860c, psmc-rs from `src` 4c0d777). The production committed since (4b2c636f) fitted every psmc-rs job again, from `src` dcf29ca, and the laptop was not compared with it; its C psmc fits are the ones compared here.
+
 ## Headline
 
 - **Inputs identical:** the laptop's 40 E1 genomes are byte-identical to Ibex's (psmcfa, VCF.gz and index: 40/40 each; 400/400 per-chromosome checksums and counts); NA12878's input too.
@@ -12,11 +14,11 @@ Computed on 2026-10-11 by the scripts of `scripts/` (`make_jobs.py`, `run_job.py
 
 ## 1. Machines and toolchains
 
-| | Laptop | Ibex (production) |
+| | Laptop | Ibex (earlier production) |
 |---|---|---|
 | CPU | Apple M1 Pro (arm64; 8 cores: 6 performance, 2 efficiency; 16 GB) | AMD EPYC 7702 (x86-64, Zen 2), as SN1 and E3's environment table give for the cluster's nodes; the E1/E2 fit records name the hosts (cn514-11-r for all 80 E1 fits, SLURM job 53386770; cn514-14-r for NA12878, job 53452276) but not their CPU model |
 | OS | macOS 27.0 (26A428), Darwin 27.0.0, Apple libm | Linux x86-64 (E3's nodes: 5.14.0-427.20.1.el9_4, glibc 2.34; not recorded for the E1/E2 jobs) |
-| psmc-rs sources | `src` 4c0d777, `Cargo.toml` 7ff6ee3, `Cargo.lock` b552a2a, clean (HEAD 980bab8 for the rustc 1.97.1 build; 2b9a3d8, a commit that touches only E2's Papuan outputs, for the rustc 1.99.0 control build) | the same three ids, clean (every E1/E2 fit-rs provenance record) |
+| psmc-rs sources | `src` 4c0d777, `Cargo.toml` 7ff6ee3, `Cargo.lock` b552a2a, clean (HEAD 980bab8 for the rustc 1.97.1 build; 2b9a3d8, a commit that touches only E2's Papuan outputs, for the rustc 1.99.0 control build) | the same three ids, clean (every E1/E2 fit-rs provenance record of that production) |
 | rustc | 1.97.1 (8bab26f4f 2026-07-14), LLVM 22.1.6, aarch64-apple-darwin — the default toolchain of `cargo build --release`; control build: 1.99.0 (b940084d7eb6), LLVM 23.1.1 | 1.99.0 (b940084d7eb6), x86_64-unknown-linux-gnu |
 | build flags | release profile, no RUSTFLAGS / CARGO_*RUSTFLAGS, `.cargo/config.toml` comments only; `rustc --print cfg` has `neon` | none (`rustflags` empty, `target_features: none`) |
 | HMM kernels (`simd` in the fit JSON) | `neon` (41/41 fits) | `avx2+fma` (41/41 fits) |
@@ -32,7 +34,7 @@ psmc-rs wall time per E1 fit (not a controlled timing): laptop 59–65 s (4 jobs
 - **Per chromosome: 400/400 match.** Recomputed from the laptop files, each chromosome's heterozygous-position checksum (SHA-256 of the 0-based positions as little-endian int64, read from the VCF) equals the Ibex truth record's `het_positions_sha256`, and so do its counts (bins and heterozygous bins from the psmcfa; heterozygous and derived homozygous sites and the last heterozygous position from the VCF): 400/400.
 - **Fit inputs.** The psmcfa checksum each Ibex fit recorded as its input equals the laptop file's (40/40 psmc-rs, 40/40 C psmc). The laptop C fits read the same files: their records' input checksums equal them (40/40), their outputs still match their records (40/40), and their `.psmc` headers give the same n_seqs, sum_L and sum_n as Ibex's (40/40). The sim records' command, seeds and settings agree (40/40), and so do the truth records' chromosome blocks (40/40).
 - **NA12878** (`experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz`, sha256 a9501bcc5082…) is the file both Ibex NA12878 fits read (yes).
-- The committed Ibex fits are the files their provenance records name (psmc-rs 41/41, C psmc 40/40).
+- The earlier production's Ibex fits are the files their provenance records name (psmc-rs 41/41, C psmc 40/40).
 
 ## 3. Commands (step 3)
 
@@ -146,7 +148,7 @@ The same sources built on the laptop by rustc 1.99.0 (b940084d7eb6, the commit o
 - `inputs_E1_genomes.csv`, `inputs_E1_chromosomes.csv`, `inputs.json`: step 1 (40 genomes, 400 chromosomes, NA12878)
 - `rs_laptop_vs_ibex.csv`: psmc-rs laptop (rustc 1.97.1) vs Ibex, 41 rows, with tiers
 - `c_laptop_vs_ibex.csv`: C psmc laptop vs Ibex, 40 rows, with tiers
-- `rs_vs_c_ibex.csv`: psmc-rs vs C psmc on Ibex, recomputed with the same code (matches `E1_rs_vs_c.csv` to 6.8e-21)
+- `rs_vs_c_ibex.csv`: psmc-rs vs C psmc on Ibex, recomputed with the same code (matched the earlier production's `E1_rs_vs_c.csv` to 6.8e-21; the committed one, from the later psmc-rs fits, differs from it by up to 2.8e-6)
 - `side_by_side_E1.csv`: the three agreements per E1 replicate, and their ratios
 - `params_rel_per_fit.csv`: relative difference of θ, ρ, t_max and each of the 28 free λ, per fit
 - `rs_laptop_rustc1.99_vs_ibex.csv`, `control_rustc1.99_vs_rustc1.97_laptop.csv`, `control_repeat_laptop.csv`: the controls
