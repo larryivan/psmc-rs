@@ -32,25 +32,25 @@
   "<repo>/experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35"
  },
  "outputs": {
-  "<xplat>/runs/E2/fits/NA12878.rs.json": "609b038c65975cd2dacbc30c6eb19e5e8eccbf0f6d4586a445e0e2ce29b89ba6",
-  "<xplat>/runs/E2/fits/NA12878.rs.psmc": "45f6479eb2f61ff53b792bf7d08bd58d7ba27c5919feae63aa0efb84d78efbcf"
+  "<xplat>/runs/E2/fits/NA12878.rs.json": "4e1db3cded5c76e9ab2abff4fedf6bba1f35ce883d6f43428162c868104bf266",
+  "<xplat>/runs/E2/fits/NA12878.rs.psmc": "8edd1fdad5cc9b2400e97d1870157878e76c886c778e35e9a044798d01146a2e"
  },
- "binary_sha256": "b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85",
+ "binary_sha256": "44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5",
  "exit_status": 0,
- "start": "2026-10-11T14:24:20",
- "wall_seconds": 357.254,
- "user_seconds": 335.223,
- "system_seconds": 2.67,
- "maxrss_mb": 48.9,
+ "start": "2026-10-25T15:26:07",
+ "wall_seconds": 234.599,
+ "user_seconds": 231.905,
+ "system_seconds": 0.435,
+ "maxrss_mb": 51.3,
  "loadavg_before": [
-  5.71,
-  5.29,
-  5.26
+  2.11,
+  3.86,
+  4.46
  ],
  "loadavg_after": [
-  9.99,
-  9.87,
-  7.55
+  7.23,
+  5.47,
+  5.0
  ],
  "nice": 19,
  "host": "Larryivanhans-MacBook-Pro.local",

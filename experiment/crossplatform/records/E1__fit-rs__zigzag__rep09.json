@@ -32,25 +32,25 @@
   "<repo>/experiment/.production/experiment/runs/E1/sims/zigzag/rep09/genome.psmcfa": "ee599eb64b12768ea74fd8b77dd9e3bfeb1fad0799e0e3e641f94234904fd158"
  },
  "outputs": {
-  "<xplat>/runs/E1/fits/zigzag/rep09.rs.json": "be083f5ac933bab109b5e2e6aa57b8637f531cb78e638d82f87ff98cd726b9b4",
-  "<xplat>/runs/E1/fits/zigzag/rep09.rs.psmc": "f83849475a2e1c5ede643f215fff0180dc0d1a214b445f55982eee8ff3efd9f9"
+  "<xplat>/runs/E1/fits/zigzag/rep09.rs.json": "c138fbb6df547c062196619bb8ce042f288416bd1ee41628a306fe6e6dc1cf53",
+  "<xplat>/runs/E1/fits/zigzag/rep09.rs.psmc": "b6176804fa045156210c11c4ef099cf3b8a29659a077117e28ed9a09350edc62"
  },
- "binary_sha256": "b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85",
+ "binary_sha256": "44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5",
  "exit_status": 0,
- "start": "2026-10-11T14:35:29",
- "wall_seconds": 59.082,
- "user_seconds": 57.229,
- "system_seconds": 0.365,
- "maxrss_mb": 13.3,
+ "start": "2026-10-25T15:33:35",
+ "wall_seconds": 42.099,
+ "user_seconds": 40.513,
+ "system_seconds": 0.192,
+ "maxrss_mb": 15.5,
  "loadavg_before": [
-  9.07,
-  9.17,
-  7.9
+  9.08,
+  7.04,
+  5.76
  ],
  "loadavg_after": [
-  8.14,
-  8.85,
-  7.87
+  6.73,
+  6.74,
+  5.71
  ],
  "nice": 19,
  "host": "Larryivanhans-MacBook-Pro.local",

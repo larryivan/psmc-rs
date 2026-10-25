@@ -1,0 +1,106 @@
+{
+ "experiments": [
+  "E1",
+  "E2",
+  "E4",
+  "E5"
+ ],
+ "tables": 38,
+ "tables_bytes_identical": 16,
+ "tables_same_shape": 38,
+ "cells": 295344,
+ "numeric_cells": 238360,
+ "cells_differing": 7716,
+ "nonnumeric_differing": 0,
+ "max_rel_ge_1e-3": 2.5138600458440234e-13,
+ "max_abs_lt_1e-3": 8.881784197001252e-16,
+ "rs_vs_c_cells": 196,
+ "rs_vs_c_max_rel": 1.9096433366862825e-11,
+ "rs_vs_c_max_abs": 8.881784197001252e-16,
+ "rs_vs_c_tables": [
+  "E1/E1_rs_vs_c.csv",
+  "E1/E1_table1.csv",
+  "E2/E2_rs_vs_c.csv"
+ ],
+ "code": {
+  "E1": {
+   "laptop": {
+    "pipeline": {
+     "code": "6d6b433e6fd6b81fae704d5cf945067153457b9553e878f3402b080e4ac11746",
+     "python": "3.13.13",
+     "numpy": "2.5.3"
+    }
+   },
+   "ibex": {
+    "pipeline": {
+     "code": "6d6b433e6fd6b81fae704d5cf945067153457b9553e878f3402b080e4ac11746",
+     "numpy": "2.5.3",
+     "python": "3.13.13"
+    }
+   },
+   "identical": true,
+   "ibex_host": "cn513-11-l",
+   "ibex_slurm_job_id": "54256959"
+  },
+  "E2": {
+   "laptop": {
+    "pipeline": {
+     "code": "d7a8b72eea182062c3e63824832df7ecc68ec0456eb79706d1ec55d3affeb3a3",
+     "python": "3.13.13",
+     "numpy": "2.5.3"
+    }
+   },
+   "ibex": {
+    "pipeline": {
+     "code": "d7a8b72eea182062c3e63824832df7ecc68ec0456eb79706d1ec55d3affeb3a3",
+     "numpy": "2.5.3",
+     "python": "3.13.13"
+    }
+   },
+   "identical": true,
+   "ibex_host": "cn513-11-l",
+   "ibex_slurm_job_id": "54256959"
+  },
+  "E4": {
+   "laptop": {
+    "pipeline": {
+     "code": "d458fa1209fa1df456f6d4ab6974582d6256bff68a408091e724bb13d28ae51d",
+     "python": "3.13.13",
+     "numpy": "2.5.3"
+    }
+   },
+   "ibex": {
+    "pipeline": {
+     "code": "d458fa1209fa1df456f6d4ab6974582d6256bff68a408091e724bb13d28ae51d",
+     "numpy": "2.5.3",
+     "python": "3.13.13"
+    }
+   },
+   "identical": true,
+   "ibex_host": "cn513-11-l",
+   "ibex_slurm_job_id": "54256959"
+  },
+  "E5": {
+   "laptop": {
+    "pipeline": {
+     "code": "45e791c97d33d7aded57e72f2cc91ca15a17a71304218fbe56b7c62bfe8737fc",
+     "python": "3.13.13",
+     "numpy": "2.5.3",
+     "scipy": "1.18.1"
+    }
+   },
+   "ibex": {
+    "pipeline": {
+     "code": "45e791c97d33d7aded57e72f2cc91ca15a17a71304218fbe56b7c62bfe8737fc",
+     "numpy": "2.5.3",
+     "python": "3.13.13",
+     "scipy": "1.18.1"
+    }
+   },
+   "identical": true,
+   "ibex_host": "cn513-11-l",
+   "ibex_slurm_job_id": "54256959"
+  }
+ },
+ "code_identical": true
+}

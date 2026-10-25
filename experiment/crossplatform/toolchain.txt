@@ -6,6 +6,12 @@ ProductVersion:		27.0
 BuildVersion:		26A428
 Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:22:49 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6000 arm64
 
+git HEAD ac4fed5dcca8ba9c8ae585f405e2521664086478
+src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910 Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52 dirty_files=0
+RUSTFLAGS='' CARGO_ENCODED_RUSTFLAGS='' CARGO_BUILD_RUSTFLAGS=''
+.cargo/config.toml: none
+
+== build <xplat>/bin/psmc-rs: cargo build --release --locked
 rustc 1.97.1 (8bab26f4f 2026-07-14)
 binary: rustc
 commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
@@ -14,15 +20,22 @@ host: aarch64-apple-darwin
 release: 1.97.1
 LLVM version: 22.1.6
 cargo 1.97.1 (c980f4866 2026-06-30)
-
-binary: <xplat>/bin/psmc-rs
-b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85  <xplat>/bin/psmc-rs
+44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5  <xplat>/bin/psmc-rs
 psmc-rs 0.2.0
-git HEAD 980bab80c0e8d1fc468d0bed9cb3c741c5cdf6df
-src=4c0d77745ddeb9cbf84c085ee6a126237c4f9889 Cargo.toml=7ff6ee35b86169399e1f89376f1b15e592e68635 Cargo.lock=b552a2ab11836b1431f4a1d8850f17dcb892296b dirty_files=0
-RUSTFLAGS='' CARGO_ENCODED_RUSTFLAGS='' CARGO_BUILD_RUSTFLAGS=''
-.cargo/config.toml settings: 0 non-comment lines
-rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh" 
+rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh"
+
+== build <xplat>/bin/psmc-rs-rustc1.99: cargo +1.99 build --release --locked
+rustc 1.99.0 (b940084d7 2026-09-28)
+binary: rustc
+commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+commit-date: 2026-09-28
+host: aarch64-apple-darwin
+release: 1.99.0
+LLVM version: 23.1.1
+cargo 1.99.0 (5f94df478 2026-08-27)
+698e09766beba028ff6f92e8fe0b867abf895a06caa93c99dfdbc148dfb3a3dd  <xplat>/bin/psmc-rs-rustc1.99
+psmc-rs 0.2.0
+rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh"
 
 == laptop C psmc (frozen .production run)
 c40db27485dcddd63a1a2dc2dd8997e549fe2d68bcdfcc0ca53d06810b38d4c6  experiment/.tools/psmc_c/psmc

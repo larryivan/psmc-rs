@@ -32,25 +32,25 @@
   "<repo>/experiment/.production/experiment/runs/E1/sims/bottleneck/rep04/genome.psmcfa": "c6b48104ea264b31956e4d8ea24d55431f840f43e07ec5035912f46de906069a"
  },
  "outputs": {
-  "<xplat>/runs/E1/fits/bottleneck/rep04.rs.json": "1cfda8c2b5661dee6858e98927d25d3dc070290e693b9f0948b65cb11f975ffd",
-  "<xplat>/runs/E1/fits/bottleneck/rep04.rs.psmc": "f1cf27099918b28f74d07de585ba9d74efde2d1448c5f9dd427da8da0aaeddcf"
+  "<xplat>/runs/E1/fits/bottleneck/rep04.rs.json": "b7f7841379b75d053e8bc48b6d33d7810226112c75fd52e01b27faf31aa952d6",
+  "<xplat>/runs/E1/fits/bottleneck/rep04.rs.psmc": "beb2d6a129334f0f0247359c652578a09245ba72533284a1a62544833ca15e43"
  },
- "binary_sha256": "b8c48afa87b8422ef8fe0cd838176c00066df1f65e3874ff16de9e02a0b6ae85",
+ "binary_sha256": "44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5",
  "exit_status": 0,
- "start": "2026-10-11T14:28:32",
- "wall_seconds": 60.962,
- "user_seconds": 58.323,
- "system_seconds": 0.395,
- "maxrss_mb": 15.2,
+ "start": "2026-10-25T15:28:50",
+ "wall_seconds": 41.823,
+ "user_seconds": 40.621,
+ "system_seconds": 0.061,
+ "maxrss_mb": 15.5,
  "loadavg_before": [
-  17.66,
-  10.34,
-  7.37
+  5.98,
+  4.91,
+  4.78
  ],
  "loadavg_after": [
-  12.17,
-  10.19,
-  7.54
+  6.96,
+  5.24,
+  4.91
  ],
  "nice": 19,
  "host": "Larryivanhans-MacBook-Pro.local",
