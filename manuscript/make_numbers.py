@@ -407,9 +407,17 @@ def crossplatform() -> None:
     """The laptop (arm64) against the production (x86-64): experiment/crossplatform, Supplementary Note 1 section 9."""
     xp = ROOT / "experiment" / "crossplatform"
     rs = pd.read_csv(xp / "rs_laptop_vs_ibex.csv")
+    laptop = dict(re.findall(r"(src|Cargo\.toml|Cargo\.lock)=([0-9a-f]+)", (xp / "toolchain.txt").read_text()))
+    ibex = {json.loads((RUNS / j["ibex_record"].removeprefix("experiment/runs/")).read_text())["key"]["tools"]["psmc-rs-0.2"]["source_tree"]
+            for j in json.loads((xp / "jobs.json").read_text())}
+    assert ibex == {";".join(f"{k}={v}" for k, v in laptop.items())} and "dirty_files=0" in (xp / "toolchain.txt").read_text(), \
+        "the text says the laptop refitted from the production's sources"
+    assert len(rs) == P.e1.replicates * len(P.e1.models) + 1 and set(rs.exp) == {"E1", "E2"}, "E1's genomes and NA12878"
+    side = pd.read_csv(xp / "side_by_side_E1.csv")
+    assert (side.rmse_window_rs_laptop_vs_ibex < side.rmse_window_c_laptop_vs_ibex).all(), \
+        "the text says psmc-rs's curves agree across the platforms more closely than two builds of C psmc"
     put("XpRsRmseMax", sci(rs[rs.exp == "E1"].dlog10ne_rmse_window.max()), "crossplatform rs RMSE window max (E1)")
-    ratio = pd.read_csv(xp / "side_by_side_E1.csv").ratio_rmse_c_xplat_over_rs_xplat
-    put("XpRatioCMedian", fix(ratio.median(), 0), "side_by_side ratio C cross-build / rs cross-platform, median")
+    put("XpRatioCMedian", fix(side.ratio_rmse_c_xplat_over_rs_xplat.median(), 0), "side_by_side ratio C cross-build / rs cross-platform, median")
 
 
 # Tables 1, 2 and S1

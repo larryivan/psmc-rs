@@ -120,18 +120,15 @@ the decoded TMRCA with the true one re-simulated from the replicate's
 seeds. Both need the simulated genomes, which section 4 regenerates.
 
 The analysis does not depend on the platform beyond its last digits.
-The analysis code of an earlier production's commit (34f2b00), run on an
-Apple M1 Pro laptop (macOS, arm64) on that production's fits made on the
-Ibex cluster (Linux, x86-64), wrote tables of E1, E2, E4 and E5 (E2
-then with the Papuan chromosome 1 in place of NA12878) that agreed with those it had
-written on Ibex to a relative 1e-13 in every value above 1e-3 in
-magnitude (at most 9.3e-14), and to a relative 2.2e-11 in the
-differences between psmc-rs and C psmc, of order 1e-5 (about 1e-15
-absolute); the differences come from the two platforms' math libraries.
-The tables shipped now come from later analysis code (the tools compared
-interval by interval, E4's RMSE against the complete-data fit integrated
-over log time), run on Ibex on the fits of the production of section 5,
-whose psmc-rs fits were made again by later code.
+The reports of E1, E2, E4 and E5, run on an Apple M1 Pro laptop (macOS,
+arm64) on the committed fits, with the code that wrote the committed
+tables on the Ibex cluster (Linux, x86-64) in the production of section 5
+(the same code digests and package versions), wrote 16 of the 38 tables
+byte for byte; the others agreed with those written on Ibex to a relative
+2.5e-13 in every value of magnitude 1e-3 or more, and to a relative
+1.9e-11 in the differences between psmc-rs and C psmc, of order 1e-5 (at
+most 8.9e-16 absolute); the differences come from the two platforms' math
+libraries (`experiment/crossplatform/summary.md`, section 4.6).
 
 ## 4) The runs, on one machine
 
@@ -347,21 +344,20 @@ two builds of it differ is part of section 9.
 
 ## 9) Cross-platform comparison
 
-An earlier production, with psmc-rs from the `src/` tree 4c0d777, ran on
-Ibex (x86-64). To measure how much its results depend on the platform,
-its 40 E1 genomes and NA12878 were fitted again with psmc-rs on the
-development laptop, with that production's commands (only the paths
-changed), and the laptop's C psmc fits of the same 40 genomes, from an
-earlier laptop run, were compared with Ibex's. The production of section
-5 fitted every psmc-rs job again, from the `src/` tree dcf29ca, and the
-comparison was not repeated for it. The scripts, tables and laptop fits
-are in `experiment/crossplatform/`, whose `summary.md` gives every number
-below.
+The production of section 5 ran on Ibex (x86-64). To measure how much its
+results depend on the platform, its 40 E1 genomes and NA12878 were fitted
+again with psmc-rs on the development laptop, built from the sources of
+the production's psmc-rs fits (the `src/` tree dcf29ca) and run with the
+production's commands (only the paths changed), and the laptop's C psmc
+fits of the same 40 genomes, from an earlier laptop run, were compared
+with Ibex's, made by the same C psmc binary as every C psmc fit of the
+production (section 5). The scripts, tables and laptop fits are in
+`experiment/crossplatform/`, whose `summary.md` gives every number below.
 
-| | laptop | Ibex (earlier production) |
+| | laptop | Ibex (production) |
 | --- | --- | --- |
 | CPU and system | Apple M1 Pro (arm64), macOS 27.0, Apple's math library | AMD EPYC 7702 (x86-64), Linux, glibc 2.34 |
-| psmc-rs | the same sources (`src/` 4c0d777, no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
+| psmc-rs | the same sources (`src/` dcf29ca, no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
 | C psmc | lh3/psmc 0.6.5-r74, the laptop's `-O1` build by Apple clang, which fuses multiply-adds (identified by its machine code; it has no build record) | gcc 11.4.1, `-O3 -march=x86-64-v3 -ffp-contract=off` (section 7) |
 
 **Inputs.** The laptop's 40 E1 genomes were byte-identical to Ibex's
@@ -372,30 +368,35 @@ all 400 chromosomes), and both platforms fitted the same NA12878 file.
 program (psmc-rs 0 of 41, C psmc 0 of 40), but psmc-rs agreed with itself
 far more closely than the two builds of C psmc agreed with each other
 (minimum / median / maximum over the 40 E1 fits; the last column is the
-difference between the programs in the earlier production on Ibex):
+difference between the programs in the production on Ibex):
 
 | | psmc-rs, laptop vs Ibex | C psmc, laptop vs Ibex | psmc-rs vs C psmc, Ibex |
 | --- | --- | --- | --- |
-| theta, relative | 1.6e-9 / 1.8e-7 / 7.6e-7 | 1.5e-7 / 5.8e-6 / 5.3e-5 | 1.2e-6 / 6.3e-5 / 3.8e-4 |
-| largest relative difference of any parameter | 5.5e-8 / 7.9e-7 / 9.6e-6 | 3.0e-5 / 1.1e-4 / 0.21 | 6.0e-5 / 2.2e-4 / 0.99 |
-| RMSE of log10 Ne over the window | 2.2e-9 / 1.2e-7 / 1.0e-6 | 3.6e-6 / 8.5e-6 / 2.4e-5 | 3.7e-6 / 2.5e-5 / 2.0e-4 |
-| largest difference of log10 Ne, any interval | 1.2e-8 / 3.1e-7 / 4.1e-6 | 1.4e-5 / 4.9e-5 / 0.10 | 1.0e-5 / 7.9e-5 / 2.0 |
-| final log-likelihood, relative | 4.6e-14 / 2.1e-12 / 2.8e-11 | 4.9e-12 / 1.7e-10 / 1.2e-9 | 1.5e-10 / 3.3e-9 / 1.3e-8 |
+| theta, relative | 9.1e-9 / 1.2e-7 / 1.9e-6 | 1.5e-7 / 5.8e-6 / 5.3e-5 | 8.5e-7 / 6.3e-5 / 3.8e-4 |
+| largest relative difference of any parameter | 3.1e-8 / 5.3e-7 / 2.1e-5 | 3.0e-5 / 1.1e-4 / 0.21 | 6.0e-5 / 2.2e-4 / 0.99 |
+| RMSE of log10 Ne over the window | 4.8e-9 / 8.8e-8 / 2.4e-6 | 3.6e-6 / 8.5e-6 / 2.4e-5 | 3.7e-6 / 2.5e-5 / 2.0e-4 |
+| largest difference of log10 Ne, any interval | 1.3e-8 / 2.1e-7 / 8.2e-6 | 1.4e-5 / 4.9e-5 / 0.10 | 1.0e-5 / 7.8e-5 / 2.0 |
+| final log-likelihood, relative | 3.6e-15 / 1.9e-12 / 1.5e-11 | 4.9e-12 / 1.7e-10 / 1.2e-9 | 1.5e-10 / 3.3e-9 / 1.3e-8 |
 
 C psmc's 0.21 and 0.10 are expansion replicate 5's first lambda, which
 runs away outside the window in both builds (without that fit, 5.4e-4 and
-2.4e-4). Replicate by replicate, psmc-rs's RMSE between the platforms was
-smaller than C psmc's between its builds in 40 of 40 (by a median factor
-of 80, at least 7.2), and smaller than the difference between the
-programs in 40 of 40 (median 196, at least 45). NA12878's two psmc-rs
-fits agreed to an RMSE of 9.1e-8 and within a relative 6.6e-7 in every
-parameter.
+2.4e-4). In psmc-rs the same lambda stops at its bound of 1e4 on both
+platforms, but on the way there it differed between them by up to a
+relative 3.0e-3 (at iteration 14), and this replicate gave psmc-rs's
+largest differences: 2.1e-5 in the next lambda, 8.2e-6 in log10 Ne inside
+the window, an RMSE of 2.4e-6. Replicate by replicate, psmc-rs's RMSE
+between the platforms was smaller than C psmc's between its builds in 40
+of 40 (by a median factor of 124, at least 10), and smaller than the
+difference between the programs in 40 of 40 (median 383, at least 39).
+NA12878's two psmc-rs fits agreed to an RMSE of 1.5e-7 and within a
+relative 1.1e-6 in every parameter.
 
 **Where the runs part.** psmc-rs's log-likelihood at the starting point
-was bit-identical in 40 of the 41 fits (the other differed in the last
-place), as section 8 leads one to expect: the NEON and the AVX2 and FMA
-kernels fuse the same multiply-adds, and no sum changes its order with the
-vector width. The first differences appear in iterations 1 to 3. What
+was bit-identical in 40 of the 41 fits (the other, expansion replicate 5,
+differed in the last place), as section 8 leads one to expect: the NEON
+and the AVX2 and FMA kernels fuse the same multiply-adds, and no sum
+changes its order with the vector width. In the others the first
+differences appear in iterations 1 to 3. What
 still differs is the system math library (Apple's `exp` and `log` against
 glibc's), whose last-bit differences the M-step, stopping on a flat
 optimum, turns into the parameter differences above; this comparison does
@@ -416,12 +417,13 @@ log10 Ne within 1e-6 in every interval and the final log-likelihood within
 a relative 1e-8; C, log10 Ne within 1e-3 in every interval and within a
 fiftieth of the difference between the programs (the per-model mean RMSE
 between psmc-rs and C psmc in E1); otherwise fail. psmc-rs's E1 fits were
-B in 24, C in 11 and failed in 5 of 40, and NA12878's fit was B; C psmc's
-builds failed in 40 of 40. All 16 psmc-rs fits that missed B did so on the
-parameter limit, at the most recent or the oldest free lambdas, which the
-data constrain least; the five that failed differed by 5e-7 to 4e-6 in
-log10 Ne, 17 to 36 times less than the difference between the programs
-rather than the required 50. The tier-C reference was not fixed in advance;
+B in 27, C in 10 and failed in 3 of 40, and NA12878's fit was C; C psmc's
+builds failed in 40 of 40. All 13 psmc-rs fits that missed B, and
+NA12878's, did so on the parameter limit, at the most recent free lambdas
+(the first to the third), which the data constrain least; the three that
+failed differed by 1.2e-6 to 8.2e-6 in log10 Ne, 7 to 46 times less than
+the difference between the programs rather than the required 50. The
+tier-C reference was not fixed in advance;
 the other references considered, and two deviations from the tiers, are
 reported in `experiment/crossplatform/summary.md` (section 5) and change
 none of these conclusions.
@@ -431,13 +433,14 @@ machine code, not by a build record, and a laptop build without
 floating-point contraction was not run. Only E1 and NA12878 were refitted
 on the laptop; E2's turtles, the bootstraps and E3 to E7 were not.
 
-**Conclusion.** The results of the earlier production's psmc-rs depended
-on the platform only in their last digits: across two processor
-architectures, operating systems and math libraries its curves agreed to
-an RMSE of at most 1.0e-6 in log10 Ne, two orders of magnitude below the difference between psmc-rs and C
-psmc and below the difference between two builds of C psmc on these
-platforms. Byte-identical results across platforms need the same kernels
-and the same math library on both (section 8).
+**Conclusion.** The production's psmc-rs results depend on the platform
+only in their last digits: across two processor architectures, operating
+systems and math libraries its curves agreed to an RMSE of at most 2.4e-6
+in log10 Ne, a median of 383 times (at least 39 times) below the
+difference between psmc-rs and C psmc on the same genome, and a median of
+124 times (at least 10 times) below the difference between two builds of
+C psmc on these platforms. Byte-identical results across platforms need
+the same kernels and the same math library on both (section 8).
 
 ## 10) Performance (E3)
 
