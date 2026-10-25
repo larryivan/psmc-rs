@@ -378,28 +378,13 @@ needs `--cores 50`, NA12878's the longest at about 17 minutes; C psmc 3.6,
 up to 72 minutes for NA12878, and 3.4 GB for HLhydTec1; the six
 split-first-window fits 0.6), about 2.1 hours alone on 50 cores. The
 bootstraps' output does not depend on their threads (replicate i draws
-from its own seed). Measured on Ibex in the earlier run, with the Papuan
-chromosome 1 in place of NA12878 and before the split-first-window fits:
-43.8 CPU hours; the bootstrap runs 40.3 (934 to 979 s each for the turtles,
-159 and 169 s for Papuan, at most 1.4 GB), C psmc 3.1 (3,419 to 3,610 s
-for the turtles and 475 s for Papuan, at most 3.3 GB, HLhydTec1's), psmc-rs
-0.4 (414 to 439 s for the turtles and 54 s for Papuan, at most 86 MB).
-
-**Re-run after the scaling and genome changes.** psmc-rs is given mu and g
-(`--mu`, `--gen-years`) for its own report, so the turtles' new mu changes
-the commands of their `fit-rs` and `boot-rs` jobs, and the runner runs
-them again (3 fits and 3 bootstrap runs); their fitted parameters do not
-depend on mu or g. C psmc is given neither: the turtles' `fit-c` and `qc`
-stay done. NA12878's `fit-c`, `fit-rs`, `boot-rs/trunk500000` and `qc`,
-E6's S5 `qc` of it and the six split-first-window fits are new. The
-re-run, these with the turtles' 3 fits and 3 bootstrap runs, takes about
-45 CPU hours by `config.Costs` (NA12878's jobs and the split-first-window
-fits about 16). `report`, E6's S5 report and the figures follow. The
-Papuan jobs have left the graph, and the runner does not delete their
-outputs: remove `runs/E2/fits/Papuan.*`,
-`runs/E2/qc/Papuan.*`, `runs/E2/bootstrap/Papuan/`, every
-`runs/E2/provenance/**/Papuan.json`, `runs/E6/qc/s5/Papuan.json` and
-`runs/E6/provenance/s5/qc/Papuan.json` before the runs are committed.
+from its own seed). Measured in the production run on Ibex
+([Production](#production)): 36.1 CPU hours; the bootstrap runs 30.8
+(521 to 560 s each for the turtles and 797 s for NA12878, at most
+1.9 GB), C psmc 4.5 (3,419 to 3,610 s for the turtles and 6,645 s for
+NA12878, at most 3.3 GB, HLhydTec1's; kept from earlier `prod` jobs),
+psmc-rs 0.7 (194 to 394 s per fit, the split-first-window fits 207 to
+277 s, at most 125 MB).
 
 ## E3: performance
 
