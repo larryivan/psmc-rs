@@ -17,14 +17,24 @@ __pycache__/
 # The inputs E2 and E7 prepare (the smaller profiles' prefixes of E2's
 # genomes; E7's psmcfa, masks and VCFs) are regenerable. E7's data stage ran
 # on the cluster; its manifest and records (how each chromosome was read,
-# the pilot) are the provenance of its inputs.
+# the pilot) are the provenance of its inputs, and its sample table and chunk
+# plan are what E7's job graph reads.
 /experiment/runs/**/inputs/*
 !/experiment/runs/E7/inputs/MANIFEST.json
 !/experiment/runs/E7/inputs/records/
-# Runs of the pipeline's smoke profile, and the tools it builds or finds
-# (C psmc and its utilities).
+!/experiment/runs/E7/inputs/samples.tsv
+!/experiment/runs/E7/inputs/chunks.tsv
+# Runs of the pipeline's smoke profile, the tools it builds or finds (C psmc
+# and its utilities), its Python environment, and the frozen laptop run that
+# crossplatform/ and c_equivalence/ read.
 /experiment/.runs-smoke/
-/experiment/.tools/
+/experiment/.tools
+/experiment/.venv
+/experiment/.production
+# What a re-run of crossplatform/ leaves beside its kept results.
+/experiment/crossplatform/bin/
+/experiment/crossplatform/logs*/
+/experiment/crossplatform/runs*/**/*.html
 # E5 (bootstrap calibration) keeps every bootstrap replicate's parameters
 # (replicate_NNN.json) and psmc-rs's summary; the replicates' .psmc files
 # (every EM round, about 0.1 MB each, a thousand of them) are not kept.

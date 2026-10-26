@@ -46,7 +46,8 @@ class Jobs(unittest.TestCase):
         self.assertTrue(e7_figs <= self.ids())
 
     def test_e7s_figures_from_its_tables_without_its_inputs(self):
-        # Committed runs hold E7's tables but not the data stage's inputs (MANIFEST.json among them).
+        # Committed runs hold E7's tables and its data stage's MANIFEST.json, records, sample table and chunk plan,
+        # but not the psmcfa inputs; FIG's E7 figures come from the tables.
         from experiment.pipeline import figures
         from experiment.pipeline.figures.schemas import SCHEMAS
 

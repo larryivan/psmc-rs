@@ -15,16 +15,26 @@ RUNS = ROOT / "experiment" / "runs"
 
 @unittest.skipUnless(in_git_work_tree(), "not a git checkout")
 class IgnoreRules(unittest.TestCase):
-    def test_e7s_data_stage_keeps_its_manifest_and_records_only(self):
+    def test_e7s_data_stage_keeps_its_tables_manifest_and_records(self):
         assert_ignore_rules(self, kept=(
+            "experiment/runs/E7/inputs/samples.tsv",
+            "experiment/runs/E7/inputs/chunks.tsv",
             "experiment/runs/E7/inputs/MANIFEST.json",
             "experiment/runs/E7/inputs/records/samples.json",
             "experiment/runs/E7/inputs/records/chromosomes/chr21.json",
         ), ignored=(
-            "experiment/runs/E7/inputs/samples.tsv",
-            "experiment/runs/E7/inputs/chunks.tsv",
             "experiment/runs/E7/inputs/psmcfa/NA12878.psmcfa.gz",
             "experiment/runs/E7/inputs/mask/callable.bed",
+        ))
+
+    def test_a_crossplatform_rerun_leaves_only_its_results(self):
+        assert_ignore_rules(self, kept=(
+            "experiment/crossplatform/runs/E1/fits/constant/rep01.rs.json",
+        ), ignored=(
+            "experiment/crossplatform/bin/psmc-rs",
+            "experiment/crossplatform/logs/a.log",
+            "experiment/crossplatform/logs-records-repeat/a.log",
+            "experiment/crossplatform/runs/E1/fits/constant/rep01.rs.html",
         ))
 
 
