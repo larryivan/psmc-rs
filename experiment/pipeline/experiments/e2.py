@@ -128,7 +128,7 @@ Tables (``tables/``):
 * ``E2_traces.csv``: log-likelihood, theta, rho and t_max per EM iteration.
 * ``E2_qc.csv`` and ``E2_qc_findings.csv``: the metrics and the findings
   of ``psmc-rs qc`` for each input E2 fitted (in production the packaged
-  files, whose reports Table S5 shows: E6's ``E6_S5_*``).
+  files).
 * ``E2_split_patterns.csv``: per turtle and pattern (``default`` is
   fit-rs's fit): theta, rho, t_max, N0, the final log-likelihood and its
   gain over the default (the split patterns have 1 and 3 more free

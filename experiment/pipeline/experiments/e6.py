@@ -1,7 +1,7 @@
-"""E6: supplementary analyses S1, S2, S3 and S5 (Figs S2 and S3, Table S5; the data of Fig S1).
+"""E6: supplementary analyses S1-S3 (the data of figS1_em_convergence, figS2_format_consistency and figS3_tmrca_decoding).
 
-E6 runs little of its own: it reads what E1, E2 and E3 make, where the design
-says so, and adds the runs that only it needs. Its settings are
+E6 runs little of its own: it reads what E1 makes, where the design says so,
+and adds the runs that only it needs. Its settings are
 :class:`.config.E6`; the models, inference settings, scaling, threads and
 time grid of S1-S3 are E1's (``profile.e1``).
 
@@ -25,20 +25,18 @@ time grid of S1-S3 are E1's (``profile.e1``).
   5 Mb example track.
 * **S4, thread scaling and determinism**, is E3's own: its tables
   ``E3_thread_scaling`` and ``E3_determinism`` hold every thread count of
-  every psmc-rs 0.2 run, timed by E3's protocol, and Fig S4 is drawn from
-  them.
-* **S5, QC table.** ``psmc-rs qc --json`` of E2's four real genomes, with
-  E2's bin size and bootstrap trunk (``--bootstrap-block-size``). E6 runs it
-  itself: a QC report depends only on the file and these options and takes
-  a fraction of a second, so S5 does not depend on how E2 lays out its files.
+  every psmc-rs 0.2 run, timed by E3's protocol, and figS4_thread_scaling is
+  drawn from them.
 
 Checks: the S2 VCF route must reproduce the psmcfa bins and fit, the
 multihetsep bins may differ only by the tail after the last heterozygous
 bin, and the S3 decoding must use E1's parameters exactly. A report job writes its tables
 and then fails when a check does not hold, so the tables can be inspected
 and nothing downstream (figures) runs on them. The figures are drawn by
-experiment FIG from these tables (Fig S1 from E1's traces, Fig S2 from
-``E6_S2_*``, Fig S3 from ``E6_S3_*``, Fig S4 from E3's own tables).
+experiment FIG from these tables (figS1_em_convergence, the supplement's
+Fig S1, from E1's traces; figS2_format_consistency from ``E6_S2_*``;
+figS3_tmrca_decoding from ``E6_S3_*``; figS4_thread_scaling from E3's own
+tables).
 
 Layout under ``<runs>/E6/``::
 
@@ -46,7 +44,6 @@ Layout under ``<runs>/E6/``::
     sims/s3/<model>/repNN/{tmrca_true.tsv.gz, posterior.tsv.gz}                             (not committed)
     fits/s2/<model>/repNN.{vcf,multihetsep}.{json,psmc}     psmc-rs fits of the other formats
     fits/s3/<model>/repNN.decode.json                       the decoding run (E1's parameters)
-    qc/s5/<sample>.json                                     psmc-rs qc of the real genomes
     tables/E6_S*.csv, figures/figS2_*, figS3_* (experiment FIG), provenance/, logs/ (not committed)
 
 The Python steps run as ``python -m experiment.pipeline.experiments.e6
@@ -70,7 +67,7 @@ from . import Context, e1
 from .e1 import rep
 
 NAME = "E6"
-PARTS = ("s1", "s2", "s3", "s5")
+PARTS = ("s1", "s2", "s3")
 TABLES: Dict[str, Dict[str, str]] = {
     "s1": {"traces": "E6_S1_traces.csv", "summary": "E6_S1_summary.csv", "agreement": "E6_S1_agreement.csv"},
     "s2": {"bins": "E6_S2_bins.csv", "fits": "E6_S2_fits.csv", "curves": "E6_S2_curves.csv"},
@@ -80,7 +77,6 @@ TABLES: Dict[str, Dict[str, str]] = {
         "density": "E6_S3_density.csv",
         "track": "E6_S3_track.csv",
     },
-    "s5": {"qc": "E6_S5_qc.csv", "findings": "E6_S5_findings.csv"},
 }
 S2_FORMATS = {"vcf": ["--input-format", "vcf", "--vcf-mode", "mask"], "multihetsep": ["--input-format", "mhs"]}
 REPORT_MODULES = ["experiments/e6.py", "experiments/e6_analysis.py", "experiments/e1.py", "results.py",
@@ -129,10 +125,6 @@ class Layout:
 
     def s3_decode(self, model: str, r: int) -> Path:
         return self.root / "fits" / "s3" / model / f"{rep(r)}.decode.json"
-
-    # S5
-    def s5_qc(self, sample_id: str) -> Path:
-        return self.root / "qc" / "s5" / f"{sample_id}.json"
 
     # Tables
     def table(self, part: str, key: str) -> Path:
@@ -347,34 +339,8 @@ def s3_jobs(ctx: Context) -> List[Job]:
     return out
 
 
-def s5_jobs(ctx: Context) -> List[Job]:
-    """S5: psmc-rs qc of E2's genomes, and the report."""
-    cfg = ctx.profile.e6
-    src = getattr(ctx.profile, cfg.qc_experiment.lower())
-    lay = Layout(ctx.exp_dir(NAME))
-    rs = ctx.rs02()
-    extra = ["--bin-size", str(src.inference.bin_size), "--bootstrap-block-size", str(src.bootstrap_trunk_bins)]
-    out: List[Job] = []
-    for g in src.genomes:
-        out.append(Job(
-            id=job_id("s5", "qc", g.sample_id),
-            command=tools.rs02_qc(rs, paths.REAL_DATA / g.file, lay.s5_qc(g.sample_id), extra=extra),
-            inputs=[paths.REAL_DATA / g.file],
-            outputs=[lay.s5_qc(g.sample_id)],
-            mem_gb=cfg.costs.qc_gb,
-            est_seconds=cfg.costs.qc_s,
-            settings={"options": extra},
-            tools={rs.name: rs.identity},
-            description=f"S5: psmc-rs qc of {g.label}",
-        ))
-    settings = {"genomes": [asdict(g) for g in src.genomes]}
-    out.append(_report_job(ctx, "s5", [lay.s5_qc(g.sample_id) for g in src.genomes], settings,
-                           cfg.costs.table_s, cfg.costs.table_gb, "S5 table: QC of the real genomes"))
-    return out
-
-
 def jobs(ctx: Context) -> List[Job]:
-    return [job for make in (s1_jobs, s2_jobs, s3_jobs, s5_jobs) for job in make(ctx)]
+    return [job for make in (s1_jobs, s2_jobs, s3_jobs) for job in make(ctx)]
 
 
 # ---------------------------------------------------------------------------
@@ -531,24 +497,8 @@ def example_track(cfg: config.E6, chromosomes: Sequence[Dict], bin_size: int) ->
     return k, chrom, start, n_bins
 
 
-def report_s5(ctx: Context) -> Dict[str, Path]:
-    """S5 tables from the QC reports of E2's genomes."""
-    from . import e6_analysis as A
-
-    cfg = ctx.profile.e6
-    src = getattr(ctx.profile, cfg.qc_experiment.lower())
-    lay = Layout(ctx.exp_dir(NAME))
-    _require([lay.s5_qc(g.sample_id) for g in src.genomes])
-    qc_rows, findings = [], []
-    for g in src.genomes:
-        qc = json.loads(lay.s5_qc(g.sample_id).read_text())
-        qc_rows.append({**A.qc_row(g.sample_id, g.label, qc), "species": g.species, "file": f"experiment/real_data/{g.file}"})
-        findings += A.finding_rows(g.sample_id, qc)
-    return _write(lay, "s5", {"qc": qc_rows, "findings": findings})
-
-
 REPORTS: Dict[str, Callable[[Context], Dict[str, Path]]] = {
-    "s1": report_s1, "s2": report_s2, "s3": report_s3, "s5": report_s5,
+    "s1": report_s1, "s2": report_s2, "s3": report_s3,
 }
 
 
@@ -570,7 +520,7 @@ def report(ctx: Context, parts: Sequence[str] = PARTS) -> Dict[str, Path]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m experiment.pipeline.experiments.e6",
-                                description="E6's Python steps: the tables of one part (S1-S5).")
+                                description="E6's Python steps: the tables of one part (S1-S3).")
     p.add_argument("action", choices=("report",))
     p.add_argument("--part", required=True, choices=PARTS)
     p.add_argument("--profile", default="production", choices=sorted(config.PROFILES))

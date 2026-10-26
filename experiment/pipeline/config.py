@@ -804,12 +804,12 @@ class E5:
     dataset_resamples: int = 10_000
 
 
-# --- E6: supplementary analyses S1, S2, S3 and S5 -----------------------------
+# --- E6: supplementary analyses S1, S2 and S3 ---------------------------------
 # Every setting of E6 is in this block (experiments/e6.py reads nothing else
 # of its own). E6 reuses what other experiments made: E1's genomes, fits and
 # settings (S1-S3: models, inference, scaling, threads and time grid come from
-# profile.e1) and E2's genomes and bootstrap trunk (S5); S4 is E3's own
-# tables. Its costs only schedule the jobs; no result depends on them.
+# profile.e1); S4 is E3's own tables. Its costs only schedule the jobs; no
+# result depends on them.
 
 
 @dataclass(frozen=True)
@@ -833,15 +833,13 @@ class E6Costs:
     tmrca_report_s_per_mb: float = 0.04  # reading 5 million posterior rows, the metrics
     tmrca_report_s_base: float = 5.0
     tmrca_report_gb: float = 2.5
-    table_s: float = 20.0  # S1, S2 and S5 tables
+    table_s: float = 20.0  # S1 and S2 tables
     table_gb: float = 1.0
-    qc_s: float = 5.0  # psmc-rs qc of a real genome (0.1 s for 1.9 Gb)
-    qc_gb: float = 0.5
 
 
 @dataclass(frozen=True)
 class E6:
-    """Supplementary analyses built on E1-E3 (Figs S1-S4, Table S5).
+    """Supplementary analyses built on E1 and E3 (figures figS1_em_convergence to figS4_thread_scaling).
 
     S1  EM convergence: E1's log-likelihood and parameter traces, both tools.
     S2  Format consistency: replicate ``format_replicate`` of every E1 model
@@ -854,7 +852,6 @@ class E6:
         the true pairwise TMRCA re-simulated from the replicate's seeds.
     S4  Thread scaling and determinism: E3's own tables (E3_thread_scaling,
         E3_determinism); E6 adds nothing to them.
-    S5  QC table: ``psmc-rs qc`` of E2's four real genomes.
     """
 
     # S1. EM traces. An iteration "converged" once the log-likelihood is
@@ -883,10 +880,6 @@ class E6:
     tmrca_calibration_classes: int = 10
     tmrca_density_cells: int = 60
     tmrca_decode_threads: int = 4  # psmc-rs --threads; the posterior does not depend on it
-
-    # S5. psmc-rs qc of E2's genomes, with E2's bin size and bootstrap trunk
-    # (--bootstrap-block-size), as E2 bootstraps them.
-    qc_experiment: str = "E2"
 
     costs: E6Costs = E6Costs()
 

@@ -1,4 +1,4 @@
-"""Tests for experiment.pipeline.experiments.e6_analysis: the analyses of E6 (S1-S5) on small known inputs."""
+"""Tests for experiment.pipeline.experiments.e6_analysis: the analyses of E6 (S1-S3) on small known inputs."""
 
 from __future__ import annotations
 
@@ -167,20 +167,6 @@ class Tmrca(unittest.TestCase):
         post = pd.DataFrame({c: [0] for c in A.POSTERIOR_COLUMNS})
         with self.assertRaises(ValueError):
             A.align(post, [(np.ones(2), np.ones(2, dtype=int))], [0.0, 1.0], 1.0)
-
-
-@unittest.skipUnless(HAS_NUMERIC, "numpy, pandas and scipy needed")
-class Qc(unittest.TestCase):
-    def test_qc_rows(self):
-        qc = {"input_format": "psmcfa", "bin_size": 100, "n_sequences": 2,
-              "totals": {"bins": 10, "missing_fraction": 0.1, "het_per_kb": 1.0},
-              "lengths": {"n50_bases": 500, "below_trunk": {"fraction": 0.4}},
-              "findings": [{"code": "TOO_SHORT", "severity": "warning", "message": "m", "recommendation": "r"},
-                           {"code": "HET_OUTLIER", "severity": "note", "message": "m2", "sequences": ["a", "b"]}]}
-        row = A.qc_row("S", "Some species", qc)
-        self.assertEqual((row["warnings"], row["notes"], row["share_bins_below_trunk"]), ("TOO_SHORT", "HET_OUTLIER", 0.4))
-        f = A.finding_rows("S", qc)
-        self.assertEqual([x["sequences_named"] for x in f], [0, 2])
 
 
 if __name__ == "__main__":

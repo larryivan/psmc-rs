@@ -1,4 +1,4 @@
-"""The analyses of E6 (S1-S5), as functions from parsed outputs to table rows.
+"""The analyses of E6 (S1-S3), as functions from parsed outputs to table rows.
 
 Nothing here reads a path from the configuration or writes a file:
 :mod:`.e6` finds the inputs, calls these functions and writes the tables.
@@ -581,61 +581,8 @@ def track_rows(d: Decoded, sequence: int, name: str, start_bin: int, n_bins: int
     ]
 
 
-# ---------------------------------------------------------------------------
-# S5. QC of the real genomes
-# ---------------------------------------------------------------------------
-
-
-def qc_row(sample_id: str, label: str, qc: Mapping) -> Dict:
-    """The key metrics and finding codes of one ``psmc-rs qc --json`` report."""
-    t = qc.get("totals", {}) or {}
-    lengths = qc.get("lengths", {}) or {}
-    below = lengths.get("below_trunk") or {}
-    sat = qc.get("saturation", {}) or {}
-    findings = qc.get("findings", []) or []
-    return {
-        "sample_id": sample_id,
-        "label": label,
-        "input_format": qc.get("input_format"),
-        "bin_size": qc.get("bin_size"),
-        "sequences": qc.get("n_sequences"),
-        "bins": t.get("bins"),
-        "missing_fraction": t.get("missing_fraction"),
-        "het_bin_fraction": t.get("het_bin_fraction"),
-        "theta0_per_bin": t.get("theta0_per_bin"),
-        "het_per_kb": t.get("het_per_kb"),
-        "called_bases": t.get("called_bases_from_bins"),
-        "n50_bases": lengths.get("n50_bases"),
-        "longest_bases": lengths.get("longest_bases"),
-        "longest_missing_run_bins": t.get("longest_missing_run_bins"),
-        "multi_het_share": sat.get("multi_het_share"),
-        "max_bin_size_below_target": sat.get("max_bin_size_below_target"),
-        "bootstrap_trunk_bins": qc.get("bootstrap_trunk_bins"),
-        "bootstrap_trunks": lengths.get("bootstrap_trunks"),
-        "share_bins_below_trunk": below.get("fraction"),
-        "expected_recombinations": qc.get("expected_recombinations"),
-        "warnings": ";".join(f["code"] for f in findings if f.get("severity") == "warning"),
-        "notes": ";".join(f["code"] for f in findings if f.get("severity") != "warning"),
-    }
-
-
-def finding_rows(sample_id: str, qc: Mapping) -> List[Dict]:
-    """One row per finding of a QC report: code, severity, message, recommendation."""
-    return [
-        {
-            "sample_id": sample_id,
-            "code": f.get("code"),
-            "severity": f.get("severity"),
-            "message": f.get("message"),
-            "recommendation": f.get("recommendation"),
-            "sequences_named": len(f.get("sequences") or []),
-        }
-        for f in qc.get("findings", []) or []
-    ]
-
-
 __all__ = [
     "Decoded", "FormatFit", "agreement_summary", "align", "bin_tmrca", "calibration_rows", "compare_bins",
-    "convergence_summary", "curve_rows", "density_rows", "finding_rows", "fit_rows", "qc_row", "read_psmcfa",
+    "convergence_summary", "curve_rows", "density_rows", "fit_rows", "read_psmcfa",
     "state_mismatches", "state_of", "tmrca_summary", "trace_rows", "track_rows", "truth_rows",
 ]

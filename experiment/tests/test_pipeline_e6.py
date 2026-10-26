@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
 from fixtures import ROOT, assert_ignore_rules, fake_ctx, in_git_work_tree, read_csv  # noqa: E402
 
-from experiment.pipeline import config, paths, runner  # noqa: E402
+from experiment.pipeline import config, runner  # noqa: E402
 from experiment.pipeline.experiments import e1, e6  # noqa: E402
 
 
@@ -35,9 +35,10 @@ class Jobs(unittest.TestCase):
     def test_parts_and_their_dependencies_on_e1(self):
         ids = set(self.by_id)
         models = config.SMOKE.e1.models
-        for part in ("s1", "s2", "s3", "s5"):
+        for part in ("s1", "s2", "s3"):
             self.assertIn(f"E6/{part}/report", ids)
         self.assertFalse(any(j.startswith("E6/s4") for j in ids))  # S4 is E3's own tables
+        self.assertFalse(any(j.startswith("E6/s5") for j in ids))  # E2's qc jobs check E2's genomes
         self.assertFalse(any(j.endswith("/figure") for j in ids))  # the figures are FIG's
         s1 = set(self.graph.deps["E6/s1/report"])
         self.assertEqual(s1, {j.id for j in self.e1_jobs if j.id.startswith(("E1/fit-c/", "E1/fit-rs/", "E1/sim/"))})
@@ -69,14 +70,6 @@ class Jobs(unittest.TestCase):
         self.assertIn("--tmrca-only", truth.command)
         self.assertEqual(truth.seeds["chr1"]["ancestry"], config.seed("E1", "bottleneck", 1, "ancestry/chr1"))
 
-    def test_s5_checks_e2s_genomes_with_e2s_trunk(self):
-        qc = [j for j in self.jobs if j.id.startswith("E6/s5/qc/")]
-        self.assertEqual([j.id.rsplit("/", 1)[1] for j in qc], [g.sample_id for g in config.SMOKE.e2.genomes])
-        cmd = qc[0].command
-        self.assertEqual(cmd[1], "qc")
-        self.assertEqual(cmd[cmd.index("--bootstrap-block-size") + 1], str(config.SMOKE.e2.bootstrap_trunk_bins))
-        self.assertEqual(qc[0].inputs, [paths.REAL_DATA / config.SMOKE.e2.genomes[0].file])
-
     def test_production_plan(self):
         jobs = e6.jobs(fake_ctx(config.PRODUCTION, self.runs, log=lambda msg: None))
         self.assertEqual(len([j for j in jobs if j.id.startswith("E6/s2/fit-")]), 8)
@@ -94,7 +87,7 @@ class RunsLayout(unittest.TestCase):
         lay = e6.Layout(ROOT / "experiment" / "runs" / "E6")
         assert_ignore_rules(self, kept=(
             lay.s2_fit("constant", 1, "vcf"), lay.s2_fit_psmc("constant", 1, "multihetsep"),
-            lay.s3_decode("bottleneck", 1), lay.s5_qc("NA12878"), lay.table("s3", "track"),
+            lay.s3_decode("bottleneck", 1), lay.table("s3", "track"),
             lay.root / "figures" / "figS3_tmrca_decoding.pdf", lay.root / "provenance" / "s3" / "report.json",
         ), ignored=(
             lay.s2_vcf_psmcfa("constant", 1), lay.s2_multihetsep("constant", 1), lay.s2_mhs_psmcfa("zigzag", 1),
@@ -139,11 +132,6 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(s3["all"]["state_index_mismatches"], "0")
         self.assertEqual(s3["all"]["decoded_model_is_e1_fit"], "True")
         self.assertGreater(float(s3["all"]["pearson_log10_mean"]), 0.3)
-        qc = read_csv(lay.table("s5", "qc"))
-        # S5 reads E2's packaged files whole, even in the tiny profile: NA12878's chr1-22.
-        human = next(g for g in config.TINY.e2.genomes if g.sample_id == "NA12878")
-        self.assertEqual((qc[-1]["sample_id"], qc[-1]["label"]), ("NA12878", human.label))
-        self.assertEqual((qc[-1]["sequences"], qc[-1]["bins"]), ("22", "28750027"))
         self.assertTrue(all("/Users/" not in p.read_text() for part in e6.PARTS for p in lay.tables(part)))
 
 
