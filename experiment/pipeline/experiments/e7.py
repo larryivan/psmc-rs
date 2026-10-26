@@ -1,4 +1,4 @@
-"""E7: 1000 Genomes (Fig 7, Figs S5 and S6).
+"""E7: 1000 Genomes (fig7_1000_genomes: the article's Fig 3; figS5_1000g_populations, figS6_1000g_checks).
 
 The data stage (:mod:`..kg1000`, outside the runner: 1.68 TB of VCFs, each
 chromosome downloaded whole to node-local disk, read by region and deleted)
@@ -16,7 +16,7 @@ finished) E7 has no jobs. Layout under ``<runs>/E7/``::
     fits/rs-split/<sample>.json, .psmc      psmc-rs 0.2 on the psmcfa, the first window split (one per population)
     boot/<sample>/main.json, replicate_NNN.json, summary.{json,tsv}   psmc-rs's bootstrap (replicate .psmc not committed)
     qc/giab_<sample>.json                   heterozygous SNVs against GIAB (NA12878)
-    provenance/<kind>/<sample>.json, tables/E7_*.csv, figures/ (Fig 7, S5, S6: experiment FIG)
+    provenance/<kind>/<sample>.json, tables/E7_*.csv, figures/ (fig7, figS5, figS6: experiment FIG)
 
 Jobs: ``fit-rs-psmcfa`` (every sample: ``psmc-rs IN OUT N_ITER`` with the
 recipe, ``--mu 1.25e-8 --gen-years 29 --threads 1``), ``fit-rs-vcf`` (the
@@ -33,14 +33,15 @@ recent peaks Hilgers et al. 2025 found with ``4+...``), ``giab`` (NA12878:
 ``python -m experiment.pipeline.experiments.e7 giab``) and ``report``.
 
 **Routes.** A psmcfa records no callable bases per bin, so its fit takes
-every called bin as 100 bases, as C psmc does (Fig 5's "every called bin
-full"); the strict mask leaves about 27% of the called bins partly
-callable in every genome (``E7_inputs``). The VCF route weighs each bin by
-its callable bases. Fig 7's population curves, the cohort spread and
-Fig S5 use the psmcfa fits of every genome (61 to 113 per population);
-Fig S5 adds the median of each population's default genomes' VCF fits,
-and ``E7_route_shift`` measures the difference between the routes on the
-default set. psmc-rs and C psmc
+every called bin as 100 bases, as C psmc does (E4's "every called bin
+full", fig5_input_preparation); the strict mask leaves about 27% of the
+called bins partly callable in every genome (``E7_inputs``). The VCF route
+weighs each bin by its callable bases. The population curves of
+fig7_1000_genomes, the cohort spread and figS5_1000g_populations use the
+psmcfa fits of every genome (61 to 113 per population);
+figS5_1000g_populations adds the median of each population's default
+genomes' VCF fits, and ``E7_route_shift`` measures the difference between
+the routes on the default set. psmc-rs and C psmc
 are compared on the identical psmcfa (as E2: interval by interval on the
 window of 1% to 99% of coalescences under C psmc's fit,
 :func:`..metrics.interval_diff`).

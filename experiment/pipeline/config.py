@@ -943,8 +943,9 @@ class E7:
     every sample's psmcfa with psmc-rs (``fit-rs-psmcfa``); the default set,
     ``per_population`` samples of every population (the ``pinned`` ones
     first, the others drawn by seed), also from its VCF with the mask and
-    psmc-rs's callable bases per bin (``fit-rs-vcf``, the curves of Fig 7)
-    and by C psmc from the psmcfa (``fit-c``); the ``bootstrap_samples``
+    psmc-rs's callable bases per bin (``fit-rs-vcf``, which
+    figS5_1000g_populations and ``E7_route_shift`` read) and by C psmc from
+    the psmcfa (``fit-c``); the ``bootstrap_samples``
     with psmc-rs's bootstrap (``boot-rs``); the first default sample of
     every population with the first time window split (``fit-rs-split``,
     ``split_pattern``; Hilgers et al. 2025, Curr Biol 35:927); and NA12878
@@ -992,7 +993,7 @@ class E7:
     per_population: int = 2
     pinned: Tuple[str, ...] = ("NA18507", "NA19239", "NA12878")  # Li & Durbin 2011's samples among the 2,504
     admixed: Tuple[str, ...] = ("ACB", "ASW", "CLM", "MXL", "PEL", "PUR")
-    superpopulations: Tuple[str, ...] = ("AFR", "AMR", "EAS", "EUR", "SAS")  # Fig 7 panels a-e
+    superpopulations: Tuple[str, ...] = ("AFR", "AMR", "EAS", "EUR", "SAS")  # fig7_1000_genomes b-f (a: all five)
     split_batch_size: int = 500  # samples per bcftools +split call (one open file per sample)
     stream_threads: int = 4  # bcftools view --threads of the stream
     chunk_attempts: int = 3  # a broken stream is retried this many times in all
