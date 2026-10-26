@@ -28,13 +28,15 @@ Defaults, each of which changes the results of a run that relied on it:
 - `--smooth-lambda` defaults to 0, C psmc's objective, instead of 1e-3.
 - Each M-step runs until it converges, as C psmc's does; `--mstep-iters`
   (1000, was 100) is only a cap. 0.1's 100 L-BFGS iterations stopped short
-  of the maximum of Q and left the curve 0.03 to 0.16 (RMSE of log10 Ne)
-  from C psmc's, and with one λ per interval let the fit drift away from
-  C's in every interval. For 0.2's agreement with C psmc see
-  `experiment/pipeline/README.md` (E1, E2).
+  of the maximum of Q (all 25 M-steps of its fit of E1's first bottleneck
+  genome reached the cap) and left the curve 0.0007 to 0.0065 (RMSE of
+  log10 Ne) from C psmc's on four of E1's simulated genomes. For 0.2's
+  agreement with C psmc see `experiment/pipeline/README.md` (E1, E2).
 - The M-step bounds each λ by 1e4 instead of 1e6 (`MStepConfig::lam_hi`):
   above 1e4, C's formulas give rounding noise in f64 for short early
-  intervals, where EM stalled, and a λ of 1e4 already means no
+  intervals (with λ up to 1e6, 36 of the 40 M-steps of a fit with one λ
+  per interval of a simulated bottleneck genome end in a failed line
+  search, against 1 with 1e4), and a λ of 1e4 already means no
   coalescences in the interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of
   `--bootstrap-block-size` bins (default 500,000 instead of 50,000) are
@@ -311,14 +313,15 @@ Library API:
   "wider bounds", which no option sets. It now says what each case means:
   λ at the upper bound (1e4) are intervals with almost no coalescences in
   the data, whose Ne is the bound rather than an estimate (as for the
-  first λ of `4+25*2+4+6` on one of two simulated bottleneck genomes,
-  where C psmc's unbounded search reaches 1.5e5); λ at the lower bound
-  make every lineage reaching their intervals coalesce at once; θ, ρ or
-  `t_max` at a bound point to the input or the starting values. A
-  parameter counts as on its upper bound within 1e-6 of its range, where
-  the M-step's logit coordinate saturates and a λ the data push there
-  stops (9,999.99991 on that genome; the test within 1e-12 missed it),
-  and on its lower bound within twice the M-step's clamp.
+  first λ of `4+25*2+4+6` on one of E1's 40 simulated genomes, an
+  expansion replicate, where C psmc's unbounded search reaches 1.08e6); λ
+  at the lower bound make every lineage reaching their intervals coalesce
+  at once; θ, ρ or `t_max` at a bound point to the input or the starting
+  values. A parameter counts as on its upper bound within 1e-6 of its
+  range, where the M-step's logit coordinate saturates and a λ the data
+  push there stops (9,999.99996 on E5's bottleneck replicate 40, 3.9e-9 of
+  the range below it, which a test within 1e-12 misses), and on its lower
+  bound within twice the M-step's clamp.
 - Gzip input with several members (bgzip: `.vcf.gz` from bcftools, GATK or
   tabix, bgzipped psmcfa and BED masks) is read in full instead of only its
   first block, and a bgzip file that lacks BGZF's end-of-file block, as
@@ -362,15 +365,15 @@ Library API:
   iterations, more than the difference from C psmc); results are now
   bit-identical for any thread count and budget.
 - EM could start from negative transition probabilities, which PSMC's
-  model has when ρ0 per bin is too large for the time grid (at t_max 15
-  and flat λ, above about 1/6, which θ0/4 passes at about 49%
-  heterozygous bins). Its M-step objective was then NaN, EM never moved,
-  and the run wrote a flat curve without a word, as C psmc does. The run
-  now checks the start before the main fit and stops with the limit and
-  the bin size, `--tr-ratio`, `--rho0` or saved rho that fixes it; QC
-  reports such a start as `INVALID_START` (an input without a heterozygous
-  bin is left to the loader and `FEW_HETS`). In the library, the new
-  `PsmcModel::check_transitions` finds such a start and returns a
+  model has when ρ0 per bin is too large for the time grid (at t_max 15,
+  flat λ and C's default pattern, above about 1/6, which θ0/4 passes at
+  about 49% heterozygous bins). Its M-step objective was then NaN, EM
+  never moved, and the run wrote a flat curve without a word, as C psmc
+  does. The run now checks the start before the main fit and stops with
+  the limit and the bin size, `--tr-ratio`, `--rho0` or saved rho that
+  fixes it; QC reports such a start as `INVALID_START` (an input without a
+  heterozygous bin is left to the loader and `FEW_HETS`). In the library,
+  the new `PsmcModel::check_transitions` finds such a start and returns a
   `model::NegativeTransitions` error, with which `em_train` refuses it
   (reachable with `downcast_ref` through EM's and the bootstrap's
   context), and the M-step refuses a start where its objective is not
