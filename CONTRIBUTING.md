@@ -106,8 +106,10 @@ Measure old and new builds back to back on the same idle machine, interleaved,
 and report the median of at least three runs together with the input size,
 thread count and hardware. Build with `cargo build --release` and no
 `RUSTFLAGS`: on x86-64 the HMM kernels pick AVX2 and FMA at run time, and
-`-C target-cpu=native` adds little (with AVX-512 on AMD Zen 5 it was
-slower). `cargo run --release --example bench_estep -- INPUT` times the
+on an AMD EPYC 7702 a `-C target-cpu=native` build fitted a 1.9 Gb
+genome on 1 thread 5.0% slower than the plain release build, a
+`-C target-cpu=x86-64-v3` one 1.6% slower (medians of three runs).
+`cargo run --release --example bench_estep -- INPUT` times the
 E-step alone and prints a checksum of its results for exact comparisons.
 
 ### Experiment and reproduction package

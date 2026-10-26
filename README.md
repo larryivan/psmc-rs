@@ -771,12 +771,11 @@ On x86-64 the E-step, the log-likelihood and TMRCA decoding run code
 compiled with AVX2 and FMA on CPUs that have them (Intel Core since
 Haswell, AMD since Excavator and Zen), picked at run time, so the
 release binaries need no `-C target-cpu` flags for full speed: they
-fitted a 1.9 Gb genome (5 EM iterations, 1 thread) in 71.7 s on an AMD
-EPYC 7702 and in 47.1 s on an EPYC 9655, as fast as a
-`-C target-cpu=x86-64-v3` build, against 161 s and 97.0 s for the
-portable code (all four timed while the E-step still summed the expected
-transitions in O(states²), the portable ones in the release build that
-preceded the AVX2 and FMA code). The AVX2 and FMA code fuses the
+fitted a 1.9 Gb genome (HLpelCas1: 1,220 sequences, 19.4 M bins;
+pattern `4+25*2+4+6`, 5 EM iterations, 1 thread) in 43.4 s on an AMD
+EPYC 7702 alone on its node, as fast as a `-C target-cpu=x86-64-v3`
+build (44.1 s), against 79.2 s for the portable code (medians of three
+runs). The AVX2 and FMA code fuses the
 multiply-adds of the O(states) forward and backward products (Harris et
 al. 2014's linear-time recursion) and of the transition sums, as the NEON
 code of aarch64 does;
@@ -786,16 +785,16 @@ the vector width, so its results are identical to the bit to an
 same `log` and `exp` from the system's math library (glibc picks a
 variant of them by CPU). x86-64 CPUs without AVX2 or FMA, and virtual
 machines and emulators that hide them, run the portable code, which does
-not fuse those multiply-adds (each would be a call to libm's `fma`,
-several times slower), so its results differ in the last digits: by a
-relative 1e-14 or so in an E-step (1.4e-14 at most on the test inputs),
-which the M-step, stopping on a flat optimum, turns into about 1e-8 to
-1e-6 in the fitted parameters (on an EPYC 7702, 7.8e-9 on a 20,000-bin
-test input after 3 EM iterations, 8.6e-7 on the 180,000-bin one after 5
-with the pattern `4+25*2+4+6`). `PSMC_RS_SIMD=portable` forces the
-portable code, to compare speeds or results; the output JSON's `simd`
-and the report say which ran (`avx2+fma`, `portable`, or `neon` on Apple
-silicon and other aarch64).
+not fuse those multiply-adds (each would be a call to libm's `fma`), so
+its results differ in the last digits: by a relative 1e-14 or so in an
+E-step (2.2e-14 at most on the test inputs), which the M-step, stopping
+on a flat optimum, turns into about 1e-8 to 1e-6 in the fitted
+parameters (on an EPYC 7702, 7.8e-9 on a 60,000-bin test input, three
+records of 20,000 bins, after 3 EM iterations, 8.6e-7 on the 180,000-bin
+one after 5 with the pattern `4+25*2+4+6`). `PSMC_RS_SIMD=portable`
+forces the portable code, to compare speeds or results; the output JSON's
+`simd` and the report say which ran (`avx2+fma`, `portable`, or `neon` on
+Apple silicon and other aarch64).
 
 The M-step needs little memory and time, however many λ are free. It
 differentiates its objective in reverse mode, one row of the transition
