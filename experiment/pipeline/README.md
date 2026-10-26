@@ -311,10 +311,12 @@ non-PASS position missing, and E7's `inputs/psmcfa/NA12878.psmcfa.gz` byte
 for byte (`config.RealGenome.sha256` is that file's SHA-256 in E7's
 `MANIFEST.json`, and a test checks the committed file against it). Both
 tools read the gzip file as it is. E7 fits the same file with the same
-settings (`fit-c`, `fit-rs-psmcfa`), and E2's bootstrap of it is E7's
-`boot-rs` run, with E7's seed, replicates, trunks and iterations
-(`config.RealGenome.bootstrap_shared_with`), so Fig 3a and Fig 7 show the
-identical band.
+settings (`fit-c`, `fit-rs-psmcfa`), and E2 bootstraps it with E7's seed,
+replicates, trunks and iterations
+(`config.RealGenome.bootstrap_shared_with`): E2's run on 50 threads and
+E7's on 32 wrote the same 103 files byte for byte (Supplementary Note 1,
+section 8). `fig3_real_genomes` and the article's Fig 1c draw E2's band;
+no figure draws E7's.
 `real_data/Papuan_highlands_diploid.psmcfa`, the chromosome 1 of a Papuan
 Highlands human that E2 fitted before, stays for the top-level README's
 benchmarks and the Rust tests; E2 does not read it.
