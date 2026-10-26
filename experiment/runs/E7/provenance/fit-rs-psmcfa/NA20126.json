@@ -69,31 +69,31 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-23T00:38:49",
+    "end": "2026-10-26T04:54:48",
     "exclusive": false,
     "executables": {
       "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn513-11-l",
+    "host": "cn514-10-l",
     "loadavg_after": [
-      71.67,
-      72.14,
-      72.04
+      128.26,
+      129.73,
+      130.82
     ],
     "loadavg_before": [
-      71.83,
-      71.94,
-      71.94
+      130.46,
+      131.34,
+      131.6
     ],
-    "maxrss_main_mb": 120.9,
+    "maxrss_main_mb": 117.2,
     "mem_gb": 0.2,
-    "peak_rss_mb": 120.9,
-    "peak_rss_tree_sampled_mb": 36.3,
-    "slurm_job_id": "54256959",
-    "start": "2026-10-23T00:32:17",
-    "system_seconds": 0.119,
-    "user_seconds": 383.616,
-    "wall_seconds": 392.137
+    "peak_rss_mb": 117.2,
+    "peak_rss_tree_sampled_mb": 38.8,
+    "slurm_job_id": "54555780",
+    "start": "2026-10-26T04:47:39",
+    "system_seconds": 0.372,
+    "user_seconds": 421.951,
+    "wall_seconds": 428.726
   }
 }
