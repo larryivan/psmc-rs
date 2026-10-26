@@ -5,7 +5,19 @@ edition = "2024"
 # let chains (Rust 1.88), and ratatui's dependencies (instability, darling,
 # time) declare 1.88 too.
 rust-version = "1.88"
+description = "PSMC (Li and Durbin 2011): infers the history of effective population size from one diploid genome, with C psmc's model"
 license = "MIT"
+repository = "https://github.com/larryivan/psmc-rs"
+readme = "README.md"
+keywords = ["psmc", "coalescent", "demography", "population-genetics", "genomics"]
+categories = ["science::bioinformatics", "command-line-utilities"]
+# The crate holds the program and the one data file its unit tests read; the
+# experiments, manuscript, integration tests and their data stay in the
+# repository.
+include = [
+    "/src/", "/Cargo.toml", "/Cargo.lock", "/README.md", "/CHANGELOG.md", "/LICENSE",
+    "/tests/data/psmc_out/printf_golden.tsv",
+]
 
 [[bin]]
 name = "psmc-rs"
