@@ -1,4 +1,4 @@
-"""E5: bootstrap calibration (Fig 6).
+"""E5: bootstrap calibration (fig6_bootstrap_calibration, the supplement's Fig S3).
 
 How well does psmc-rs's bootstrap, which follows C psmc's, measure the
 uncertainty of a PSMC curve? The runner simulates ``truth_replicates``
@@ -20,7 +20,7 @@ from a fresh start with the settings of the fits). Layout under
     boot/trunk<B>/repNN/replicate_NNN.psmc           every replicate's rounds (not committed)
     provenance/<job>.json                            one record per job
     tables/E5_*.csv                                  written by ``report E5``
-    figures/fig6_bootstrap_calibration.{pdf,svg,png} Fig 6, drawn from the tables (experiment FIG)
+    figures/fig6_bootstrap_calibration.{pdf,svg,png} the supplement's Fig S3, drawn from the tables (experiment FIG)
     logs/                                            runner and job logs (not committed)
 
 Every curve is read at the same times: the model's informative-window grid

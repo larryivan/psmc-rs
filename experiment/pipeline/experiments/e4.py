@@ -1,4 +1,4 @@
-"""E4: input preparation (Fig 5).
+"""E4: input preparation (fig5_input_preparation, the supplement's Fig S2).
 
 How the path from a VCF and a callable mask to PSMC's input changes the
 result, and what psmc-rs's per-bin callable-length model does about it. For
@@ -84,11 +84,11 @@ Layout under ``<runs>/E4/``::
     crosscheck/<mask>/rep01.json                         psmc-rs vs generate_multihetsep.py
     fits/<mask>/<route>/repNN.json                       psmc-rs 0.2
     provenance/, tables/E4_*.csv                         (logs/ and sims/ are not committed)
-    figures/fig5_input_preparation.{pdf,svg,png}         Fig 5, drawn from the tables (experiment FIG)
+    figures/fig5_input_preparation.{pdf,svg,png}         the supplement's Fig S2, drawn from the tables (experiment FIG)
 
 Tables (``tables/``):
 
-* ``E4_summary.csv``: one row per mask and route (Fig 5): replicates, the
+* ``E4_summary.csv``: one row per mask and route (fig5_input_preparation): replicates, the
   emission model fitted and where its callable bases came from, the
   realised missing fraction, the mean share of callable bases of the called
   bins and the share of them partly callable, the share of bins unlike the
@@ -99,7 +99,7 @@ Tables (``tables/``):
 * ``E4_routes.csv``: one row per mask, route and replicate: the fit, its input
   as read, its callable bases, the metrics and the QC codes.
 * ``E4_bias.csv``: log10(fitted / true Ne) at every time of the model's
-  informative window, mean, SD, min and max over replicates (Fig 5).
+  informative window, mean, SD, min and max over replicates (fig5_input_preparation).
 * ``E4_rescaling.csv``: the rescaling cross-check, one row per mask and
   replicate.
 * ``E4_bins.csv``: one row per mask, replicate and route: how its bins differ
@@ -842,7 +842,8 @@ def bias_rows(bias: Dict[Tuple[str, str], List], window, truth_window) -> List[D
 
 
 def summary_rows(cfg: config.E4, routes: List[Dict]) -> List[Dict]:
-    """One row per mask and route (Fig 5): means over replicates (``routes``: the routes table's rows)."""
+    """One row per mask and route (fig5_input_preparation): means over replicates (``routes``: the routes
+    table's rows)."""
     by_key: Dict[Tuple[str, str], List[Dict]] = {}
     for x in routes:
         by_key.setdefault((x["mask"], x["route"]), []).append(x)

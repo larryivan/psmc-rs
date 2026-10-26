@@ -1,4 +1,4 @@
-"""E3: performance (Fig 4, Table 2, Fig S4).
+"""E3: performance (the article's Fig 2 and Table 2; fig4_performance, figS4_thread_scaling).
 
 How fast and how lean are C psmc and psmc-rs 0.2 on the same inputs, and
 does psmc-rs 0.2 give the same result whatever its thread count?
@@ -65,11 +65,11 @@ Tables (``tables/``):
   ended during the run), the machine it ran on (CPU model, governor, boost,
   usable cores, host, SLURM job), the fitted theta, rho and t_max, and the
   SHA-256 of the output.
-* ``E3_thread_scaling.csv`` (Fig S4): psmc-rs 0.2 on the thread-scaling
+* ``E3_thread_scaling.csv`` (figS4_thread_scaling): psmc-rs 0.2 on the thread-scaling
   genome: median wall time per thread count, speed-up over one thread,
   parallel efficiency, peak RSS, and whether the JSON is byte-identical to
   the one-thread JSON.
-* ``E3_determinism.csv`` (Fig S4): every output compared with its tool's
+* ``E3_determinism.csv`` (figS4_thread_scaling): every output compared with its tool's
   reference at the same size (fewest threads, first repeat): byte-identical
   or not, and the largest relative difference in theta, rho, t_max and the
   lambdas (and psmc-rs 0.2's final log-likelihood).

@@ -298,8 +298,9 @@ class RealGenome:
     label: str  # how figures and tables name it
     scaling: Scaling
     scaling_source: str  # where mu and g come from, in full (E2_fit_summary.scaling_source)
-    scaling_cite: str  # the same in a few words, for a figure panel (Fig 3)
-    sequence_noun: str = "scaffolds"  # what its sequences are, in Fig 3's notes ("22 chromosomes split at 50 Mb")
+    scaling_cite: str  # the same in a few words, for a figure panel (fig3_real_genomes)
+    # What its sequences are, in fig3_real_genomes' notes ("22 chromosomes split at 50 Mb").
+    sequence_noun: str = "scaffolds"
     # The file's SHA-256 where its source records one (the tests check the
     # committed file against it); None: not pinned.
     sha256: Optional[str] = None
@@ -323,7 +324,7 @@ class RealGenome:
 # generation. g 15 years is shared by the three species: close to the values
 # of Sozzoni et al. 2025 (Table S2) for P. castaneus (15.9) and E. subglobosa
 # (12.4); H. tectifera has no published age at maturity or generation time.
-# Ne and time scale as 1/mu, and time also as g (figures/README.md: Fig 3).
+# Ne and time scale as 1/mu, and time also as g (figures/README.md: fig3_real_genomes).
 _TURTLE_SCALING = Scaling(4.6e-9, 15.0)
 _TURTLE_SCALING_SOURCE = (
     "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios "
@@ -419,7 +420,7 @@ class E2:
     # own scaling. Both tools and the bootstrap band are compared on it;
     # ``grid.fixed_years`` is reported next to it.
     grid: TimeGrid = TimeGrid()
-    display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (Fig 3)
+    display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (fig3_real_genomes)
     panel_order: Tuple[str, ...] = ("NA12878", "HLemySub1", "HLhydTec1", "HLpelCas1")  # fig3_real_genomes a-d
     # Below this many trunks psmc-rs warns that the bands are coarse
     # (FEW_TRUNKS in src/bin/psmc/run/bootstrap.rs); the tables and
@@ -930,8 +931,8 @@ class E7Costs:
 
 @dataclass(frozen=True)
 class E7:
-    """1000 Genomes (the article's Fig 3, fig7_1000_genomes; figS5_1000g_populations, figS6_1000g_checks):
-    psmc-rs on the 30x NYGC genomes.
+    """1000 Genomes (fig7_1000_genomes, the article's Fig 3; its Figs 1e and 2c and Table 1;
+    figS5_1000g_populations, figS6_1000g_checks): psmc-rs on the 30x NYGC genomes.
 
     The data stage (``python -m experiment.pipeline.kg1000``, outside the
     runner) reads the joint-called VCFs region by region (streamed, or from
@@ -1029,7 +1030,7 @@ class E7:
     # dense log grid of years; the spread between individuals, not a CI.
     spread: Tuple[float, float] = (0.1, 0.9)
     display_years: Tuple[float, float, int] = (1e3, 1e8, 400)
-    figure_years: Tuple[float, float] = (1e4, 1e7)  # the time axis of Figs 7 and S5
+    figure_years: Tuple[float, float] = (1e4, 1e7)  # the time axis of fig7_1000_genomes and figS5_1000g_populations
     costs: E7Costs = E7Costs()
 
 

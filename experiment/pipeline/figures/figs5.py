@@ -10,12 +10,12 @@ interval; n, the genomes, in the panel), and the median of the VCF fits
 default genomes (dark blue, thin).
 A psmcfa records no callable bases per bin, so its fit takes every called
 bin as full (7.6% of the called bins' bases are missing here), which makes
-theta, and every size and time, low (Fig 5). On the same genome the VCF
+theta, and every size and time, low (fig5_input_preparation). On the same genome the VCF
 fit's theta is 8.4% higher (7.9-8.8% over the 52 default genomes) and its
 Ne 0.045 log10 (11%) higher on average over the window (Fig S6b). The dark
 line therefore runs about 0.04 log10 above, and slightly later than, the
 blue one from about 60 kya on, mostly outside the narrow spread; the VCF
-route is the less biased one (Fig 5: 0.7% low in theta with 10% missing),
+route is the less biased one (fig5_input_preparation: 0.7% low in theta with 10% missing),
 so the blue curves are the ones a little low. In the first window two
 genomes are a small sample of a wide spread, and the dark line strays to
 either side of the blue one. All panels share their axes. Times outside

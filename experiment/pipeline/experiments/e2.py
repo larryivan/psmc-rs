@@ -1,4 +1,4 @@
-"""E2: real genomes (Fig 3).
+"""E2: real genomes (fig3_real_genomes, figS_turtle_patterns; the article's Figs 1c-e and Table 1).
 
 For every genome of :class:`.config.E2` (three turtle assemblies and the
 human NA12878's chr1-22, E7's psmcfa of that sample) the runner fits the
@@ -123,8 +123,8 @@ Tables (``tables/``):
   (the fields that differ, and by how much).
 * ``E2_bootstrap_replicates.csv``: the parameters of every replicate.
 * ``E2_bands.csv``: per genome and trunk size, both curves and the band on
-  a dense grid (Fig 3).
-* ``E2_curves.csv``: the fitted step curves of both tools (Fig 3).
+  a dense grid (fig3_real_genomes).
+* ``E2_curves.csv``: the fitted step curves of both tools (fig3_real_genomes).
 * ``E2_traces.csv``: log-likelihood, theta, rho and t_max per EM iteration.
 * ``E2_qc.csv`` and ``E2_qc_findings.csv``: the metrics and the findings
   of ``psmc-rs qc`` for each input E2 fitted (in production the packaged

@@ -1,4 +1,5 @@
-"""E7: 1000 Genomes (fig7_1000_genomes: the article's Fig 3; figS5_1000g_populations, figS6_1000g_checks).
+"""E7: 1000 Genomes (fig7_1000_genomes, the article's Fig 3; its Figs 1e and 2c and Table 1; figS5_1000g_populations,
+figS6_1000g_checks).
 
 The data stage (:mod:`..kg1000`, outside the runner: 1.68 TB of VCFs, each
 chromosome downloaded whole to node-local disk, read by region and deleted)

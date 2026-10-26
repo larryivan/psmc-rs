@@ -53,8 +53,9 @@ class FigureSpec:
     def code_files(self) -> List[str]:
         """The pipeline files (relative to experiment/pipeline) that draw it.
 
-        The shared ones, its module and the modules of this package it imports from, at any depth (Fig S1
-        takes Fig 2's model names), so that a change to any of them redraws it.
+        The shared ones, its module and the modules of this package it imports from, at any depth
+        (figS1_em_convergence takes fig2_simulated_accuracy's model names), so that a change to any of them
+        redraws it.
         """
         modules, todo = set(), [self.module]
         while todo:

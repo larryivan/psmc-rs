@@ -346,7 +346,7 @@ _add("E6_S3_summary", "E6", "set of bins (all, heterozygous, homozygous)", {
 
 # ---------------------------------------------------------------------------
 # E7: 1000 Genomes (fig7_1000_genomes, the article's Fig 3; figS5_1000g_populations, figS6_1000g_checks; the
-# article's Fig 2c)
+# article's Figs 1e and 2c and Table 1)
 # ---------------------------------------------------------------------------
 
 _E7_WHO = {
