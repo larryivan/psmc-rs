@@ -35,9 +35,10 @@ Defaults, each of which changes the results of a run that relied on it:
 - The M-step bounds each λ by 1e4 instead of 1e6 (`MStepConfig::lam_hi`):
   above 1e4, C's formulas give rounding noise in f64 for short early
   intervals (with λ up to 1e6, 36 of the 40 M-steps of a fit with one λ
-  per interval of a simulated bottleneck genome end in a failed line
-  search, against 1 with 1e4), and a λ of 1e4 already means no
-  coalescences in the interval.
+  per interval of the simulated 5 Mb bottleneck genome in
+  `tests/data/sim_bottleneck` end in a failed line search, against 1 with
+  1e4, though the log-likelihood still rises every round and ends slightly
+  higher), and a λ of 1e4 already means no coalescences in the interval.
 - The bootstrap follows C psmc's `splitfa` and `psmc -b`: trunks of
   `--bootstrap-block-size` bins (default 500,000 instead of 50,000) are
   drawn with replacement across the whole input, and each replicate is
