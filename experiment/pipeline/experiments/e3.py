@@ -74,8 +74,8 @@ Tables (``tables/``):
   or not, and the largest relative difference in theta, rho, t_max and the
   lambdas (and psmc-rs 0.2's final log-likelihood).
 * ``E3_environment.csv``: the machine (each distinct value over the runs,
-  ';'-joined: hosts, SLURM jobs), the tools' identities, how C psmc was
-  built (its ``BUILD.json``, see :func:`.tools.build_c`), the timing
+  ';'-joined: hosts, SLURM jobs), the tools' identities in the runs'
+  records (C psmc's compiler and CFLAGS among them), the timing
   protocol, the memory limit, the measures of other work used and the
   median and maximum of each of E3_runs' CPU-use columns over the runs
   (``other_cores_during`` for each measure apart), and
@@ -113,9 +113,6 @@ TABLES = {
     "environment": "E3_environment.csv",
     "seeds": "E3_seeds.csv",
 }
-# How the laptop's C psmc was built by hand, for a tools directory whose
-# psmc_c has no BUILD.json (tools --build-c writes one; see c_build_rows).
-C_PSMC_BUILD = "lh3/psmc 0.6.5-r74 built with -O1 (an -O2 build segfaults on macOS arm64)"
 
 
 # ---------------------------------------------------------------------------
@@ -374,9 +371,6 @@ def jobs(ctx: Context) -> List[Job]:
             rank=run.repeat,
         ))
         report_inputs += [lay.fit(run), lay.timing(run), lay.record(run)]
-    c_build = tools.c_psmc_dir() / tools.C_BUILD_RECORD
-    if c_build.exists():  # E3_environment says how C psmc was built
-        report_inputs.append(c_build)
     out.append(Job(
         id=f"{NAME}/report",
         command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
@@ -386,7 +380,7 @@ def jobs(ctx: Context) -> List[Job]:
         est_seconds=costs.report_s,
         settings={"e3": asdict(cfg)},
         tools={"pipeline": provenance.python_identity(
-            ["experiments/e3.py", "experiments/e3_run.py", "experiments/e1.py", "results.py", "tools.py"], []
+            ["experiments/e3.py", "experiments/e3_run.py", "experiments/e1.py", "results.py"], []
         )},
         description="E3 tables",
     ))
@@ -663,8 +657,7 @@ def determinism_rows(outputs: Dict[Run, Output]) -> List[Dict]:
     return out
 
 
-def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings: Dict[Run, Dict],
-                     c_build: Optional[Dict] = None) -> List[Dict]:
+def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings: Dict[Run, Dict]) -> List[Dict]:
     out: List[Dict] = []
 
     def add(key: str, value) -> None:
@@ -695,8 +688,6 @@ def environment_rows(cfg: config.E3, lay: Layout, rows: Dict[Run, Dict], timings
         exes = rec.get("run", {}).get("executables", {})
         if tool_path in exes:
             add(f"tool.{run.setup.tool}.binary_sha256", exes[tool_path])
-    for key, value in c_build_rows(c_build):
-        add(key, value)
     add("inference", asdict(cfg.inference))
     add("timing_protocol", asdict(cfg.timing))
     add("memory_limit_gb", f"{cfg.memory_limit_gb:g}")
@@ -758,35 +749,6 @@ def clean_machine_kinds(rows: Dict[Run, Dict], timings: Dict[Run, Dict]) -> List
     return sorted({machine_kind(timings[run]) for run, row in rows.items() if row["clean"] and run in timings})
 
 
-def c_build_rows(build: Optional[Dict]) -> List[Tuple[str, str]]:
-    """How C psmc was built: from its ``BUILD.json`` (:func:`.tools.read_c_build`), else as the laptop's was.
-
-    Without a ``BUILD.json`` (a C psmc built by hand) the build is the
-    laptop's, :data:`C_PSMC_BUILD`, and the compiler whatever ``cc`` is on
-    PATH when the report runs (:func:`c_compiler`).
-    """
-    if build is None:
-        return [("tool.c.build", C_PSMC_BUILD), ("cc", c_compiler())]
-    return [
-        ("tool.c.build", f"lh3/psmc built by tools --build-c with CFLAGS {build['cflags']!r}, "
-                         f"LDFLAGS {build.get('ldflags', '')!r}, LIBS {build.get('libs', '')!r}"),
-        ("cc", str(build["compiler_version"])),  # not its path: tables hold no machine-specific paths
-        ("tool.c.build_platform", str(build.get("platform", ""))),
-        ("tool.c.built", str(build.get("built", ""))),
-    ]
-
-
-def c_compiler() -> str:
-    """``cc --version`` (first line): the compiler C psmc was built with, if it is still this machine's."""
-    import subprocess
-
-    try:
-        res = subprocess.run(["cc", "--version"], capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return "unavailable"
-    return res.stdout.splitlines()[0].strip() if res.returncode == 0 and res.stdout else "unavailable"
-
-
 def seed_rows(truths: Dict[int, Dict]) -> List[Dict]:
     return [
         {"size_mb": size, "chromosome": ch["name"], "ancestry_seed": ch["seeds"]["ancestry"],
@@ -828,7 +790,7 @@ def report(ctx: Context) -> Dict[str, Path]:
         "runs": ordered,
         "scaling": scaling_rows(cfg, rows, outputs),
         "determinism": determinism_rows(outputs),
-        "environment": environment_rows(cfg, lay, rows, timings, tools.read_c_build()),
+        "environment": environment_rows(cfg, lay, rows, timings),
         "seeds": seed_rows(truths),
     })
 

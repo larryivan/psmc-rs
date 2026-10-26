@@ -314,7 +314,11 @@ compiler and the flags to C psmc's identity.
   `experiment/crossplatform/x86_cpus/`, section "C psmc's production
   build"); `-ffp-contract=off` keeps gcc from fusing multiply-adds, which
   would change the results. These are the C psmc results of the
-  manuscript.
+  manuscript. The build's record, `psmc_c/BUILD.json` in Ibex's tools
+  directory, adds what no provenance record holds: the build date,
+  2026-10-07; the platform,
+  `Linux-5.14.0-427.20.1.el9_4.0.1.x86_64-x86_64-with-glibc2.34`; LIBS
+  `-lm -lz` and no LDFLAGS.
 - **Laptop (macOS, arm64).** An `-O2` build of C psmc segfaults there, so
   the laptop's C psmc was built by hand with `-O1`. It has no `BUILD.json`:
   it is identified by its version and checksum, and its compiler and flags
@@ -513,7 +517,7 @@ time (the sum of its `wall_seconds`).
 
 | tool | build |
 | --- | --- |
-| C psmc | lh3/psmc 0.6.5-r74, built on 2026-10-07 by `tools --build-c` with gcc 11.4.1 (Red Hat 11.4.1-3) and CFLAGS `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function` (its `BUILD.json`): the production build of section 7 |
+| C psmc | lh3/psmc 0.6.5-r74, built by `tools --build-c` with gcc 11.4.1 (Red Hat 11.4.1-3) and CFLAGS `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function` (`tool.c.cc`, `tool.c.cflags`): the production build of section 7, which gives its build date and platform |
 | psmc-rs | 0.2.0, built with rustc 1.99.0, the release profile and no build flags from the `src/` tree dcf29ca with `Cargo.toml` c0be5cf and `Cargo.lock` ae10354, and no uncommitted changes (`tool.rs02.source_tree`, `source_dirty`): the binary that made every psmc-rs fit of the production (section 6); it picks its AVX2 and FMA kernels at run time (section 8) |
 
 `E3_environment.csv` also holds the SHA-256 of every binary, the fit

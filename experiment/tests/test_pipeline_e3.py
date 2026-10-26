@@ -132,13 +132,15 @@ class Jobs(unittest.TestCase):
                 runs = [j for j in jobs.values() if j.exclusive]
                 self.assertEqual([j.id for j in runs if runner.fits_budget(j, config.Budget())], [])
 
-    def test_the_report_reads_c_psmcs_build_record_when_there_is_one(self):
+    def test_the_report_reads_only_e3s_runs(self):
+        # not the local tools directory's C psmc build record: the runs' records identify the build
         c_dir = self.runs / "tools" / "psmc_c"
         c_dir.mkdir(parents=True)
+        (c_dir / "BUILD.json").write_text("{}")
         with mock.patch.object(e3.tools, "c_psmc_dir", return_value=c_dir):
-            self.assertNotIn(c_dir / "BUILD.json", self.jobs(config.TINY)["E3/report"].inputs)
-            (c_dir / "BUILD.json").write_text("{}")
-            self.assertIn(c_dir / "BUILD.json", self.jobs(config.TINY)["E3/report"].inputs)
+            inputs = self.jobs(config.TINY)["E3/report"].inputs
+        self.assertTrue(inputs)
+        self.assertTrue(all(Path(p).is_relative_to(self.runs / "E3") for p in inputs))
 
     def test_simulation_jobs(self):
         jobs = self.jobs(config.PRODUCTION)
@@ -296,23 +298,20 @@ class Report(unittest.TestCase):
         env = self.environment()
         self.assertEqual(env["clean_runs_on_mixed_machines"], "False")
 
-    def test_environment_says_how_c_psmc_was_built(self):
-        build = {"compiler": "/usr/bin/gcc", "compiler_version": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
-                 "cflags": "-g -Wall -O2 -Wno-unused-function", "ldflags": "", "libs": "-lm -lz",
-                 "platform": "Linux-5.14.0-x86_64-with-glibc2.34", "built": "2026-10-06T12:00:00"}
-        with mock.patch.object(e3.tools, "read_c_build", return_value=build):
+    def test_environment_gives_c_psmcs_build_from_the_runs_records(self):
+        ident = {"version": "0.6.5-r74-dirty", "sha256": "d" * 64, "cc": "gcc (GCC) 11.4.1 20231218 (Red Hat 11.4.1-3)",
+                 "cflags": "-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function"}
+        for run in e3.runs(self.cfg):
+            if run.setup.tool == "c":
+                self.lay.record(run).write_text(json.dumps({"key": {"tools": {"c-psmc": ident}}}))
+        local = {"compiler_version": "Apple clang version 17.0.0", "cflags": "-O1", "ldflags": "", "libs": "-lm -lz",
+                 "platform": "macOS-26.0-arm64-arm-64bit", "built": "2026-10-06T12:00:00"}
+        with mock.patch.object(e3.tools, "read_c_build", return_value=local):  # this machine's build: not read
             self.report()
         env = self.environment()
-        self.assertIn("'-g -Wall -O2 -Wno-unused-function'", env["tool.c.build"])
-        self.assertNotIn("-O1", env["tool.c.build"])
-        self.assertEqual(env["cc"], build["compiler_version"])  # BUILD.json's, not today's cc
-        self.assertEqual(env["tool.c.build_platform"], build["platform"])
-        with mock.patch.object(e3.tools, "read_c_build", return_value=None), \
-                mock.patch.object(e3, "c_compiler", return_value="Apple clang version 17.0.0"):
-            self.report()
-        env = self.environment()
-        self.assertEqual((env["tool.c.build"], env["cc"]), (e3.C_PSMC_BUILD, "Apple clang version 17.0.0"))
-        self.assertNotIn("tool.c.build_platform", env)
+        self.assertEqual((env["tool.c.cc"], env["tool.c.cflags"]), (ident["cc"], ident["cflags"]))
+        self.assertFalse({"tool.c.build", "cc", "tool.c.build_platform", "tool.c.built"} & set(env))
+        self.assertNotIn("Apple clang", self.lay.table("environment").read_text())
 
     def test_a_run_with_other_work_beside_it_stays_out_of_the_medians(self):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "c" and r.repeat == 2)
