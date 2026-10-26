@@ -1,0 +1,25 @@
+{
+ "samples": 52,
+ "chromosome_files": 1144,
+ "converted": 1144,
+ "psmcfa_identical_decompressed": 1144,
+ "qc_equal": 1144,
+ "status_same": 1144,
+ "gz_bytes_identical": 0,
+ "recorded_sha256_is_old_file": 1144,
+ "vcf_is_the_stage_input_by_size": 1144,
+ "whole_psmcfa_identical_decompressed": 52,
+ "whole_gz_identical": 0,
+ "whole_qc_sums_equal": 52,
+ "whole_is_cat_of_chrom_files": 52,
+ "whole_sha256_matches_samples_tsv_and_manifest": 52,
+ "differences": [],
+ "NA12878": {
+  "repo_file_sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+  "e7_file_sha256": "a9501bcc50825dd310c7e67547ce65139cd98a4ecc6f23fa9c3f69d14aadcd35",
+  "repo_equals_e7_gz_bytes": true,
+  "repo_equals_e7_decompressed": true,
+  "repo_equals_current_code_decompressed": true,
+  "decompressed_bytes": 29229348
+ }
+}
