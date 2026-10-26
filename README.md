@@ -68,10 +68,12 @@ psmc-rs convert calls.vcf.gz --psmcfa sample.psmcfa.gz
 
 `fit.json` holds the parameters, `fit.html` the report. The run prints how
 it read the input (for psmcfa, C psmc's `n_seqs`, `sum_L` and `sum_n`), the
-QC report and the model on stderr, and its results on stdout:
+QC report and the model on stderr, and its results on stdout (here for
+`tests/data/c_reference/papuan_chr1_3seg.psmcfa`, the 180,000-bin test
+input, on an Apple M1 Pro):
 
 ```text
-Last EM loglike: -402414.07486276847
+Last EM loglike: -25384.19192712727
 Parameters: fit.json
 PSMC output: fit.psmc
 HTML report: fit.html
@@ -391,8 +393,9 @@ The model options follow C psmc:
 PSMC's transition probabilities assume at most about one recombination per
 bin. When ρ0 per bin is too large for the time grid, some of them are
 negative and EM cannot move from the start (C psmc then reports a flat
-curve): with t_max 15 and flat λ the limit is about 1/6 per bin, which C's
-ρ0 = θ0/4 passes at about 49% heterozygous bins. psmc-rs checks the start
+curve): with t_max 15, flat λ and C's default pattern the limit is about
+1/6 per bin, which C's ρ0 = θ0/4 passes at about 49% heterozygous bins
+(0.161 and about 47% with `4+25*2+4+6`). psmc-rs checks the start
 before the main fit (with N_ITER 0 too when a bootstrap starts from
 `--init-params`) and stops with an error that gives the limit and what to
 change: smaller bins, a larger `--tr-ratio` or a smaller `--rho0` (with
@@ -620,10 +623,10 @@ To plot the fit with its bootstrap replicates: cat fit.psmc fit.bootstrap/replic
 Differences from C's output: the `MM Version` line reads `psmc-rs 0.2.0`;
 for VCF and multihetsep input, one more `MM` line after `n_seqs` says how
 the fit used the callable bases of each bin, such as
-`bin_model:callable-length, counts:exact, mean_callable:0.701234,
-partial_bins:0.850000` (bootstrap replicates fitted with the counts get it
-without `counts`; psmc_plot.pl skips `MM` lines it does not know, and
-psmcfa input gets none);
+`bin_model:callable-length, counts:exact, mean_callable:0.923136,
+partial_bins:0.271512` (E7's fit of HG00637; bootstrap replicates fitted
+with the counts get it without `counts`; psmc_plot.pl skips `MM` lines it
+does not know, and psmcfa input gets none);
 `IT` counts L-BFGS objective evaluations, which depend on the data and the
 pattern (per round with the default pattern, 34 to 74 on the 180,000-bin
 test input and 32 to 72 on Papuan chr1, where C's Hooke-Jeeves needs 1,132
@@ -673,7 +676,7 @@ gives a different fit:
 | pattern | none: 65 intervals (`--n-steps 64`), 65 free λ | `4+5*3+4` (23 intervals, 7 free λ) | C psmc's default; each free λ needs enough recombinations in its intervals to be determined |
 | initial ρ0 | θ0/5 | θ0/4 (`--tr-ratio`) | C psmc's `-r` default |
 | `--smooth-lambda` | 1e-3 | 0 | C psmc's objective |
-| M-step | at most 100 L-BFGS iterations (`--mstep-iters`) | runs to convergence; `--mstep-iters` (1000) only caps it | C psmc's M-step runs to convergence; 100 iterations left the curve 0.03 to 0.16 (RMSE of log10 Ne) from C's |
+| M-step | at most 100 L-BFGS iterations (`--mstep-iters`) | runs to convergence; `--mstep-iters` (1000) only caps it | C psmc's M-step runs to convergence; 0.1's stopped short of the maximum of Q (on an E1 genome every M-step reached the cap), and with E1's options (pattern `4+25*2+4+6`, `--smooth-lambda 0`) its curves were 0.0007 to 0.0065 (RMSE of log10 Ne) from C's on four of E1's genomes |
 | λ range of the M-step | 1e-6 to 1e6 | 1e-6 to 1e4 | above 1e4 the earliest intervals' transition probabilities are rounding noise in f64 |
 | bootstrap | 50,000-bin blocks within each sequence, replicates started from the fit | splitfa trunks of 500,000 bins across the input, fresh start | C psmc's scheme; the old one gave zero spread for sequences shorter than a block |
 | `--input-format` | psmcfa | auto | |
@@ -713,7 +716,8 @@ states × states matrix of counts. Instead of whole forward and backward
 matrices, the E-step keeps one forward vector every 128 bins and
 recomputes each 128-bin segment for the backward pass, so its
 memory still grows with sequence length, but at 1/128 of the rate: about
-bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
+bins / 128 × states × 8 bytes per sequence in flight (plus about 0.14 MB
+per worker thread, 0.23 MB with callable counts in bins of 100).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
 at 19 MB on Papuan chr1 (2.49 M bins) and at 106 MB on a single sequence
 of eight copies of it (19.9 M bins). Sequences are processed in parallel,
