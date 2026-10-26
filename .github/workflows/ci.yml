@@ -89,8 +89,9 @@ jobs:
     name: BAM to PSMC pipeline (end to end)
     runs-on: ubuntu-latest
     env:
-      # lh3/psmc 0.6.5-r74, the version behind tests/data/c_reference.
-      PSMC_COMMIT: 80dc4c1385e6f08044b6131dd6412e092c72b2d1
+      # lh3/psmc 0.6.5-r74, the version behind tests/data/c_reference, at the
+      # commit the manuscript names (its C sources are those of r74's commit).
+      PSMC_COMMIT: 82fa2ada83ee463fe1251b562ae3d60e82d7ad6a
     steps:
       - name: Checkout
         uses: actions/checkout@v4
