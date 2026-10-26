@@ -338,15 +338,22 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 ## Production
 
 The figures run last, as `FIG` jobs after each experiment's `report` job,
-in the production run of [the pipeline's README](../README.md#production):
+in the production run of [the pipeline's README](../README.md#production),
+after E3 alone:
 
 ```bash
-$PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG
+$PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG --cores 50 --mem-gb 64   # once E3's runner has exited
+$PY -m experiment.pipeline start E7 FIG --cores 50 --mem-gb 64               # after E7's data stage
 ```
 
-One job per figure (16), of a few seconds each (1 core, 0.1-0.4 GB peak;
-a few CPU minutes in all), none exclusive; `plan` counts 20 s and 1 GB
-each (`config.FIGURES.job_seconds`, `job_gb`). Fig 4, Fig S4 and art2 wait
-on E3's tables and run at the next `start` after E3; art1, art2, Fig 7,
-Fig S5 and Fig S6 get their jobs only once E7's data stage has run, or once
-their tables are already there. Commit the `figures/` directories and `FIG/provenance/` with the tables.
+On fewer than 50 cores E2's bootstraps never start, nor its report, nor the
+figures that read its tables. One job per figure (16), of a few seconds
+each (1 core, 0.1-0.4 GB peak; about half a CPU minute in all: 16 figures
+in 8 s on a laptop, 35 CPU seconds), none exclusive; `plan` counts 20 s
+and 1 GB each (`config.FIGURES.job_seconds`, `job_gb`).
+`fig4_performance` and `figS4_thread_scaling` read only E3's tables and
+run at the first `start` after E3; the five that read E7's tables,
+`art2_performance` (which also reads E3's) among them, get their jobs only
+once E7's data stage has run, or once their tables are already there, and
+run with `start E7 FIG`. Commit the `figures/` directories and
+`FIG/provenance/` with the tables.
