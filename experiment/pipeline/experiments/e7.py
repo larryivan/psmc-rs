@@ -662,8 +662,8 @@ def _require(files: Iterable[Path]) -> None:
     """Fail naming each of the data stage's outputs ``files`` that is missing, and where they come from."""
     missing = [str(f) for f in files if not f.exists()]
     if missing:
-        raise FileNotFoundError(f"E7's report reads its data stage's outputs (from Zenodo, or made by python -m "
-                                f"experiment.pipeline.kg1000), and these are missing: {', '.join(missing)}")
+        raise FileNotFoundError(f"E7's report reads its data stage's outputs (to be deposited on Zenodo, or made by "
+                                f"python -m experiment.pipeline.kg1000), and these are missing: {', '.join(missing)}")
 
 
 def report(ctx: Context) -> Dict[str, Path]:

@@ -82,8 +82,11 @@ Steps (``python -m experiment.pipeline.kg1000 STEP --profile P --runs-dir R``):
     was read (downloaded first, streamed, or a local copy), and the SHA-256 of
     every output. ``--prune`` then deletes the per-chromosome psmcfa and VCFs.
 
-Layout under ``<runs>/E7/inputs/`` (not committed; the psmcfa files and the
-manifest are the Zenodo deliverable)::
+Layout under ``<runs>/E7/inputs/`` (the repository commits samples.tsv,
+chunks.tsv, MANIFEST.json and records/; the files E7's jobs read, every
+sample's psmcfa, the default set's VCFs, mask/callable.bed,
+nonpass/nonpass.bed.gz, qc/samples.tsv and GIAB's benchmark in meta/, are
+to be deposited on Zenodo)::
 
     samples.tsv, chunks.tsv              the sample table and the chunk plan
     meta/                                the downloaded small files, the stream's sample list and batches
@@ -93,7 +96,7 @@ manifest are the Zenodo deliverable)::
     psmcfa/<sample>.psmcfa.gz            chr1-22: what the fits read
     vcf/<chrom>/<sample>.vcf.gz, vcf/<sample>.vcf.gz   het-or-missing VCFs of the default set
     qc/<chrom>.tsv, qc/samples.tsv       psmc-rs convert's QC per sample
-    records/                             one JSON per step (setup, chunks, chromosomes, pilots)
+    records/                             one JSON per step (setup, chunks, fetches, chromosomes, pilots, samples)
     MANIFEST.json
 
 Temporary files go to ``--tmp-dir`` (``$PSMC_E7_TMPDIR``, default
