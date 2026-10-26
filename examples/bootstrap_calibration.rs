@@ -21,8 +21,8 @@
 //! and of the per-point ratio bootstrap SD / true SD, pooled over base
 //! datasets, plus the same for a robust spread (IQR / 1.349).
 //!
-//! The default run fits 40 + 6 x 90 models and takes about 4 minutes with
-//! `--threads 4` on an Apple M1 Pro, at 34 MB of resident memory; its
+//! The default run fits 40 + 6 x 90 models and takes about 3.5 minutes with
+//! `--threads 4` on an Apple M1 Pro, at 36 MB of resident memory; its
 //! tables do not depend on `--threads`. The numbers in the
 //! `psmc_rs::bootstrap` module docs come from this default run.
 //!

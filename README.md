@@ -460,8 +460,8 @@ follow the truth within a free λ's span: the bands held the truth averaged
 over each span at 44.4% and 50.5% of the times. A smaller version of the
 check, `cargo run --release --example bootstrap_calibration -- --threads 4`
 (`examples/bootstrap_calibration.rs`: 40 sequences of 10,000 bins of a
-`4+5*3+4` model), runs in about 4 minutes on 4 threads and peaks at
-34 MB.
+`4+5*3+4` model), runs in about 3.5 minutes on 4 threads of an Apple M1
+Pro and peaks at 36 MB.
 
 ### convert
 
