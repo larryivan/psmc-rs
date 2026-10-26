@@ -852,26 +852,32 @@ coalescence time (`experiment/pipeline/README.md`; `E1_rs_vs_c.csv`,
 3.7e-6 to 2.0e-4 over E1's genomes (median 2.5e-5) and 9.7e-6 to 2.8e-4
 over the real ones, and no interval in the window differed by more than
 6.6e-4 (E1) and 4.5e-4 (E2). θ, ρ and t_max agreed within a relative
-5.5e-4 in E1 and 1.0e-3 in E2, and the final log-likelihood within
-3.5e-8 and 2.3e-7. On one simulated 4 × 25 Mb bottleneck genome (msprime,
-Hudson, μ = 2.5e-8, r = 1e-8), the curves are 7.7e-5 apart (at most
-2.6e-4), with θ, ρ and t_max within 1.4e-4 and the log-likelihood within
-4e-9 (relative); on this genome the sources of the difference were
-traced. The M-steps are not what keeps them apart. psmc-rs's default fit
-is within 5e-7 of one whose M-steps run to the precision limit, and a port
-of C's Hooke-Jeeves search in place of its L-BFGS gives a curve 7.5e-5
-from C's. Nearly all the rest comes from C's expected counts, which leave
-out the last bin of each sequence (`em::posterior_sigma`): with that bin
-left out of psmc-rs's counts too, its curve is within 6.4e-6 of C's (the
-Hooke-Jeeves port within 8.0e-6), and on the reference data rounds 2 to 5
-agree with C's log-likelihoods to a relative 2.8e-9 instead of 7.3e-8.
-Before the window starts the curves can differ more: the first λ, which
-the data barely determine, ran to the M-step's upper bound of 1e4 in
-psmc-rs (the run says so) and to 1.5e5 in C psmc, whose search has no
-bound; Ne in the first four intervals (up to about 8,600 years) is then
-1.2 log10 units apart, and neither is an estimate. In E1 this happened in
-one of the 40 genomes (an expansion replicate, C psmc's first λ at
-1.08e6), 2.03 log10 units apart.
+5.5e-4 in E1 and 1.0e-3 in E2, and the log-likelihood of the last round
+C psmc prints within 1.3e-8 and 2.3e-7 (at every round within 3.5e-8 and
+3.7e-7). On E1's genomes the sources of the difference were traced, with
+variants of psmc-rs built for the purpose (`experiment/c_equivalence`).
+The M-steps are not what keeps the tools apart: psmc-rs's default fits
+are within a median 1.0e-7 (at most 2.5e-6) of fits whose M-steps run to
+the precision limit, and a port of C's Hooke-Jeeves search in place of
+its L-BFGS leaves the curves as far from C's (a median 2.6e-5, against
+2.5e-5). Most of the rest comes from C's expected counts, which leave out
+the last bin of each sequence (`em::posterior_sigma`): with that bin left
+out of psmc-rs's counts too, 37 of the 40 curves come closer to C's and
+the median falls from 2.5e-5 to 6.2e-6, below the median of 8.5e-6
+between two builds of C psmc (`experiment/crossplatform`); 27 of the 40
+are then at least as close to C's as C psmc's two builds are to each
+other. On E1's first bottleneck replicate, for one, leaving out the last
+bin takes the curve from 2.8e-5 to 1.6e-5 of C's, where C psmc's two
+builds are 2.2e-5 apart. With the last bin left out, rounds 2 to 5 on
+the reference data agree with C's log-likelihoods to a relative 2.8e-9
+instead of 7.3e-8.
+Before the window starts the curves can differ more: in one of E1's 40
+genomes (an expansion replicate) the first λ, which the data barely
+determine, ran to the M-step's upper bound of 1e4 in psmc-rs (the run
+says so) and to 1.08e6 in C psmc, whose search has no bound (the
+Hooke-Jeeves port, unbounded too, took it to 1.03e6); Ne in the first
+four intervals (up to about 4,800 years; the window starts at about
+5,000) is then 2.03 log10 units apart, and neither is an estimate.
 
 Two ignored tests run the tools themselves:
 `VCFUTILS=/path/to/vcfutils.pl FQ2PSMCFA=/path/to/fq2psmcfa cargo test
