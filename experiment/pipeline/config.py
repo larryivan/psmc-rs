@@ -464,8 +464,8 @@ class TimingProtocol:
     During the run it samples the RSS of the tool's process tree every
     ``rss_sample_seconds`` and keeps the larger of that peak and the tool's
     own ``ru_maxrss`` (never below the peak, but on Linux it also counts the
-    memory the process held when launched from the Python wrapper, about
-    25 MB on Ibex, so it is an upper bound for a tool that needs less);
+    memory the process held when launched from the Python wrapper, 26 MB on
+    Ibex in E3_runs.csv, so it is an upper bound for a tool that needs less);
     afterwards it records the CPU time other processes used while it ran.
 
     A run is kept only when it was clean: the machine became quiet within
@@ -485,7 +485,8 @@ class TimingProtocol:
     ``during.unaccounted_cores``, recorded, not limited). Steal time (another
     machine's, under a hypervisor) is limited with them. Kernel threads and
     interrupt time are not: part of it is the kernel's work for the tool (a
-    run keeping 30 cores busy adds about 0.1 core of it on a 128-core node),
+    run keeping 30 cores busy on a 128-core node adds about 0.2 core of it,
+    0.17 to 0.20 more than the same run on one thread),
     the rest housekeeping that the quiet check before the run bounds, and
     neither is another workload. Where not every process can be read (other
     users' processes on macOS, where reaped children's CPU is not readable
