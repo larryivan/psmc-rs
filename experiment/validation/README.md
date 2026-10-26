@@ -127,10 +127,11 @@ heterozygous):
 ## Timing
 
 The timing column of `summary.tsv` is indicative only, as other work
-shared the machine. Measured on their own (medians of three interleaved
-runs), whole fits (25 iterations, 8 threads, 2 Mbins, 64 states, VCF
-reading included) of the dispersed 30% genome of replicate 1 took 3.99 s
-with the counts and 3.69 s without, and of its complete version 3.62 s
-and 3.53 s; the E-step alone is 4.4% slower with dispersed counts (one
+shared the machine. Measured on their own on an Apple M1 Pro (on AC
+power, nothing else heavy running; medians of three interleaved runs),
+whole fits (25 iterations, 8 threads, 2 Mbins, 64 states, VCF reading
+included) of B1's dispersed 30% genome of replicate 1 took 3.99 s with
+the counts and 3.69 s without, and of its complete version 3.62 s and
+3.53 s; the E-step alone is 4.4% slower with dispersed counts (one
 thread; 1.3% when every bin is full),
 `examples/bench_estep.rs --callable`.
