@@ -188,7 +188,8 @@ def interval_diff(a: Curve, b: Curve, window: Tuple[float, float]) -> IntervalDi
 
     Why intervals and not times: the two fits' boundaries are the same
     function of t_max in units of 2 N0, and differ in years only through
-    their N0 (theta) and t_max, by 1e-4 to 1e-3 between psmc-rs and C psmc.
+    their N0 (theta) and t_max, which differ by up to about 1e-3 (relative)
+    between psmc-rs and C psmc (E1_rs_vs_c, E2_rs_vs_c).
     A fixed time between two such nearly equal boundaries reads a different
     step of each curve, a difference of up to 2 in log10 Ne that says nothing
     about how well the fits agree; integrating over log time
