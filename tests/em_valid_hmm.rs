@@ -3,11 +3,12 @@
 //! fall.
 //!
 //! On a simulated bottleneck genome fitted with one λ per interval, the
-//! L-BFGS M-step once took an early λ to about 3e-5, next to λ at their
-//! upper bound. The survival `alpha` then underflows in the squares of
-//! C's formulas, so that the f64 transition matrix's rows sum to up to
-//! 1.014 and its Q exceeds what any HMM reaches; EM's next E-step lowered
-//! the log-likelihood by 367 and the fit never left that point.
+//! L-BFGS M-step once took an early λ far below its neighbours, next to λ
+//! at their upper bound. The survival `alpha` then underflows in the
+//! squares of C's formulas, so that the f64 transition matrix's rows no
+//! longer sum to 1 and its Q exceeds what any HMM reaches; EM's next E-step
+//! lowered the log-likelihood and the fit never left that point. With λ up
+//! to 1e6, the rows of 40 rounds on the 5 Mb genome sum to 1 within 4e-12.
 
 mod common;
 
@@ -61,8 +62,8 @@ fn fit_and_check(n_iter: usize, config: &MStepConfig) -> EmHistory {
 
 #[test]
 fn em_keeps_a_valid_hmm_with_lambda_up_to_1e6() {
-    // The bounds under which the M-step left the HMMs (lam_hi 1e6): their
-    // 8th iteration did, from round 7's statistics.
+    // The bounds under which the M-step once left the HMMs (lam_hi 1e6);
+    // over these 10 rounds every row sums to 1 within 3.5e-12.
     let config = MStepConfig {
         lam_hi: 1e6,
         ..mstep()
@@ -72,11 +73,12 @@ fn em_keeps_a_valid_hmm_with_lambda_up_to_1e6() {
 
 #[test]
 fn em_keeps_improving_with_one_lambda_per_interval() {
-    // With λ up to 1e6 the first two λ reached that bound and the fit
-    // stopped moving at round 16 (log-likelihood -8445.92), every M-step
-    // failing among the infeasible points around its start. With the
-    // default bound the fit improves every round, as C psmc's does
-    // (`psmc -N40 -t15 -r5 -p 64*1`: -8445.3196 in round 40).
+    // The fit improves every round, as C psmc's does (`psmc -N40 -t15 -r5
+    // -p 64*1`: -8445.3196 in round 40). With λ up to 1e6 it does too: the
+    // first two λ reach that bound by round 6 and 36 of the 40 M-steps end
+    // in a failed line search, but the log-likelihood still rises every
+    // round (round 40: -8445.32007, against -8445.32013 with the default
+    // bound).
     let history = fit_and_check(40, &mstep());
     for (i, &(before, after)) in history.loglike.iter().enumerate().skip(1) {
         assert!(after > before, "iteration {}: {before} -> {after}", i + 1);

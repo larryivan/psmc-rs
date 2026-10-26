@@ -2,10 +2,11 @@
 //! one parameter alone must not raise Q.
 //!
 //! On a simulated 2 Mb bottleneck genome fitted with one λ per interval,
-//! the first M-step once stopped with the first λ at 9,859 while Q peaks
-//! at 49 along it (7.6e-4 higher): the λ, which the data barely constrain,
-//! had been carried past its optimum to where Q falls slowly towards the
-//! bound, and the L-BFGS memory predicted no further decrease there.
+//! the first M-step once stopped with the first λ far past the peak of Q
+//! along it: the λ, which the data barely constrain, had been carried past
+//! its optimum to where Q falls slowly towards the bound, and the L-BFGS
+//! memory predicted no further decrease there. Q peaks at 48.8 along it,
+//! where the M-step ends.
 
 mod common;
 
