@@ -27,6 +27,13 @@ $PY -m experiment.pipeline stop           # or: stop --drain (finish running job
 $PY -m experiment.pipeline start E1       # resume: only what is not done runs
 ```
 
+The default runs directory, `experiment/runs` (unless `$PSMC_EXP_RUNS`
+names another), holds the committed production: give `start`, `status` and
+`stop` `--runs-dir NEW` to run into a new directory. In the committed runs,
+a job whose tool is another build than the production's (psmc-rs built by
+another rustc, another C psmc binary) counts as not done, and `start`
+would run it again over the committed results.
+
 `--profile smoke` runs the same jobs at a small size in
 `experiment/.runs-smoke/` (3 EM iterations; `plan --profile smoke` counts
 167 jobs of E1-E6 and the figures and expects about 3 minutes; E7 has none
