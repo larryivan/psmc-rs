@@ -3,9 +3,11 @@
 //! `tests/data/c_reference/` holds C outputs on a 180,000-bin psmcfa (see the
 //! README there). With C's initialisation (θ0 = −ln(1 − K/L), ρ0 = θ0/4,
 //! λ = 1, t_max = 15) the first E-step sees identical parameters, so its
-//! log-likelihood must agree to C's printed precision. Later rounds depend on
-//! the M-step optimiser (C: Hooke-Jeeves; here: L-BFGS), which both run to
-//! convergence, and must stay within a relative 2e-7 (see `check`).
+//! log-likelihood must agree to C's printed precision. Later rounds follow
+//! M-steps by different optimisers (C: Hooke-Jeeves; here: L-BFGS), which
+//! both run to convergence, and must stay within a relative 2e-7; what is
+//! left comes from C's expected counts, not from the optimisers (see
+//! `check`).
 
 mod common;
 
@@ -35,11 +37,10 @@ fn check(pattern: &str, c_file: &str) {
     // 2.7. The rest is C's expected counts, which leave out the last bin of
     // each sequence (3 of 150,947 here, see psmc_rs::em::posterior_sigma),
     // and EM carries that into the next rounds: with those bins left out of
-    // psmc-rs's counts too, rounds 2 to 5 agree to 2.8e-9 and 8.1e-10, and a
+    // psmc-rs's counts too, rounds 2 to 5 agree to 2.8e-9 and 7.9e-10, and a
     // port of C's Hooke-Jeeves M-step in place of psmc-rs's L-BFGS gives
-    // 2.4e-9 and 1.3e-9 (6.9e-8 and 7.5e-8 with every bin), so the M-steps
-    // agree. With the M-step capped at 100 iterations, as psmc-rs 0.1's
-    // was, 4+25*2+4+6 differed by 3.8e-7.
+    // 1.9e-9 and 8.7e-10 (6.8e-8 and 7.3e-8 with every bin), so the M-steps
+    // agree.
     for (i, (r, c)) in rust_lk.iter().zip(&c_lk).enumerate().skip(1) {
         let rel = ((r - c) / c).abs();
         assert!(

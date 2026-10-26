@@ -218,11 +218,8 @@ fn matches_c_psmc_output_pattern_4_25x2_4_6() {
 
 #[test]
 fn matches_c_psmc_output_without_pattern() {
-    // C's "23*1": every state has its own lambda. (With M-steps capped at
-    // 100 L-BFGS iterations, as psmc-rs's default was, the fits drifted
-    // apart in every state: by round 5 lambda_0 was 4.33 vs C's 6.52.)
-    // Measured (relative): LK 7.1e-8, lambda 4.1e-4, theta, rho and t_max
-    // 2.3e-4, RI 2.5e-4.
+    // C's "23*1": every state has its own lambda. Measured (relative): LK
+    // 7.1e-8, lambda 4.1e-4, theta, rho and t_max 2.3e-4, RI 2.5e-4.
     check_against_c(None, "psmc_out/c_23x1_N5.psmc");
 }
 
