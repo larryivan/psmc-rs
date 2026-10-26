@@ -790,13 +790,22 @@ connection). `E7.input = "panel"` reads the phased panel instead (MAC >= 2,
 imputed genotypes: it lacks part of each genome's PASS heterozygous
 SNVs), a fallback whose figures must say so. `run` does every step in one
 process; on a cluster `experiment/slurm/submit.sh e7-prep` chains setup, a
-task per chromosome and the samples.
+task per chromosome and the samples. `setup`, `chunk`, `chrom` and
+`assemble-chrom` skip what their records in `inputs/records/` say is done,
+and the repository commits those records with `MANIFEST.json`,
+`samples.tsv` and `chunks.tsv`: in the committed runs the stage remakes
+nothing (the chr21 pilot, which runs again, and `assemble-samples` stop for
+want of the files those records describe).
+It remakes the inputs into a new `--runs-dir` (given to `start E7` too), or
+once `runs/E7/inputs/records/` and `MANIFEST.json` are removed.
 
-**Fits** (the runner, once `MANIFEST.json` exists; before, E7 has no jobs
-and FIG none of its figures): every sample's psmcfa with psmc-rs
-(`fit-rs-psmcfa`); the default set's VCFs with the mask and psmc-rs's
-callable bases per bin (`fit-rs-vcf`: Fig S5's dark lines and Fig S6b;
-Fig 7's curves are the psmcfa fits), and its
+**Fits** (the runner, once the data stage's `MANIFEST.json` exists, as in
+the committed runs; before, E7 has no jobs, and FIG declares the figures
+that read E7's tables only where those tables exist; in a clone, without
+the inputs, E7's 2,639 jobs wait, blocked): every sample's psmcfa with
+psmc-rs (`fit-rs-psmcfa`); the default set's VCFs with the mask and
+psmc-rs's callable bases per bin (`fit-rs-vcf`: Fig S5's dark lines and
+Fig S6b; Fig 7's curves are the psmcfa fits), and its
 psmcfa with C psmc (`fit-c`); psmc-rs's bootstrap of the three samples
 (`boot-rs`, 100 replicates; its main fit must equal `fit-rs-psmcfa`'s);
 the first default sample of every population with the first time window
