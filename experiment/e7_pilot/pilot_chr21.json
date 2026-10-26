@@ -1,0 +1,151 @@
+{
+  "chrom": "chr21",
+  "commands": {
+    "convert": "<repo>/target/release/psmc-rs convert /dev/stdin --vcf-mode mask --vcf-sample NA18507 --vcf-mask <runs>/E7/inputs/mask/chr21.bed --bin-size 100 --psmcfa <local-tmp>/pilot_chr21/NA18507.psmcfa.gz --qc-json <local-tmp>/pilot_chr21/NA18507.qc.json -q",
+    "split_convert": [
+      "<repo>/target/release/psmc-rs",
+      "convert",
+      "<inputs>/vcf/chr21/S.vcf.gz",
+      "--vcf-mode",
+      "mask",
+      "--vcf-mask",
+      "<inputs>/mask/chr21.bed",
+      "--vcf-negative-mask",
+      "<inputs>/nonpass/chr21.bed.gz",
+      "--bin-size",
+      "100",
+      "--psmcfa",
+      "<split>/S.psmcfa.gz",
+      "--qc-json",
+      "<split>/S.qc.json",
+      "-q"
+    ],
+    "stream": "bcftools view --no-version --threads 4 -r chr21:1-46709983 --regions-overlap pos -Ov <local-tmp>/sources/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz##idx##<runs>/E7/inputs/meta/tbi/chr21.vcf.gz.tbi"
+  },
+  "fetch": {
+    "bytes": 26084746703,
+    "manifest_bytes": 26084746703,
+    "manifest_md5": "7eeb7f4be64184f33301ee62cf7a20df",
+    "mb_per_s": 49.83,
+    "md5": "7eeb7f4be64184f33301ee62cf7a20df",
+    "parts": 16,
+    "seconds": 523.523,
+    "sha256": "22da31ddad4b6a2e1ed46f02d162da37c165eb3507fca6ffbfab896ecdb6568a",
+    "url": "https://1000genomes.s3.amazonaws.com/1000G_2504_high_coverage/working/20201028_3202_raw_GT_with_annot/20201028_CCDG_14151_B01_GRM_WGS_2020-08-05_chr21.recalibrated_variants.vcf.gz"
+  },
+  "identical": true,
+  "identical_to_e7": true,
+  "note": "E7's chr21 pilot redone with the production's psmc-rs (src dcf29ca) on 2026-10-25: the joint chr21 VCF downloaded whole by kg1000.fetch_ranges (size and MD5 as the manifest's), streamed once by bcftools view and fed by kg1000.tee to kg1000.convert_command(..., sample=S); the split route is the data stage's per-chromosome convert of the kept het-or-missing VCF. psmcfa_identical and qc_fields_differing compare the two routes (both current code); e7 compares each with E7's chr21 file and qc/chr21.tsv row (src 4c0d777). The gzip bytes of the two routes are identical; E7's differ (the current code writes gzip with zlib-rs).",
+  "psmc-rs": {
+    "binary_sha256": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e",
+    "cargo_build_rustflags": "",
+    "cargo_encoded_rustflags": "",
+    "cargo_profile_release": "",
+    "cargo_target_rustflags": "",
+    "llvm": "23.1.1",
+    "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
+    "rustflags": "",
+    "source_commit": "4b2c636fe069e2706968fb79126fce797a557927",
+    "source_note": "the production's binary (/ibex/user/hany0c/psmc-rs-prod/target/release/psmc-rs) copied into an archive of 4b2c636f; kg1000.rs_identity() saw no git checkout there, so source_commit and source_tree are the production checkout's (git rev-parse HEAD, HEAD:src, HEAD:Cargo.toml, HEAD:Cargo.lock)",
+    "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
+    "target_features": "none",
+    "version": "psmc-rs 0.2.0"
+  },
+  "region": "chr21:1-46709983",
+  "samples": [
+    {
+      "e7": {
+        "direct_psmcfa_identical": true,
+        "direct_qc_fields_differing": [],
+        "gz_sha256_e7": "494976d3ca82512d5b55224886cac3ea3cc05666e3ac59bfb64bfae7f9ca7baf",
+        "gz_sha256_recorded": "494976d3ca82512d5b55224886cac3ea3cc05666e3ac59bfb64bfae7f9ca7baf",
+        "split_psmcfa_identical": true,
+        "split_qc_fields_differing": []
+      },
+      "gz_sha256_direct": "c5caf074c17072869f12bb45de75e3fbcbd9a138b76fc95003607882a01eb5f4",
+      "gz_sha256_split": "c5caf074c17072869f12bb45de75e3fbcbd9a138b76fc95003607882a01eb5f4",
+      "psmcfa_bytes": 474892,
+      "psmcfa_identical": true,
+      "qc": {
+        "bins": 467100,
+        "called_bases": 27173039,
+        "called_bins": 292910,
+        "het_sites": 32610,
+        "k_bins": 29074,
+        "length_bases": 46709983,
+        "missing_bins": 174190,
+        "partial_bins": 80161,
+        "t_bins": 263836
+      },
+      "qc_fields_differing": [],
+      "sample_id": "NA18507",
+      "split_route": "converted in the pilot's job, the data stage's command (MANIFEST commands.assemble_chrom.convert): <repo>/target/release/psmc-rs convert <runs>/E7/inputs/vcf/chr21/NA18507.vcf.gz --vcf-mode mask --vcf-mask <runs>/E7/inputs/mask/chr21.bed --vcf-negative-mask <runs>/E7/inputs/nonpass/chr21.bed.gz --bin-size 100 --psmcfa <split>/NA18507.psmcfa.gz --qc-json <split>/NA18507.qc.json -q"
+    },
+    {
+      "e7": {
+        "direct_psmcfa_identical": true,
+        "direct_qc_fields_differing": [],
+        "gz_sha256_e7": "1e2deb3f441fdcb6469abb9678d6f86725f44a308e353ba4b273710856938573",
+        "gz_sha256_recorded": "1e2deb3f441fdcb6469abb9678d6f86725f44a308e353ba4b273710856938573",
+        "split_psmcfa_identical": true,
+        "split_qc_fields_differing": []
+      },
+      "gz_sha256_direct": "b30da22d93c3527ae8065aaed1c0b1b3add1be46176ffb43a50a9b085e365884",
+      "gz_sha256_split": "b30da22d93c3527ae8065aaed1c0b1b3add1be46176ffb43a50a9b085e365884",
+      "psmcfa_bytes": 474892,
+      "psmcfa_identical": true,
+      "qc": {
+        "bins": 467100,
+        "called_bases": 27173896,
+        "called_bins": 292921,
+        "het_sites": 30862,
+        "k_bins": 27625,
+        "length_bases": 46709983,
+        "missing_bins": 174179,
+        "partial_bins": 80062,
+        "t_bins": 265296
+      },
+      "qc_fields_differing": [],
+      "sample_id": "NA19239",
+      "split_route": "converted in the pilot's job, the data stage's command (MANIFEST commands.assemble_chrom.convert): <repo>/target/release/psmc-rs convert <runs>/E7/inputs/vcf/chr21/NA19239.vcf.gz --vcf-mode mask --vcf-mask <runs>/E7/inputs/mask/chr21.bed --vcf-negative-mask <runs>/E7/inputs/nonpass/chr21.bed.gz --bin-size 100 --psmcfa <split>/NA19239.psmcfa.gz --qc-json <split>/NA19239.qc.json -q"
+    },
+    {
+      "e7": {
+        "direct_psmcfa_identical": true,
+        "direct_qc_fields_differing": [],
+        "gz_sha256_e7": "448efdaefecadcb9bbb9a6a5ef2934d18a784417349b537730822df502cdf892",
+        "gz_sha256_recorded": "448efdaefecadcb9bbb9a6a5ef2934d18a784417349b537730822df502cdf892",
+        "split_psmcfa_identical": true,
+        "split_qc_fields_differing": []
+      },
+      "gz_sha256_direct": "71bd6c7d864a340de63e2ef554e8966687eb56303938d726a7e682ef0455e3e0",
+      "gz_sha256_split": "71bd6c7d864a340de63e2ef554e8966687eb56303938d726a7e682ef0455e3e0",
+      "psmcfa_bytes": 474892,
+      "psmcfa_identical": true,
+      "qc": {
+        "bins": 467100,
+        "called_bases": 27177215,
+        "called_bins": 292924,
+        "het_sites": 23470,
+        "k_bins": 20897,
+        "length_bases": 46709983,
+        "missing_bins": 174176,
+        "partial_bins": 79481,
+        "t_bins": 272027
+      },
+      "qc_fields_differing": [],
+      "sample_id": "NA12878",
+      "split_route": "converted in the pilot's job, the data stage's command (MANIFEST commands.assemble_chrom.convert): <repo>/target/release/psmc-rs convert <runs>/E7/inputs/vcf/chr21/NA12878.vcf.gz --vcf-mode mask --vcf-mask <runs>/E7/inputs/mask/chr21.bed --vcf-negative-mask <runs>/E7/inputs/nonpass/chr21.bed.gz --bin-size 100 --psmcfa <split>/NA12878.psmcfa.gz --qc-json <split>/NA12878.qc.json -q"
+    }
+  ],
+  "step": "pilot",
+  "stream_seconds_pilot": 1841.037,
+  "supersedes": "experiment/runs/E7/inputs/records/pilot_chr21.json and MANIFEST.json pilots.chr21 (SLURM 53449988, 2026-10-08, psmc-rs source_commit 0c84f059, src 4c0d777, binary 2085fe3a)",
+  "where": {
+    "host": "cn514-14-l",
+    "slurm_cpus_on_node": "16",
+    "slurm_job_id": "54553272",
+    "slurm_nodelist": "cn514-14-l",
+    "time": "2026-10-25T20:55:00"
+  }
+}
