@@ -31,11 +31,12 @@ production runs of E1 to E7 and FIG:
 | truth records of the simulated genomes (settings, seeds, software versions, per-chromosome counts and checksums, the true Ne(t)) | `runs/<EXP>/truth/` |
 | every fit: psmc-rs JSON and `.psmc`, C psmc `.psmc` | `runs/<EXP>/fits/` |
 | bootstrap runs: main fit, every replicate's JSON, `summary.json` and `summary.tsv` | `runs/E2/bootstrap/`, `runs/E5/boot/`, `runs/E7/boot/` |
-| E4's masks, bins and cross-checks; QC reports | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E6}/qc/` |
+| E3's timing records (one JSON for each of the 95 timed runs: wall and CPU time, peak memory, the machine's load before and during the run) | `runs/E3/timings/` |
+| E4's masks, bins and cross-checks; QC reports (E7's: NA12878's heterozygous SNVs against GIAB) | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E6,E7}/qc/` |
 | one provenance record per job | `runs/<EXP>/provenance/` |
-| tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (the software's schematic, not in the article: `runs/FIG/`) |
-| E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs and the masks | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000`) |
-| E7's data stage: `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the default genomes' conversions redone with the production's psmc-rs | `runs/E7/inputs/MANIFEST.json`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
+| tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (`runs/FIG/figures/`: the article's Fig 1, `art1_agreement`, and the software's schematic, `fig1_workflow`, which the article leaves out) |
+| E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs and the masks | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000` in a runs directory without the stage's committed records, section 5) |
+| E7's data stage: its sample table and chunk plan (`samples.tsv`, `chunks.tsv`, which E7's job graph reads), `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the default genomes' conversions redone with the production's psmc-rs | `runs/E7/inputs/{samples.tsv,chunks.tsv,MANIFEST.json}`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
 | the analyses outside the pipeline, each with its scripts, results and README: the cross-platform comparison (section 9) and the diagnostic of the residual difference from C psmc (variants of psmc-rs, as a patch, and their fits of E1's genomes) | `experiment/crossplatform/`, `experiment/c_equivalence/` |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
