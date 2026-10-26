@@ -825,10 +825,11 @@ stage is network-bound: hours per chromosome where the link is slow.
 ## Figures
 
 `FIG` draws each figure as a runner job after the tables it reads, into
-`runs/<experiment>/figures/<name>.{pdf,svg,png}` (Fig 1 into `runs/FIG/`);
-`python -m experiment.pipeline.figures` draws them directly from the
-tables. Every figure is drawn there and only there. The style, the tables
-each figure reads and what captions must add are in
+`runs/<experiment>/figures/<name>.{pdf,svg,png}` (the article's Fig 1,
+`art1_agreement`, and the schematic, `fig1_workflow`, into
+`runs/FIG/figures/`); `python -m experiment.pipeline.figures` draws them
+directly from the tables. Every figure is drawn there and only there. The
+style, the tables each figure reads and what captions must add are in
 [figures/README.md](figures/README.md).
 
 ## Production
