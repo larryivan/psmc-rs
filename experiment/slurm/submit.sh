@@ -7,8 +7,9 @@ usage() {
 Usage: submit.sh JOB [ARG...] [-- SBATCH_OPTION...]
 
   build            build psmc-rs and C psmc in $PROD and run every test
-  prod             E1 E2 E4 E5 E6 (and E7 once e7-prep is done) in
-                   $PROD/experiment/runs, one allocation
+  prod             E1 E2 E4 E5 E6 E7 in $PROD/experiment/runs, one
+                   allocation (E7's jobs wait for its inputs: e7-prep, or
+                   copied)
   e3 REPEAT...     E3's timing runs of these repeats, one exclusive node
                    each (e3 1 2 3 4 5: all of them)
   e3-report        E3's tables, once merge_e3.sh merged the repeats

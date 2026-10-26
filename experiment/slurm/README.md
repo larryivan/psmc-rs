@@ -8,7 +8,7 @@ SLURM allocations:
 | job | what | allocation |
 | --- | --- | --- |
 | `build` | builds psmc-rs 0.2 (release profile, no RUSTFLAGS) and C psmc (`tools --build-c`, recorded in `BUILD.json`), checks every tool (`tools`), runs every Rust and Python test; ends with "all passed" | 32 CPUs, 2 h |
-| `prod` | E1 E2 E4 E5 E6 E7: one runner in the foreground within the allocation (E7 once `e7-prep` is done) | `$PROD_CPUS` CPUs (at least 52: E2's bootstraps run on 50 threads), `$PROD_MEM`, `$PROD_TIME` |
+| `prod` | E1 E2 E4 E5 E6 E7: one runner in the foreground within the allocation (E7's jobs run once its inputs are in `runs/E7/inputs/`, from `e7-prep` or copied; until then they stay blocked while the others run) | `$PROD_CPUS` CPUs (at least 52: E2's bootstraps run on 50 threads), `$PROD_MEM`, `$PROD_TIME` |
 | `e3 R` | E3's simulations and the timing runs of repeat R, each run alone | an exclusive node of `$E3_CONSTRAINT`, `$E3_TIME` |
 | `e3-report` | E3's tables from the merged repeats | 2 CPUs, 1 h |
 | `e7-prep [N...]` | E7's data stage (`kg1000`): setup; one task per chromosome (default 1-22): its VCF downloaded to node-local disk and checked, split per sample, every sample's psmcfa (chr21: then the pilot); the samples joined and `MANIFEST.json` | setup 2 CPUs, 3 h; chromosomes `$E7_PREP_PARALLEL` at once, each `$E7_PREP_CPUS` CPUs, `$E7_PREP_MEM`, `$E7_PREP_TIME`; samples 16 CPUs, 4 h |
@@ -49,10 +49,11 @@ For a new production commit: `git -C $MAIN fetch && git -C $PROD checkout
 ```bash
 cd $PROD/experiment/slurm         # ./submit.sh --help lists the jobs
 ./submit.sh build                 # its log ends with "all passed"
-./submit.sh prod                  # E1 E2 E4 E5 E6; submit again if the time ran out
+./submit.sh prod                  # E1 E2 E4 E5 E6 (E7 once its inputs exist); submit again if the time ran out
 ./submit.sh e3 1 2 3 4 5          # in parallel with prod
 ./merge_e3.sh                     # once every e3 job has ended
 ./submit.sh e3-report             # waits for prod: both use $PROD's runs directory
+rm -r $PROD/experiment/runs/E7/inputs/{records,MANIFEST.json}   # once: the stage skips every step whose record is committed
 ./submit.sh e7-prep               # E7's inputs (network-bound: hours per chromosome); then prod again for E7
 ```
 
@@ -66,8 +67,12 @@ Every job waits for a build job still queued or running. `prod` and
 `e3-report` share one job name (`psmcrs-runs`) and run one after the other,
 since a runs directory holds one runner; each `e3 R` is its own singleton.
 The `e7-prep` jobs write only `$PROD/experiment/runs/E7/inputs/`, which no
-runner holds, and E7 has no runner jobs until its last step has written the
-manifest; a chromosome task that failed is submitted again with `e7-prep N`
+runner holds. The repository commits the data stage's `records/`,
+`MANIFEST.json`, `samples.tsv` and `chunks.tsv`; the stage takes a step
+whose record exists as done, so `records/` and `MANIFEST.json` are removed
+before the first `e7-prep`. E7 has jobs while a `MANIFEST.json` exists (the
+stage's last step writes it), and they stay blocked until its inputs
+exist. A chromosome task that failed is submitted again with `e7-prep N`
 (setup and finished chromosomes are skipped). A job that reaches its time
 limit leaves its unfinished runs pending: 90 minutes (E3: 2 hours) before
 the limit the runner starts nothing new, and submitting again runs only

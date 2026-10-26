@@ -1,7 +1,7 @@
 #!/bin/bash
-# E1 E2 E4 E5 E6 E7 in one allocation (E7 once its data stage, submit.sh e7-prep,
-# has written its inputs): one runner, in the foreground, within the
-# allocation's CPUs and memory. Submit with experiment/slurm/submit.sh prod.
+# E1 E2 E4 E5 E6 E7 in one allocation (E7's jobs wait, blocked, until its inputs
+# exist: submit.sh e7-prep, or copied): one runner, in the foreground, within
+# the allocation's CPUs and memory. Submit with experiment/slurm/submit.sh prod.
 #
 # 90 minutes before the time limit SLURM sends USR1 to the runner, which then
 # starts no new job; at the limit, jobs still running are stopped and stay
