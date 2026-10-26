@@ -443,34 +443,40 @@ Library API:
   columns and over the diagonal (`hmm::TransitionSums`), which the E-step
   adds up from prefix and suffix sums at every bin, with NEON code on
   aarch64 and AVX2 code on x86-64, instead of the whole states × states
-  matrix of counts (their sums take 12% of an E-step's time with 64
+  matrix of counts (computing the transition sums takes 12% of a
+  single-threaded E-step's time on the human chromosome 1 below, with 64
   states on an M1 Pro). The E-step keeps one forward vector every 128
   bins instead of whole forward and backward matrices. On the human
   chromosome 1 in `experiment/real_data` (one sequence of 2.49 M bins,
   `4+25*2+4+6`, 20 iterations, 1 thread, Apple M1 Pro) a fit takes 15 s
-  and 19 MB instead of 146 s and 1.95 GB; on HLhydTec1 (34 sequences,
-  18.5 M bins, 5 iterations, 8 threads) 6.5 s and 98 MB instead of 81 s
-  and a peak memory footprint of 7.9 GB.
+  and 19 MB of resident memory instead of 146 s and a peak memory
+  footprint of 1.95 GB; on HLhydTec1 (34 sequences, 18.5 M bins, 5
+  iterations, 8 threads) 6.5 s and 98 MB instead of 81 s and 7.9 GB.
 - The E-step and the log-likelihood merge each work item's sums as soon as
   those before it are merged, instead of holding them all, with results
-  unchanged to the bit: a bootstrap of 8 replicates on 8 threads of a
-  200 Mb genome in 500 sequences peaks at 110 MB (84 MB with
-  `--bin-callable ignore`).
+  unchanged to the bit: a fit and a bootstrap of 8 replicates, one EM
+  iteration each on 8 threads, of a 200 Mb genome in 500 sequences with
+  30% of its bases missing in 20 bp runs peak at 110 MB of resident memory
+  on an M1 Pro (84 MB with `--bin-callable ignore`).
 - TMRCA decoding runs in parallel within and across sequences (29,988
-  sequences of 50-300 bins, the first 5.24 M bins of HLhydTec1, at 8
-  threads: 52.8 s in 0.1 to 0.74 s, and 3.95 s on 1 thread).
+  sequences of 50-300 bins, the first 5.24 M bins of HLhydTec1,
+  `4+25*2+4+6`; whole runs at 0 EM iterations that read them and write
+  the `--tmrca-out` table, on an M1 Pro: at 8 threads 52.8 s in 0.1 to
+  0.74 s, and 3.95 s on 1 thread).
 - Input reading is faster and leaner: psmcfa is streamed instead of read
   whole, gzip and bgzip input is decoded in a thread of its own beside the
   parsing, and callable masks are merged as they are read (40 million
-  per-site rows: 643 MB in 0.1 to 6.1 MB).
+  per-site rows, whole runs at 0 EM iterations on an M1 Pro: a peak
+  memory footprint of 644 MB in 0.1 to 6.1 MB of resident memory).
 - The M-step differentiates its objective in reverse mode instead of with
   forward-mode dual numbers, which carried the derivatives with respect to
   every parameter through every operation, and evaluates it from the sums
   of the expected transition counts: an evaluation takes O(states) time
   and memory, however many λ are free (about 7.6 µs instead of 0.95 ms in
-  0.1 for `4+25*2+4+6`). With one λ per interval, one EM iteration on the
-  180,000-bin test input with 401 intervals peaked at 437 MB of resident
-  memory instead of 1.36 GB in 0.1 and took 11.0 s instead of 54.4 s.
+  0.1 for `4+25*2+4+6`). With one λ per interval, one EM iteration on one
+  thread of an M1 Pro, on the 180,000-bin test input with 401 intervals,
+  peaked at 437 MB of resident memory instead of a peak memory footprint
+  of 1.33 GB in 0.1 and took 11.0 s instead of 54.4 s.
   With that gradient and a curvature-scaled L-BFGS, the converged M-step
   (see *Changed*) takes a small fraction of the E-step's time: with
   `4+25*2+4+6` on one thread, 0.55 to 0.84 ms per EM iteration on E3's
