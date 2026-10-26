@@ -103,7 +103,7 @@ class Design(unittest.TestCase):
             self.assertEqual((g.scaling.mu, g.scaling.gen_years), (4.6e-9, 15.0))
             self.assertIn("Bergeron et al. 2023", g.scaling_source)
             self.assertIn("no pleurodire rate has been measured", g.scaling_source)
-            self.assertIn("crocodilian rate (Green et al. 2014", g.scaling_source)
+            self.assertIn("crocodilian rate 7.9e-9 (Green et al. 2014", g.scaling_source)
             self.assertNotIn("UNVERIFIED", g.scaling_source)
             self.assertTrue(g.scaling_cite)
         self.assertEqual([g for g in p.e2.genomes if g.sample_id in p.e2.split_genomes], list(p.e2.genomes[:3]))

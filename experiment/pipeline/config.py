@@ -331,7 +331,7 @@ _TURTLE_SCALING_SOURCE = (
     "pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. "
     "g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: "
     "P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. "
-    "Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449)."
+    "The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher."
 )
 _TURTLE_SCALING_CITE = "painted turtle trios (Bergeron 2023)"
 # The human scaling, shared with E7 (E7.scaling and scaling_source), which
