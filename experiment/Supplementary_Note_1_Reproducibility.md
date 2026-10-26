@@ -57,19 +57,22 @@ replicates' `.psmc` files, HTML reports, logs and the runner's state
   --locked` (Rust 1.88 or later; the production build used rustc 1.99.0,
   the release profile and no `RUSTFLAGS`).
 - **C psmc** (lh3/psmc 0.6.5-r74) with its `fq2psmcfa` and `splitfa`,
-  and `generate_multihetsep.py` of msmc-tools, in `experiment/.tools` (or
-  `$PSMC_EXP_TOOLS`); section 7 describes the builds.
+  and `generate_multihetsep.py` of msmc-tools at commit 0d1d169
+  (2023-06-27; its SHA-256, below, is the one the provenance records of
+  E4's cross-checks hold), in `experiment/.tools` (or `$PSMC_EXP_TOOLS`);
+  section 7 describes the builds.
 - **Figures:** Arial (else Helvetica, else DejaVu Sans).
 
 ```bash
 git clone https://github.com/larryivan/psmc-rs.git && cd psmc-rs
-git checkout <MANUSCRIPT_TAG>
+git checkout v0.2.0
 python3.13 -m venv experiment/.venv
 experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.lock
 cargo build --release --locked
 T=experiment/.tools
 git clone https://github.com/lh3/psmc $T/psmc_c && git -C $T/psmc_c checkout 82fa2ad
-git clone https://github.com/stschiff/msmc-tools $T/msmc-tools
+git clone https://github.com/stschiff/msmc-tools $T/msmc-tools && git -C $T/msmc-tools checkout 0d1d169
+# generate_multihetsep.py's SHA-256: caaa87a07e0fe2dc7228f30c9aff759cf86e9f61b8332aabd41398399ea6331b
 PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline tools --build-c   # builds C psmc; exits 1 if a tool is missing
 ```

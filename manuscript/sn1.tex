@@ -76,21 +76,24 @@ replicates' \texttt{.psmc} files, HTML reports, logs and the runner's state
   the release profile and no \texttt{RUSTFLAGS}).
 \item
   \textbf{C psmc} (lh3/psmc 0.6.5-r74) with its \texttt{fq2psmcfa} and \texttt{splitfa},
-  and \texttt{generate\_\allowbreak{}multihetsep.py} of msmc-tools, in \texttt{experiment/\allowbreak{}.tools} (or
-  \texttt{\$PSMC\_\allowbreak{}EXP\_\allowbreak{}TOOLS}); section 7 describes the builds.
+  and \texttt{generate\_\allowbreak{}multihetsep.py} of msmc-tools at commit 0d1d169
+  (2023-06-27; its SHA-256, below, is the one the provenance records of
+  E4's cross-checks hold), in \texttt{experiment/\allowbreak{}.tools} (or \texttt{\$PSMC\_\allowbreak{}EXP\_\allowbreak{}TOOLS});
+  section 7 describes the builds.
 \item
   \textbf{Figures:} Arial (else Helvetica, else DejaVu Sans).
 \end{itemize}
 
 \begin{verbatim}
 git clone https://github.com/larryivan/psmc-rs.git && cd psmc-rs
-git checkout <MANUSCRIPT_TAG>
+git checkout v0.2.0
 python3.13 -m venv experiment/.venv
 experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.lock
 cargo build --release --locked
 T=experiment/.tools
 git clone https://github.com/lh3/psmc $T/psmc_c && git -C $T/psmc_c checkout 82fa2ad
-git clone https://github.com/stschiff/msmc-tools $T/msmc-tools
+git clone https://github.com/stschiff/msmc-tools $T/msmc-tools && git -C $T/msmc-tools checkout 0d1d169
+# generate_multihetsep.py's SHA-256: caaa87a07e0fe2dc7228f30c9aff759cf86e9f61b8332aabd41398399ea6331b
 PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline tools --build-c   # builds C psmc; exits 1 if a tool is missing
 \end{verbatim}
