@@ -872,7 +872,7 @@ back.
 | E5 | 121 | 16 | 2.3 | 11.2 | 20 bootstrap runs of about 45 min (Ibex: 27 to 36) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
 | E7 | 2,639 | 480 | 11 (50 cores) | 418.1 (the C psmc fits 78.1; every fit and bootstrap in one job, below) | after its data stage; bootstraps on 32 threads |
-| FIG | 16 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
+| FIG | 16 | under 0.1 | minutes | (laptop: 16 figures in 8 s, 35 CPU seconds) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
