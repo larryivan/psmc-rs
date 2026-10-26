@@ -212,7 +212,7 @@ fn matches_c_psmc_output_pattern_4_5x3_4() {
 #[test]
 fn matches_c_psmc_output_pattern_4_25x2_4_6() {
     // Measured (relative): LK 7.3e-8, lambda 3.3e-4, theta, rho and t_max
-    // 2.3e-4, RI 2.6e-5.
+    // 2.3e-4, RI 2.5e-5.
     check_against_c(Some("4+25*2+4+6"), "c_reference/c_4+25x2+4+6_N5.psmc");
 }
 

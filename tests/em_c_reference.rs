@@ -144,7 +144,7 @@ fn check(psmcfa: &str, pattern: &str, c_file: &str) -> Gap {
 }
 
 /// `RI` moves by a relative amount of the order of the share of skipped
-/// bins (measured: 0.48 to 0.75 times it).
+/// bins (measured: 0.49 to 0.74 times it).
 fn check_scale(gap: &Gap) {
     assert!(
         gap.ri > gap.share / 10.0 && gap.ri < 3.0 * gap.share,
