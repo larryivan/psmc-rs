@@ -26,3 +26,22 @@ sbatch -A <account> -p batch --constraint=cpu_intel_gold_6248 --cpus-per-task=2 
 to test and whose `experiment/runs` holds E1's simulated genomes: the script reads
 `experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa`, which is not committed, so E1's simulation of that
 replicate must have run there.
+
+## C psmc's production build
+
+The production's C psmc (gcc 11.4.1, `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function`, as its
+provenance records hold) was compared with the Makefile's `-O2` on Ibex on 2026-10-06, in three shared jobs, one per
+CPU model. Each job built C psmc from the same sources (lh3/psmc's, `experiment/.tools/psmc_c`) with gcc 11.4.1 three
+ways, `make CFLAGS="-g -Wall <flags> -Wno-unused-function"` with `-O2`, `-O3 -march=x86-64-v3 -ffp-contract=off` and
+`-O3 -march=native -ffp-contract=off`, and ran each build once on HLpelCas1
+(`experiment/real_data/HLpelCas1_diploid.psmcfa`, 1.9 Gb) with E2's C psmc command for it but 3 EM iterations,
+`psmc -N3 -t15 -r5 -p "4+25*2+4+6" -o <out>.psmc HLpelCas1_diploid.psmcfa`, in an allocation of 16 CPUs. On all three
+nodes both `-O3` builds wrote a `.psmc` identical (`cmp`) to the `-O2` build's:
+
+| job | node | CPU | `-O2` wall | `-O3 -march=x86-64-v3` wall | speed-up |
+| --- | --- | --- | --- | --- | --- |
+| 53382580 | cn514-15-r | AMD EPYC 7702 (Zen 2) | 608.74 s | 397.83 s | 1.53x |
+| 53382581 | cn511-09 | AMD EPYC 9655 (Zen 5) | 319.68 s | 163.36 s | 1.96x |
+| 53382582 | cn512-23-l | Intel Xeon Gold 6248 (Cascade Lake) | 606.77 s | 510.17 s | 1.19x |
+
+The wall times are of one run each on a shared node.

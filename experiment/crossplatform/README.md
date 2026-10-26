@@ -81,5 +81,7 @@ the Papuan chromosome 1, which E2 no longer fits. Its outputs
 written into `scripts/`) are not kept; `summary.md` (section 5) gives the
 tiers and how its references compare with the ones used here.
 
-`x86_cpus/` holds a separate check: the production binary refitting an E1 genome byte for byte on
-three other x86-64 CPU models (its README).
+`x86_cpus/` holds two separate checks (its README): the production
+binary refitting an E1 genome byte for byte on three other x86-64 CPU
+models, and the production's C psmc build writing the same output as the
+Makefile's `-O2` on three CPU models.
