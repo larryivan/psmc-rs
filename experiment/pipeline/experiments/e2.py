@@ -61,8 +61,11 @@ again, then B replicates, each drawing splitfa trunks of T bins (default
 "bootstrap")``, but NA12878's bootstrap is E7's run of the same psmcfa
 (``RealGenome.bootstrap_shared_with``): E7's seed, ``seed("E7", "NA12878",
 0, "bootstrap")``, with E7's replicates, trunks and iterations (E2 refuses
-to plan the whole file with other settings), so that Fig 3a and Fig 7 show
-the identical band. psmc-rs's output does not depend on ``--threads``, so
+to plan the whole file with other settings): one seed and one set of
+settings, so both bootstraps write the same files. Its band is drawn from
+E2's tables (``fig3_real_genomes`` a, the article's Fig 1c); no figure draws
+E7's.
+psmc-rs's output does not depend on ``--threads``, so
 ``main.json`` must hold ``fit-rs``'s fit exactly: every field of
 :data:`MAIN_FIT_FIELDS` equal. The report writes its tables and then fails
 when a main fit differs. A genome whose default trunks are fewer than

@@ -308,8 +308,8 @@ class RealGenome:
     # run, with its seed, seed(<experiment>, sample_id, 0, "bootstrap"), and
     # E2 plans a run of the whole file only when that experiment's
     # replicates, trunks and inference (the replicates' iterations among it)
-    # are E2's, so that both figures show the identical band. None: E2's own
-    # seed.
+    # are E2's: one seed and one set of settings, so both bootstraps write the
+    # same files. None: E2's own seed.
     bootstrap_shared_with: Optional[str] = None
 
 
@@ -361,7 +361,8 @@ REAL_GENOMES: Tuple[RealGenome, ...] = (
     # the GRCh38 strict mask, every non-PASS position missing), and sha256 is
     # that file's entry in E7's MANIFEST.json. E7 bootstraps it too
     # (E7.bootstrap_samples), and E2's bootstrap of it is E7's run, seed and
-    # settings (Fig 3a and Fig 7 show one band).
+    # settings (the same files). Its band is drawn from E2's tables
+    # (fig3_real_genomes a, the article's Fig 1c); no figure draws E7's.
     RealGenome(
         "NA12878", "NA12878_1kGP30x_diploid.psmcfa.gz", "Homo sapiens",
         "Homo sapiens (NA12878, CEU)", _HUMAN_SCALING, _HUMAN_SCALING_SOURCE, _HUMAN_SCALING_CITE,
