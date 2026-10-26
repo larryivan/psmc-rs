@@ -29,6 +29,7 @@ class Layout(unittest.TestCase):
         self.assertEqual(simulate.n_bins(200_000, 100), 2000)
         self.assertEqual(simulate.n_bins(200_001, 100), 2001)
 
+    @unittest.skipUnless(has_modules("numpy"), "numpy not installed")
     def test_longest_stretch_without_a_heterozygous_site(self):
         # Sites at 10 and 500 of 1000 bases: stretches 0-9 (10), 11-499 (489), 501-999 (499).
         self.assertEqual(simulate.longest_het_gap([10, 500], 1000), (499, 501))

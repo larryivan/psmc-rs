@@ -22,6 +22,7 @@ if HAS_NUMERIC:
     from experiment.pipeline.experiments import e6_analysis as A
 
 
+@unittest.skipUnless(HAS_NUMERIC, "numpy, pandas and scipy needed")
 class Convergence(unittest.TestCase):
     """C psmc's reference output read as both tools: the traces must agree exactly."""
 

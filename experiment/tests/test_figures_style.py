@@ -13,15 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import ROOT, has_font, has_modules  # noqa: E402
 
 from experiment.pipeline import config, demography  # noqa: E402
-from experiment.pipeline.figures.schemas import SCHEMAS  # noqa: E402
 from experiment.pipeline.results import Curve  # noqa: E402
 
 HAS_PLOTTING = has_modules("numpy", "pandas", "matplotlib")
-if HAS_PLOTTING:
+if HAS_PLOTTING:  # the figures package, schemas too, needs matplotlib on import (style's colours)
     import numpy as np
     import pandas as pd
 
     from experiment.pipeline.figures import data, fig1, fig4, fig5, fig6, figs4, style
+    from experiment.pipeline.figures.schemas import SCHEMAS
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
@@ -492,6 +492,7 @@ class FigureContent(unittest.TestCase):
         self.assertEqual((fig6.FIGURE_SPACE, fig6.RATIO_SEP), ("\u2007", "\u00a0\u00a0"))
 
 
+@unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class Readme(unittest.TestCase):
     def test_lists_every_table_and_column(self):
         text = (ROOT / "experiment" / "pipeline" / "figures" / "README.md").read_text()

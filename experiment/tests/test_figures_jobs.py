@@ -13,10 +13,14 @@ import tiny_runs  # noqa: E402
 from fixtures import assert_ignore_rules, fake_ctx, has_modules, in_git_work_tree  # noqa: E402
 
 from experiment.pipeline import config, runner  # noqa: E402
-from experiment.pipeline.experiments import REGISTRY, Context, e1, fig, jobs_for  # noqa: E402
+from experiment.pipeline.experiments import REGISTRY, Context, e1, jobs_for  # noqa: E402
+
+HAS_PLOTTING = has_modules("numpy", "pandas", "matplotlib")
+if HAS_PLOTTING:  # fig imports the figures package, whose style needs matplotlib on import
+    from experiment.pipeline.experiments import fig
 
 
-@unittest.skipUnless(has_modules("numpy", "pandas", "matplotlib"), "numpy, pandas and matplotlib are needed")
+@unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class Jobs(unittest.TestCase):
     def setUp(self):
         self.runs = Path(self.enterContext(tempfile.TemporaryDirectory()))
