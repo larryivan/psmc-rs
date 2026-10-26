@@ -6,7 +6,7 @@ simulates genomes, runs psmc-rs 0.2 and C psmc (lh3/psmc 0.6.5-r74) with
 identical settings, records how every output was made, writes each
 experiment's tables and draws the figures from them. Its production runs
 are committed in `runs/`: from them, without running either tool, every
-figure and the tables of E1, E2, E4, E5 and E6 (its S1 and S5) can be made
+figure and the tables of E1, E2, E4, E5 and E6 (its S1) can be made
 again (Supplementary Note 1, section 3; E6's S2 and S3 need the simulated
 genomes, and E7's report its inputs, to be deposited on Zenodo). Commands
 are run from the repository root, from which
@@ -20,7 +20,7 @@ finds its files from its own location, not from the working directory.
 | E3 | performance: run time and peak memory of C psmc and psmc-rs on 100 to 3,000 Mb, thread scaling, determinism | Fig 2, Table 2 |
 | E4 | partly callable bins: the routes from a VCF and its callable mask to PSMC | Fig S2 |
 | E5 | bootstrap calibration on simulated genomes | Fig S3 |
-| E6 | supplementary analyses: EM convergence, input formats, TMRCA decoding, the QC report | quoted in the text |
+| E6 | supplementary analyses: EM convergence, input formats, TMRCA decoding | quoted in the text |
 | E7 | the 2,504 genomes of the 1000 Genomes 30x data | Fig 1, Fig 2, Fig 3, Table 1 |
 | FIG | every figure, drawn from the experiments' tables | |
 

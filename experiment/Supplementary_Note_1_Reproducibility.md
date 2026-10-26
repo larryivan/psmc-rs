@@ -27,12 +27,12 @@ production runs of E1 to E7 and FIG:
 
 | item | where |
 | --- | --- |
-| real genomes (inputs of E2 and E6's S5): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's `MANIFEST.json` and `config.RealGenome.sha256`) | `experiment/real_data/{HLemySub1,HLhydTec1,HLpelCas1}_diploid.psmcfa`, `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (`Papuan_highlands_diploid.psmcfa`, a chromosome 1, serves the README's benchmarks and the Rust tests; E2 does not read it) |
+| real genomes (inputs of E2): the three turtles, and NA12878's chr1-22, E7's psmcfa of that sample byte for byte (its SHA-256 is in E7's `MANIFEST.json` and `config.RealGenome.sha256`) | `experiment/real_data/{HLemySub1,HLhydTec1,HLpelCas1}_diploid.psmcfa`, `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (`Papuan_highlands_diploid.psmcfa`, a chromosome 1, serves the README's benchmarks and the Rust tests; E2 does not read it) |
 | truth records of the simulated genomes (settings, seeds, software versions, per-chromosome counts and checksums, the true Ne(t)) | `runs/<EXP>/truth/` |
 | every fit: psmc-rs JSON and `.psmc`, C psmc `.psmc` | `runs/<EXP>/fits/` |
 | bootstrap runs: main fit, every replicate's JSON, `summary.json` and `summary.tsv` | `runs/E2/bootstrap/`, `runs/E5/boot/`, `runs/E7/boot/` |
 | E3's timing records (one JSON for each of the 95 timed runs: wall and CPU time, peak memory, the machine's load before and during the run) | `runs/E3/timings/` |
-| E4's masks, bins and cross-checks; QC reports (E7's: NA12878's heterozygous SNVs against GIAB) | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E6,E7}/qc/` |
+| E4's masks, bins and cross-checks; QC reports (E7's: NA12878's heterozygous SNVs against GIAB) | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E7}/qc/` |
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (`runs/FIG/figures/`: the article's Fig 1, `art1_agreement`, and the software's schematic, `fig1_workflow`, which the article leaves out) |
 | E7's inputs, every file its jobs read (about 21 GB): one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs, the callable and non-PASS masks, the per-sample QC table and GIAB's NA12878 benchmark | to be deposited on Zenodo, not in the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000` in a runs directory without the stage's committed records, section 5) |
@@ -88,7 +88,7 @@ committed runs:
 CHECK=/path/to/new/copy
 cp -R experiment/runs $CHECK                            # the reports and figures rewrite their files
 $PY -m experiment.pipeline report E1 --runs-dir $CHECK  # likewise E2, E4, E5
-$PY -m experiment.pipeline report E6 --runs-dir $CHECK  # S1 and S5; S2 and S3 need the simulated genomes
+$PY -m experiment.pipeline report E6 --runs-dir $CHECK  # S1; S2 and S3 need the simulated genomes
 $PY -m experiment.pipeline.figures --runs-dir $CHECK    # every figure whose tables exist
 ```
 
@@ -238,7 +238,7 @@ records, in CPU hours (user and system time):
 | E3 | 100 | 13.0 (12.3 the tools' own in the 95 timed runs, `cpu_seconds` in `E3_runs.csv`; 0.47 the `measure` wrapper around them; 0.19 the simulations) | five exclusive nodes, 54256961 to 54256965 (section 10; report: 54528410) |
 | E4 | 286 | 2.7 | 206 in 54256959; simulations, masks, consensus calls and bins (80) 54232546 |
 | E5 | 121 | 11.2 | 71 in 54256959; simulations 54211974 (13) and 54232546 (37) |
-| E6 | 26 | 0.2 | 21 in 54256959; S3's truth 54211974; reports 54232546 |
+| E6 | 21 | 0.2 | 17 in 54256959; S3's truth 54211974; reports 54232546 |
 | E7 | 2,639 | 418.1 | 2,638 in 54555780; GIAB comparison 54232546 |
 
 The fits of each `prod` job shared their node with one another (1-minute

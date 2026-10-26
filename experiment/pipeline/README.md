@@ -6,8 +6,8 @@ how every output was made, writes the tables and draws the figures from
 them. Every experiment of the design is implemented: E1 (simulated accuracy
 and equivalence, Fig 2, Table 1, Fig S1), E2 (real genomes, Fig 3), E3
 (performance, Fig 4, Table 2, Fig S4), E4 (input preparation, Fig 5), E5
-(bootstrap calibration, Fig 6), E6 (supplementary analyses, Figs S2 and S3,
-Table S5), E7 (1000 Genomes, Fig 7, Figs S5 and S6) and FIG (every figure,
+(bootstrap calibration, Fig 6), E6 (supplementary analyses, Figs S2 and S3),
+E7 (1000 Genomes, Fig 7, Figs S5 and S6) and FIG (every figure,
 Fig 1 included). Figure and table numbers in this README follow an earlier
 plan of the article; Supplementary Note 1, section 3, maps them to the
 article's.
@@ -36,7 +36,7 @@ would run it again over the committed results.
 
 `--profile smoke` runs the same jobs at a small size in
 `experiment/.runs-smoke/` (3 EM iterations; `plan --profile smoke` counts
-167 jobs of E1-E6 and the figures and expects about 3 minutes; E7 has none
+162 jobs of E1-E6 and the figures and expects about 3 minutes; E7 has none
 until its data stage has run there); `--profile tiny` is for the unit
 tests. The production run is described at the end
 ([Production](#production)).
@@ -372,7 +372,7 @@ against `summary.json`.
 | `E2_bootstrap_replicates.csv` | every replicate's parameters |
 | `E2_bands.csv` | per genome and trunk size: both curves and the band on a dense grid (Fig 3) |
 | `E2_curves.csv`, `E2_traces.csv` | the fitted step curves (Fig 3); log-likelihood and parameters per EM iteration |
-| `E2_qc.csv`, `E2_qc_findings.csv` | `psmc-rs qc`'s metrics and findings for each input fitted (in production the packaged files; Table S5 is E6's `E6_S5_*`) |
+| `E2_qc.csv`, `E2_qc_findings.csv` | `psmc-rs qc`'s metrics and findings for each input fitted (in production the packaged files) |
 | `E2_split_patterns.csv` | per turtle and pattern (`default` is `fit-rs`'s fit): theta, rho, t_max, N0, the final log-likelihood and its gain over the default, the recent intervals' Ne against the plateau (`recent_max_vs_plateau`, `first_vs_plateau`, `recent_peak`), the largest difference from `fit-rs`'s fit in the recent intervals and the RMSE after them in the window |
 | `E2_split_curves.csv` | the step curves of those fits (`figS_turtle_patterns`) |
 
@@ -618,7 +618,7 @@ checks that every fit read the bins of its route and ran with its route's
 | `E4_rescaling.csv` | per mask and replicate: the rescaling cross-check, `mask_auto`, `mask_ignore` and `mask_ignore` rescaled (theta against the complete-data fit, RMSE against the truth and against the complete-data fit, mean log10 bias), and the RMSE and largest difference of log10 Ne between the rescaled curve and `mask_auto`'s, interval by interval (`*_per_interval`; the two have the same pattern and bins, and their scales are the theta columns) |
 | `E4_bins.csv` | per mask, replicate and route: the exact T/K/N bins against the route's (`N_T`: missing in the exact bins, called in the route), bins only one has (the multihetsep tail after its last row) |
 | `E4_masks.csv` | per mask and replicate: target and realised missing fraction, uncallable runs and their mean length, heterozygous sites removed |
-| `E4_qc.csv` | every QC finding of every fit (mask, route, replicate, code, severity: `warning` or `note`, from the fit JSON's `qc.warnings` and `qc.notes`; the QC JSON that E2's and E6's tables read calls a note's severity `info`) |
+| `E4_qc.csv` | every QC finding of every fit (mask, route, replicate, code, severity: `warning` or `note`, from the fit JSON's `qc.warnings` and `qc.notes`; the QC JSON that E2's tables read calls a note's severity `info`) |
 | `E4_crosscheck.csv` | per chromosome of replicate 1: rows of generate_multihetsep.py and psmc-rs, identical |
 | `E4_curves.csv`, `E4_truth.csv`, `E4_seeds.csv` | every fitted Ne(t) step curve, the true Ne(t), every seed |
 
@@ -726,7 +726,7 @@ at most 0.2 GB per job. Measured on Ibex: 11.2 CPU hours; the bootstrap runs
 
 ## E6: supplementary analyses
 
-E6 reads what E1 and E2 make and adds the runs only it needs
+E6 reads what E1 makes and adds the runs only it needs
 (`config.E6`; models, inference, scaling and grid of S1-S3 are E1's):
 
 * **S1, EM convergence** (Fig S1, drawn from `E1_traces`): per model and
@@ -750,10 +750,8 @@ E6 reads what E1 and E2 make and adds the runs only it needs
   `_calibration`, `_density`, `_track`).
 * **S4, thread scaling and determinism** is E3's own tables
   (`E3_thread_scaling`, `E3_determinism`; Fig S4).
-* **S5, QC table** (Table S5): `psmc-rs qc` of E2's four genomes with E2's
-  bin size and trunk (`E6_S5_qc`, `_findings`).
 
-**Cost** (`plan E6`): 26 jobs, under 1 CPU hour, minutes once E1 is done.
+**Cost** (`plan E6`): 21 jobs, under 1 CPU hour, minutes once E1 is done.
 Measured on Ibex: 0.2 CPU hours; S3's tables at most 1.3 GB, its decoding
 at most the 108 MB of `ru_maxrss` that its job inherits from the runner
 (35 MB in the sampled process tree).
@@ -878,7 +876,7 @@ back.
 | E3 | 100 | 15 | 9.9 (exclusive) | 12.3 (the 95 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive nodes) | needs the machine to itself; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 2.7 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 11.2 | 20 bootstrap runs of about 45 min (Ibex: 27 to 36) on one thread |
-| E6 | 26 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
+| E6 | 21 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
 | E7 | 2,639 | 480 | 11 (50 cores) | 418.1 (the C psmc fits 78.1; every fit and bootstrap in one job, below) | after its data stage; bootstraps on 32 threads |
 | FIG | 16 | under 0.1 | minutes | (laptop: 16 figures in 8 s, 35 CPU seconds) | each figure waits for its tables |
 
