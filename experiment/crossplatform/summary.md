@@ -102,7 +102,7 @@ Relative differences are |a − b| / |b| with Ibex as b. Δlog10 Ne is compared 
 
 - psmc-rs's cross-platform window RMSE is below its RMSE against C psmc in **40/40** replicates; ratio (rs vs C) / (rs cross-platform), min / median / max: 3.9e+01 / 3.8e+02 / 4.5e+03.
 - psmc-rs's cross-platform RMSE is below C psmc's cross-build RMSE in **40/40**; ratio (C xplat) / (rs xplat): 1.0e+01 / 1.2e+02 / 9.8e+02.
-- C psmc's cross-build RMSE is below the psmc-rs-vs-C RMSE in 33/40; ratio (rs vs C) / (C xplat): 4.5e-01 / 2.6e+00 / 1.9e+01 (the noise floor of B7: psmc-rs vs C is a few times C vs C).
+- C psmc's cross-build RMSE is below the psmc-rs-vs-C RMSE in 33/40; ratio (rs vs C) / (C xplat): 4.5e-01 / 2.6e+00 / 1.9e+01 (C psmc's own cross-build difference is the noise floor: psmc-rs vs C is a few times C vs C).
 - Log-likelihood, worst iteration (median): psmc-rs cross-platform 1.7e-11, C cross-build 1.6e-09, psmc-rs vs C 8.4e-09.
 
 ### 4.6 The tables, written again on the laptop (`reports.py`)
@@ -116,9 +116,9 @@ E1, E2, E4 and E5's reports (`python -m experiment.pipeline report`) ran on the 
 
 ## 5. Pre-registered tiers
 
-Tiers as defined in the review's `xplatform.py`, unchanged: **A** output bytes identical; **B** p ≤ 1e-6, d ≤ 1e-6 and final log-likelihood ≤ 1e-8 (relative); **C** d ≤ 1e-3 and 50·d ≤ the reference psmc-rs-vs-C RMSE; otherwise **fail**. Bytes for A: psmc-rs's JSON (as for the bootstrap replicates of the pre-registered script), C psmc's `.psmc`.
+Tiers as defined by `scripts/tiers_2026-10-07.py`, unchanged: **A** output bytes identical; **B** p ≤ 1e-6, d ≤ 1e-6 and final log-likelihood ≤ 1e-8 (relative); **C** d ≤ 1e-3 and 50·d ≤ the reference psmc-rs-vs-C RMSE; otherwise **fail**. Bytes for A: psmc-rs's JSON (as for the bootstrap replicates of the pre-registered script), C psmc's `.psmc`.
 
-The pre-registration leaves the tier-C reference unspecified (review B2). Primary: the per-model mean psmc-rs-vs-C RMSE of the committed `E1_table1.csv` (`rmse_rs_vs_c_per_interval_mean`, interval by interval after the B1 fix: constant 1.0e-05, bottleneck 7.0e-05, expansion 5.6e-05, zigzag 1.9e-05); for NA12878 the mean over all 40 E1 replicates (3.9e-05), as the pre-registered script did for E2. These are smaller (stricter) than the pre-B1 references the review used.
+The pre-registration leaves the tier-C reference unspecified. Primary: the per-model mean psmc-rs-vs-C RMSE of the committed `E1_table1.csv` (`rmse_rs_vs_c_per_interval_mean`, the curves compared interval by interval: constant 1.0e-05, bottleneck 7.0e-05, expansion 5.6e-05, zigzag 1.9e-05); for NA12878 the mean over all 40 E1 replicates (3.9e-05), as the pre-registered script did for E2. These are smaller (stricter) than the references the 2026-10-07 review used, the same means computed from step curves sampled at fixed times.
 
 | tier-C reference | psmc-rs E1 (40) | psmc-rs NA12878 | C psmc E1 (40) |
 |---|---|---|---|
@@ -126,13 +126,13 @@ The pre-registration leaves the tier-C reference unspecified (review B2). Primar
 | the same replicate's rs-vs-C RMSE (NA12878: its own, 9.7e-06) | B 27, C 6, fail 7 | fail 1 | fail 40 |
 | mean of all 40 E1 replicates | B 27, C 9, fail 4 | C 1 | fail 40 |
 | smallest per-model mean (constant) | B 27, fail 13 | fail 1 | fail 40 |
-| the review's superseded pre-B1 references (sampled curves; larger) | B 27, C 12, fail 1 | C 1 | C 1, fail 39 |
+| the 2026-10-07 review's references (sampled step curves; larger; superseded) | B 27, C 12, fail 1 | C 1 | C 1, fail 39 |
 | *deviation*: d over the window's intervals only | B 27, C 11, fail 2 | C 1 | fail 40 |
 | *deviation*: tier A ignores the JSON's `simd` label | B 27, C 10, fail 3 | C 1 | – |
 
 - **psmc-rs (primary): B 27, C 10, fail 3 of 40; NA12878: C.** Every one of the 13 fits that miss B exceeds p ≤ 1e-6 (10 on p alone, 3 also on d; the parameter: λ1 8, λ0 4, λ2 1); the log-likelihood test passes in 40/40 (p ≤ 1e-6 in 27/40, d ≤ 1e-6 in 37/40). By model, B: constant 10/10, bottleneck 5/10, expansion 2/10, zigzag 10/10. NA12878 misses B on p (1.1e-06 on λ0; d 2.9e-07, reference/d 133).
 - The 3 fails (reference / d needs ≥ 50): bottleneck rep10 (p 7.8e-06 on λ0, d 3.4e-06 on λ0, ratio 20; outside the window, and over the window it would be C); expansion rep05 (p 2.1e-05 on λ1, d 8.2e-06 on λ1, ratio 7); expansion rep09 (p 3.4e-06 on λ1, d 1.2e-06 on λ1, ratio 46).
-- **C psmc: fail 40 of 40** under every reference considered except the review's superseded pre-B1 one (C 1, fail 39). It fails B on both p (≥ 3.0e-05) and d (≥ 1.4e-05), and C because 50·d exceeds the reference (reference/d at most 2.9e+00). Its log-likelihoods would pass B (1.2e-09 at most). Its fits are those of the review's B7 for these 40 genomes (there: A 0, B 0, C 1, fail 43 of 44 with the pre-B1 reference).
+- **C psmc: fail 40 of 40** under every reference considered except the 2026-10-07 review's superseded one (C 1, fail 39). It fails B on both p (≥ 3.0e-05) and d (≥ 1.4e-05), and C because 50·d exceeds the reference (reference/d at most 2.9e+00). Its log-likelihoods would pass B (1.2e-09 at most). Its fits are those the 2026-10-07 review compared for these 40 genomes.
 - Note on the tiers' structure: with the corrected references, tier C's d-test (d ≤ reference/50: 2.1e-07 constant, 1.4e-06 bottleneck, 1.1e-06 expansion, 3.8e-07 zigzag) is stricter than tier B's d ≤ 1e-6 for the constant and zigzag models, so the tiers are not nested: constant rep07 is B although its d would fail the C test.
 
 ## 6. Control: the laptop build with Ibex's rustc (1.99.0)
@@ -142,7 +142,7 @@ The same sources built on the laptop by rustc 1.99.0 (b940084d7 2026-09-28, the 
 ## 7. Deviations from the pre-registration
 
 1. **Tier A for psmc-rs** is tested on the JSON, as pre-registered, but the JSON records the kernels that ran (`simd`: `neon` vs `avx2+fma`), so it can never be byte-identical across these two platforms. Also testing the JSON without that label, and the `.psmc` file, changes nothing: no fit is identical either way.
-2. **Tier-C reference.** Unspecified in the pre-registration; the primary choice (per-model mean, matched intervals) is the corrected version (B1) of what the review's script used. All alternatives are reported (table in section 5).
+2. **Tier-C reference.** Unspecified in the pre-registration; the primary choice (per-model mean, matched intervals) is the corrected version of what `scripts/tiers_2026-10-07.py` used. All alternatives are reported (table in section 5).
 3. **d over the window only** (excluding an out-of-window first λ) is reported as a labelled deviation, never as the result; it moves psmc-rs bottleneck rep10 from fail to C and changes nothing for C psmc.
 4. **Compiler version.** The laptop build used the default toolchain (rustc 1.97.1), not Ibex's 1.99.0; the rustc 1.99.0 control (section 6) addresses it.
 5. **NA12878 window and reference.** Its window is E2's committed one; its tier-C reference is the all-40 E1 mean (the pre-registered rule for E2 fits).
@@ -152,7 +152,7 @@ The same sources built on the laptop by rustc 1.99.0 (b940084d7 2026-09-28, the 
 - **Threads:** identical on both platforms (psmc-rs `--threads 1` as recorded; C psmc is single-threaded). The determinism control (one binary, two runs, byte-identical) shows the laptop differences are not run-to-run noise.
 - **Laptop C psmc** is the frozen `.production` run's binary and fits; its compiler and flags are not in its provenance. The evidence above (machine code identical to the -O1 builds; Apple clang version 21.0.0 from a sibling build's DWARF; FP contraction on) is circumstantial. Not done: refitting the 40 genomes with a laptop C build with `-ffp-contract=off` (the laptop's C fits compared here took 15–25 min each), which would separate FMA contraction from the compiler and libm.
 - **Ibex CPU and OS** for the E1/E2 jobs are not in their records; the fits' `simd: avx2+fma` confirms an AVX2+FMA CPU.
-- **psmc-rs source:** the same on both platforms (`src` dcf29ca, the production's), which removes the review's m21 confound (the review's laptop psmc-rs was df00bf2e). The laptop's C fits and simulated genomes come from an earlier laptop run, `.production` (they do not depend on psmc-rs).
+- **psmc-rs source:** the same on both platforms (`src` dcf29ca, the production's), which removes a confound of the 2026-10-07 review (its laptop psmc-rs was df00bf2e). The laptop's C fits and simulated genomes come from an earlier laptop run, `.production` (they do not depend on psmc-rs).
 - **Scope:** E1's 40 fits of each tool and NA12878's psmc-rs fit, and the tables of E1, E2, E4 and E5. Not refitted on the laptop: NA12878's C fit, the turtle genomes, bootstraps, E4–E7.
 
 ## 9. Files (in this directory)

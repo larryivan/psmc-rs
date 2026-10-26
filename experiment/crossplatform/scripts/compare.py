@@ -7,16 +7,17 @@ Comparisons (a = laptop, b = Ibex, the reference):
       Ibex C fits, 40 E1 replicates;
   and, side by side, the committed Ibex psmc-rs vs C psmc agreement (E1_rs_vs_c.csv).
 
-Pre-registered tiers (review/xplatform.py, unchanged):
+Pre-registered tiers (scripts/tiers_2026-10-07.py, the 2026-10-07 review kept as it was; unchanged):
   A  output bytes identical
   B  max relative parameter difference <= 1e-6 and max |dlog10 Ne| over all intervals <= 1e-6
      and relative final log-likelihood difference <= 1e-8
   C  max |dlog10 Ne| over all intervals <= 1e-3 and 50 * that <= the reference psmc-rs-vs-C RMSE
   fail otherwise
-Primary reference for C (B1/B2 of the review): the per-model mean psmc-rs-vs-C RMSE of the committed
-E1_table1.csv (rmse_rs_vs_c_per_interval_mean, matched intervals), for E2 the mean over all 40 E1 pairs.
+Primary reference for C, which the pre-registration left open: the per-model mean psmc-rs-vs-C RMSE of the
+committed E1_table1.csv (rmse_rs_vs_c_per_interval_mean, on matched intervals, where the review's means
+compared step curves sampled at fixed times), for E2 the mean over all 40 E1 pairs.
 
-Run with: experiment/.venv/bin/python -I -B compare.py
+Run from experiment/crossplatform: ../.venv/bin/python -I -B scripts/compare.py
 """
 import csv
 import hashlib
@@ -63,7 +64,8 @@ REF_ALL40 = statistics.fmean(float(p["rmse_log10_ne_rs_vs_c_per_interval"]) for 
 REF_MIN = min(REF_MODEL.values())
 REF_PAIR = {k: float(p["rmse_log10_ne_rs_vs_c_per_interval"]) for k, p in pairs.items()}
 REF_PAIR[("NA12878", 0)] = float(e2pairs["NA12878"]["rmse_log10_ne_rs_vs_c_per_interval"])
-# the reference the review's run used, before the B1 fix (sampled step curves); superseded, for sensitivity only
+# the references the 2026-10-07 review used: the same means computed from step curves sampled at fixed times,
+# before the pipeline compared matched intervals; superseded, for sensitivity only
 REF_PRE_B1_MODEL = {"constant": 1.0471840522603617e-05, "bottleneck": 7.036926314623781e-05,
                     "expansion": 0.0006401140897108174, "zigzag": 0.0014215631947421246}
 REF_PRE_B1_ALL40 = 0.0005356295970304458
@@ -74,7 +76,7 @@ for m in MODELS:
 
 
 def tier(bytes_eq, p_rel, d_ne, ll_rel, rmse_ref):
-    """The pre-registered tiers, verbatim from review/xplatform.py."""
+    """The pre-registered tiers, verbatim from scripts/tiers_2026-10-07.py."""
     if bytes_eq:
         return "A"
     if p_rel <= 1e-6 and d_ne <= 1e-6 and ll_rel <= 1e-8:
@@ -85,7 +87,7 @@ def tier(bytes_eq, p_rel, d_ne, ll_rel, rmse_ref):
 
 
 # --------------------------------------------------------------------------
-# helpers (the pre-registered ones from review/xplatform.py, and the pipeline's interval_diff)
+# helpers (the pre-registered ones from scripts/tiers_2026-10-07.py, and the pipeline's interval_diff)
 # --------------------------------------------------------------------------
 
 

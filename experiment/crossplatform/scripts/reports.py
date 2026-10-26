@@ -15,7 +15,7 @@ committed one:
     versions, which key its provenance record) equals that of Ibex's record.
 Writes reports_laptop_vs_ibex.csv (one row per table) and reports.json.
 
-Run with: experiment/.venv/bin/python -B reports.py
+Run from experiment/crossplatform: ../.venv/bin/python -B scripts/reports.py
 """
 import csv
 import importlib

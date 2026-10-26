@@ -1,6 +1,6 @@
 """Write summary.md from summary.json, inputs.json, reports.json, toolchain.txt, the CSVs and the run records.
 
-Run after compare.py and reports.py: experiment/.venv/bin/python -I -B make_summary.py
+Run after compare.py and reports.py, from experiment/crossplatform: ../.venv/bin/python -I -B scripts/make_summary.py
 Every number in summary.md comes from those files (or from the Ibex records and E3's
 environment table in experiment/runs); the prose around them is fixed here.
 """
@@ -322,7 +322,7 @@ w("### 4.5 Side by side (per E1 replicate; `side_by_side_E1.csv`)\n")
 sc = S["side_by_side_counts"]
 w(f"- psmc-rs's cross-platform window RMSE is below its RMSE against C psmc in **{sc['rs_xplat_rmse_below_rs_vs_c']}/{sc['n']}** replicates; ratio (rs vs C) / (rs cross-platform), min / median / max: {ratio('ratio_rmse_rsvsc_over_rs_xplat')}.")
 w(f"- psmc-rs's cross-platform RMSE is below C psmc's cross-build RMSE in **{sc['rs_xplat_rmse_below_c_xplat']}/{sc['n']}**; ratio (C xplat) / (rs xplat): {ratio('ratio_rmse_c_xplat_over_rs_xplat')}.")
-w(f"- C psmc's cross-build RMSE is below the psmc-rs-vs-C RMSE in {sc['c_xplat_rmse_below_rs_vs_c']}/{sc['n']}; ratio (rs vs C) / (C xplat): {ratio('ratio_rmse_rsvsc_over_c_xplat')} (the noise floor of B7: psmc-rs vs C is a few times C vs C).")
+w(f"- C psmc's cross-build RMSE is below the psmc-rs-vs-C RMSE in {sc['c_xplat_rmse_below_rs_vs_c']}/{sc['n']}; ratio (rs vs C) / (C xplat): {ratio('ratio_rmse_rsvsc_over_c_xplat')} (C psmc's own cross-build difference is the noise floor: psmc-rs vs C is a few times C vs C).")
 w(f"- Log-likelihood, worst iteration (median): psmc-rs cross-platform {f(S['side_by_side']['loglike_rel_max_rs_laptop_vs_ibex']['median'])}, C cross-build {f(S['side_by_side']['loglike_rel_max_c_laptop_vs_ibex']['median'])}, psmc-rs vs C {f(S['side_by_side']['loglike_rel_max_rs_vs_c_ibex']['median'])}.\n")
 
 w("### 4.6 The tables, written again on the laptop (`reports.py`)\n")
@@ -335,18 +335,18 @@ w(f"- The differences between psmc-rs and C psmc ({R['rs_vs_c_cells']} values of
 w(f"- The same code on the laptop recomputes the committed `E1_rs_vs_c.csv` (`compare.py`'s `rs_vs_c_ibex.csv`) to {f(S['repro_committed_rs_vs_c_max_abs_error'])} absolute.\n")
 
 w("## 5. Pre-registered tiers\n")
-w("Tiers as defined in the review's `xplatform.py`, unchanged: **A** output bytes identical; **B** p ≤ 1e-6, d ≤ 1e-6 and final log-likelihood ≤ 1e-8 (relative); **C** d ≤ 1e-3 and 50·d ≤ the reference psmc-rs-vs-C RMSE; otherwise **fail**. Bytes for A: psmc-rs's JSON (as for the bootstrap replicates of the pre-registered script), C psmc's `.psmc`.\n")
+w("Tiers as defined by `scripts/tiers_2026-10-07.py`, unchanged: **A** output bytes identical; **B** p ≤ 1e-6, d ≤ 1e-6 and final log-likelihood ≤ 1e-8 (relative); **C** d ≤ 1e-3 and 50·d ≤ the reference psmc-rs-vs-C RMSE; otherwise **fail**. Bytes for A: psmc-rs's JSON (as for the bootstrap replicates of the pre-registered script), C psmc's `.psmc`.\n")
 ref = S["references"]
-w("The pre-registration leaves the tier-C reference unspecified (review B2). Primary: the per-model mean psmc-rs-vs-C RMSE of the committed `E1_table1.csv` (`rmse_rs_vs_c_per_interval_mean`, interval by interval after the B1 fix: "
+w("The pre-registration leaves the tier-C reference unspecified. Primary: the per-model mean psmc-rs-vs-C RMSE of the committed `E1_table1.csv` (`rmse_rs_vs_c_per_interval_mean`, the curves compared interval by interval: "
   + ", ".join(f"{m} {f(ref['model_mean_primary'][m])}" for m in MODELS)
-  + f"); for NA12878 the mean over all 40 E1 replicates ({f(ref['all40_mean'])}), as the pre-registered script did for E2. These are smaller (stricter) than the pre-B1 references the review used.\n")
+  + f"); for NA12878 the mean over all 40 E1 replicates ({f(ref['all40_mean'])}), as the pre-registered script did for E2. These are smaller (stricter) than the references the 2026-10-07 review used, the same means computed from step curves sampled at fixed times.\n")
 w("| tier-C reference | psmc-rs E1 (40) | psmc-rs NA12878 | C psmc E1 (40) |" + (" psmc-rs rustc 1.99.0 E1 (40) |" if show199 else ""))
 w("|---|---|---|---|" + ("---|" if show199 else ""))
 for k, label in (("tier", "**primary**: per-model mean (E2: all-40 mean)"),
                  ("tier_vs_pair_rmse", f"the same replicate's rs-vs-C RMSE (NA12878: its own, {f(ref['NA12878_pair'])})"),
                  ("tier_vs_all40_mean", "mean of all 40 E1 replicates"),
                  ("tier_vs_min_model_mean", "smallest per-model mean (constant)"),
-                 ("tier_vs_preB1_ref", "the review's superseded pre-B1 references (sampled curves; larger)"),
+                 ("tier_vs_preB1_ref", "the 2026-10-07 review's references (sampled step curves; larger; superseded)"),
                  ("tier_window_d_DEVIATION", "*deviation*: d over the window's intervals only"),
                  ("tier_bytes_excl_simd_label_DEVIATION", "*deviation*: tier A ignores the JSON's `simd` label")):
     line = f"| {label} | {tiers(rs1, k)} | {tiers([na], k)} | {tiers(c, k) if k in c[0] else '–'} |"
@@ -379,8 +379,8 @@ pre = Counter(r["tier_vs_preB1_ref"] for r in c)
 others = [k for k in ("tier", "tier_vs_pair_rmse", "tier_vs_all40_mean", "tier_vs_min_model_mean", "tier_window_d_DEVIATION")]
 c_all_fail = all(Counter(r[k] for r in c) == Counter({"fail": 40}) for k in others)
 w(f"- **C psmc: {tiers(c)} of 40** " +("under every reference considered" if c_all_fail else "under the primary reference")
-  + (f" except the review's superseded pre-B1 one ({tiers(c, 'tier_vs_preB1_ref')})" if pre != cb else "")
-  + f". It fails B on both p (≥ {f(S['c']['E1']['param_max_rel']['min'])}) and d (≥ {f(S['c']['E1']['dlog10ne_max_all_intervals']['min'])}), and C because 50·d exceeds the reference (reference/d at most {f(mx(c, 'ratio_ref_over_d'))}). Its log-likelihoods would pass B ({f(S['c']['E1']['loglike_rel_final']['max'])} at most). Its fits are those of the review's B7 for these 40 genomes (there: A 0, B 0, C 1, fail 43 of 44 with the pre-B1 reference).")
+  + (f" except the 2026-10-07 review's superseded one ({tiers(c, 'tier_vs_preB1_ref')})" if pre != cb else "")
+  + f". It fails B on both p (≥ {f(S['c']['E1']['param_max_rel']['min'])}) and d (≥ {f(S['c']['E1']['dlog10ne_max_all_intervals']['min'])}), and C because 50·d exceeds the reference (reference/d at most {f(mx(c, 'ratio_ref_over_d'))}). Its log-likelihoods would pass B ({f(S['c']['E1']['loglike_rel_final']['max'])} at most). Its fits are those the 2026-10-07 review compared for these 40 genomes.")
 cut = {m: ref["model_mean_primary"][m] / 50 for m in MODELS}
 nonnested = [r for r in rs1 if r["tier"] == "B" and float(r["dlog10ne_max_all_intervals"]) * 50 > float(r["ref_rmse_primary"])]
 w("- Note on the tiers' structure: with the corrected references, tier C's d-test (d ≤ reference/50: "
@@ -398,7 +398,7 @@ w("")
 w("## 7. Deviations from the pre-registration\n")
 w(f"1. **Tier A for psmc-rs** is tested on the JSON, as pre-registered, but the JSON records the kernels that ran (`simd`: `{sl}` vs `{si}`), so it can never be byte-identical across these two platforms. Also testing the JSON without that label, and the `.psmc` file, changes nothing: "
   + ("no fit is identical either way." if S["rs"]["json_identical_except_simd_label"] == 0 and S["rs"]["psmc_bytes_identical"] == 0 else f"{S['rs']['json_identical_except_simd_label']} and {S['rs']['psmc_bytes_identical']} fits are."))
-w("2. **Tier-C reference.** Unspecified in the pre-registration; the primary choice (per-model mean, matched intervals) is the corrected version (B1) of what the review's script used. All alternatives are reported (table in section 5).")
+w("2. **Tier-C reference.** Unspecified in the pre-registration; the primary choice (per-model mean, matched intervals) is the corrected version of what `scripts/tiers_2026-10-07.py` used. All alternatives are reported (table in section 5).")
 moved = [r for r in rs1 + [na] if r["tier_window_d_DEVIATION"] != r["tier"]]
 moved_c = [r for r in c if r["tier_window_d_DEVIATION"] != r["tier"]]
 w("3. **d over the window only** (excluding an out-of-window first λ) is reported as a labelled deviation, never as the result; it "
@@ -411,7 +411,7 @@ w("## 8. Caveats\n")
 w("- **Threads:** identical on both platforms (psmc-rs `--threads 1` as recorded; C psmc is single-threaded). The determinism control (one binary, two runs, byte-identical) shows the laptop differences are not run-to-run noise.")
 w(f"- **Laptop C psmc** is the frozen `.production` run's binary and fits; its compiler and flags are not in its provenance. The evidence above (machine code identical to the -O1 builds; {producer.split(' (')[0]} from a sibling build's DWARF; FP contraction on) is circumstantial. Not done: refitting the 40 genomes with a laptop C build with `-ffp-contract=off` (the laptop's C fits compared here took {min(float(r['laptop_wall_seconds']) for r in c) / 60:.0f}–{mx(c, 'laptop_wall_seconds') / 60:.0f} min each), which would separate FMA contraction from the compiler and libm.")
 w("- **Ibex CPU and OS** for the E1/E2 jobs are not in their records; the fits' `simd: avx2+fma` confirms an AVX2+FMA CPU.")
-w(f"- **psmc-rs source:** the same on both platforms (`src` {ids['src'][:7]}, the production's), which removes the review's m21 confound (the review's laptop psmc-rs was df00bf2e). The laptop's C fits and simulated genomes come from an earlier laptop run, `.production` (they do not depend on psmc-rs).")
+w(f"- **psmc-rs source:** the same on both platforms (`src` {ids['src'][:7]}, the production's), which removes a confound of the 2026-10-07 review (its laptop psmc-rs was df00bf2e). The laptop's C fits and simulated genomes come from an earlier laptop run, `.production` (they do not depend on psmc-rs).")
 w("- **Scope:** E1's 40 fits of each tool and NA12878's psmc-rs fit, and the tables of E1, E2, E4 and E5. Not refitted on the laptop: NA12878's C fit, the turtle genomes, bootstraps, E4–E7.\n")
 
 w("## 9. Files (in this directory)\n")
