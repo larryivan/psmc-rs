@@ -51,11 +51,13 @@ into `MANIFEST.json`, which E7's report reads.
 
 `stage1.json` (the counts), `stage1_chrom.tsv` (one row per genome and
 chromosome) and `stage1_samples.tsv` (one row per genome): KAUST Ibex, SLURM
-job 54553271 on 25 October 2026, an AMD EPYC 7702 node. Every chromosome of
-the 52 default genomes, whose per-sample VCFs the data stage kept, was
-converted again from the VCF the stage converted (its size the one in
-`qc/<chrom>.tsv`), with the stage's command (`MANIFEST.json`'s
-`commands.assemble_chrom.convert`):
+job 54553271 on 25 October 2026, an AMD EPYC 7702 node; `stage1.json`'s
+`psmc-rs` and `where` (the binary, its source and the node) are from the
+job's identity record, since `e7_check.py` records counts and checksums
+only. Every chromosome of the 52 default genomes, whose per-sample VCFs
+the data stage kept, was converted again from the VCF the stage converted
+(its size the one in `qc/<chrom>.tsv`), with the stage's command
+(`MANIFEST.json`'s `commands.assemble_chrom.convert`):
 
 ```bash
 psmc-rs convert $I/vcf/$C/$S.vcf.gz --vcf-mode mask --vcf-mask $I/mask/$C.bed \

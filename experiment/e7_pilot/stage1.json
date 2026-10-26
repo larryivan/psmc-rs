@@ -21,5 +21,20 @@
   "repo_equals_e7_decompressed": true,
   "repo_equals_current_code_decompressed": true,
   "decompressed_bytes": 29229348
+ },
+ "psmc-rs": {
+  "binary": "<repo>/target/release/psmc-rs",
+  "binary_sha256": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e",
+  "version": "psmc-rs 0.2.0",
+  "source_commit": "4b2c636fe069e2706968fb79126fce797a557927",
+  "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
+  "source_note": "psmc-rs and where are from the job's identity record (env.txt), as e7_check.py records counts and checksums only: sha256sum and --version of the binary that ran every conversion, <repo> being the production's checkout; git rev-parse HEAD and HEAD:src there, and 4b2c636f:Cargo.toml and 4b2c636f:Cargo.lock; the node's hostname, /proc/cpuinfo model name, ldd --version and date -Is at the job's start"
+ },
+ "where": {
+  "host": "cn514-14-r",
+  "cpu": "AMD EPYC 7702 64-Core Processor",
+  "glibc": "2.34",
+  "slurm_job_id": "54553271",
+  "date": "2026-10-25T20:54:59+03:00"
  }
 }
