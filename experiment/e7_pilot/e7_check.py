@@ -153,7 +153,7 @@ def main():
     for name, rows in (("stage1_chrom.tsv", crow), ("stage1_samples.tsv", srow)):
         keys = list(dict.fromkeys(k for r in rows for k in r))
         with open(OUT / name, "w", newline="") as f:
-            w = csv.DictWriter(f, keys, delimiter="\t")
+            w = csv.DictWriter(f, keys, delimiter="\t", lineterminator="\n")
             w.writeheader()
             w.writerows(rows)
     summ = {
