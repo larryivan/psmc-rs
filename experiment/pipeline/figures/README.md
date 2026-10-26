@@ -5,30 +5,43 @@ experiments' tables. Each figure is one module with `draw(source)`; the
 experiment `FIG` (`experiments/fig.py`) runs each as a runner job whose
 inputs are the tables it reads, so a figure is redrawn exactly when a table,
 the figure's code, its settings or the font change. Every figure is written
-as `experiment/runs/<EXP>/figures/<name>.{pdf,svg,png}`: vector PDF and SVG
+as `<runs>/<EXP>/figures/<name>.{pdf,svg,png}`: vector PDF and SVG
 with text as text (TrueType, `fonttype 42`; SVG `svg.fonttype none`) and a
 600-dpi PNG, without creation dates, so the same tables give the same bytes.
 
 ```bash
 PY=experiment/.venv/bin/python
-$PY -m experiment.pipeline start E1 FIG          # figures as runner jobs, after their tables
-$PY -m experiment.pipeline.figures               # or draw every figure whose tables exist
-$PY -m experiment.pipeline.figures -j 4          # the same, four figures at once (a process each)
-$PY -m experiment.pipeline.figures fig2 figS1    # some of them (file stem or its prefix)
-$PY -m experiment.pipeline.figures --list        # figures and the tables they read
-$PY -m experiment.pipeline report FIG            # the same as drawing them all
+RUNS=/path/to/new/runs
+$PY -m experiment.pipeline start --runs-dir $RUNS E1 FIG   # figures as runner jobs, after their tables
+$PY -m experiment.pipeline.figures                         # or draw every figure whose tables exist
+$PY -m experiment.pipeline.figures -j 4                    # the same, four figures at once (a process each)
+$PY -m experiment.pipeline.figures fig2 figS1              # some of them (file stem or its prefix)
+$PY -m experiment.pipeline.figures --list                  # figures and the tables they read
+$PY -m experiment.pipeline report FIG                      # the same as drawing them all
 ```
 
-A figure job is declared once every experiment it reads is implemented
-(registered in `experiments.REGISTRY`); Fig 1, a schematic, needs none. With
-E1 alone, `FIG` has three jobs (Fig 1, Fig 2, Fig S1); Figs 3-6, S2-S4 and
-the turtle patterns (E2) appear as E2-E6 are added, and Figs 7, S5 and S6
-with E7. The article numbers its figures in its own order: its Fig 1 is
-`art1_agreement` (once E1, E2 and E7 are implemented), its Fig 2
-`art2_performance` (E3 and E7), and its Fig 3 `fig7_1000_genomes`; the
-supplement's Figs S1, S2 and S3 are `figS1_em_convergence`,
-`fig5_input_preparation` and `fig6_bootstrap_calibration`. These six are
-drawn in the house style of `style.py`.
+Without `--runs-dir` or `$PSMC_EXP_RUNS`, `figures` and `report FIG`
+read the committed tables in `experiment/runs` and write every figure over
+its committed file in `runs/<EXP>/figures/`; `figures --out-dir DIR` writes
+into DIR instead.
+
+`FIG` has one job per figure, 16 in the committed runs. The five that read
+E7's tables (`art1_agreement`, `art2_performance`, `fig7_1000_genomes`,
+`figS5_1000g_populations` and `figS6_1000g_checks`) are declared only once
+E7's data stage has written `<runs>/E7/inputs/MANIFEST.json`, or once every
+table the figure reads is there (both hold in the committed runs). Each job
+waits for its tables, so `start --runs-dir $RUNS E1 FIG` in a new runs
+directory declares 11 figure jobs and draws `fig1_workflow` (a schematic,
+which reads none), `fig2_simulated_accuracy` and `figS1_em_convergence`;
+the other eight are blocked, their tables missing, and run at a `start`
+with or after the experiments that write them. The article numbers its
+figures in its own order: its Fig 1 is `art1_agreement` (from E1, E2 and
+E7's tables), its Fig 2 `art2_performance` (from E3 and E7's), and its Fig
+3 `fig7_1000_genomes`; the supplement's Figs S1, S2 and S3 are
+`figS1_em_convergence`, `fig5_input_preparation` and
+`fig6_bootstrap_calibration` (Supplementary Note 1, section 3). These six
+are drawn in the house style of `style.py`; the article leaves the other
+ten out.
 
 ## The figures
 
