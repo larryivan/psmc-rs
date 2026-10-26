@@ -35,7 +35,7 @@ production runs of E1 to E7 and FIG:
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (the software's schematic, not in the article: `runs/FIG/`) |
 | E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs and the masks | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000`) |
-| E7's data stage: `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot redone with the production's psmc-rs | `runs/E7/inputs/MANIFEST.json`, `runs/E7/inputs/records/`, `experiment/e7_pilot/pilot_chr21.json` |
+| E7's data stage: `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the default genomes' conversions redone with the production's psmc-rs | `runs/E7/inputs/MANIFEST.json`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
 | the analyses outside the pipeline, each with its scripts, results and README: the cross-platform comparison (section 9) and the diagnostic of the residual difference from C psmc (variants of psmc-rs, as a patch, and their fits of E1's genomes) | `experiment/crossplatform/`, `experiment/c_equivalence/` |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
@@ -231,7 +231,8 @@ checks in `MANIFEST.json`). Its conversions ran psmc-rs from `src/`
 content: converting with the stage's command, chromosome by chromosome,
 the per-sample VCFs the stage kept (those of the 52 default genomes) gave
 1,144 of 1,144 chromosome files and 52 of 52 genomes identical to E7's
-after decompression, with equal QC; only the gzip bytes differ. The chr21
+after decompression, with equal QC; only the gzip bytes differ (Ibex job
+54553271, an EPYC 7702 node; `experiment/e7_pilot/stage1.json`). The chr21
 pilot, run again with the production's binary, gave the same files from
 the joint VCF directly as through the per-sample VCFs, both identical to
 E7's after decompression (`experiment/e7_pilot/pilot_chr21.json`).
@@ -498,7 +499,7 @@ is discarded and repeated later. Kernel threads and interrupts are
 recorded but not limited, because part of their time is the kernel's work
 for the tool: on the 128-core nodes, a run keeping 30 cores busy adds
 about 0.2 core (0.17 to 0.20 core more than the same run on one thread) to
-an idle node's 0.2 to 0.9 busy core (median 0.32). On macOS, where
+an idle node's 0.20 to 0.925 busy core (median 0.32). On macOS, where
 not every process can be read, the limit applies instead to all of the
 machine's busy time but the tool's, and each record names the measure
 used.
