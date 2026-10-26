@@ -454,9 +454,10 @@ times the true standard deviation, 0.028), at the bottleneck and the size
 changes above all. Part of that bias is the pattern's, whose steps cannot
 follow the truth within a free λ's span: the bands held the truth averaged
 over each span at 44.4% and 50.5% of the times. A smaller version of the
-check, `cargo run --release --example bootstrap_calibration`
+check, `cargo run --release --example bootstrap_calibration -- --threads 4`
 (`examples/bootstrap_calibration.rs`: 40 sequences of 10,000 bins of a
-`4+5*3+4` model), runs in about 5 minutes on 4 threads.
+`4+5*3+4` model), runs in about 4 minutes on 4 threads and peaks at
+34 MB.
 
 ### convert
 
@@ -714,7 +715,7 @@ recomputes each 128-bin segment for the backward pass, so its
 memory still grows with sequence length, but at 1/128 of the rate: about
 bins / 128 × states × 8 bytes per sequence in flight (plus about 0.3 MB).
 With pattern `4+25*2+4+6` (64 states), one iteration on one thread peaked
-at 19 MB on Papuan chr1 (2.49 M bins) and at 108 MB on a single sequence
+at 19 MB on Papuan chr1 (2.49 M bins) and at 106 MB on a single sequence
 of eight copies of it (19.9 M bins). Sequences are processed in parallel,
 each on one thread, so `--threads` helps inputs of many sequences: a
 single long sequence runs on one thread, and t threads are up to t times
@@ -725,20 +726,24 @@ of CPU time and 10.45 to 10.98 s of wall time on 1, 8 or 30 threads of
 an AMD EPYC 7702 alone on its node.
 
 Measured on the inputs in `experiment/real_data` with pattern
-`4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97,
+`4+25*2+4+6`, on an Apple M1 Pro (8 cores, 16 GB, macOS 27, Rust 1.97.1,
 release builds) shared with other work; wall time and peak resident memory
 from `/usr/bin/time -l`:
 
 | input | EM iterations | threads | psmc-rs 0.2 | C psmc 0.6.5 (`-O1`) |
 | --- | --- | --- | --- | --- |
-| Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 15.8 s, 19 MB | 312 s, 2.63 GB |
-| | 20 | 8 | 15.9 s, 19 MB | |
-| HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 30.8 s, 46 MB | 588 s, 3.40 GB |
-| | 5 | 8 | 7.2 s, 92 MB | |
+| Papuan chr1: 1 sequence, 2.49 M bins | 20 | 1 | 15.4 s, 19 MB | 322 s, 2.63 GB |
+| | 20 | 8 | 15.8 s, 20 MB | |
+| HLhydTec1: 34 sequences, 18.5 M bins | 5 | 1 | 30.3 s, 50 MB | 595 s, 3.41 GB |
+| | 5 | 8 | 6.5 s, 98 MB | |
 
-psmc-rs: medians of three runs, at load averages of 3 to 11; C psmc: one
-run each, at load averages of 1 to 6. C psmc is single-threaded. The
-JSON outputs at 1 and 8 threads were byte-identical.
+Medians of three runs, interleaved in one session: psmc-rs at load
+averages of 2.1 to 4.3, C psmc at 2.0 to 10.5 (its Papuan runs followed
+an 8-thread fit, which the 1-minute average still counted). C psmc's
+3.41 GB on HLhydTec1 is its peak memory footprint, which
+`/usr/bin/time -l` also gives: the other work's memory pressure kept its
+resident set below that. C psmc is single-threaded. The JSON outputs at
+1 and 8 threads were byte-identical.
 
 The manuscript's experiment E3 timed the tools under a controlled protocol
 on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
@@ -791,24 +796,24 @@ silicon and other aarch64).
 The M-step needs little memory and time, however many λ are free. It
 differentiates its objective in reverse mode, one row of the transition
 matrix at a time, from the sums of the expected transition counts: an
-evaluation holds O(states) values and costs O(states) time, 7.5 µs with
-64 states on one thread, about what the E-step spends on 25 bins. An
+evaluation holds O(states) values and costs O(states) time, 7.6 µs with
+64 states on one thread, about what the E-step spends on 24 bins. An
 M-step evaluates its objective once per free parameter for the
 curvatures that scale its search, once or twice per L-BFGS iteration, and
 once per free parameter again for the check before it stops, so its time
 grows with the number of free parameters times states. With pattern
 `4+25*2+4+6` (31 parameters) on one thread of the Apple M1 Pro, an M-step
-took 10 to 12 iterations, 74 to 113 evaluations and 0.55 to 0.87 ms on a
-simulated 100 Mb chromosome (E3's), whose E-steps took 0.32 s there
+took 11 to 12 iterations, 74 to 102 evaluations and 0.55 to 0.84 ms on a
+simulated 100 Mb chromosome (E3's), whose E-steps took 0.31 s there
 (0.2%; three runs of 25 EM iterations). With one λ per interval
 (`--n-steps` alone) on the 180,000-bin test input, M-steps over 104
-parameters took 2.8 to 3.4 ms and over 304 took 22 to 44 ms, against
-E-steps of 0.09 s and 4.1 s. One
-EM iteration there on one thread peaked at 5.6, 8.6, 311 and 417 MB of
-resident memory with 101, 201, 301 and 401 intervals and took 0.12,
-0.25, 6.2 and 11.0 s (medians of three runs). Above 256 intervals the
+parameters took 2.6 to 5.1 ms and over 304 took 22 to 48 ms (three runs
+of 25 EM iterations), against E-steps of 0.09 s and 4.1 s. One
+EM iteration there on one thread peaked at 5.8, 7.5, 325 and 437 MB of
+resident memory with 101, 201, 301 and 401 intervals and took 0.13,
+0.24, 6.1 and 11.0 s (medians of three runs). Above 256 intervals the
 memory is the E-step's cache of forward rows (`PSMC_ALPHA_CACHE_MB`):
-without it, the iteration with 401 intervals peaked at 14 MB.
+without it, the iteration with 401 intervals peaked at 13 MB.
 
 ## Testing and C equivalence
 
