@@ -164,11 +164,10 @@ def ms_model(name: str, n0: float, events: Tuple[Tuple[float, float], ...], sour
 
 
 # The models' settings, and so every simulation's truth record and job key,
-# hold this text: it names the earlier pipeline's script, which the
-# repository keeps in its git history only.
+# hold this text: where the ms -eN events come from, a script of commit
+# 516daa27, the last commit that holds it.
 _MS_SOURCE = (
-    "ms-style model of the psmc-rs 0.1 manuscript pipeline "
-    "(experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+    "ms-style model of experiment/scripts/simulate_msprime_to_psmcfa.py at commit 516daa27, converted exactly"
 )
 
 CONSTANT = ms_model("constant", 10_000, (), _MS_SOURCE)
