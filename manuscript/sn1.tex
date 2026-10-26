@@ -348,10 +348,11 @@ SLURM job, cores, wall, user and system time, peak resident memory, load
 average and the SHA-256 of the executables it ran. Every psmc-rs 0.2 job
 of the production, E1 to E7 (3,009 records), ran a build of the same
 sources (the \texttt{src/\allowbreak{}} tree dcf29ca, \texttt{Cargo.toml} c0be5cf and \texttt{Cargo.lock}
-ae10354, which commits 3969ebb to c7234cd share, without uncommitted
-changes), made by rustc 1.99.0 without build flags, and the JSON of every
-fit and of every bootstrap run's main fit records the HMM kernels that ran
-(\texttt{simd}: \texttt{avx2+fma} in all 2,918; section 8).
+ae10354, which commit 3969ebb and every later commit up to the tag
+\texttt{v0.2.0} share, without uncommitted changes), made by rustc 1.99.0
+without build flags, and the JSON of every fit and of every bootstrap
+run's main fit records the HMM kernels that ran (\texttt{simd}: \texttt{avx2+fma} in all
+2,918; section 8).
 
 \subsection{7) The C psmc builds}\label{the-c-psmc-builds}
 
