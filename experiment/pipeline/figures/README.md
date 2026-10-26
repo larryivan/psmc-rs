@@ -259,18 +259,20 @@ full in `style.py`'s docstring; in short:
   key, where the data cannot be named in place, is one line at the top.
   Widths are the journal's: 89, 120 and 183 mm, printed at 100%.
 
-Colours follow the entity in every figure (dataviz reference palette, light
-mode, checked with `dataviz/scripts/validate_palette.js`):
+Colours follow the entity in every figure (a reference palette for light
+mode; pairwise contrast on white and separation under colour-vision
+deficiency were checked with an external palette validator, not in this
+repository):
 
 | entity | colour | check |
 | --- | --- | --- |
-| psmc-rs | `#2a78d6` blue; its band `#dde9f8` | `"#2a78d6,#eb6834" --pairs all`: pass |
+| psmc-rs | `#2a78d6` blue; its band `#dde9f8` | pass, with C psmc's orange |
 | C psmc | `#eb6834` orange; its underlay `#f6bba4` | |
 | truth | `#1a1a1a` (ink), dashed | |
 | a series named in place (no legend) | its text colour: C psmc `#c4501f`, psmc-rs `#1c5cab`, a superpopulation's `style.SUPERPOP_TEXT` | at least 4.3:1 on white |
-| routes of the supplement's Fig S2 (`fig5_input_preparation`) | weighted bins (`mask_auto`) blue; bins taken as full through fq2psmcfa orange, from the VCF (`mask_ignore`) `#104281` (blue ramp 650); multihetsep `#b07800`, a VCF without its mask `#c94f80` (not drawn) | `"#2a78d6,#104281" --ordinal`: pass |
+| routes of the supplement's Fig S2 (`fig5_input_preparation`) | weighted bins (`mask_auto`) blue; bins taken as full through fq2psmcfa orange, from the VCF (`mask_ignore`) `#104281` (blue ramp 650); multihetsep `#b07800`, a VCF without its mask `#c94f80` (not drawn) | pass (ordered: blue, then `#104281`) |
 | block sizes (the supplement's Fig S3, `fig6_bootstrap_calibration`) | the most blocks `#2a78d6`, the fewest `#86b6ef` (blue ramp) | |
-| superpopulations (the article's Fig 3, `fig7_1000_genomes`) | AFR `#eda100`, AMR `#12966b`, EAS `#4a3aa7`, EUR `#e87ba4`, SAS `#a0522d` | `fig7.py` gives the check |
+| superpopulations (the article's Fig 3, `fig7_1000_genomes`) | AFR `#eda100`, AMR `#12966b`, EAS `#4a3aa7`, EUR `#e87ba4`, SAS `#a0522d` | pass (`fig7.py`'s docstring gives the separations) |
 | a psmc-rs variant in the pipeline-only figures (VCF input, 5 Mb trunks, the split-first-window patterns) | `#104281` (blue ramp 650), dotted or dashed | |
 | counts (`figS3_tmrca_decoding`, pipeline-only) | sequential blue ramp, steps 100-700 | |
 
