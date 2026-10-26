@@ -154,11 +154,11 @@ na_c = json.loads((IBX / "E2/provenance/fit-c/NA12878.json").read_text())["key"]
 
 X.mkdir(parents=True, exist_ok=True)
 with open(X / "inputs_E1_genomes.csv", "w", newline="") as f:
-    w = csv.DictWriter(f, fieldnames=list(genome_rows[0]))
+    w = csv.DictWriter(f, fieldnames=list(genome_rows[0]), lineterminator="\n")
     w.writeheader()
     w.writerows(genome_rows)
 with open(X / "inputs_E1_chromosomes.csv", "w", newline="") as f:
-    w = csv.DictWriter(f, fieldnames=list(chrom_rows[0]))
+    w = csv.DictWriter(f, fieldnames=list(chrom_rows[0]), lineterminator="\n")
     w.writeheader()
     w.writerows(chrom_rows)
 

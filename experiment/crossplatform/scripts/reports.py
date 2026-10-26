@@ -126,7 +126,7 @@ def main():
             for name in names:
                 rows.append({"exp": exp, **compare(runs / exp / "tables" / name, IBX / exp / "tables" / name)})
     with open(X / "reports_laptop_vs_ibex.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w = csv.DictWriter(f, fieldnames=list(rows[0]), lineterminator="\n")
         w.writeheader()
         w.writerows(rows)
     rc = [r for r in rows if r["rs_vs_c_cells"]]
