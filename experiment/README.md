@@ -72,7 +72,9 @@ experiment/
 
 Committed under `runs/`: every fit (psmc-rs JSON and `.psmc`, C psmc
 `.psmc`), bootstrap replicates' JSON, truth, QC and provenance records,
-tables and figures. Not committed, and made again on demand from the
+E3's timing records, E4's masks, bins and cross-checks, E7's data-stage
+manifest and records with its sample table and chunk plan, tables and
+figures. Not committed, and made again on demand from the
 seeds: the simulated genomes, the bootstrap replicates' `.psmc` files,
 HTML reports, logs and the runner's state (`.gitignore`). E7's inputs, one
 psmcfa per 1000 Genomes sample, are on Zenodo.
@@ -91,12 +93,20 @@ experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.l
 cargo build --release --locked
 PY=experiment/.venv/bin/python
 $PY -m experiment.pipeline tools          # the tools and their identities
-$PY -m experiment.pipeline report E1      # an experiment's tables from the committed runs
-$PY -m experiment.pipeline.figures        # every figure whose tables exist
+CHECK=/path/to/new/copy
+cp -R experiment/runs $CHECK              # about 100 MB; report and figures rewrite their files in it
+$PY -m experiment.pipeline report E1 --runs-dir $CHECK   # an experiment's tables from the committed runs
+$PY -m experiment.pipeline.figures --runs-dir $CHECK     # every figure whose tables exist
 $PY -m experiment.pipeline plan --cores 50 --mem-gb 64   # what running everything from scratch costs
 RUNS=/path/to/new/runs
 $PY -m experiment.pipeline start --runs-dir $RUNS E1     # a detached, resumable runner; status, stop
 ```
+
+`report` and `figures` write into a copy of the committed runs: off Linux
+x86-64, some of a report's tables differ from the committed ones in their
+last digits (Supplementary Note 1, section 3), and written into `runs/`
+itself they would leave that report and the figures that read its tables
+counting as not done.
 
 `plan` and `start` default to 7 cores and 12 GB, on which E2's and E7's
 bootstraps (50 and 32 threads) cannot start, so `plan` shows E2, E7 and
