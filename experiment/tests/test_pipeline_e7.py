@@ -13,16 +13,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
-from fixtures import fake_ctx, read_csv  # noqa: E402
+from fixtures import e7_sample as sample, fake_ctx, read_csv, stage_e7  # noqa: E402
 
 from experiment.pipeline import config, kg1000, runner  # noqa: E402
 from experiment.pipeline.experiments import REGISTRY, e7  # noqa: E402
-
-
-def sample(sid, pop="YRI", sup="AFR", default=False, split=False, boot=False, giab=False):
-    return kg1000.Sample(sample_id=sid, population=pop, superpopulation=sup, sex="female", is_parent=False,
-                         admixed=False, raw_bases=93_000_000_000, raw_depth=30.0, default=default,
-                         selection="drawn" if default else "cohort", split_check=split, bootstrap=boot, giab=giab)
 
 
 class Jobs(unittest.TestCase):
@@ -32,12 +26,7 @@ class Jobs(unittest.TestCase):
         self.lay = e7.Layout(self.ctx.exp_dir("E7"))
 
     def stage(self, samples):
-        data = self.lay.data
-        kg1000.write_tsv(data.samples, [s.row() for s in samples], kg1000.SAMPLE_COLUMNS)
-        kg1000.write_tsv(data.chunks, [{"chrom": "chr1", "chunk": 0, "start": 1, "end": 248_956_422},
-                                       {"chrom": "chr2", "chunk": 0, "start": 1, "end": 242_193_529}],
-                         ("chrom", "chunk", "start", "end"))
-        kg1000.write_json(data.manifest, {"manifest": kg1000.MANIFEST_ID})
+        stage_e7(self.lay.data, samples)
 
     def test_registered(self):
         self.assertEqual(REGISTRY["E7"], "e7")

@@ -89,6 +89,28 @@ def fake_ctx(profile, runs: Path, *keys: str, **kw):
     return Context(profile, runs, _tools=fake_tools(*keys), **kw)
 
 
+def e7_sample(sid: str, pop: str = "YRI", sup: str = "AFR", default: bool = False, split: bool = False,
+              boot: bool = False, giab: bool = False):
+    """A sample of E7's sample table with these roles (a kg1000.Sample; a cohort sample unless ``default``)."""
+    from experiment.pipeline import kg1000
+
+    return kg1000.Sample(sample_id=sid, population=pop, superpopulation=sup, sex="female", is_parent=False,
+                         admixed=False, raw_bases=93_000_000_000, raw_depth=30.0, default=default,
+                         selection="drawn" if default else "cohort", split_check=split, bootstrap=boot, giab=giab)
+
+
+def stage_e7(data, samples: Iterable) -> None:
+    """E7's data stage finished in ``data`` (a kg1000.Layout): the sample table of ``samples``, a chunk plan of chr1
+    and chr2 and MANIFEST.json, so E7 declares its jobs; none of the inputs its fits read."""
+    from experiment.pipeline import kg1000
+
+    kg1000.write_tsv(data.samples, [s.row() for s in samples], kg1000.SAMPLE_COLUMNS)
+    kg1000.write_tsv(data.chunks, [{"chrom": "chr1", "chunk": 0, "start": 1, "end": 248_956_422},
+                                   {"chrom": "chr2", "chunk": 0, "start": 1, "end": 242_193_529}],
+                     ("chrom", "chunk", "start", "end"))
+    kg1000.write_json(data.manifest, {"manifest": kg1000.MANIFEST_ID})
+
+
 def option(command: Sequence, name: str) -> Optional[str]:
     """The value ``command`` gives its option ``name`` (None without the option)."""
     command = [str(c) for c in command]
