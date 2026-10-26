@@ -68,12 +68,10 @@ class Genomes(unittest.TestCase):
             with self.subTest(cores=cores):
                 self.assertAlmostEqual(min(p.quiet_cpu_percent / 100 * cores, p.quiet_max_cores), quiet)
                 self.assertAlmostEqual(min(p.max_other_cpu_share * cores, p.max_other_cores), other)
-        res = {"during": {"other_cpu_share": 0.004, "other_cores": 0.5}, "wall_seconds": 10.0, "clock_span_seconds": 10.0}
+        res = {"during": {"other_method": "machine", "other_cpu_share": 0.004, "other_cores": 0.5},
+               "wall_seconds": 10.0, "clock_span_seconds": 10.0}
         self.assertIsNone(e3_run.unclean(res, p))
         res["during"]["other_cores"] = 0.77  # 0.6% of 128 cores
-        self.assertIn("0.77 cores", e3_run.unclean(res, p))
-        del res["during"]["other_cores"]  # an older record: from the CPU seconds of the others
-        res["during"]["other_cpu_seconds"] = 7.7
         self.assertIn("0.77 cores", e3_run.unclean(res, p))
 
     def test_linux_machine(self):
@@ -457,7 +455,8 @@ class Measure(unittest.TestCase):
         crowded = replace(NO_WAIT, max_other_cores=-1.0)
         self.assertEqual(self.measure(1, protocol=crowded), e3_run.EX_TEMPFAIL)  # by the cores, too
         self.assertFalse(self.out.exists())
-        res = {"during": {"other_cpu_share": 0.01}, "wall_seconds": 10.0, "clock_span_seconds": 70.0}
+        res = {"during": {"other_method": "machine", "other_cpu_share": 0.01, "other_cores": 0.08},
+               "wall_seconds": 10.0, "clock_span_seconds": 70.0}
         protocol = config.TimingProtocol()
         self.assertIn("slept", e3_run.unclean(res, protocol))
         self.assertIsNone(e3_run.unclean({**res, "clock_span_seconds": 10.5}, protocol))

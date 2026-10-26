@@ -515,13 +515,12 @@ def run_row(lay: Layout, cfg: config.E3, run: Run, truth: Dict, out: Output, tim
 def is_clean(timing: Dict, protocol: config.TimingProtocol) -> bool:
     """Whether a timing record is a clean measurement by ``protocol`` (``measure`` keeps only those).
 
-    Checked again here, so that a record written under an older or laxer
-    protocol never enters the medians; a run with more threads than usable
-    CPUs (:func:`oversubscribed`) is not clean either. The other work during
-    the run is the record's own measure (:func:`.e3_run.other_cores`, by
-    ``during.other_method``): other user-space processes in records that
-    have it (with steal time), else the machine's busy CPU but the tool's
-    (``timing/3``).
+    Checked again here, so that a record written under a laxer protocol
+    never enters the medians; a run with more threads than usable CPUs
+    (:func:`oversubscribed`) is not clean either. The other work during the
+    run is the record's own measure (:func:`.e3_run.other_cores`, by
+    ``during.other_method``): other user-space processes with steal time
+    (``processes``), or the machine's busy CPU but the tool's (``machine``).
     """
     before = timing.get("machine_before", {})
     power = before.get("power") or {}

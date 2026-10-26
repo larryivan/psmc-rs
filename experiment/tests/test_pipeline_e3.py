@@ -185,7 +185,8 @@ class Report(unittest.TestCase):
                 "maxrss_mb": 100.0, "peak_rss_tree_sampled_mb": 99.0, "loadavg_before": [0.5, 0.5, 0.5],
                 "loadavg_after": [1.0, 0.5, 0.5], "start": "2026-10-05T00:00:00", "end": "2026-10-05T00:00:10",
                 "machine_before": {"quiet": True, "busy_percent": 3.0, "waited_seconds": 0.0},
-                "during": {"other_cpu_share": 0.01}, "machine": {"cpu": "Test CPU", "cpu_count": 8},
+                "during": {"other_method": "machine", "other_cpu_share": 0.01, "other_cores": 0.08},
+                "machine": {"cpu": "Test CPU", "cpu_count": 8},
             }
             lay.timing(run).parent.mkdir(parents=True, exist_ok=True)
             lay.timing(run).write_text(json.dumps(timing))
@@ -319,12 +320,9 @@ class Report(unittest.TestCase):
         protocol = config.TimingProtocol()
         self.assertTrue(e3.is_clean(timing, protocol))
         # 1% of 192 cores is 1.9 cores of other work: within the share, not within the cores.
-        timing["during"] = {"other_cpu_share": 0.01, "other_cores": 1.9}
+        timing["during"] = {"other_method": "machine", "other_cpu_share": 0.01, "other_cores": 1.9}
         self.assertFalse(e3.is_clean(timing, protocol))
-        # a record without other_cores: from the other processes' CPU seconds over the wall time
-        timing["during"] = {"other_cpu_share": 0.01, "other_cpu_seconds": 0.6 * timing["wall_seconds"]}
-        self.assertFalse(e3.is_clean(timing, protocol))
-        timing["during"] = {"other_cpu_share": 0.01, "other_cpu_seconds": 0.4 * timing["wall_seconds"]}
+        timing["during"]["other_cores"] = 0.4
         self.assertTrue(e3.is_clean(timing, protocol))
         timing["machine_before"]["busy_cores"] = 1.5
         self.assertFalse(e3.is_clean(timing, protocol))
@@ -333,9 +331,6 @@ class Report(unittest.TestCase):
         run = next(r for r in e3.runs(self.cfg) if r.setup.tool == "rs02" and r.repeat == 1)
         timing = self.timing(run)
         protocol = config.TimingProtocol()
-        # timing/3: the machine's busy CPU but the tool's, interrupts included (a 30-thread run on Ibex)
-        timing["during"] = {"other_cpu_share": 0.0044, "other_cores": 0.56, "other_cpu_seconds": 56.0}
-        self.assertFalse(e3.is_clean(timing, protocol))
         # timing/4 on Linux: other user-space processes; kernel threads and interrupts recorded apart
         timing["record"] = "psmc-rs-manuscript/E3/timing/4"
         timing["machine_before"].update(process_cores=0.2, kernel_thread_cores=0.1, interrupt_cores=0.1)
@@ -362,8 +357,8 @@ class Report(unittest.TestCase):
         self.assertEqual((row["other_cores_during"], row["machine_other_cores_during"]), ("0.2", "0.56"))
         self.assertEqual((row["kernel_thread_cores_during"], row["interrupt_cores_during"]), ("0.15", "0.2"))
         self.assertEqual((row["process_cores_before"], row["other_processes_exited"]), ("0.2", "2"))
-        old = next(r for r in read_csv(self.lay.table("runs")) if r["tool"] == "c")
-        self.assertEqual((old["other_method"], old["kernel_thread_cores_during"]), ("machine", ""))
+        c_row = next(r for r in read_csv(self.lay.table("runs")) if r["tool"] == "c")
+        self.assertEqual((c_row["other_method"], c_row["kernel_thread_cores_during"]), ("machine", ""))
         env = self.environment()
         self.assertEqual(env["other_methods"], "machine;processes")
         # other_cores_during is a different quantity by method: summarised apart

@@ -75,9 +75,8 @@ What "other processes" means during a run (``during.other_method``):
 
 The machine-wide measure is recorded in either case (``other_cpu_seconds``,
 ``other_cpu_share``, ``other_cores``, ``machine_busy_percent``), so records
-of either kind stay comparable with older ones (``timing/3``, which have
-only it); :func:`other_cores` and :func:`other_share` give the measure the
-limits apply to.
+of either kind stay comparable; :func:`other_cores` and :func:`other_share`
+give the measure the limits apply to.
 
 Only the tool's processes are measured, not this wrapper (the runner's own
 record of the job includes the wrapper's Python interpreter). The module is
@@ -644,17 +643,13 @@ def measure(
 
 
 def other_method(res: Dict) -> str:
-    """Which measure of other work a run's limits check: ``processes`` or ``machine`` (records before ``timing/4``)."""
-    return res.get("during", {}).get("other_method", "machine")
+    """Which measure of other work a run's limits check: ``processes`` or ``machine``."""
+    return res["during"]["other_method"]
 
 
 def machine_other_cores(res: Dict) -> float:
-    """The cores the machine's busy CPU but the tool's kept busy on average (from their CPU seconds in older records)."""
-    during = res.get("during", {})
-    if "other_cores" in during:
-        return float(during["other_cores"])
-    wall = res.get("wall_seconds") or 0.0
-    return float(during.get("other_cpu_seconds") or 0.0) / wall if wall > 0 else 0.0
+    """The cores the machine's busy CPU but the tool's kept busy on average."""
+    return float(res["during"]["other_cores"])
 
 
 def other_cores(res: Dict) -> float:
