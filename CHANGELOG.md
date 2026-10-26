@@ -442,46 +442,49 @@ Library API:
   columns and over the diagonal (`hmm::TransitionSums`), which the E-step
   adds up from prefix and suffix sums at every bin, with NEON code on
   aarch64 and AVX2 code on x86-64, instead of the whole states × states
-  matrix of counts (38% of an E-step's time with 64 states on an M1 Pro;
-  their sums take 12%). The E-step keeps one forward vector every 128
+  matrix of counts (their sums take 12% of an E-step's time with 64
+  states on an M1 Pro). The E-step keeps one forward vector every 128
   bins instead of whole forward and backward matrices. On the human
   chromosome 1 in `experiment/real_data` (one sequence of 2.49 M bins,
-  `4+25*2+4+6`, 20 iterations, 1 thread, Apple M1 Pro) a fit takes 16 s
-  and 19 MB instead of 139 s and 1.95 GB; on HLhydTec1 (34 sequences,
-  18.5 M bins, 5 iterations, 8 threads) 7.2 s and 92 MB instead of 79 s
-  and 6.9 GB.
+  `4+25*2+4+6`, 20 iterations, 1 thread, Apple M1 Pro) a fit takes 15 s
+  and 19 MB instead of 146 s and 1.95 GB; on HLhydTec1 (34 sequences,
+  18.5 M bins, 5 iterations, 8 threads) 6.5 s and 98 MB instead of 81 s
+  and a peak memory footprint of 7.9 GB.
 - The E-step and the log-likelihood merge each work item's sums as soon as
   those before it are merged, instead of holding them all, with results
   unchanged to the bit: a bootstrap of 8 replicates on 8 threads of a
-  200 Mb genome in 500 sequences peaks at 81 MB instead of 163 MB.
-- TMRCA decoding runs in parallel within and across sequences (30,000
-  sequences of 50-300 bins at 8 threads: 10.8 s to 0.86 s).
+  200 Mb genome in 500 sequences peaks at 110 MB (84 MB with
+  `--bin-callable ignore`).
+- TMRCA decoding runs in parallel within and across sequences (29,988
+  sequences of 50-300 bins, the first 5.24 M bins of HLhydTec1, at 8
+  threads: 52.8 s in 0.1 to 0.74 s, and 3.95 s on 1 thread).
 - Input reading is faster and leaner: psmcfa is streamed instead of read
   whole, gzip and bgzip input is decoded in a thread of its own beside the
   parsing, and callable masks are merged as they are read (40 million
-  per-site rows: 646 MB to 3.9 MB).
+  per-site rows: 643 MB in 0.1 to 6.1 MB).
 - The M-step differentiates its objective in reverse mode instead of with
   forward-mode dual numbers, which carried the derivatives with respect to
   every parameter through every operation, and evaluates it from the sums
   of the expected transition counts: an evaluation takes O(states) time
-  and memory, however many λ are free (about 7.5 µs instead of 1.0 ms for
-  `4+25*2+4+6`). With one λ per interval, one EM iteration on the
-  180,000-bin test input with 401 intervals peaked at 417 MB of resident
-  memory instead of 1.30 GB and took 11.0 s instead of 36.7 s. With that
-  gradient and a curvature-scaled L-BFGS, the converged M-step (see
-  *Changed*) takes a small fraction of the E-step's time: with
-  `4+25*2+4+6` on one thread, 0.55 to 0.87 ms per EM iteration on a
-  simulated 100 Mb chromosome (E-step 0.32 s, on an Apple M1 Pro), where
-  100 forward-mode L-BFGS iterations took 123 ms and 1000 took 1.35 s.
+  and memory, however many λ are free (about 7.6 µs instead of 0.95 ms in
+  0.1 for `4+25*2+4+6`). With one λ per interval, one EM iteration on the
+  180,000-bin test input with 401 intervals peaked at 437 MB of resident
+  memory instead of 1.36 GB in 0.1 and took 11.0 s instead of 54.4 s.
+  With that gradient and a curvature-scaled L-BFGS, the converged M-step
+  (see *Changed*) takes a small fraction of the E-step's time: with
+  `4+25*2+4+6` on one thread, 0.55 to 0.84 ms per EM iteration on E3's
+  simulated 100 Mb chromosome (E-step 0.31 s, on an Apple M1 Pro), where
+  0.1's forward-mode L-BFGS took 114 to 135 ms with its cap of 100
+  iterations and 0.56 to 1.83 s with a cap of 1000.
 - On x86-64 the E-step, log-likelihood and TMRCA decoding use AVX2 and FMA
   when the CPU has both, chosen at run time: a 1.9 Gb genome (5 EM
-  iterations, 1 thread) took 71.7 s instead of 161 s on an AMD EPYC 7702
-  (both timed before the expected transitions were summed in O(states)).
-  Results are bit-identical on any CPU with AVX2 and FMA that gets the
-  same libm `log` and `exp`. The portable code (CPUs without AVX2 or FMA,
-  or `PSMC_RS_SIMD=portable`) does not fuse multiply-adds, so its fitted
-  parameters differ by a relative 1e-7 to 1e-6 after 5 iterations. The
-  JSON's `simd` and the HTML report record which code ran.
+  iterations, 1 thread) took 43.4 s on an AMD EPYC 7702, against 79.2 s
+  with the portable code. Results are bit-identical on any CPU with AVX2
+  and FMA that gets the same libm `log` and `exp`. The portable code (CPUs
+  without AVX2 or FMA, or `PSMC_RS_SIMD=portable`) does not fuse
+  multiply-adds, so its fitted parameters differ by a relative 1e-8 to
+  1e-6 after 5 iterations. The JSON's `simd` and the HTML report record
+  which code ran.
 
 ### Deprecated
 
