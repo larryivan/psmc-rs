@@ -38,11 +38,10 @@ bottleneck model) measured it: with 30% of the bases missing in runs of
 about 20 bp, the RMSE of log10 Ne against the truth was 0.449 on average,
 against 0.273 for the same genomes without missing data; rescaling the
 fitted times and sizes by the callable bases per called bin brought it
-back to 0.286, and the model below to 0.280 (`E4_rescaling.csv`; an
-earlier run of E4, before the model, gave 0.447, 0.332 and 0.334 for the
-first three). Missing data in long runs (E4's 20 kb runs)
-mostly empty whole bins, which the `N` rule already handles; only the bins
-at the edges of each run are partly called.
+back to 0.286, and the model below to 0.280 (`E4_rescaling.csv`).
+Missing data in long runs (E4's 20 kb runs) mostly empty whole bins,
+which the `N` rule already handles; only the bins at the edges of each run
+are partly called.
 
 The rescaling in E4 corrects the average. The model below corrects each
 bin, so that bins with many missing bases weigh less than full ones in the
@@ -170,26 +169,24 @@ holds much more than its result.
 
 Peak resident memory (median of three runs) of `psmc-rs IN OUT 1
 --vcf-mode mask --bin-size 100 --threads 3 --pattern 4+5*3+4`, alone (fit)
-and with `--bootstrap 3 --bootstrap-iters 1` (fit + bootstrap): before
-stage 1 (bf12203), with the first draft's `u32` per bin (2101d69) and with
-the storage above. All three write the same JSON and bootstrap files byte
-for byte.
+and with `--bootstrap 3 --bootstrap-iters 1` (fit + bootstrap), with the
+storage above.
 
 Peak MB, fit / fit + bootstrap:
 
-| input (mask-mode VCF, bins of 100) | bins | counts kept as | before stage 1 | `u32` per bin | stage 1 |
-| --- | ---: | --- | ---: | ---: | ---: |
-| complete: 1 Gb, no mask | 10 M | nothing | 32 / 86 | 75 / 298 | 32 / 87 |
-| masked: 1 Gb, a mask with 407,594 gaps of 205 bp on average (8.4% missing, 12% of the bins not full) | 10 M | 1 byte per bin (10 MB) | 47 / 100 | 88 / 312 | 59 / 160 |
-| clustered: 200 Mb, gaps of 20 kb (30% missing) | 2 M | 9,113 runs (0.09 MB) | 10 / 24 | 21 / 74 | 11 / 26 |
-| dispersed: 200 Mb, gaps of 20 bp (30% missing) | 2 M | 1 byte per bin (2 MB) | 109 / 121 | 119 / 169 | 113 / 134 |
+| input (mask-mode VCF, bins of 100) | bins | counts kept as | fit / fit + bootstrap |
+| --- | ---: | --- | ---: |
+| complete: 1 Gb, no mask | 10 M | nothing | 21 / 71 |
+| masked: 1 Gb, a mask with 410,314 gaps of 206 bp on average (8.4% missing, 12% of the bins not full) | 10 M | 919,958 runs (9.2 MB) | 39 / 130 |
+| clustered: 200 Mb, gaps of 20 kb (30% missing) | 2 M | 8,957 runs (0.09 MB) | 9 / 21 |
+| dispersed: 200 Mb, gaps of 20 bp (30% missing) | 2 M | 1 byte per bin (2 MB) | 71 / 93 |
 
 (The dispersed input's 3 million mask intervals dominate its memory.)
 
 On complete data and on missing data in long stretches the counts cost
 nothing. The masked input is the realistic case: a mask with many short
 gaps leaves an eighth of the bins partly called or empty, in about as many
-runs as such bins, so runs (10.3 MB) and one byte per bin (10.0 MB) cost
+runs as such bins, so runs (9.2 MB) and one byte per bin (10.0 MB) cost
 about the same, and the counts double each copy of the data. That is the
 cost of the information itself kept beside the symbols. Stage 2, which
 rewrites the E-step to read the counts, could remove it by coding each
@@ -207,8 +204,8 @@ until the bootstrap, as before stage 1. Building them only when the
 bootstrap starts would not lower the peak, which comes during the
 bootstrap, when the input, the joined sequences, the trunks and the
 replicates are all held: on the masked input the fit alone peaks at
-59 MB, the joined sequences add one copy of the bins and counts (20 MB) to
-the main fit, and the run with the bootstrap peaks at 160 MB. Freeing the
+39 MB, the joined sequences add one copy of the bins and counts (19 MB) to
+the main fit, and the run with the bootstrap peaks at 130 MB. Freeing the
 joined sequences once the trunks are cut would save one copy there, for
 every input; it is independent of the counts and left out.
 
@@ -554,21 +551,17 @@ departs from the plan of stage 1 in five places, each said in its section:
 The storage note proposed coding each bin's symbol and count in one byte.
 Stage 2 keeps the counts in `BinCounts` beside the symbols: the E-step
 copies one segment's counts at a time (128 bins) and maps them with the
-symbols to observation indices, which costs 3.7% of a single-threaded
-E-step on dispersed counts (0.961 s against 0.926 s per E-step on a 2 Mbin
+symbols to observation indices, which costs 4.4% of a single-threaded
+E-step on dispersed counts (0.642 s against 0.615 s per E-step on a 2 Mbin
 genome with 30% of the bases missing in 20 bp runs, 64 states; medians of
-three runs of three E-steps, `examples/bench_estep.rs --callable`) and 0.9%
-when every bin is full (0.935 s against 0.927 s), and 3% with 8 threads
-(0.231 s against 0.224 s). The coding would save one copy of the counts
+three runs of three E-steps, `examples/bench_estep.rs --callable`) and 1.3%
+when every bin is full (0.624 s against 0.616 s), and 7% with 8 threads
+(0.145 s against 0.136 s). The coding would save one copy of the counts
 (1 byte per bin) in each copy of the data, at the price of changing
 `Observations::rows`, which every reader, writer and caller uses; it is
-left out. psmcfa input runs the same loops as before: a fit of
-HLemySub1 (18.9 Mbin, `4+25*2+4+6`, 3 iterations, 8 threads) took a median
-of 7.24 s against 7.36 s before stage 2 (three runs each, interleaved), and
-wrote the same JSON but for the new `bin_callable` record. Whole fits of
-the dispersed genome above, 25 iterations with 8 threads, took 6.22 s with
-the counts and 5.97 s without (`--bin-callable ignore`; 6.00 s before
-stage 2), and of its complete version 5.84 s and 5.76 s.
+left out. Whole fits of the dispersed genome above, 25 iterations with 8
+threads, took 3.99 s with the counts and 3.69 s without (`--bin-callable
+ignore`), 8% more, and of its complete version 3.62 s and 3.53 s.
 
 **Memory of the E-step's sums.** The sums of a work item (`fb::Partial`)
 hold one row of `np` doubles per observation index: up to 183 rows for
@@ -576,41 +569,26 @@ hold one row of `np` doubles per observation index: up to 183 rows for
 The E-step first kept every work item's sums until all were done, up to
 256 of them (`sched::MAX_WORK_ITEMS`), and a bootstrap runs about one
 E-step per thread at once, so a bootstrap of an input with many sequences
-or trunks took twice the memory with counts, and nine times with bins of
-1,000 bases; time hardly changed. Work items now start in item order, from
-a shared counter, and each item's sums are merged into the total as soon as
-every item before it has been (`hmm::sched::fold_in_order`, which the
-log-likelihood uses too): the same sums in the same order, so every result
-is unchanged to the bit, and only the sums of items that finished before
-an earlier one are held, about one per thread. Peak resident memory of
-`psmc-rs IN OUT 1 --vcf-mask ... --pattern 4+25*2+4+6 --threads 8
---bootstrap 8 --bootstrap-iters 1` on replicate 1's dispersed 30% genome
-of the validation cut into 500 contigs of 400 kb (three runs each):
+or trunks held many work items' sums at once. Work items now start in
+item order, from a shared counter, and each item's sums are merged into
+the total as soon as every item before it has been
+(`hmm::sched::fold_in_order`, which the log-likelihood uses too): the same
+sums in the same order, so every result is unchanged to the bit, and only
+the sums of items that finished before an earlier one are held, about one
+per thread. Peak resident memory of `psmc-rs IN OUT 1 --vcf-mask ...
+--pattern 4+25*2+4+6 --threads 8 --bootstrap 8 --bootstrap-iters 1` on
+replicate 1's dispersed 30% genome of the validation cut into 500 contigs
+of 400 kb (three runs each):
 
-| bins | before stage 2 (5ddbd43) | stage 2, sums kept to the end: auto / ignore | sums merged in order: auto / ignore |
-| --- | ---: | ---: | ---: |
-| 100 bases, 500 trunks | 162-163 MB | 307-308 / 142-144 MB | 103-106 / 80-83 MB |
-| 1,000 bases, `--bootstrap-block-size 50000` (500 trunks) | 104-119 MB | 900-1051 / 107-128 MB | 98-115 / 65 MB |
+| bins | auto / ignore |
+| --- | ---: |
+| 100 bases, 500 trunks | 108-110 / 84 MB |
+| 1,000 bases, `--bootstrap-block-size 50000` (500 trunks) | 99-111 / 67-68 MB |
 
-The fit alone at 1,000 bases peaked at 165 MB with the counts and 66 MB
-without before, and at 88 MB and 62 MB after. Every input gains from the
-change, with or without counts: the transition sums of each item
-(`np * np` doubles) were held to the end as well.
-
-The change costs no time. psmcfa fits before (7942d83) and after it,
-interleaved, medians of three runs, 8 threads, at load averages of 5 to 20
-from other work: HLemySub1 (889 sequences, 3 iterations) 6.00 s against
-7.24 s, and its bootstrap of 8 replicates of 2 iterations 29.9 s against
-31.0 s (its large scaffolds come first in the file, and work items now
-start in order); of seven runs each, HLhydTec1 (34 sequences, 3
-iterations) 5.91 s against 6.15 s, the 500-contig genome above (25
-iterations) 4.06 s against 4.09 s, and the dispersed genome above as
-psmcfa (10 sequences, 25 iterations) 5.42 s against 5.35 s, with the same
-CPU time (28.1 s and 27.0 s both ways). With the counts, the 25-iteration
-fit of the dispersed genome took 5.95 s and 6.04 s in two series of runs
-against 5.71 s and 5.62 s without them (`--bin-callable ignore`), 4 to 7%
-more, and its counted bootstrap on 500 contigs 2.21 s against 2.26 s
-before the change.
+The fit alone at 1,000 bases peaked at 74 to 116 MB (median 82) with the
+counts and 62 to 63 MB without. Every input gains from merging in order,
+with or without counts: each item's transition sums (5 × `np` doubles,
+`hmm::TransitionSums`) are merged in order as well.
 
 ## Validation
 
@@ -639,7 +617,7 @@ Stage 2 (in the test suite):
   and partly callable rows are `exp(-θ (c/s) avg_t)` and one minus it
   (`src/hmm/obs.rs`); the E-step and the log-likelihood with counts match
   a brute-force forward-backward that builds every bin's emission from its
-  count, to 2e-13 relative (`tests/estep_oracle.rs`);
+  count, to 5e-13 relative (`tests/estep_oracle.rs`);
 - with every called bin full, the E-step, the log-likelihood and the TMRCA
   output equal those without counts to the bit, with any batching; with
   one count `c` everywhere they equal those of the model whose `T`
@@ -657,8 +635,8 @@ Stage 2 (in the test suite):
   bins it does not lower the likelihood; and on bins simulated from the
   callable-length model with 30% of the bases missing at random, the fit
   with counts recovers the diversity per bin (θ C_pi) of the fit of the
-  same genealogy without missing data (ratio 0.999), where the fit without
-  counts gives 0.70 (`tests/em_callable.rs`);
+  same genealogy without missing data (ratio 0.9997), where the fit without
+  counts gives 0.71 (`tests/em_callable.rs`);
 - the bootstrap: each replicate is the fit of its resampled bins and
   counts, by hand; full counts give the replicates without counts to the
   bit; replicates do not depend on threads or batching; and
