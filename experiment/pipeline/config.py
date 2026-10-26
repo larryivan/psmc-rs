@@ -41,16 +41,18 @@ class Inference:
 
     The M-step: C psmc's Hooke-Jeeves search runs each M-step to
     convergence, and so does psmc-rs 0.2's L-BFGS, which stops by a
-    convergence test far below the ``--mstep-iters`` cap (10 to 70
-    iterations, a few ms per EM iteration on one thread). On a simulated
-    4 x 25 Mb bottleneck genome the two tools' curves are 7.7e-5 apart (RMSE
-    of log10 Ne on the informative window), as close as C psmc's own
-    Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5); psmc-rs 0.1's
-    L-BFGS, stopped after 100 iterations, left them 0.03 to 0.16 apart. The
-    default M-step is therefore the converged one, and no experiment fits a
-    separate default arm (:attr:`E1.capped_mstep_iters` and
-    :attr:`E3.capped_mstep_iters` are None; a cap set there fits or times
-    psmc-rs with M-steps capped at that many iterations too).
+    convergence test far below the ``--mstep-iters`` cap (in E1 a median 76
+    objective evaluations per M-step, at most 135; under a millisecond per
+    EM iteration on one thread, 0.55 to 0.84 ms on E3's 100 Mb genome on an
+    Apple M1 Pro). Over E1's 40 genomes the RMSE of log10 Ne between the two
+    tools' curves on the informative window, interval by interval, has a
+    median of 2.5e-5, as small as with C psmc's own Hooke-Jeeves search run
+    inside psmc-rs's EM in a diagnostic build (median 2.6e-5;
+    experiment/c_equivalence/). The default M-step is therefore the
+    converged one, and no experiment fits a separate capped arm
+    (:attr:`E1.capped_mstep_iters` and :attr:`E3.capped_mstep_iters` are
+    None; a cap set there fits or times psmc-rs with M-steps capped at that
+    many iterations too).
     """
 
     n_iter: int = 25  # EM iterations: C -N, psmc-rs N_ITER
@@ -550,9 +552,10 @@ class ResourceModel:
     c_s_per_mb_iter: float = 0.05
     rs02_s_per_mb_iter: float = 0.006
     parallel_efficiency: float = 0.7
-    # psmc-rs 0.2's M-step converges in a few ms per EM iteration whatever
-    # the size (64 states, measured on 100 and 500 Mb); rs02_mstep_s_per_iter
-    # is generous, and covers a capped arm.
+    # psmc-rs 0.2's M-step converges in under a millisecond per EM iteration
+    # whatever the size (its cost follows the 64 states and the free
+    # parameters, not the bins: 0.55 to 0.84 ms on E3's 100 Mb genome on an
+    # Apple M1 Pro); rs02_mstep_s_per_iter is generous, and covers a capped arm.
     rs02_mstep_s_per_iter: float = 0.02
 
 
@@ -1093,8 +1096,9 @@ class Costs:
     c_psmc_gb_per_mb_longest: float = 0.0105
     c_psmc_gb_base: float = 0.1
     # psmc-rs 0.2, one thread: 9.1 s and 11 MB for 50 Mb x 25 (63 s, 32 MB for
-    # 500 Mb). Its M-step runs on one thread and converges in a few ms per
-    # EM iteration whatever the size; rs02_mstep_s_per_iter is generous.
+    # 500 Mb). Its M-step runs on one thread and converges in under a
+    # millisecond per EM iteration whatever the size (ResourceModel);
+    # rs02_mstep_s_per_iter is generous.
     rs02_s_per_mb_iter: float = 0.007
     rs02_mstep_s_per_iter: float = 0.02
     rs02_gb: float = 0.2
