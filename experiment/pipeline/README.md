@@ -848,7 +848,7 @@ back.
 | E4 | 286 | 4 | 0.6 | 2.7 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 11.2 | 20 bootstrap runs of about 45 min (Ibex: 27 to 36) on one thread |
 | E6 | 26 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
-| E7 | 2,639 | 480 | 11 (50 cores) | 380.9 (the C psmc fits, 84.7, from an earlier `prod` job, psmc-rs's from the production's) | after its data stage; bootstraps on 32 threads |
+| E7 | 2,639 | 480 | 11 (50 cores) | 418.1 (the C psmc fits 78.1; every fit and bootstrap in one job, below) | after its data stage; bootstraps on 32 threads |
 | FIG | 16 | under 0.1 | minutes | (laptop: 8 figures in 5 s) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
@@ -862,15 +862,18 @@ way. Every job is resumable: `stop`
 (or a crash, or a reboot) and `start` again rerun only what is not done, at
 most the jobs that were running.
 
-The production run of E1, E2 and E4 to E7 (`experiment/slurm`'s `prod`
+The production run of E1, E2 and E4 to E6 (`experiment/slurm`'s `prod`
 job 54256959 on one Ibex node, at 4b2c636f) ran every job whose key the
 code had changed, the psmc-rs fits, bootstraps, conversions, decoding and
-QC among them, in 5 hours 53 minutes, 342 CPU hours in all; the C psmc
+QC among them, in 5 hours 53 minutes, 46.1 CPU hours in all; the C psmc
 fits, the simulations and the other jobs whose keys had not changed were
-kept from earlier `prod` jobs (Supplementary Note 1, section 5). The
+kept from earlier `prod` jobs (Supplementary Note 1, section 5). E7's
+fits and bootstraps, C psmc's and psmc-rs's, ran in one job on one Ibex
+node (54555780), in 7 hours 4 minutes, 418.1 CPU hours in all; its GIAB
+comparison was kept from an earlier `prod` job. The
 measured costs above come from the provenance records and
 `runs/_runner/runner.log` (not committed). The production's jobs shared the node with one another (1-minute load
-averages of 14 to 81 when they started), so their times are costs, not controlled timings:
+averages of 14 to 81 when they started; 63 to 136 in E7's job), so their times are costs, not controlled timings:
 E3 times the tools. E3's measured cost is the tools' CPU time in its 95
 timed runs (`E3_runs.csv`), without the simulations each repeat ran or
 the `measure` wrapper.
