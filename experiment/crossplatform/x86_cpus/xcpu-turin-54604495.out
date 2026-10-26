@@ -1,0 +1,7 @@
+host cn511-20; Model name:                         AMD EPYC 9655 96-Core Processor; glibc 2.34
+binary 1d141b8131bf49ae
+avx2 fma 
+wall 33.07 s, maxrss 9216 KB
+"simd": "avx2+fma"
+rep01.rs.json IDENTICAL
+rep01.rs.psmc IDENTICAL

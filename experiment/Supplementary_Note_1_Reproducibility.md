@@ -336,7 +336,10 @@ with `PSMC_RS_SIMD=portable`); aarch64 runs NEON code. The output JSON's
   are identical, to the bit, to those of a build for `x86-64-v3`, and from
   one CPU with AVX2 and FMA to another as long as the system math library
   gives the same `log` and `exp` on both (glibc picks a variant of them by
-  CPU).
+  CPU). The production's binary refitted E1's bottleneck replicate 1 byte
+  for byte on AMD EPYC 9655 (Zen 5), Intel Xeon Gold 6248 (Cascade Lake)
+  and Gold 6148 (Skylake) nodes, with glibc 2.34 as on the production's
+  EPYC 7702 nodes (`experiment/crossplatform/x86_cpus/`).
 - The portable kernels do not fuse those multiply-adds, so their results
   differ in the last digits: by a relative 1e-14 or so in an E-step (2.2e-14
   at most on the test inputs), which the M-step, stopping on a flat

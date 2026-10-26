@@ -1,0 +1,7 @@
+host cn512-27-l; Model name:                         Intel(R) Xeon(R) Gold 6248 CPU @ 2.50GHz; glibc 2.34
+binary 1d141b8131bf49ae
+avx2 fma 
+wall 68.80 s, maxrss 11568 KB
+"simd": "avx2+fma"
+rep01.rs.json IDENTICAL
+rep01.rs.psmc IDENTICAL

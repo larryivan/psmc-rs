@@ -487,7 +487,9 @@ Library API:
   when the CPU has both, chosen at run time: a 1.9 Gb genome (5 EM
   iterations, 1 thread) took 43.4 s on an AMD EPYC 7702, against 79.2 s
   with the portable code. Results are bit-identical on any CPU with AVX2
-  and FMA that gets the same libm `log` and `exp`. The portable code (CPUs
+  and FMA that gets the same libm `log` and `exp` (an E1 genome refitted
+  byte for byte on AMD EPYC 7702 and 9655 and Intel Xeon Gold 6148 and
+  6248). The portable code (CPUs
   without AVX2 or FMA, or `PSMC_RS_SIMD=portable`) does not fuse
   multiply-adds, so its fitted parameters differ by a relative 1e-8 to
   1e-6 after 5 iterations. The JSON's `simd` and the HTML report record

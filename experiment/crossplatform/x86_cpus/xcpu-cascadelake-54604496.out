@@ -1,0 +1,7 @@
+host cn603-25-l; Model name:                         Intel(R) Xeon(R) Gold 6148 CPU @ 2.40GHz; glibc 2.34
+binary 1d141b8131bf49ae
+avx2 fma 
+wall 74.39 s, maxrss 11640 KB
+"simd": "avx2+fma"
+rep01.rs.json IDENTICAL
+rep01.rs.psmc IDENTICAL

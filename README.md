@@ -784,7 +784,9 @@ the other x86-64 kernels never fuse, and no sum changes its order with
 the vector width, so its results are identical to the bit to an
 `x86-64-v3` build's, and on every CPU with AVX2 and FMA that gets the
 same `log` and `exp` from the system's math library (glibc picks a
-variant of them by CPU). x86-64 CPUs without AVX2 or FMA, and virtual
+variant of them by CPU): the production's binary refitted an E1 genome
+byte for byte on AMD EPYC 7702 and 9655 and Intel Xeon Gold 6148 and 6248
+(`experiment/crossplatform/x86_cpus/`). x86-64 CPUs without AVX2 or FMA, and virtual
 machines and emulators that hide them, run the portable code, which does
 not fuse those multiply-adds (each would be a call to libm's `fma`), so
 its results differ in the last digits: by a relative 1e-14 or so in an

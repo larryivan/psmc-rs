@@ -69,3 +69,6 @@ the same toolchain in another target directory reproduces
 paths the binary holds in its panic messages, under the builder's home
 directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build
 is not expected to reproduce either.
+
+`x86_cpus/` holds a separate check: the production binary refitting an E1 genome byte for byte on
+three other x86-64 CPU models (its README).
