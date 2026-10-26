@@ -35,7 +35,8 @@ production runs of E1 to E7 and FIG:
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (the software's schematic, not in the article: `runs/FIG/`) |
 | E7's inputs: one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs and the masks | Zenodo, not the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000`) |
-| E7's data stage: `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot) | `runs/E7/inputs/MANIFEST.json`, `runs/E7/inputs/records/` |
+| E7's data stage: `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot redone with the production's psmc-rs | `runs/E7/inputs/MANIFEST.json`, `runs/E7/inputs/records/`, `experiment/e7_pilot/pilot_chr21.json` |
+| the analyses outside the pipeline, each with its scripts, results and README: the cross-platform comparison (section 9) and the diagnostic of the residual difference from C psmc (variants of psmc-rs, as a patch, and their fits of E1's genomes) | `experiment/crossplatform/`, `experiment/c_equivalence/` |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
 (psmcfa, VCF, true TMRCA tracks; `runs/*/sims/`), the bootstrap
@@ -192,16 +193,19 @@ cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the producti
 ./submit.sh e7-prep                # E7's inputs from the 1000 Genomes VCFs; then prod again for E7's fits
 ```
 
-The production ran in one `prod` job (SLURM job 54256959, commit 4b2c636,
-on node cn513-11-l on 22 and 23 October 2026; 5 hours 53 minutes). It ran
-every job whose key the code had changed: the psmc-rs fits, bootstraps,
-conversions, decoding and QC of E1, E2 and E4 to E7, E4's cross-checks,
-and the reports of E1, E2, E4, E5 and E7. The jobs whose keys had not
+The production ran in two `prod` jobs of commit 4b2c636. The first
+(SLURM job 54256959, on node cn513-11-l on 22 and 23 October 2026; 5 hours
+53 minutes) ran every job whose key the code had changed: the psmc-rs
+fits, bootstraps, conversions, decoding and QC of E1, E2 and E4 to E6,
+E4's cross-checks, and the reports of E1, E2, E4 and E5. The second
+(54555780, on node cn514-10-l on 25 and 26 October) ran every fit and
+bootstrap of E7, C psmc's and psmc-rs's together, so that their times
+compare like for like, and E7's report. The jobs whose keys had not
 changed were kept from earlier jobs: the C psmc fits of E1 and the
-turtles (53386770, commit 34f2b00), those of NA12878 and E7 (53452276,
-commit d338500), and the simulations, E4's masks, consensus calls and
-bins, E6's reports and S3's true TMRCA and E7's GIAB comparison (54211974
-and 54232546, two `prod` jobs of 22 October). From the jobs' provenance
+turtles (53386770, commit 34f2b00), that of NA12878 (53452276, commit
+d338500), and the simulations, E4's masks, consensus calls and bins, E6's
+reports and S3's true TMRCA and E7's GIAB comparison (54211974 and
+54232546, two `prod` jobs of 22 October). From the jobs' provenance
 records, in CPU hours (user and system time):
 
 | experiment | jobs | CPU hours | made in |
@@ -212,15 +216,25 @@ records, in CPU hours (user and system time):
 | E4 | 286 | 2.7 | 206 in 54256959; simulations, masks, consensus calls and bins (80) 54232546 |
 | E5 | 121 | 11.2 | 71 in 54256959; simulations 54211974 (13) and 54232546 (37) |
 | E6 | 26 | 0.2 | 21 in 54256959; S3's truth 54211974; reports 54232546 |
-| E7 | 2,639 | 380.9 | 2,586 in 54256959; C psmc fits 53452276 (52); GIAB comparison 54232546 |
+| E7 | 2,639 | 418.1 | 2,638 in 54555780; GIAB comparison 54232546 |
 
 The fits of each `prod` job shared their node with one another (1-minute
-load averages of 14 to 81 in 54256959, and of 5 to 71 and 33 to 37 for
-the C psmc fits of 53386770 and 53452276, when they started), so these
-are costs, not timings; E3 measures performance (section 10). E7's data
-stage ran on 7 and 8 October 2026, before E7's C psmc fits, as SLURM jobs
-of `kg1000`'s steps, and read 1.68 TB of VCFs (each step's host and job
-are in `runs/E7/inputs/records/`, the sources and checks in `MANIFEST.json`).
+load averages of 14 to 81 in 54256959 and 63 to 136 in 54555780, and of 5
+to 71 and 37 for the C psmc fits of 53386770 and 53452276, when they
+started), so these are costs, not timings, though E7's two programs,
+sharing one node in one job, compare with each other like for like; E3
+measures performance (section 10). E7's data stage ran on 7 and 8 October
+2026, as SLURM jobs of `kg1000`'s steps, and read 1.68 TB of VCFs (each
+step's host and job are in `runs/E7/inputs/records/`, the sources and
+checks in `MANIFEST.json`). Its conversions ran psmc-rs from `src/`
+4c0d777 (`MANIFEST.json`); the production's psmc-rs writes the same
+content: converting with the stage's command, chromosome by chromosome,
+the per-sample VCFs the stage kept (those of the 52 default genomes) gave
+1,144 of 1,144 chromosome files and 52 of 52 genomes identical to E7's
+after decompression, with equal QC; only the gzip bytes differ. The chr21
+pilot, run again with the production's binary, gave the same files from
+the joint VCF directly as through the per-sample VCFs, both identical to
+E7's after decompression (`experiment/e7_pilot/pilot_chr21.json`).
 
 ## 6) Provenance
 
@@ -251,7 +265,7 @@ sources (the `src/` tree dcf29ca, `Cargo.toml` c0be5cf and `Cargo.lock`
 ae10354, which commits 3969ebb to c7234cd share, without uncommitted
 changes), made by rustc 1.99.0 without build flags, and the JSON of every
 fit and of every bootstrap run's main fit records the HMM kernels that ran
-(`simd`: `avx2+fma` in all 2,898; section 8).
+(`simd`: `avx2+fma` in all 2,918; section 8).
 
 ## 7) The C psmc builds
 
@@ -323,9 +337,12 @@ with `PSMC_RS_SIMD=portable`); aarch64 runs NEON code. The output JSON's
   gives the same `log` and `exp` on both (glibc picks a variant of them by
   CPU).
 - The portable kernels do not fuse those multiply-adds, so their results
-  differ in the last digits: by a relative 1e-14 or so in an E-step, which
-  the M-step, stopping on a flat optimum, turns into about 1e-7 to 1e-6 in
-  the fitted parameters after 5 EM iterations.
+  differ in the last digits: by a relative 1e-14 or so in an E-step (2.2e-14
+  at most on the test inputs), which the M-step, stopping on a flat
+  optimum, turns into about 1e-8 to 1e-6 in the fitted parameters after 3
+  to 5 EM iterations (on an EPYC 7702: 7.8e-9 after 3 and 1.4e-8 after 5 on
+  the 60,000-bin test input, 1.1e-8 after 5 on the 180,000-bin one, and
+  8.6e-7 on the latter with the pattern `4+25*2+4+6`).
   `tests/estep_determinism.rs` checks that the two agree to a relative
   1e-12 in an E-step, and `tests/cli_outputs.rs` that their fits agree
   closely.
@@ -480,7 +497,8 @@ time may keep at most 0.5 core and 5% of all cores busy; otherwise the run
 is discarded and repeated later. Kernel threads and interrupts are
 recorded but not limited, because part of their time is the kernel's work
 for the tool: on the 128-core nodes, a run keeping 30 cores busy adds
-about 0.1 core to an idle node's 0.35 to 0.49 busy core. On macOS, where
+about 0.2 core (0.17 to 0.20 core more than the same run on one thread) to
+an idle node's 0.2 to 0.9 busy core (median 0.32). On macOS, where
 not every process can be read, the limit applies instead to all of the
 machine's busy time but the tool's, and each record names the measure
 used.
@@ -495,8 +513,7 @@ done for the current code. All 95 runs (20 of C psmc and 75 of psmc-rs)
 are clean (`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean`
 are 0). In the quiet check's 2 s window before them the node had 0.20 to
 0.925 core busy, median 0.32 (the limit is 1; the five nodes' medians
-0.26 to 0.335): in 64 runs less than the 0.35 to 0.49 busy core of an idle
-node given above, in 25 within it and in 6 more. During them the other
+0.26 to 0.335). During them the other
 processes kept a median 0.27 and at most 0.48 core busy (the limit is
 0.5), at most 0.37% of all cores (the limit is 5%), and steal time was
 0 (`E3_runs.csv`: `busy_before_cores`, `other_cores_during`,
