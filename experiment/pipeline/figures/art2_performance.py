@@ -8,9 +8,9 @@ the empty height on a linear axis from zero. No legend and no grid: each
 program is named once per panel beside its data, in a text colour darker
 than its mark (:data:`.style.ORANGE_TEXT`, :data:`.style.BLUE_TEXT`), as
 one line of name and value ("C psmc  73.7 min"), and every number the text
-cites is printed on the data, to the precision that reproduces the printed
-folds (73.7 min over 5.29 min and over 11.5 s give 13.9× and 384×; 92.1
-min over 7.28 min give 12.6×).
+cites is printed on the data, at the text's precision or finer. The folds
+are of the unrounded times, which the printed ones reproduce to within
+their rounding (73.7 min over 5.29 min give 13.9×).
 
 * a, b (E3, ``E3_table2``): the thread-scaling genome
   (``config.E3.thread_scaling_size_mb``: 3,000 Mb, 30 chromosomes of 100

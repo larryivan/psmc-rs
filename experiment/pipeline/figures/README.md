@@ -94,10 +94,13 @@ so that it can be turned into the caption. The article numbers its figures in it
   E3's clean repeats on the thread-scaling genome (30 chromosomes of 100 Mb
   in production), each run alone on its machine. psmc-rs fits each
   sequence on one thread, in parallel across sequences, so the speed-up on
-  many threads needs as many sequences of similar length (see Fig 4). c's times are one-thread fits of the 1000 Genomes cohort, both programs'
-  in one job on one node shared with other fits (`E7_fits.wall_seconds`):
-  their ratio compares the programs like for like, their absolute values
-  are not comparable with a's.
+  many threads needs as many sequences of similar length (see Fig 4). c's
+  times are one-thread fits of the 1000 Genomes cohort, both programs' in
+  one job on one node shared with other fits (`E7_fits.wall_seconds`).
+  Their ratio, of C psmc's median over the default genomes (52 in
+  production) to psmc-rs's over every genome (2,504), compares the
+  programs under the same conditions; their absolute values are not
+  comparable with a's.
 - **The article's Fig 3** (`fig7_1000_genomes`): medians over genomes of
   their psmcfa fits, every curve over the cohort's comparison window. A
   group whose own window starts later (in production East Asia, CHB, CHS

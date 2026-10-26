@@ -1,5 +1,5 @@
 {
-  "digest": "7c2710ad6d168f40f7d2ea52a5ae1b31814d881a0d6873de0d7121cbe7da3ff0",
+  "digest": "d171d20579b8a96828d24f5f840aff01c13bf2ee226302d0c3c9237407db00ba",
   "key": {
     "command": [
       "<python>",
@@ -96,7 +96,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "2e225ec9320c19047c2e304c0ed3e88b4278261a07e7a1b3bef325860c8b530b",
+        "code": "06414bb08789791776d262b65c1ddfd336247c6a9c71829798d0f9da1e30b3f4",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -112,7 +112,7 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-25T14:02:22",
+    "end": "2026-10-26T18:41:22",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -120,22 +120,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      17.37,
-      8.72,
-      6.62
+      4.42,
+      4.32,
+      4.67
     ],
     "loadavg_before": [
-      12.18,
-      7.56,
-      6.2
+      4.11,
+      4.26,
+      4.65
     ],
-    "maxrss_main_mb": 208.9,
+    "maxrss_main_mb": 210.4,
     "mem_gb": 1.0,
-    "peak_rss_mb": 208.9,
-    "peak_rss_tree_sampled_mb": 208.2,
-    "start": "2026-10-25T14:02:17",
-    "system_seconds": 0.249,
-    "user_seconds": 3.112,
-    "wall_seconds": 5.136
+    "peak_rss_mb": 210.4,
+    "peak_rss_tree_sampled_mb": 210.4,
+    "start": "2026-10-26T18:41:18",
+    "system_seconds": 0.233,
+    "user_seconds": 3.082,
+    "wall_seconds": 4.241
   }
 }
