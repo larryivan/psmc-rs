@@ -850,9 +850,14 @@ $PY -m experiment.pipeline plan                  # the estimates below
 $PY -m experiment.pipeline start E3              # first, alone, on a quiet machine on AC power
 $PY -m experiment.pipeline status --jobs         # deferred runs say why
 $PY -m experiment.pipeline start E1 E2 E4 E5 E6 FIG --cores 50 --mem-gb 64   # once E3's runner has exited
-$PY -m experiment.pipeline.kg1000 run --jobs 16 --pilot chr21   # E7's data stage (or submit.sh e7-prep)
+$PY -m experiment.pipeline.kg1000 run --jobs 16 --pilot chr21   # E7's data stage (or submit.sh e7-prep; below)
 $PY -m experiment.pipeline start E7 FIG --cores 50 --mem-gb 64   # then its fits and figures
 ```
+
+E7's data stage remakes nothing while the committed
+`runs/E7/inputs/records/` and `MANIFEST.json` are there
+([E7](#e7-1000-genomes)): remove them first, or copy E7's inputs into
+`runs/E7/inputs/` instead.
 
 `start` refuses while a runner of the same runs directory lives. Running
 E3 first gives it the quiet machine its timings need while nothing of the
