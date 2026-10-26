@@ -46,6 +46,11 @@ Where to read on:
 - [`validation/README.md`](validation/README.md): the simulation study of
   `--bin-callable`, what E4 expects; [`crossplatform/README.md`](crossplatform/README.md):
   the same jobs on a laptop and on Ibex.
+- [`c_equivalence/README.md`](c_equivalence/README.md): where the remaining
+  difference from C psmc's fits comes from (variants of psmc-rs as a patch,
+  their fits of E1's genomes and the results); [`e7_pilot/README.md`](e7_pilot/README.md):
+  E7's chr21 pilot and the default genomes' conversions, run again with the
+  production's psmc-rs.
 
 ## Layout
 
@@ -60,6 +65,8 @@ experiment/
 ├── runs/                              # E1 ... E7, FIG: fits, truth and provenance records, tables, figures
 ├── validation/                        # the --bin-callable simulation study
 ├── crossplatform/                     # laptop against Ibex
+├── c_equivalence/                     # the remaining difference from C psmc: variants, fits, results
+├── e7_pilot/                          # E7's chr21 pilot and conversions, run again with the production's psmc-rs
 └── tests/                             # python -m unittest discover -s experiment/tests
 ```
 
