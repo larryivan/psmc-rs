@@ -778,8 +778,11 @@ sample's psmcfa. The chunks' records must sum to the index's count of each
 chromosome, and the pilot (chr21) must give, for the three samples, the same
 psmcfa byte for byte as `psmc-rs convert --vcf-sample` on the whole joint
 VCF. `assemble-samples` joins the chromosomes and writes `MANIFEST.json`
-(sources, tool versions, commands, checks and the SHA-256 of every output:
-the psmcfa files and the manifest are the Zenodo deliverable). NA12878's
+(sources, tool versions, commands, checks and the SHA-256 of every output;
+it is committed, and the files E7's jobs read are to be deposited on
+Zenodo: the psmcfa files, the default set's VCFs, `mask/callable.bed`,
+`nonpass/nonpass.bed.gz`, `qc/samples.tsv` and GIAB's benchmark in
+`meta/`). NA12878's
 psmcfa is also E2's human genome, committed as
 `experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz` (the same
 SHA-256). A chromosome
