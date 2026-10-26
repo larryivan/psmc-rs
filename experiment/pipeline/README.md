@@ -257,9 +257,10 @@ the simulated genome (bins and heterozygous bins agree with the truth record).
 A fit is compared with the truth at 200 log-spaced times of the window. The
 two tools' fits are compared interval by interval instead
 (`metrics.interval_diff`): both have the pattern's intervals, whose
-boundaries in years differ only through each fit's theta and t_max (by 1e-4
-to 1e-3), so a fixed time between two such boundaries would read a whole
-step of one curve against the next of the other. The `*_per_interval`
+boundaries in years differ only through each fit's theta and t_max (by at
+most 5.5e-4 in E1 and 1.0e-3 in E2), so a fixed time between two such
+boundaries would read a whole step of one curve against the next of the
+other. The `*_per_interval`
 columns hold log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap
 the window, the RMSE weighting each by its log-time width inside the window
 (as the log-spaced grid weighs the RMSE against the truth). A first lambda
@@ -441,9 +442,9 @@ processes'. Steal time (a hypervisor's other machines; 0 on Ibex's bare
 metal) is limited with the other processes. Kernel threads (kthreadd's
 children) and interrupt time (irq, softirq) are left out of the limit and
 recorded apart: part of them is the kernel's work for the tool itself (a run
-keeping 30 cores busy adds about 0.1 core on Ibex's 128-core nodes, whose
-idle busy CPU is already 0.35 to 0.49 core: counted, it rejected those
-runs against the 0.5 core again and again), the rest the machine's
+keeping 30 cores busy adds about 0.2 core on Ibex's 128-core nodes, whose
+idle busy CPU is already 0.2 to 0.9 core, a median 0.3: counted, it
+rejected those runs against the 0.5 core again and again), the rest the machine's
 housekeeping that the quiet check bounds, and neither is another
 workload. Where not every process can be read (other users' processes on
 macOS, or a `/proc` mounted `hidepid`) or reaped children's CPU time is
@@ -584,8 +585,7 @@ full-bins fit read with s = the mean callable bases of its called bins
 instead of 100, that is times and sizes multiplied by 100 / s (at 30%
 dispersed missing data, mean RMSE against the truth 0.449 as fitted, 0.286
 rescaled, 0.280 with the callable-length model and 0.273 with complete
-data; an earlier run, before the model, gave 0.447, 0.334 and, with
-complete data, 0.332). The table keeps that global correction of
+data). The table keeps that global correction of
 `mask_ignore` (s from its JSON's `bin_callable.callable.mean_fraction`)
 beside `mask_auto`, per mask and replicate, as a check of the model: the two should agree on the scale, and
 the per-bin model, which also weighs each bin by how much of it was seen,
@@ -744,7 +744,8 @@ E6 reads what E1 and E2 make and adds the runs only it needs
   bin size and trunk (`E6_S5_qc`, `_findings`).
 
 **Cost** (`plan E6`): 26 jobs, under 1 CPU hour, minutes once E1 is done.
-Measured on Ibex: 0.2 CPU hours; S3's decoding at most 1.3 GB.
+Measured on Ibex: 0.2 CPU hours; S3's tables at most 1.3 GB, its decoding
+108 MB (the runner's own floor; 35 MB in the sampled process tree).
 
 ## E7: 1000 Genomes
 
@@ -775,7 +776,7 @@ is either streamed by region over HTTPS (`chunk`) or, where one connection
 is slow, downloaded to node-local disk in parallel byte ranges, MD5
 checked, and processed there (`chrom`; on Ibex 0.4 to 1.7 MB/s per
 connection). `E7.input = "panel"` reads the phased panel instead (MAC >= 2,
-imputed genotypes: it lacks about 3.7% of each genome's PASS heterozygous
+imputed genotypes: it lacks part of each genome's PASS heterozygous
 SNVs), a fallback whose figures must say so. `run` does every step in one
 process; on a cluster `experiment/slurm/submit.sh e7-prep` chains setup, a
 task per chromosome and the samples.
