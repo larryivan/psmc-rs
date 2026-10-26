@@ -61,26 +61,27 @@ recipe: `psmc -N25 -t15 -r5 -p "4+25*2+4+6"`, which psmc-rs gets as
 --mstep-iters 1000 --bin-size 100`, plus `--threads` per job. Simulations
 are scaled with mu = 2.5e-8 and g = 25.
 
-**M-step.** C psmc's Hooke-Jeeves search runs every M-step to
-convergence, and so does psmc-rs 0.2's L-BFGS: it stops by a convergence
-test, and `--mstep-iters` (default 1000, passed explicitly) is only a cap.
-In E1 its M-steps take a median 76 objective evaluations and at most 135
-(the `IT` lines of its `.psmc` output), against a median 3,934 for C
-psmc's; on E3's 100 Mb genome they take under a millisecond per EM
-iteration on one thread (0.55 to 0.84 ms on an Apple M1 Pro). Over E1's
-40 genomes the RMSE of log10 Ne between psmc-rs and C psmc on the
-informative window, compared interval by interval, is 3.7e-6 to 2.0e-4
-(median 2.5e-5), as small as with C psmc's own Hooke-Jeeves search run
-inside psmc-rs's EM in a diagnostic build (median 2.6e-5;
-[`experiment/c_equivalence/`](../c_equivalence/README.md)), and over E2's
-four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`, `E2_rs_vs_c.csv`). Since psmc-rs's default M-step is the converged one, no
-experiment fits or times a separate default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are
-unset, and setting one of them to a cap adds a fit (`fit-rs-default`,
-`E1_mstep.csv`) or timed runs (`rs02-default`) with M-steps capped at that
-many iterations (the tiny profile does, at 5, to test them).
-`test_pipeline_fit_settings.py` checks that every psmc-rs fit of the
-production and smoke profiles passes psmc-rs's own cap
-(`DEFAULT_MSTEP_ITERS` in `src/opt.rs`) and that neither fits a capped arm.
+**M-step.** C psmc's Hooke-Jeeves search runs every M-step to convergence,
+and so does psmc-rs 0.2's L-BFGS: it stops by a convergence test, and
+`--mstep-iters` (default 1000, passed explicitly) is only a cap. In E1 its
+M-steps take a median 76 objective evaluations and at most 135 (the `IT`
+lines of its `.psmc` output), against a median 3,934 for C psmc's; on E3's
+100 Mb genome they take under a millisecond per EM iteration on one thread
+(0.55 to 0.84 ms on an Apple M1 Pro). Over E1's 40 genomes the RMSE of
+log10 Ne between psmc-rs and C psmc on the informative window, compared
+interval by interval, is 3.7e-6 to 2.0e-4 (median 2.5e-5), as small as with
+C psmc's own Hooke-Jeeves search run inside psmc-rs's EM in a diagnostic
+build (median 2.6e-5; [`experiment/c_equivalence/`](../c_equivalence/README.md)),
+and over E2's four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
+`E2_rs_vs_c.csv`). Since psmc-rs's default M-step is the converged one, no
+experiment fits or times a separate default arm: `E1.default_mstep_iters`
+and `E3.default_mstep_iters` are unset, and setting one of them to a cap
+adds a fit (`fit-rs-default`, `E1_mstep.csv`) or timed runs
+(`rs02-default`) with M-steps capped at that many iterations (the tiny
+profile does, at 5, to test them). `test_pipeline_fit_settings.py` checks
+that every psmc-rs fit of the production and smoke profiles passes
+psmc-rs's own cap (`DEFAULT_MSTEP_ITERS` in `src/opt.rs`) and that neither
+fits a capped arm.
 
 **Callable bases.** psmc-rs weighs each called bin by its callable bases
 when its input counts them (`--bin-callable auto`, its default; see E4).
@@ -260,15 +261,15 @@ two tools' fits are compared interval by interval instead
 boundaries in years differ only through each fit's theta and t_max (by at
 most 5.5e-4 in E1 and 1.0e-3 in E2), so a fixed time between two such
 boundaries would read a whole step of one curve against the next of the
-other. The `*_per_interval`
-columns hold log10(Ne_rs,k / Ne_c,k) over C psmc's intervals that overlap
-the window, the RMSE weighting each by its log-time width inside the window
-(as the log-spaced grid weighs the RMSE against the truth). A first lambda
-the data barely constrain can run away outside the window, and
-`max_abs_log10_ne_rs_vs_c_any_interval` gives the difference there. In
-expansion replicate 5 it ran away in both tools: psmc-rs's stopped at its
-upper bound (lambda 1e4; psmc-rs bounds every free lambda) and C psmc's,
-unbounded, reached about 1.1e6, so the 2.0 there is set by psmc-rs's bound.
+other. The `*_per_interval` columns hold log10(Ne_rs,k / Ne_c,k) over C
+psmc's intervals that overlap the window, the RMSE weighting each by its
+log-time width inside the window (as the log-spaced grid weighs the RMSE
+against the truth). A first lambda the data barely constrain can run away
+outside the window, and `max_abs_log10_ne_rs_vs_c_any_interval` gives the
+difference there. In expansion replicate 5 it ran away in both tools:
+psmc-rs's stopped at its upper bound (lambda 1e4; psmc-rs bounds every free
+lambda) and C psmc's, unbounded, reached about 1.1e6, so the 2.0 there is
+set by psmc-rs's bound.
 
 Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 `fits/<model>/` (`repNN.c.psmc`, `repNN.rs.json`, `repNN.rs.psmc`,
@@ -441,22 +442,22 @@ differences between how the kernel counts the machine's CPU time and the
 processes'. Steal time (a hypervisor's other machines; 0 on Ibex's bare
 metal) is limited with the other processes. Kernel threads (kthreadd's
 children) and interrupt time (irq, softirq) are left out of the limit and
-recorded apart: part of them is the kernel's work for the tool itself (a run
-keeping 30 cores busy adds about 0.2 core on Ibex's 128-core nodes, whose
-idle busy CPU is already 0.2 to 0.9 core, a median 0.3: counted, it
-rejected those runs against the 0.5 core again and again), the rest the machine's
-housekeeping that the quiet check bounds, and neither is another
+recorded apart: part of them is the kernel's work for the tool itself (a
+run keeping 30 cores busy adds about 0.2 core on Ibex's 128-core nodes,
+whose idle busy CPU is already 0.2 to 0.9 core, a median 0.3: counted, it
+rejected those runs against the 0.5 core again and again), the rest the
+machine's housekeeping that the quiet check bounds, and neither is another
 workload. Where not every process can be read (other users' processes on
-macOS, or a `/proc` mounted `hidepid`) or reaped children's CPU time is
-not readable (every system but Linux), the limit applies to the
-machine's busy CPU time but the tool's, kernel and interrupt time
-included, so nothing is under-counted; each timing record says which
-(`during.other_method`: `processes` or `machine`) and keeps the
-machine-wide measure either way. Otherwise `measure` writes nothing and
-exits with status 75, and the runner starts the run again a minute later; the
-report takes medians from clean runs only, and flags clean runs timed on
-more than one kind of machine (CPU model, governor, boost), whose medians
-and speed-ups would mix them: keep E3's runs on nodes of one CPU model.
+macOS, or a `/proc` mounted `hidepid`) or reaped children's CPU time is not
+readable (every system but Linux), the limit applies to the machine's busy
+CPU time but the tool's, kernel and interrupt time included, so nothing is
+under-counted; each timing record says which (`during.other_method`:
+`processes` or `machine`) and keeps the machine-wide measure either way.
+Otherwise `measure` writes nothing and exits with status 75, and the runner
+starts the run again a minute later; the report takes medians from clean
+runs only, and flags clean runs timed on more than one kind of machine (CPU
+model, governor, boost), whose medians and speed-ups would mix them: keep
+E3's runs on nodes of one CPU model.
 
 | table | contents |
 | --- | --- |
@@ -745,7 +746,8 @@ E6 reads what E1 and E2 make and adds the runs only it needs
 
 **Cost** (`plan E6`): 26 jobs, under 1 CPU hour, minutes once E1 is done.
 Measured on Ibex: 0.2 CPU hours; S3's tables at most 1.3 GB, its decoding
-108 MB (the runner's own floor; 35 MB in the sampled process tree).
+at most the 108 MB of `ru_maxrss` that its job inherits from the runner
+(35 MB in the sampled process tree).
 
 ## E7: 1000 Genomes
 
@@ -855,31 +857,33 @@ back.
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
-the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost
-under a millisecond per EM iteration (0.55 to 0.84 ms on E3's 100 Mb
-genome, on one thread of the M1 Pro; allowed 0.02 s), its E-steps the rest. E3 alone takes
-about 10 hours (C psmc's runs dominate it); E1, E2, E4, E5, E6 and FIG
-together about 2.1 hours on 50 cores and 64 GB (E2's bootstraps dominate;
-E2 cannot start on fewer than 50 cores): about 12 hours in all, either
-way. Every job is resumable: `stop`
-(or a crash, or a reboot) and `start` again rerun only what is not done, at
-most the jobs that were running.
+the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost under
+a millisecond per EM iteration (0.55 to 0.84 ms on E3's 100 Mb genome, on
+one thread of the M1 Pro; allowed 0.02 s), its E-steps the rest. E3 alone
+takes about 10 hours (C psmc's runs dominate it); E1, E2, E4, E5, E6 and
+FIG together about 2.1 hours on 50 cores and 64 GB (E2's bootstraps
+dominate; E2 cannot start on fewer than 50 cores): about 12 hours in all,
+either way. Every job is resumable: `stop` (or a crash, or a reboot) and
+`start` again rerun only what is not done, at most the jobs that were
+running.
 
-The production run of E1, E2 and E4 to E6 (`experiment/slurm`'s `prod`
-job 54256959 on one Ibex node, at 4b2c636f) ran every job whose key the
-code had changed, the psmc-rs fits, bootstraps, conversions, decoding and
-QC among them, in 5 hours 53 minutes, 46.1 CPU hours in all; the C psmc
-fits, the simulations and the other jobs whose keys had not changed were
-kept from earlier `prod` jobs (Supplementary Note 1, section 5). E7's
-fits and bootstraps, C psmc's and psmc-rs's, ran in one job on one Ibex
-node (54555780), in 7 hours 4 minutes, 418.1 CPU hours in all; its GIAB
-comparison was kept from an earlier `prod` job. The
-measured costs above come from the provenance records and
-`runs/_runner/runner.log` (not committed). The production's jobs shared the node with one another (1-minute load
-averages of 14 to 81 when they started; 63 to 136 in E7's job), so their times are costs, not controlled timings:
-E3 times the tools. E3's measured cost is the tools' CPU time in its 95
-timed runs (`E3_runs.csv`), without the simulations each repeat ran or
-the `measure` wrapper.
+The production run of E1, E2 and E4 to E6 (`experiment/slurm`'s `prod` job
+54256959 on one Ibex node, at 4b2c636f) ran every job whose key the code
+had changed, the psmc-rs fits, bootstraps, conversions, decoding and QC
+among them, in 5 hours 53 minutes, 46.1 CPU hours in all; the C psmc fits,
+the simulations and the other jobs whose keys had not changed were kept
+from earlier `prod` jobs (Supplementary Note 1, section 5). E7's fits and
+bootstraps, C psmc's and psmc-rs's, ran in one job on one Ibex node
+(54555780), in 7 hours 4 minutes, 418.1 CPU hours in all; its GIAB
+comparison was kept from an earlier `prod` job. The measured costs above
+come from the provenance records and `runs/_runner/runner.log` (not
+committed). The production's jobs shared the node with one another
+(1-minute load averages of 14 to 81 when they started; 63 to 136 in E7's
+job), so their times are costs, not controlled timings, though E7's two
+programs, sharing one node in one job, compare with each other under the
+same conditions; E3 times the tools. E3's measured cost is the tools' CPU
+time in its 95 timed runs (`E3_runs.csv`), without the simulations each
+repeat ran or the `measure` wrapper.
 
 Afterwards commit, for every experiment, `experiment/runs/<EXP>/` without
 what `.gitignore` drops (simulated genomes, masks, logs, HTML reports,
