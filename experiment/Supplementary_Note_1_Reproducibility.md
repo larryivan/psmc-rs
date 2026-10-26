@@ -81,13 +81,23 @@ $PY -m experiment.pipeline tools --build-c   # builds C psmc; exits 1 if a tool 
 
 No tool runs for these. Each experiment's report reads the committed
 fits, bootstrap files, truth and QC records and writes its tables; the
-figures are drawn from the tables:
+figures are drawn from the tables. Here they run on a copy of the
+committed runs:
 
 ```bash
-$PY -m experiment.pipeline report E1     # likewise E2, E4, E5
-$PY -m experiment.pipeline report E6     # S1 and S5; S2 and S3 need the simulated genomes (section 4)
-$PY -m experiment.pipeline.figures       # every figure whose tables exist, into runs/<EXP>/figures/
+CHECK=/path/to/new/copy
+cp -R experiment/runs $CHECK                            # the reports and figures rewrite their files
+$PY -m experiment.pipeline report E1 --runs-dir $CHECK  # likewise E2, E4, E5
+$PY -m experiment.pipeline report E6 --runs-dir $CHECK  # S1 and S5; S2 and S3 need the simulated genomes
+$PY -m experiment.pipeline.figures --runs-dir $CHECK    # every figure whose tables exist
 ```
+
+The reports write their tables into `$CHECK/<EXP>/tables/` and the
+figures go into `$CHECK/<EXP>/figures/`. Neither updates the jobs'
+provenance records (section 6), so run in `experiment/runs` itself on
+another platform they would change committed tables in their last digits
+(as on the laptop, the last paragraph of this section), and those reports
+and the figures that read their tables would then count as not done.
 
 `python -m experiment.pipeline.figures --list` names the tables each
 figure reads. The article's figures and tables are these files of the
