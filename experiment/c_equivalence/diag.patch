@@ -1,0 +1,306 @@
+diff -ruN pristine/src/bin/psmc/run.rs wt/src/bin/psmc/run.rs
+--- pristine/src/bin/psmc/run.rs	2026-10-25 18:35:56
++++ wt/src/bin/psmc/run.rs	2026-10-25 20:38:19
+@@ -199,6 +199,8 @@
+         max_iters: cli.mstep_iters,
+         lambda: cli.smooth_lambda,
+         progress: false,
++        // DIAG: PSMC_DIAG_REL_TOL overrides the convergence threshold.
++        rel_tol: psmc_rs::diag::rel_tol().unwrap_or(MStepConfig::default().rel_tol),
+         ..MStepConfig::default()
+     };
+     let (history, final_loglike) = fit(&mut model, obs, n_iter, &mstep_config, ctx)?;
+diff -ruN pristine/src/diag.rs wt/src/diag.rs
+--- pristine/src/diag.rs	1970-01-01 03:00:00
++++ wt/src/diag.rs	2026-10-25 20:38:19
+@@ -0,0 +1,42 @@
++//! SCRATCH DIAGNOSTIC TOGGLES (never committed; not part of any release).
++//!
++//! Each is read once from the environment; with none set the program is
++//! src dcf29ca's, output for output.
++//!
++//! - `PSMC_DIAG_LASTBIN=1`: each sequence's last bin is left out of the
++//!   E-step's expected emission counts, as C psmc's `hmm_expect` leaves it
++//!   out (its loop over `u = 1 .. L-1` adds `E` for bins 1 to L-1; its
++//!   transitions `A` cover every pair of neighbouring bins, so they are
++//!   unchanged).
++//! - `PSMC_DIAG_HJ=1`: the M-step is a port of C psmc's `kmin_hj`
++//!   (kmin.c) driven as its `psmc_em` (em.c) drives it, on psmc-rs's
++//!   objective in the natural parameters, instead of L-BFGS.
++//! - `PSMC_DIAG_REL_TOL=x`: the CLI's M-step runs with `rel_tol` x.
++
++use std::sync::OnceLock;
++
++fn flag(name: &str) -> bool {
++    std::env::var(name).is_ok_and(|v| v == "1")
++}
++
++/// `PSMC_DIAG_LASTBIN=1`.
++pub fn lastbin() -> bool {
++    static V: OnceLock<bool> = OnceLock::new();
++    *V.get_or_init(|| flag("PSMC_DIAG_LASTBIN"))
++}
++
++/// `PSMC_DIAG_HJ=1`.
++pub fn hj() -> bool {
++    static V: OnceLock<bool> = OnceLock::new();
++    *V.get_or_init(|| flag("PSMC_DIAG_HJ"))
++}
++
++/// `PSMC_DIAG_REL_TOL`, when set.
++pub fn rel_tol() -> Option<f64> {
++    static V: OnceLock<Option<f64>> = OnceLock::new();
++    *V.get_or_init(|| {
++        std::env::var("PSMC_DIAG_REL_TOL")
++            .ok()
++            .map(|v| v.parse().expect("PSMC_DIAG_REL_TOL must be a number"))
++    })
++}
+diff -ruN pristine/src/hmm/fb.rs wt/src/hmm/fb.rs
+--- pristine/src/hmm/fb.rs	2026-10-25 18:35:56
++++ wt/src/hmm/fb.rs	2026-10-25 20:38:19
+@@ -415,13 +415,17 @@
+         };
+         // Site 0 of a sequence has no incoming transition.
+         let t_first = usize::from(s == 0);
++        // DIAG: C's hmm_expect leaves the last bin out of the emissions.
++        let skip_last = crate::diag::lastbin() && s + 1 == seq.n_segments();
+         for t in (0..len).rev() {
+             let o = obs[t];
+             let alpha_t = &rows[(t + 1) * np..(t + 2) * np];
+             let at = usize::from(o) * np;
+             let g = &mut acc.g[at..at + np];
+-            for ((gk, &a), &b) in g.iter_mut().zip(alpha_t).zip(beta.iter()) {
+-                *gk += a * b;
++            if !(skip_last && t + 1 == len) {
++                for ((gk, &a), &b) in g.iter_mut().zip(alpha_t).zip(beta.iter()) {
++                    *gk += a * b;
++                }
+             }
+             if t < t_first {
+                 break;
+diff -ruN pristine/src/lib.rs wt/src/lib.rs
+--- pristine/src/lib.rs	2026-10-25 18:35:56
++++ wt/src/lib.rs	2026-10-25 20:38:19
+@@ -1,4 +1,6 @@
+ pub mod bootstrap;
++#[doc(hidden)]
++pub mod diag;
+ pub mod em;
+ pub mod hmm;
+ pub mod io;
+diff -ruN pristine/src/opt/objective.rs wt/src/opt/objective.rs
+--- pristine/src/opt/objective.rs	2026-10-25 18:35:56
++++ wt/src/opt/objective.rs	2026-10-25 20:38:47
+@@ -309,6 +309,41 @@
+         self.row_deviation
+     }
+ 
++    /// DIAG (Hooke-Jeeves port): the objective at the parameters `p`
++    /// themselves (θ, ρ, t_max, then the free λ), not at logit
++    /// coordinates, and without its gradient. `+inf` where [`Self::eval`]
++    /// gives `+inf`.
++    pub(crate) fn value_at_params(&mut self, p: &[f64]) -> f64 {
++        self.evaluations += 1;
++        assert!(p.len() == self.bounds.len(), "{} parameters for {} bounds", p.len(), self.bounds.len());
++        self.ws.p.copy_from_slice(p);
++        for (l, &g) in self.ws.lam.iter_mut().zip(&self.group) {
++            *l = p[3 + g];
++        }
++        let (theta, rho, t_max) = (p[0], p[1], p[2]);
++        self.ws.shared.update(&self.ws.lam, rho, t_max);
++        let rows = self.rows(theta, rho);
++        self.row_deviation = if rows.valid {
++            rows.row_deviation
++        } else {
++            f64::NAN
++        };
++        if !rows.valid || rows.row_deviation > self.row_tolerance || !rows.q.is_finite() {
++            return f64::INFINITY;
++        }
++        if self.lambda == 0.0 {
++            return -rows.q;
++        }
++        let lam = &self.ws.lam;
++        let penalty: f64 = (0..self.n)
++            .map(|k| {
++                let d = lam[k + 1].ln() - lam[k].ln();
++                d * d
++            })
++            .sum();
++        -rows.q + penalty * self.lambda
++    }
++
+     /// The objective at `x` and its gradient.
+     pub(crate) fn value_and_gradient(&mut self, x: &[f64]) -> (f64, Vec<f64>) {
+         let mut grad = vec![0.0; x.len()];
+diff -ruN pristine/src/opt.rs wt/src/opt.rs
+--- pristine/src/opt.rs	2026-10-25 18:35:56
++++ wt/src/opt.rs	2026-10-25 20:41:49
+@@ -243,6 +243,9 @@
+     let bounds = bounds_from_config(model, config);
+     let start = pack_params(model);
+     let mut objective = Objective::new(model, stats, &bounds, config.lambda)?;
++    if crate::diag::hj() {
++        return Ok(hooke_jeeves_m_step(&mut objective, start));
++    }
+     let x0 = to_unconstrained(&start, &bounds);
+     // The search moves only to points whose rows sum to 1 within
+     // ROW_SUM_TOLERANCE, or within the start's own deviation when that is
+@@ -317,6 +320,156 @@
+         iterations: minimum.iterations,
+         stop: minimum.stop,
+     })
++}
++
++// DIAG: C psmc's M-step (em.c's psmc_em and func, kmin.c's kmin_hj), on
++// psmc-rs's objective. KMIN_RADIUS, KMIN_EPS and KMIN_MAXCALL of kmin.h.
++const KMIN_RADIUS: f64 = 0.5;
++const KMIN_EPS: f64 = 1e-7;
++const KMIN_MAXCALL: usize = 50000;
++
++/// C's M-step: `kmin_hj(func, n_params, params, .., KMIN_RADIUS, KMIN_EPS,
++/// KMIN_MAXCALL)` from the current parameters, where `func` sets the
++/// model's parameters to the absolute values of its argument and returns
++/// minus Q there. C keeps the parameters `func` set last (it frees the
++/// search's own best point), so the result is the last point evaluated.
++/// Like C, no bounds and no row-sum test (C's `hmm_Q` rejects only
++/// probabilities <= 0).
++fn hooke_jeeves_m_step(objective: &mut Objective<'_>, start: Vec<f64>) -> MStepOutcome {
++    objective.set_row_tolerance(f64::INFINITY);
++    let trace = std::env::var("PSMC_DIAG_HJ_TRACE").is_ok_and(|v| v == "1");
++    let mut last = start.clone();
++    let mut cnt = 0usize;
++    let mut func = |x: &[f64]| -> f64 {
++        for (l, v) in last.iter_mut().zip(x) {
++            *l = v.abs();
++        }
++        let f = objective.value_at_params(&last);
++        cnt += 1;
++        if trace {
++            let p: Vec<String> = last.iter().map(|v| format!("{v:?}")).collect();
++            eprintln!("HJ\t{cnt}\t{f:?}\t{}", p.join("\t"));
++        }
++        f
++    };
++    let mut x = start;
++    let (_, n_calls, outer) = kmin_hj(&mut func, &mut x, KMIN_RADIUS, KMIN_EPS, KMIN_MAXCALL);
++    MStepOutcome {
++        params: last,
++        evaluations: n_calls,
++        iterations: outer,
++        stop: if n_calls >= KMIN_MAXCALL {
++            MStepStop::MaxIters
++        } else {
++            MStepStop::Converged
++        },
++    }
++}
++
++/// kmin.c's `__kmin_hj_aux`: one exploratory move from `x1` along each
++/// coordinate; returns the value at the new `x1`.
++fn kmin_hj_aux(
++    func: &mut impl FnMut(&[f64]) -> f64,
++    x1: &mut [f64],
++    mut fx1: f64,
++    dx: &mut [f64],
++    n_calls: &mut usize,
++) -> f64 {
++    let n = x1.len();
++    let mut j = *n_calls;
++    for k in 0..n {
++        x1[k] += dx[k];
++        let ftmp = func(x1);
++        j += 1;
++        if ftmp < fx1 {
++            fx1 = ftmp;
++        } else {
++            // search the opposite direction
++            dx[k] = 0.0 - dx[k];
++            x1[k] += dx[k] + dx[k];
++            let ftmp = func(x1);
++            j += 1;
++            if ftmp < fx1 {
++                fx1 = ftmp;
++            } else {
++                x1[k] -= dx[k]; // back to the original x[k]
++            }
++        }
++    }
++    *n_calls = j;
++    fx1
++}
++
++/// kmin.c's `kmin_hj`, statement for statement: returns its return value
++/// (`fx1`), the number of calls of `func`, and the passes of its outer loop.
++fn kmin_hj(
++    func: &mut impl FnMut(&[f64]) -> f64,
++    x: &mut [f64],
++    r: f64,
++    eps: f64,
++    max_calls: usize,
++) -> (f64, usize, usize) {
++    let n = x.len();
++    let mut n_calls = 0usize;
++    let mut x1 = vec![0.0; n];
++    let mut dx = vec![0.0; n];
++    for k in 0..n {
++        // initial directions, based on MGJ
++        dx[k] = x[k].abs() * r;
++        if dx[k] == 0.0 {
++            dx[k] = r;
++        }
++    }
++    let mut radius = r;
++    let mut fx = func(x);
++    n_calls += 1;
++    let mut fx1;
++    let mut outer = 0usize;
++    loop {
++        outer += 1;
++        x1.copy_from_slice(x); // x1 = x
++        fx1 = kmin_hj_aux(func, &mut x1, fx, &mut dx, &mut n_calls);
++        while fx1 < fx {
++            for k in 0..n {
++                let t = x[k];
++                dx[k] = if x1[k] > x[k] { dx[k].abs() } else { 0.0 - dx[k].abs() };
++                x[k] = x1[k];
++                x1[k] = x1[k] + x1[k] - t;
++            }
++            fx = fx1;
++            if n_calls >= max_calls {
++                break;
++            }
++            fx1 = func(&x1);
++            n_calls += 1;
++            fx1 = kmin_hj_aux(func, &mut x1, fx1, &mut dx, &mut n_calls);
++            if fx1 >= fx {
++                break;
++            }
++            let mut k = 0;
++            while k != n {
++                if (x1[k] - x[k]).abs() > 0.5 * dx[k].abs() {
++                    break;
++                }
++                k += 1;
++            }
++            if k == n {
++                break;
++            }
++        }
++        if radius >= eps {
++            if n_calls >= max_calls {
++                break;
++            }
++            radius *= r;
++            for d in dx.iter_mut() {
++                *d *= r;
++            }
++        } else {
++            break; // converge
++        }
++    }
++    (fx1, n_calls, outer)
+ }
+ 
+ #[cfg(test)]

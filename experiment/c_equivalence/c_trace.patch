@@ -1,0 +1,30 @@
+--- a/em.c
++++ b/em.c
+@@ -1,6 +1,8 @@
+ #include <math.h>
+ #include <string.h>
+ #include <assert.h>
++#include <stdio.h>
++#include <stdlib.h>
+ #include "psmc.h"
+ #include "khmm.h"
+ #include "kmin.h"
+@@ -21,7 +23,17 @@
+ 	for (i = 0; i != n; ++i)
+ 		aux->pd->params[i] = fabs(params[i]);
+ 	psmc_update_hmm(aux->pp, aux->pd);
+-	return -hmm_Q(aux->pd->hp, aux->he);
++	{ /* DIAG trace (scratch) */
++		double f = -hmm_Q(aux->pd->hp, aux->he);
++		static int tr = -1;
++		if (tr < 0) tr = getenv("PSMC_TRACE") != 0;
++		if (tr) {
++			fprintf(stderr, "HJ\t%d\t%.17g", aux->cnt, f);
++			for (i = 0; i != n; ++i) fprintf(stderr, "\t%.17g", aux->pd->params[i]);
++			fprintf(stderr, "\n");
++		}
++		return f;
++	}
+ }
+ 
+ double psmc_em(psmc_par_t *pp, psmc_data_t *pd)

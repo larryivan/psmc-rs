@@ -1,0 +1,8 @@
+evaluations: C 1540, port 1517
+identical parameter sequence for the first 1197 evaluations
+first difference at evaluation 1198: C f-f0 -5.763689e+01, port -5.763689e+01
+  previous: C f-f0 -5.76368903106413200e+01, port -5.76368903105831123e+01
+last evaluated points: largest relative parameter difference 4.82e-06
+f - f0 at the end: C -5.7636890313e+01, port -5.7636890314e+01
+points both reject (C 1e300, port inf) in the common prefix: 7
+largest absolute difference of f - f0 over the common prefix: 2.04e-10

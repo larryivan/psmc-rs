@@ -1,0 +1,57 @@
+{
+  "theta": 0.03295575780527396,
+  "rho": 0.007777523939324314,
+  "lam": [
+    0.9471848011016846,
+    1.2067017555236816,
+    1.574500024318695,
+    1.9981188774108887,
+    2.3293025493621826,
+    2.544735908508301,
+    2.790424406528473
+  ],
+  "t_max": 35.23395001888275,
+  "n_steps": 22,
+  "mu": 2.5e-8,
+  "pattern": "4+5*3+4",
+  "version": "0.2.0",
+  "simd": "neon",
+  "n_iter": 1,
+  "final_loglike": -6580.114280935567,
+  "loglike": [
+    -6627.239101422086,
+    -6580.114280935567
+  ],
+  "bin_size": 100,
+  "gen_years": 25.0,
+  "tr_ratio": 4.0,
+  "smooth_lambda": 0.0,
+  "input": {
+    "format": "psmcfa",
+    "sequences": 1010,
+    "bins": 40000,
+    "het_bins": 1869,
+    "missing_bins": 4535,
+    "dropped_sequences": 0
+  },
+  "qc": {
+    "warnings": [
+      "TOO_SHORT",
+      "SHORT_SEQUENCES"
+    ],
+    "notes": [
+      "PARTLY_CALLABLE_BINS"
+    ],
+    "sequences": 1010,
+    "bins": 40000,
+    "missing_fraction": 0.113375,
+    "theta0_per_bin": 0.054139282390669397,
+    "het_per_kb": 0.541392823906694,
+    "called_bases": 3546500,
+    "n50_bases": 5600
+  },
+  "bin_callable": {
+    "mode": "auto",
+    "model": "full-bins"
+  }
+}
