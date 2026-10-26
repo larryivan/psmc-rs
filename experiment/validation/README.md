@@ -7,7 +7,7 @@ callable bases of each bin removes (`--bin-callable auto`, the
 callable-length model of `docs/design/bin-callable-model.md`), and what
 multihetsep input, which does not say which sites are uncalled, gives with
 and without its approximate counts. It is not part of CI; a run of three
-replicates takes about 5 minutes on 8 cores.
+replicates takes a few minutes on 8 cores.
 
 ## Design
 
@@ -58,8 +58,7 @@ are deterministic: two runs gave the same fits to the bit.
 
 ## Results
 
-psmc-rs of branch `callable/fix` (the model, the fits and the bins as of
-commit `9314d74`; later commits change no fit), macOS arm64, 8 threads.
+psmc-rs 0.2.0 (src tree `dcf29ca`), macOS arm64, 8 threads.
 Three runs of three replicates each: the bottleneck model with the seeds of
 `BC` (B1) and of `BC2` (B2), and the expansion model with those of `BCX`
 (E). Means over each run's three replicates, and the range of θ over all
@@ -127,11 +126,11 @@ heterozygous):
 
 ## Timing
 
-The fits took 6 to 8 s each (25 iterations, 8 threads, 2 Mbins, 64
-states, VCF reading included); the timing column of `summary.tsv` is
-indicative only, as other work shared the machine. Measured on their own
-(medians of three interleaved runs), whole fits of the dispersed 30%
-genome of replicate 1 took 6.22 s with the counts and 5.97 s without, and
-of its complete version 5.84 s and 5.76 s; the E-step alone is 3.7% slower
-with dispersed counts (one thread; 0.9% when every bin is full),
+The timing column of `summary.tsv` is indicative only, as other work
+shared the machine. Measured on their own (medians of three interleaved
+runs), whole fits (25 iterations, 8 threads, 2 Mbins, 64 states, VCF
+reading included) of the dispersed 30% genome of replicate 1 took 3.99 s
+with the counts and 3.69 s without, and of its complete version 3.62 s
+and 3.53 s; the E-step alone is 4.4% slower with dispersed counts (one
+thread; 1.3% when every bin is full),
 `examples/bench_estep.rs --callable`.
