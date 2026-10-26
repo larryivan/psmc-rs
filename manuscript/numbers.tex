@@ -113,7 +113,7 @@
 \newcommand{\EsevenPopSpreadOldMax}{\ensuremath{0.11}}  % E7_pop_bands populations' max log10 spread, >= 150 ky
 \newcommand{\EsevenRecords}{123,574,606}  % MANIFEST chromosomes records
 \newcommand{\EsevenNonpass}{11,256,876}  % MANIFEST chromosomes nonpass
-\newcommand{\EsevenPilotChrom}{21}  % MANIFEST pilots
+\newcommand{\EsevenPilotChrom}{21}  % experiment/e7_pilot/pilot_chr21.json
 \newcommand{\AgreeIntervals}{4,620}  % every interval in the window of every genome both tools fitted
 \newcommand{\AgreeGenomes}{95}  % genomes both tools fitted (NA12878 once)
 \newcommand{\AgreeMedianAbs}{\ensuremath{5.5\times10^{-6}}}  % every interval in the window of every genome both tools fitted: median |log10 Ne difference|
@@ -127,12 +127,14 @@
 \newcommand{\EoneSoneRsHigher}{23}  % E1_traces: genomes whose psmc-rs log-likelihood is higher at the last common iteration
 \newcommand{\EoneSoneThetaMax}{\ensuremath{3.9\times10^{-4}}}  % E1_traces: largest relative theta difference
 \newcommand{\EoneSoneRhoMax}{\ensuremath{3.4\times10^{-4}}}  % E1_traces: largest relative rho difference
-\newcommand{\DiagCurve}{\ensuremath{7.7\times10^{-5}}}  % README.md Testing and C equivalence: DiagCurve
-\newcommand{\DiagHookeJeeves}{\ensuremath{7.5\times10^{-5}}}  % README.md Testing and C equivalence: DiagHookeJeeves
-\newcommand{\DiagLastBin}{\ensuremath{6.4\times10^{-6}}}  % README.md Testing and C equivalence: DiagLastBin
-\newcommand{\DiagPrecision}{\ensuremath{5.0\times10^{-7}}}  % README.md Testing and C equivalence: DiagPrecision
-\newcommand{\DiagChroms}{4}  % README.md Testing and C equivalence
-\newcommand{\DiagChromMb}{25}  % README.md Testing and C equivalence
+\newcommand{\DiagMedianDefault}{\ensuremath{2.5\times10^{-5}}}  % c_equivalence/summary.json default rmse_vs_c median
+\newcommand{\DiagMedianLastBin}{\ensuremath{6.2\times10^{-6}}}  % c_equivalence/summary.json lastbin rmse_vs_c median
+\newcommand{\DiagMedianHookeJeeves}{\ensuremath{2.6\times10^{-5}}}  % c_equivalence/summary.json hj rmse_vs_c median
+\newcommand{\DiagCBuildsMedian}{\ensuremath{8.5\times10^{-6}}}  % c_equivalence/summary.json c_builds_rmse median
+\newcommand{\DiagLastBinCloser}{37}  % c_equivalence/summary.json lastbin closer_to_c_than_default
+\newcommand{\DiagLastBinOther}{3}  % c_equivalence/summary.json lastbin genomes not closer
+\newcommand{\DiagPrecisionMedian}{\ensuremath{1.0\times10^{-7}}}  % c_equivalence/summary.json prec rmse_vs_default median
+\newcommand{\DiagPrecisionMax}{\ensuremath{2.5\times10^{-6}}}  % c_equivalence/summary.json prec rmse_vs_default max
 \newcommand{\XpRsRmseMax}{\ensuremath{2.4\times10^{-6}}}  % crossplatform rs RMSE window max (E1)
 \newcommand{\XpRatioCMedian}{\ensuremath{124}}  % side_by_side ratio C cross-build / rs cross-platform, median
 \newcommand{\EoneModelsW}{four}  % config.E1.models (in words)
@@ -143,4 +145,4 @@
 \newcommand{\EfourRepsW}{five}  % config.E4.replicates (in words)
 \newcommand{\EfiveChromsW}{six}  % config.E5.genome (in words)
 \newcommand{\EfiveFiftyTrunksW}{six}  % E5_summary trunks (in words)
-\newcommand{\DiagChromsW}{four}  % README.md Testing and C equivalence (in words)
+\newcommand{\DiagLastBinOtherW}{three}  % c_equivalence/summary.json lastbin genomes not closer (in words)

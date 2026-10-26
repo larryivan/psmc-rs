@@ -2,14 +2,15 @@
 
     experiment/.venv/bin/python manuscript/make_numbers.py [--check]
 
-reads ``experiment/runs/<EXP>/tables/*.csv``, E7's ``inputs/MANIFEST.json``,
-the two runs of NA12878's bootstrap, ``experiment/crossplatform``, the
-README's diagnostic and ``experiment.pipeline.config`` (the production
-profile), and writes ``numbers.tex`` (one ``\\newcommand`` per number the text
-quotes, with its source) and Tables 1, 2 and S1, each only when its text
-changed. The text quotes no result that is not one of these, and the
-assertions check the claims it makes in words; ``--check`` writes nothing and
-exits 1 when the files on disk differ from what the results give.
+reads ``experiment/runs/<EXP>/tables/*.csv``, E7's ``inputs/MANIFEST.json``
+and chr21 pilot (``experiment/e7_pilot``), the two runs of NA12878's
+bootstrap, ``experiment/crossplatform``, ``experiment/c_equivalence`` and
+``experiment.pipeline.config`` (the production profile), and writes
+``numbers.tex`` (one ``\\newcommand`` per number the text quotes, with its
+source) and Tables 1, 2 and S1, each only when its text changed. The text
+quotes no result that is not one of these, and the assertions check the
+claims it makes in words; ``--check`` writes nothing and exits 1 when the
+files on disk differ from what the results give.
 """
 
 from __future__ import annotations
@@ -328,16 +329,20 @@ def e7_histories() -> None:
 
 
 def e7_data_stage() -> None:
-    """E7's data stage, from its MANIFEST.json."""
+    """E7's data stage, from its MANIFEST.json, and its chr21 pilot run with the production's psmc-rs."""
     man = json.loads((RUNS / "E7" / "inputs" / "MANIFEST.json").read_text())
     ch = man["chromosomes"].values()
     assert all(v["records_check"] == "equal" for v in ch)
     put("EsevenRecords", thousands(sum(v["records"] for v in ch)), "MANIFEST chromosomes records")
     put("EsevenNonpass", thousands(sum(v["nonpass"] for v in ch)), "MANIFEST chromosomes nonpass")
-    (chrom, pilot), = man["pilots"].items()
+    # The chr21 pilot redone with the production's psmc-rs (MANIFEST's pilot ran the data stage's build, src 4c0d777).
+    pilot = json.loads((ROOT / "experiment" / "e7_pilot" / "pilot_chr21.json").read_text())
+    prod = json.loads((RUNS / "E1" / "provenance" / "fit-rs" / "bottleneck" / "rep01.json").read_text())
+    assert pilot["psmc-rs"]["source_tree"] == prod["key"]["tools"]["psmc-rs-0.2"]["source_tree"], "the pilot ran the production's psmc-rs"
+    assert pilot["psmc-rs"]["binary_sha256"] in prod["run"]["executables"].values(), "the pilot ran the production's binary"
     assert pilot["identical"] and all(s["psmcfa_identical"] and not s["qc_fields_differing"] for s in pilot["samples"]), \
         "the text says the pilot's direct conversion gave byte-identical files"
-    put("EsevenPilotChrom", chrom.replace("chr", ""), "MANIFEST pilots")
+    put("EsevenPilotChrom", pilot["chrom"].replace("chr", ""), "experiment/e7_pilot/pilot_chr21.json")
 
 
 # Numbers computed by the figures' own functions
@@ -385,22 +390,30 @@ def em_traces() -> None:
 
 # Outside the tables
 
-def readme() -> None:
-    """The diagnostic of the residual difference between the tools (README.md, Testing and C equivalence)."""
-    text = " ".join((ROOT / "README.md").read_text().split())
-    pats = {
-        "DiagCurve": r"bottleneck genome \(msprime, Hudson, μ = 2\.5e-8, r = 1e-8\), the curves are ([0-9.e-]+) apart",
-        "DiagHookeJeeves": r"Hooke-Jeeves search in place of its L-BFGS gives a curve ([0-9.e-]+) from C's",
-        "DiagLastBin": r"left out of psmc-rs's counts too, its curve is within ([0-9.e-]+) of C's",
-        "DiagPrecision": r"default fit is within ([0-9.e-]+) of one whose M-steps run to the precision limit",
-    }
-    for name, pat in pats.items():
-        m = re.search(pat, text)
-        assert m, f"README.md no longer says {name}"
-        put(name, sci(float(m.group(1))), f"README.md Testing and C equivalence: {name}")
-    m = re.search(r"simulated (\d+) × (\d+) Mb bottleneck genome", text)
-    put("DiagChroms", m.group(1), "README.md Testing and C equivalence")
-    put("DiagChromMb", m.group(2), "README.md Testing and C equivalence")
+def c_equivalence() -> None:
+    """The diagnostic of the residual difference between the tools on E1's genomes: experiment/c_equivalence."""
+    s = json.loads((ROOT / "experiment" / "c_equivalence" / "summary.json").read_text())
+    v, src = s["variants"], "c_equivalence/summary.json"
+    rmse = table("E1", "E1_rs_vs_c").rmse_log10_ne_rs_vs_c_per_interval
+    assert s["genomes"] == len(rmse) and math.isclose(v["default"]["rmse_vs_c"]["median"], rmse.median(), rel_tol=1e-9), \
+        "the default is E1's fits"
+    side = pd.read_csv(ROOT / "experiment" / "crossplatform" / "side_by_side_E1.csv")
+    cb = s["c_builds_rmse"]["median"]
+    assert math.isclose(cb, side.rmse_window_c_laptop_vs_ibex.median(), rel_tol=1e-12), \
+        "two builds of C psmc as in Supplementary Note 1, section 9"
+    lb, hj = v["lastbin"], v["hj"]
+    assert lb["rmse_vs_c"]["median"] < cb, "the text says the median with the last bin left out is below the C builds'"
+    assert all(g["default"] <= g["c_builds"] for g in s["lastbin_not_closer"]), \
+        "the text says the genomes the last bin does not bring closer are as close as the two builds of C psmc"
+    assert hj["rmse_vs_c"]["median"] > 0.9 * v["default"]["rmse_vs_c"]["median"], "the text says the optimizer does not matter"
+    put("DiagMedianDefault", sci(v["default"]["rmse_vs_c"]["median"]), f"{src} default rmse_vs_c median")
+    put("DiagMedianLastBin", sci(lb["rmse_vs_c"]["median"]), f"{src} lastbin rmse_vs_c median")
+    put("DiagMedianHookeJeeves", sci(hj["rmse_vs_c"]["median"]), f"{src} hj rmse_vs_c median")
+    put("DiagCBuildsMedian", sci(cb), f"{src} c_builds_rmse median")
+    put("DiagLastBinCloser", str(lb["closer_to_c_than_default"]), f"{src} lastbin closer_to_c_than_default")
+    put("DiagLastBinOther", str(s["genomes"] - lb["closer_to_c_than_default"]), f"{src} lastbin genomes not closer")
+    put("DiagPrecisionMedian", sci(v["prec"]["rmse_vs_default"]["median"]), f"{src} prec rmse_vs_default median")
+    put("DiagPrecisionMax", sci(v["prec"]["rmse_vs_default"]["max"]), f"{src} prec rmse_vs_default max")
 
 
 def crossplatform() -> None:
@@ -498,7 +511,7 @@ def table_s1() -> str:
 
 def render() -> dict:
     MACROS.clear()
-    for f in (e1, e2, e3, e4, e5, e6, e7, agreement, em_traces, readme, crossplatform):
+    for f in (e1, e2, e3, e4, e5, e6, e7, agreement, em_traces, c_equivalence, crossplatform):
         f()
     for name, (value, src) in list(MACROS.items()):
         if value.isdigit() and int(value) < 10:

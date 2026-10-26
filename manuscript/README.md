@@ -18,9 +18,10 @@ environment (`experiment/.venv`, see Supplementary Note 1, section 2),
 - `make_numbers.py` writes `numbers.tex`, one `\newcommand` per number the
   text quotes, each with its source in a comment, and Tables 1, 2 and S1
   (`table1.tex`, `table2.tex`, `tableS1.tex`), from the committed tables of
-  `experiment/runs/*/tables`, E7's `MANIFEST.json`, the two runs of
-  NA12878's bootstrap, `experiment/crossplatform`, the README's diagnostic
-  of the residual difference from C psmc and the production profile of
+  `experiment/runs/*/tables`, E7's `MANIFEST.json` and chr21 pilot
+  (`experiment/e7_pilot`), the two runs of NA12878's bootstrap,
+  `experiment/crossplatform`, the diagnostic of the residual difference
+  from C psmc (`experiment/c_equivalence`) and the production profile of
   `experiment.pipeline.config`. The text quotes no
   result that is not one of these macros, and the generator checks with
   assertions the claims the text makes in words (for example, that
