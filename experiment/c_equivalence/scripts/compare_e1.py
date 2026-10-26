@@ -1,6 +1,6 @@
 """Each variant's fit of E1's 40 genomes against C psmc's committed fit, as E1_rs_vs_c compares them: e1_variants.csv.
 
-Usage: experiment/.venv/bin/python -I -B scripts/compare_e1.py
+Run from experiment/c_equivalence: ../.venv/bin/python -I -B scripts/compare_e1.py
 
 One row per genome and variant: default is psmc-rs's committed fit (experiment/runs/E1/fits/*/repNN.rs.*),
 whose row must reproduce E1_rs_vs_c.csv; lastbin, hj, both and prec are the fits of run_e1.py (fits/). The
@@ -76,7 +76,7 @@ for model in cfg.models:
                     assert math.isclose(float(ref[k]), row[k], rel_tol=1e-9, abs_tol=0), (model, r, k, ref[k], row[k])
             rows.append(row)
 with open(C / "e1_variants.csv", "w", newline="") as fh:
-    wr = csv.DictWriter(fh, list(rows[0]))
+    wr = csv.DictWriter(fh, list(rows[0]), lineterminator="\n")
     wr.writeheader()
     wr.writerows(rows)
 print(f"e1_variants.csv: {len(rows)} rows; the default rows reproduce E1_rs_vs_c.csv (relative 1e-9)")
