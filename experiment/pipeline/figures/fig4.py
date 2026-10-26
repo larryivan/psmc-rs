@@ -27,9 +27,10 @@ genome the longest sequence sets the floor (Fig S4).
 
 "psmc-rs 0.2" is the setting of every other experiment, ``--mstep-iters
 1000`` (``config.Inference``), its default: its M-steps converge, as C
-psmc's do, in a few ms per EM iteration. A setup that was not run (its
-estimated memory above the limit) is named in panel a with the reason
-Table 2 gives. Everything comes from ``E3_table2`` and ``E3_runs``.
+psmc's do, in under a millisecond per EM iteration on the 100 Mb genome
+(0.55 to 0.84 ms on one thread of an Apple M1 Pro). A setup that was not
+run (its estimated memory above the limit) is named in panel a with the
+reason Table 2 gives. Everything comes from ``E3_table2`` and ``E3_runs``.
 """
 
 from __future__ import annotations

@@ -79,7 +79,7 @@ UNDER = dict(LINE, solid_capstyle="round")
 
 
 def ratio_floor(r: float) -> float:
-    """``r`` floored to two significant figures: 84.3 is 84, 298.9 is 290, 8.47 is 8.4.
+    """``r`` floored to two significant figures: 84.5 is 84, 143.6 is 140, 299.1 is 290.
 
     Floored, never rounded, so the number is a bound ("at least 84 times").
     """
@@ -90,7 +90,7 @@ def ratio_floor(r: float) -> float:
 
 
 def ratio_label(r: float) -> str:
-    """:func:`ratio_floor` of ``r`` as a fold, the arrow's label: 84.3 is '84×', 298.9 '290×', 8.47 '8.4×'."""
+    """:func:`ratio_floor` of ``r`` as a fold, the arrow's label: 84.5 is '84×', 143.6 '140×', 299.1 '290×'."""
     return style.fmt_num(ratio_floor(r)) + style.TIMES
 
 

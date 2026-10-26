@@ -9,8 +9,8 @@ program is named once per panel beside its data, in a text colour darker
 than its mark (:data:`.style.ORANGE_TEXT`, :data:`.style.BLUE_TEXT`), as
 one line of name and value ("C psmc  73.7 min"), and every number the text
 cites is printed on the data, to the precision that reproduces the printed
-folds (73.7 min over 5.29 min and over 11.5 s give 13.9× and 384×; 104.3
-min over 6.68 min give 15.6×).
+folds (73.7 min over 5.29 min and over 11.5 s give 13.9× and 384×; 92.1
+min over 7.28 min give 12.6×).
 
 * a, b (E3, ``E3_table2``): the thread-scaling genome
   (``config.E3.thread_scaling_size_mb``: 3,000 Mb, 30 chromosomes of 100
@@ -96,17 +96,17 @@ def fmt_time(seconds: float) -> str:
 
 
 def fmt_fold(x: float) -> str:
-    """A fold change: 8.6×, 13.9×, 384×, 7,000×, with one decimal below 100 as the text gives them."""
+    """A fold change: 12.6×, 13.9×, 384×, with one decimal below 100 as the text gives them."""
     return f"{x:.1f}{style.TIMES}" if x < 100 else f"{x:,.0f}{style.TIMES}"
 
 
 def _fmt_value(v: float) -> str:
-    """A value printed on the data: 1,062, 36, 0.29."""
+    """A value printed on the data: 1,063, 149, 36."""
     return f"{v:,.0f}" if v >= 10 else f"{v:.2g}"
 
 
 def _fmt_median(v: float) -> str:
-    """A median of c, with one decimal as the text's macros print them (104.3, 12.1); three figures below 10."""
+    """A median of c, with one decimal as the text's macros print them (92.1); three figures below 10 (7.28)."""
     return f"{v:,.1f}" if v >= 10 else f"{v:.3g}"
 
 
