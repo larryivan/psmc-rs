@@ -891,8 +891,10 @@ class E6:
 #
 # Data: the joint-called NYGC 30x VCFs of the 3,202 samples (GATK
 # HaplotypeCaller, GenotypeGVCFs, VQSR; Byrska-Bishop et al. 2022, Cell
-# 185:3426), chr1-22, 1.68 TB in all: streamed by region over HTTPS, never
-# stored. Samples: the 2,504 unrelated samples of the phase 3 panel (the
+# 185:3426), chr1-22, 1.68 TB in all, none of it kept: each chromosome (one
+# SLURM array task of submit.sh e7-prep) is downloaded whole to node-local
+# disk, read by region and deleted (MANIFEST.json, chromosomes.*.read).
+# Samples: the 2,504 unrelated samples of the phase 3 panel (the
 # sample column, 10, of the sequence index). Mask: the GRCh38 strict
 # accessibility mask (2016-06-22) for every sample; non-PASS records are
 # missing at their position, as psmc-rs reads them.
@@ -983,7 +985,7 @@ class E7:
     # (1-based, inclusive), and the callable mask is cut to them. None: whole
     # chromosomes.
     window: Optional[Tuple[int, int]] = None
-    chunk_bp: int = 15_000_000  # one streamed region (a SLURM array task): about 190 chunks for chr1-22
+    chunk_bp: int = 15_000_000  # one region, read once (bcftools view -r): 204 chunks for chr1-22
     # "unrelated2504": a psmcfa for every unrelated sample of the sequence
     # index; None: the default set only. One stream costs the same either way.
     cohort: Optional[str] = "unrelated2504"
