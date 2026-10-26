@@ -207,6 +207,15 @@ cd $PROD/experiment/slurm          # $PROD: a dedicated worktree of the producti
 ./submit.sh e7-prep                # E7's inputs from the 1000 Genomes VCFs; then prod again for E7's fits
 ```
 
+`prod` also declares E7's jobs, which wait, blocked, until E7's inputs
+(section 1) are in `runs/E7/inputs/`, copied there or written by
+`e7-prep`; the next `prod` then runs them. The repository commits the data
+stage's `records/`, and the stage skips every step whose record exists, so
+`e7-prep` converts nothing until `runs/E7/inputs/records/` is removed in
+`$PROD` (with `MANIFEST.json`, by which the runner takes the stage as
+done). Run by hand, `python -m experiment.pipeline.kg1000` needs the same,
+or a new runs directory (`--runs-dir`).
+
 The production ran in two `prod` jobs of commit 4b2c636. The first
 (SLURM job 54256959, on node cn513-11-l on 22 and 23 October 2026; 5 hours
 53 minutes) ran every job whose key the code had changed: the psmc-rs
