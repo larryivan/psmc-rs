@@ -9,7 +9,7 @@ identical settings), and finally writes the tables. Layout under
     truth/<model>/repNN.json                               seeds, counts, checksums, true Ne(t)
     fits/<model>/repNN.c.psmc                              C psmc, every round
     fits/<model>/repNN.rs.json, repNN.rs.psmc              psmc-rs 0.2 (JSON and .psmc)
-    fits/<model>/repNN.rs-default.json                     psmc-rs 0.2 with capped M-steps (only with E1.default_mstep_iters)
+    fits/<model>/repNN.rs-capped.json                      psmc-rs 0.2 with capped M-steps (only with E1.capped_mstep_iters)
     provenance/<job>.json                                  one record per job
     tables/E1_*.csv                                        written by ``report E1``
     logs/                                                  runner and job logs (not committed)
@@ -28,7 +28,7 @@ Tables (``tables/``):
   wall time, peak RSS and load (recorded, not used for timing claims).
 * ``E1_rs_vs_c.csv``: one row per model and replicate: the two tools compared
   interval by interval (below).
-* ``E1_mstep.csv`` (header only unless ``E1.default_mstep_iters`` sets a
+* ``E1_mstep.csv`` (header only unless ``E1.capped_mstep_iters`` sets a
   cap; by default it does not, since psmc-rs 0.2's default M-step converges
   like the main fit's, see :class:`.config.Inference`): one row per model
   and replicate: psmc-rs with its M-steps capped at that many iterations
@@ -134,8 +134,8 @@ class Layout:
     def rs_psmc(self, model: str, r: int) -> Path:
         return self.root / "fits" / model / f"{rep(r)}.rs.psmc"
 
-    def rs_default_json(self, model: str, r: int) -> Path:
-        return self.root / "fits" / model / f"{rep(r)}.rs-default.json"
+    def rs_capped_json(self, model: str, r: int) -> Path:
+        return self.root / "fits" / model / f"{rep(r)}.rs-capped.json"
 
     def record(self, kind: str, model: str, r: int) -> Path:
         return self.root / "provenance" / kind / model / f"{rep(r)}.json"
@@ -148,9 +148,9 @@ def job_id(kind: str, model: str, r: int) -> str:
     return f"{NAME}/{kind}/{model}/{rep(r)}"
 
 
-def default_inference(cfg: config.E1) -> Optional[config.Inference]:
-    """The inference settings of the fit with capped M-steps (``E1.default_mstep_iters``), or None when there is none."""
-    m = cfg.default_mstep_iters
+def capped_inference(cfg: config.E1) -> Optional[config.Inference]:
+    """The inference settings of the fit with capped M-steps (``E1.capped_mstep_iters``), or None when there is none."""
+    m = cfg.capped_mstep_iters
     if m is None or m == cfg.inference.mstep_iters:
         return None
     return replace(cfg.inference, mstep_iters=m)
@@ -161,7 +161,7 @@ def jobs(ctx: Context) -> List[Job]:
     lay = Layout(ctx.exp_dir(NAME))
     genome_mb, chrom_mb = cfg.genome.length / 1e6, cfg.genome.chromosome_length / 1e6
     inference, scaling = asdict(cfg.inference), asdict(cfg.scaling)
-    default = default_inference(cfg)
+    capped = capped_inference(cfg)
     sim_tools = {
         "pipeline": provenance.python_identity(
             ["simulate.py", "demography.py"], ["msprime", "tskit", "numpy", "stdpopsim"]
@@ -223,21 +223,21 @@ def jobs(ctx: Context) -> List[Job]:
                 truth, lay.c_psmc(model, r), lay.rs_json(model, r), lay.rs_psmc(model, r),
                 lay.record("fit-c", model, r), lay.record("fit-rs", model, r),
             ]
-            if default is not None:
+            if capped is not None:
                 out.append(Job(
-                    id=job_id("fit-rs-default", model, r),
-                    command=tools.rs02_fit(rs_tool, default, cfg.scaling, psmcfa, lay.rs_default_json(model, r),
+                    id=job_id("fit-rs-capped", model, r),
+                    command=tools.rs02_fit(rs_tool, capped, cfg.scaling, psmcfa, lay.rs_capped_json(model, r),
                                            threads=cfg.rs_threads),
                     inputs=[psmcfa],
-                    outputs=[lay.rs_default_json(model, r)],
+                    outputs=[lay.rs_capped_json(model, r)],
                     cores=cfg.rs_threads,
                     mem_gb=costs.rs02_gb,
-                    est_seconds=costs.rs02_seconds(genome_mb, default, cfg.rs_threads),
-                    settings={"inference": asdict(default), "scaling": scaling, "threads": cfg.rs_threads},
+                    est_seconds=costs.rs02_seconds(genome_mb, capped, cfg.rs_threads),
+                    settings={"inference": asdict(capped), "scaling": scaling, "threads": cfg.rs_threads},
                     tools=rs_ident,
-                    description=f"psmc-rs 0.2, M-steps capped at {default.mstep_iters}, on {model} replicate {r}",
+                    description=f"psmc-rs 0.2, M-steps capped at {capped.mstep_iters}, on {model} replicate {r}",
                 ))
-                report_inputs += [lay.rs_default_json(model, r), lay.record("fit-rs-default", model, r)]
+                report_inputs += [lay.rs_capped_json(model, r), lay.record("fit-rs-capped", model, r)]
     out.append(Job(
         id=f"{NAME}/report",
         command=ctx.pipeline_cmd("report", NAME, *ctx.profile_args()),
@@ -412,12 +412,12 @@ class Replicate:
     fits: Dict[str, results.Fit]
     curves: Dict[str, results.Curve]
     runs: Dict[str, Dict]
-    default_params: Optional[Dict] = None  # psmc-rs with capped M-steps
-    default_curve: Optional[results.Curve] = None
+    capped_params: Optional[Dict] = None  # psmc-rs with capped M-steps
+    capped_curve: Optional[results.Curve] = None
 
 
-def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default: bool = True) -> Replicate:
-    """The fits of one genome, read back and checked; ``with_default``: also psmc-rs's capped M-step fit."""
+def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_capped: bool = True) -> Replicate:
+    """The fits of one genome, read back and checked; ``with_capped``: also psmc-rs's capped M-step fit."""
     truth = json.loads(lay.truth(model, r).read_text())
     n_iter = cfg.inference.n_iter
     c, rs, rs_params = read_fits(lay.c_psmc(model, r), lay.rs_psmc(model, r), lay.rs_json(model, r), n_iter)
@@ -434,14 +434,14 @@ def load_replicate(lay: Layout, cfg: config.E1, model: str, r: int, with_default
     fits = {"c": c.last().fit(), "rs": results.fit_from_rs(rs_params)}
     curves = {k: f.curve(sc.mu, sc.gen_years, bin_size) for k, f in fits.items()}
     runs = {tool: run_record(lay.record(kind, model, r)) for tool, kind in (("c", "fit-c"), ("rs", "fit-rs"))}
-    default_params = default_curve = None
-    if with_default and default_inference(cfg) is not None:
-        default_params = read_rs_fit(lay.rs_default_json(model, r), n_iter)
-        default_curve = results.fit_from_rs(default_params).curve(sc.mu, sc.gen_years, bin_size)
-        runs["rs-default"] = run_record(lay.record("fit-rs-default", model, r))
+    capped_params = capped_curve = None
+    if with_capped and capped_inference(cfg) is not None:
+        capped_params = read_rs_fit(lay.rs_capped_json(model, r), n_iter)
+        capped_curve = results.fit_from_rs(capped_params).curve(sc.mu, sc.gen_years, bin_size)
+        runs["rs-capped"] = run_record(lay.record("fit-rs-capped", model, r))
     return Replicate(
         model, r, truth, demography.epochs_from_record(truth["truth"]), c, rs_params, rs, fits, curves, runs,
-        default_params, default_curve,
+        capped_params, capped_curve,
     )
 
 
@@ -474,7 +474,7 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
         rows["traces"] += trace_rows(psmc, ll[tool], n, **ids, tool=tool)
     w = (float(window[0]), float(window[-1]))
     rows["pairs"].append({**ids, **compare_tools(rp.fits, rp.curves, w, (fixed[0], fixed[-1])), **loglike_diffs(ll, n)})
-    if rp.default_params is not None:
+    if rp.capped_params is not None:
         rows["mstep"].append(mstep_row(rp, cfg, window))
     return rows
 
@@ -482,35 +482,35 @@ def replicate_rows(rp: Replicate, cfg: config.E1, window, fixed) -> Dict[str, Li
 # The columns of E1_mstep.csv, written also when there is no capped fit
 # (the default), so that the table keeps its header.
 MSTEP_FIELDS = (
-    "model", "replicate", "mstep_iters_default", "mstep_iters", "rmse_log10_ne_default_vs_c_per_interval",
-    "max_abs_log10_ne_default_vs_c_per_interval", "rmse_log10_ne_rs_vs_c_per_interval",
-    "rmse_log10_ne_default_vs_rs_per_interval", "rmse_log10_ne_default_vs_truth", "rmse_log10_ne_rs_vs_truth",
-    "theta_default_rel_c", "loglike_final_default", "loglike_final_rs", "wall_seconds_default", "wall_seconds_rs",
+    "model", "replicate", "mstep_iters_capped", "mstep_iters", "rmse_log10_ne_capped_vs_c_per_interval",
+    "max_abs_log10_ne_capped_vs_c_per_interval", "rmse_log10_ne_rs_vs_c_per_interval",
+    "rmse_log10_ne_capped_vs_rs_per_interval", "rmse_log10_ne_capped_vs_truth", "rmse_log10_ne_rs_vs_truth",
+    "theta_capped_rel_c", "loglike_final_capped", "loglike_final_rs", "wall_seconds_capped", "wall_seconds_rs",
 )
 
 
 def mstep_row(rp: Replicate, cfg: config.E1, window) -> Dict:
     """psmc-rs with capped M-steps against C psmc and against the main psmc-rs fit (interval by interval)."""
     g = cfg.scaling.gen_years
-    d, c, rs = rp.default_curve, rp.curves["c"], rp.curves["rs"]
+    d, c, rs = rp.capped_curve, rp.curves["c"], rp.curves["rs"]
     w = (window[0], window[-1])
     d_c = metrics.interval_diff(d, c, w)
-    ll_d, ll_rs = results.rs_loglikes(rp.default_params), results.rs_loglikes(rp.rs_params)
+    ll_d, ll_rs = results.rs_loglikes(rp.capped_params), results.rs_loglikes(rp.rs_params)
     return {
         "model": rp.model,
         "replicate": rp.replicate,
-        "mstep_iters_default": cfg.default_mstep_iters,
+        "mstep_iters_capped": cfg.capped_mstep_iters,
         "mstep_iters": cfg.inference.mstep_iters,
-        "rmse_log10_ne_default_vs_c_per_interval": d_c.rmse,
-        "max_abs_log10_ne_default_vs_c_per_interval": d_c.max_abs,
+        "rmse_log10_ne_capped_vs_c_per_interval": d_c.rmse,
+        "max_abs_log10_ne_capped_vs_c_per_interval": d_c.max_abs,
         "rmse_log10_ne_rs_vs_c_per_interval": metrics.interval_rmse(rs, c, w),
-        "rmse_log10_ne_default_vs_rs_per_interval": metrics.interval_rmse(d, rs, w),
-        "rmse_log10_ne_default_vs_truth": metrics.rmse_vs_truth(d, rp.epochs, window, g),
+        "rmse_log10_ne_capped_vs_rs_per_interval": metrics.interval_rmse(d, rs, w),
+        "rmse_log10_ne_capped_vs_truth": metrics.rmse_vs_truth(d, rp.epochs, window, g),
         "rmse_log10_ne_rs_vs_truth": metrics.rmse_vs_truth(rs, rp.epochs, window, g),
-        "theta_default_rel_c": results.fit_from_rs(rp.default_params).theta / rp.fits["c"].theta - 1.0,
-        "loglike_final_default": ll_d[-1] if ll_d else None,
+        "theta_capped_rel_c": results.fit_from_rs(rp.capped_params).theta / rp.fits["c"].theta - 1.0,
+        "loglike_final_capped": ll_d[-1] if ll_d else None,
         "loglike_final_rs": ll_rs[-1] if ll_rs else None,
-        "wall_seconds_default": rp.runs["rs-default"].get("wall_seconds"),
+        "wall_seconds_capped": rp.runs["rs-capped"].get("wall_seconds"),
         "wall_seconds_rs": rp.runs["rs"].get("wall_seconds"),
     }
 
@@ -546,7 +546,7 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
         return {f"{prefix}_c_mean": c_mean, f"{prefix}_c_sd": c_sd, f"{prefix}_rs_mean": rs_mean, f"{prefix}_rs_sd": rs_sd}
 
     d = [p["rmse_log10_ne_rs_vs_c_per_interval"] for p in pairs]
-    capped = [m["rmse_log10_ne_default_vs_c_per_interval"] for m in msteps]
+    capped = [m["rmse_log10_ne_capped_vs_c_per_interval"] for m in msteps]
     return {
         "model": model,
         "replicates": len(pairs),
@@ -565,9 +565,9 @@ def table1_row(model: str, window, reps: List[Dict], pairs: List[Dict], msteps: 
         "max_abs_rs_vs_c_any_interval": max((p["max_abs_log10_ne_rs_vs_c_any_interval"] for p in pairs), default=None),
         "loglike_max_rel_diff": max((p["loglike_max_rel_diff"] for p in pairs if p["loglike_max_rel_diff"] is not None), default=None),
         "theta_max_abs_rel_diff": max((abs(p["theta_rel_diff"]) for p in pairs), default=None),
-        "rmse_rs_default_vs_c_per_interval_mean": _mean_sd(capped)[0],
-        "rmse_rs_default_vs_c_per_interval_max": max(capped, default=None),
-        "rmse_truth_rs_default_mean": _mean_sd([m["rmse_log10_ne_default_vs_truth"] for m in msteps])[0],
+        "rmse_rs_capped_vs_c_per_interval_mean": _mean_sd(capped)[0],
+        "rmse_rs_capped_vs_c_per_interval_max": max(capped, default=None),
+        "rmse_truth_rs_capped_mean": _mean_sd([m["rmse_log10_ne_capped_vs_truth"] for m in msteps])[0],
     }
 
 

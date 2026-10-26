@@ -81,10 +81,10 @@ C psmc's own Hooke-Jeeves search run inside psmc-rs's EM in a diagnostic
 build (median 2.6e-5; [`experiment/c_equivalence/`](../c_equivalence/README.md)),
 and over E2's four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
 `E2_rs_vs_c.csv`). Since psmc-rs's default M-step is the converged one, no
-experiment fits or times a separate default arm: `E1.default_mstep_iters`
-and `E3.default_mstep_iters` are unset, and setting one of them to a cap
-adds a fit (`fit-rs-default`, `E1_mstep.csv`) or timed runs
-(`rs02-default`) with M-steps capped at that many iterations (the tiny
+experiment fits or times a separate capped arm: `E1.capped_mstep_iters`
+and `E3.capped_mstep_iters` are unset, and setting one of them to a cap
+adds a fit (`fit-rs-capped`, `E1_mstep.csv`) or timed runs
+(`rs02-capped`) with M-steps capped at that many iterations (the tiny
 profile does, at 5, to test them). `test_pipeline_fit_settings.py` checks
 that every psmc-rs fit of the production and smoke profiles passes
 psmc-rs's own cap (`DEFAULT_MSTEP_ITERS` in `src/opt.rs`) and that neither
@@ -242,8 +242,8 @@ are merged before `E3/report` runs once on the merged one.
 
 4 models x 10 replicates of 500 Mb (10 chromosomes of 50 Mb). Per replicate:
 `sim` (simulation), `fit-c` (C psmc) and `fit-rs` (psmc-rs 0.2, one thread,
-also writing `--psmc-out`) on the identical psmcfa (and `fit-rs-default`,
-psmc-rs with capped M-steps, when `E1.default_mstep_iters` sets a cap); then
+also writing `--psmc-out`) on the identical psmcfa (and `fit-rs-capped`,
+psmc-rs with capped M-steps, when `E1.capped_mstep_iters` sets a cap); then
 `report` writes:
 
 | table | contents |
@@ -280,7 +280,7 @@ set by psmc-rs's bound.
 
 Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 `fits/<model>/` (`repNN.c.psmc`, `repNN.rs.json`, `repNN.rs.psmc`,
-`repNN.rs-default.json` with a capped fit), `provenance/`, `tables/`, `figures/` (committed),
+`repNN.rs-capped.json` with a capped fit), `provenance/`, `tables/`, `figures/` (committed),
 `logs/` (not committed).
 
 **Cost** (`plan E1`): 121 jobs, about 10 CPU hours (C psmc 8.3, psmc-rs 1.0,
@@ -405,7 +405,7 @@ genomes of 100, 300, 1000 and 3000 Mb (1, 3, 10 and 30 chromosomes of
 100 Mb; one simulation per size, the chromosomes shared between sizes), 25
 EM iterations of the recipe, 5 repeats each: C psmc on its one thread;
 psmc-rs 0.2 on 1, 8 and 30 threads (and with capped M-steps,
-`rs02-default`, when `E3.default_mstep_iters` sets a cap); and psmc-rs 0.2
+`rs02-capped`, when `E3.capped_mstep_iters` sets a cap); and psmc-rs 0.2
 on the 3000 Mb genome with 1, 2, 4, 8, 16 and 30 threads (thread scaling):
 19 setups, 95 timed runs. psmc-rs works on one sequence per thread, so the
 30 chromosomes of the largest genome make 30 threads the most that can

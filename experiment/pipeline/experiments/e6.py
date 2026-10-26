@@ -415,7 +415,7 @@ def report_s1(ctx: Context) -> Dict[str, Path]:
     for model in e1cfg.models:
         mine: List[Dict] = []
         for r in range(1, e1cfg.replicates + 1):
-            rp = e1.load_replicate(e1lay, e1cfg, model, r, with_default=False)
+            rp = e1.load_replicate(e1lay, e1cfg, model, r, with_capped=False)
             mine += A.trace_rows(model, r, rp.c, rp.rs_params, rp.rs, n)
         traces += mine
         summary += [A.convergence_summary(model, tool, mine, n, cfg.convergence_within_loglike,

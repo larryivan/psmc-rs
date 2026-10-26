@@ -32,9 +32,9 @@ class Jobs(unittest.TestCase):
         cfg = config.SMOKE.e1
         # psmc-rs 0.2's default M-step converges like the main fit's: no
         # separate fit with the default.
-        self.assertIsNone(cfg.default_mstep_iters)
+        self.assertIsNone(cfg.capped_mstep_iters)
         self.assertEqual(len(self.jobs), len(cfg.models) * cfg.replicates * 3 + 1)
-        self.assertFalse(any("fit-rs-default" in j.id for j in self.jobs))
+        self.assertFalse(any("fit-rs-capped" in j.id for j in self.jobs))
         self.assertEqual(option(self.by_id["E1/fit-rs/bottleneck/rep02"].command, "--mstep-iters"), "1000")
         g = runner.Graph(self.jobs, self.runs)
         self.assertEqual(g.deps["E1/fit-c/bottleneck/rep02"], ["E1/sim/bottleneck/rep02"])
@@ -43,11 +43,11 @@ class Jobs(unittest.TestCase):
         self.assertEqual(report, {j.id for j in self.jobs if j.id.startswith(("E1/fit-", "E1/sim"))})
 
     def test_a_cap_adds_a_fit_with_capped_m_steps(self):
-        profile = replace(config.SMOKE, e1=replace(config.SMOKE.e1, default_mstep_iters=5))
+        profile = replace(config.SMOKE, e1=replace(config.SMOKE.e1, capped_mstep_iters=5))
         jobs = e1.jobs(fake_ctx(profile, self.runs))
         cfg = profile.e1
         self.assertEqual(len(jobs), len(cfg.models) * cfg.replicates * 4 + 1)
-        capped = {j.id: j for j in jobs}["E1/fit-rs-default/bottleneck/rep02"]
+        capped = {j.id: j for j in jobs}["E1/fit-rs-capped/bottleneck/rep02"]
         self.assertEqual(option(capped.command, "--mstep-iters"), "5")
         self.assertIn("capped at 5", capped.description)
 
@@ -104,8 +104,8 @@ class Tables(unittest.TestCase):
                                 input={"bins": 150947, "het_bins": 7373})
             lay.rs_json("bottleneck", r).write_text(json.dumps(params))
             # psmc-rs with capped M-steps (TINY's cap, 5): 1.5 times the sizes of psmc-rs's fit
-            default = dict(params, lam=[x * 1.5 for x in params["lam"]])
-            lay.rs_default_json("bottleneck", r).write_text(json.dumps(default))
+            capped = dict(params, lam=[x * 1.5 for x in params["lam"]])
+            lay.rs_capped_json("bottleneck", r).write_text(json.dumps(capped))
         cls.written = e1.report(Context(profile, runs))
 
     def test_identical_fits_agree_and_scaled_ones_differ_by_the_scale(self):
@@ -126,12 +126,12 @@ class Tables(unittest.TestCase):
     def test_capped_m_steps_against_c_psmc(self):
         rows = read_csv(self.lay.table("mstep"))
         self.assertEqual([r["replicate"] for r in rows], ["1", "2"])
-        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_c_per_interval"]), math.log10(1.5), places=9)
-        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_default_vs_rs_per_interval"]), math.log10(1.5), places=9)
-        self.assertEqual(float(rows[0]["theta_default_rel_c"]), 0.0)
-        self.assertEqual(rows[0]["mstep_iters_default"], "5")
+        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_capped_vs_c_per_interval"]), math.log10(1.5), places=9)
+        self.assertAlmostEqual(float(rows[0]["rmse_log10_ne_capped_vs_rs_per_interval"]), math.log10(1.5), places=9)
+        self.assertEqual(float(rows[0]["theta_capped_rel_c"]), 0.0)
+        self.assertEqual(rows[0]["mstep_iters_capped"], "5")
         t1 = read_csv(self.lay.table("table1"))[0]
-        self.assertGreater(float(t1["rmse_rs_default_vs_c_per_interval_max"]), 0)
+        self.assertGreater(float(t1["rmse_rs_capped_vs_c_per_interval_max"]), 0)
 
     def test_traces_count_iterations(self):
         rows = read_csv(self.lay.table("traces"))

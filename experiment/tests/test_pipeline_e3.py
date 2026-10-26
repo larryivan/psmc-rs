@@ -68,8 +68,8 @@ class Plan(unittest.TestCase):
         self.assertGreater(c, 3000)
         one, eight = setup_of(cfg, "rs02", 3000, 1).est_seconds, setup_of(cfg, "rs02", 3000, 8).est_seconds
         self.assertGreater(one / eight, 4)  # 30 sequences in parallel; the M-step takes ms
-        capped = replace(cfg, default_mstep_iters=5)
-        self.assertLessEqual(setup_of(capped, "rs02-default", 3000, 8).est_seconds, eight)
+        capped = replace(cfg, capped_mstep_iters=5)
+        self.assertLessEqual(setup_of(capped, "rs02-capped", 3000, 8).est_seconds, eight)
         # one 100 Mb chromosome: no parallel speed-up
         self.assertAlmostEqual(setup_of(cfg, "rs02", 100, 1).est_seconds, setup_of(cfg, "rs02", 100, 8).est_seconds)
 
@@ -87,7 +87,7 @@ class Jobs(unittest.TestCase):
         runs = [j for j in jobs.values() if j.name.startswith("run/")]
         # No run with capped M-steps: psmc-rs 0.2's default M-step converges.
         self.assertEqual(len(runs), 19 * cfg.repeats)
-        self.assertFalse(any("rs02-default" in j.id for j in runs))
+        self.assertFalse(any("rs02-capped" in j.id for j in runs))
         self.assertEqual(len(jobs), len(runs) + 4 + 1)
         self.assertTrue(all(j.exclusive for j in runs))
         self.assertFalse(any(j.exclusive for j in jobs.values() if not j.name.startswith("run/")))
@@ -112,10 +112,10 @@ class Jobs(unittest.TestCase):
         self.assertEqual(rs02.cores, min(2, e3.usable_cpus()))
         self.assertEqual(rs02.settings["repeat"], 1)
         self.assertEqual(set(rs02.tools), {"psmc-rs-0.2", "timing"})
-        capped = replace(config.PRODUCTION, e3=replace(config.PRODUCTION.e3, default_mstep_iters=5))
-        default = self.jobs(capped)["E3/run/rs02-default/3000Mb/t8/rep1"]
-        self.assertEqual(option(tool_command(default), "--mstep-iters"), "5")
-        self.assertEqual(default.settings["inference"]["mstep_iters"], 5)
+        capped = replace(config.PRODUCTION, e3=replace(config.PRODUCTION.e3, capped_mstep_iters=5))
+        run = self.jobs(capped)["E3/run/rs02-capped/3000Mb/t8/rep1"]
+        self.assertEqual(option(tool_command(run), "--mstep-iters"), "5")
+        self.assertEqual(run.settings["inference"]["mstep_iters"], 5)
 
     def test_timing_jobs_get_their_threads_as_cores_up_to_the_machine(self):
         self.assertEqual([e3.run_cores(t, 128) for t in (1, 8, 30)], [1, 8, 30])
@@ -164,7 +164,7 @@ class Report(unittest.TestCase):
         ]}
         lay.truth(1).parent.mkdir(parents=True)
         lay.truth(1).write_text(json.dumps(truth))
-        walls = {"c": 10.0, "rs02": 1.0, "rs02-default": 0.5}
+        walls = {"c": 10.0, "rs02": 1.0, "rs02-capped": 0.5}
         for run in e3.runs(cfg):
             u = run.setup
             fit = lay.fit(run)
@@ -188,7 +188,7 @@ class Report(unittest.TestCase):
             lay.timing(run).parent.mkdir(parents=True, exist_ok=True)
             lay.timing(run).write_text(json.dumps(timing))
             lay.record(run).parent.mkdir(parents=True, exist_ok=True)
-            tool = tools["rs02" if u.tool == "rs02-default" else u.tool]
+            tool = tools["rs02" if u.tool == "rs02-capped" else u.tool]
             lay.record(run).write_text(json.dumps({"key": {"tools": {tool.name: tool.identity}}}))
         self.written = self.report()
 
@@ -451,7 +451,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(len(table2), len(e3.setups(config.TINY.e3)))
         self.assertTrue(all(r["status"] == "measured" for r in table2))
         self.assertTrue(all(float(r["wall_median_s"]) > 0 and float(r["peak_rss_median_mb"]) > 0 for r in table2))
-        det = [r for r in read_csv(lay.table("determinism")) if r["tool"] in ("rs02", "rs02-default", "c")]
+        det = [r for r in read_csv(lay.table("determinism")) if r["tool"] in ("rs02", "rs02-capped", "c")]
         self.assertTrue(det and all(r["byte_identical"] == "True" for r in det))
         run = e3.Run(e3.Setup("rs02", 1, 2), 2)
         self.assertEqual(json.loads(lay.timing(run).read_text())["exit_status"], 0)

@@ -31,7 +31,7 @@
   the window; psmc-rs's M-steps converge as C psmc's do, see
   ``config.Inference``), with the mean (solid) and median (dotted) of each
   group, and the values of both for the comparison of the tools; and, when
-  E1 fitted psmc-rs with capped M-steps too (``E1.default_mstep_iters``,
+  E1 fitted psmc-rs with capped M-steps too (``E1.capped_mstep_iters``,
   not by default), that fit against C psmc.
 """
 
@@ -180,10 +180,10 @@ def _rmse_panel(ax, models: List[str], reps, pairs, mstep) -> None:
          lambda m: pairs[pairs.model == m]["rmse_log10_ne_rs_vs_c_per_interval"]),
     ]
     if mstep is not None and len(mstep):
-        cap = int(mstep["mstep_iters_default"].iloc[0])
+        cap = int(mstep["mstep_iters_capped"].iloc[0])
         groups.append((f"psmc-rs 0.2, M-steps capped at {cap}, vs C psmc",
                        style.Entity("", style.BLUE_650, "-", "^", filled=False),
-                       lambda m: mstep[mstep.model == m]["rmse_log10_ne_default_vs_c_per_interval"]))
+                       lambda m: mstep[mstep.model == m]["rmse_log10_ne_capped_vs_c_per_interval"]))
     width = 0.8 / len(groups)
     handles = []
     lows, highs = [], []

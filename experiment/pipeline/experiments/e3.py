@@ -11,8 +11,8 @@ does psmc-rs 0.2 give the same result whatever its thread count?
 2. fits every size with every tool, ``repeats`` times, with the inference
    recipe (``psmc -N25 -t15 -r5 -p "4+25*2+4+6"``): C psmc on its one
    thread and psmc-rs 0.2 at each of its thread counts (also with its
-   M-steps capped at ``E3.default_mstep_iters`` iterations,
-   ``rs02-default``, when that is set; by default it is not, since psmc-rs
+   M-steps capped at ``E3.capped_mstep_iters`` iterations,
+   ``rs02-capped``, when that is set; by default it is not, since psmc-rs
    0.2's default M-step converges like every other run's); psmc-rs 0.2
    also fits the 3000 Mb genome on 1, 2, 4, 8, 16 and 30 threads (thread
    scaling; with one sequence per thread, its 30 chromosomes are the most
@@ -101,10 +101,10 @@ from .e1 import read_c_fit, read_rs_fit, write_tables
 from .e3_run import genome_for, machine_other_cores, measure_args, other_cores, other_method, other_share, usable_cpus
 
 NAME = "E3"
-TOOL_ORDER = ("c", "rs02", "rs02-default")
-TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-default": "psmc-rs 0.2, capped M-step"}
-TOOL_NAMES = {"c": "c-psmc", "rs02": "psmc-rs-0.2", "rs02-default": "psmc-rs-0.2"}  # tools.Tool.name
-RS02 = ("rs02", "rs02-default")
+TOOL_ORDER = ("c", "rs02", "rs02-capped")
+TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-capped": "psmc-rs 0.2, capped M-step"}
+TOOL_NAMES = {"c": "c-psmc", "rs02": "psmc-rs-0.2", "rs02-capped": "psmc-rs-0.2"}  # tools.Tool.name
+RS02 = ("rs02", "rs02-capped")
 TABLES = {
     "table2": "E3_table2.csv",
     "runs": "E3_runs.csv",
@@ -127,7 +127,7 @@ C_PSMC_BUILD = "lh3/psmc 0.6.5-r74 built with -O1 (an -O2 build segfaults on mac
 class Setup:
     """One tool on one genome size with one thread count (repeated ``E3.repeats`` times)."""
 
-    tool: str  # "c", "rs02" or "rs02-default"
+    tool: str  # "c", "rs02" or "rs02-capped"
     size_mb: int
     threads: int
 
@@ -166,14 +166,14 @@ def setups(cfg: config.E3) -> List[Setup]:
     out = {Setup("c", s, 1) for s in cfg.genome_sizes_mb}
     out |= {Setup("rs02", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_threads}
     out |= {Setup("rs02", cfg.thread_scaling_size_mb, t) for t in cfg.thread_scaling_threads}
-    if cfg.default_mstep_iters is not None and cfg.default_mstep_iters != cfg.inference.mstep_iters:
-        out |= {Setup("rs02-default", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_default_threads}
+    if cfg.capped_mstep_iters is not None and cfg.capped_mstep_iters != cfg.inference.mstep_iters:
+        out |= {Setup("rs02-capped", s, t) for s in cfg.genome_sizes_mb for t in cfg.rs02_capped_threads}
     return sorted(out, key=lambda u: (TOOL_ORDER.index(u.tool), u.threads, u.size_mb))
 
 
 def inference_of(cfg: config.E3, tool: str) -> config.Inference:
-    """The inference settings a tool runs with: the experiments' recipe, or the capped M-steps of ``rs02-default``."""
-    return replace(cfg.inference, mstep_iters=cfg.default_mstep_iters) if tool == "rs02-default" else cfg.inference
+    """The inference settings a tool runs with: the experiments' recipe, or the capped M-steps of ``rs02-capped``."""
+    return replace(cfg.inference, mstep_iters=cfg.capped_mstep_iters) if tool == "rs02-capped" else cfg.inference
 
 
 def in_flight(cfg: config.E3, size_mb: int, threads: int) -> int:
@@ -210,7 +210,7 @@ def estimate_seconds(cfg: config.E3, setup: Setup) -> float:
 SKIP_WHY = {
     "c": "C psmc holds the forward and backward matrices of its longest sequence ({chrom:g} Mb)",
     "rs02": "psmc-rs 0.2 holds the input and a buffer per thread",
-    "rs02-default": "psmc-rs 0.2 holds the input and a buffer per thread",
+    "rs02-capped": "psmc-rs 0.2 holds the input and a buffer per thread",
 }
 
 

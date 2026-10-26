@@ -74,8 +74,8 @@ give. For the other ten the notes say what the figure shows.
   as C psmc's does (`--mstep-iters 1000` is passed explicitly and is only
   a cap; `config.Inference`). Panel i of `fig2_simulated_accuracy`,
   `fig4_performance` and `figS4_thread_scaling` show a psmc-rs fit with
-  capped M-steps only when `E1.default_mstep_iters` or
-  `E3.default_mstep_iters` sets a cap, which production does not.
+  capped M-steps only when `E1.capped_mstep_iters` or
+  `E3.capped_mstep_iters` sets a cap, which production does not.
 - **`fig2_simulated_accuracy`, `figS2_format_consistency` and the
   supplement's Figs S2 and S3** (`fig5_input_preparation`,
   `fig6_bootstrap_calibration`): times in years with mu 2.5e-8 and g 25; Ne
@@ -288,7 +288,7 @@ writes, so a schema cannot drift from its table unnoticed. Curve tables have
 one row per PSMC interval: `ne` holds from `years` to the next row's
 `years` (the first is 0, the last interval runs to infinity), as
 `results.Fit.curve` gives it. `tool` is `c` or `rs`, and in E3 `c`,
-`rs02` or `rs02-default`.
+`rs02` or `rs02-capped`.
 
 | table | one row per | columns the figures need |
 | --- | --- | --- |
@@ -297,7 +297,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E1/tables/E1_table1.csv` | model | `model`, `window_lo_years`, `window_hi_years` |
 | `E1/tables/E1_replicates.csv` | model, replicate and tool | `model`, `replicate`, `tool`, `rmse_log10_ne_vs_truth` |
 | `E1/tables/E1_rs_vs_c.csv` | model and replicate | `model`, `replicate`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_any_interval` |
-| `E1/tables/E1_mstep.csv` (no rows without a capped fit) | model and replicate | `model`, `replicate`, `mstep_iters_default`, `rmse_log10_ne_default_vs_c_per_interval` |
+| `E1/tables/E1_mstep.csv` (no rows without a capped fit) | model and replicate | `model`, `replicate`, `mstep_iters_capped`, `rmse_log10_ne_capped_vs_c_per_interval` |
 | `E1/tables/E1_traces.csv` | model, replicate, tool and EM iteration | `model`, `replicate`, `tool`, `iteration`, `loglike`, `theta`, `rho` |
 | `E2/tables/E2_curves.csv` | genome, tool and interval | `sample_id`, `tool`, `interval`, `years`, `ne` |
 | `E2/tables/E2_bands.csv` | genome, bootstrap trunk size and time of a dense log grid | `sample_id`, `trunk_bins`, `years`, `ne_band_lo`, `ne_band_hi` |

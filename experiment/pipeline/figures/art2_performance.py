@@ -358,7 +358,7 @@ def draw(src: Source):
     t2 = src.table("E3_table2")
     t2 = t2[(t2.size_mb == size) & t2.wall_median_s.notna()]
     c_rows = t2[t2.tool == "c"]
-    rs = t2[t2.tool == "rs02"].sort_values("threads")  # its default M-step, not a capped arm (rs02-default)
+    rs = t2[t2.tool == "rs02"].sort_values("threads")  # its default M-step, not a capped arm (rs02-capped)
     c_row = c_rows.iloc[0] if not c_rows.empty else None
     c_wall = float(c_row.wall_median_s) if c_row is not None else None
     c_mem = float(c_row.peak_rss_median_mb) if c_row is not None else None

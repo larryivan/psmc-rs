@@ -48,8 +48,8 @@ class Inference:
     Hooke-Jeeves search run inside psmc-rs's EM (7.5e-5); psmc-rs 0.1's
     L-BFGS, stopped after 100 iterations, left them 0.03 to 0.16 apart. The
     default M-step is therefore the converged one, and no experiment fits a
-    separate default arm (:attr:`E1.default_mstep_iters` and
-    :attr:`E3.default_mstep_iters` are None; a cap set there fits or times
+    separate default arm (:attr:`E1.capped_mstep_iters` and
+    :attr:`E3.capped_mstep_iters` are None; a cap set there fits or times
     psmc-rs with M-steps capped at that many iterations too).
     """
 
@@ -279,11 +279,11 @@ class E1:
     scaling: Scaling = SIMULATION_SCALING
     grid: TimeGrid = TimeGrid()
     rs_threads: int = 1  # psmc-rs --threads per fit; many fits run in parallel instead
-    # An M-step cap to fit every genome with as well (job fit-rs-default,
+    # An M-step cap to fit every genome with as well (job fit-rs-capped,
     # table E1_mstep.csv), against C psmc and the main fit; None: no such fit
     # (the default M-step converges, see Inference). A small cap (say 5)
     # shows what an M-step stopped short of convergence does.
-    default_mstep_iters: Optional[int] = None
+    capped_mstep_iters: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -585,12 +585,12 @@ class E3:
     # chromosomes of the largest genome make 30 threads the most that can
     # help; every run is exclusive, and gets as many cores as threads.
     rs02_threads: Tuple[int, ...] = (1, 8, 30)
-    # psmc-rs 0.2 timed with its M-steps capped at default_mstep_iters too
-    # ("rs02-default"), at these thread counts (those of rs02_threads); None:
+    # psmc-rs 0.2 timed with its M-steps capped at capped_mstep_iters too
+    # ("rs02-capped"), at these thread counts (those of rs02_threads); None:
     # no such runs. Every other run uses inference.mstep_iters, psmc-rs's
     # default, whose M-steps converge (see Inference).
-    rs02_default_threads: Tuple[int, ...] = (1, 8, 30)
-    default_mstep_iters: Optional[int] = None
+    rs02_capped_threads: Tuple[int, ...] = (1, 8, 30)
+    capped_mstep_iters: Optional[int] = None
     thread_scaling_size_mb: int = 3000
     thread_scaling_threads: Tuple[int, ...] = (1, 2, 4, 8, 16, 30)
     memory_limit_gb: float = 64.0  # skip any run whose estimated peak exceeds this (and say why)
@@ -1171,11 +1171,11 @@ _TINY_INFERENCE = replace(INFERENCE, n_iter=2)
 TINY = Profile(
     name="tiny",
     e1=E1(models=("bottleneck",), replicates=1, genome=_TINY_GENOME, inference=_TINY_INFERENCE,
-          default_mstep_iters=5),
+          capped_mstep_iters=5),
     e2=E2(genomes=tuple(g for g in REAL_GENOMES if g.sample_id in ("NA12878", "HLhydTec1")), inference=_TINY_INFERENCE,
           bootstrap_replicates=2, bootstrap_trunk_bins=5_000, fine_trunk_bins=1_000, rs_threads=2, max_bins=20_000),
     e3=E3(genome_sizes_mb=(1,), chromosome_length=500_000, repeats=2, inference=_TINY_INFERENCE,
-          rs02_threads=(1, 2), rs02_default_threads=(1,), default_mstep_iters=5,
+          rs02_threads=(1, 2), rs02_capped_threads=(1,), capped_mstep_iters=5,
           thread_scaling_size_mb=1, thread_scaling_threads=(1, 2), timing=QUICK_TIMING),
     e4=E4(replicates=1, genome=Genome(n_chromosomes=2, chromosome_length=300_000), inference=_TINY_INFERENCE,
           masks=(MaskSpec("clustered30", 0.3, "clustered", 5_000.0), MaskSpec("dispersed30", 0.3, "dispersed", 20.0))),

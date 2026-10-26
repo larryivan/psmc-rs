@@ -25,7 +25,7 @@ iterations, E3's clean runs), on 1 to 30 threads:
   every run at a size wrote the same bytes.
 
 Only when E3 times psmc-rs 0.2 with capped M-steps
-(``E3.default_mstep_iters``, which production does not set) do a and b
+(``E3.capped_mstep_iters``, which production does not set) do a and b
 draw it too (dark blue) and the legend name it. Everything comes from
 ``E3_thread_scaling``, ``E3_table2``, ``E3_runs`` and ``E3_determinism``.
 """
@@ -40,7 +40,7 @@ from .fig4 import (MEM_TICKS, TIME_TICKS, TOOL_ENTITY, decade_span, fixed_log_xa
                    medians)
 
 TABLE_SHIFT_MM = 9.5  # panel d starts this much left of its grid cell
-TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-default": "0.2, capped M-step"}
+TOOL_LABELS = {"c": "C psmc", "rs02": "psmc-rs 0.2", "rs02-capped": "0.2, capped M-step"}
 NBSP = " "  # keeps a number on the line of its unit when a footnote wraps
 MS = 3.2  # the medians' markers
 
@@ -81,9 +81,9 @@ def draw(src: Source):
     ideal = wall[0] / ceiling
     floor = wall[0] * ceiling_speedup(t[0], n_seq) / n_seq
     reps = runs[(runs.tool == "rs02") & (runs.size_mb == size) & (runs["clean"].astype(str) == "True")]
-    default = table2[(table2.tool == "rs02-default") & (table2.size_mb == size)].sort_values("threads")
-    default = default[default["wall_median_s"].notna()]
-    dent = TOOL_ENTITY["rs02-default"]
+    capped = table2[(table2.tool == "rs02-capped") & (table2.size_mb == size)].sort_values("threads")
+    capped = capped[capped["wall_median_s"].notna()]
+    cent = TOOL_ENTITY["rs02-capped"]
 
     fig = style.figure("double", 62)
     gs = style.grid(fig, 1, 4, left_mm=12.0, right_mm=2.0, top_mm=9.0, bottom_mm=9.0, wspace_mm=13.0,
@@ -101,9 +101,9 @@ def draw(src: Source):
     medians(ax_t, t, wall, style.RS02, MS, points_z=3)
     _repeats(ax_t, reps, "wall_seconds")
     walls = list(reps["wall_seconds"]) + list(wall) + list(ideal) + [floor / 2.5]  # room for the floor's label
-    if not default.empty:
-        medians(ax_t, default["threads"], default["wall_median_s"], dent, MS)
-        walls += list(default["wall_median_s"])
+    if not capped.empty:
+        medians(ax_t, capped["threads"], capped["wall_median_s"], cent, MS)
+        walls += list(capped["wall_median_s"])
     thread_axis(ax_t, t)
     log_ticks(ax_t, *decade_span(walls), TIME_TICKS, style.fmt_seconds)
     ax_t.set_ylabel(f"Wall time, {size:,} Mb")
@@ -119,10 +119,10 @@ def draw(src: Source):
     for x, e in zip(t[1:], eff[1:]):
         ax_e.annotate(f"{100 * e:.0f}%", (x, e), xytext=(0, -5), textcoords="offset points", ha="center", va="top",
                       fontsize=style.TICK_PT, color=style.INK2)
-    if len(default) > 1:
-        d = default["wall_median_s"].to_numpy(dtype=float)
-        dt = default["threads"].to_numpy(dtype=float)
-        medians(ax_e, dt, d[0] * dt[0] / d / dt, dent, MS)
+    if len(capped) > 1:
+        d = capped["wall_median_s"].to_numpy(dtype=float)
+        dt = capped["threads"].to_numpy(dtype=float)
+        medians(ax_e, dt, d[0] * dt[0] / d / dt, cent, MS)
     thread_axis(ax_e, t)
     ax_e.set_ylim(0.0, 1.1)
     ax_e.set_ylabel("Parallel efficiency")
@@ -143,8 +143,8 @@ def draw(src: Source):
     ax_d.set_position((pos.x0 - shift, pos.y0, pos.width + shift, pos.height))
     determinism_panel(ax_d, det)
     handles = [style.handle(style.RS02, kind="both", label="psmc-rs 0.2")]
-    if not default.empty:
-        handles.append(style.handle(dent, kind="both"))
+    if not capped.empty:
+        handles.append(style.handle(cent, kind="both"))
     style.key_above(fig, handles)
     style.panel_letters(fig, [ax_t, ax_e, ax_m, ax_d])
     return fig

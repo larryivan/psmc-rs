@@ -88,8 +88,8 @@ class MStep(unittest.TestCase):
         # The tiny profile caps one arm at 5 iterations to test the machinery; the others fit none.
         for p in (config.PRODUCTION, config.SMOKE):
             with self.subTest(profile=p.name):
-                self.assertIsNone(p.e1.default_mstep_iters)
-                self.assertIsNone(p.e3.default_mstep_iters)
+                self.assertIsNone(p.e1.capped_mstep_iters)
+                self.assertIsNone(p.e3.capped_mstep_iters)
 
     def test_every_fit_passes_the_cap(self):
         default = str(default_mstep_iters())

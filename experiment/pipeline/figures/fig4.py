@@ -18,7 +18,7 @@ genome the longest sequence sets the floor (Fig S4).
   at each of the thread counts E3 times every size at (1, 8 and 30 in
   production: solid, dashed and dash-dotted; the other counts of the
   thread scaling are Fig S4's), and, when E3 timed it
-  (``E3.default_mstep_iters``, not by default), psmc-rs 0.2 with capped
+  (``E3.capped_mstep_iters``, not by default), psmc-rs 0.2 with capped
   M-steps (dark blue). The y label gives the profile's EM iterations (25 in
   production). Lines and markers are the medians of the repeats, small dots
   each repeat.
@@ -44,14 +44,14 @@ from .data import Source
 # A tool's thread counts, fewest first: solid, dashed, dash-dotted, dotted (more counts reuse the last).
 THREAD_LINESTYLES = ("-", (0, (3.0, 1.5)), (0, (3.0, 1.2, 1.0, 1.2)), (0, (1.0, 1.2)))
 TOOL_ENTITY = {"c": style.C_PSMC, "rs02": style.RS02,
-               "rs02-default": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}  # legend order
+               "rs02-capped": style.Entity("psmc-rs 0.2, capped M-step", style.BLUE_650, "-", "^")}  # legend order
 TIME_TICKS = [1, 10, 60, 600, 3600, 36000]  # seconds: 1 s to 10 h
 MEM_TICKS = [1, 10, 100, 1024, 10240, 102400]  # MB: 1 MB to 100 GB
 
 
 def tool_threads(cfg) -> Dict[str, Tuple[int, ...]]:
     """The thread counts E3 times every genome size at, per tool (not the thread-scaling ones: Fig S4)."""
-    return {"c": (1,), "rs02": tuple(cfg.rs02_threads), "rs02-default": tuple(cfg.rs02_default_threads)}
+    return {"c": (1,), "rs02": tuple(cfg.rs02_threads), "rs02-capped": tuple(cfg.rs02_capped_threads)}
 
 
 def series(table2, threads: Optional[Dict[str, Sequence[int]]] = None) -> List[Tuple[str, int, style.Entity]]:

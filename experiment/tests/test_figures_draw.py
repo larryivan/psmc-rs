@@ -339,8 +339,8 @@ class Draw(unittest.TestCase):
 
         table2 = self._table("E3_table2")
         labels = check()
-        self.assertEqual(any("capped" in label for label in labels), (table2.tool == "rs02-default").any())
-        uncapped = self._runs_with("E3", **{key: (lambda t: t[t.tool != "rs02-default"])
+        self.assertEqual(any("capped" in label for label in labels), (table2.tool == "rs02-capped").any())
+        uncapped = self._runs_with("E3", **{key: (lambda t: t[t.tool != "rs02-capped"])
                                             for key in ("E3_table2", "E3_runs", "E3_determinism")})
         self.assertEqual(check(uncapped), ["psmc-rs 0.2"])
 
