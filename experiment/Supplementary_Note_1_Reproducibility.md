@@ -308,11 +308,13 @@ compiler and the flags to C psmc's identity.
 
 - **Production (Ibex).** gcc 11.4.1 with `-g -Wall -O3 -march=x86-64-v3
   -ffp-contract=off -Wno-unused-function`, as every C psmc provenance
-  record of E1 and E2 holds. Its output was byte-identical to the
+  record of E1, E2, E3 and E7 holds. Its output was byte-identical to the
   Makefile's `-O2` build on AMD Zen 2, Zen 5 and Intel Cascade Lake nodes,
-  and it ran 1.2 to 2.0 times as fast; `-ffp-contract=off` keeps gcc from
-  fusing multiply-adds, which would change the results. These are the C
-  psmc results of the manuscript.
+  and it ran 1.2 to 2.0 times as fast (one fit of HLpelCas1 on each;
+  `experiment/crossplatform/x86_cpus/`, section "C psmc's production
+  build"); `-ffp-contract=off` keeps gcc from fusing multiply-adds, which
+  would change the results. These are the C psmc results of the
+  manuscript.
 - **Laptop (macOS, arm64).** An `-O2` build of C psmc segfaults there, so
   the laptop's C psmc was built by hand with `-O1`. It has no `BUILD.json`:
   it is identified by its version and checksum, and its compiler and flags

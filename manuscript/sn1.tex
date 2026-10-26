@@ -371,11 +371,13 @@ compiler and the flags to C psmc's identity.
 \tightlist
 \item
   \textbf{Production (Ibex).} gcc 11.4.1 with \texttt{-g\ -Wall\ -O3\ -march=x86-64-v3\ -ffp-contract=off\ -Wno-unused-function}, as every C psmc provenance
-  record of E1 and E2 holds. Its output was byte-identical to the
+  record of E1, E2, E3 and E7 holds. Its output was byte-identical to the
   Makefile's \texttt{-O2} build on AMD Zen 2, Zen 5 and Intel Cascade Lake nodes,
-  and it ran 1.2 to 2.0 times as fast; \texttt{-ffp-contract=off} keeps gcc from
-  fusing multiply-adds, which would change the results. These are the C
-  psmc results of the manuscript.
+  and it ran 1.2 to 2.0 times as fast (one fit of HLpelCas1 on each;
+  \texttt{experiment/\allowbreak{}crossplatform/\allowbreak{}x86\_\allowbreak{}cpus/\allowbreak{}}, section ``C psmc's production
+  build''); \texttt{-ffp-contract=off} keeps gcc from fusing multiply-adds, which
+  would change the results. These are the C psmc results of the
+  manuscript.
 \item
   \textbf{Laptop (macOS, arm64).} An \texttt{-O2} build of C psmc segfaults there, so
   the laptop's C psmc was built by hand with \texttt{-O1}. It has no \texttt{BUILD.json}:
