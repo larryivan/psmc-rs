@@ -64,9 +64,9 @@ the populations' order and shapes as they are. Curves are scaled with
 
 Colours: :data:`style.SUPERPOP_COLORS` (AFR amber, AMR green, EAS violet,
 EUR pink, SAS sienna), hues apart from the programs' blue and orange.
-``validate_palette.js "#eda100,#12966b,#4a3aa7,#e87ba4,#a0522d" --mode
-light --surface "#ffffff" --pairs all`` passes: worst all-pairs CVD dE 8.4
-(protan, EUR against AMR), normal vision 19.6 (EUR against AFR). Amber
+The five pass an external palette validator's all-pairs check on white
+(not in this repository): worst CVD dE 8.4 (protan, EUR against AMR),
+normal vision 19.6 (EUR against AFR). Amber
 (2.17:1) and pink (2.69:1) are below 3:1 on white, which the direct labels
 relieve: they are set in the darker :data:`style.SUPERPOP_TEXT` colours,
 at least 4.38:1 on white.

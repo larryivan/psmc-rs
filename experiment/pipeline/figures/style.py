@@ -91,8 +91,8 @@ manuscript places them at 100%, never scaled).
   line at the figure's top, left-aligned with the first left spine
   (:func:`top_legend`), at most four words per entry, no numbers and no
   panel references (the caption holds those).
-* **Colour follows the entity in every figure** (validated with
-  ``dataviz/scripts/validate_palette.js``; contrast on white in brackets):
+* **Colour follows the entity in every figure** (checked with an external
+  palette validator, not in this repository; contrast on white in brackets):
 
   ===============  =========  =================================================
   psmc-rs          #2a78d6    blue (4.4:1); its band :data:`RS_BAND` #dde9f8
@@ -101,10 +101,10 @@ manuscript places them at 100%, never scaled).
   truth            #1a1a1a    :data:`INK`, dashed
   ===============  =========  =================================================
 
-  ``validate_palette.js "#2a78d6,#eb6834" --mode light --pairs all
-  --surface "#ffffff"`` passes. Blue and orange are reserved for the two
-  programs. A psmc-rs variant takes the next step of the blue ramp, 650
-  #104281 (:data:`BLUE_650`; ``"#2a78d6,#104281" --ordinal`` passes);
+  The pair passes the validator's all-pairs check on white. Blue and
+  orange are reserved for the two programs. A psmc-rs variant takes the
+  next step of the blue ramp, 650 #104281 (:data:`BLUE_650`; with blue it
+  passes as an ordered pair);
   magnitudes use the sequential ramp :data:`BLUE_RAMP`. Supplement Fig S2's
   routes (:data:`ROUTES`): psmc-rs's default, weighted bins, is psmc-rs's
   blue; every called bin taken as full by fq2psmcfa is C psmc's orange,
@@ -289,7 +289,7 @@ class Entity:
                 "markerfacecolor": self.color if self.filled else SURFACE, "markeredgecolor": self.color}
 
 
-# The dataviz reference palette, light mode.
+# The reference palette, light mode (figures/README.md, Style, gives its checks).
 BLUE, ORANGE = "#2a78d6", "#eb6834"
 BLUE_650 = "#104281"
 # Sequential blue (magnitude, e.g. counts of a 2-D histogram), steps 100-700 of the ramp.

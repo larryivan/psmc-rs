@@ -422,9 +422,9 @@ class E2:
     display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (Fig 3)
     panel_order: Tuple[str, ...] = ("NA12878", "HLemySub1", "HLhydTec1", "HLpelCas1")  # fig3_real_genomes a-d
     # Below this many trunks psmc-rs warns that the bands are coarse
-    # (FEW_TRUNKS in src/bin/psmc/run.rs); the tables and Fig 3 say so. Of
-    # the production genomes HLhydTec1 forms the fewest trunks of the default
-    # 500,000 bins, 51 (NA12878's chr1-22: 59).
+    # (FEW_TRUNKS in src/bin/psmc/run/bootstrap.rs); the tables and
+    # fig3_real_genomes say so. Of the production genomes HLhydTec1 forms the
+    # fewest trunks of the default 500,000 bins, 51 (NA12878's chr1-22: 59).
     few_trunks: int = 20
 
     # -- The split-first-window check (E2_split_patterns, figS_turtle_patterns) --
@@ -967,10 +967,10 @@ class E7:
     mirror_url: str = f"{_KG_S3}/{_KG_JOINT}"
     use_mirror: bool = True
     manifest_url: str = f"{_KG_EBI}/working/20201028_3202_raw_GT_with_annot/20201028_genotyped-manifest.tsv"
-    # The fallback input (D4), only if streaming the joint VCFs is not
-    # possible: the phased panel (EBI only), filtered to MAC >= 2 and without
-    # missing genotypes, which lacks about 3.7% of each genome's PASS
-    # heterozygous SNVs; a figure made from it must say so.
+    # The fallback input, only if streaming the joint VCFs is not possible:
+    # the phased panel (EBI only), filtered to MAC >= 2 and without missing
+    # genotypes, so it lacks part of each genome's PASS heterozygous SNVs; a
+    # figure made from it must say so.
     input: str = "joint"  # "joint" or "panel"
     panel_url: str = f"{_KG_EBI}/{_KG_PANEL}"
     panel_manifest_url: str = f"{_KG_EBI}/working/20220422_3202_phased_SNV_INDEL_SV/20220804_manifest.txt"
