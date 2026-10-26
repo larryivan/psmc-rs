@@ -1,0 +1,226 @@
+[
+ {
+  "replicate": 1,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/none.auto.json",
+  "seconds": 14.336689000017941
+ },
+ {
+  "replicate": 1,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep01/none.ignore.json",
+  "seconds": 14.374583957949653
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed10.auto.json",
+  "seconds": 15.13220416707918
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed10.ignore.json",
+  "seconds": 13.59792595799081
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed10.mhs.auto.json",
+  "seconds": 13.90699216700159
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed10.mhs.approximate.json",
+  "seconds": 14.548189790919423
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed30.auto.json",
+  "seconds": 14.849198665935546
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed30.ignore.json",
+  "seconds": 14.02569541707635
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed30.mhs.auto.json",
+  "seconds": 13.6061267091427
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC2_80/rep01/dispersed30.mhs.approximate.json",
+  "seconds": 14.724250333150849
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/clustered30.auto.json",
+  "seconds": 13.439060082891956
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep01/clustered30.ignore.json",
+  "seconds": 13.144486375153065
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep01/clustered30.mhs.auto.json",
+  "seconds": 12.68954591685906
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC2_80/rep01/clustered30.mhs.approximate.json",
+  "seconds": 13.483428542036563
+ },
+ {
+  "replicate": 2,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/none.auto.json",
+  "seconds": 13.224415292032063
+ },
+ {
+  "replicate": 2,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep02/none.ignore.json",
+  "seconds": 12.803975459188223
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed10.auto.json",
+  "seconds": 13.985856208950281
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed10.ignore.json",
+  "seconds": 12.856464375043288
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed10.mhs.auto.json",
+  "seconds": 14.108612791169435
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed10.mhs.approximate.json",
+  "seconds": 16.437743250047788
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed30.auto.json",
+  "seconds": 16.73360991710797
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed30.ignore.json",
+  "seconds": 15.786233166931197
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed30.mhs.auto.json",
+  "seconds": 15.296420708997175
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC2_80/rep02/dispersed30.mhs.approximate.json",
+  "seconds": 17.16345224995166
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/clustered30.auto.json",
+  "seconds": 16.249784791842103
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC2_80/rep02/clustered30.ignore.json",
+  "seconds": 15.1053456668742
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC2_80/rep02/clustered30.mhs.auto.json",
+  "seconds": 15.36509554204531
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC2_80/rep02/clustered30.mhs.approximate.json",
+  "seconds": 16.90189770888537
+ }
+]

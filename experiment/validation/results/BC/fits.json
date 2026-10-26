@@ -1,0 +1,338 @@
+[
+ {
+  "replicate": 1,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/none.auto.json",
+  "seconds": 3.5886388749349862
+ },
+ {
+  "replicate": 1,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep01/none.ignore.json",
+  "seconds": 3.4977720831520855
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed10.auto.json",
+  "seconds": 3.8454300418961793
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed10.ignore.json",
+  "seconds": 3.6578007501084358
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed10.mhs.auto.json",
+  "seconds": 3.534426167141646
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed10.mhs.approximate.json",
+  "seconds": 3.7521049578208476
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed30.auto.json",
+  "seconds": 3.9983315840363503
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed30.ignore.json",
+  "seconds": 3.681469124974683
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed30.mhs.auto.json",
+  "seconds": 3.5200092499144375
+ },
+ {
+  "replicate": 1,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep01/dispersed30.mhs.approximate.json",
+  "seconds": 3.8222907909657806
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/clustered30.auto.json",
+  "seconds": 3.717203917214647
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep01/clustered30.ignore.json",
+  "seconds": 3.531872875057161
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep01/clustered30.mhs.auto.json",
+  "seconds": 3.525336208054796
+ },
+ {
+  "replicate": 1,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep01/clustered30.mhs.approximate.json",
+  "seconds": 3.735888875089586
+ },
+ {
+  "replicate": 2,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/none.auto.json",
+  "seconds": 3.6781630830373615
+ },
+ {
+  "replicate": 2,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep02/none.ignore.json",
+  "seconds": 3.651989499805495
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed10.auto.json",
+  "seconds": 3.872022083029151
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed10.ignore.json",
+  "seconds": 3.699503291863948
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed10.mhs.auto.json",
+  "seconds": 3.7128522091079503
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed10.mhs.approximate.json",
+  "seconds": 4.541939333081245
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed30.auto.json",
+  "seconds": 4.063516208902001
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed30.ignore.json",
+  "seconds": 3.682571915909648
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed30.mhs.auto.json",
+  "seconds": 3.7108464168850332
+ },
+ {
+  "replicate": 2,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep02/dispersed30.mhs.approximate.json",
+  "seconds": 4.326055166777223
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/clustered30.auto.json",
+  "seconds": 4.364425542065874
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep02/clustered30.ignore.json",
+  "seconds": 4.291502584004775
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep02/clustered30.mhs.auto.json",
+  "seconds": 4.21418874990195
+ },
+ {
+  "replicate": 2,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep02/clustered30.mhs.approximate.json",
+  "seconds": 3.8135457918979228
+ },
+ {
+  "replicate": 3,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/none.auto.json",
+  "seconds": 3.596816665958613
+ },
+ {
+  "replicate": 3,
+  "mask": "none",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep03/none.ignore.json",
+  "seconds": 3.5401600408367813
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed10.auto.json",
+  "seconds": 3.8778671252075583
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed10",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed10.ignore.json",
+  "seconds": 3.601519374875352
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed10.mhs.auto.json",
+  "seconds": 3.513160166796297
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed10",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed10.mhs.approximate.json",
+  "seconds": 3.816400083946064
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed30.auto.json",
+  "seconds": 3.9793147081509233
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed30.ignore.json",
+  "seconds": 3.6812500001396984
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed30.mhs.auto.json",
+  "seconds": 3.543597749900073
+ },
+ {
+  "replicate": 3,
+  "mask": "dispersed30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep03/dispersed30.mhs.approximate.json",
+  "seconds": 3.7762925419956446
+ },
+ {
+  "replicate": 3,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/clustered30.auto.json",
+  "seconds": 3.7229839579667896
+ },
+ {
+  "replicate": 3,
+  "mask": "clustered30",
+  "route": "vcf",
+  "mode": "ignore",
+  "json_path": "experiment/validation/results/BC/rep03/clustered30.ignore.json",
+  "seconds": 3.518127042101696
+ },
+ {
+  "replicate": 3,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "auto",
+  "json_path": "experiment/validation/results/BC/rep03/clustered30.mhs.auto.json",
+  "seconds": 3.564065417042002
+ },
+ {
+  "replicate": 3,
+  "mask": "clustered30",
+  "route": "multihetsep",
+  "mode": "approximate",
+  "json_path": "experiment/validation/results/BC/rep03/clustered30.mhs.approximate.json",
+  "seconds": 3.7386798330117017
+ }
+]

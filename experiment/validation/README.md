@@ -42,29 +42,39 @@ release build:
 ```bash
 cargo build --release
 experiment/.venv/bin/python -m experiment.validation.bin_callable \
-    --psmc-rs target/release/psmc-rs --out /tmp/bin_callable
+    --psmc-rs target/release/psmc-rs --out experiment/validation/results/BC
 # the other two runs reported below
 experiment/.venv/bin/python -m experiment.validation.bin_callable \
-    --psmc-rs target/release/psmc-rs --out /tmp/bin_callable_bc2 --experiment BC2
+    --psmc-rs target/release/psmc-rs --out experiment/validation/results/BC2 --experiment BC2
 experiment/.venv/bin/python -m experiment.validation.bin_callable \
-    --psmc-rs target/release/psmc-rs --out /tmp/bin_callable_bcx --model expansion --experiment BCX
+    --psmc-rs target/release/psmc-rs --out experiment/validation/results/BCX --model expansion --experiment BCX
+# B2's first two replicates with 80 iterations (the convergence check below)
+experiment/.venv/bin/python -m experiment.validation.bin_callable \
+    --psmc-rs target/release/psmc-rs --out experiment/validation/results/BC2_80 --experiment BC2 \
+    --n-iter 80 --replicates 2
 ```
 
-It writes `results.tsv` (one row per replicate, mask, route and mode),
-`summary.tsv` (means over the replicates, with the range of θ) and
-`fits.json` to `--out`, and prints the summary; `--evaluate-only`
-recomputes the tables from the fits there. The simulations, masks and fits
-are deterministic: two runs gave the same fits to the bit.
+It writes to `--out` the fits (`rep01/` to `rep03/`, each fit's JSON
+beside its inputs), `fits.json` (where each fit's JSON is, and its wall
+time), `results.tsv` (one row per replicate, mask, route and mode) and
+`summary.tsv` (means over the replicates, with the range of θ), and prints
+the summary; `--evaluate-only` recomputes the tables from the fits there.
+The simulations, masks and fits are deterministic: two runs gave the same
+fits to the bit. `results/` keeps all of it but the inputs (the simulated
+VCFs, masks and multihetsep files) and psmc-rs's HTML reports.
 
 ## Results
 
 psmc-rs 0.2.0 (src tree `dcf29ca`), macOS arm64, 8 threads.
 Three runs of three replicates each: the bottleneck model with the seeds of
 `BC` (B1) and of `BC2` (B2), and the expansion model with those of `BCX`
-(E). Means over each run's three replicates, and the range of θ over all
+(E), in `results/BC`, `results/BC2` and `results/BCX`, whose `summary.tsv`
+the table rounds (`results.tsv` holds every fit; its seconds, like
+`summary.tsv`'s, are rough wall times of a shared machine, see Timing).
+Means over each run's three replicates, and the range of θ over all
 nine; the mean share of callable bases of the called bins is B1's (the
-multihetsep's is 0.98 for the expansion model, whose genomes are less
-heterozygous):
+multihetsep's is 0.98 for the expansion model's dispersed masks, whose
+genomes are less heterozygous):
 
 | mask | input | `--bin-callable` | model fitted | mean share of callable bases | θ / complete-data fit: B1, B2, E (range) | RMSE vs truth: B1, B2, E | RMSE vs complete-data fit: B1, B2, E |
 | --- | --- | --- | --- | ---: | ---: | ---: | ---: |
@@ -88,11 +98,11 @@ heterozygous):
   the same genome with 10% of the bases missing, and 0.944 to 0.991 with
   30% (run means 0.963 to 0.982), so with 30% missing it stays 2 to 4% low
   on average; refitting one replicate (B2 replicate 2) with 80 iterations
-  instead of 25 left it where it was (0.961 against 0.965), so the
-  residual is not one of convergence. The curves are about as good as
+  instead of 25 left it where it was (0.961 against 0.965;
+  `results/BC2_80`), so the residual is not one of convergence. The curves are about as good as
   without missing data: the RMSE against the truth is below that of the
-  complete-data fit in five of the six cases and 0.002 above it in the
-  sixth (B1 at 30%: 0.309 against 0.307). `ignore` is biased by more than
+  complete-data fit in five of the six cases and 0.001 above it in the
+  sixth (B1 at 30%: 0.3087 against 0.3074). `ignore` is biased by more than
   the missing share of the called bins: θ 0.873 to 0.890 at 10% and 0.634
   to 0.658 at 30%, 1.1 to 1.3 times the missing share below the
   complete-data fit, and its RMSE against the complete-data fit is 3 to 7
@@ -110,10 +120,10 @@ heterozygous):
   its approximate counts make it worse. The reader places the uncalled
   sites of each interval, which multihetsep does not locate, at its start:
   on replicate 1 of B1 with 30% dispersed missing data that makes 27.5% of
-  the bins `N` (0.8% in the exact binning), loses the 7.1% of heterozygous
-  sites whose bin the uncalled sites fill, and leaves the `K` bins 58%
-  callable on average (77% in fact) while the `T` bins are nearly all
-  full. With C psmc's model on those bins (`auto`), θ is 0.82 to 0.86 of
+  the bins `N` (0.8% in the exact binning; the fits' QC), loses the 7.1% of
+  heterozygous sites whose bin the uncalled sites fill, and leaves the `K`
+  bins 58% callable on average (77% in fact) while the `T` bins are nearly
+  all full (a one-off comparison of the two binnings, not kept). With C psmc's model on those bins (`auto`), θ is 0.82 to 0.86 of
   the complete-data fit at 10% dispersed, 0.67 to 0.70 at 30%, and 0.89
   to 0.93 at 30% clustered, where the exact route is unbiased. The
   callable-length model reads the partly callable `K` bins as evidence of

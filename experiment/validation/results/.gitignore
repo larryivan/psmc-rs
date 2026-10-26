@@ -1,0 +1,6 @@
+# What a run writes beside the kept fits (rep*/*.json): the simulated VCFs,
+# the masks, the multihetsep files and psmc-rs's HTML reports.
+/*/rep*/*.vcf
+/*/rep*/*.bed
+/*/rep*/*.multihetsep
+/*/rep*/*.html
