@@ -938,7 +938,9 @@ C psmc fit of the production run, is gcc 11.4.1 with `-g -Wall -O3
 (`experiment/slurm/site.env.example`; every C psmc provenance record holds
 the compiler and the flags): its output was byte-identical to the
 Makefile's `-O2` on AMD Zen 2, Zen 5 and Intel Cascade Lake nodes, and it
-ran 1.2 to 2.0 times as fast (`-ffp-contract=off` keeps gcc from fusing
+ran 1.2 to 2.0 times as fast
+([`experiment/crossplatform/x86_cpus/`](../crossplatform/x86_cpus/README.md),
+C psmc's production build; `-ffp-contract=off` keeps gcc from fusing
 multiply-adds, which would change the results). On macOS arm64 the default
 is `-O1`, since an `-O2` build segfaults there; the laptop's psmc, built by
 hand with `-O1`, has no `BUILD.json` and is identified by its version and
