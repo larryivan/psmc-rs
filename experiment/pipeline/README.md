@@ -63,16 +63,17 @@ are scaled with mu = 2.5e-8 and g = 25.
 
 **M-step.** C psmc's Hooke-Jeeves search runs every M-step to
 convergence, and so does psmc-rs 0.2's L-BFGS: it stops by a convergence
-test, in a few ms per EM iteration on one thread (in E1, a median 76
-objective evaluations per M-step and at most 135, the `IT` lines of its
-`.psmc` output, against a median 3,934 for C psmc), and `--mstep-iters`
-(default 1000, passed explicitly) is only a cap. On a simulated 4 x 25 Mb
-bottleneck genome the RMSE of log10 Ne between psmc-rs and C psmc on the
-informative window is 7.7e-5, as small as with C psmc's own Hooke-Jeeves
-search run inside psmc-rs's EM (7.5e-5); over E1's 40 genomes, compared
-interval by interval, it is 3.7e-6 to 2.0e-4 (median 2.5e-5), and over
-E2's four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`,
-`E2_rs_vs_c.csv`). Since psmc-rs's default M-step is the converged one, no
+test, and `--mstep-iters` (default 1000, passed explicitly) is only a cap.
+In E1 its M-steps take a median 76 objective evaluations and at most 135
+(the `IT` lines of its `.psmc` output), against a median 3,934 for C
+psmc's; on E3's 100 Mb genome they take under a millisecond per EM
+iteration on one thread (0.55 to 0.84 ms on an Apple M1 Pro). Over E1's
+40 genomes the RMSE of log10 Ne between psmc-rs and C psmc on the
+informative window, compared interval by interval, is 3.7e-6 to 2.0e-4
+(median 2.5e-5), as small as with C psmc's own Hooke-Jeeves search run
+inside psmc-rs's EM in a diagnostic build (median 2.6e-5;
+[`experiment/c_equivalence/`](../c_equivalence/README.md)), and over E2's
+four real genomes 9.7e-6 to 2.8e-4 (`E1_rs_vs_c.csv`, `E2_rs_vs_c.csv`). Since psmc-rs's default M-step is the converged one, no
 experiment fits or times a separate default arm: `E1.default_mstep_iters` and `E3.default_mstep_iters` are
 unset, and setting one of them to a cap adds a fit (`fit-rs-default`,
 `E1_mstep.csv`) or timed runs (`rs02-default`) with M-steps capped at that
@@ -853,8 +854,9 @@ back.
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so
-the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost a few
-ms per EM iteration (allowed 0.02 s), its E-steps the rest. E3 alone takes
+the runs may well finish sooner; psmc-rs 0.2's converged M-steps cost
+under a millisecond per EM iteration (0.55 to 0.84 ms on E3's 100 Mb
+genome, on one thread of the M1 Pro; allowed 0.02 s), its E-steps the rest. E3 alone takes
 about 10 hours (C psmc's runs dominate it); E1, E2, E4, E5, E6 and FIG
 together about 2.1 hours on 50 cores and 64 GB (E2's bootstraps dominate;
 E2 cannot start on fewer than 50 cores): about 12 hours in all, either
