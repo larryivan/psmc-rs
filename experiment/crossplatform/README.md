@@ -70,5 +70,16 @@ paths the binary holds in its panic messages, under the builder's home
 directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build
 is not expected to reproduce either.
 
+`scripts/tiers_2026-10-07.py` is the record of the tiers (`tier()`, lines
+225-232, which `compare.py` applies verbatim) and does not run on the
+repository as it is now: it hard-codes the author's checkout path, reads
+columns of E1's tables since renamed (`rmse_rs_vs_c_mean` of
+`E1_table1.csv` and `rmse_log10_ne_rs_vs_c` of `E1_rs_vs_c.csv`, then
+from step curves sampled at fixed times), and reads E2's C psmc fit of
+the Papuan chromosome 1, which E2 no longer fits. Its outputs
+(`xplatform.json`, `xplatform_cfits.csv` and `xplatform_bootstrap.csv`,
+written into `scripts/`) are not kept; `summary.md` (section 5) gives the
+tiers and how its references compare with the ones used here.
+
 `x86_cpus/` holds a separate check: the production binary refitting an E1 genome byte for byte on
 three other x86-64 CPU models (its README).
