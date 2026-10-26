@@ -6,6 +6,7 @@ The data stage has its own tests (test_pipeline_kg1000.py); the figures are FIG'
 from __future__ import annotations
 
 import gzip
+import shutil
 import sys
 import tempfile
 import unittest
@@ -15,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tiny_runs  # noqa: E402
 from fixtures import e7_sample as sample, fake_ctx, read_csv, stage_e7  # noqa: E402
 
-from experiment.pipeline import config, kg1000, runner  # noqa: E402
+from experiment.pipeline import config, kg1000, paths, runner  # noqa: E402
 from experiment.pipeline.experiments import REGISTRY, e7  # noqa: E402
 
 
@@ -36,6 +37,22 @@ class Jobs(unittest.TestCase):
         self.stage([sample("NA00002")])
         self.lay.data.manifest.unlink()  # setup has written the samples, the chromosomes are not done
         self.assertEqual(e7.jobs(self.ctx), [])
+
+    def test_a_clones_data_stage_declares_e7s_jobs_whose_fits_wait_for_the_inputs(self):
+        # A clone holds the data stage's MANIFEST.json, sample table and chunk plan, but not the psmcfa, VCFs and
+        # masks: plan and status build E7's job graph, and its fits are blocked on inputs no job makes.
+        committed = kg1000.layout(paths.RUNS)
+        for name in ("manifest", "samples", "chunks"):
+            getattr(self.lay.data, name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(getattr(committed, name), getattr(self.lay.data, name))
+        samples = kg1000.read_samples(committed.samples)
+        graph = runner.Graph(e7.jobs(self.ctx), self.runs)
+        self.assertEqual(sum(j.startswith("E7/fit-rs-psmcfa/") for j in graph.jobs), len(samples))
+        self.assertEqual(runner.plan(graph, config.Budget())["E7"]["jobs"], len(graph.jobs))
+        statuses = {s.job.id: s for s in runner.job_statuses(graph, self.runs, budget=config.Budget())}
+        fit = statuses[f"E7/fit-rs-psmcfa/{samples[0].sample_id}"]
+        self.assertEqual(fit.state, runner.BLOCKED)
+        self.assertIn("input missing, and no job makes it", fit.reason)
 
     def test_the_report_names_the_data_stage_outputs_it_misses(self):
         data = self.lay.data
