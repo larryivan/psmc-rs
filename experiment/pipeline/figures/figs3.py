@@ -59,18 +59,20 @@ def _track_panel(fig, ax, track) -> None:
         v = track[col].to_numpy(dtype=float)
         return np.append(v, v[-1])
 
+    # The track holds one step per 100 bp bin (50,000 in 5 Mb): its artists are
+    # rasterized (at savefig.dpi) in the PDF and SVG, the axes and text stay vectors.
     ax.fill_between(mb, stepped("q025_years"), stepped("q975_years"), step="post", color=style.BLUE,
-                    alpha=style.BAND_ALPHA, linewidth=0, zorder=1)
+                    alpha=style.BAND_ALPHA, linewidth=0, zorder=1, rasterized=True)
     ax.plot(mb, stepped("posterior_mean_years"), drawstyle="steps-post", color=style.BLUE,
-            linewidth=style.LW_THIN + 0.2, zorder=2)
+            linewidth=style.LW_THIN + 0.2, zorder=2, rasterized=True)
     ax.plot(mb, stepped("true_years"), drawstyle="steps-post", color=style.INK, linewidth=style.LW_THIN + 0.2,
-            zorder=3)
+            zorder=3, rasterized=True)
     lo = float(np.nanmin(track[["true_years", "q025_years"]].to_numpy()))
     hi = float(np.nanmax(track[["true_years", "q975_years"]].to_numpy()))
     ylim = decades(lo, hi)
     het = track[track["obs"] == "K"]
     ax.plot(het["start_bp"] / 1e6, np.full(len(het), ylim[0] * 1.3), linestyle="none", marker="|", markersize=3,
-            markeredgewidth=0.4, color=style.REF, zorder=1)
+            markeredgewidth=0.4, color=style.REF, zorder=1, rasterized=True)
     style.log_axis(ax, "y", grid=True, lim=ylim)
     ax.set_xlim(mb[0], mb[-1])
     ax.set_xlabel(f"Position on {track['sequence'].iloc[0]} (Mb)")
