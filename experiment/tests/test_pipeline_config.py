@@ -123,11 +123,9 @@ class Design(unittest.TestCase):
         self.assertEqual(p.e5.genome.length, 300_000_000)
 
     def test_na12878_is_e7s_psmcfa(self):
-        # The pin is E7's record of the file, not only the committed file's own hash: once E7's tables are
-        # committed, E7_inputs.csv gives the SHA-256 of the psmcfa its data stage wrote for NA12878.
+        # The pin is E7's record of the file, not only the committed file's own hash: E7_inputs.csv (committed)
+        # gives the SHA-256 of the psmcfa E7's data stage wrote for NA12878.
         table = paths.RUNS / "E7" / "tables" / "E7_inputs.csv"
-        if not table.exists():
-            self.skipTest("E7's tables are not committed yet")
         row = next(r for r in read_csv(table) if r["sample_id"] == "NA12878")
         human = next(g for g in config.PRODUCTION.e2.genomes if g.sample_id == "NA12878")
         self.assertEqual(row["psmcfa_sha256"], human.sha256)
