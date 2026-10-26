@@ -47,9 +47,9 @@ drawn in the house style of `style.py`.
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
 | `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
 | `fig7_1000_genomes` (the article's Fig 3) | `E7/figures/` | `E7_pop_bands` | 183 x 99 mm |
-| `figS5_1000g_populations` (number to be assigned) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
-| `figS6_1000g_checks` (number to be assigned) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
-| `figS_turtle_patterns` (number to be assigned) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
+| `figS5_1000g_populations` (not in the article; Supplementary Note 1, section 3) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
+| `figS6_1000g_checks` (not in the article; Supplementary Note 1, section 3) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_fits`, `E7_curves`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
+| `figS_turtle_patterns` (not in the article; Supplementary Note 1, section 3) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
 
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
 so that it can be turned into the caption. The article numbers its figures in its own order
