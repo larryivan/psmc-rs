@@ -170,7 +170,9 @@ holds much more than its result.
 Peak resident memory (median of three runs) of `psmc-rs IN OUT 1
 --vcf-mode mask --bin-size 100 --threads 3 --pattern 4+5*3+4`, alone (fit)
 and with `--bootstrap 3 --bootstrap-iters 1` (fit + bootstrap), with the
-storage above.
+storage above, on an Apple M1 Pro. The 1 Gb inputs are E3's simulated
+1 Gb genome (10 chromosomes of 100 Mb), without and with a simulated mask;
+the 200 Mb ones are replicate 1's genomes of the validation.
 
 Peak MB, fit / fit + bootstrap:
 
@@ -245,9 +247,9 @@ interval between two heterozygous rows every bin is `T` except the one that
 holds the second row, and the likelihood of a run of `T` bins in one state
 depends only on the sum of their counts, which the placement gets right.
 The validation shows that the placement itself is not mild, with or
-without the counts, when missing data are dispersed (θ 30% low with 30% of
-the bases missing in 20 bp runs) and less so in long runs (θ 7 to 11% low
-with 30% in 20 kb runs; [Validation](#validation)).
+without the counts, when missing data are dispersed (θ 30 to 33% low with
+30% of the bases missing in 20 bp runs) and less so in long runs (θ 7 to
+11% low with 30% in 20 kb runs; [Validation](#validation)).
 Placing all of an interval's uncalled sites right after its first row
 turns scattered missing bases into a run of `N` bins after every
 heterozygous site (27.5% of the bins `N` on one simulated genome of the
@@ -552,16 +554,18 @@ The storage note proposed coding each bin's symbol and count in one byte.
 Stage 2 keeps the counts in `BinCounts` beside the symbols: the E-step
 copies one segment's counts at a time (128 bins) and maps them with the
 symbols to observation indices, which costs 4.4% of a single-threaded
-E-step on dispersed counts (0.642 s against 0.615 s per E-step on a 2 Mbin
-genome with 30% of the bases missing in 20 bp runs, 64 states; medians of
-three runs of three E-steps, `examples/bench_estep.rs --callable`) and 1.3%
-when every bin is full (0.624 s against 0.616 s), and 7% with 8 threads
+E-step on dispersed counts on an Apple M1 Pro (0.642 s against 0.615 s per
+E-step on replicate 1's dispersed 30% genome of the validation, 2 Mbin
+with 30% of the bases missing in 20 bp runs, 64 states; medians of three
+runs of three E-steps, `examples/bench_estep.rs --callable`) and 1.3% when
+every bin is full (0.624 s against 0.616 s), and 7% with 8 threads
 (0.145 s against 0.136 s). The coding would save one copy of the counts
 (1 byte per bin) in each copy of the data, at the price of changing
 `Observations::rows`, which every reader, writer and caller uses; it is
-left out. Whole fits of the dispersed genome above, 25 iterations with 8
-threads, took 3.99 s with the counts and 3.69 s without (`--bin-callable
-ignore`), 8% more, and of its complete version 3.62 s and 3.53 s.
+left out. Whole fits of the dispersed genome above on the same machine,
+25 iterations with 8 threads, took 3.99 s with the counts and 3.69 s
+without (`--bin-callable ignore`), 8% more, and of its complete version
+3.62 s and 3.53 s.
 
 **Memory of the E-step's sums.** The sums of a work item (`fb::Partial`)
 hold one row of `np` doubles per observation index: up to 183 rows for
@@ -575,10 +579,10 @@ the total as soon as every item before it has been
 (`hmm::sched::fold_in_order`, which the log-likelihood uses too): the same
 sums in the same order, so every result is unchanged to the bit, and only
 the sums of items that finished before an earlier one are held, about one
-per thread. Peak resident memory of `psmc-rs IN OUT 1 --vcf-mask ...
---pattern 4+25*2+4+6 --threads 8 --bootstrap 8 --bootstrap-iters 1` on
-replicate 1's dispersed 30% genome of the validation cut into 500 contigs
-of 400 kb (three runs each):
+per thread. Peak resident memory on an Apple M1 Pro of `psmc-rs IN OUT 1
+--vcf-mask ... --pattern 4+25*2+4+6 --threads 8 --bootstrap 8
+--bootstrap-iters 1` on replicate 1's dispersed 30% genome of the
+validation cut into 500 contigs of 400 kb (three runs each):
 
 | bins | auto / ignore |
 | --- | ---: |
@@ -586,9 +590,10 @@ of 400 kb (three runs each):
 | 1,000 bases, `--bootstrap-block-size 50000` (500 trunks) | 99-111 / 67-68 MB |
 
 The fit alone at 1,000 bases peaked at 74 to 116 MB (median 82) with the
-counts and 62 to 63 MB without. Every input gains from merging in order,
-with or without counts: each item's transition sums (5 × `np` doubles,
-`hmm::TransitionSums`) are merged in order as well.
+counts and 62 to 63 MB without. Without counts an item's sums are only
+8 × `np` doubles (a row for each of the three observation indices and the
+five transition sums of `hmm::TransitionSums`), so merging in order
+matters mainly with counts.
 
 ## Validation
 
