@@ -34,8 +34,9 @@ git worktree add --detach $PROD <commit>              # the production commit
 cp experiment/slurm/site.env.example $PROD/experiment/slurm/site.env   # and fill it in
 rustup toolchain install 1.99.0 --profile minimal
 (cd $PROD && cargo fetch --locked)                     # compute nodes build offline
-# experiment/.tools: lh3/psmc 0.6.5-r74 sources in psmc_c/,
-# msmc-tools/generate_multihetsep.py (see Supplementary Note 1, section 2)
+T=$MAIN/experiment/.tools                              # lh3/psmc 0.6.5-r74, msmc-tools (Supplementary Note 1, section 2)
+git clone https://github.com/lh3/psmc $T/psmc_c && git -C $T/psmc_c checkout 82fa2ad
+git clone https://github.com/stschiff/msmc-tools $T/msmc-tools && git -C $T/msmc-tools checkout 0d1d169
 # Python 3.13.13 with experiment/pipeline/requirements.lock and htslib 1.24:
 micromamba create -p $MAIN/experiment/.venv -c conda-forge -c bioconda python=3.13.13 bcftools=1.24 htslib=1.24 pip
 $MAIN/experiment/.venv/bin/python -m pip install -r experiment/pipeline/requirements.lock
