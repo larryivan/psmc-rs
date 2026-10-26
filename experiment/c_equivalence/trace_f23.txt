@@ -2,6 +2,8 @@ evaluations: C 7002, port 7031
 identical parameter sequence for the first 4854 evaluations
 first difference at evaluation 4855: C f-f0 -6.024684e+01, port -6.024684e+01
   previous: C f-f0 -6.02468372119037667e+01, port -6.02468372117946274e+01
+best points before it: C's evaluation 4854, the port's 4805; f(C's) - f(the port's): in C -7.28e-12, in the port 0.00e+00
+best f - f0 lowered after it by: C 2.21e-06 in 2148 more evaluations, port 2.21e-06 in 2177
 last evaluated points: largest relative parameter difference 3.29e-05
 f - f0 at the end: C -6.0246839422e+01, port -6.0246839422e+01
 points both reject (C 1e300, port inf) in the common prefix: 64

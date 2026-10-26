@@ -47,12 +47,16 @@ median 8.5e-6, 3.6e-6 to 2.4e-5; 2.2e-5 on bottleneck replicate 1):
 - The port searches as C psmc does: 2,688 to 6,471 evaluations per M-step
   on E1 (mean 4,120), against C psmc's 2,815 to 6,738 (mean 4,016). Traced
   in the first M-step on the reference input (`trace_p23.txt`,
-  `trace_p64.txt`, `trace_f23.txt`), it evaluates C psmc's parameters bit
-  for bit for C's first 1,197 of 1,540 evaluations (p23), 2,459 of 4,097
-  (p64) and 4,854 of 7,002 (f23), the objective's change from the first
-  evaluation agreeing within 5.2e-10 (of 57 to 60); the two searches part
-  once the objective has converged to that level, and end 4.8e-6 to 3.3e-5
-  apart in the parameters.
+  `trace_p64.txt`, `trace_f23.txt`), run with the last bin left out too, as
+  C psmc leaves it out, so that the two objectives agree
+  (`scripts/run_trace.sh`), it evaluates C psmc's parameters bit for bit
+  for C's first 1,197 of 1,540 evaluations (p23), 2,459 of 4,097 (p64) and
+  4,854 of 7,002 (f23), the objective's change from the first evaluation
+  agreeing within 5.2e-10 (of 57 to 60). The two searches part where they
+  rank differently two points whose objectives differ by less than that
+  (at most 1.3e-10), a rounding tie; each search then lowers the objective
+  by a further 2.2e-9 (p23; the port 3.1e-9), 2.9e-5 (p64) and 2.2e-6
+  (f23), and they end 4.8e-6 to 3.3e-5 apart in the parameters.
 
 **The inputs of C psmc's reference outputs** (`ref_variants.json`;
 `papuan_chr1_3seg.psmcfa`, 5 iterations, with `-p 4+5*3+4`, p23,
@@ -77,8 +81,9 @@ left out.
   shared AMD EPYC 7702 node, with the commands of `scripts/run_e1.py` on
   the production's genomes. The diagnostic build was made as
   `scripts/build.sh` makes it, from commit 4b2c636f (`src/` dcf29ca) with
-  rustc 1.99.0 in the production's environment (`experiment/slurm/env.sh`;
-  sha256 cfcaf23f0600c87fe7657b874fe7efd39f1079d26385ba83ae2c4b869d9d952e).
+  rustc 1.99.0 in the production's environment (`experiment/slurm/env.sh`);
+  the binary's sha256 is
+  cfcaf23f0600c87fe7657b874fe7efd39f1079d26385ba83ae2c4b869d9d952e.
   With no variant set it wrote bottleneck replicate 1's committed JSON and
   `.psmc` byte for byte, and the production's C psmc binary (sha256
   d5e0e160…) fitted that genome again to its committed `.psmc` byte for

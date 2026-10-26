@@ -33,7 +33,18 @@ if first_div is not None:
     i = first_div
     print(f"first difference at evaluation {i + 1}: C f-f0 {c[i][1] - c0:.6e}, port {r[i][1] - r0:.6e}")
     print(f"  previous: C f-f0 {c[i - 1][1] - c0:.17e}, port {r[i - 1][1] - r0:.17e}")
-fin = max(abs(x - y) / abs(y) for x, y in zip(c[-1][2], r[-1][2]))
+    # The search moves from its best point so far: where the two best points differ, the programs ranked them
+    # differently. Then how much each search still lowered the objective after the split.
+    ok = lambda t, j: abs(t[j][1]) < 1e299  # noqa: E731
+    bc = min((j for j in range(i) if ok(c, j)), key=lambda j: c[j][1])
+    br = min((j for j in range(i) if ok(r, j)), key=lambda j: r[j][1])
+    print(f"best points before it: C's evaluation {bc + 1}, the port's {br + 1}; "
+          f"f(C's) - f(the port's): in C {c[bc][1] - c[br][1]:.2e}, in the port {r[bc][1] - r[br][1]:.2e}")
+    lc = c[bc][1] - min(t[1] for j, t in enumerate(c) if ok(c, j))
+    lr = r[br][1] - min(t[1] for j, t in enumerate(r) if ok(r, j))
+    print(f"best f - f0 lowered after it by: C {lc:.2e} in {len(c) - i} more evaluations, "
+          f"port {lr:.2e} in {len(r) - i}")
+fin =max(abs(x - y) / abs(y) for x, y in zip(c[-1][2], r[-1][2]))
 print(f"last evaluated points: largest relative parameter difference {fin:.2e}")
 print(f"f - f0 at the end: C {c[-1][1] - c0:.10e}, port {r[-1][1] - r0:.10e}")
 print(f"points both reject (C 1e300, port inf) in the common prefix: {rejected}")
