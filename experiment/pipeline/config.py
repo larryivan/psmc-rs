@@ -264,7 +264,8 @@ PSMC_RS_SUMMARY_QUANTILES: Tuple[float, float, float] = (0.025, 0.5, 0.975)
 
 @dataclass(frozen=True)
 class E1:
-    """Simulated accuracy and equivalence (Fig 2, Table 1, Fig S1).
+    """Simulated accuracy and equivalence (the article's Fig 1 and Table 1, the supplement's Fig S1 and
+    Table S1; fig2_simulated_accuracy).
 
     For every replicate both tools fit the identical psmcfa. Metrics: RMSE of
     log10 Ne against the truth and between the tools on the time grid,
@@ -374,7 +375,8 @@ REAL_GENOMES: Tuple[RealGenome, ...] = (
 
 @dataclass(frozen=True)
 class E2:
-    """Real genomes (Fig 3; QC table S5): both tools, psmc-rs bootstrap and qc on each.
+    """Real genomes (the article's Fig 1 and Table 1; fig3_real_genomes, figS_turtle_patterns): both tools,
+    psmc-rs bootstrap and qc on each.
 
     Every genome's psmcfa is fitted by C psmc and psmc-rs 0.2 with
     ``inference``; psmc-rs also fits ``bootstrap_replicates`` C-compatible
@@ -418,7 +420,7 @@ class E2:
     # ``grid.fixed_years`` is reported next to it.
     grid: TimeGrid = TimeGrid()
     display_years: Tuple[float, float, int] = (1e2, 1e8, 600)  # dense log grid of the band table (Fig 3)
-    panel_order: Tuple[str, ...] = ("NA12878", "HLemySub1", "HLhydTec1", "HLpelCas1")  # Fig 3 panels A-D
+    panel_order: Tuple[str, ...] = ("NA12878", "HLemySub1", "HLhydTec1", "HLpelCas1")  # fig3_real_genomes a-d
     # Below this many trunks psmc-rs warns that the bands are coarse
     # (FEW_TRUNKS in src/bin/psmc/run.rs); the tables and Fig 3 say so. Of
     # the production genomes HLhydTec1 forms the fewest trunks of the default
@@ -562,7 +564,8 @@ class ResourceModel:
 
 @dataclass(frozen=True)
 class E3:
-    """Performance (Fig 4, Table 2, Fig S4): run time and peak memory of C psmc and psmc-rs 0.2.
+    """Performance (the article's Fig 2 and Table 2; fig4_performance, figS4_thread_scaling): run time and
+    peak memory of C psmc and psmc-rs 0.2.
 
     One genome per size, made of ``chromosome_length`` chromosomes under the
     ``model``, simulated as in E1 with the seed key
@@ -614,7 +617,8 @@ class MaskSpec:
 
 @dataclass(frozen=True)
 class E4:
-    """Input preparation (Fig 5): routes from a VCF and a callable mask to PSMC.
+    """Input preparation (the supplement's Fig S2, fig5_input_preparation): routes from a VCF and a
+    callable mask to PSMC.
 
     fq2psmcfa's binning calls a bin missing only when more than 90% of its
     bases are uncallable, so missing data dispersed in short runs leave
@@ -751,7 +755,7 @@ E4_COSTS = E4Costs()
 
 @dataclass(frozen=True)
 class E5:
-    """Bootstrap calibration (Fig 6).
+    """Bootstrap calibration (the supplement's Fig S3, fig6_bootstrap_calibration).
 
     The truth: ``truth_replicates`` independent genomes of ``model``, each
     fitted once by psmc-rs 0.2, give the sampling distribution of log10 Ne(t)
@@ -790,7 +794,7 @@ class E5:
     # a few CPU hours each share the cores without idle threads at their ends
     # (results do not depend on it).
     bootstrap_threads: int = 1
-    example_dataset: int = 1  # the dataset whose bands Fig 6 shows
+    example_dataset: int = 1  # the dataset whose bands fig6_bootstrap_calibration shows
     # Pointwise coverage over 10 datasets moves in steps of 0.1 (Clopper-Pearson
     # 95%: 0.55-1.0 at 9/10), and the coverage averaged over the window's
     # strongly correlated points has no interval of its own. The summary
@@ -887,7 +891,7 @@ class E6:
     costs: E6Costs = E6Costs()
 
 
-# --- E7: 1000 Genomes (Fig 7, Figs S5 and S6) ---------------------------------
+# --- E7: 1000 Genomes ----------------------------------------------------------
 # Every setting of E7 is in this block: the sources, samples and processing of
 # its data stage (kg1000.py, run outside the runner: it is network-bound) and
 # the fits, comparisons and figures of its runner jobs (experiments/e7.py).
@@ -931,7 +935,8 @@ class E7Costs:
 
 @dataclass(frozen=True)
 class E7:
-    """1000 Genomes (Fig 7, Figs S5 and S6): psmc-rs on the 30x NYGC genomes.
+    """1000 Genomes (the article's Fig 3, fig7_1000_genomes; figS5_1000g_populations, figS6_1000g_checks):
+    psmc-rs on the 30x NYGC genomes.
 
     The data stage (``python -m experiment.pipeline.kg1000``, outside the
     runner) reads the joint-called VCFs region by region (streamed, or from

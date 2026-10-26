@@ -1,7 +1,7 @@
 """The tables the figures read: file, columns and meaning.
 
 These are tables the experiments' ``report`` jobs write to
-``<runs>/<EXP>/tables/`` (``experiments/e1.py`` ... ``e6.py``); the schemas
+``<runs>/<EXP>/tables/`` (``experiments/e1.py`` ... ``e7.py``); the schemas
 list only the columns the figures read, and a figure checks that they are
 present (:func:`.data.read`), naming the table and the missing columns
 otherwise. Extra columns are allowed. The unit tests run every experiment
@@ -54,7 +54,7 @@ def _add(key: str, experiment: str, rows: str, columns: Dict[str, str]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# E1: simulated accuracy and equivalence (Fig 2, Fig S1; the article's Fig 1)
+# E1: simulated accuracy and equivalence (fig2_simulated_accuracy; the article's Fig 1, the supplement's Fig S1)
 # ---------------------------------------------------------------------------
 
 _add("E1_curves", "E1", "model, replicate, tool and interval", {
@@ -105,7 +105,7 @@ _add("E1_traces", "E1", "model, replicate, tool and EM iteration", {
 })
 
 # ---------------------------------------------------------------------------
-# E2: real genomes (Fig 3)
+# E2: real genomes (fig3_real_genomes, figS_turtle_patterns; the article's Fig 1)
 # ---------------------------------------------------------------------------
 
 _add("E2_curves", "E2", "genome, tool and interval", {
@@ -166,7 +166,7 @@ _add("E2_split_curves", "E2", "turtle, pattern and interval", {
 })
 
 # ---------------------------------------------------------------------------
-# E3: performance (Fig 4, Fig S4)
+# E3: performance (fig4_performance, figS4_thread_scaling; the article's Fig 2)
 # ---------------------------------------------------------------------------
 
 _add("E3_table2", "E3", "tool, thread count and genome size (Table 2)", {
@@ -206,7 +206,7 @@ _add("E3_determinism", "E3", "run, against its tool's reference at the same size
 })
 
 # ---------------------------------------------------------------------------
-# E4: input preparation (Fig 5; the supplement's Fig S2)
+# E4: input preparation (fig5_input_preparation, the supplement's Fig S2)
 # ---------------------------------------------------------------------------
 
 _add("E4_routes", "E4", "mask, route and replicate", {
@@ -226,7 +226,7 @@ _add("E4_curves", "E4", "mask, route, replicate and interval", {
 })
 
 # ---------------------------------------------------------------------------
-# E5: bootstrap calibration (Fig 6; the supplement's Fig S3)
+# E5: bootstrap calibration (fig6_bootstrap_calibration, the supplement's Fig S3)
 # ---------------------------------------------------------------------------
 
 _add("E5_summary", "E5", "trunk size and window", {
@@ -291,7 +291,7 @@ _add("E5_coverage", "E5", "trunk size and time", {
 })
 
 # ---------------------------------------------------------------------------
-# E6: supplementary analyses (Fig S2, S3)
+# E6: supplementary analyses (figS2_format_consistency, figS3_tmrca_decoding)
 # ---------------------------------------------------------------------------
 
 _add("E6_S2_curves", "E6", "model, format and interval (format truth: a dense grid of the true Ne)", {
@@ -345,7 +345,8 @@ _add("E6_S3_summary", "E6", "set of bins (all, heterozygous, homozygous)", {
 
 
 # ---------------------------------------------------------------------------
-# E7: 1000 Genomes (Fig 7, the article's Fig 3; Figs S5 and S6; the article's Fig 2 c)
+# E7: 1000 Genomes (fig7_1000_genomes, the article's Fig 3; figS5_1000g_populations, figS6_1000g_checks; the
+# article's Fig 2c)
 # ---------------------------------------------------------------------------
 
 _E7_WHO = {
@@ -361,7 +362,7 @@ _add("E7_samples", "E7", "sample of the cohort", {
     "admixed": "admixed population",
     "raw_depth": "raw sequencing depth (the sequence index's bases / 3.1 Gb)",
     "default": "in the default set (the VCF fits, C psmc, the split check)",
-    "bootstrap": "bootstrapped (Fig 7 g-i)",
+    "bootstrap": "bootstrapped (config.E7.bootstrap_samples)",
 })
 _add("E7_pop_bands", "E7", "group, route and time on the display grid", {
     "group_kind": "population, superpopulation or all",

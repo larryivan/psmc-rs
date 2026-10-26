@@ -100,7 +100,7 @@ FIGURES: Tuple[FigureSpec, ...] = (
                "Posterior TMRCA against the true TMRCA"),
     FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_thread_scaling", "E3_table2", "E3_runs", "E3_determinism"),
                "Thread scaling and determinism of psmc-rs 0.2"),
-    # fig7_1000_genomes is the article's Fig 3; the other E7 figures are not yet numbered (S5 and S6 are planned).
+    # fig7_1000_genomes is the article's Fig 3; the other E7 figures are not in the article.
     FigureSpec("fig7_1000_genomes", "fig7", "E7", ("E7_pop_bands",),
                "1000 Genomes: the superpopulations compared, and their populations"),
     FigureSpec("figS5_1000g_populations", "figs5", "E7", ("E7_pop_bands", "E7_samples"),

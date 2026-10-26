@@ -3,10 +3,11 @@
 One panel per population, ordered by superpopulation
 (``config.E7.superpopulations``) and code: the median of the population's
 genomes (fits of their psmcfa, ``fit-rs-psmcfa``; blue; the population's
-curve in Fig 7a-e) with the spread between them (``config.E7.spread``: a
-band of the individuals, not a confidence interval; n, the genomes, in the
-panel), and the median of the VCF fits (the strict mask, callable bases
-per bin, ``fit-rs-vcf``) of its two default genomes (dark blue, thin).
+curve in fig7_1000_genomes b-f) with the spread between them
+(``config.E7.spread``: a band of the individuals, not a confidence
+interval; n, the genomes, in the panel), and the median of the VCF fits
+(the strict mask, callable bases per bin, ``fit-rs-vcf``) of its two
+default genomes (dark blue, thin).
 A psmcfa records no callable bases per bin, so its fit takes every called
 bin as full (7.6% of the called bins' bases are missing here), which makes
 theta, and every size and time, low (Fig 5). On the same genome the VCF

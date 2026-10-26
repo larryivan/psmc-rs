@@ -1,4 +1,5 @@
-"""E1: simulated accuracy and equivalence (Fig 2, Table 1, Fig S1).
+"""E1: simulated accuracy and equivalence (the article's Fig 1 and Table 1, the supplement's Fig S1 and
+Table S1; fig2_simulated_accuracy).
 
 For every model and replicate (:class:`.config.E1`) the runner simulates one
 diploid genome, fits it with C psmc and with psmc-rs 0.2 (identical psmcfa,
@@ -16,7 +17,7 @@ identical settings), and finally writes the tables. Layout under
 
 Tables (``tables/``):
 
-* ``E1_table1.csv``: Table 1, one row per model: RMSE of log10 Ne against
+* ``E1_table1.csv``: Table S1, one row per model: RMSE of log10 Ne against
   the truth for each tool (mean and SD over replicates, and the median) on
   the model's informative window and on the fixed window, RMSE against the
   pattern-projected truth (below), the agreement of the tools interval by
@@ -36,8 +37,10 @@ Tables (``tables/``):
   against the truth and its wall time.
 * ``E1_traces.csv``: EM traces (Fig S1): log-likelihood, theta, rho and
   t_max after each iteration, for both tools.
-* ``E1_curves.csv``: the final Ne(t) step curves of every fit (Fig 2).
-* ``E1_truth.csv``: the true Ne(t) of every model on a dense grid (Fig 2).
+* ``E1_curves.csv``: the final Ne(t) step curves of every fit (the
+  article's Fig 1, ``fig2_simulated_accuracy``).
+* ``E1_truth.csv``: the true Ne(t) of every model on a dense grid
+  (``fig2_simulated_accuracy``).
 * ``E1_seeds.csv``: every simulation seed, with each chromosome's
   heterozygous sites, trees and longest stretch without a heterozygous
   site (a long recent-coalescence segment makes a replicate an outlier).
