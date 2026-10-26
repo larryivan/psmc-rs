@@ -13,7 +13,9 @@ make check      # exit 1 if numbers.tex or a table is not what the committed res
 only the PDFs whose text, numbers, tables or included figures
 (`experiment/runs/*/figures/*.pdf`) changed. The build needs the experiment
 environment (`experiment/.venv`, see Supplementary Note 1, section 2),
-[tectonic](https://tectonic-typesetting.github.io) and pandoc.
+[tectonic](https://tectonic-typesetting.github.io) 0.17.0 and pandoc 3.8
+or later (`make_sn1.py` uses its `--syntax-highlighting`; `sn1.tex` was
+made with 3.9.0.2).
 
 - `make_numbers.py` writes `numbers.tex`, one `\newcommand` per number the
   text quotes, each with its source in a comment, and Tables 1, 2 and S1
