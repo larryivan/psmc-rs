@@ -60,12 +60,13 @@ What "other processes" means during a run (``during.other_method``):
     (kthreadd and its children) and the kernel's interrupt time (irq and
     softirq) are not other processes. They are the kernel's work for the
     run itself (a tool that keeps 30 cores busy makes the kernel handle its
-    page faults, timers, scheduling and I/O: about 0.1 core more than on
-    the idle 128-core node) and the machine's own housekeeping, which the
-    quiet check before the run bounds; neither is another workload, and the
-    two cannot be told apart. Counted as other work, the run's own share
-    would reject the runs that keep the most cores busy. They are recorded
-    apart (``kernel_thread_cores``, ``interrupt_cores``).
+    page faults, timers, scheduling and I/O: about 0.2 core, 0.17 to 0.20
+    more than the same run on one thread, on Ibex's 128-core nodes) and the
+    machine's own housekeeping, which the quiet check before the run
+    bounds; neither is another workload, and the two cannot be told apart.
+    Counted as other work, the run's own share would reject the runs that
+    keep the most cores busy. They are recorded apart
+    (``kernel_thread_cores``, ``interrupt_cores``).
 ``machine`` (where some process cannot be read, as other users' processes
     on macOS, or ``/proc`` hides them, ``hidepid``; and wherever reaped
     children's CPU time cannot be read: every system but Linux): all busy
