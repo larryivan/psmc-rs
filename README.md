@@ -8,8 +8,9 @@ It fits the same model as Heng Li's C `psmc`, with the same time grid,
 starting point (θ0 = −ln(1 − K/L), ρ0 = θ0/4, flat λ, t_max = 15) and `-p`
 patterns. With C's initialisation the first round's log-likelihood equals
 C psmc's to its printed precision, and later rounds,
-which depend on the M-step optimiser (L-BFGS here, Hooke-Jeeves in C; both
-run to convergence), stay within a relative 2e-7 on the reference data;
+which differ mostly because C's expected counts leave out the last bin of
+each sequence (the M-steps, L-BFGS here and Hooke-Jeeves in C, both run to
+convergence), stay within a relative 2e-7 on the reference data;
 `tests/c_equivalence.rs` enforces both. One extension, on by default for
 VCF input, weighs each bin by how many of its bases are callable, which
 removes most of the bias that missing data scattered in short runs cause;
