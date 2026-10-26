@@ -24,8 +24,9 @@ generation, then `gzip -9 -n`.
 Both are fitted with one λ per interval (`--n-steps 63`, no pattern), where
 earlier builds of the converged M-step went wrong:
 `tests/em_valid_hmm.rs` fits the 5 Mb one, on which an M-step stepped into
-parameters whose transition matrix in f64 is not stochastic (with λ up to
-1e6, most M-steps end in a failed line search, while EM still improves
-every round); `tests/mstep_coordinates.rs` runs the first M-step on the
-2 Mb one, which stopped with its first λ far past the peak of Q along it
-(48.8, where the M-step ends).
+parameters whose transition matrix in f64 is not stochastic;
+`tests/mstep_coordinates.rs` runs the first M-step on the 2 Mb one, where
+an earlier build stopped with its first λ far past the peak of Q along it.
+The current M-step ends at that peak (48.8). With λ up to 1e6, 36 of the
+40 M-steps of a fit of the 5 Mb one end in a failed line search, while EM
+still improves every round.
