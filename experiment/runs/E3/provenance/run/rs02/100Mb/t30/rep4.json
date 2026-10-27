@@ -1,5 +1,5 @@
 {
-  "digest": "1d8970c10ea1c0a2215d606fa026300132141065414bdb3d2e2a6947361378a2",
+  "digest": "0e47451b3ca0919bec07c2336d7d506d46be890f736b73231014d75214710068",
   "key": {
     "command": [
       "<python>",
@@ -104,12 +104,12 @@
         "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
         "rustflags": "",
         "source_dirty": "",
-        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
+        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=4813f6d5c9a9814cd740aec27b80fc20f2c44c45;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
         "target_features": "none",
         "version": "psmc-rs 0.2.0"
       },
       "timing": {
-        "code": "5e2088e8301d568ab8c80889e42fc276300ac92eaca1cbc7f788ec8ac3895bbe",
+        "code": "d3b55ecaaadf18952892b23b19e78f8ab9de4257f19109a00b96801db6e7840a",
         "psutil": "7.2.2",
         "python": "3.13.13"
       }
@@ -117,64 +117,64 @@
   },
   "outputs": {
     "<runs>/E3/fits/rs02/100Mb/t30/rep4.json": "3927413ee285f664f1f00ec699aa5ac9c515214832f827fe7ab95cf4462c757e",
-    "<runs>/E3/timings/rs02/100Mb/t30/rep4.json": "f0f6808bfcc6d2f843362e81630d7264f91bc21f4c3727dcf3050380b6d5e694"
+    "<runs>/E3/timings/rs02/100Mb/t30/rep4.json": "aec766b09430de1937d4d67b57f33aa8081414e557ca03a2fc6933fbf6c4f187"
   },
   "record_version": 1,
   "run": {
     "busiest_processes_before": [
       {
-        "cpu_percent": 7.4,
-        "name": "wekanode",
-        "pid": 89952
-      },
-      {
         "cpu_percent": 5.5,
         "name": "wekanode",
-        "pid": 89951
+        "pid": 89714
       },
       {
-        "cpu_percent": 5.5,
+        "cpu_percent": 3.7,
         "name": "wekanode",
-        "pid": 89745
+        "pid": 89900
+      },
+      {
+        "cpu_percent": 3.7,
+        "name": "wekanode",
+        "pid": 89899
+      },
+      {
+        "cpu_percent": 1.8,
+        "name": "sshd",
+        "pid": 1948212
       },
       {
         "cpu_percent": 1.8,
         "name": "wtracer-dumper",
-        "pid": 89892
-      },
-      {
-        "cpu_percent": 1.8,
-        "name": "promtail",
-        "pid": 85552
+        "pid": 89850
       }
     ],
     "cores": 30,
-    "end": "2026-10-23T13:08:34",
+    "end": "2026-10-27T20:33:43",
     "exclusive": true,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
       "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn514-02-l",
+    "host": "cn513-02-l",
     "loadavg_after": [
-      1.99,
-      3.16,
-      2.42
+      2.25,
+      3.27,
+      2.44
     ],
     "loadavg_before": [
-      2.27,
-      3.29,
-      2.45
+      2.97,
+      3.48,
+      2.49
     ],
-    "maxrss_main_mb": 27.2,
+    "maxrss_main_mb": 29.3,
     "mem_gb": 0.06,
-    "peak_rss_mb": 27.2,
+    "peak_rss_mb": 29.3,
     "peak_rss_tree_sampled_mb": null,
-    "slurm_job_id": "54256964",
-    "start": "2026-10-23T13:08:10",
-    "system_seconds": 0.856,
-    "user_seconds": 10.852,
-    "wall_seconds": 23.494
+    "slurm_job_id": "54629005",
+    "start": "2026-10-27T20:33:19",
+    "system_seconds": 0.912,
+    "user_seconds": 10.875,
+    "wall_seconds": 23.594
   }
 }

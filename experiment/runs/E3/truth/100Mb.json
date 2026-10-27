@@ -56,7 +56,7 @@
   },
   "truth": {
     "model": "constant",
-    "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly",
+    "source": "ms-style model of experiment/scripts/simulate_msprime_to_psmcfa.py at commit 516daa27, converted exactly",
     "units": {
       "time": "generations ago",
       "size": "diploid individuals"

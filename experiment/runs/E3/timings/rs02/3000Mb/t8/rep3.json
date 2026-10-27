@@ -1,5 +1,5 @@
 {
-  "clock_span_seconds": 43.9039,
+  "clock_span_seconds": 43.8837,
   "command": [
     "<repo>/target/release/psmc-rs",
     "<runs>/E3/sims/3000Mb/genome.psmcfa",
@@ -25,54 +25,54 @@
     "8",
     "--no-progress"
   ],
-  "cpu_seconds": 321.8729,
+  "cpu_seconds": 320.3269,
   "cpus_usable": 128,
   "during": {
     "busiest_others": [
       {
-        "cores": 0.0601,
+        "cores": 0.0586,
         "name": "wekanode",
-        "pid": 95548
+        "pid": 80544
       },
       {
-        "cores": 0.0542,
+        "cores": 0.051,
         "name": "wekanode",
-        "pid": 95785
+        "pid": 80724
       },
       {
-        "cores": 0.0524,
+        "cores": 0.0499,
         "name": "wekanode",
-        "pid": 95786
+        "pid": 80723
       },
       {
-        "cores": 0.0369,
-        "name": "rotate_files.py",
-        "pid": 95301
-      },
-      {
-        "cores": 0.0166,
+        "cores": 0.0175,
         "name": "weka",
-        "pid": 59430
+        "pid": 62183
+      },
+      {
+        "cores": 0.0059,
+        "name": "shelld.py",
+        "pid": 80293
       }
     ],
-    "excluded_cores": 0.0453,
-    "interrupt_cores": 0.1102,
-    "kernel_thread_cores": 0.0034,
-    "machine_busy_percent": 6.01,
-    "other_cores": 0.3976,
-    "other_cpu_seconds": 17.457,
+    "excluded_cores": 0.0449,
+    "interrupt_cores": 0.0925,
+    "kernel_thread_cores": 0.0039,
+    "machine_busy_percent": 5.98,
+    "other_cores": 0.3945,
+    "other_cpu_seconds": 17.313,
     "other_cpu_share": 0.0031,
     "other_method": "processes",
-    "other_process_cores": 0.2503,
-    "other_process_cpu_seconds": 10.99,
-    "other_process_cpu_share": 0.0019,
-    "other_processes_exited": 0,
+    "other_process_cores": 0.2083,
+    "other_process_cpu_seconds": 9.14,
+    "other_process_cpu_share": 0.0016,
+    "other_processes_exited": 1,
     "processes_unreadable": 0,
     "steal_cores": 0.0,
     "steal_cpu_share": 0.0,
-    "unaccounted_cores": -0.0117
+    "unaccounted_cores": 0.045
   },
-  "end": "2026-10-23T12:47:48",
+  "end": "2026-10-27T18:53:11",
   "environment": {
     "MKL_NUM_THREADS": "1",
     "NUMEXPR_NUM_THREADS": "1",
@@ -88,14 +88,14 @@
   },
   "exit_status": 0,
   "loadavg_after": [
-    4.31,
-    2.49,
-    1.9
+    4.28,
+    2.5,
+    1.89
   ],
   "loadavg_before": [
-    1.24,
-    1.72,
-    1.64
+    1.35,
+    1.77,
+    1.63
   ],
   "machine": {
     "cpu": "AMD EPYC 7702 64-Core Processor",
@@ -105,67 +105,67 @@
     "cpu_scaling_driver": "acpi-cpufreq",
     "cpus_allowed": 128,
     "cpus_usable": 128,
-    "hostname": "cn506-15-l",
+    "hostname": "cn514-15-l",
     "libc": "glibc 2.34",
     "machine": "x86_64",
     "memory_gb": 503.7,
     "python": "3.13.13",
     "release": "5.14.0-427.20.1.el9_4.0.1.x86_64",
     "slurm_cpus_on_node": "128",
-    "slurm_job_id": "54256963",
-    "slurm_job_nodelist": "cn506-15-l",
-    "slurm_nodelist": "cn506-15-l",
+    "slurm_job_id": "54629004",
+    "slurm_job_nodelist": "cn514-15-l",
+    "slurm_nodelist": "cn514-15-l",
     "system": "Linux"
   },
   "machine_before": {
     "busiest": [
       {
-        "cpu_percent": 10.0,
-        "name": "rotate_files.py",
-        "pid": 95301
+        "cpu_percent": 237.8,
+        "name": "slurmd",
+        "pid": 92164
       },
       {
-        "cpu_percent": 6.6,
+        "cpu_percent": 6.2,
         "name": "wekanode",
-        "pid": 95785
+        "pid": 80544
       },
       {
-        "cpu_percent": 6.6,
+        "cpu_percent": 4.7,
         "name": "wekanode",
-        "pid": 95548
+        "pid": 80724
       },
       {
-        "cpu_percent": 5.7,
+        "cpu_percent": 4.3,
         "name": "wekanode",
-        "pid": 95786
+        "pid": 80723
       },
       {
         "cpu_percent": 0.5,
-        "name": "weka",
-        "pid": 59430
+        "name": "promtail",
+        "pid": 90976
       }
     ],
-    "busy_cores": 0.345,
+    "busy_cores": 0.35,
     "busy_percent": 0.27,
-    "interrupt_cores": 0.055,
-    "kernel_thread_cores": 0.005,
+    "interrupt_cores": 0.06,
+    "kernel_thread_cores": 0.009,
     "power": {
       "low_power_mode": null,
       "source": null
     },
-    "process_cores": 0.303,
+    "process_cores": 2.544,
     "processes_unreadable": 0,
     "quiet": true,
     "settle_seconds": 10.0,
     "steal_cores": 0.0,
     "threshold_cores": 1.0,
     "threshold_percent": 10.0,
-    "waited_seconds": 2.739,
+    "waited_seconds": 4.944,
     "window_seconds": 2.001
   },
-  "maxrss_mb": 62.9,
-  "peak_rss_mb": 62.9,
-  "peak_rss_tree_sampled_mb": 62.9,
+  "maxrss_mb": 59.5,
+  "peak_rss_mb": 59.5,
+  "peak_rss_tree_sampled_mb": 59.5,
   "protocol": {
     "max_other_cores": 0.5,
     "max_other_cpu_share": 0.05,
@@ -180,9 +180,9 @@
   },
   "record": "psmc-rs-manuscript/E3/timing/4",
   "rss_samples": 84,
-  "start": "2026-10-23T12:47:04",
-  "system_seconds": 0.7395,
+  "start": "2026-10-27T18:52:27",
+  "system_seconds": 0.4404,
   "threads": 8,
-  "user_seconds": 321.1334,
-  "wall_seconds": 43.9039
+  "user_seconds": 319.8865,
+  "wall_seconds": 43.8837
 }
