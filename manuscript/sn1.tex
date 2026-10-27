@@ -255,7 +255,8 @@ The production ran in two \texttt{prod} jobs of commit ae34d72. The first
 (SLURM job 54629001, on node cn513-21-l on 27 October 2026; 1 hour
 6 minutes) ran the simulations and the psmc-rs fits, bootstraps,
 conversions, decoding and QC of E1, E2 and E4 to E6, E4's masks and
-consensus calls, and the reports of E1, E2 and E4 to E6. The second
+consensus calls, S3's true TMRCA, and the reports of E1, E2 and E4 to E6.
+The second
 (54634918, on node cn514-11-r the same day) ran every fit and
 bootstrap of E7, C psmc's and psmc-rs's together, so that their times
 compare like for like, E7's GIAB comparison and its report. The jobs
@@ -296,7 +297,7 @@ E7 & 2,639 & 358.1 & 2,639 in 54634918 \\
 }
 
 The fits of each \texttt{prod} job shared their node with one another (1-minute
-load averages of 68 to 134 in 54629001 and 55 to 168 in 54634918, and of 5
+load averages of 68 to 134 in 54629001 and 78 to 168 in 54634918, and of 5
 to 71 and 37 for the C psmc fits of 53386770 and 53452276, when they
 started), so these are costs, not timings, though E7's two programs,
 sharing one node in one job, compare with each other like for like; E3
@@ -469,11 +470,10 @@ The production of section 5 ran on Ibex (x86-64). To measure how much its
 results depend on the platform, its 40 E1 genomes and NA12878 were fitted
 again with psmc-rs on the development laptop, built from the \texttt{src/\allowbreak{}} tree
 and \texttt{Cargo.lock} of the production's psmc-rs fits (dcf29ca and ae10354)
-and run with the
-production's commands (only the paths changed), and the laptop's C psmc
-fits of the same 40 genomes, from an earlier laptop run, were compared
-with Ibex's, made by the same C psmc binary as every C psmc fit of the
-production (section 5). The scripts, tables and laptop fits are in
+and run with the production's commands (only the paths changed), and the
+laptop's C psmc fits of the same 40 genomes, from an earlier laptop run,
+were compared with Ibex's, made by the same C psmc binary as every C psmc
+fit of the production (section 5). The scripts, tables and laptop fits are in
 \texttt{experiment/\allowbreak{}crossplatform/\allowbreak{}}, whose \texttt{summary.md} gives every number below.
 
 {\def\LTcaptype{none} % do not increment counter

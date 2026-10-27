@@ -329,19 +329,19 @@ def e7_histories() -> None:
 
 
 def e7_data_stage() -> None:
-    """E7's data stage, from its MANIFEST.json, and its chr21 pilot run with the production's psmc-rs."""
+    """E7's data stage, from its MANIFEST.json, and its chr21 pilot run with the production's binary."""
     man = json.loads((RUNS / "E7" / "inputs" / "MANIFEST.json").read_text())
     ch = man["chromosomes"].values()
     assert all(v["records_check"] == "equal" for v in ch)
     put("EsevenRecords", thousands(sum(v["records"] for v in ch)), "MANIFEST chromosomes records")
     put("EsevenNonpass", thousands(sum(v["nonpass"] for v in ch)), "MANIFEST chromosomes nonpass")
-    # The chr21 pilot redone with the production's psmc-rs (MANIFEST's pilot ran the data stage's build, src 4c0d777).
+    # The chr21 pilot redone with the production's binary (MANIFEST's pilot ran the data stage's build, src 4c0d777).
     pilot = json.loads((ROOT / "experiment" / "e7_pilot" / "pilot_chr21.json").read_text())
     prod = json.loads((RUNS / "E1" / "provenance" / "fit-rs" / "bottleneck" / "rep01.json").read_text())
     # What the binary is built from (Cargo.toml's package metadata, which the pilot's checkout predates, is not).
     built = lambda tree: {k: v for k, v in (kv.split("=") for kv in tree.split(";")) if k != "Cargo.toml"}  # noqa: E731
     assert built(pilot["psmc-rs"]["source_tree"]) == built(prod["key"]["tools"]["psmc-rs-0.2"]["source_tree"]), \
-        "the pilot ran the production's psmc-rs"
+        "the pilot ran a build of the production's src/ and Cargo.lock"
     assert pilot["psmc-rs"]["binary_sha256"] in prod["run"]["executables"].values(), "the pilot ran the production's binary"
     assert pilot["identical"] and all(s["psmcfa_identical"] and not s["qc_fields_differing"] for s in pilot["samples"]), \
         "the text says the pilot's direct conversion gave byte-identical files"

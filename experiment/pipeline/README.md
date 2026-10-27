@@ -902,7 +902,7 @@ generate_multihetsep.py (54256959) and its `bins` jobs (54232546). E7's
 comparison and the report, ran in one job on one Ibex node (54634918), in 6
 hours 21 minutes, 358.1 CPU hours in all. The measured costs above come
 from the provenance records. The production's jobs shared the node with one
-another (1-minute load averages of 68 to 134 when they started; 55 to 168
+another (1-minute load averages of 68 to 134 when they started; 78 to 168
 in E7's job), so their times are costs, not controlled timings, though E7's
 two programs, sharing one node in one job, compare with each other under
 the same conditions; E3 times the tools. E3's measured cost is the tools'
