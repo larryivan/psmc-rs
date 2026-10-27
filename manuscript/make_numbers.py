@@ -179,8 +179,8 @@ def e3() -> None:
     runs = table("E3", "E3_runs")
     put("EthreeNodes", str(runs[runs.tool.isin(["c", "rs02"])].hostname.nunique()), "E3_runs hostname")
     put("EthreeSetups", str(len(t)), "E3_table2 rows, C psmc and psmc-rs")
-    put("EthreeSpreadMax", pct(((t.wall_max_s - t.wall_min_s) / t.wall_median_s).max(), 1),
-        "E3_table2 (max-min)/median wall time")
+    put("EthreeSpreadMax", pct(((big.wall_max_s - big.wall_min_s) / big.wall_median_s).max(), 1),
+        "E3_table2 (max-min)/median wall time, the 3000 Mb setups of Fig 2")
     det = table("E3", "E3_determinism")
     for tool, name in (("rs02", "Rs"), ("c", "C")):
         d = det[det.tool == tool]
