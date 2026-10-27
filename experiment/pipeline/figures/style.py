@@ -25,7 +25,7 @@ manuscript places them at 100%, never scaled).
 * **Notation.** One spelling per quantity, matching the article: italic
   variables through :data:`NE`, :data:`LOGNE` and :data:`THETA`; U+2212
   for every minus (:data:`MINUS`), U+00D7 for times and fold changes
-  written ``13.9×`` (:data:`TIMES`), U+2013 for ranges;
+  written ``14.1×`` (:data:`TIMES`), U+2013 for ranges;
   units in the axis label, never in tick labels.
 * **Log axes.** Sizes and times are plain numbers in thousands
   (:func:`ne_axis`, :func:`years_axis`, :func:`thousands_axis`): ticks 1,
