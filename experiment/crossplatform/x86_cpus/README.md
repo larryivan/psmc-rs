@@ -21,7 +21,7 @@ for c in turin cascadelake skylake; do sbatch -A <account> -p batch --constraint
 sbatch -A <account> -p batch --constraint=cpu_intel_gold_6248 --cpus-per-task=2 --mem=8G --time=00:30:00 -J xcpu-6248 -o $D/xcpu-6248-%j.out --parsable $D/xcpu.sbatch
 ```
 
-`P` (line 4 of `xcpu.sbatch`) is the production worktree on Ibex, at 4b2c636f (`PROD` of
+`P` (line 4 of `xcpu.sbatch`) is the production worktree on Ibex, at 4b2c636f when these jobs ran (`PROD` of
 `experiment/slurm/site.env.example`). Elsewhere, set it to a checkout whose `target/release/psmc-rs` is the binary
 to test and whose `experiment/runs` holds E1's simulated genomes: the script reads
 `experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa`, which is not committed, so E1's simulation of that

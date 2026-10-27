@@ -8,6 +8,8 @@ import csv
 import json
 import re
 import statistics
+import subprocess
+import tomllib
 from collections import Counter
 from pathlib import Path
 
@@ -19,8 +21,8 @@ I = json.loads((X / "inputs.json").read_text())
 R = json.loads((X / "reports.json").read_text())
 JOBS = json.loads((X / "jobs.json").read_text())
 MODELS = ("constant", "bottleneck", "expansion", "zigzag")
-# The production compared (experiment/runs as committed): where its psmc-rs fits ran.
-PRODUCTION_COMMIT, PRODUCTION_RUN_AT = "cbab860c", "4b2c636f"
+# The production compared (experiment/runs as committed): the commit of its results, and where its psmc-rs fits ran.
+PRODUCTION_COMMIT, PRODUCTION_RUN_AT = "392ef084", "ae34d727"
 
 
 def rows(name):
@@ -111,6 +113,21 @@ for k, v in blocks.items():
             "neon": 'target_feature="neon"' in v,
         }
 main_b, ctl_b = builds["bin/psmc-rs"], builds["bin/psmc-rs-rustc1.99"]
+# the builds that ran the fits (the records' binary_sha256): these builds, or earlier ones of the same machine code
+ran_block = next(v for k, v in blocks.items() if k.startswith("the builds that ran the fits"))
+ran = {}
+for m in re.finditer(r"^<xplat>/(\S+) \(([^)]*) runs\): sha256 ([0-9a-f]{64})(?:, (this build)$|, built at ([0-9a-f]+) from src ([0-9a-f]+) "
+                     r"Cargo\.toml ([0-9a-f]+) Cargo\.lock ([0-9a-f]+) by rustc .+\n  sha256 without LC_UUID and code signature: ([0-9a-f]{64}), this build's$)",
+                     ran_block, re.M):
+    ran[m.group(1)] = {"runs": m.group(2), "sha": m.group(3), "this": bool(m.group(4)), "head": m.group(5),
+                       "ids": {"src": m.group(6), "Cargo.toml": m.group(7), "Cargo.lock": m.group(8)}, "digest": m.group(9)}
+assert set(ran) == set(builds), (sorted(ran), sorted(builds))
+for k, v in ran.items():
+    assert v["this"] or v["digest"] == builds[k]["digest"], k
+    assert v["this"] or (v["ids"]["src"], v["ids"]["Cargo.lock"]) == (ids["src"], ids["Cargo.lock"]), k
+rebuilt = not ran["bin/psmc-rs"]["this"]
+assert len({(v["this"], v["head"], v["ids"]["Cargo.toml"]) for v in ran.values()}) == 1, "both builds that ran the fits made together"
+ran_b, ran_ctl = ran["bin/psmc-rs"], ran["bin/psmc-rs-rustc1.99"]
 cblock = blocks["laptop C psmc (frozen .production run)"]
 c_sha = re.search(r"^([0-9a-f]{64})  ", cblock, re.M).group(1)
 text_sha = dict(re.findall(r"^(\S+) __text sha256: (\S+)", cblock, re.M))
@@ -138,6 +155,21 @@ c_tool = {json.dumps(x["key"]["tools"]["c-psmc"], sort_keys=True) for x in ib_c}
 assert len(c_tool) == 1
 c_tool = json.loads(c_tool.pop())
 lap_c_tool = {r["laptop_c_sha256"] for r in c}
+assert not rebuilt or ib_ids == ids, "the text says the builds were made again from the production's sources"
+
+
+def cargo_toml(blob):
+    return tomllib.loads(subprocess.run(["git", "show", blob], cwd=REPO, capture_output=True, text=True, check=True).stdout)
+
+
+# how the Cargo.toml of the builds that ran the fits differs from this one's: [package] fields only
+toml_fields = []
+if rebuilt:
+    toml_then, toml_now = cargo_toml(ran_b["ids"]["Cargo.toml"]), cargo_toml(ids["Cargo.toml"])
+    assert {k: v for k, v in toml_then.items() if k != "package"} == {k: v for k, v in toml_now.items() if k != "package"}
+    toml_fields = [k for k in toml_now["package"] if toml_then["package"].get(k) != toml_now["package"][k]]
+    toml_fields += [k for k in toml_then["package"] if k not in toml_now["package"]]
+    assert toml_fields
 assert lap_c_tool == {c_sha}, (lap_c_tool, c_sha)
 
 
@@ -150,7 +182,9 @@ rs_hosts, c_hosts = hosts(ib_rs), hosts(ib_c)
 c_days = sorted({x["run"]["start"][:10] for x in ib_c})
 lap_c_days = sorted({json.loads(p.read_text())["run"]["start"][:10]
                      for p in (REPO / "experiment/.production/experiment/runs/E1/provenance/fit-c").glob("*/*.json")})
-assert main_b["sha"] == {r["laptop_binary_sha256"] for r in rs}.pop() and len({r["laptop_binary_sha256"] for r in rs}) == 1
+assert {r["laptop_binary_sha256"] for r in rs} == {ran["bin/psmc-rs"]["sha"]}
+assert {r["laptop_binary_sha256"] for r in ctl199} == {ran["bin/psmc-rs-rustc1.99"]["sha"]}
+assert all(not x["run"]["exclusive"] for x in ib_rs), "the text says the production's fits shared their node"
 assert all(r["laptop_threads"] == r["ibex_threads"] == "1" for r in rs)
 
 c_top = max(c, key=lambda r: float(r["param_max_rel"]))
@@ -182,8 +216,11 @@ def rq(k, q):
 out = []
 w = out.append
 w("# Cross-platform comparison: laptop vs Ibex (data for Supplementary Note 1, section 9)\n")
-w(f"Computed on {' and '.join(run_dates)} by the scripts of `scripts/` (`make_jobs.py`, `run_job.py`, `toolchain.py`, `inputs.py`, `compare.py`, `reports.py`, `make_summary.py`; README.md gives the order). The tiers of section 5 are those `scripts/tiers_2026-10-07.py` defined on 2026-10-07, before these runs.\n")
-w(f"The Ibex fits compared are the production's, committed at {PRODUCTION_COMMIT}: its psmc-rs fits ran at {PRODUCTION_RUN_AT} with a binary built from `src` {ib_ids['src'][:7]}, the sources the laptop built; its C psmc fits come from earlier jobs of the same C psmc binary, which did not change.\n")
+w(f"Computed by the scripts of `scripts/` (`make_jobs.py`, `run_job.py`, `toolchain.py`, `inputs.py`, `compare.py`, `reports.py`, `make_summary.py`; README.md gives the order) from the laptop's fits, which ran on {' and '.join(run_dates)} (their records), and the production's results. The tiers of section 5 are those `scripts/tiers_2026-10-07.py` defined on 2026-10-07, before these runs.\n")
+w(f"The Ibex fits compared are the production's, committed at {PRODUCTION_COMMIT}: its psmc-rs fits ran at {PRODUCTION_RUN_AT} with a binary built from `src` {ib_ids['src'][:7]}, `Cargo.toml` {ib_ids['Cargo.toml'][:7]} and `Cargo.lock` {ib_ids['Cargo.lock'][:7]}, "
+  + ("the sources the laptop built" if ib_ids == ids else "not the sources the laptop built (section 1)")
+  + (f" (the laptop's fits ran builds made earlier from `Cargo.toml` {ran_b['ids']['Cargo.toml'][:7]}, which differ from builds of these sources only in their Mach-O UUID and code signature: section 1)" if rebuilt else "")
+  + "; its C psmc fits come from earlier jobs of the same C psmc binary, which did not change.\n")
 
 w("## Headline\n")
 e1 = S["rs"]["E1"]
@@ -204,7 +241,8 @@ w("|---|---|---|")
 w(f"| CPU | {cpu} (arm64; {cores.group(1)} cores: {cores.group(2)} performance, {cores.group(3)} efficiency; {cores.group(4)} GB) | {env['machine.cpu'].replace(' 64-Core Processor', '')} (x86-64, Zen 2), as SN1 and E3's environment table give for the cluster's nodes; the fit records name the hosts (psmc-rs, E1 and NA12878: {rs_hosts}; C psmc, E1: {c_hosts}) but not their CPU model |")
 w(f"| OS | macOS {macos} ({macbuild}), Darwin {darwin}, Apple libm | Linux x86-64 (E3's nodes: {env['machine.release'].replace('.0.1.x86_64', '')}, {env['machine.libc']}; not recorded for the E1/E2 jobs) |")
 src_note = "clean" if dirty == 0 else f"{dirty} uncommitted files"
-w(f"| psmc-rs sources | `src` {ids['src'][:7]}, `Cargo.toml` {ids['Cargo.toml'][:7]}, `Cargo.lock` {ids['Cargo.lock'][:7]}, {src_note} (HEAD {head[:7]} for both builds) | "
+w(f"| psmc-rs sources | `src` {ids['src'][:7]}, `Cargo.toml` {ids['Cargo.toml'][:7]}, `Cargo.lock` {ids['Cargo.lock'][:7]}, {src_note} (HEAD {head[:7]} for both builds"
+  + (f"; the builds that ran the fits: HEAD {ran_b['head'][:7]}, `Cargo.toml` {ran_b['ids']['Cargo.toml'][:7]}, the same `src` and `Cargo.lock`" if rebuilt else "") + ") | "
   + ("the same three ids" if ib_ids == ids else f"`src` {ib_ids['src'][:7]}, `Cargo.toml` {ib_ids['Cargo.toml'][:7]}, `Cargo.lock` {ib_ids['Cargo.lock'][:7]}")
   + f", {'clean' if rs_tool['source_dirty'] == '' else 'dirty'} (every E1/E2 fit-rs provenance record) |")
 w(f"| rustc | {main_b['rustc']}, LLVM {main_b['llvm']}, {main_b['host']} — the default toolchain of `{main_b['cargo']}`; control build: {ctl_b['rustc']}, LLVM {ctl_b['llvm']} | {rs_tool['rustc'].replace(' x86_64', ', x86_64')} |")
@@ -213,18 +251,27 @@ simd = Counter((r["simd_laptop"], r["simd_ibex"]) for r in rs)
 assert len(simd) == 1
 (sl, si), ns = simd.popitem()
 w(f"| HMM kernels (`simd` in the fit JSON) | `{sl}` ({ns}/{n_rs} fits) | `{si}` ({ns}/{n_rs} fits) |")
-w(f"| psmc-rs binary | `{main_b['version']}`, sha256 {main_b['sha'][:8]}… (rustc {main_b['rustc'].split()[0]}), {ctl_b['sha'][:8]}… (rustc {ctl_b['rustc'].split()[0]}); without the Mach-O UUID and the code signature, {main_b['digest'][:8]}… and {ctl_b['digest'][:8]}… | `{rs_tool['version']}`, sha256 {ib_bin[:8]}…"
+r197, r199 = main_b['rustc'].split()[0], ctl_b['rustc'].split()[0]
+lap_bin = (f"sha256 {main_b['sha'][:8]}… (rustc {r197}), {ctl_b['sha'][:8]}… (rustc {r199}); without" if not rebuilt else
+           f"the builds that ran the fits, sha256 {ran_b['sha'][:8]}… (rustc {r197}) and {ran_ctl['sha'][:8]}… (rustc {r199}); the builds above, "
+           f"{main_b['sha'][:8]}… and {ctl_b['sha'][:8]}…; both without")
+w(f"| psmc-rs binary | `{main_b['version']}`, {lap_bin} the Mach-O UUID and the code signature, {main_b['digest'][:8]}… and {ctl_b['digest'][:8]}… | `{rs_tool['version']}`, sha256 {ib_bin[:8]}…"
   + (" (also the binary of E3's timings)" if env.get("tool.rs02.binary_sha256") == ib_bin else "") + " |")
 w(f"| C psmc | 0.6.5-r74-dirty, sha256 {c_sha[:8]}… (the frozen `.production` run, fits of {', '.join(lap_c_days)}). Compiler and CFLAGS are in no provenance record. Its machine code (`__text`) is identical to the `psmc_O1` and `psmc_O` binaries beside it in `experiment/.tools/psmc_c` (so: -O1); the DWARF of the sibling ASan build names {producer}; it contains {n_fma} fused multiply-add instructions (in `psmc_update_hmm`, `hmm_forward`, `hmm_backward`, `hmm_expect`, `hmm_Q`, `hmm_Q0`, …), i.e. clang's default FP contraction was on | {c_tool['version']}, sha256 {c_tool['sha256'][:8]}…, {c_tool['cc'].replace('gcc (GCC) ', 'gcc ').replace(' 20231218', '')}, `{c_tool['cflags']}` (fits of {', '.join(c_days)}) |")
 w("| threads | psmc-rs `--threads 1` (as recorded on Ibex); C psmc single-threaded | the same |")
 w("")
-w("The laptop binaries' whole-file sha256 depends on the target directory they were built in: rebuilt from the same sources by the same toolchain in another target directory, each differed in its Mach-O UUID (LC_UUID), and so in its ad-hoc code signature, and nowhere else. The sha256 with those bytes zeroed (`toolchain.txt`; `scripts/toolchain.py --digest <binary>` computes it) is the same for such a rebuild. Both still depend on the source paths a binary holds in its panic messages, under the builder's home directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build is not expected to reproduce either.\n")
+w("The laptop binaries' whole-file sha256 depends on the target directory they were built in: rebuilt from the same sources by the same toolchain in another target directory, each differed in its Mach-O UUID (LC_UUID), and so in its ad-hoc code signature, and nowhere else. The sha256 with those bytes zeroed (`toolchain.txt`; `scripts/toolchain.py --digest <binary>` computes it) is the same for such a rebuild. Both still depend on the source paths a binary holds in its panic messages, under the builder's home directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build is not expected to reproduce either."
+  + (f" The builds that ran the laptop's fits, whose whole-file sha256 the records name ({ran_b['sha'][:8]}… and {ran_ctl['sha'][:8]}…), were made at {ran_b['head'][:7]} from `Cargo.toml` {ran_b['ids']['Cargo.toml'][:7]}, which differs from the production's, {ids['Cargo.toml'][:7]}, only in the `[package]` fields {', '.join(toml_fields[:-1])} and {toml_fields[-1]}; "
+     f"made again at {head[:7]} from the production's three ids, each reproduces the sha256 without the Mach-O UUID and the code signature of the build that ran the fits ({ran_b['digest'][:8]}… and {ran_ctl['digest'][:8]}…; `toolchain.txt`), not its whole-file sha256."
+     if rebuilt else "") + "\n")
 w(f"psmc-rs wall time per E1 fit (not a controlled timing): laptop {min(float(r['laptop_wall_seconds']) for r in rs1):.0f}–{mx(rs1, 'laptop_wall_seconds'):.0f} s (4 jobs at once, `nice 19`); Ibex {min(float(r['ibex_wall_seconds']) for r in rs1):.0f}–{mx(rs1, 'ibex_wall_seconds'):.0f} s (the production's fits shared their node). NA12878: laptop {float(na['laptop_wall_seconds']):.0f} s, Ibex {float(na['ibex_wall_seconds']):.0f} s.\n")
 
 w("## 2. Inputs (step 1)\n")
 w(f"- **E1 genomes: {I['n_psmcfa_eq_ibex_truth']}/{I['genomes']} byte-identical.** The SHA-256 of every laptop `genome.psmcfa` and `genome.vcf.gz` equals the one in the committed Ibex truth record ({I['n_psmcfa_eq_ibex_truth']}/40 and {I['n_vcf_gz_eq_ibex_truth']}/40) and in the Ibex sim provenance record (psmcfa {I['n_psmcfa_eq_ibex_sim_prov']}/40, vcf.gz {I['n_vcf_gz_eq_ibex_sim_prov']}/40, tabix index {I['n_tbi_eq_ibex_sim_prov']}/40).")
 w(f"- **Per chromosome: {I['n_chromosomes_het_sha_match']}/{I['chromosomes']} match.** Recomputed from the laptop files, each chromosome's heterozygous-position checksum (SHA-256 of the 0-based positions as little-endian int64, read from the VCF) equals the Ibex truth record's `het_positions_sha256`, and so do its counts (bins and heterozygous bins from the psmcfa; heterozygous and derived homozygous sites and the last heterozygous position from the VCF): {I['n_chromosomes_all_counts_match']}/{I['chromosomes']}.")
-w(f"- **Fit inputs.** The psmcfa checksum each Ibex fit recorded as its input equals the laptop file's ({I['n_psmcfa_eq_ibex_fit_rs_input']}/40 psmc-rs, {I['n_psmcfa_eq_ibex_fit_c_input']}/40 C psmc). The laptop C fits read the same files: their records' input checksums equal them ({I['n_psmcfa_eq_laptop_fit_c_input']}/40), their outputs still match their records ({I['n_laptop_c_output_eq_its_record']}/40) and the copies in `laptop_c/` ({S['c']['laptop_files_eq_laptop_c_copy']}/40), and their `.psmc` headers give the same n_seqs, sum_L and sum_n as Ibex's ({S['c']['headers_equal']}/40). The sim records' command, seeds and settings agree ({I['n_sim_record_key_equal']}/40), and so do the truth records' chromosome blocks ({I['n_truth_chromosomes_block_equal']}/40).")
+w(f"- **Fit inputs.** The psmcfa checksum each Ibex fit recorded as its input equals the laptop file's ({I['n_psmcfa_eq_ibex_fit_rs_input']}/40 psmc-rs, {I['n_psmcfa_eq_ibex_fit_c_input']}/40 C psmc). The laptop C fits read the same files: their records' input checksums equal them ({I['n_psmcfa_eq_laptop_fit_c_input']}/40), their outputs still match their records ({I['n_laptop_c_output_eq_its_record']}/40) and the copies in `laptop_c/` ({S['c']['laptop_files_eq_laptop_c_copy']}/40), and their `.psmc` headers give the same n_seqs, sum_L and sum_n as Ibex's ({S['c']['headers_equal']}/40). The sim records' command, seeds and settings agree ({I['n_sim_record_key_equal']}/40"
+  + (f"; without the text naming the model's source, `settings.model.source`, which Ibex's records word differently, {I['n_sim_record_key_equal_except_model_source']}/40" if I['n_sim_record_key_equal'] != I['genomes'] else "")
+  + f"), and so do the truth records' chromosome blocks ({I['n_truth_chromosomes_block_equal']}/40).")
 w(f"- **NA12878** (`{I['NA12878']['path']}`, sha256 {I['NA12878']['sha256'][:12]}…) is the file both Ibex NA12878 fits read ({'yes' if I['NA12878']['eq_ibex_fit_rs_input'] and I['NA12878']['eq_ibex_fit_c_input'] else 'NO'}).")
 w(f"- The production's Ibex fits are the files their provenance records name (psmc-rs {S['rs']['ibex_files_match_provenance']}/{n_rs}, C psmc {S['c']['ibex_files_match_record']}/40).\n")
 
@@ -426,7 +473,7 @@ for fname, desc in (
     ("`runs-rustc1.99/`, `runs-repeat/`", f"the controls' fits ({len(ctl199)} by the rustc {ctl_b['rustc'].split()[0]} build{', byte-identical to `runs/`' if ctl_same == len(ctl199) else ''}; {len(rep)} by the same binary run again); "
      "`jobs_rustc1.99.json`, `jobs_repeat.json`: their job lists; `records-rustc1.99/`, `records-repeat/`: their records"),
     ("`reports_laptop_vs_ibex.csv`, `reports.json`", "the tables written again on the laptop, table by table (section 4.6)"),
-    ("`summary.json`", "every number above; `toolchain.txt`: the laptop, its two rustc builds, the binaries' checksums and the C psmc binary's forensics"),
+    ("`summary.json`", "every number above; `toolchain.txt`: the laptop, its two rustc builds, the binaries' checksums, the builds that ran the fits and the C psmc binary's forensics"),
     ("`jobs.json`", "the Ibex and the laptop command of each job"),
     ("`runs/`", "the laptop psmc-rs fits (JSON and `.psmc`); `records/`: one record per laptop run (command, checksums, exit status, times)"),
     ("`laptop_c/`", "the laptop C psmc fits compared here, copied from the frozen laptop run `experiment/.production` (not in the repository)"),

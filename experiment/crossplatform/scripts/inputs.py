@@ -14,7 +14,9 @@ For each laptop genome (experiment/.production/experiment/runs/E1/sims):
   * per chromosome, recomputed from the laptop files: heterozygous positions
     (from the VCF) -> SHA-256 vs the Ibex truth record, het sites, derived hom
     sites, last het position; bins and K bins (from the psmcfa) vs bins, het_bins;
-  * the input checksum of each fit job: Ibex fit-rs, Ibex fit-c, laptop fit-c.
+  * the input checksum of each fit job: Ibex fit-rs, Ibex fit-c, laptop fit-c;
+  * the laptop and the Ibex sim records' command, seeds and settings, also without the text
+    naming the model's source (settings.model.source), which the production may have reworded.
 NA12878 (E2): the checkout's real_data file vs the Ibex fit-rs and fit-c records.
 
 Writes xplat/inputs_E1_genomes.csv, xplat/inputs_E1_chromosomes.csv, xplat/inputs.json.
@@ -81,6 +83,14 @@ def psmcfa_chroms(path: Path):
     return {c: (len(s), s.count("K"), len(s) - s.count("K") - s.count("T")) for c, s in out.items()}
 
 
+def sim_key(rec, model_source=True):
+    """A sim record's command, seeds and settings; without settings.model.source when model_source is False."""
+    k = json.loads(json.dumps({x: rec["key"].get(x) for x in ("command", "seeds", "settings")}))
+    if not model_source:
+        k["settings"]["model"].pop("source", None)
+    return k
+
+
 genome_rows, chrom_rows = [], []
 for m in MODELS:
     for r in range(1, 11):
@@ -89,7 +99,8 @@ for m in MODELS:
         fa, gz, tbi = sim / "genome.psmcfa", sim / "genome.vcf.gz", sim / "genome.vcf.gz.tbi"
         truth = json.loads((IBX / f"E1/truth/{m}/{rep}.json").read_text())
         lap_truth = json.loads((LAP / f"E1/truth/{m}/{rep}.json").read_text())
-        ibx_sim_out = json.loads((IBX / f"E1/provenance/sim/{m}/{rep}.json").read_text())["outputs"]
+        ibx_sim_rec = json.loads((IBX / f"E1/provenance/sim/{m}/{rep}.json").read_text())
+        ibx_sim_out = ibx_sim_rec["outputs"]
         lap_sim_rec = json.loads((LAP / f"E1/provenance/sim/{m}/{rep}.json").read_text())
         ibx_rs_in = json.loads((IBX / f"E1/provenance/fit-rs/{m}/{rep}.json").read_text())["key"]["inputs"]
         ibx_c_in = json.loads((IBX / f"E1/provenance/fit-c/{m}/{rep}.json").read_text())["key"]["inputs"]
@@ -139,8 +150,8 @@ for m in MODELS:
             "vcf_gz_eq_ibex_truth": h_gz == truth["files"]["vcf"]["sha256"],
             "vcf_gz_eq_ibex_sim_prov": h_gz == ibx_sim_out.get(key + ".vcf.gz"),
             "tbi_eq_ibex_sim_prov": h_tbi == ibx_sim_out.get(key + ".vcf.gz.tbi"),
-            "sim_record_key_equal": all(lap_sim_rec["key"].get(k) == json.loads((IBX / f"E1/provenance/sim/{m}/{rep}.json").read_text())["key"].get(k)
-                                        for k in ("command", "seeds", "settings")),
+            "sim_record_key_equal": sim_key(lap_sim_rec) == sim_key(ibx_sim_rec),
+            "sim_record_key_equal_except_model_source": sim_key(lap_sim_rec, False) == sim_key(ibx_sim_rec, False),
             "truth_chromosomes_block_equal": lap_truth["chromosomes"] == truth["chromosomes"],
             "chromosomes_matching": n_ok, "chromosomes": len(truth["chromosomes"]),
         })

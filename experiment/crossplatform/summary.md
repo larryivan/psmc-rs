@@ -1,8 +1,8 @@
 # Cross-platform comparison: laptop vs Ibex (data for Supplementary Note 1, section 9)
 
-Computed on 2026-10-25 by the scripts of `scripts/` (`make_jobs.py`, `run_job.py`, `toolchain.py`, `inputs.py`, `compare.py`, `reports.py`, `make_summary.py`; README.md gives the order). The tiers of section 5 are those `scripts/tiers_2026-10-07.py` defined on 2026-10-07, before these runs.
+Computed by the scripts of `scripts/` (`make_jobs.py`, `run_job.py`, `toolchain.py`, `inputs.py`, `compare.py`, `reports.py`, `make_summary.py`; README.md gives the order) from the laptop's fits, which ran on 2026-10-25 (their records), and the production's results. The tiers of section 5 are those `scripts/tiers_2026-10-07.py` defined on 2026-10-07, before these runs.
 
-The Ibex fits compared are the production's, committed at cbab860c: its psmc-rs fits ran at 4b2c636f with a binary built from `src` dcf29ca, the sources the laptop built; its C psmc fits come from earlier jobs of the same C psmc binary, which did not change.
+The Ibex fits compared are the production's, committed at 392ef084: its psmc-rs fits ran at ae34d727 with a binary built from `src` dcf29ca, `Cargo.toml` 4813f6d and `Cargo.lock` ae10354, the sources the laptop built (the laptop's fits ran builds made earlier from `Cargo.toml` c0be5cf, which differ from builds of these sources only in their Mach-O UUID and code signature: section 1); its C psmc fits come from earlier jobs of the same C psmc binary, which did not change.
 
 ## Headline
 
@@ -17,25 +17,25 @@ The Ibex fits compared are the production's, committed at cbab860c: its psmc-rs 
 
 | | Laptop | Ibex (production) |
 |---|---|---|
-| CPU | Apple M1 Pro (arm64; 8 cores: 6 performance, 2 efficiency; 16 GB) | AMD EPYC 7702 (x86-64, Zen 2), as SN1 and E3's environment table give for the cluster's nodes; the fit records name the hosts (psmc-rs, E1 and NA12878: cn513-11-l, SLURM job 54256959, 41 fits; C psmc, E1: cn514-11-r, SLURM job 53386770, 40 fits) but not their CPU model |
+| CPU | Apple M1 Pro (arm64; 8 cores: 6 performance, 2 efficiency; 16 GB) | AMD EPYC 7702 (x86-64, Zen 2), as SN1 and E3's environment table give for the cluster's nodes; the fit records name the hosts (psmc-rs, E1 and NA12878: cn513-21-l, SLURM job 54629001, 41 fits; C psmc, E1: cn514-11-r, SLURM job 53386770, 40 fits) but not their CPU model |
 | OS | macOS 27.0 (26A428), Darwin 27.0.0, Apple libm | Linux x86-64 (E3's nodes: 5.14.0-427.20.1.el9_4, glibc 2.34; not recorded for the E1/E2 jobs) |
-| psmc-rs sources | `src` dcf29ca, `Cargo.toml` c0be5cf, `Cargo.lock` ae10354, clean (HEAD ac4fed5 for both builds) | the same three ids, clean (every E1/E2 fit-rs provenance record) |
+| psmc-rs sources | `src` dcf29ca, `Cargo.toml` 4813f6d, `Cargo.lock` ae10354, clean (HEAD 392ef08 for both builds; the builds that ran the fits: HEAD ac4fed5, `Cargo.toml` c0be5cf, the same `src` and `Cargo.lock`) | the same three ids, clean (every E1/E2 fit-rs provenance record) |
 | rustc | 1.97.1 (8bab26f4f 2026-07-14), LLVM 22.1.6, aarch64-apple-darwin — the default toolchain of `cargo build --release --locked`; control build: 1.99.0 (b940084d7 2026-09-28), LLVM 23.1.1 | 1.99.0 (b940084d7eb6), x86_64-unknown-linux-gnu |
 | build flags | release profile, no RUSTFLAGS / CARGO_*RUSTFLAGS, `.cargo/config.toml`: none; `rustc --print cfg` has `neon` | none (`rustflags` empty, `target_features: none`) |
 | HMM kernels (`simd` in the fit JSON) | `neon` (41/41 fits) | `avx2+fma` (41/41 fits) |
-| psmc-rs binary | `psmc-rs 0.2.0`, sha256 44d073c2… (rustc 1.97.1), 698e0976… (rustc 1.99.0); without the Mach-O UUID and the code signature, 0fd9e912… and 79eeea94… | `psmc-rs 0.2.0`, sha256 1d141b81… (also the binary of E3's timings) |
+| psmc-rs binary | `psmc-rs 0.2.0`, the builds that ran the fits, sha256 44d073c2… (rustc 1.97.1) and 698e0976… (rustc 1.99.0); the builds above, 64f96657… and 57770e76…; both without the Mach-O UUID and the code signature, 0fd9e912… and 79eeea94… | `psmc-rs 0.2.0`, sha256 1d141b81… (also the binary of E3's timings) |
 | C psmc | 0.6.5-r74-dirty, sha256 c40db274… (the frozen `.production` run, fits of 2026-10-06). Compiler and CFLAGS are in no provenance record. Its machine code (`__text`) is identical to the `psmc_O1` and `psmc_O` binaries beside it in `experiment/.tools/psmc_c` (so: -O1); the DWARF of the sibling ASan build names Apple clang version 21.0.0 (clang-2100.3.34.2); it contains 23 fused multiply-add instructions (in `psmc_update_hmm`, `hmm_forward`, `hmm_backward`, `hmm_expect`, `hmm_Q`, `hmm_Q0`, …), i.e. clang's default FP contraction was on | 0.6.5-r74-dirty, sha256 d5e0e160…, gcc 11.4.1 (Red Hat 11.4.1-3), `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function` (fits of 2026-10-07) |
 | threads | psmc-rs `--threads 1` (as recorded on Ibex); C psmc single-threaded | the same |
 
-The laptop binaries' whole-file sha256 depends on the target directory they were built in: rebuilt from the same sources by the same toolchain in another target directory, each differed in its Mach-O UUID (LC_UUID), and so in its ad-hoc code signature, and nowhere else. The sha256 with those bytes zeroed (`toolchain.txt`; `scripts/toolchain.py --digest <binary>` computes it) is the same for such a rebuild. Both still depend on the source paths a binary holds in its panic messages, under the builder's home directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build is not expected to reproduce either.
+The laptop binaries' whole-file sha256 depends on the target directory they were built in: rebuilt from the same sources by the same toolchain in another target directory, each differed in its Mach-O UUID (LC_UUID), and so in its ad-hoc code signature, and nowhere else. The sha256 with those bytes zeroed (`toolchain.txt`; `scripts/toolchain.py --digest <binary>` computes it) is the same for such a rebuild. Both still depend on the source paths a binary holds in its panic messages, under the builder's home directory (`~/.cargo`, `~/.rustup`), so another user's or machine's build is not expected to reproduce either. The builds that ran the laptop's fits, whose whole-file sha256 the records name (44d073c2… and 698e0976…), were made at ac4fed5 from `Cargo.toml` c0be5cf, which differs from the production's, 4813f6d, only in the `[package]` fields description, repository, readme, keywords, categories and include; made again at 392ef08 from the production's three ids, each reproduces the sha256 without the Mach-O UUID and the code signature of the build that ran the fits (0fd9e912… and 79eeea94…; `toolchain.txt`), not its whole-file sha256.
 
-psmc-rs wall time per E1 fit (not a controlled timing): laptop 40–48 s (4 jobs at once, `nice 19`); Ibex 52–77 s (the production's fits shared their node). NA12878: laptop 235 s, Ibex 394 s.
+psmc-rs wall time per E1 fit (not a controlled timing): laptop 40–48 s (4 jobs at once, `nice 19`); Ibex 73–78 s (the production's fits shared their node). NA12878: laptop 235 s, Ibex 425 s.
 
 ## 2. Inputs (step 1)
 
 - **E1 genomes: 40/40 byte-identical.** The SHA-256 of every laptop `genome.psmcfa` and `genome.vcf.gz` equals the one in the committed Ibex truth record (40/40 and 40/40) and in the Ibex sim provenance record (psmcfa 40/40, vcf.gz 40/40, tabix index 40/40).
 - **Per chromosome: 400/400 match.** Recomputed from the laptop files, each chromosome's heterozygous-position checksum (SHA-256 of the 0-based positions as little-endian int64, read from the VCF) equals the Ibex truth record's `het_positions_sha256`, and so do its counts (bins and heterozygous bins from the psmcfa; heterozygous and derived homozygous sites and the last heterozygous position from the VCF): 400/400.
-- **Fit inputs.** The psmcfa checksum each Ibex fit recorded as its input equals the laptop file's (40/40 psmc-rs, 40/40 C psmc). The laptop C fits read the same files: their records' input checksums equal them (40/40), their outputs still match their records (40/40) and the copies in `laptop_c/` (40/40), and their `.psmc` headers give the same n_seqs, sum_L and sum_n as Ibex's (40/40). The sim records' command, seeds and settings agree (40/40), and so do the truth records' chromosome blocks (40/40).
+- **Fit inputs.** The psmcfa checksum each Ibex fit recorded as its input equals the laptop file's (40/40 psmc-rs, 40/40 C psmc). The laptop C fits read the same files: their records' input checksums equal them (40/40), their outputs still match their records (40/40) and the copies in `laptop_c/` (40/40), and their `.psmc` headers give the same n_seqs, sum_L and sum_n as Ibex's (40/40). The sim records' command, seeds and settings agree (10/40; without the text naming the model's source, `settings.model.source`, which Ibex's records word differently, 40/40), and so do the truth records' chromosome blocks (40/40).
 - **NA12878** (`experiment/real_data/NA12878_1kGP30x_diploid.psmcfa.gz`, sha256 a9501bcc5082…) is the file both Ibex NA12878 fits read (yes).
 - The production's Ibex fits are the files their provenance records name (psmc-rs 41/41, C psmc 40/40).
 
@@ -107,7 +107,7 @@ Relative differences are |a − b| / |b| with Ibex as b. Δlog10 Ne is compared 
 
 ### 4.6 The tables, written again on the laptop (`reports.py`)
 
-E1, E2, E4 and E5's reports (`python -m experiment.pipeline report`) ran on the laptop on a copy of the committed runs directory, its tables removed, and wrote the 38 tables again; the committed ones are those the production's reports wrote on Ibex (cn513-11-l, SLURM job 54256959), and each report's identity on the laptop (the digest of its code, Python's and the packages' versions) is that of its Ibex record (4/4). `reports_laptop_vs_ibex.csv` compares them cell by cell:
+E1, E2, E4 and E5's reports (`python -m experiment.pipeline report`) ran on the laptop on a copy of the committed runs directory, its tables removed, and wrote the 38 tables again; the committed ones are those the production's reports wrote on Ibex (cn513-21-l, SLURM job 54629001), and each report's identity on the laptop (the digest of its code, Python's and the packages' versions) is that of its Ibex record (4/4). `reports_laptop_vs_ibex.csv` compares them cell by cell:
 
 - 16/38 tables byte-identical, all 38 with the same rows and columns; 7716 of 295344 cells differ, none of them text (0).
 - Every value of magnitude 1e-3 or more agrees to a relative 2.5e-13 at most; smaller values to 8.9e-16 absolute.
@@ -166,7 +166,7 @@ The same sources built on the laptop by rustc 1.99.0 (b940084d7 2026-09-28, the 
 - `rs_laptop_rustc1.99_vs_ibex.csv`, `control_rustc1.99_vs_rustc1.97_laptop.csv`, `control_repeat_laptop.csv`: the controls
 - `runs-rustc1.99/`, `runs-repeat/`: the controls' fits (41 by the rustc 1.99.0 build, byte-identical to `runs/`; 2 by the same binary run again); `jobs_rustc1.99.json`, `jobs_repeat.json`: their job lists; `records-rustc1.99/`, `records-repeat/`: their records
 - `reports_laptop_vs_ibex.csv`, `reports.json`: the tables written again on the laptop, table by table (section 4.6)
-- `summary.json`: every number above; `toolchain.txt`: the laptop, its two rustc builds, the binaries' checksums and the C psmc binary's forensics
+- `summary.json`: every number above; `toolchain.txt`: the laptop, its two rustc builds, the binaries' checksums, the builds that ran the fits and the C psmc binary's forensics
 - `jobs.json`: the Ibex and the laptop command of each job
 - `runs/`: the laptop psmc-rs fits (JSON and `.psmc`); `records/`: one record per laptop run (command, checksums, exit status, times)
 - `laptop_c/`: the laptop C psmc fits compared here, copied from the frozen laptop run `experiment/.production` (not in the repository)

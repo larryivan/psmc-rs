@@ -1,10 +1,14 @@
-"""Write toolchain.txt: the laptop, the two psmc-rs builds that ran, and the laptop C psmc binary's forensics.
+"""Write toolchain.txt: the laptop, the two psmc-rs builds, the builds that ran the fits, and the laptop C psmc binary's forensics.
 
-Usage: toolchain.py [--built-at COMMIT]
+Usage: toolchain.py [--built-at COMMIT] [--fits-built-in COMMIT]
            after the builds, with bin/psmc-rs from the default toolchain and bin/psmc-rs-rustc1.99
            from rustc 1.99.0, both `cargo build --release --locked`. "git HEAD" is the commit the
            builds were made at: HEAD, or COMMIT when run again later (its src, Cargo.toml and
            Cargo.lock must be HEAD's).
+           The records (records/, records-rustc1.99/, records-repeat/) name the binary that ran each
+           fit by its whole-file sha256. When that is not these builds' (the fits ran an earlier build),
+           --fits-built-in names the commit whose toolchain.txt describes the build that ran them;
+           its digest without LC_UUID and code signature must be this build's.
        toolchain.py --digest FILE...
            prints each binary's digest without LC_UUID and code signature (below), to check a rebuild.
 Paths are written as <repo> (this repository) and <xplat> (this directory).
@@ -18,17 +22,20 @@ messages, under the builder's home directory (~/.cargo, ~/.rustup): another user
 machine's build is not expected to reproduce either.
 """
 import hashlib
+import json
 import os
 import re
 import struct
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]  # the repository root
 X = Path(__file__).resolve().parent.parent
 C_TOOLS = REPO / "experiment/.tools/psmc_c"  # the laptop's C psmc builds (not in the repository)
 BUILDS = (("bin/psmc-rs", None), ("bin/psmc-rs-rustc1.99", "+1.99"))
+RECORDS = ("records", "records-rustc1.99", "records-repeat")
 
 
 def run(*cmd, cwd=REPO):
@@ -64,6 +71,7 @@ if sys.argv[1:2] == ["--digest"]:
         print(f"{digest(Path(f))}  {f}")
     sys.exit(0)
 built_at = sys.argv[sys.argv.index("--built-at") + 1] if "--built-at" in sys.argv else "HEAD"
+fits_in = sys.argv[sys.argv.index("--fits-built-in") + 1] if "--fits-built-in" in sys.argv else None
 TREES = ("src", "Cargo.toml", "Cargo.lock")
 assert all(run("git", "rev-parse", f"{built_at}:{t}") == run("git", "rev-parse", f"HEAD:{t}") for t in TREES), \
     f"{built_at}'s sources are not HEAD's"
@@ -97,6 +105,44 @@ for path, tc in BUILDS:
     w(run(str(b), "--version"))
     feats = re.findall(r'target_feature="[^"]+"', run("rustc", *tcargs, "--print", "cfg"))
     w("rustc --print cfg target_feature: " + " ".join(feats))
+
+# The builds that ran the fits: the binary each record names by its whole-file sha256. A build that
+# is not this one is looked up in the toolchain.txt of --fits-built-in, written from that binary;
+# it must equal this build without LC_UUID and code signature. (Source ids are written here as
+# "src <id>", not "src=<id>", which names this build's.)
+ran = {}
+for d in RECORDS:
+    for p in sorted((X / d).glob("*.json")):
+        rec = json.loads(p.read_text())
+        ran.setdefault(rec["command"][0], {}).setdefault(rec["binary_sha256"], Counter())[d] += 1
+old = None
+if fits_in:
+    fits_in = run("git", "rev-parse", fits_in)
+    old = dict(re.findall(r"== (.+?)\n(.*?)(?=\n== |\Z)",
+                          run("git", "show", f"{fits_in}:{(X / 'toolchain.txt').relative_to(REPO)}"), re.S))
+w("")
+w("== the builds that ran the fits (binary_sha256 of " + ", ".join(f"{d}/" for d in RECORDS) + ")")
+for path, tc in BUILDS:
+    b = X / path
+    for s, where in ran.pop(f"<xplat>/{path}", {}).items():
+        line = f"<xplat>/{path} ({', '.join(f'{d}/ {n}' for d, n in where.items())} runs): sha256 {s}"
+        if s == sha(b):
+            w(f"{line}, this build")
+            continue
+        assert old, f"the records name <xplat>/{path} {s}, not this build: --fits-built-in names where it was built"
+        ob = next(v for k, v in old.items() if k.startswith(f"build <xplat>/{path}:"))
+        ol = old["laptop"]
+        assert re.search(r"^([0-9a-f]{64})  ", ob, re.M).group(1) == s, f"{fits_in[:8]}'s toolchain.txt names another {path}"
+        od = re.search(r"^sha256 without LC_UUID and code signature: ([0-9a-f]{64})  ", ob, re.M).group(1)
+        orustc = re.search(r"^rustc (.+)$", ob, re.M).group(1)
+        assert orustc == run("rustc", *([tc] if tc else []), "-V").removeprefix("rustc "), (path, orustc)
+        if od != digest(b):
+            sys.exit(f"{path}: the fits' build ({od[:12]}) differs from this one ({digest(b)[:12]}) beyond LC_UUID and code signature")
+        oids = " ".join(f"{k} {v}" for k, v in re.findall(r"(src|Cargo\.toml|Cargo\.lock)=([0-9a-f]+)", ol))
+        w(f"{line}, built at {re.search(r'git HEAD ([0-9a-f]+)', ol).group(1)} from {oids} by rustc {orustc}"
+          f" (toolchain.txt at {fits_in})")
+        w(f"  sha256 without LC_UUID and code signature: {od}, this build's")
+assert not ran, f"records of other binaries: {sorted(ran)}"
 w("")
 w("== laptop C psmc (frozen .production run)")
 w(f"{sha(C_TOOLS / 'psmc')}  experiment/.tools/psmc_c/psmc")

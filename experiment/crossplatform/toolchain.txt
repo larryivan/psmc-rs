@@ -6,8 +6,8 @@ ProductVersion:		27.0
 BuildVersion:		26A428
 Darwin 27.0.0 Darwin Kernel Version 27.0.0: Tue Aug 11 21:22:49 PDT 2026; root:xnu-13432.1.9~1/RELEASE_ARM64_T6000 arm64
 
-git HEAD ac4fed5dcca8ba9c8ae585f405e2521664086478
-src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910 Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52 dirty_files=0
+git HEAD 392ef084095e26589de96e90508341b6a556a40f
+src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910 Cargo.toml=4813f6d5c9a9814cd740aec27b80fc20f2c44c45 Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52 dirty_files=0
 RUSTFLAGS='' CARGO_ENCODED_RUSTFLAGS='' CARGO_BUILD_RUSTFLAGS=''
 .cargo/config.toml: none
 
@@ -20,7 +20,7 @@ host: aarch64-apple-darwin
 release: 1.97.1
 LLVM version: 22.1.6
 cargo 1.97.1 (c980f4866 2026-06-30)
-44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5  <xplat>/bin/psmc-rs
+64f966574e95bdb6cd48d9e0c5c7c393d723d8171e63466de4c69030f1c653a3  <xplat>/bin/psmc-rs
 sha256 without LC_UUID and code signature: 0fd9e91263c564fedab68719a8e623127190959fef159c90b0bc216699e1616b  <xplat>/bin/psmc-rs
 psmc-rs 0.2.0
 rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh"
@@ -34,10 +34,16 @@ host: aarch64-apple-darwin
 release: 1.99.0
 LLVM version: 23.1.1
 cargo 1.99.0 (5f94df478 2026-08-27)
-698e09766beba028ff6f92e8fe0b867abf895a06caa93c99dfdbc148dfb3a3dd  <xplat>/bin/psmc-rs-rustc1.99
+57770e76dadf599b8764a7687cfebc5d025aa3d3e2a5c25cd620244f9b0ca21d  <xplat>/bin/psmc-rs-rustc1.99
 sha256 without LC_UUID and code signature: 79eeea94ff496b2014c076fd64aa27548a5c47de38aa52b825fe3d5dbe2325d3  <xplat>/bin/psmc-rs-rustc1.99
 psmc-rs 0.2.0
 rustc --print cfg target_feature: target_feature="aes" target_feature="crc" target_feature="dit" target_feature="dotprod" target_feature="dpb" target_feature="dpb2" target_feature="fcma" target_feature="fhm" target_feature="flagm" target_feature="fp16" target_feature="frintts" target_feature="jsconv" target_feature="lor" target_feature="lse" target_feature="neon" target_feature="paca" target_feature="pacg" target_feature="pan" target_feature="pmuv3" target_feature="ras" target_feature="rcpc" target_feature="rcpc2" target_feature="rdm" target_feature="sb" target_feature="sha2" target_feature="sha3" target_feature="ssbs" target_feature="vh"
+
+== the builds that ran the fits (binary_sha256 of records/, records-rustc1.99/, records-repeat/)
+<xplat>/bin/psmc-rs (records/ 41, records-repeat/ 2 runs): sha256 44d073c26da977575b2119d6e1d03ebb9366de94cfcaef522f076e832376fca5, built at ac4fed5dcca8ba9c8ae585f405e2521664086478 from src dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910 Cargo.toml c0be5cf5c9a2940d097dab6f96ac72fb22148f5e Cargo.lock ae1035481aaffb2f33a00505ec0a8d7ea037ed52 by rustc 1.97.1 (8bab26f4f 2026-07-14) (toolchain.txt at 91ffaf096db142193435ebc7ba133cddbd9892a3)
+  sha256 without LC_UUID and code signature: 0fd9e91263c564fedab68719a8e623127190959fef159c90b0bc216699e1616b, this build's
+<xplat>/bin/psmc-rs-rustc1.99 (records-rustc1.99/ 41 runs): sha256 698e09766beba028ff6f92e8fe0b867abf895a06caa93c99dfdbc148dfb3a3dd, built at ac4fed5dcca8ba9c8ae585f405e2521664086478 from src dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910 Cargo.toml c0be5cf5c9a2940d097dab6f96ac72fb22148f5e Cargo.lock ae1035481aaffb2f33a00505ec0a8d7ea037ed52 by rustc 1.99.0 (b940084d7 2026-09-28) (toolchain.txt at 91ffaf096db142193435ebc7ba133cddbd9892a3)
+  sha256 without LC_UUID and code signature: 79eeea94ff496b2014c076fd64aa27548a5c47de38aa52b825fe3d5dbe2325d3, this build's
 
 == laptop C psmc (frozen .production run)
 c40db27485dcddd63a1a2dc2dd8997e549fe2d68bcdfcc0ca53d06810b38d4c6  experiment/.tools/psmc_c/psmc
