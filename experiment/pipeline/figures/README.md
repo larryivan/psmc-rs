@@ -348,8 +348,8 @@ $PY -m experiment.pipeline start E7 FIG --cores 50 --mem-gb 64               # a
 
 On fewer than 50 cores E2's bootstraps never start, nor its report, nor the
 figures that read its tables. One job per figure (16), of a few seconds
-each (1 core, 0.1-0.4 GB peak; about half a CPU minute in all: 16 figures
-in 8 s on a laptop, 35 CPU seconds), none exclusive; `plan` counts 20 s
+each (1 core, 0.1-0.6 GB peak; about half a CPU minute in all: 16 figures
+in 7 s on a laptop, 31 CPU seconds), none exclusive; `plan` counts 20 s
 and 1 GB each (`config.FIGURES.job_seconds`, `job_gb`).
 `fig4_performance` and `figS4_thread_scaling` read only E3's tables and
 run at the first `start` after E3; the five that read E7's tables,

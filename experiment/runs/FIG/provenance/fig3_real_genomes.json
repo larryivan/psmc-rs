@@ -181,7 +181,7 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-27T12:04:39",
+    "end": "2026-10-27T12:14:55",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -189,22 +189,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      1.26,
-      2.03,
-      2.61
+      1.45,
+      1.9,
+      2.25
     ],
     "loadavg_before": [
-      1.26,
-      2.03,
-      2.61
+      1.45,
+      1.9,
+      2.25
     ],
-    "maxrss_main_mb": 186.2,
+    "maxrss_main_mb": 186.3,
     "mem_gb": 1.0,
-    "peak_rss_mb": 186.2,
-    "peak_rss_tree_sampled_mb": 185.1,
-    "start": "2026-10-27T12:04:36",
-    "system_seconds": 0.156,
-    "user_seconds": 2.062,
-    "wall_seconds": 2.357
+    "peak_rss_mb": 186.3,
+    "peak_rss_tree_sampled_mb": 185.3,
+    "start": "2026-10-27T12:14:52",
+    "system_seconds": 0.162,
+    "user_seconds": 2.169,
+    "wall_seconds": 2.488
   }
 }

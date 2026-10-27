@@ -96,7 +96,7 @@ def fmt_time(seconds: float) -> str:
 
 
 def fmt_fold(x: float) -> str:
-    """A fold change: 12.6×, 13.9×, 384×, with one decimal below 100 as the text gives them."""
+    """A fold change: 13.9×, 14.1×, 384×, with one decimal below 100 as the text gives them."""
     return f"{x:.1f}{style.TIMES}" if x < 100 else f"{x:,.0f}{style.TIMES}"
 
 
@@ -106,7 +106,7 @@ def _fmt_value(v: float) -> str:
 
 
 def _fmt_median(v: float) -> str:
-    """A median of c, with one decimal as the text's macros print them (92.1); three figures below 10 (7.28)."""
+    """A median of c, with one decimal as the text's macros print them (88.0); three figures below 10 (6.22)."""
     return f"{v:,.1f}" if v >= 10 else f"{v:.3g}"
 
 

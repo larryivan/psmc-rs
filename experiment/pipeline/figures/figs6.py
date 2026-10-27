@@ -28,7 +28,7 @@ time; psmc-rs's bootstrap (a main fit and ``config.E7.bootstrap_replicates``
 replicates per run, on ``config.E7.bootstrap_threads`` threads; 3 runs) by
 its median wall time times its threads over its fits, the core time of one
 of its fits. C psmc ran on the default set; on one thread psmc-rs fits a
-psmcfa about 12.6 times faster (the bar gives the ratio, of C psmc's
+psmcfa about 14.1 times faster (the bar gives the ratio, of C psmc's
 median over the default set to psmc-rs's over every genome). The note
 under the legend gives NA12878's heterozygous SNVs against GIAB HG001
 v4.2.1 inside the strict mask and GIAB's confident regions.
