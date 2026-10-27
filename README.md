@@ -727,7 +727,7 @@ single long sequence runs on one thread, and t threads are up to t times
 as fast only on at least t sequences of similar length. The threads left
 without a sequence add no CPU time: in E3 (below), 25 EM iterations on
 one simulated 100 Mb chromosome (1 M bins) took a median 10.3 to 10.5 s
-of CPU time and 10.45 to 10.98 s of wall time on 1, 8 or 30 threads of
+of CPU time and 10.46 to 10.97 s of wall time on 1, 8 or 30 threads of
 an AMD EPYC 7702 alone on its node.
 
 Measured on the inputs in `experiment/real_data` with pattern
@@ -752,13 +752,13 @@ resident set below that. C psmc is single-threaded. The JSON outputs at
 
 The manuscript's experiment E3 timed the tools under a controlled protocol
 on AMD EPYC 7702 nodes of KAUST's Ibex cluster: each run alone on an
-exclusive node, 5 repeats on five nodes, 25 EM iterations of
+exclusive node, 5 repeats on four nodes, 25 EM iterations of
 `-N25 -t15 -r5 -p "4+25*2+4+6"` on simulated genomes of 100 Mb
 chromosomes, C psmc built by gcc with `-O3 -march=x86-64-v3`. On 3000 Mb
-(30 chromosomes) psmc-rs took a median 318 s on 1 thread, 22.5 s on 16
-and 11.5 s on 30, against 4,425 s for C psmc: 13.9, 197 and 384 times as
+(30 chromosomes) psmc-rs took a median 317 s on 1 thread, 22.5 s on 16
+and 11.5 s on 30, against 4,456 s for C psmc: 14.1, 198 and 386 times as
 fast (13.9 to 14.2 times on 1 thread at every size). It peaked at 36 MB
-of resident memory on 1 thread and 149 MB on 30, C psmc at 1,063 MB. Every
+of resident memory on 1 thread and 148 MB on 30, C psmc at 1,062 MB. Every
 size and thread count, the ranges over the repeats, the thread scaling
 and the outputs' determinism are in
 [Supplementary Note 1, section 10](experiment/Supplementary_Note_1_Reproducibility.md#10-performance-e3).
