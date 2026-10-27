@@ -21,8 +21,8 @@ decompression to E7's chr21 files and QC rows (`identical_to_e7`).
 
 The job ran `pilot.py` on an archive of commit 4b2c636f (the production's
 `src/` and `Cargo.lock`; its `Cargo.toml`, c0be5cf, lacks the package
-metadata of 4813f6d5, the `Cargo.toml` that the psmc-rs records of E1,
-E2 and E4 to E7 name) holding the production's binary as
+metadata of 4813f6d5, the `Cargo.toml` that the psmc-rs provenance
+records of E1 to E7 name) holding the production's binary as
 `target/release/psmc-rs`, with `PY` as `experiment/slurm/env.sh` sets it,
 `I=<runs>/E7/inputs`, `LOCAL_TMP` node-local scratch for the 26.1 GB
 download and `SPLIT` the directory of the split route's files, which
