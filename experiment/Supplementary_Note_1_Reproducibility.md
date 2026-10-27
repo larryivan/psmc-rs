@@ -36,7 +36,7 @@ production runs of E1 to E7 and FIG:
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (`runs/FIG/figures/`: the article's Fig 1, `art1_agreement`, and the software's schematic, `fig1_workflow`, which the article leaves out) |
 | E7's inputs, every file its jobs read (about 21 GB): one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs, the callable and non-PASS masks, the per-sample QC table and GIAB's NA12878 benchmark | to be deposited on Zenodo, not in the repository (`runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000` in a runs directory without the stage's committed records, section 5) |
-| E7's data stage: its sample table and chunk plan (`samples.tsv`, `chunks.tsv`, which E7's job graph reads), `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the default genomes' conversions redone with the production's psmc-rs | `runs/E7/inputs/{samples.tsv,chunks.tsv,MANIFEST.json}`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
+| E7's data stage: its sample table and chunk plan (`samples.tsv`, `chunks.tsv`, which E7's job graph reads), `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the default genomes' conversions redone with the production's binary | `runs/E7/inputs/{samples.tsv,chunks.tsv,MANIFEST.json}`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
 | the analyses outside the pipeline, each with its scripts, results and README: the cross-platform comparison (section 9) and the diagnostic of the residual difference from C psmc (variants of psmc-rs, as a patch, and their fits of E1's genomes) | `experiment/crossplatform/`, `experiment/c_equivalence/` |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
@@ -216,33 +216,32 @@ stage's `records/`, and the stage skips every step whose record exists, so
 done). Run by hand, `python -m experiment.pipeline.kg1000` needs the same,
 or a new runs directory (`--runs-dir`).
 
-The production ran in two `prod` jobs of commit 4b2c636. The first
-(SLURM job 54256959, on node cn513-11-l on 22 and 23 October 2026; 5 hours
-53 minutes) ran every job whose key the code had changed: the psmc-rs
-fits, bootstraps, conversions, decoding and QC of E1, E2 and E4 to E6,
-E4's cross-checks, and the reports of E1, E2, E4 and E5. The second
-(54555780, on node cn514-10-l on 25 and 26 October) ran every fit and
+The production ran in two `prod` jobs of commit ae34d72. The first
+(SLURM job 54629001, on node cn513-21-l on 27 October 2026; 1 hour
+6 minutes) ran the simulations and the psmc-rs fits, bootstraps,
+conversions, decoding and QC of E1, E2 and E4 to E6, E4's masks and
+consensus calls, and the reports of E1, E2 and E4 to E6. The second
+(54634918, on node cn514-11-r the same day) ran every fit and
 bootstrap of E7, C psmc's and psmc-rs's together, so that their times
-compare like for like, and E7's report. The jobs whose keys had not
-changed were kept from earlier jobs: the C psmc fits of E1 and the
-turtles (53386770, commit 34f2b00), that of NA12878 (53452276, commit
-d338500), and the simulations, E4's masks, consensus calls and bins, E6's
-reports and S3's true TMRCA and E7's GIAB comparison (54211974 and
-54232546, two `prod` jobs of 22 October). From the jobs' provenance
+compare like for like, E7's GIAB comparison and its report. The jobs
+whose keys had not changed were kept from earlier jobs: the C psmc fits
+of E1 and the turtles (53386770, commit 34f2b00), that of NA12878
+(53452276, commit d338500), and E4's bins and cross-checks (54232546 and
+54256959, `prod` jobs of 22 and 23 October). From the jobs' provenance
 records, in CPU hours (user and system time):
 
 | experiment | jobs | CPU hours | made in |
 | --- | --- | --- | --- |
-| E1 | 121 | 12.3 | 41 in 54256959; C psmc fits 53386770; simulations 54211974 |
-| E2 | 23 | 36.1 | 19 in 54256959; C psmc fits 53386770 (turtles) and 53452276 (NA12878) |
+| E1 | 121 | 12.4 | 81 in 54629001; C psmc fits 53386770 |
+| E2 | 23 | 41.4 | 19 in 54629001; C psmc fits 53386770 (turtles) and 53452276 (NA12878) |
 | E3 | 100 | 13.0 (12.3 the tools' own in the 95 timed runs, `cpu_seconds` in `E3_runs.csv`; 0.47 the `measure` wrapper around them; 0.19 the simulations) | five exclusive nodes, 54256961 to 54256965 (section 10; report: 54528410) |
-| E4 | 286 | 2.7 | 206 in 54256959; simulations, masks, consensus calls and bins (80) 54232546 |
-| E5 | 121 | 11.2 | 71 in 54256959; simulations 54211974 (13) and 54232546 (37) |
-| E6 | 21 | 0.2 | 17 in 54256959; S3's truth 54211974; reports 54232546 |
-| E7 | 2,639 | 418.1 | 2,638 in 54555780; GIAB comparison 54232546 |
+| E4 | 286 | 3.4 | 256 in 54629001; bins 54232546 (25); cross-checks 54256959 (5) |
+| E5 | 121 | 12.2 | 121 in 54629001 |
+| E6 | 21 | 0.2 | 21 in 54629001 |
+| E7 | 2,639 | 358.1 | 2,639 in 54634918 |
 
 The fits of each `prod` job shared their node with one another (1-minute
-load averages of 14 to 81 in 54256959 and 63 to 136 in 54555780, and of 5
+load averages of 68 to 134 in 54629001 and 55 to 168 in 54634918, and of 5
 to 71 and 37 for the C psmc fits of 53386770 and 53452276, when they
 started), so these are costs, not timings, though E7's two programs,
 sharing one node in one job, compare with each other like for like; E3
@@ -250,7 +249,7 @@ measures performance (section 10). E7's data stage ran on 7 and 8 October
 2026, as SLURM jobs of `kg1000`'s steps, and read 1.68 TB of VCFs (each
 step's host and job are in `runs/E7/inputs/records/`, the sources and
 checks in `MANIFEST.json`). Its conversions ran psmc-rs from `src/`
-4c0d777 (`MANIFEST.json`); the production's psmc-rs writes the same
+4c0d777 (`MANIFEST.json`); the production's binary writes the same
 content: converting with the stage's command, chromosome by chromosome,
 the per-sample VCFs the stage kept (those of the 52 default genomes) gave
 1,144 of 1,144 chromosome files and 52 of 52 genomes identical to E7's
@@ -284,11 +283,11 @@ holds what determines the outputs:
 The record then adds the SHA-256 of every output and how the job ran: host,
 SLURM job, cores, wall, user and system time, peak resident memory, load
 average and the SHA-256 of the executables it ran. Every psmc-rs 0.2 job
-of the production, E1 to E7 (3,009 records), ran a build of the same
-sources (the `src/` tree dcf29ca, `Cargo.toml` c0be5cf and `Cargo.lock`
-ae10354, which commit 3969ebb and every later commit up to the tag
-`v0.2.0` share, without uncommitted changes), made by rustc 1.99.0
-without build flags, and the JSON of every fit and of every bootstrap
+of the production of E1, E2 and E4 to E7 (2,930 records) ran a build of
+the same sources (the `src/` tree dcf29ca, `Cargo.toml` 4813f6d and
+`Cargo.lock` ae10354, which commit 7ba2839 and every later commit up to
+the tag `v0.2.0` share, without uncommitted changes), made by rustc
+1.99.0 without build flags. The JSON of every fit and of every bootstrap
 run's main fit records the HMM kernels that ran (`simd`: `avx2+fma` in all
 2,918; section 8).
 
@@ -397,8 +396,9 @@ two builds of it differ is part of section 9.
 
 The production of section 5 ran on Ibex (x86-64). To measure how much its
 results depend on the platform, its 40 E1 genomes and NA12878 were fitted
-again with psmc-rs on the development laptop, built from the sources of
-the production's psmc-rs fits (the `src/` tree dcf29ca) and run with the
+again with psmc-rs on the development laptop, built from the `src/` tree
+and `Cargo.lock` of the production's psmc-rs fits (dcf29ca and ae10354)
+and run with the
 production's commands (only the paths changed), and the laptop's C psmc
 fits of the same 40 genomes, from an earlier laptop run, were compared
 with Ibex's, made by the same C psmc binary as every C psmc fit of the
@@ -408,7 +408,7 @@ production (section 5). The scripts, tables and laptop fits are in
 | | laptop | Ibex (production) |
 | --- | --- | --- |
 | CPU and system | Apple M1 Pro (arm64), macOS 27.0, Apple's math library | AMD EPYC 7702 (x86-64), Linux, glibc 2.34 |
-| psmc-rs | the same sources (`src/` dcf29ca, no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
+| psmc-rs | the same `src/` tree and `Cargo.lock` (dcf29ca, ae10354; no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
 | C psmc | lh3/psmc 0.6.5-r74, the laptop's `-O1` build by Apple clang, which fuses multiply-adds (identified by its machine code; it has no build record) | gcc 11.4.1, `-O3 -march=x86-64-v3 -ffp-contract=off` (section 7) |
 
 **Inputs.** The laptop's 40 E1 genomes were byte-identical to Ibex's
