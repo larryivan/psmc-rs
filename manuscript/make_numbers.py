@@ -423,11 +423,18 @@ def crossplatform() -> None:
     """The laptop (arm64) against the production (x86-64): experiment/crossplatform, Supplementary Note 1 section 9."""
     xp = ROOT / "experiment" / "crossplatform"
     rs = pd.read_csv(xp / "rs_laptop_vs_ibex.csv")
-    laptop = dict(re.findall(r"(src|Cargo\.toml|Cargo\.lock)=([0-9a-f]+)", (xp / "toolchain.txt").read_text()))
+    toolchain = (xp / "toolchain.txt").read_text()
+    laptop = dict(re.findall(r"(src|Cargo\.toml|Cargo\.lock)=([0-9a-f]+)", toolchain))  # the rebuild's sources
     ibex = {json.loads((RUNS / j["ibex_record"].removeprefix("experiment/runs/")).read_text())["key"]["tools"]["psmc-rs-0.2"]["source_tree"]
             for j in json.loads((xp / "jobs.json").read_text())}
-    assert ibex == {";".join(f"{k}={v}" for k, v in laptop.items())} and "dirty_files=0" in (xp / "toolchain.txt").read_text(), \
-        "the text says the laptop refitted from the production's sources"
+    assert ibex == {";".join(f"{k}={v}" for k, v in laptop.items())} and "dirty_files=0" in toolchain, \
+        "the laptop's rebuild is of the production's sources"
+    # The builds that ran the laptop's fits: what the binary is built from (src/, Cargo.lock) is the production's, and
+    # each one's digest without Mach-O UUID and code signature is the rebuild's.
+    fits = re.findall(r"from src ([0-9a-f]+) Cargo\.toml [0-9a-f]+ Cargo\.lock ([0-9a-f]+)", toolchain)
+    same = re.findall(r"sha256 without LC_UUID and code signature: [0-9a-f]+, this build's", toolchain)
+    assert fits and len(same) == len(fits) and all(f"src={s};" in t and t.endswith(f"Cargo.lock={lk}") for s, lk in fits
+                                                   for t in ibex), "the text says the laptop refitted from the production's sources"
     assert len(rs) == P.e1.replicates * len(P.e1.models) + 1 and set(rs.exp) == {"E1", "E2"}, "E1's genomes and NA12878"
     side = pd.read_csv(xp / "side_by_side_E1.csv")
     assert (side.rmse_window_rs_laptop_vs_ibex < side.rmse_window_c_laptop_vs_ibex).all(), \

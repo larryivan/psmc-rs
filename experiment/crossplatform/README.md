@@ -52,7 +52,9 @@ simulated genomes and C psmc fits from a frozen laptop run,
 `experiment/.production` (not in the repository; the C fits it compared
 are copied to `laptop_c/`, and `compare.py` checks the copies);
 `toolchain.py` also reads the laptop's C psmc builds in
-`experiment/.tools/psmc_c`, and the binary each record names. `runs/`
+`experiment/.tools/psmc_c`, and the binary sha256 each record names,
+which it looks up in the `toolchain.txt` of the commit `--fits-built-in`
+gives. `runs/`
 holds the laptop's psmc-rs fits and `records/` one record per laptop run;
 the two controls' fits are in `runs-rustc1.99/` and `runs-repeat/`, their
 job lists in `jobs_rustc1.99.json` and `jobs_repeat.json` and their
