@@ -338,7 +338,10 @@ def e7_data_stage() -> None:
     # The chr21 pilot redone with the production's psmc-rs (MANIFEST's pilot ran the data stage's build, src 4c0d777).
     pilot = json.loads((ROOT / "experiment" / "e7_pilot" / "pilot_chr21.json").read_text())
     prod = json.loads((RUNS / "E1" / "provenance" / "fit-rs" / "bottleneck" / "rep01.json").read_text())
-    assert pilot["psmc-rs"]["source_tree"] == prod["key"]["tools"]["psmc-rs-0.2"]["source_tree"], "the pilot ran the production's psmc-rs"
+    # What the binary is built from (Cargo.toml's package metadata, which the pilot's checkout predates, is not).
+    built = lambda tree: {k: v for k, v in (kv.split("=") for kv in tree.split(";")) if k != "Cargo.toml"}  # noqa: E731
+    assert built(pilot["psmc-rs"]["source_tree"]) == built(prod["key"]["tools"]["psmc-rs-0.2"]["source_tree"]), \
+        "the pilot ran the production's psmc-rs"
     assert pilot["psmc-rs"]["binary_sha256"] in prod["run"]["executables"].values(), "the pilot ran the production's binary"
     assert pilot["identical"] and all(s["psmcfa_identical"] and not s["qc_fields_differing"] for s in pilot["samples"]), \
         "the text says the pilot's direct conversion gave byte-identical files"
