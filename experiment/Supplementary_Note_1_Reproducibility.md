@@ -217,22 +217,23 @@ done). Run by hand, `python -m experiment.pipeline.kg1000` needs the same,
 or a new runs directory (`--runs-dir`).
 
 The production ran in two `prod` jobs and five `e3` jobs of commit
-ae34d72. The first `prod` job (SLURM job 54629001, on node cn513-21-l on
-27 October 2026; 1 hour 6 minutes) ran the simulations and the psmc-rs
-fits, bootstraps, conversions, decoding and QC of E1, E2 and E4 to E6,
-E4's masks and consensus calls, S3's true TMRCA, and the reports of E1,
-E2 and E4 to E6. The second (54634918, on node cn514-11-r the same day)
-ran every fit and bootstrap of E7, C psmc's and psmc-rs's together, so
-that their times compare like for like, E7's GIAB comparison and its
-report. The `e3` jobs (54629002 to 54629006, the same day; 2 hours
-8 minutes each, and 2 hours 17 minutes for repeat 5's, which also made
-E3's simulations) timed E3's five repeats, each on an exclusive node
-(section 10), and the `e3-report` job 54677793 wrote E3's tables. The
-jobs whose keys had not changed were kept from earlier jobs: the C psmc
-fits of E1 and the turtles (53386770, commit 34f2b00), that of NA12878
-(53452276, commit d338500), and E4's bins and cross-checks (54232546 and
-54256959, `prod` jobs of 22 and 23 October). From the jobs' provenance
-records, in CPU hours (user and system time):
+ae34d72, and an `e3-report` job. The first `prod` job (SLURM job 54629001,
+on node cn513-21-l on 27 October 2026; 1 hour 6 minutes) ran the
+simulations and the psmc-rs fits, bootstraps, conversions, decoding and QC
+of E1, E2 and E4 to E6, E4's masks and consensus calls, S3's true TMRCA,
+and the reports of E1, E2 and E4 to E6. The second (54634918, on node
+cn514-11-r the same day) ran every fit and bootstrap of E7, C psmc's and
+psmc-rs's together, so that their times compare like for like, E7's GIAB
+comparison and its report. The `e3` jobs (54629002 to 54629006, the same
+day) each simulated E3's genomes (the committed simulation records are
+repeat 5's, the copy `merge_e3.sh` keeps) and timed one repeat's 19 runs
+on an exclusive node, in 2 hours 8 to 9 minutes from the first run's start
+to the last's end (section 10), and the `e3-report` job 54677793 wrote
+E3's tables. The jobs whose keys had not changed were kept from earlier
+jobs: the C psmc fits of E1 and the turtles (53386770, commit 34f2b00),
+that of NA12878 (53452276, commit d338500), and E4's bins and cross-checks
+(54232546 and 54256959, `prod` jobs of 22 and 23 October). From the jobs'
+provenance records, in CPU hours (user and system time):
 
 | experiment | jobs | CPU hours | made in |
 | --- | --- | --- | --- |
