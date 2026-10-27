@@ -216,17 +216,20 @@ stage's `records/`, and the stage skips every step whose record exists, so
 done). Run by hand, `python -m experiment.pipeline.kg1000` needs the same,
 or a new runs directory (`--runs-dir`).
 
-The production ran in two `prod` jobs of commit ae34d72. The first
-(SLURM job 54629001, on node cn513-21-l on 27 October 2026; 1 hour
-6 minutes) ran the simulations and the psmc-rs fits, bootstraps,
-conversions, decoding and QC of E1, E2 and E4 to E6, E4's masks and
-consensus calls, S3's true TMRCA, and the reports of E1, E2 and E4 to E6.
-The second
-(54634918, on node cn514-11-r the same day) ran every fit and
-bootstrap of E7, C psmc's and psmc-rs's together, so that their times
-compare like for like, E7's GIAB comparison and its report. The jobs
-whose keys had not changed were kept from earlier jobs: the C psmc fits
-of E1 and the turtles (53386770, commit 34f2b00), that of NA12878
+The production ran in two `prod` jobs and five `e3` jobs of commit
+ae34d72. The first `prod` job (SLURM job 54629001, on node cn513-21-l on
+27 October 2026; 1 hour 6 minutes) ran the simulations and the psmc-rs
+fits, bootstraps, conversions, decoding and QC of E1, E2 and E4 to E6,
+E4's masks and consensus calls, S3's true TMRCA, and the reports of E1,
+E2 and E4 to E6. The second (54634918, on node cn514-11-r the same day)
+ran every fit and bootstrap of E7, C psmc's and psmc-rs's together, so
+that their times compare like for like, E7's GIAB comparison and its
+report. The `e3` jobs (54629002 to 54629006, the same day; 2 hours
+8 minutes each, and 2 hours 17 minutes for repeat 5's, which also made
+E3's simulations) timed E3's five repeats, each on an exclusive node
+(section 10), and the `e3-report` job 54677793 wrote E3's tables. The
+jobs whose keys had not changed were kept from earlier jobs: the C psmc
+fits of E1 and the turtles (53386770, commit 34f2b00), that of NA12878
 (53452276, commit d338500), and E4's bins and cross-checks (54232546 and
 54256959, `prod` jobs of 22 and 23 October). From the jobs' provenance
 records, in CPU hours (user and system time):
@@ -235,7 +238,7 @@ records, in CPU hours (user and system time):
 | --- | --- | --- | --- |
 | E1 | 121 | 12.4 | 81 in 54629001; C psmc fits 53386770 |
 | E2 | 23 | 41.4 | 19 in 54629001; C psmc fits 53386770 (turtles) and 53452276 (NA12878) |
-| E3 | 100 | 13.0 (12.3 the tools' own in the 95 timed runs, `cpu_seconds` in `E3_runs.csv`; 0.47 the `measure` wrapper around them; 0.19 the simulations) | five exclusive nodes, 54256961 to 54256965 (section 10; report: 54528410) |
+| E3 | 100 | 13.0 (12.3 the tools' own in the 95 timed runs, `cpu_seconds` in `E3_runs.csv`; 0.47 the `measure` wrapper around them; 0.19 the simulations) | five `e3` jobs on four exclusive nodes, 54629002 to 54629006 (section 10; report: 54677793) |
 | E4 | 286 | 3.4 | 256 in 54629001; bins 54232546 (25); cross-checks 54256959 (5) |
 | E5 | 121 | 12.2 | 121 in 54629001 |
 | E6 | 21 | 0.2 | 21 in 54629001 |
@@ -284,11 +287,11 @@ holds what determines the outputs:
 The record then adds the SHA-256 of every output and how the job ran: host,
 SLURM job, cores, wall, user and system time, peak resident memory, load
 average and the SHA-256 of the executables it ran. Every psmc-rs 0.2 job
-of the production of E1, E2 and E4 to E7 (2,930 records) ran a build of
-the same sources (the `src/` tree dcf29ca, `Cargo.toml` 4813f6d and
-`Cargo.lock` ae10354, which commit 7ba2839 and every later commit up to
-the tag `v0.2.0` share, without uncommitted changes), made by rustc
-1.99.0 without build flags. The JSON of every fit and of every bootstrap
+of the production, E1 to E7 (3,005 records in `runs/<EXP>/provenance/`),
+ran a build of the same sources (the `src/` tree dcf29ca, `Cargo.toml`
+4813f6d and `Cargo.lock` ae10354, which commit 7ba2839 and every later
+commit up to the tag `v0.2.0` share, without uncommitted changes), made
+by rustc 1.99.0 without build flags. The JSON of every fit and of every bootstrap
 run's main fit records the HMM kernels that ran (`simd`: `avx2+fma` in all
 2,918; section 8).
 
