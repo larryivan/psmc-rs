@@ -489,7 +489,7 @@ power, and expect the runner to defer runs while the machine is busy
 (`status --jobs` says why). Measured on Ibex, one exclusive AMD EPYC 7702
 node per repeat: 12.3 CPU hours in the 95 timed runs (the sum of
 `cpu_seconds` in `E3_runs.csv`: C psmc 9.0, psmc-rs 0.2 3.3) and 10.3
-hours of wall time, 2.04 to 2.06 per repeat (the sum of `wall_seconds`);
+hours of wall time, 2.04 to 2.07 per repeat (the sum of `wall_seconds`);
 C psmc took a median 74 minutes on 3000 Mb.
 [Supplementary Note 1, section 10](../Supplementary_Note_1_Reproducibility.md#10-performance-e3)
 gives the results.
@@ -873,7 +873,7 @@ back.
 | --- | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | 12.4 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
 | E2 | 23 | 47 | 2.1 (50 cores) | 41.4 (the C psmc fits, 4.5, from earlier `prod` jobs, the rest from the production's; Supplementary Note 1, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
-| E3 | 100 | 15 | 9.9 (exclusive) | 12.3 (the 95 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive nodes) | needs the machine to itself; busy periods defer runs |
+| E3 | 100 | 15 | 9.9 (exclusive) | 12.3 (the 95 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive `e3` jobs on four nodes, below) | needs the machine to itself; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 3.4 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 12.2 | 20 bootstrap runs of about 45 min (Ibex: 28 to 35) on one thread |
 | E6 | 21 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
@@ -900,14 +900,23 @@ of E1 and E2 (53386770 and 53452276), E4's cross-checks against
 generate_multihetsep.py (54256959) and its `bins` jobs (54232546). E7's
 2,639 jobs, C psmc's and psmc-rs's fits, the bootstraps, the GIAB
 comparison and the report, ran in one job on one Ibex node (54634918), in 6
-hours 21 minutes, 358.1 CPU hours in all. The measured costs above come
-from the provenance records. The production's jobs shared the node with one
-another (1-minute load averages of 68 to 134 when they started; 78 to 168
-in E7's job), so their times are costs, not controlled timings, though E7's
-two programs, sharing one node in one job, compare with each other under
-the same conditions; E3 times the tools. E3's measured cost is the tools'
-CPU time in its 95 timed runs (`E3_runs.csv`), without the simulations each
-repeat ran or the `measure` wrapper.
+hours 21 minutes, 358.1 CPU hours in all. E3 ran in five `e3` jobs at the
+same commit on 27 October 2026, one per repeat, each alone on an exclusive
+AMD EPYC 7702 node (54629002 to 54629006 on cn513-09-l, cn513-02-r,
+cn514-15-l, cn513-02-l and, again, cn513-09-l): each simulated E3's genomes
+(the committed records are repeat 5's, the copy `merge_e3.sh` keeps; 0.2
+CPU hours) and then timed its repeat's 19 runs, in 2 hours 8 to 9 minutes
+from the first's start to the last's end, 12.8 CPU hours over the 95 runs
+with the `measure` wrapper; its report ran in `e3-report` job 54677793
+(cn511-08). The measured costs above come from the provenance records. The
+`prod` jobs' runs shared the node with one another (1-minute load averages
+of 68 to 134 when they started; 78 to 168 in E7's job), so their times are
+costs, not controlled timings, though E7's two programs, sharing one node
+in one job, compare with each other under the same conditions; E3 times the
+tools, each run alone on its node (1-minute load averages of 1 to 10, left
+by E3's own jobs before it). E3's measured cost is the tools' CPU time in
+its 95 timed runs (`E3_runs.csv`), without the simulations each repeat ran
+or the `measure` wrapper.
 
 Afterwards commit, for every experiment, `experiment/runs/<EXP>/` without
 what `.gitignore` drops (simulated genomes, masks, logs, HTML reports,
