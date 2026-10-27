@@ -1,4 +1,4 @@
-# E7's data stage, with the production's psmc-rs
+# E7's data stage, with the production's binary
 
 Two checks that the binary of the production's psmc-rs fits (`src/` tree
 dcf29ca, sha256 1d141b81…) writes the content E7's data stage wrote with its
@@ -19,12 +19,13 @@ command (`commands.split_convert`). The two routes gave byte-identical
 decompression to E7's chr21 files and QC rows (`identical_to_e7`).
 `manuscript/make_numbers.py` reads it.
 
-The job ran `pilot.py` on an archive of commit 4b2c636f (the production
-checkout's) holding the production's binary as `target/release/psmc-rs`,
-with `PY` as `experiment/slurm/env.sh` sets it, `I=<runs>/E7/inputs`,
-`LOCAL_TMP` node-local scratch for the 26.1 GB download and `SPLIT` the
-directory of the split route's files, which `pilot.py` converts when they
-are absent, as it did here (`split_route`):
+The job ran `pilot.py` on an archive of commit 4b2c636f (the production's
+`src/` and `Cargo.lock`; its `Cargo.toml`, c0be5cf, lacks the package
+metadata of the production's, 4813f6d5) holding the production's binary as
+`target/release/psmc-rs`, with `PY` as `experiment/slurm/env.sh` sets it,
+`I=<runs>/E7/inputs`, `LOCAL_TMP` node-local scratch for the 26.1 GB
+download and `SPLIT` the directory of the split route's files, which
+`pilot.py` converts when they are absent, as it did here (`split_route`):
 
 ```bash
 A=$(mktemp -d)
@@ -38,8 +39,8 @@ Its docstring's I4 is this job and I1 the stage-1 job below (54553271).
 paths in `commands` and `split_route` written as placeholders (`<repo>`
 for the archive, `<runs>`, `<local-tmp>`, `<split>`), `split_route` naming
 the data stage's command, a `note` added, and `psmc-rs.source_commit` and
-`source_tree` those of the production's checkout, since
-`kg1000.rs_identity()` found no git checkout in the archive
+`source_tree` those of the checkout the binary was copied from, at
+4b2c636f, since `kg1000.rs_identity()` found no git checkout in the archive
 (`psmc-rs.source_note`).
 
 E7's data stage keeps its own pilot, run with its own build, in
