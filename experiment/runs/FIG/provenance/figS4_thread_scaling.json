@@ -1,5 +1,5 @@
 {
-  "digest": "19714e6cd3d35d94b840c978087a16491006d487e5b4961a0144f7038810e5f6",
+  "digest": "519ed2c54e221aca8dbf6270406286a69fd303f936745b1e4cec5067cdd31b0f",
   "key": {
     "command": [
       "<python>",
@@ -14,9 +14,9 @@
     "env": {},
     "inputs": {
       "<runs>/E3/tables/E3_determinism.csv": "eeefe073d3c97b8d5997bdd1a85198aa5312bb49b42eefcea1736f398f5390f1",
-      "<runs>/E3/tables/E3_runs.csv": "4ca7d2f6a348d3e3b98a176410abf2c145eba23b2efdf7270f4293a81b367cef",
-      "<runs>/E3/tables/E3_table2.csv": "36a5c5560493cb762025aa9a9d989b871c7fac454e3583cf4d9e00abcdda4e98",
-      "<runs>/E3/tables/E3_thread_scaling.csv": "9b91151e9d1dd02f0628ee7216d745455db5d378fed65a84b6e04008175fde4e"
+      "<runs>/E3/tables/E3_runs.csv": "a755a5e98c18731ee4dab4f852a0d17790534dea76285c9c9ad804d83aeffa35",
+      "<runs>/E3/tables/E3_table2.csv": "81a26eec426ae1e25cca9ea2d9131fae503ac48a3a7e114897568618eb4ce61c",
+      "<runs>/E3/tables/E3_thread_scaling.csv": "9c893c23786dc259a44a3ba708257e334608de9b5dfa8c4a951ec9a2c580372f"
     },
     "job": "FIG/figS4_thread_scaling",
     "seeds": {},
@@ -128,14 +128,14 @@
     }
   },
   "outputs": {
-    "<runs>/E3/figures/figS4_thread_scaling.pdf": "0ec6410ce799ab594e6f50208951635a06935bd1e22409845d99e36ef4d34c9d",
-    "<runs>/E3/figures/figS4_thread_scaling.png": "ce5dcacd2cf828e47ba282d61e85a8bcd5b6458af516340e53b8d24d1cd518c9",
-    "<runs>/E3/figures/figS4_thread_scaling.svg": "34eaa099a1f9aa8b35777b9a7f2589c55940edf256097e855b3938a217df0566"
+    "<runs>/E3/figures/figS4_thread_scaling.pdf": "86076416e542e2d4e0f824aa91f7d470c5acf6b5c3665f4b86aa7ed5aeb8971b",
+    "<runs>/E3/figures/figS4_thread_scaling.png": "45b47dfbda36871b0fd339cc82ec2a48c698586eb013a4a6174b1ccc537844a8",
+    "<runs>/E3/figures/figS4_thread_scaling.svg": "2f4d20b3a16c9b4df821e4ff152f626dae7ac03c6ff4a1ff35620a7a17f4c15c"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-27T12:14:56",
+    "end": "2026-10-27T20:52:54",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -143,22 +143,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      1.81,
-      1.97,
-      2.28
+      3.72,
+      3.71,
+      3.58
     ],
     "loadavg_before": [
-      1.45,
-      1.9,
-      2.25
+      3.72,
+      3.71,
+      3.58
     ],
-    "maxrss_main_mb": 156.2,
+    "maxrss_main_mb": 155.3,
     "mem_gb": 1.0,
-    "peak_rss_mb": 156.2,
-    "peak_rss_tree_sampled_mb": 155.1,
-    "start": "2026-10-27T12:14:55",
-    "system_seconds": 0.125,
-    "user_seconds": 1.167,
-    "wall_seconds": 1.417
+    "peak_rss_mb": 155.3,
+    "peak_rss_tree_sampled_mb": 154.2,
+    "start": "2026-10-27T20:52:53",
+    "system_seconds": 0.159,
+    "user_seconds": 1.114,
+    "wall_seconds": 1.462
   }
 }
