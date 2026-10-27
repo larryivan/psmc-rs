@@ -245,16 +245,16 @@ provenance records, in CPU hours (user and system time):
 | E6 | 21 | 0.2 | 21 in 54629001 |
 | E7 | 2,639 | 358.1 | 2,639 in 54634918 |
 
-The fits of each `prod` job shared their node with one another (1-minute
-load averages of 68 to 134 in 54629001 and 78 to 168 in 54634918, and of 5
-to 71 and 37 for the C psmc fits of 53386770 and 53452276, when they
-started), so these are costs, not timings, though E7's two programs,
-sharing one node in one job, compare with each other like for like; E3
-measures performance (section 10). E7's data stage ran on 7 and 8 October
-2026, as SLURM jobs of `kg1000`'s steps, and read 1.68 TB of VCFs (each
-step's host and job are in `runs/E7/inputs/records/`, the sources and
-checks in `MANIFEST.json`). Its conversions ran psmc-rs from `src/`
-4c0d777 (`MANIFEST.json`); the production's binary writes the same
+The fits and bootstraps of each `prod` job shared their node with one
+another (1-minute load averages of 68 to 134 in 54629001 and 78 to 168 in
+54634918, and of 5 to 71 and 37 for the C psmc fits of 53386770 and
+53452276, when they started), so these are costs, not timings, though E7's
+two programs, sharing one node in one job, compare with each other like
+for like; E3 measures performance (section 10). E7's data stage ran on 7
+and 8 October 2026, as SLURM jobs of `kg1000`'s steps, and read 1.68 TB of
+VCFs (each step's host and job are in `runs/E7/inputs/records/`, the
+sources and checks in `MANIFEST.json`). Its conversions ran psmc-rs from
+`src/` 4c0d777 (`MANIFEST.json`); the production's binary writes the same
 content: converting with the stage's command, chromosome by chromosome,
 the per-sample VCFs the stage kept (those of the 52 default genomes) gave
 1,144 of 1,144 chromosome files and 52 of 52 genomes identical to E7's
