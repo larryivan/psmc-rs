@@ -188,13 +188,13 @@ give. For the other ten the notes say what the figure shows.
   10). The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the second
   line of the size ticks). Threads beyond the chromosome count add nothing:
   the 30-thread lines are flat, and the 30-thread speed-up at 3,000 Mb
-  (384x) holds because its 30 equal chromosomes give each thread one. On a
+  (386x) holds because its 30 equal chromosomes give each thread one. On a
   real genome the longest sequence sets the floor (`figS4_thread_scaling`).
   Panel b's peak memory is the larger of the tool's `ru_maxrss` and its
   sampled peak; for psmc-rs 0.2 on 100 and 300 Mb, and on 1000 Mb on one
-  thread, it is `ru_maxrss`'s 26.0 MB in every repeat, above the sampled 7.0
-  to 19.6 MB, so those points are an upper bound (Supplementary Note 1,
-  section 10).
+  thread, it is `ru_maxrss`, 24.0 to 26.0 MB (26.0 in 33 of the 35 runs),
+  above the sampled 7.0 to 22.0 MB, so those points are an upper bound
+  (Supplementary Note 1, section 10).
 - **The supplement's Fig S2** (`fig5_input_preparation`): binning with
   partly callable bins biases PSMC, and psmc-rs's per-bin model removes most
   of the bias. With a dispersed mask almost every bin stays called with
