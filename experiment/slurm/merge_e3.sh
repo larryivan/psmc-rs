@@ -1,5 +1,5 @@
 #!/bin/bash
-# Merge E3's repeats ($E3_SHARDS/rep*, one runs directory per node) into the
+# Merge E3's repeats ($E3_SHARDS/rep*, one runs directory per repeat) into the
 # production runs directory, so that E3/report reads every run.
 #
 # It refuses while a repeat's job or runner lives, when a repeat's directory

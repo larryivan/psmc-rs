@@ -13,18 +13,19 @@ SLURM allocations:
 | `e3-report` | E3's tables from the merged repeats | 2 CPUs, 1 h |
 | `e7-prep [N...]` | E7's data stage (`kg1000`): setup; one task per chromosome (default 1-22): its VCF downloaded to node-local disk and checked, split per sample, every sample's psmcfa (chr21: then the pilot); the samples joined and `MANIFEST.json` | setup 2 CPUs, 3 h; chromosomes `$E7_PREP_PARALLEL` at once, each `$E7_PREP_CPUS` CPUs, `$E7_PREP_MEM`, `$E7_PREP_TIME`; samples 16 CPUs, 4 h |
 
-Every repeat of E3 runs on its own exclusive node of one CPU model, so that
-the speed-ups of a repeat are paired on one node and the spread of the
-repeats includes the spread between nodes. A resubmitted repeat goes back
-to the node of its first runs (`--nodelist`), and `merge_e3.sh` refuses a
-repeat timed on more than one host. A new production starts from empty
-shards (a new `E3_SHARDS`): `submit.sh` pins a repeat to the host of any
-timing record in its shard, and `merge_e3.sh` copies every file of a shard
-into `$PROD`. The report says which CPU models and
-hosts the clean runs came from, and warns when they mix. Before its runs,
-an `e3` job measures the idle node for 30 s and stops if it is busier than
-the timing protocol allows (its log names the busiest processes), rather
-than deferring every run until the time limit.
+Every repeat of E3 runs alone on an exclusive node of one CPU model (SLURM
+may give two repeats the same node, one after the other), so that the
+speed-ups of a repeat are paired on one node and the spread of the repeats
+includes the spread between the nodes they ran on. A resubmitted repeat
+goes back to the node of its first runs (`--nodelist`), and `merge_e3.sh`
+refuses a repeat timed on more than one host. A new production starts from
+empty shards (a new `E3_SHARDS`): `submit.sh` pins a repeat to the host of
+any timing record in its shard, and `merge_e3.sh` copies every file of a
+shard into `$PROD`. The report says which CPU models and hosts the clean
+runs came from, and warns when they mix. Before its runs, an `e3` job
+measures the idle node for 30 s and stops if it is busier than the timing
+protocol allows (its log names the busiest processes), rather than
+deferring every run until the time limit.
 
 ## Setup, on a login node
 
