@@ -1,5 +1,5 @@
 {
-  "digest": "92810b303be40f75729825ae6033a58963d59d5062c25c1ede129d2aa8d91b9c",
+  "digest": "8bf812894716e5e9640803ef676472e4c285dfd14342628b392102764affb6c8",
   "key": {
     "command": [
       "<python>",
@@ -21,8 +21,8 @@
     "settings": {
       "experiments": {
         "E3": {
+          "capped_mstep_iters": null,
           "chromosome_length": 100000000,
-          "default_mstep_iters": null,
           "genome_sizes_mb": [
             100,
             300,
@@ -53,7 +53,7 @@
             "rs02_mstep_s_per_iter": 0.02,
             "rs02_s_per_mb_iter": 0.006
           },
-          "rs02_default_threads": [
+          "rs02_capped_threads": [
             1,
             8,
             30
@@ -102,12 +102,7 @@
       "figure": "fig4_performance",
       "figures": {
         "curve_grid_points": 600,
-        "e4_bias_masks": [
-          "clustered30",
-          "dispersed30"
-        ],
         "e4_example_mask": "dispersed30",
-        "e4_example_replicate": 1,
         "job_gb": 1.0,
         "job_seconds": 20.0,
         "sim_years": [
@@ -122,7 +117,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "85490f13a3c9420edc954adde0f8e7377bf7f1181d740f678136ec155a882130",
+        "code": "8377187fef291271ff909584917a97944dc20539d472d9a6d967f43077ef12bb",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -138,7 +133,7 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-26T18:41:20",
+    "end": "2026-10-27T12:04:38",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -146,22 +141,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      4.11,
-      4.26,
-      4.65
+      1.26,
+      2.03,
+      2.61
     ],
     "loadavg_before": [
-      4.11,
-      4.26,
-      4.65
+      1.26,
+      2.03,
+      2.61
     ],
-    "maxrss_main_mb": 154.4,
+    "maxrss_main_mb": 159.5,
     "mem_gb": 1.0,
-    "peak_rss_mb": 154.4,
-    "peak_rss_tree_sampled_mb": 153.8,
-    "start": "2026-10-26T18:41:18",
-    "system_seconds": 0.185,
-    "user_seconds": 1.44,
-    "wall_seconds": 2.156
+    "peak_rss_mb": 159.5,
+    "peak_rss_tree_sampled_mb": 158.5,
+    "start": "2026-10-27T12:04:36",
+    "system_seconds": 0.132,
+    "user_seconds": 1.326,
+    "wall_seconds": 1.518
   }
 }

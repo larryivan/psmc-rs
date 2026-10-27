@@ -1,5 +1,5 @@
 {
-  "digest": "7220e73b71a8d6e433aaea712307a3a31acba31c2694c916cdb6d337e91a291e",
+  "digest": "aefab1d37ec9acbc3ad6be24c0985554280d9becff8e7898336fe03164ed75ea",
   "key": {
     "command": [
       "<python>",
@@ -14,7 +14,7 @@
     "env": {},
     "inputs": {
       "<runs>/E2/tables/E2_split_curves.csv": "22a50d83a6fad7775df034fc8d6600a680d4c31c25c73d0e26c0efedade19063",
-      "<runs>/E2/tables/E2_split_patterns.csv": "72a06342666f5f5023a39b97ec818551200dd61a7d4db658be57c0b86ab8f10c"
+      "<runs>/E2/tables/E2_split_patterns.csv": "73b79d2dc09d2df5405a3292f7aa83f5fb352df206ff73894ebbeec0e245dc0b"
     },
     "job": "FIG/figS_turtle_patterns",
     "seeds": {},
@@ -46,7 +46,7 @@
                 "mu": 4.6e-09
               },
               "scaling_cite": "painted turtle trios (Bergeron 2023)",
-              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher.",
               "sequence_noun": "scaffolds",
               "sha256": null,
               "species": "Emydura subglobosa"
@@ -61,7 +61,7 @@
                 "mu": 4.6e-09
               },
               "scaling_cite": "painted turtle trios (Bergeron 2023)",
-              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher.",
               "sequence_noun": "scaffolds",
               "sha256": null,
               "species": "Hydromedusa tectifera"
@@ -76,7 +76,7 @@
                 "mu": 4.6e-09
               },
               "scaling_cite": "painted turtle trios (Bergeron 2023)",
-              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+              "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher.",
               "sequence_noun": "scaffolds",
               "sha256": null,
               "species": "Pelusios castaneus"
@@ -147,12 +147,7 @@
       "figure": "figS_turtle_patterns",
       "figures": {
         "curve_grid_points": 600,
-        "e4_bias_masks": [
-          "clustered30",
-          "dispersed30"
-        ],
         "e4_example_mask": "dispersed30",
-        "e4_example_replicate": 1,
         "job_gb": 1.0,
         "job_seconds": 20.0,
         "sim_years": [
@@ -167,7 +162,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "66cab96fdddd6514b127a6a58830db49966fcdeed517f08dacc2ecf2b182ed9d",
+        "code": "3657c364117e223b626d93a07f6a99889f0cc3c658525596ce7f555c950b43d2",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -183,7 +178,7 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-26T18:41:25",
+    "end": "2026-10-27T12:04:41",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -191,22 +186,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      4.42,
-      4.32,
-      4.67
+      1.72,
+      2.11,
+      2.64
     ],
     "loadavg_before": [
-      4.42,
-      4.32,
-      4.67
+      1.26,
+      2.03,
+      2.61
     ],
-    "maxrss_main_mb": 162.1,
+    "maxrss_main_mb": 165.3,
     "mem_gb": 1.0,
-    "peak_rss_mb": 162.1,
-    "peak_rss_tree_sampled_mb": 161.7,
-    "start": "2026-10-26T18:41:22",
-    "system_seconds": 0.175,
-    "user_seconds": 1.709,
-    "wall_seconds": 2.106
+    "peak_rss_mb": 165.3,
+    "peak_rss_tree_sampled_mb": 164.7,
+    "start": "2026-10-27T12:04:40",
+    "system_seconds": 0.141,
+    "user_seconds": 1.574,
+    "wall_seconds": 1.792
   }
 }

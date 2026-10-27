@@ -1,5 +1,5 @@
 {
-  "digest": "16391e8af3d7891b466fd46b76f3ae3f70c5d74f3e8ceedb657d79bcff30f4a5",
+  "digest": "f41c0a0f0a1a2358d6722667426e4bdfe4de33379b61fe35e446c5abb2d16dee",
   "key": {
     "command": [
       "<python>",
@@ -13,9 +13,9 @@
     ],
     "env": {},
     "inputs": {
-      "<runs>/E6/tables/E6_S3_calibration.csv": "c6613a72972702178c0a59c6ae93697e7de17a77fabd7ad8a363c07e20619e5a",
+      "<runs>/E6/tables/E6_S3_calibration.csv": "c0fa7e0365eaf5f28791c8c9b85dea48a7e26681070eeb61485ae10f4bf7da9e",
       "<runs>/E6/tables/E6_S3_density.csv": "8bebe3d9f0a16f5cd40842352754d973d9e704d195d98da39e2fcff46e7364bd",
-      "<runs>/E6/tables/E6_S3_summary.csv": "8a2b6d45bd3ed5e7b4430933f94e434d48b65c63fd2b027e9ac29d669f004c2d",
+      "<runs>/E6/tables/E6_S3_summary.csv": "16125d146866cdd77324b56e8ff22dcbf33df7829135336f98f08db045aaa47d",
       "<runs>/E6/tables/E6_S3_track.csv": "c880f73b28103bef108ea4f825278cfebae0a6de278cc839313e644e622337c9"
     },
     "job": "FIG/figS3_tmrca_decoding",
@@ -30,8 +30,6 @@
             "convert_s_per_mb": 0.05,
             "decode_gb": 0.5,
             "decode_s_per_mb": 0.015,
-            "qc_gb": 0.5,
-            "qc_s": 5.0,
             "table_gb": 1.0,
             "table_s": 20.0,
             "tmrca_report_gb": 2.5,
@@ -43,7 +41,6 @@
           },
           "format_replicate": 1,
           "loglike_decrease_tolerance": 0.001,
-          "qc_experiment": "E2",
           "tmrca_calibration_classes": 10,
           "tmrca_decode_threads": 4,
           "tmrca_density_cells": 60,
@@ -58,12 +55,7 @@
       "figure": "figS3_tmrca_decoding",
       "figures": {
         "curve_grid_points": 600,
-        "e4_bias_masks": [
-          "clustered30",
-          "dispersed30"
-        ],
         "e4_example_mask": "dispersed30",
-        "e4_example_replicate": 1,
         "job_gb": 1.0,
         "job_seconds": 20.0,
         "sim_years": [
@@ -78,7 +70,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "b9b512b8d08d1473cfa9859c683d4444396ed73d25ddd99df6f28c523627e08a",
+        "code": "1c603400597f90efc1da9a023a85253ae993a31fa6f77068487e4ad9b741f0c1",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -87,14 +79,14 @@
     }
   },
   "outputs": {
-    "<runs>/E6/figures/figS3_tmrca_decoding.pdf": "c4d2a6855eddb8b968eedc6dadb9d55307bc226974467b00842c20ede5ca2255",
+    "<runs>/E6/figures/figS3_tmrca_decoding.pdf": "224cb529e528fc31f1f721e61f1276d3c135c47f2f808a4e87cd419fbc46570c",
     "<runs>/E6/figures/figS3_tmrca_decoding.png": "040f8a169f2980d5e5503899b883d439c8c718490f5d6b6c1d0f283ec55c0f91",
-    "<runs>/E6/figures/figS3_tmrca_decoding.svg": "fff8cb4eb9b08c0ca0cf5a7a198974b35fe536b624f0ed9cf0f7f2dff253e909"
+    "<runs>/E6/figures/figS3_tmrca_decoding.svg": "f1a2379063b41e9321eae3c2641cab44d0f6a13954db42569c0b3aef179f89ff"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-26T18:41:24",
+    "end": "2026-10-27T12:04:41",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -102,22 +94,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      4.42,
-      4.32,
-      4.67
+      1.72,
+      2.11,
+      2.64
     ],
     "loadavg_before": [
-      4.11,
-      4.26,
-      4.65
+      1.26,
+      2.03,
+      2.61
     ],
-    "maxrss_main_mb": 386.2,
+    "maxrss_main_mb": 601.0,
     "mem_gb": 1.0,
-    "peak_rss_mb": 386.2,
-    "peak_rss_tree_sampled_mb": 386.2,
-    "start": "2026-10-26T18:41:21",
+    "peak_rss_mb": 601.0,
+    "peak_rss_tree_sampled_mb": 600.9,
+    "start": "2026-10-27T12:04:39",
     "system_seconds": 0.244,
-    "user_seconds": 2.499,
-    "wall_seconds": 3.149
+    "user_seconds": 2.341,
+    "wall_seconds": 2.655
   }
 }

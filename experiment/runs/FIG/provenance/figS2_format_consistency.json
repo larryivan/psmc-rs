@@ -1,5 +1,5 @@
 {
-  "digest": "200e2cac4b718bd45ec792bb785031e592260199ba6eec6b7546580cd88219fa",
+  "digest": "a0d1fd1644a620df6c9fed55a886691ef21208216fe6962d7fc5ae55eaf2816e",
   "key": {
     "command": [
       "<python>",
@@ -14,8 +14,8 @@
     "env": {},
     "inputs": {
       "<runs>/E6/tables/E6_S2_bins.csv": "28d713dd8def52ffcf639601abeac3ab6fa11083f180018a7533839eb407c2ac",
-      "<runs>/E6/tables/E6_S2_curves.csv": "9621d6d100c9740eb291170d14e7693114d21fc7552b1a7ee339a8e6a1bc6212",
-      "<runs>/E6/tables/E6_S2_fits.csv": "9451e356b70c3e76bb38d43c4b3acdec5cbe10a19edde5330f978deeaa9aa36c"
+      "<runs>/E6/tables/E6_S2_curves.csv": "2a40550127c3a4097b88a9bcc67632bc907e695eb92c8d18d05b24e1eb74c08c",
+      "<runs>/E6/tables/E6_S2_fits.csv": "e6321597579cfd46823521b7c04568393f2fdaf52a5196fab3756b9525a2f3dd"
     },
     "job": "FIG/figS2_format_consistency",
     "seeds": {},
@@ -29,8 +29,6 @@
             "convert_s_per_mb": 0.05,
             "decode_gb": 0.5,
             "decode_s_per_mb": 0.015,
-            "qc_gb": 0.5,
-            "qc_s": 5.0,
             "table_gb": 1.0,
             "table_s": 20.0,
             "tmrca_report_gb": 2.5,
@@ -42,7 +40,6 @@
           },
           "format_replicate": 1,
           "loglike_decrease_tolerance": 0.001,
-          "qc_experiment": "E2",
           "tmrca_calibration_classes": 10,
           "tmrca_decode_threads": 4,
           "tmrca_density_cells": 60,
@@ -57,12 +54,7 @@
       "figure": "figS2_format_consistency",
       "figures": {
         "curve_grid_points": 600,
-        "e4_bias_masks": [
-          "clustered30",
-          "dispersed30"
-        ],
         "e4_example_mask": "dispersed30",
-        "e4_example_replicate": 1,
         "job_gb": 1.0,
         "job_seconds": 20.0,
         "sim_years": [
@@ -77,7 +69,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "5ac0fe8394ffc1e1c4055f2c76d1fa71c1c28134f6bbd4b33b6976391f993bfd",
+        "code": "5d6cc71e6f1d79bf09560b0a8bf000d65cce98b6ffb56a5c0a64224ed92f488b",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -93,7 +85,7 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-26T18:41:23",
+    "end": "2026-10-27T12:04:41",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -101,22 +93,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      4.42,
-      4.32,
-      4.67
+      1.72,
+      2.11,
+      2.64
     ],
     "loadavg_before": [
-      4.11,
-      4.26,
-      4.65
+      1.26,
+      2.03,
+      2.61
     ],
-    "maxrss_main_mb": 188.0,
+    "maxrss_main_mb": 188.4,
     "mem_gb": 1.0,
-    "peak_rss_mb": 188.0,
-    "peak_rss_tree_sampled_mb": 188.0,
-    "start": "2026-10-26T18:41:20",
-    "system_seconds": 0.193,
-    "user_seconds": 2.627,
-    "wall_seconds": 3.337
+    "peak_rss_mb": 188.4,
+    "peak_rss_tree_sampled_mb": 188.1,
+    "start": "2026-10-27T12:04:38",
+    "system_seconds": 0.143,
+    "user_seconds": 2.262,
+    "wall_seconds": 2.516
   }
 }

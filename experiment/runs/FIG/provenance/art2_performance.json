@@ -1,5 +1,5 @@
 {
-  "digest": "c5ee5748ecc960b9f57f32e8df48559118287dd7ead7ffe3fc34262caab2c218",
+  "digest": "22bba455fa017edf5fb08c810d08c3196aaa70866d873e29a11fd2f000befe7a",
   "key": {
     "command": [
       "<python>",
@@ -14,15 +14,15 @@
     "env": {},
     "inputs": {
       "<runs>/E3/tables/E3_table2.csv": "36a5c5560493cb762025aa9a9d989b871c7fac454e3583cf4d9e00abcdda4e98",
-      "<runs>/E7/tables/E7_fits.csv": "f2527cc5e771da2b2288c3ce5b906c60c013c0c574c26a91f35f213a5afc7522"
+      "<runs>/E7/tables/E7_fits.csv": "574346b013b5e4b2ed5896c9f1afb8e5c93e8b56481a6e582a03ff6347704ba2"
     },
     "job": "FIG/art2_performance",
     "seeds": {},
     "settings": {
       "experiments": {
         "E3": {
+          "capped_mstep_iters": null,
           "chromosome_length": 100000000,
-          "default_mstep_iters": null,
           "genome_sizes_mb": [
             100,
             300,
@@ -53,7 +53,7 @@
             "rs02_mstep_s_per_iter": 0.02,
             "rs02_s_per_mb_iter": 0.006
           },
-          "rs02_default_threads": [
+          "rs02_capped_threads": [
             1,
             8,
             30
@@ -239,12 +239,7 @@
       "figure": "art2_performance",
       "figures": {
         "curve_grid_points": 600,
-        "e4_bias_masks": [
-          "clustered30",
-          "dispersed30"
-        ],
         "e4_example_mask": "dispersed30",
-        "e4_example_replicate": 1,
         "job_gb": 1.0,
         "job_seconds": 20.0,
         "sim_years": [
@@ -259,7 +254,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "befd9df41e37b3312d75a1f8a46b53a7e0044b0ab00cf222ef54a5eeee76da4f",
+        "code": "fcbba08ba53c6a8a94ae449f989a04def3792959c03732130e96b3fba3533caf",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -268,14 +263,14 @@
     }
   },
   "outputs": {
-    "<runs>/E3/figures/art2_performance.pdf": "f719852b61209b425ce37dee3e16d01f29150591181e8f9056a8eb0b43b2f0ee",
-    "<runs>/E3/figures/art2_performance.png": "65c8a0c47b6986b3100e9ec17e1af1a914f9a2f1f0848b68fd5cf3c147055164",
-    "<runs>/E3/figures/art2_performance.svg": "83dedfe5c9c7230867aa37b903fc4fa2cf27d051d6709b9f378d1a7892cbeb6d"
+    "<runs>/E3/figures/art2_performance.pdf": "2354cae17d7ecaf03e589cf15ed26852c3c653936fc8bb428f3abcd8744992f3",
+    "<runs>/E3/figures/art2_performance.png": "77ffa9c2621f67e2795b4ffc2e6ea16793db3d85de40835b0832669328349411",
+    "<runs>/E3/figures/art2_performance.svg": "ba7c0bfcedb0c390e13ffe6bfa12d84b9923a7646f8325aac1761eb94b35c117"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-26T18:41:20",
+    "end": "2026-10-27T12:04:38",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -283,22 +278,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      4.11,
-      4.26,
-      4.65
+      1.26,
+      2.03,
+      2.61
     ],
     "loadavg_before": [
-      4.11,
-      4.26,
-      4.65
+      1.26,
+      2.03,
+      2.61
     ],
-    "maxrss_main_mb": 147.6,
+    "maxrss_main_mb": 156.1,
     "mem_gb": 1.0,
-    "peak_rss_mb": 147.6,
-    "peak_rss_tree_sampled_mb": 146.9,
-    "start": "2026-10-26T18:41:18",
-    "system_seconds": 0.201,
-    "user_seconds": 1.41,
-    "wall_seconds": 2.182
+    "peak_rss_mb": 156.1,
+    "peak_rss_tree_sampled_mb": 155.0,
+    "start": "2026-10-27T12:04:36",
+    "system_seconds": 0.138,
+    "user_seconds": 1.323,
+    "wall_seconds": 1.524
   }
 }
