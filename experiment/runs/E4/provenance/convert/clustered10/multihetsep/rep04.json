@@ -1,5 +1,5 @@
 {
-  "digest": "4c22e8a9768d52b14b4c7abaf804171064c1176417c6a2e074dce2783531ba77",
+  "digest": "b6ac6dfe03ce3cca6bf563a65c300aab5a44b4a343761c8b201e9559ae4a4d90",
   "key": {
     "command": [
       "<repo>/target/release/psmc-rs",
@@ -29,7 +29,7 @@
         "rustc": "1.99.0 (b940084d7eb6) x86_64-unknown-linux-gnu",
         "rustflags": "",
         "source_dirty": "",
-        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=c0be5cf5c9a2940d097dab6f96ac72fb22148f5e;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
+        "source_tree": "src=dcf29ca23bcbb0b6ca54cd24ea1a2efeb7db0910;Cargo.toml=4813f6d5c9a9814cd740aec27b80fc20f2c44c45;Cargo.lock=ae1035481aaffb2f33a00505ec0a8d7ea037ed52",
         "target_features": "none",
         "version": "psmc-rs 0.2.0"
       }
@@ -41,31 +41,31 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-22T19:29:48",
+    "end": "2026-10-27T03:39:36",
     "exclusive": false,
     "executables": {
       "<repo>/target/release/psmc-rs": "1d141b8131bf49aee231846b685f02ed16590c2c95c3ec56e26d288a5fe3810e"
     },
     "exit_status": 0,
-    "host": "cn513-11-l",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      80.95,
-      67.07,
-      46.33
+      109.9,
+      114.31,
+      103.96
     ],
     "loadavg_before": [
-      81.13,
-      66.87,
-      46.15
+      109.98,
+      114.4,
+      103.93
     ],
-    "maxrss_main_mb": 107.8,
+    "maxrss_main_mb": 112.0,
     "mem_gb": 0.3,
-    "peak_rss_mb": 107.8,
+    "peak_rss_mb": 112.0,
     "peak_rss_tree_sampled_mb": 0.0,
-    "slurm_job_id": "54256959",
-    "start": "2026-10-22T19:29:46",
-    "system_seconds": 0.009,
-    "user_seconds": 0.204,
-    "wall_seconds": 2.866
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T03:39:32",
+    "system_seconds": 0.008,
+    "user_seconds": 0.211,
+    "wall_seconds": 4.646
   }
 }

@@ -64,32 +64,32 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-22T08:02:13",
+    "end": "2026-10-27T03:38:48",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b",
       "<tools>/psmc_c/utils/fq2psmcfa": "8312a96eed34d274691a8726dca3619b7fe2436871aa616bbfaef564a87c9caf"
     },
     "exit_status": 0,
-    "host": "cn511-12",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      171.56,
-      144.91,
-      120.51
+      110.4,
+      115.16,
+      103.64
     ],
     "loadavg_before": [
-      170.68,
-      143.82,
-      119.9
+      104.65,
+      114.58,
+      103.14
     ],
-    "maxrss_main_mb": 528.3,
+    "maxrss_main_mb": 527.1,
     "mem_gb": 1.5,
-    "peak_rss_mb": 528.3,
-    "peak_rss_tree_sampled_mb": 384.7,
-    "slurm_job_id": "54232546",
-    "start": "2026-10-22T08:02:01",
-    "system_seconds": 0.884,
-    "user_seconds": 11.293,
-    "wall_seconds": 12.735
+    "peak_rss_mb": 527.1,
+    "peak_rss_tree_sampled_mb": 327.1,
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T03:38:20",
+    "system_seconds": 2.06,
+    "user_seconds": 25.117,
+    "wall_seconds": 27.828
   }
 }

@@ -1,5 +1,5 @@
 {
-  "digest": "fcd637c76164820957e2d576ef4c4fc034e7dab0bc8ecfec04df77212f6f73ca",
+  "digest": "ca62c8d8834e6b1d2d028fff7def3c1d0bb104cd62cf17bcf76e177e6966ff71",
   "key": {
     "command": [
       "<python>",
@@ -75,7 +75,7 @@
         "ms_events": [],
         "ms_n0": 10000.0,
         "name": "constant",
-        "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+        "source": "ms-style model of experiment/scripts/simulate_msprime_to_psmcfa.py at commit 516daa27, converted exactly"
       },
       "simulation": {
         "ancestry_model": "hudson",
@@ -107,36 +107,36 @@
     "<runs>/E1/sims/constant/rep07/genome.psmcfa": "23116448b2566b49fc6227f63264d8f31be8ea27a44d4d9df69040db007fba9e",
     "<runs>/E1/sims/constant/rep07/genome.vcf.gz": "d74bc0aceda84d1abc0180d7bcd1434b693489305b8277d39f06adebf23b30e3",
     "<runs>/E1/sims/constant/rep07/genome.vcf.gz.tbi": "fd7bb3c52594359f3fc62e443b9111c3f0a5f4981f0d9ae1aae3078dfa85484c",
-    "<runs>/E1/truth/constant/rep07.json": "c16e260a95c174191e20741953d569aec61123f0b2b71fc8278dc5e0033bf251"
+    "<runs>/E1/truth/constant/rep07.json": "4ebc71604f54b9c35c44d0671e2122cb235418f03fe7f705c3506f319fd3fb7d"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-22T01:36:10",
+    "end": "2026-10-27T03:37:43",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn513-15-r",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      60.89,
-      31.39,
-      23.71
+      113.52,
+      117.31,
+      103.48
     ],
     "loadavg_before": [
-      43.49,
-      23.63,
-      20.93
+      114.66,
+      117.86,
+      102.77
     ],
-    "maxrss_main_mb": 155.8,
+    "maxrss_main_mb": 155.5,
     "mem_gb": 1.0,
-    "peak_rss_mb": 155.8,
-    "peak_rss_tree_sampled_mb": 154.8,
-    "slurm_job_id": "54211974",
-    "start": "2026-10-22T01:35:19",
-    "system_seconds": 0.163,
-    "user_seconds": 50.146,
-    "wall_seconds": 50.945
+    "peak_rss_mb": 155.5,
+    "peak_rss_tree_sampled_mb": 148.5,
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T03:36:45",
+    "system_seconds": 0.197,
+    "user_seconds": 55.699,
+    "wall_seconds": 58.18
   }
 }

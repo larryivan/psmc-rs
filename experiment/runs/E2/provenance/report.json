@@ -1,5 +1,5 @@
 {
-  "digest": "11b7e3e0b7ead8b270cb16d57b48b39ba7ec0a70fc9247c43ed01ec1f6674212",
+  "digest": "974279c6dae758a8236f91d57eddda54b20b36fa65fd05a4ec30e4c2be99a1db",
   "key": {
     "command": [
       "<python>",
@@ -54,24 +54,24 @@
       "<runs>/E2/fits/NA12878.c.psmc": "c0dd8e2d277dcaf7cdbc23db63d1a95243e801c1bf5205d40d0d55a86aa808eb",
       "<runs>/E2/fits/NA12878.rs.json": "fa051ce551674033b3a63fa0ae788b4a6bb012d832c45e0dbda9b7b8fc40e1d5",
       "<runs>/E2/fits/NA12878.rs.psmc": "7112d819a71a23bc34f7523156454642e0e0d20dc9ea8aff5e3f482f11fed78a",
-      "<runs>/E2/provenance/boot-rs/trunk500000/HLemySub1.json": "8ec2ebc794329bf8eb54aae8ec207ed8cd61195361a5d5d153c672a13f61517b",
-      "<runs>/E2/provenance/boot-rs/trunk500000/HLhydTec1.json": "da4cc51726f21c63d0fd1872ed7c70d9fbdc2d0b1598fbc68f2ea0e973bffcd5",
-      "<runs>/E2/provenance/boot-rs/trunk500000/HLpelCas1.json": "8b1fbc011694be25d3d8ce691f6c62b7702a65f162cf9ee82e807907ac973ab9",
-      "<runs>/E2/provenance/boot-rs/trunk500000/NA12878.json": "cd2393bb1d34fa55e7368cfc048ea57fe2b9bdfc61af2bddc80dd098110c2ddc",
+      "<runs>/E2/provenance/boot-rs/trunk500000/HLemySub1.json": "6453bf561d070fb286252851fefe953370dd8f9019dd2f83e2f335f9a72b1e34",
+      "<runs>/E2/provenance/boot-rs/trunk500000/HLhydTec1.json": "417eac9657e904ed33e4612c9190b41f5687f2061291bbcb288d905e27b60d4d",
+      "<runs>/E2/provenance/boot-rs/trunk500000/HLpelCas1.json": "c0b8f5b4c1ddd88c08e203dc275dd06e6ae492d1ce5a4443e0fc66b3d4846c73",
+      "<runs>/E2/provenance/boot-rs/trunk500000/NA12878.json": "1812dfdcdf7d557f74eed9347c238ab72e07364954b7df06b1aa7be2264ee778",
       "<runs>/E2/provenance/fit-c/HLemySub1.json": "468ee6f8faaaa14ff27e48a729a1b9ec511c9b04776ff3eff504b31fc1752c60",
       "<runs>/E2/provenance/fit-c/HLhydTec1.json": "57eaf2bceb4f5c62afbe6dd7eab7dcf5d5ca7f34838c01253b3690726c028e8c",
       "<runs>/E2/provenance/fit-c/HLpelCas1.json": "8afa89df269f2247e12133db8ed40b58bc7adf4599bbc26ca17abfa732c67f57",
       "<runs>/E2/provenance/fit-c/NA12878.json": "441912d57de0eeb6dd44801cebebf497ac8a104bb2c861bc3d2ee3b1e67ff901",
-      "<runs>/E2/provenance/fit-rs-split1/HLemySub1.json": "0f0a17965f5902688532c9c9116e3175c4add13e34248e345a2bde687c88e714",
-      "<runs>/E2/provenance/fit-rs-split1/HLhydTec1.json": "c3ea0002bf9796caad90133c0af1f72dc813297514ef4195c73f4bd84b9b7ab1",
-      "<runs>/E2/provenance/fit-rs-split1/HLpelCas1.json": "99500415ec74e007457f5eac2a9cbd8f1c7ec8cdc5180cb21b9020e141b143e3",
-      "<runs>/E2/provenance/fit-rs-split2/HLemySub1.json": "151f7fbd90d0abf99dc0a96738b388881d53603ffac6bf12a163d8b1b3f9066b",
-      "<runs>/E2/provenance/fit-rs-split2/HLhydTec1.json": "9e4df52eeea27af6a410783a8f351a4f352794aa8271f889a34f06579c24f03d",
-      "<runs>/E2/provenance/fit-rs-split2/HLpelCas1.json": "d27a0650b6d3658a5ced9ae88164cd76360c0bf2339c63765326866d6a4a38c6",
-      "<runs>/E2/provenance/fit-rs/HLemySub1.json": "b6b43b07cfcd24c9b493427c183e1beb2e70acb99da1c2b153ac419837e06726",
-      "<runs>/E2/provenance/fit-rs/HLhydTec1.json": "12fd41f46070b865da56aa5120461c94ebe3b854f317536873fb64411d2050f4",
-      "<runs>/E2/provenance/fit-rs/HLpelCas1.json": "6bcf2e05f7965b69af8936fbe38387811d6acf21a285c1f99cd0e96c2d5d6099",
-      "<runs>/E2/provenance/fit-rs/NA12878.json": "1ad6acb57a26ddea7f673b6bec7b7fc5625596da871acb6131f74629a2af0869",
+      "<runs>/E2/provenance/fit-rs-split1/HLemySub1.json": "b67281cd898ecd475164b96026629994e9fd555ae724f0f77d0f4cdedca8f45e",
+      "<runs>/E2/provenance/fit-rs-split1/HLhydTec1.json": "6e33e70e46fb9a08bcfc8c258570c2a6c2193de65ea2a1b3a494a97b1039999c",
+      "<runs>/E2/provenance/fit-rs-split1/HLpelCas1.json": "b523ed2629c463911dd59abefcbc2685edc013809069f0c6f47519189555d4ff",
+      "<runs>/E2/provenance/fit-rs-split2/HLemySub1.json": "c85ef8a4450152887fee2acf619ae245017cac9b2eed00c7b6559c0c1cbf8d59",
+      "<runs>/E2/provenance/fit-rs-split2/HLhydTec1.json": "671ba0bc22a85d9e24f128c573fce49bfaa9abfef136a10f8e004efacc950f6e",
+      "<runs>/E2/provenance/fit-rs-split2/HLpelCas1.json": "232434ffc69c9ba9b56c170f9378f2c5a30ab7749f287c445a9da2cd7ac33f23",
+      "<runs>/E2/provenance/fit-rs/HLemySub1.json": "b6a44be53bc44770183986f5df35ece1920b9f291e02dca324bb7ae000025a6a",
+      "<runs>/E2/provenance/fit-rs/HLhydTec1.json": "d0c25e6fb7344f196366294afb36b6eaee62bba8028732e715b74a47b7970af4",
+      "<runs>/E2/provenance/fit-rs/HLpelCas1.json": "6fa3ee5f08cb6d9e61bfb06cc1c752449d57f42e93791edfd1ed98637571fa38",
+      "<runs>/E2/provenance/fit-rs/NA12878.json": "baa8ba967f5774c2447e0dfb82f13f079824c836a27dca07843752fde45d4878",
       "<runs>/E2/qc/HLemySub1.qc.json": "26cf681083fb9be86ca92a09cb83b627558ee7327d0724c9490dd66cd15c3e52",
       "<runs>/E2/qc/HLhydTec1.qc.json": "c03607c7743debf7a149c6a3c2eb57145ae611421969e67e1d602d3a1f10bc03",
       "<runs>/E2/qc/HLpelCas1.qc.json": "8ecf718e3d3fab62dfcba738b2eeca16d1e0dbb62d25b23f873f690b15220223",
@@ -106,7 +106,7 @@
               "mu": 4.6e-09
             },
             "scaling_cite": "painted turtle trios (Bergeron 2023)",
-            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher.",
             "sequence_noun": "scaffolds",
             "sha256": null,
             "species": "Emydura subglobosa"
@@ -121,7 +121,7 @@
               "mu": 4.6e-09
             },
             "scaling_cite": "painted turtle trios (Bergeron 2023)",
-            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher.",
             "sequence_noun": "scaffolds",
             "sha256": null,
             "species": "Hydromedusa tectifera"
@@ -136,7 +136,7 @@
               "mu": 4.6e-09
             },
             "scaling_cite": "painted turtle trios (Bergeron 2023)",
-            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. Replaces the psmc-rs 0.1 runs' mu 7.9e-9, a crocodilian rate (Green et al. 2014, Science 346:1254449).",
+            "scaling_source": "mu 4.6e-9 per bp per generation: the mean germline rate of 9 Chrysemys picta trios (Bergeron et al. 2023, Nature 615:285, Supp. Table 2; range 3.0e-9 to 6.6e-9), the only turtle with a pedigree estimate; C. picta is a cryptodire, and no pleurodire rate has been measured. g 15 y, shared by the three species: close to Sozzoni et al. 2025 (Mol Ecol Resour 25:e70040, Table S2: P. castaneus 15.9, E. subglobosa 12.4); H. tectifera has no published generation time. The crocodilian rate 7.9e-9 (Green et al. 2014, Science 346:1254449) is higher.",
             "sequence_noun": "scaffolds",
             "sha256": null,
             "species": "Pelusios castaneus"
@@ -206,7 +206,7 @@
     },
     "tools": {
       "pipeline": {
-        "code": "d7a8b72eea182062c3e63824832df7ecc68ec0456eb79706d1ec55d3affeb3a3",
+        "code": "4690770c089da86d8b7164cd83a975e7550f2aa0c53e0727c9c91c5a078a0be0",
         "numpy": "2.5.3",
         "python": "3.13.13"
       }
@@ -214,45 +214,45 @@
   },
   "outputs": {
     "<runs>/E2/tables/E2_bands.csv": "ea647bfec86cf57302fd077ab3bb4c9c0c06e156384c6d199c281cac4738b9e1",
-    "<runs>/E2/tables/E2_bootstrap.csv": "a06e9560a7ff03333c08286a3e6e81906aa3aed4e007d978f8290766bbe55a56",
+    "<runs>/E2/tables/E2_bootstrap.csv": "13481d440ceaadb2dd6da4a6a89a9f30db7754b41c2d6bb3645d262655b30c71",
     "<runs>/E2/tables/E2_bootstrap_replicates.csv": "ccf992295a6d980f998d313052fb5c3a69b1aea7d93fd16907346896765c994c",
     "<runs>/E2/tables/E2_curves.csv": "e39fdb0de30c776315df344d3c96b2616f8cd58e3a4ce5f7706e80b05a13a774",
-    "<runs>/E2/tables/E2_fit_summary.csv": "1804be19c09e518f882638de1f49c79f13d457ea0fc76df4d129fe3cb586cb8e",
+    "<runs>/E2/tables/E2_fit_summary.csv": "94531b7cd7e96b4b38afddd3423e3a168363fd307cd280a334ed6a6e56bc6f8b",
     "<runs>/E2/tables/E2_qc.csv": "386a662a7e2b56f65e0acad6114f5006c69258fd1f3c5b810554c0ce4b13ccd6",
     "<runs>/E2/tables/E2_qc_findings.csv": "d67d8951e877190042a6cf67fa500e2fa13061a6bc576c8f71444624b138af44",
     "<runs>/E2/tables/E2_rs_vs_c.csv": "827930b6083ff2e1579b9c54c3ff6108feceb6dbc5dc18013a1c573f41b8679a",
     "<runs>/E2/tables/E2_split_curves.csv": "22a50d83a6fad7775df034fc8d6600a680d4c31c25c73d0e26c0efedade19063",
-    "<runs>/E2/tables/E2_split_patterns.csv": "72a06342666f5f5023a39b97ec818551200dd61a7d4db658be57c0b86ab8f10c",
+    "<runs>/E2/tables/E2_split_patterns.csv": "73b79d2dc09d2df5405a3292f7aa83f5fb352df206ff73894ebbeec0e245dc0b",
     "<runs>/E2/tables/E2_traces.csv": "85f7ef4f182df228b0d115f6610d3bf0c1369c47d6f66920a2ab7219feb0249d"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-23T01:15:17",
+    "end": "2026-10-27T04:26:39",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn513-11-l",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      43.95,
-      56.82,
-      63.65
+      116.52,
+      119.51,
+      118.0
     ],
     "loadavg_before": [
-      47.17,
-      57.66,
-      63.95
+      116.52,
+      119.51,
+      118.0
     ],
-    "maxrss_main_mb": 124.6,
+    "maxrss_main_mb": 115.2,
     "mem_gb": 1.0,
-    "peak_rss_mb": 124.6,
+    "peak_rss_mb": 115.2,
     "peak_rss_tree_sampled_mb": 8.0,
-    "slurm_job_id": "54256959",
-    "start": "2026-10-23T01:15:16",
-    "system_seconds": 0.095,
-    "user_seconds": 0.485,
-    "wall_seconds": 0.983
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T04:26:38",
+    "system_seconds": 0.092,
+    "user_seconds": 0.476,
+    "wall_seconds": 0.733
   }
 }

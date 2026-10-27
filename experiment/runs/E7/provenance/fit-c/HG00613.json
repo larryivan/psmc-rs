@@ -44,31 +44,31 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-25T23:53:26",
+    "end": "2026-10-27T06:03:53",
     "exclusive": false,
     "executables": {
       "<tools>/psmc_c/psmc": "d5e0e1604d1cad0b436ebf457d860292c7d4c38d484bba91b60af0b6e06e4be8"
     },
     "exit_status": 0,
-    "host": "cn514-10-l",
+    "host": "cn514-11-r",
     "loadavg_after": [
-      116.26,
-      118.72,
-      121.86
+      134.16,
+      133.66,
+      136.82
     ],
     "loadavg_before": [
-      63.45,
-      66.49,
-      73.12
+      77.52,
+      81.47,
+      86.02
     ],
-    "maxrss_main_mb": 2596.4,
+    "maxrss_main_mb": 2601.8,
     "mem_gb": 2.71,
-    "peak_rss_mb": 2596.4,
-    "peak_rss_tree_sampled_mb": 2596.4,
-    "slurm_job_id": "54555780",
-    "start": "2026-10-25T22:20:33",
-    "system_seconds": 46.815,
-    "user_seconds": 5360.544,
-    "wall_seconds": 5572.959
+    "peak_rss_mb": 2601.8,
+    "peak_rss_tree_sampled_mb": 2601.8,
+    "slurm_job_id": "54634918",
+    "start": "2026-10-27T04:45:55",
+    "system_seconds": 42.478,
+    "user_seconds": 4562.665,
+    "wall_seconds": 4677.975
   }
 }

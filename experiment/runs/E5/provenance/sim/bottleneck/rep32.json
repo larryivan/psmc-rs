@@ -1,5 +1,5 @@
 {
-  "digest": "cf52787e6e7e1e9265cfe8814f2082c2c96da4f98dcf6c9806a938417ca5cd9a",
+  "digest": "12a91cbc01654c84081706ff8348bc2e33c64ad2d4293ef8d1fc9db26455ed13",
   "key": {
     "command": [
       "<python>",
@@ -98,7 +98,7 @@
         ],
         "ms_n0": 20000.0,
         "name": "bottleneck",
-        "source": "ms-style model of the psmc-rs 0.1 manuscript pipeline (experiment/scripts/simulate_msprime_to_psmcfa.py), converted exactly"
+        "source": "ms-style model of experiment/scripts/simulate_msprime_to_psmcfa.py at commit 516daa27, converted exactly"
       },
       "simulation": {
         "ancestry_model": "hudson",
@@ -123,36 +123,36 @@
   },
   "outputs": {
     "<runs>/E5/sims/bottleneck/rep32/genome.psmcfa": "bd123b22a53d2526f9d4ecd1716a1dd5dbb6f88f0da1ad73aa58cb3bdfc1c627",
-    "<runs>/E5/truth/bottleneck/rep32.json": "f172755f672cd872cf1f250d01b9e309831d75dbec34791871d417672acf092d"
+    "<runs>/E5/truth/bottleneck/rep32.json": "2a5a883c45b0c6da10992f47a985e49104bb35dd4d8e53abef4bdf89aebdecb2"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-22T08:19:52",
+    "end": "2026-10-27T03:41:16",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn511-12",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      235.83,
-      230.91,
-      191.01
+      110.99,
+      113.79,
+      104.85
     ],
     "loadavg_before": [
-      243.62,
-      232.23,
-      191.0
+      111.35,
+      113.95,
+      104.8
     ],
-    "maxrss_main_mb": 105.1,
+    "maxrss_main_mb": 114.2,
     "mem_gb": 1.0,
-    "peak_rss_mb": 105.1,
-    "peak_rss_tree_sampled_mb": 76.4,
-    "slurm_job_id": "54232546",
-    "start": "2026-10-22T08:19:43",
-    "system_seconds": 0.056,
-    "user_seconds": 6.449,
-    "wall_seconds": 9.027
+    "peak_rss_mb": 114.2,
+    "peak_rss_tree_sampled_mb": 78.1,
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T03:41:04",
+    "system_seconds": 0.098,
+    "user_seconds": 10.638,
+    "wall_seconds": 11.337
   }
 }

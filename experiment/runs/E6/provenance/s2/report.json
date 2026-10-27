@@ -1,5 +1,5 @@
 {
-  "digest": "725e94ab6cf496c4b4c2104f5d511aa008d40ee9a1d369bcb0a05422a350e227",
+  "digest": "a94a4bed7b21c2ea717be67168819c2563875a286456891582529455962a527f",
   "key": {
     "command": [
       "<python>",
@@ -23,9 +23,9 @@
       "<runs>/E1/sims/constant/rep01/genome.psmcfa": "719bc89a784620e27fd59e7dd2f9e131367b8be7fbedca071b18dbc4e20a0a29",
       "<runs>/E1/sims/expansion/rep01/genome.psmcfa": "1d992b3e9d735f5b2865d6c15d89b30003ee7ac1cb3ab1e208bc9db502e64f0c",
       "<runs>/E1/sims/zigzag/rep01/genome.psmcfa": "7f594a3c6becc69e66b5c8a1743fdcf167e8368a7ee63914fd52c76f199855a0",
-      "<runs>/E1/truth/bottleneck/rep01.json": "6491bbde2d8fcbf2429459970853e4836ccef18906ec78094987b32fdd7fba3b",
-      "<runs>/E1/truth/constant/rep01.json": "3bf8bd9f2dd46f5cd322e41998a7f5fdb5ef9f56f3561797740628483c38ec2c",
-      "<runs>/E1/truth/expansion/rep01.json": "37c14b8aec1831426c3d7c210715c54767226de46864c993c34fbd71cacdb1af",
+      "<runs>/E1/truth/bottleneck/rep01.json": "92d086e15f3317bc9c9f3c155d3b41a9f7d4982e05f3d14722328ee248f50f5c",
+      "<runs>/E1/truth/constant/rep01.json": "6d6d2c0354df4d3f3339dfdbe8e400676028311eb73394d4f6c8bb731bd831ab",
+      "<runs>/E1/truth/expansion/rep01.json": "6c9759f6499fa0d2bb101c42d97d96fa67b876ff0e40ed7d7c6b8e0f1661cf4d",
       "<runs>/E1/truth/zigzag/rep01.json": "94c88b3c3e861b3e2415dae76ecd7384dfc805da2e8bb07d581d2da1cb7db7d3",
       "<runs>/E6/fits/s2/bottleneck/rep01.multihetsep.json": "f24e88bfb6b775c15166325595bba409d8d2978466ab9961bf439b766e4011b6",
       "<runs>/E6/fits/s2/bottleneck/rep01.vcf.json": "07b02407223311bc2dba3dcd4747ae36880549fcc7bdb4c69157b3d4c3d60ef6",
@@ -85,7 +85,7 @@
     },
     "tools": {
       "pipeline": {
-        "code": "f0e434e86c1624edea82a7a7181a28abd0110889402004a1c9ba6bf91cb1b07f",
+        "code": "10c5b7a7aba500bf310fb84f11e4a5537e10561b9c38b696c021dd111288fdc5",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
         "python": "3.13.13",
@@ -95,37 +95,37 @@
   },
   "outputs": {
     "<runs>/E6/tables/E6_S2_bins.csv": "28d713dd8def52ffcf639601abeac3ab6fa11083f180018a7533839eb407c2ac",
-    "<runs>/E6/tables/E6_S2_curves.csv": "9621d6d100c9740eb291170d14e7693114d21fc7552b1a7ee339a8e6a1bc6212",
-    "<runs>/E6/tables/E6_S2_fits.csv": "9451e356b70c3e76bb38d43c4b3acdec5cbe10a19edde5330f978deeaa9aa36c"
+    "<runs>/E6/tables/E6_S2_curves.csv": "2a40550127c3a4097b88a9bcc67632bc907e695eb92c8d18d05b24e1eb74c08c",
+    "<runs>/E6/tables/E6_S2_fits.csv": "e6321597579cfd46823521b7c04568393f2fdaf52a5196fab3756b9525a2f3dd"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-22T08:22:17",
+    "end": "2026-10-27T03:41:13",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn511-12",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      238.18,
-      235.33,
-      198.53
+      111.16,
+      113.87,
+      104.82
     ],
     "loadavg_before": [
-      238.18,
-      235.33,
-      198.53
+      111.16,
+      113.87,
+      104.82
     ],
-    "maxrss_main_mb": 105.1,
+    "maxrss_main_mb": 114.2,
     "mem_gb": 1.0,
-    "peak_rss_mb": 105.1,
-    "peak_rss_tree_sampled_mb": 37.3,
-    "slurm_job_id": "54232546",
-    "start": "2026-10-22T08:22:17",
-    "system_seconds": 0.053,
-    "user_seconds": 0.293,
-    "wall_seconds": 0.533
+    "peak_rss_mb": 114.2,
+    "peak_rss_tree_sampled_mb": 0.0,
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T03:41:09",
+    "system_seconds": 0.064,
+    "user_seconds": 0.436,
+    "wall_seconds": 3.681
   }
 }

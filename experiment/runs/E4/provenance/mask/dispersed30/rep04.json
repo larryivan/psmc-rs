@@ -80,31 +80,31 @@
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-22T08:06:32",
+    "end": "2026-10-27T03:39:17",
     "exclusive": false,
     "executables": {
       "<python>": "7d123df8edca6127a616301147e4f8e6cf88a62a77cc96a55e6452aeae80c31b"
     },
     "exit_status": 0,
-    "host": "cn511-12",
+    "host": "cn513-21-l",
     "loadavg_after": [
-      170.5,
-      160.92,
-      133.3
+      109.84,
+      114.58,
+      103.82
     ],
     "loadavg_before": [
-      171.88,
-      160.85,
-      132.98
+      110.09,
+      114.79,
+      103.76
     ],
-    "maxrss_main_mb": 373.3,
+    "maxrss_main_mb": 376.3,
     "mem_gb": 1.0,
-    "peak_rss_mb": 373.3,
-    "peak_rss_tree_sampled_mb": 308.3,
-    "slurm_job_id": "54232546",
-    "start": "2026-10-22T08:06:24",
-    "system_seconds": 0.39,
-    "user_seconds": 3.483,
-    "wall_seconds": 8.157
+    "peak_rss_mb": 376.3,
+    "peak_rss_tree_sampled_mb": 318.0,
+    "slurm_job_id": "54629001",
+    "start": "2026-10-27T03:39:04",
+    "system_seconds": 0.705,
+    "user_seconds": 7.122,
+    "wall_seconds": 12.706
   }
 }
