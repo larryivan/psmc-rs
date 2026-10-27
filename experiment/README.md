@@ -50,7 +50,7 @@ Where to read on:
   difference from C psmc's fits comes from (variants of psmc-rs as a patch,
   their fits of E1's genomes and the results); [`e7_pilot/README.md`](e7_pilot/README.md):
   E7's chr21 pilot and the default genomes' conversions, run again with the
-  production's psmc-rs.
+  production's binary.
 
 ## Layout
 
@@ -66,7 +66,7 @@ experiment/
 ├── validation/                        # the --bin-callable simulation study
 ├── crossplatform/                     # laptop against Ibex
 ├── c_equivalence/                     # the remaining difference from C psmc: variants, fits, results
-├── e7_pilot/                          # E7's chr21 pilot and conversions, run again with the production's psmc-rs
+├── e7_pilot/                          # E7's chr21 pilot and conversions, run again with the production's binary
 └── tests/                             # python -m unittest discover -s experiment/tests
 ```
 
