@@ -508,20 +508,20 @@ pipeline's thread-scaling figure): 19 setups and 95 timed runs, all
 measured (`E3_table2.csv`, `status`). The numbers below are computed from
 E3's tables in `runs/E3/tables/`, named with each.
 
-**Machines and builds.** Each repeat ran on its own exclusive Ibex node,
-all five of one CPU model: AMD EPYC 7702, 128 cores, 503.7 GB of
+**Machines and builds.** Each repeat ran on an exclusive Ibex node, four
+nodes of one CPU model: AMD EPYC 7702, 128 cores, 503.7 GB of
 memory, the cpufreq governor `performance` (acpi-cpufreq) with boost on,
 Linux 5.14.0-427.20.1.el9_4.0.1.x86_64 and glibc 2.34
-(`E3_environment.csv`, whose `clean_runs_on_mixed_machines` is False). Repeats 1 to 5 ran on
-cn513-10-r, cn506-18-r, cn506-15-l, cn514-02-l and cn513-17-l, as SLURM
-jobs 54256961 to 54256965 in that order (`E3_runs.csv`: `hostname`,
-`slurm_job_id`); each repeat's 19 runs took 2.04 to 2.06 hours of wall
-time (the sum of its `wall_seconds`).
+(`E3_environment.csv`, whose `clean_runs_on_mixed_machines` is False).
+Repeats 1 to 5 ran on cn513-09-l, cn513-02-r, cn514-15-l, cn513-02-l and
+cn513-09-l, as SLURM jobs 54629002 to 54629006 in that order
+(`E3_runs.csv`: `hostname`, `slurm_job_id`); each repeat's 19 runs took
+2.04 to 2.07 hours of wall time (the sum of its `wall_seconds`).
 
 | tool | build |
 | --- | --- |
 | C psmc | lh3/psmc 0.6.5-r74, built by `tools --build-c` with gcc 11.4.1 (Red Hat 11.4.1-3) and CFLAGS `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function` (`tool.c.cc`, `tool.c.cflags`): the production build of section 7, which gives its build date and platform |
-| psmc-rs | 0.2.0, built with rustc 1.99.0, the release profile and no build flags from the `src/` tree dcf29ca with `Cargo.toml` c0be5cf and `Cargo.lock` ae10354, and no uncommitted changes (`tool.rs02.source_tree`, `source_dirty`): the binary that made every psmc-rs fit of the production (section 6); it picks its AVX2 and FMA kernels at run time (section 8) |
+| psmc-rs | 0.2.0, built with rustc 1.99.0, the release profile and no build flags from the `src/` tree dcf29ca with `Cargo.toml` 4813f6d and `Cargo.lock` ae10354, and no uncommitted changes (`tool.rs02.source_tree`, `source_dirty`): the binary that made every psmc-rs fit of the production (section 6); it picks its AVX2 and FMA kernels at run time (section 8) |
 
 `E3_environment.csv` also holds the SHA-256 of every binary, the fit
 settings and the protocol's limits.
@@ -534,28 +534,24 @@ time may keep at most 0.5 core and 5% of all cores busy; otherwise the run
 is discarded and repeated later. Kernel threads and interrupts are
 recorded but not limited, because part of their time is the kernel's work
 for the tool: on the 128-core nodes, a run keeping 30 cores busy adds
-about 0.2 core (0.17 to 0.20 core more than the same run on one thread) to
-an idle node's 0.20 to 0.925 busy core (median 0.32). On macOS, where
+about 0.2 core (0.17 to 0.19 core more than the same run on one thread)
+to an idle node's 0.175 to 0.90 busy core (median 0.32). On macOS, where
 not every process can be read, the limit applies instead to all of the
 machine's busy time but the tool's, and each record names the measure
 used.
 
 **Runs.** Before its runs, each `e3` job measured its idle node for 30 s,
 to stop if the node was busier than the protocol allows; none stopped.
-The protocol deferred runs while a node was busy and ran them again
-later: the runner logs have one deferral line in each of repeats 1, 2, 4
-and 5 and none in repeat 3, and every deferred run was clean when it ran.
-`merge_e3.sh` merged the five repeats and found every run
-done for the current code. All 95 runs (20 of C psmc and 75 of psmc-rs)
-are clean (`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean`
-are 0). In the quiet check's 2 s window before them the node had 0.20 to
-0.925 core busy, median 0.32 (the limit is 1; the five nodes' medians
-0.26 to 0.335). During them the other
-processes kept a median 0.27 and at most 0.48 core busy (the limit is
-0.5), at most 0.37% of all cores (the limit is 5%), and steal time was
-0 (`E3_runs.csv`: `busy_before_cores`, `other_cores_during`,
+`merge_e3.sh` merged the five repeats and found every run done for the
+current code. All 95 runs (20 of C psmc and 75 of psmc-rs) are clean
+(`E3_environment.csv`: `runs_not_quiet` and `runs_not_clean` are 0). In
+the quiet check's 2 s window before them the node had 0.175 to 0.90 core
+busy, median 0.32 (the limit is 1; the four nodes' medians 0.305 to
+0.335). During them the other processes kept a median 0.26 and at most
+0.48 core busy (the limit is 0.5), at most 0.36% of all cores (the limit
+is 5%), and steal time was 0 (`E3_runs.csv`: `busy_before_cores`, `other_cores_during`,
 `other_cpu_share_during`, `steal_cores_during`). Each median below is
-taken over the five repeats, one per node, so the spread of the repeats
+taken over the five repeats, on four nodes, so the spread of the repeats
 includes the spread between the nodes.
 
 **Wall time** in seconds (`E3_table2.csv`: `wall_median_s`, and in
@@ -564,32 +560,32 @@ run:
 
 | tool | threads | 100 Mb | 300 Mb | 1000 Mb | 3000 Mb |
 | --- | --- | --- | --- | --- | --- |
-| C psmc | 1 | 152.2 (152.0–155.1) | 446.6 (445.9–454.7) | 1,479.1 (1,477.0–1,494.1) | 4,424.6 (4,414.2–4,455.8) |
-| psmc-rs | 1 | 10.98 (10.97–10.99) | 31.85 (31.32–31.89) | 103.9 (103.7–105.1) | 317.7 (315.7–318.1) |
-| psmc-rs | 2 | – | – | – | 163.4 (163.0–163.8) |
-| psmc-rs | 4 | – | – | – | 87.44 (86.89–87.90) |
-| psmc-rs | 8 | 10.46 (10.46–10.96) | 11.01 (11.00–11.53) | 21.46 (21.44–21.46) | 43.93 (43.90–44.49) |
-| psmc-rs | 16 | – | – | – | 22.50 (22.49–22.56) |
-| psmc-rs | 30 | 10.45 (10.43–10.47) | 11.48 (10.97–11.52) | 11.52 (11.49–11.56) | 11.53 (11.52–12.04) |
+| C psmc | 1 | 152.5 (151.9–154.4) | 449.4 (445.2–452.0) | 1,478.3 (1,473.1–1,491.7) | 4,455.9 (4,416.3–4,493.9) |
+| psmc-rs | 1 | 10.97 (10.95–10.99) | 31.84 (31.32–31.93) | 103.9 (103.4–105.2) | 317.0 (315.7–319.8) |
+| psmc-rs | 2 | – | – | – | 163.3 (162.9–164.5) |
+| psmc-rs | 4 | – | – | – | 87.33 (86.70–89.04) |
+| psmc-rs | 8 | 10.46 (10.44–10.97) | 10.99 (10.97–11.49) | 21.46 (21.42–21.47) | 43.92 (43.88–43.98) |
+| psmc-rs | 16 | – | – | – | 22.54 (22.47–22.54) |
+| psmc-rs | 30 | 10.47 (10.44–10.96) | 10.99 (10.98–11.48) | 11.52 (11.49–11.52) | 11.54 (11.52–12.03) |
 
-The fastest and the slowest repeat were at most 2.0% of the median apart
-in every setup but four, all psmc-rs: 100 and 300 Mb on 8 threads and
-300 and 3000 Mb on 30 (4.6 to 4.8%).
+The fastest and the slowest repeat were at most 2.7% of the median apart
+in every setup but five, all psmc-rs: 100 and 300 Mb on 8 and 30 threads
+and 3000 Mb on 30 (4.4 to 5.0%).
 
 **Speed-ups** (`E3_table2.csv`, `speedup_vs_c`: C psmc's median wall time
 on the same genome over the tool's). psmc-rs on one thread was 13.9 to
-14.2 times as fast as C psmc at every size: 13.9 on 3000 Mb, 317.7 s
-against 4,424.6 s, or 12.7 s against 177.0 s per EM iteration
+14.2 times as fast as C psmc at every size: 14.1 on 3000 Mb, 317.0 s
+against 4,455.9 s, or 12.7 s against 178.2 s per EM iteration
 (`seconds_per_iteration_median`). On 3000 Mb it was 101 times as fast on
-8 threads, 197 on 16 and 384 on 30. Paired within each repeat, on one
-node, C psmc's wall time over psmc-rs's on 3000 Mb was 13.91 to 14.05
-on one thread, and 100.2 to 101.0, 196.1 to 198.0 and 367.4 to 386.4 on
-8, 16 and 30 threads; on one thread it was 13.84 to 14.52 over the four
+8 threads, 198 on 16 and 386 on 30. Paired within each repeat, on one
+node, C psmc's wall time over psmc-rs's on 3000 Mb was 13.81 to 14.16
+on one thread, and 100.4 to 102.4, 195.9 to 200.0 and 373.6 to 387.6 on
+8, 16 and 30 threads; on one thread it was 13.81 to 14.39 over the four
 sizes (`E3_runs.csv`, `wall_seconds`). psmc-rs's threads added at most
-4.8% to its CPU time, and none on 100 Mb: its median on 3000 Mb was
-315.8 s on one thread and 320.3 to 325.1 s on 2 to 30, on 1000 Mb 103.1 s
-on one thread and 106.9 and 108.0 s on 8 and 30, and on 300 Mb 31.2 s on
-one thread and 32.1 s on both 8 and 30 (`cpu_median_s`).
+5.1% to its CPU time, and none on 100 Mb: its median on 3000 Mb was
+315.5 s on one thread and 320.3 to 325.3 s on 2 to 30, on 1000 Mb 102.9 s
+on one thread and 106.5 and 108.2 s on 8 and 30, and on 300 Mb 31.3 s on
+one thread and 32.2 s on both 8 and 30 (`cpu_median_s`).
 
 **Peak memory** in MB of 2^20 bytes (`E3_table2.csv`,
 `peak_rss_median_mb`: the median over the repeats of the larger of the
@@ -598,25 +594,25 @@ every 0.5 s):
 
 | tool | threads | 100 Mb | 300 Mb | 1000 Mb | 3000 Mb |
 | --- | --- | --- | --- | --- | --- |
-| C psmc | 1 | 1,035 | 1,037 | 1,043 | 1,063 |
+| C psmc | 1 | 1,035 | 1,037 | 1,043 | 1,062 |
 | psmc-rs | 1 | 26.0\* | 26.0\* | 26.0\* | 35.7 |
 | psmc-rs | 2 | – | – | – | 38.9 |
-| psmc-rs | 4 | – | – | – | 45.0 |
-| psmc-rs | 8 | 26.0\* | 26.0\* | 40.8 | 60.7 |
-| psmc-rs | 16 | – | – | – | 90.5 |
-| psmc-rs | 30 | 26.0\* | 26.0\* | 74.5 | 148.9 |
+| psmc-rs | 4 | – | – | – | 47.2 |
+| psmc-rs | 8 | 26.0\* | 26.0\* | 42.6 | 59.4 |
+| psmc-rs | 16 | – | – | – | 87.9 |
+| psmc-rs | 30 | 26.0\* | 26.0\* | 75.9 | 147.6 |
 
-\* In these 35 runs the tool's `ru_maxrss` was 26.0 MB whatever the size
-and the threads, and the sampled peak 7.0 to 19.6 MB (`E3_runs.csv`:
-`maxrss_mb`, `peak_rss_tree_sampled_mb`). `ru_maxrss` is never below the
+\* In these 35 runs the tool's `ru_maxrss` was 24.0 to 26.0 MB whatever
+the size and the threads, and the sampled peak 7.0 to 22.0 MB
+(`E3_runs.csv`: `maxrss_mb`, `peak_rss_tree_sampled_mb`). `ru_maxrss` is never below the
 tool's peak and the sampled peak never above it, so these cells are an
 upper bound: psmc-rs's own peak lies between the two. Where its peak
 is larger (1000 Mb on 8 and 30 threads, 3000 Mb), `ru_maxrss` equals the
 sampled peak or exceeds it by at most 1.0 MB.
 
 C psmc held about 1 GB whatever the size. psmc-rs peaked at 35.7 MB
-on 3000 Mb on one thread and at 148.9 MB on 30, where C psmc held 29.7
-and 7.1 times as much (`c_rss_over_rss`).
+on 3000 Mb on one thread and at 147.6 MB on 30, where C psmc held 29.7
+and 7.2 times as much (`c_rss_over_rss`).
 
 **Thread scaling** of psmc-rs on 3000 Mb (`E3_thread_scaling.csv`;
 speed-up: the one-thread median wall time over the median on t threads;
@@ -624,16 +620,16 @@ efficiency: the speed-up over t):
 
 | threads | 1 | 2 | 4 | 8 | 16 | 30 |
 | --- | --- | --- | --- | --- | --- | --- |
-| median wall time (s) | 317.7 | 163.4 | 87.44 | 43.93 | 22.50 | 11.53 |
-| speed-up | 1 | 1.94 | 3.63 | 7.23 | 14.12 | 27.55 |
+| median wall time (s) | 317.0 | 163.3 | 87.33 | 43.92 | 22.54 | 11.54 |
+| speed-up | 1 | 1.94 | 3.63 | 7.22 | 14.07 | 27.46 |
 | efficiency | 1 | 0.97 | 0.91 | 0.90 | 0.88 | 0.92 |
-| peak memory (MB) | 35.7 | 38.9 | 45.0 | 60.7 | 90.5 | 148.9 |
+| peak memory (MB) | 35.7 | 38.9 | 47.2 | 59.4 | 87.9 | 147.6 |
 
 psmc-rs processes sequences in parallel, and a single sequence runs on
 one thread, so its wall time stops improving once the threads reach the
-number of chromosomes: on 100 Mb (one chromosome) it took 10.98, 10.46 and
-10.45 s on 1, 8 and 30 threads, on 300 Mb (three) 11.01 and 11.48 s on 8
-and 30, and every genome took 10.5 to 11.5 s on at least as many threads
+number of chromosomes: on 100 Mb (one chromosome) it took 10.97, 10.46 and
+10.47 s on 1, 8 and 30 threads, on 300 Mb (three) 10.99 s on both 8 and
+30, and every genome took 10.5 to 11.5 s on at least as many threads
 as chromosomes, about the time of one chromosome on one thread. With
 chromosomes of equal length, t threads need at least ⌈chromosomes/t⌉
 times one chromosome's time, and the median wall time divided by
