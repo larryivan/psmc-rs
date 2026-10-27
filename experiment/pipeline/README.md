@@ -909,14 +909,14 @@ CPU hours) and then timed its repeat's 19 runs, in 2 hours 8 to 9 minutes
 from the first's start to the last's end, 12.8 CPU hours over the 95 runs
 with the `measure` wrapper; its report ran in `e3-report` job 54677793
 (cn511-08). The measured costs above come from the provenance records. The
-`prod` jobs' runs shared the node with one another (1-minute load averages
-of 68 to 134 when they started; 78 to 168 in E7's job), so their times are
-costs, not controlled timings, though E7's two programs, sharing one node
-in one job, compare with each other under the same conditions; E3 times the
-tools, each run alone on its node (1-minute load averages of 1 to 10, left
-by E3's own jobs before it). E3's measured cost is the tools' CPU time in
-its 95 timed runs (`E3_runs.csv`), without the simulations each repeat ran
-or the `measure` wrapper.
+`prod` jobs' fits and bootstraps shared the node with one another (1-minute
+load averages of 68 to 134 when they started; 78 to 168 in E7's job), so
+their times are costs, not controlled timings, though E7's two programs,
+sharing one node in one job, compare with each other under the same
+conditions; E3 times the tools, each run alone on its node (1-minute load
+averages of 1 to 10, left by E3's own jobs before it). E3's measured cost
+is the tools' CPU time in its 95 timed runs (`E3_runs.csv`), without the
+simulations each repeat ran or the `measure` wrapper.
 
 Afterwards commit, for every experiment, `experiment/runs/<EXP>/` without
 what `.gitignore` drops (simulated genomes, masks, logs, HTML reports,
