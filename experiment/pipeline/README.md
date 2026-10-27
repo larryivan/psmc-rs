@@ -286,10 +286,10 @@ Layout of `experiment/runs/E1/`: `sims/` (genomes; not committed), `truth/`,
 **Cost** (`plan E1`): 121 jobs, about 10 CPU hours (C psmc 8.3, psmc-rs 1.0,
 simulations 0.6), about 1.4 hours alone on the default budget. C psmc holds
 one chromosome's forward-backward matrices at a time, about 0.6 GB per job.
-Measured in the production run on Ibex ([Production](#production)): 12.3
+Measured in the production run on Ibex ([Production](#production)): 12.4
 CPU hours; C psmc 918 to 1,049 s per fit (11.1 hours in all, kept from an
-earlier `prod` job) and 0.52 GB, psmc-rs 52 to 77 s (0.7 hours) and
-108 MB, the simulations 0.4 hours.
+earlier `prod` job) and 0.52 GB, psmc-rs 73 to 78 s (0.8 hours) and
+114 MB, the simulations 0.5 hours.
 
 ## E2: real genomes
 
@@ -391,12 +391,12 @@ up to 72 minutes for NA12878, and 3.4 GB for HLhydTec1; the six
 split-first-window fits 0.6), about 2.1 hours alone on 50 cores. The
 bootstraps' output does not depend on their threads (replicate i draws
 from its own seed). Measured in the production run on Ibex
-([Production](#production)): 36.1 CPU hours; the bootstrap runs 30.8
-(521 to 560 s each for the turtles and 797 s for NA12878, at most
+([Production](#production)): 41.4 CPU hours; the bootstrap runs 36.0
+(574 to 631 s each for the turtles and 957 s for NA12878, at most
 1.9 GB), C psmc 4.5 (3,419 to 3,610 s for the turtles and 6,645 s for
 NA12878, at most 3.3 GB, HLhydTec1's; kept from earlier `prod` jobs),
-psmc-rs 0.7 (194 to 394 s per fit, the split-first-window fits 207 to
-277 s, at most 125 MB).
+psmc-rs 0.8 (272 to 425 s per fit, the split-first-window fits 272 to
+288 s, at most 115 MB).
 
 ## E3: performance
 
@@ -631,8 +631,8 @@ Layout of `experiment/runs/E4/`: `sims/repNN/` (the genome, and per mask
 **Cost** (`plan E4`): 286 jobs, about 4 CPU hours (the 125 fits 3.1; the
 generate_multihetsep.py cross-checks 0.5), about 0.6 hours alone, at most
 1.5 GB per job (the consensus FASTA streamed through fq2psmcfa). Measured on
-Ibex: 2.7 CPU hours; the fits 2.1 (52 to 74 s each), the cross-checks
-0.5; at most 0.7 GB (the consensus FASTA).
+Ibex: 3.4 CPU hours; the fits 2.7 (70 to 101 s each), the cross-checks
+0.5; at most 0.8 GB (the consensus FASTA).
 
 ## E5: bootstrap calibration
 
@@ -721,8 +721,8 @@ not committed), `provenance/`, `tables/`, `figures/`, `logs/` (not committed).
 
 **Cost** (`plan E5`): 121 jobs, about 16 CPU hours (the 20 bootstrap runs,
 51 fits each on one thread, about 45 minutes each), about 2.3 hours alone;
-at most 0.2 GB per job. Measured on Ibex: 11.2 CPU hours; the bootstrap runs
-1,622 to 2,185 s each (10.6 hours), the fits 31 to 44 s; at most 0.13 GB.
+at most 0.2 GB per job. Measured on Ibex: 12.2 CPU hours; the bootstrap runs
+1,707 to 2,117 s each (11.4 hours), the fits 45 to 55 s; at most 0.14 GB.
 
 ## E6: supplementary analyses
 
@@ -753,8 +753,8 @@ E6 reads what E1 makes and adds the runs only it needs
 
 **Cost** (`plan E6`): 21 jobs, under 1 CPU hour, minutes once E1 is done.
 Measured on Ibex: 0.2 CPU hours; S3's tables at most 1.3 GB, its decoding
-at most the 108 MB of `ru_maxrss` that its job inherits from the runner
-(35 MB in the sampled process tree).
+at most the 112 MB of `ru_maxrss` that its job inherits from the runner
+(33 MB in the sampled process tree).
 
 ## E7: 1000 Genomes
 
@@ -871,13 +871,13 @@ back.
 
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | CPU hours measured on Ibex | limits |
 | --- | --- | --- | --- | --- | --- |
-| E1 | 121 | 10 | 1.4 | 12.3 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
-| E2 | 23 | 47 | 2.1 (50 cores) | 36.1 (the C psmc fits, 4.5, from earlier `prod` jobs, the rest from the production's; Supplementary Note 1, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
+| E1 | 121 | 10 | 1.4 | 12.4 | C psmc 12.5 min (Ibex: 15 to 17.5) and 0.6 GB per fit |
+| E2 | 23 | 47 | 2.1 (50 cores) | 41.4 (the C psmc fits, 4.5, from earlier `prod` jobs, the rest from the production's; Supplementary Note 1, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on Ibex) and 3.4 GB |
 | E3 | 100 | 15 | 9.9 (exclusive) | 12.3 (the 95 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive nodes) | needs the machine to itself; busy periods defer runs |
-| E4 | 286 | 4 | 0.6 | 2.7 | at most 1.5 GB per job |
-| E5 | 121 | 16 | 2.3 | 11.2 | 20 bootstrap runs of about 45 min (Ibex: 27 to 36) on one thread |
+| E4 | 286 | 4 | 0.6 | 3.4 | at most 1.5 GB per job |
+| E5 | 121 | 16 | 2.3 | 12.2 | 20 bootstrap runs of about 45 min (Ibex: 28 to 35) on one thread |
 | E6 | 21 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
-| E7 | 2,639 | 480 | 11 (50 cores) | 418.1 (the C psmc fits 78.1; every fit and bootstrap in one job, below) | after its data stage; bootstraps on 32 threads |
+| E7 | 2,639 | 480 | 11 (50 cores) | 358.1 (the C psmc fits 71.7; every fit and bootstrap in one job, below) | after its data stage; bootstraps on 32 threads |
 | FIG | 16 | under 0.1 | minutes | (laptop: 16 figures in 7 s, 31 CPU seconds) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
@@ -893,21 +893,20 @@ either way. Every job is resumable: `stop` (or a crash, or a reboot) and
 running.
 
 The production run of E1, E2 and E4 to E6 (`experiment/slurm`'s `prod` job
-54256959 on one Ibex node, at 4b2c636f) ran every job whose key the code
-had changed, the psmc-rs fits, bootstraps, conversions, decoding and QC
-among them, in 5 hours 53 minutes, 46.1 CPU hours in all; the C psmc fits,
-the simulations and the other jobs whose keys had not changed were kept
-from earlier `prod` jobs (Supplementary Note 1, section 5). E7's fits and
-bootstraps, C psmc's and psmc-rs's, ran in one job on one Ibex node
-(54555780), in 7 hours 4 minutes, 418.1 CPU hours in all; its GIAB
-comparison was kept from an earlier `prod` job. The measured costs above
-come from the provenance records and `runs/_runner/runner.log` (not
-committed). The production's jobs shared the node with one another
-(1-minute load averages of 14 to 81 when they started; 63 to 136 in E7's
-job), so their times are costs, not controlled timings, though E7's two
-programs, sharing one node in one job, compare with each other under the
-same conditions; E3 times the tools. E3's measured cost is the tools' CPU
-time in its 95 timed runs (`E3_runs.csv`), without the simulations each
+54629001 on one Ibex node, at ae34d727) ran 498 of their 572 jobs in 1 hour
+6 minutes, 53.4 CPU hours in all; the other 74 come from earlier `prod`
+jobs with the same keys (Supplementary Note 1, section 5): the C psmc fits
+of E1 and E2 (53386770 and 53452276), E4's cross-checks against
+generate_multihetsep.py (54256959) and its `bins` jobs (54232546). E7's
+2,639 jobs, C psmc's and psmc-rs's fits, the bootstraps, the GIAB
+comparison and the report, ran in one job on one Ibex node (54634918), in 6
+hours 21 minutes, 358.1 CPU hours in all. The measured costs above come
+from the provenance records. The production's jobs shared the node with one
+another (1-minute load averages of 68 to 134 when they started; 55 to 168
+in E7's job), so their times are costs, not controlled timings, though E7's
+two programs, sharing one node in one job, compare with each other under
+the same conditions; E3 times the tools. E3's measured cost is the tools'
+CPU time in its 95 timed runs (`E3_runs.csv`), without the simulations each
 repeat ran or the `measure` wrapper.
 
 Afterwards commit, for every experiment, `experiment/runs/<EXP>/` without
