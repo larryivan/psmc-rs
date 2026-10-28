@@ -35,11 +35,12 @@ comparable with 0.1 runs made with default settings; see
 
 ## Install
 
-Release binaries for Linux (x86-64), macOS (x86-64 and Apple silicon) and
-Windows (x86-64) are on the [releases page](https://github.com/larryivan/psmc-rs/releases),
+Release binaries for Linux (x86-64) and macOS (x86-64 and Apple silicon)
+are on the [releases page](https://github.com/larryivan/psmc-rs/releases),
 each archive with a `.sha256` checksum (`SHA256SUMS.txt` lists them all).
 The Linux binary is linked against glibc 2.17 and runs with glibc 2.17 or
-later (CentOS and RHEL 7 and newer distributions).
+later (CentOS and RHEL 7 and newer distributions). On Windows, run the
+Linux binary under WSL.
 
 From source, with Rust 1.88 or later:
 

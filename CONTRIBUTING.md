@@ -162,17 +162,23 @@ where `type` is one of `fix`, `feat`, `perf`, `refactor`, `test`, `docs`,
    git push origin master --tags
    ```
 
-The tag starts `.github/workflows/release.yml`, which builds `psmc-rs` for
-Linux (x86-64), macOS (x86-64 and Apple silicon) and Windows (x86-64),
-packages each binary with `README.md` and `LICENSE`, and publishes the
-archives, their `.sha256` files and `SHA256SUMS.txt` as a GitHub release.
-If a run fails, re-run *Release* from the Actions tab (`workflow_dispatch`)
-with the same tag instead of moving it. The Linux binary is linked with
-`cargo zigbuild` for the glibc in the job's `glibc` matrix entry (2.17),
-and `.github/scripts/check-linux-binary.sh` stops the release when it needs
-a newer glibc symbol, or when `--version` and a short fit do not run
-cleanly in CentOS 7, Rocky Linux 8 and Ubuntu 22.04 containers. Moving
-that floor means changing *Install* in `README.md` too.
+The tag starts `.github/workflows/release.yml`, which builds `psmc-rs` with
+rustc 1.99.0 for Linux (x86-64) and macOS (x86-64 and Apple silicon),
+packages each binary with `README.md` and `LICENSE`, and makes a draft
+GitHub release of the archives, their `.sha256` files and
+`SHA256SUMS.txt`. Check the draft, then publish it: publishing is what
+makes Zenodo archive the release and mint its DOI. To build and check a
+tag's binaries without a release, run *Release* from the Actions tab
+(`workflow_dispatch`) with `publish` unticked; if a run fails, re-run it
+there with the same tag instead of moving it. The Linux binary is linked
+with `cargo zigbuild` for the glibc in the job's `glibc` matrix entry
+(2.17), and `.github/scripts/check-linux-binary.sh` stops the release when
+it needs a newer glibc symbol, when `--version` and a short fit do not run
+cleanly in CentOS 7, Rocky Linux 8 and 9 and Ubuntu 22.04 containers, or
+when that fit in Rocky Linux 9 differs, but for its version, from
+`tests/data/release_check/papuan_chr1_3seg.fit.json`, the production
+binary's (a release that changes fits on purpose replaces that file).
+Moving the glibc floor means changing *Install* in `README.md` too.
 
 ## License
 

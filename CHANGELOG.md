@@ -430,7 +430,9 @@ Library API:
   linked against the build machine's glibc 2.39: it did not start before
   glibc 2.34 (RHEL and Rocky 8, Ubuntu 20.04, Debian 11) and printed a
   `GLIBC_2.39` warning on every run before 2.39. The release checks the
-  binary in CentOS 7, Rocky Linux 8 and Ubuntu 22.04 before publishing it.
+  binary in CentOS 7, Rocky Linux 8 and 9 and Ubuntu 22.04, and in Rocky
+  Linux 9 that a short fit equals, but for its version, the production
+  binary's, before it drafts the release.
 
 ### Performance
 
@@ -510,6 +512,8 @@ Library API:
   `opt::m_step`).
 - The CLI's within-sequence bootstrap (`sample_sequences_block_bootstrap`
   remains).
+- The Windows release binary, which no test ran; on Windows, run the
+  Linux binary under WSL.
 - 0.1's reproduction package (`experiment/run.py`, its notebook,
   `experiment/runs/main_text`, `real_data` and `supplementary`,
   `experiment/assets/ui/`), replaced by the pipeline; it stays in the
