@@ -4,10 +4,15 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+# Fixed runner images, not *-latest: a new image changes the compilers and
+# the apt packages (bcftools, shellcheck) under the tests.
 jobs:
   lint:
     name: Format and lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-15]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,7 +58,7 @@ jobs:
 
   msrv:
     name: Minimum Rust version (1.88)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,7 +75,7 @@ jobs:
 
   experiment:
     name: Experiment scripts
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -87,7 +92,7 @@ jobs:
 
   pipeline:
     name: BAM to PSMC pipeline (end to end)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # lh3/psmc 0.6.5-r74, the version behind tests/data/c_reference, at the
       # commit the manuscript names (its C sources are those of r74's commit).

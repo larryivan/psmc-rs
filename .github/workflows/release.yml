@@ -4,12 +4,21 @@ on:
   push:
     tags:
       - "v*"
+  # By hand (Actions tab): build and check a tag's binaries; a release is
+  # made only when `publish` is ticked.
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (for example: v0.2.0)"
         required: true
         type: string
+      publish:
+        description: "Also make the draft release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -23,7 +32,7 @@ jobs:
         include:
           # glibc: the oldest glibc the binary is linked for (see the build
           # steps); 2.17 is Rust's own minimum.
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             glibc: "2.17"
             archive_ext: tar.gz
@@ -36,10 +45,6 @@ jobs:
             target: aarch64-apple-darwin
             archive_ext: tar.gz
             bin_name: psmc-rs
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            archive_ext: zip
-            bin_name: psmc-rs.exe
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,13 +52,13 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
+      # The rustc that built the production binary behind the manuscript's
+      # results (1.99.0), and no cache: a release is built from scratch.
+      # Move the pin on purpose.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.0
         with:
-          target: ${{ matrix.target }}
-
-      - name: Cache cargo artifacts
-        uses: Swatinem/rust-cache@v2
+          targets: ${{ matrix.target }}
 
       # Linked against the runner's glibc (2.39), the Linux binary would not
       # start on glibc 2.33 or older (RHEL/Rocky 8, Ubuntu 20.04, Debian 11),
@@ -81,8 +86,7 @@ jobs:
         if: ${{ !matrix.glibc }}
         run: cargo build --release --locked --bin psmc-rs --target ${{ matrix.target }}
 
-      - name: Package archive (Unix)
-        if: runner.os != 'Windows'
+      - name: Package archive
         shell: bash
         run: |
           set -euo pipefail
@@ -96,27 +100,13 @@ jobs:
           # are those of the downloaded assets.
           (cd dist && shasum -a 256 "${NAME}.${{ matrix.archive_ext }}" > "${NAME}.${{ matrix.archive_ext }}.sha256")
 
-      # The binary of the archive: no glibc symbol newer than the floor, and
-      # --version and a short fit in CentOS 7, Rocky Linux 8 and Ubuntu 22.04
-      # containers, with nothing on standard error.
+      # The binary of the archive: no glibc symbol newer than the floor;
+      # --version and a short fit in CentOS 7, Rocky Linux 8 and 9 and Ubuntu
+      # 22.04 containers, with nothing on standard error; and in Rocky Linux
+      # 9 that fit equal to the production binary's (tests/data/release_check).
       - name: Check the Linux binary on older distributions
         if: matrix.glibc
         run: .github/scripts/check-linux-binary.sh "dist/psmc-rs-${RELEASE_TAG}-${{ matrix.target }}.${{ matrix.archive_ext }}" "${{ matrix.glibc }}"
-
-      - name: Package archive (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $tag = "${env:RELEASE_TAG}"
-          $name = "psmc-rs-$tag-${{ matrix.target }}"
-          New-Item -ItemType Directory -Path "dist/$name" -Force | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin_name }}" "dist/$name/"
-          Copy-Item README.md, LICENSE "dist/$name/"
-          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.${{ matrix.archive_ext }}" -Force
-          $hash = (Get-FileHash "dist/$name.${{ matrix.archive_ext }}" -Algorithm SHA256).Hash.ToLower()
-          # End the line with LF: Out-File would end it with Windows' CRLF,
-          # and shasum -c (macOS, perl) then reads the CR as part of the name.
-          "$hash  $name.${{ matrix.archive_ext }}`n" | Out-File -FilePath "dist/$name.${{ matrix.archive_ext }}.sha256" -Encoding ascii -NoNewline
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -124,9 +114,12 @@ jobs:
           name: release-${{ matrix.target }}
           path: dist/*
 
+  # A draft: publishing it (by hand, after checking it) is what makes
+  # Zenodo archive the release and mint its DOI.
   publish:
-    name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    name: Draft GitHub Release
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-24.04
     needs: build
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
@@ -155,9 +148,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          draft: true
           generate_release_notes: true
           files: |
             dist/*.tar.gz
-            dist/*.zip
             dist/*.sha256
             dist/SHA256SUMS.txt

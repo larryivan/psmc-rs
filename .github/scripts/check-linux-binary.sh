@@ -11,9 +11,16 @@
 #   has glibc 2.17; Rocky Linux 8 (glibc 2.28) stands for the RHEL 8 family
 #   of many clusters; on Ubuntu 22.04 (glibc 2.35) a binary linked against a
 #   newer glibc prints "weak version `GLIBC_2.39' not found" on every run.
+# - in Rocky Linux 9 the fit's JSON equals, but for its version, the one the
+#   production binary (sha256 1d141b81..., the manuscript's) wrote on Ibex
+#   (Rocky Linux 9.4, glibc 2.34) with the same command:
+#   tests/data/release_check/papuan_chr1_3seg.fit.json. The same glibc
+#   gives the same exp and log, so a release that changes no fit matches it
+#   bit for bit; a release that changes fits must update it on purpose.
 #
 # Run it from the repository root (the fit reads tests/data); it needs
-# docker and objdump. IMAGES="IMAGE..." replaces the list of images.
+# docker and objdump. IMAGES="IMAGE..." replaces the list of images;
+# REFERENCE_IMAGE (default rockylinux:9) must be one of them.
 
 set -euo pipefail
 
@@ -22,9 +29,11 @@ if [ "$#" -ne 2 ]; then
   exit 2
 fi
 archive=$1 floor=$2
-read -r -a images <<< "${IMAGES:-centos:7 rockylinux:8 ubuntu:22.04}"
+read -r -a images <<< "${IMAGES:-centos:7 rockylinux:8 rockylinux:9 ubuntu:22.04}"
+reference_image=${REFERENCE_IMAGE:-rockylinux:9}
 data=$PWD/tests/data/c_reference
 input=papuan_chr1_3seg.psmcfa
+reference=$PWD/tests/data/release_check/papuan_chr1_3seg.fit.json
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -42,6 +51,13 @@ newer() {
 }
 
 [ -f "$data/$input" ] || fail "no $data/$input: run this from the repository root"
+[ -f "$reference" ] || fail "no $reference: run this from the repository root"
+case " ${images[*]} " in
+  *" $reference_image "*) ;;
+  *) fail "the reference image $reference_image is not among the images: ${images[*]}" ;;
+esac
+# The JSON without its version, which every release changes.
+unversioned() { sed 's/^  "version": "[^"]*",$/  "version": "",/' "$1"; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/bin"
@@ -97,4 +113,11 @@ for image in "${images[@]}"; do
   [ -s "$res/fit.json" ] || fail "$image ($glibc): the fit wrote no $res/fit.json"
   printf 'ok: %s (%s): %s, nothing on standard error, a 2-iteration fit\n' \
     "$image" "$glibc" "$expected"
+  if [ "$image" = "$reference_image" ]; then
+    unversioned "$res/fit.json" > "$res/fit.unversioned.json"
+    unversioned "$reference" > "$res/reference.unversioned.json"
+    cmp -s "$res/fit.unversioned.json" "$res/reference.unversioned.json" ||
+      fail "$image ($glibc): the fit differs from the production binary's ($reference): $(diff "$res/reference.unversioned.json" "$res/fit.unversioned.json" | head -n 6)"
+    printf 'ok: %s (%s): the fit equals the production binary'"'"'s, its version aside\n' "$image" "$glibc"
+  fi
 done
