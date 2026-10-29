@@ -8,7 +8,8 @@ experiment's tables and draws the figures from them. Its production runs
 are committed in `runs/`: from them, without running either tool, every
 figure and the tables of E1, E2, E4, E5 and E6 (its S1) can be made
 again (Supplementary Note 1, section 3; E6's S2 and S3 need the simulated
-genomes, and E7's report its inputs, to be deposited on Zenodo). Commands
+genomes, and E7's report its inputs, which are on Zenodo,
+[doi:10.5281/zenodo.23764975](https://doi.org/10.5281/zenodo.23764975)). Commands
 are run from the repository root, from which
 `python -m experiment.pipeline` imports the package; the pipeline then
 finds its files from its own location, not from the working directory.
@@ -77,9 +78,11 @@ manifest and records with its sample table and chunk plan, tables and
 figures. Not committed, and made again on demand from the
 seeds: the simulated genomes, the bootstrap replicates' `.psmc` files,
 HTML reports, logs and the runner's state (`.gitignore`). E7's inputs
-(about 21 GB: one psmcfa per 1000 Genomes sample, the default set's VCFs,
+(12.5 GB: one psmcfa per 1000 Genomes sample, the default set's VCFs,
 the masks, the per-sample QC table and GIAB's NA12878 benchmark, every file
-E7's jobs read) are to be deposited on Zenodo.
+E7's jobs read) are on Zenodo, [doi:10.5281/zenodo.23764975](https://doi.org/10.5281/zenodo.23764975),
+as 32 files whose README says how to extract them into `runs/E7/inputs/`
+and check them against `MANIFEST.json`.
 
 ## Quick start
 

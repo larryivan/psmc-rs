@@ -777,8 +777,8 @@ chromosome, and the pilot (chr21) must give, for the three samples, the same
 psmcfa byte for byte as `psmc-rs convert --vcf-sample` on the whole joint
 VCF. `assemble-samples` joins the chromosomes and writes `MANIFEST.json`
 (sources, tool versions, commands, checks and the SHA-256 of every output;
-it is committed, and the files E7's jobs read are to be deposited on
-Zenodo: the psmcfa files, the default set's VCFs, `mask/callable.bed`,
+it is committed, and the files E7's jobs read are on Zenodo,
+[doi:10.5281/zenodo.23764975](https://doi.org/10.5281/zenodo.23764975): the psmcfa files, the default set's VCFs, `mask/callable.bed`,
 `nonpass/nonpass.bed.gz`, `qc/samples.tsv` and GIAB's benchmark in
 `meta/`). NA12878's
 psmcfa is also E2's human genome, committed as
