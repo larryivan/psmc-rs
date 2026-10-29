@@ -9,9 +9,9 @@ the PSMC emissions. The change comes in two stages:
    them yet, so no result changes.
 2. **Model**: the E-step, M-step, starting values, bootstrap and posterior
    decoding use the counts, the command line gets `--bin-callable`, QC
-   reports the counts, and the README, CHANGELOG and
-   `docs/preprocessing.md` describe the result, including the library
-   changes of stage 1 ([Changes made in stage 1](#changes-made-in-stage-1)).
+   reports the counts, and the user documentation (`docs/inputs.md`,
+   `docs/preprocessing.md`) describes the result; the library changes of
+   stage 1 are listed below ([Changes made in stage 1](#changes-made-in-stage-1)).
 
 Both stages are built. This note describes what was built; where stage 2
 departs from the plan of stage 1 it says so and why
@@ -474,8 +474,7 @@ with counts get the line without `counts`. The JSON records the same in
 
 Stage 1 changes no result and no option: every output, and every psmcfa
 and multihetsep file psmc-rs writes, is byte for byte as before, and the
-readers accept the same bin sizes as before. Its library changes, for the
-*Library API* part of the CHANGELOG entry stage 2 writes:
+readers accept the same bin sizes as before. Its library changes:
 
 - New `io::callable` module: `CallableBases`, `BinCounts` and
   `MAX_COUNTED_BIN_SIZE` (65,535), all three re-exported from `io`, and
