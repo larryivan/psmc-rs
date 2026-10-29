@@ -33,13 +33,18 @@ psmc-rs fits C psmc's model, with its time grid (psmc's `PSMC_T_INF` =
   `4+25*2+4+6`, the psmc README's setting for modern humans, has 64 and 28.
   Each free λ needs enough recombinations in its intervals to be
   determined: psmc's documentation asks for about 10.
-- **`--n-steps`** follows the pattern; given with `--pattern` it must
-  agree. `--n-steps` alone fits one λ per interval, which costs time and
+- **`--n-steps`** (C psmc's `n`, the number of intervals minus one) follows
+  the pattern; given with `--pattern` it must agree with it, and the number
+  of intervals is accepted there too. `--n-steps` alone fits one λ per interval, which costs time and
   memory with many intervals ([performance.md](performance.md#the-m-step)).
   A model has at most 10,000 states.
 - **`--init-params FILE`** reads the parameters (`theta`, `rho`, `lam`,
-  `t_max`, `n_steps`, `mu`, `pattern`) from the JSON of an earlier fit; the
-  file's pattern is used.
+  `t_max`, `n_steps`, `pattern`) from the JSON of an earlier fit, bit for
+  bit, and starts from them (`mu` is not read back: the curve is scaled
+  with this run's `--mu`): the file's pattern and `n_steps` are
+  used (`--pattern` and `--n-steps`, if given, must match them), and
+  `--theta0`, `--rho0`, `--t-max` and `--tr-ratio` cannot be given with
+  it.
 - **`--mu`** (2.5e-8 per base and generation) and **`--gen-years`** (25)
   only scale the curve to individuals and years: N0 = θ / (4 μ × bin size).
 - **`--bin-callable auto|ignore|approximate`** (default `auto`) says how a
@@ -89,8 +94,13 @@ L-BFGS and runs to convergence, as C psmc's Hooke–Jeeves search does.
   intervals are rounding noise in double precision; a λ of 1e4 already
   means that the data hold almost no coalescences in its intervals, so the
   Ne there is the bound, not an estimate. This is common for the most
-  recent intervals when each has its own λ, and the run warns when a
-  fitted parameter sits on a bound.
+  recent intervals when each has its own λ.
+
+The run warns when a fitted parameter sits on a bound, and says what that
+means: a λ at the upper bound marks intervals with almost no coalescences
+in the data; a λ at the lower bound makes every lineage that reaches its
+intervals coalesce at once; θ, ρ or t_max at a bound point to the input or
+the starting values.
 
 ## Log-likelihoods
 
@@ -116,7 +126,9 @@ round i + 1. With N_ITER 0 the run evaluates the starting model, so
 
 With `--init-params`, the replicates start from the saved parameters
 instead, as `psmc -i -b` does; the run warns that a start fitted to the
-whole input narrows the bands.
+whole input narrows the bands. `--bootstrap-iters` and `--bootstrap-dir`
+need `--bootstrap`, and a bootstrap with N_ITER 0 needs
+`--bootstrap-iters`.
 
 - **Parallel and reproducible.** Replicates run in parallel, and replicate
   i draws from its own seeded ChaCha8 stream (`--bootstrap-seed`, 42), so a
@@ -141,9 +153,9 @@ whole input narrows the bands.
 for the true history: the bootstrap measures the sampling spread of the
 fit, not PSMC's bias. In the manuscript's calibration (experiment E5), the
 95% bands held the true Ne at fewer than half of the times
-([validation.md](validation.md#bootstrap-calibration)). A small version of
-that check runs in a few minutes:
-`cargo run --release --example bootstrap_calibration -- --threads 4`.
+([validation.md](validation.md#bootstrap-calibration)). A smaller check of
+the bootstrap's spread against the true sampling spread runs in a few
+minutes: `cargo run --release --example bootstrap_calibration -- --threads 4`.
 
 The files the bootstrap writes, and how to plot them with `psmc_plot.pl`,
 are in [outputs.md](outputs.md#bootstrap-files).

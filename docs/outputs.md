@@ -9,7 +9,8 @@
 | `--qc-json FILE` | on request | the input QC report ([qc.md](qc.md); `-` for stdout, and the result lines then go to stderr) |
 | `--bootstrap-dir DIR` | with `--bootstrap` | the replicates and their summary ([bootstrap files](#bootstrap-files)); default `OUTPUT` with `.bootstrap` in place of `.json` |
 
-Output paths are checked before the input is read: each must be writable,
+OUTPUT may not end in `.html`, the name of the report. Output paths are
+checked before the input is read: each must be writable,
 no two of them, nor any of them and the input, may be the same file, and
 only the QC JSON can be `-` (stdout). The `PSMC_ECHARTS_JS` bundle (see
 [HTML report](#html-report)) is read then too.
@@ -19,9 +20,10 @@ The outputs do not depend on `--threads` or `--batch-size`
 
 ## JSON
 
-- **The parameters**, which `--init-params` reads back: `theta` and `rho`
-  (per bin), `lam` (one value per free parameter of the pattern, or per
-  interval without one), `t_max`, `n_steps`, `mu` and `pattern`.
+- **The parameters**: `theta` and `rho` (per bin), `lam` (one value per
+  free parameter of the pattern, or per interval without one), `t_max`,
+  `n_steps`, `mu` and `pattern`; `--init-params` reads them back, but for
+  `mu`.
 - **The run**: `version`; `simd`, the HMM kernels that ran (`avx2+fma`,
   `portable` or `neon`); `n_iter`; `final_loglike`; `loglike`, N_ITER + 1
   values ([fitting.md](fitting.md#log-likelihoods)); `bin_size`,
@@ -60,9 +62,9 @@ the page says that it cannot draw the charts.
 
 ## .psmc for psmc_plot.pl
 
-The `.psmc` file follows C psmc's format line for line, but for C psmc's
-`QD` line (below). It does not record the bin size, so give psmc_plot.pl
-the run's settings. The run prints the command, for example
+The `.psmc` file follows C psmc's format; the differences are listed below.
+It does not record the bin size, so give psmc_plot.pl the run's settings.
+The run prints the command on stderr (not with `-q`), for example
 
 ```text
 To plot it: psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 25 PREFIX fit.psmc (-s is the bin size, which the .psmc file does not record)
@@ -99,10 +101,11 @@ that command.
   partial_bins:0.271512` (bootstrap replicates fitted with the counts get
   it without `counts`; psmcfa input gets none, and psmc_plot.pl skips `MM`
   lines it does not know);
-- `IT` counts L-BFGS objective evaluations, which depend on the data and
+- `IT` counts the M-step's objective evaluations, those for its
+  curvatures and its stopping check included, which depend on the data and
   the pattern (per round with the default pattern, 34 to 74 on the
-  180,000-bin test input and 32 to 72 on Papuan chr1, where C psmc's
-  Hooke–Jeeves search needs 1,132 to 1,540 and 939 to 1,334);
+  180,000-bin test input, `tests/data/c_reference/papuan_chr1_3seg.psmcfa`,
+  where C psmc's Hooke–Jeeves search needs 1,132 to 1,540);
 - `post_sigma` and `RI` include the emission of each sequence's last bin,
   which C psmc skips (differences of the order of the number of sequences
   divided by the called length: 2e-5 on the reference data);
@@ -123,8 +126,8 @@ and `entropy` of the posterior.
   that the input's filters left out are not counted. `seq_bin` is the bin's
   index within its sequence, `global_bin` its index over all fitted
   sequences.
-- Each state is placed at its average coalescent time, scaled by
-  `--gen-years`.
+- Each state is placed at its average coalescent time, scaled to years
+  with N0 (from θ, `--mu` and `--bin-size`) and `--gen-years`.
 - Each bin is decoded with the emissions the fit used (of its callable
   bases, with the callable-length model).
 - Decoding runs in parallel within and across sequences.
@@ -153,7 +156,8 @@ replicates.
 - **stdout** carries only results: `Last EM loglike`, `Parameters`, `PSMC
   output`, `QC report`, `Bootstrap ...`, `TMRCA posterior`, `HTML report`.
 - **stderr** carries how the input was read (for psmcfa, C psmc's `n_seqs`,
-  `sum_L` and `sum_n`), the QC report, the model, warnings and progress
+  `sum_L` and `sum_n`; for a VCF, the mode and why, the filters, and the
+  bases each removed), the QC report, the model, warnings and progress
   bars.
 - `-q` keeps the results and warnings; `--no-progress` drops the bars.
 
@@ -165,6 +169,7 @@ replicates.
 - **2** on a usage error, and for `qc --strict` when the report has a
   warning. Usage errors are options that are invalid alone or together,
   also when this is found after parsing (a `--pattern` that does not parse,
-  outputs that name the same file, `--psmc-out -`). Without arguments,
+  outputs that name the same file, `--psmc-out -`, an OUTPUT ending in
+  `.html`, `--bootstrap-iters` or `--bootstrap-dir` without `--bootstrap`). Without arguments,
   `psmc-rs`, `psmc-rs convert` and `psmc-rs qc` print their help, with
   status 2.

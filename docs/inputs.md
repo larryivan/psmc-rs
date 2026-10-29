@@ -37,6 +37,8 @@ content, line by line:
   thread of its own, beside the parsing. A bgzip file must end with BGZF's
   end-of-file block, as htslib checks: without it, the file was probably
   cut short by an interrupted job, and it is refused.
+- **Pipes.** INPUT may be a pipe or a FIFO, read once; only
+  `--depth auto` needs a regular file ([consensus mode](#consensus-mode)).
 - **BCF** is refused; `bcftools view -Oz` converts it to a VCF. A UTF-8
   byte order mark is skipped.
 - **A directory** can be the INPUT of a fit (not of `qc` or `convert`). It
@@ -61,15 +63,17 @@ for bins of s bases), so give a psmcfa file the `-s` it was made with.
 
 psmc-rs parses psmcfa as C psmc does:
 
-- A record starts at `>` (or `@`). Its header line is never sequence data,
-  and the name runs to the first whitespace. Text before the first header
-  is ignored.
+- A record starts at `>` (or `@`), even in the middle of a line. Its header
+  line is never sequence data, and the name runs to the first whitespace.
+  Text before the first header is ignored (with `--input-format psmcfa`;
+  `auto` recognises psmcfa only when its first line is a header).
 - In sequence lines, `T`, `A`, `C`, `G`, `0` and their lowercase forms are
   called bins; `K`, `M`, `R`, `S`, `W`, `Y`, `1` and their lowercase forms
-  are heterozygous bins; any other printable byte (such as `N`) is a
-  missing bin. Whitespace, CR, control and non-ASCII bytes are skipped.
+  are heterozygous bins; `+` starts a FASTQ quality block; any other
+  printable byte (such as `N`) is a missing bin. Whitespace, CR, control
+  and non-ASCII bytes are skipped.
 
-It differs from C psmc where C psmc would misread a file:
+Differences from C psmc:
 
 - a file without any `>` record is an error;
 - a truncated FASTQ quality block is an error (C psmc silently stops
@@ -109,9 +113,9 @@ In consensus mode, `--vcf-sample` only checks the name of the one sample
 - otherwise, if at least half have ALT `.`, the file is an all-sites VCF:
   it is read in consensus mode when at least 90% of those carry INFO/FQ (as
   `bcftools call -c` writes), and is an error otherwise;
-- a file whose records cover at least half of the positions they span and
-  at least 90% of which carry FQ (`bcftools call -c -A` at high depth) is
-  read in consensus mode too;
+- otherwise (fewer than half with ALT `.`), a file whose records cover at
+  least half of the positions they span and at least 90% of which carry FQ
+  (`bcftools call -c -A` at high depth) is read in consensus mode too;
 - any other VCF is read in mask mode.
 
 `--vcf-mode consensus|mask` sets the mode (a gVCF is still read as one in
@@ -164,12 +168,14 @@ homozygous site, a heterozygous SNP, or missing. Per record:
 - FILTER other than `PASS` or `.`: the position is missing
   (`--vcf-keep-filtered` uses the record anyway);
 - a missing or partial genotype (`./.`, `./1`): the position is missing;
-- heterozygous, with every allele a single base: a heterozygous SNP;
+- heterozygous, with every allele one of `A`, `C`, `G`, `T`: a heterozygous
+  SNP;
 - heterozygous, with another allele (an indel, `*`, a symbolic allele): its
   whole REF span is missing;
 - homozygous (hom-alt and homozygous indels included): called.
 
-Several records at one position are combined.
+Several records at one position are combined, the most missing class
+winning: missing over heterozygous over homozygous.
 
 - **A position without any record** is called homozygous unless a mask says
   otherwise. In a gVCF, a position that no record or block covers is
@@ -184,8 +190,9 @@ Several records at one position are combined.
   the END of a last block). A chromosome without any record gives no
   sequence.
 - **Order.** The VCF must be sorted (`bcftools sort`): a position that goes
-  backwards, a chromosome that comes back after another, and a record
-  beyond its `##contig` length are errors.
+  backwards and a chromosome that comes back after another are errors, and
+  so is a record beyond its `##contig` length, unless
+  `--vcf-no-contig-end` is given.
 
 ### Masks
 
@@ -256,8 +263,8 @@ psmc treats every called bin as a full bin. A bin of `c` callable bases out
 of `s` is less likely to show a heterozygous site. So when missing data are
 scattered in runs shorter than a bin (per-site depth or quality filters, a
 mask of short gaps), almost every bin is still called but holds fewer
-bases, and θ per bin, N0, every time and every Ne come out low by about 1.2
-times the missing share of the called bins. Missing data in long runs
+bases, and θ per bin, N0, every time and every Ne come out low by about 1.1
+to 1.3 times the missing share of the called bins. Missing data in long runs
 mostly make whole bins `N`, which C psmc's model handles.
 
 A VCF (either mode) says which positions of each bin are callable. By
@@ -280,7 +287,8 @@ their meaning.
 - `--bin-callable ignore` treats every called bin as `s` bases, as
   fq2psmcfa and C psmc do: a VCF fitted with it gives exactly the fit of
   fq2psmcfa's psmcfa of the same calls.
-- Counts are kept for bins of at most 65,535 bases.
+- Counts are kept for bins of at most 65,535 bases; larger bins are fitted
+  as C psmc fits them, and the run says so.
 - The run says what the counts hold and which model it fits; the JSON's
   `bin_callable` records it ([outputs.md](outputs.md#json)).
 
@@ -300,9 +308,10 @@ VCF and multihetsep sequences go through fq2psmcfa's output filter: a
 sequence is dropped when it has fewer than `--min-good-bases` (10,000)
 called bases, or when they are less than `--min-good-fraction` (0.2) of its
 length; 0 disables either. The run lists what it dropped. If nothing is
-left, the error says how to keep every sequence (`--min-good-bases 0
---min-good-fraction 0`); `convert` then writes empty files, as fq2psmcfa
-does.
+left, a fit stops with an error that says how to keep every sequence
+(`--min-good-bases 0 --min-good-fraction 0`); `qc` reports the dropped
+sequences; `convert` warns and writes empty files, as fq2psmcfa does (none
+for `--multihetsep-per-chrom`).
 
 ## Writing inputs: `psmc-rs convert`
 

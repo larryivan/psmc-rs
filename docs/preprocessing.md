@@ -48,11 +48,21 @@ steps below assume:
 ### One command
 
 ```sh
-scripts/bam_to_psmc.sh --bam sample.bam --ref ref.fa --out results/sample \
-  --threads 8 --run 25 -- --pattern '4+25*2+4+6'
+scripts/bam_to_psmc.sh --bam sample.bam --ref ref.fa --out results/sample --threads 8
+psmc-rs results/sample.vcf.gz results/sample.json 25 --min-qual 20 --pattern '4+25*2+4+6'
 ```
 
-This calls every chromosome that is not named like a sex chromosome or an
+The script calls the sites and writes the VCF, its QC report and the
+psmcfa (below); the second command fits the VCF. A fit of the VCF bins it
+as the psmcfa is binned and also weighs each bin by its callable bases,
+which the psmcfa cannot record, and the depth and quality filters usually
+leave partly callable bins ([missing data scattered within
+bins](#missing-data-scattered-within-bins)). Note `--min-qual 20`:
+psmc-rs's default is fq2psmcfa's own default, 10. The script's `--run
+N_ITER` fits the psmcfa instead, as C psmc would, with the options after
+`--`.
+
+The script calls every chromosome that is not named like a sex chromosome or an
 organelle (the log lists what it leaves out), 8 at a time. Every other
 contig of the reference is called too: with a reference that also holds
 unplaced and unlocalized contigs (`chrUn_*`, `*_random`), ALT haplotypes
@@ -73,12 +83,15 @@ default selection holds such names. It writes:
 | `results/sample.log` | Every command run, with the tools' messages |
 
 `scripts/bam_to_psmc.sh --help` lists the options. The defaults are
-discussed below: `--min-mapq 20 --min-baseq 20` for mpileup, `--depth auto`,
-`--min-qual 20` and `--bin-size 100`. `--chroms`
+discussed below: `--min-mapq 20 --min-baseq 20` for mpileup (its per-read
+`-q` and per-base `-Q`; psmc-rs's own `--min-mapq` is vcf2fq's `-Q` on
+INFO/MQ, 10 by default), `--depth auto`, `--min-qual 20` and
+`--bin-size 100`. `--chroms`
 takes a comma-separated list or a file of names (the first column, so a
 `.fai` or a BED file works, but only the names count: each chromosome is
 called whole); `--dry-run` prints the chromosomes and commands
-without running anything. Options after `--` go to the psmc-rs fit. The
+without running anything (it needs the reference's `.fai`, which a real
+run makes when it is missing). Options after `--` go to the psmc-rs fit. The
 script needs bcftools 1.10 or later and psmc-rs 0.2.0 or later, and runs
 with the bash 3.2 that macOS ships as well as with current bash. The files
 it writes itself (VCF, QC reports, psmcfa, multihetsep) are written in a
@@ -113,17 +126,6 @@ whole where `-r` would read a range. It also passes `--input-format vcf
 --vcf-mode consensus`, which psmc-rs would otherwise detect, and
 `--no-version` to bcftools, so that the VCF header does not change from run
 to run; the log has the exact commands.)
-`--run` fits the psmcfa, as C psmc would. Fit the VCF instead when its
-bins are partly callable, as the depth and quality filters make them:
-
-```sh
-psmc-rs results/sample.vcf.gz fit.json 25 --min-qual 20
-```
-
-bins it the same way and also weighs each bin by its callable bases, which
-the psmcfa cannot record ([missing data scattered within
-bins](#missing-data-scattered-within-bins)). Note `--min-qual 20`: psmc-rs's
-default is fq2psmcfa's own default, 10.
 
 - **`-C50`** caps the mapping quality of reads with many mismatches; the
   psmc README's command line uses it (`samtools mpileup -C50`, from before
@@ -144,7 +146,7 @@ default is fq2psmcfa's own default, 10.
 `fq2psmcfa` bins it. psmc-rs does both in one pass, with the same options
 (`--depth`, `--min-mapq`, `--indel-window`, `--min-qual`, `--bin-size`,
 `--min-good-bases`; [the mapping](inputs.md#consensus-mode)); the script
-sets `--min-qual 20` where both tools default to 10.
+sets `--min-qual 20` where psmc-rs and fq2psmcfa default to 10.
 
 ### Depth bounds
 
@@ -175,7 +177,7 @@ the nuclear depth, moves it. (The script leaves both out by default.)
 (`-d`, `--max-depth`), and the INFO/DP of deeper sites then stays near that
 cap. Once the upper bound comes close to it, collapsed repeats pass the
 bound and their paralog differences become heterozygous calls: in the
-end-to-end test's 140x simulation (bound 278), mpileup's default turned 20
+end-to-end test's 140x simulation (bound about 280), mpileup's default turned 20
 of the 25 bins of a collapsed repeat into `K` bins. Keep the cap at least
 twice the upper bound. The script runs mpileup with `-d 10000` (or twice
 MAX of `--depth MIN:MAX`, if that is more), takes `--max-depth N` to change
@@ -193,7 +195,8 @@ output of
 gzip -dc sample.vcf.gz | vcfutils.pl vcf2fq -d MIN -D MAX | fq2psmcfa -q20 - > sample.psmcfa
 ```
 
-and a fit of the VCF fits exactly these bins. The tests that check it, and
+and a fit of the VCF fits these same bins, each weighed by its callable
+bases unless `--bin-callable ignore` is given. The tests that check it, and
 the few malformed inputs where psmc-rs differs on purpose, are in
 [validation.md](validation.md#the-classic-tools). fq2psmcfa's `-x` (mask the
 human pseudoautosomal regions, in NCBI36 coordinates) and its
@@ -212,7 +215,8 @@ they may be homozygous, or not callable at all. A callable mask, a BED file
 of the positions where the sample could have been genotyped, supplies that.
 psmc-rs reads the pair in **mask mode**: a position is missing outside the
 mask, heterozygous where the sample's genotype is a heterozygous SNP, and a
-called homozygous site everywhere else in the mask; the bins then follow
+called homozygous site everywhere else in the mask, unless a record makes
+it missing (a filtered record, a missing genotype); the bins then follow
 fq2psmcfa's rule exactly.
 
 ### The chromosomes to analyse
@@ -268,16 +272,18 @@ whatever its depth and genotype quality, and GATK writes stretches without
 reads as `0/0` blocks with GQ 0. So the blocks do not make a callable set
 by themselves (psmc-rs warns about it); they are what the callable mask
 below is made from. Give psmc-rs that mask together with the gVCF's variant
-records (`bcftools view -v snps,indels`, as below) or with the gVCF itself;
-with the bcftools mask below, both give the same bins.
+records (`bcftools view -v snps,indels`, as below). The gVCF itself with
+the same mask gives the same bins, but psmc-rs then warns about its
+reference blocks on every run.
 
 ### The callable mask
 
 Common ways to make one:
 
 - **msmc-tools `bamCaller.py`** (Schiffels & Durbin 2014): run per
-  chromosome on `samtools mpileup -q 20 -Q 20 -C 50 -u -r <chr> -f ref.fa
-  sample.bam | bcftools call -c -V indels`, given the mean coverage. It
+  chromosome on `bcftools mpileup -Ou -q 20 -Q 20 -C 50 -r <chr> -f ref.fa
+  sample.bam | bcftools call -c -V indels` (msmc-tools' README gives the
+  `samtools mpileup -u` of samtools before 1.10), given the mean coverage. It
   writes the chromosome's variant VCF and a mask of the sites whose depth
   is between half and twice the mean coverage, with mapping quality and
   consensus quality of at least 20 (`--minMapQ`, `--minConsQ`); join the
@@ -298,13 +304,22 @@ Common ways to make one:
   (8 and 50 are a third and twice a mean depth of 25 on the analysed
   chromosomes.) With GATK, the same idea applies to the output of
   `GenotypeGVCFs --include-non-variant-sites` or to the gVCF itself,
-  filtered on depth and genotype quality.
+  filtered on depth and genotype quality. (Such an all-sites VCF from GATK
+  has no INFO/FQ, so psmc-rs refuses it in `--vcf-mode auto`; read it with
+  `--vcf-mode mask`.)
 - **mosdepth** (Pedersen & Quinlan 2018): `mosdepth --quantize` writes the
-  runs of positions in each depth class to `PREFIX.quantized.bed.gz`,
-  labelled with the names in the `MOSDEPTH_Q0`, `MOSDEPTH_Q1`, ...
-  environment variables; with `--quantize 0:1:8:51:`, the third class (8
-  to 50 reads) is the callable set. mosdepth counts reads, not base
-  qualities, so give it a mapping quality cut-off (`--mapq 20`). (This one
+  runs of positions in each depth class to `PREFIX.quantized.bed.gz`, every
+  class, labelled with the names in the `MOSDEPTH_Q0`, `MOSDEPTH_Q1`, ...
+  environment variables. With `--quantize 0:1:8:51:`, the third class (8
+  to 50 reads) is the callable set; keep only its rows:
+
+  ```sh
+  MOSDEPTH_Q2=CALLABLE mosdepth -n --quantize 0:1:8:51: --mapq 20 out sample.bam
+  gzip -dc out.quantized.bed.gz | awk '$4 == "CALLABLE"' > callable.bed
+  ```
+
+  The whole file as a `--vcf-mask` would make every position callable.
+  mosdepth counts reads, not base qualities, hence `--mapq 20`. (This one
   is not part of the tests here.)
 
 Add a **mappability mask** where one exists: the regions where reads of
@@ -346,8 +361,10 @@ psmc-rs convert variants.vcf.gz --vcf-mask callable.bed --vcf-mask mappability.b
   --psmcfa sample.psmcfa --multihetsep-per-chrom sample
 ```
 
-psmc-rs picks mask mode for a VCF that is not an all-sites `bcftools call
--c` file (it says why on stderr); `--vcf-mode mask` forces it.
+psmc-rs reads a gVCF or a VCF of variant sites in mask mode by itself (it
+says why on stderr); an all-sites VCF from another caller than `bcftools
+call -c` is refused unless you give `--vcf-mode mask`
+([which mode](inputs.md#which-mode)).
 
 - **MSMC2** takes one multihetsep file per chromosome: `convert
   --multihetsep-per-chrom sample` writes `sample.<chrom>.multihetsep` for
@@ -357,9 +374,15 @@ psmc-rs picks mask mode for a VCF that is not an all-sites `bcftools call
   `psmc_rs::io::write::write_multihetsep_to`). For several samples, use
   msmc-tools' `generate_multihetsep.py`, which also handles phasing.
 - **SMC++**'s `vcf2smc` takes a VCF and, with `--mask`, a BED of regions to
-  treat as *missing*: the complement of a callable mask
-  (`bedtools complement -i callable.bed -g genome.txt`). In psmc-rs, such a
-  file is a `--vcf-negative-mask`.
+  treat as *missing*: the complement of a callable mask, which needs a
+  sorted, merged mask and the chromosome lengths:
+
+  ```sh
+  cut -f1,2 ref.fa.fai > genome.txt
+  sort -k1,1 -k2,2n callable.bed | bedtools merge | bedtools complement -i - -g genome.txt > missing.bed
+  ```
+
+  In psmc-rs, such a file is a `--vcf-negative-mask`.
 
 ## Check the input: `psmc-rs qc`
 
@@ -404,8 +427,8 @@ psmc treats every called bin as a full bin. Per-site filters (depth,
 mapping and base quality, indel windows) and masks of short gaps leave
 missing bases scattered over called bins rather than whole `N` bins; a
 called bin with a third of its bases missing shows a heterozygous site
-about a third less often, so θ, N0, the times and Ne all come out low by
-the missing share of the called bins or more
+about a third less often, so θ, N0, the times and Ne all come out low, by
+about 1.1 to 1.3 times the missing share of the called bins
 ([validation.md](validation.md#missing-data)). Long runs of missing data
 mostly make whole bins `N`, which do no harm.
 
@@ -503,9 +526,10 @@ filter (by about 30% on average at 10 reads against none), and at low
 coverage the filter changed the shape of the curve as well. They recommend
 a mean coverage of at least 18x, a per-site minimum of 10 reads and at most
 25% missing data. At 25x, a third of the mean is about 8, below their 10;
-to follow them, give `--depth 10:MAX`. QC warns (`DEPTH`)
+to follow them, give `--depth 10:MAX`. In route A, QC warns (`DEPTH`)
 when the mean depth is below 18x or when one consensus filter alone removes
-more than 30% of the bases, and reports missing data above 25% (note) and
+more than 30% of the bases (QC reads the depth only in consensus mode);
+for both routes it reports missing data above 25% (note) and
 50% (warning) as `HIGH_MISSING`.
 
 ### Repeats and mappability

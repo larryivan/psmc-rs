@@ -10,10 +10,12 @@ curves, in a fraction of the time and memory.
 ![psmc-rs over C psmc on simulated and real genomes](experiment/runs/FIG/figures/art1_agreement.png)
 
 *psmc-rs (blue) drawn over C psmc (orange) on two simulated genomes with
-their true history (dashed), a human genome and a turtle genome (**a–d**),
-and the difference between the two programs (RMSE of log10 Ne) on the 95
-genomes both fitted, next to each program's error against the truth on the
-simulated ones (**e**).*
+their true history (dashed), a human genome and a turtle genome (**a–d**;
+grey, the range of psmc-rs's fits to every replicate of a simulated model,
+and psmc-rs's bootstrap 95% band for a real genome; Δ, the RMSE of log10 Ne
+between the two programs), and that difference on the 95 genomes both
+fitted, next to each program's error against the truth on the simulated
+ones (**e**).*
 
 ## Why psmc-rs
 
@@ -24,8 +26,9 @@ simulated ones (**e**).*
   on one thread and 386 times on 30; on one thread it needs 36 MB of memory,
   C psmc 1 GB.
 - **Reads the data you have.** psmcfa, VCF (also gVCF) and MSMC's
-  multihetsep, plain or gzipped. The classic `bcftools call -c |
-  vcfutils.pl vcf2fq | fq2psmcfa` route is one step, with identical bins.
+  multihetsep, plain or gzipped. It reads the VCF of `bcftools call -c`
+  directly, in place of `vcfutils.pl vcf2fq | fq2psmcfa`, with identical
+  bins.
 - **Corrects for scattered missing data.** With VCF input, each bin counts
   only its callable bases, which removes most of the bias that missing data
   in short runs cause in C psmc.
@@ -48,10 +51,12 @@ node: C psmc on 52 genomes and psmc-rs on all 2,504, in one job.*
 
 ## Install
 
-- **Release binaries** for Linux (x86-64, glibc 2.17 or later) and macOS
-  (Intel and Apple silicon) are on the
-  [releases page](https://github.com/larryivan/psmc-rs/releases), each with
-  a SHA-256 checksum. On Windows, use the Linux binary under WSL.
+- **Release binaries** for Linux (x86-64, glibc 2.17 or later: CentOS and
+  RHEL 7 and newer distributions) and macOS (Intel and Apple silicon) are
+  on the [releases page](https://github.com/larryivan/psmc-rs/releases),
+  each archive with a `.sha256` checksum (`SHA256SUMS.txt` lists them all:
+  `shasum -a 256 -c SHA256SUMS.txt`). On Windows, use the Linux binary
+  under WSL.
 - **With Cargo** (Rust 1.88 or later): `cargo install psmc-rs --locked`.
 - **From source**:
 
@@ -91,7 +96,7 @@ the population size history:
 
 *The report of NA12878 fitted with the human settings below and 20
 bootstrap replicates: the fit (orange), the replicates' median (dashed) and
-95% band (blue). Below the chart it lists the run's settings, the fitted
+95% band (blue; the report labels it "Bootstrap 95% CI"). Below the chart it lists the run's settings, the fitted
 parameters and the QC report; every chart can be restyled and saved as
 PNG.*
 
@@ -121,6 +126,10 @@ and 25 years per generation; set yours with `--mu` and `--gen-years`.
 
 ![From reads to the outputs of psmc-rs](experiment/runs/FIG/figures/fig1_workflow.png)
 
+*From aligned reads to an input and the outputs of a fit. Both routes'
+VCFs record the callable bases of each bin, which the fit weighs by
+default; a psmcfa does not.*
+
 Check any input before fitting it:
 
 ```bash
@@ -141,7 +150,7 @@ sex chromosomes, repeats, the mutation rate and the generation time.
 
 | C psmc | psmc-rs |
 | --- | --- |
-| `fq2psmcfa -q20 in.fq.gz > in.psmcfa` | fit the VCF directly, or `psmc-rs convert calls.vcf.gz --min-qual 20 --psmcfa in.psmcfa` |
+| `vcfutils.pl vcf2fq` and `fq2psmcfa -q20` | fit the VCF directly with `--min-qual 20`, or write the psmcfa: `psmc-rs convert calls.vcf.gz --min-qual 20 --psmcfa in.psmcfa` (the depth bounds default to the psmc README's advice; `--depth 3:100000` gives vcf2fq's own default) |
 | `psmc -N25 -t15 -r5 -p "4+25*2+4+6" -o out.psmc in.psmcfa` | `psmc-rs in.psmcfa out.json 25 --t-max 15 --tr-ratio 5 --pattern '4+25*2+4+6' --psmc-out out.psmc` |
 | `-i old.psmc` | `--init-params old.json` |
 | `splitfa` and `psmc -b`, one job per replicate | `--bootstrap 100` |
@@ -161,8 +170,8 @@ and the QC report. It loads its charting library from cdn.jsdelivr.net;
 offline, set `PSMC_ECHARTS_JS` to a local `echarts.min.js` when running
 psmc-rs, and the report embeds it.
 
-**psmc_plot.pl.** With `--psmc-out`, the run prints the command that plots
-the file with C psmc's `psmc_plot.pl`:
+**psmc_plot.pl.** With `--psmc-out`, the run prints (on stderr, not with
+`-q`) the command that plots the file with C psmc's `psmc_plot.pl`:
 
 ```bash
 psmc_plot.pl -s 100 -u 2.5e-8 -g 25 -n 25 PREFIX fit.psmc
@@ -198,9 +207,10 @@ upper bound (1e4), where the data hold almost no coalescences
 for the true history: it measures the sampling spread of the fit, not
 PSMC's bias. In the manuscript's calibration (experiment E5), the 95% bands
 held the true Ne at fewer than half of the times
-([docs/validation.md](docs/validation.md#bootstrap-calibration)). A small
-version of that check, `examples/bootstrap_calibration.rs`, runs in a few
-minutes: `cargo run --release --example bootstrap_calibration -- --threads 4`.
+([docs/validation.md](docs/validation.md#bootstrap-calibration)). A smaller
+check of the bootstrap's spread against the true sampling spread,
+`examples/bootstrap_calibration.rs`, runs in a few minutes:
+`cargo run --release --example bootstrap_calibration -- --threads 4`.
 
 ## Commands and options
 

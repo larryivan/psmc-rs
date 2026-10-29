@@ -43,8 +43,8 @@ Instead of whole forward and backward matrices, the E-step keeps one
 forward vector every 128 bins and recomputes each 128-bin segment for the
 backward pass. Its memory still grows with the sequence length, but at
 1/128 of the rate: about bins / 128 × states × 8 bytes per sequence in
-flight, plus about 0.14 MB per worker thread (0.23 MB with callable counts
-in bins of 100). With pattern `4+25*2+4+6` (64 states), one iteration on
+flight, plus, with 64 states, about 0.14 MB per worker thread (0.23 MB
+with callable counts in bins of 100). With pattern `4+25*2+4+6` (64 states), one iteration on
 one thread peaked at 19 MB on Papuan chr1 (2.49 M bins) and at 106 MB on a
 single sequence of eight copies of it (19.9 M bins).
 
@@ -81,11 +81,12 @@ once per free parameter again for the check before it stops, so its time
 grows with the number of free parameters times the states. Measured on one
 thread of an Apple M1 Pro, three runs of 25 EM iterations each:
 
-- with pattern `4+25*2+4+6` (31 parameters) on a simulated 100 Mb
-  chromosome (E3's), an M-step took 11 to 12 iterations, 74 to 102
-  evaluations and 0.55 to 0.84 ms, against E-steps of 0.31 s (0.2%);
+- with pattern `4+25*2+4+6` (31 parameters: 28 λ, θ, ρ and t_max) on a
+  simulated 100 Mb chromosome (E3's), an M-step took 11 to 12 iterations,
+  74 to 102 evaluations and 0.55 to 0.84 ms, against E-steps of 0.31 s
+  (0.2 to 0.3%);
 - with one λ per interval (`--n-steps` alone) on the 180,000-bin test
-  input, M-steps over 104 parameters took 2.6 to 5.1 ms and over 304 took
+  input (`tests/data/c_reference/papuan_chr1_3seg.psmcfa`), M-steps over 104 parameters took 2.6 to 5.1 ms and over 304 took
   22 to 48 ms, against E-steps of 0.09 s and 4.1 s.
 
 One EM iteration there on one thread peaked at 5.8, 7.5, 325 and 437 MB of

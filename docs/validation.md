@@ -20,7 +20,9 @@ their tables are under `experiment/runs/`.
 psmc-rs fits C psmc's model with its time grid, its starting point (θ0 =
 −ln(1 − K/L), ρ0 = θ0/4, flat λ, t_max = 15) and its `-p` patterns.
 
-**On the reference data** (a 180,000-bin psmcfa, C psmc 0.6.5-r74, patterns
+**On the reference data**
+(`tests/data/c_reference/papuan_chr1_3seg.psmcfa`, the 180,000-bin test
+input; C psmc 0.6.5-r74, patterns
 `4+5*3+4` and `4+25*2+4+6`), the first round's log-likelihood equals C
 psmc's to its printed precision, and rounds 2 to 5 stay within a relative
 2e-7; `tests/c_equivalence.rs` enforces both. The later rounds differ
@@ -36,12 +38,12 @@ the informative window (the 1% to 99% quantiles of the coalescence time):
 | --- | --- |
 | E1: 40 simulated 500 Mb genomes of four models | 3.7e-6 to 2.0e-4 (median 2.5e-5) |
 | E2: four real genomes (three turtles and NA12878) | 9.7e-6 to 2.8e-4 |
-| E7: the 52 default genomes of the 1000 Genomes cohort | 5.7e-6 to 2.1e-5 |
+| E7: the 52 genomes of the 1000 Genomes cohort's default set (two per population) | 5.7e-6 to 2.1e-5 |
 
 Over the 4,620 intervals in the window of the 95 genomes both fitted
 (NA12878 counted once), the median absolute difference in log10 Ne is
-5.5e-6 and the largest 6.6e-4: the population sizes differ by at most
-0.15%. In E1 and E2, θ, ρ and t_max agreed within a relative 5.5e-4 and
+5.5e-6 and the largest 6.6e-4 (in E1; in E2 at most 4.5e-4): the
+population sizes differ by at most 0.15%. In E1 and E2, θ, ρ and t_max agreed within a relative 5.5e-4 and
 1.0e-3, and the log-likelihood of the last round C psmc prints within
 1.3e-8 and 2.3e-7 (at every round within 3.5e-8 and 3.7e-7). The tables are
 `E1_rs_vs_c.csv`, `E2_rs_vs_c.csv` and `E7_rs_vs_c.csv`.
@@ -143,8 +145,8 @@ record, chromosome names must be UTF-8) are listed in the documentation of
 five simulated 500 Mb genomes of a bottleneck model (experiment E4,
 `-N25 -t15 -r5 -p 4+25*2+4+6`) with 30% of the bases missing in runs of
 about 20 bp, the fit with the callable counts removed most of the bias: θ
-was 0.97 to 0.99 of the fit of the same genome without missing data (1.9%
-low on average), where ignoring the counts gave 0.64 to 0.66. The RMSE of
+was 0.97 to 0.99 of the fit of the same genome without missing data (a
+median 1.8% low), where ignoring the counts gave 0.64 to 0.66. The RMSE of
 log10 Ne against the truth was 0.007 above that of the complete-data fit on
 average (at most 0.020), where ignoring the counts raised it by 0.16 to
 0.20. Missing data in 20 kb runs changed the fits little either way. E4's
@@ -237,8 +239,10 @@ compared with Ibex's (x86-64, AVX2 and FMA kernels, Linux)
 - psmc-rs's cross-platform difference is a median 383 times smaller than
   its difference from C psmc, and 124 times smaller than C psmc's own
   difference between a laptop build and Ibex's;
-- built by Ibex's rustc (1.99.0) instead of 1.97.1, the laptop's outputs are
-  byte-identical (41/41), and one binary run twice gives identical bytes.
+- the laptop's build by Ibex's rustc (1.99.0) gives outputs byte-identical
+  to its build by rustc 1.97.1 (41/41), and one binary run twice gives
+  identical bytes: the differences are the platform's, not the compiler
+  version's.
 
 On x86-64 CPUs with AVX2 and FMA and the same math library, the outputs
 are identical to the bit ([performance.md](performance.md#the-cpu-kernels)).
