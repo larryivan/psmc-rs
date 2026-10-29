@@ -113,8 +113,16 @@ whole where `-r` would read a range. It also passes `--input-format vcf
 --vcf-mode consensus`, which psmc-rs would otherwise detect, and
 `--no-version` to bcftools, so that the VCF header does not change from run
 to run; the log has the exact commands.)
-psmc-rs can also fit the VCF directly, `psmc-rs sample.vcf.gz fit.json 25
---min-qual 20`, which bins it the same way. Note `--min-qual 20`: psmc-rs's
+`--run` fits the psmcfa, as C psmc would. Fit the VCF instead when its
+bins are partly callable, as the depth and quality filters make them:
+
+```sh
+psmc-rs results/sample.vcf.gz fit.json 25 --min-qual 20
+```
+
+bins it the same way and also weighs each bin by its callable bases, which
+the psmcfa cannot record ([missing data scattered within
+bins](#missing-data-scattered-within-bins)). Note `--min-qual 20`: psmc-rs's
 default is fq2psmcfa's own default, 10.
 
 - **`-C50`** caps the mapping quality of reads with many mismatches; the
@@ -133,17 +141,10 @@ default is fq2psmcfa's own default, 10.
   (no reads) become missing data.
 
 `vcf2fq` then turns each record into one base of a consensus sequence and
-`fq2psmcfa` bins it. psmc-rs does both in one pass, with the same options:
-
-| psmc-rs | classic tool | default | what it does |
-| --- | --- | --- | --- |
-| `--depth MIN:MAX` | `vcf2fq -d MIN -D MAX` | auto (vcf2fq: 3:100000) | bases with INFO/DP outside the bounds are missing |
-| `--min-mapq` | `vcf2fq -Q` | 10 | bases with INFO/MQ (root-mean-square mapping quality) below it are missing |
-| `--indel-window` | `vcf2fq -l` | 5 | bases this close to an indel call are missing |
-| `--min-qual` | `fq2psmcfa -q` | 10 (the script: 20) | bases with a consensus quality (the size of INFO/FQ) below it are missing |
-| `--bin-size` | `fq2psmcfa -s` | 100 | bases per bin; a bin is `N` when more than 90% of its bases are missing, `K` when one is heterozygous |
-| `--min-good-bases` | `fq2psmcfa -g` | 10000 | sequences with fewer called bases are dropped |
-| `--min-good-fraction` | fixed in fq2psmcfa | 0.2 | sequences with a smaller called share are dropped |
+`fq2psmcfa` bins it. psmc-rs does both in one pass, with the same options
+(`--depth`, `--min-mapq`, `--indel-window`, `--min-qual`, `--bin-size`,
+`--min-good-bases`; [the mapping](inputs.md#consensus-mode)); the script
+sets `--min-qual 20` where both tools default to 10.
 
 ### Depth bounds
 
@@ -192,28 +193,12 @@ output of
 gzip -dc sample.vcf.gz | vcfutils.pl vcf2fq -d MIN -D MAX | fq2psmcfa -q20 - > sample.psmcfa
 ```
 
-and inference on the VCF fits exactly these bins. This is tested three ways:
-
-1. `tests/io_route_a.rs` compares psmc-rs with golden files that the real
-   tools made from simulated reads (`tests/data/route_a`): six option sets,
-   including one bin per base (`-s 1 -g 0`), which compares every base.
-2. `tests/io_consensus_tools.rs` runs the real tools on hundreds of random
-   VCFs full of edge cases (`--ignored`; it needs `VCFUTILS` and
-   `FQ2PSMCFA`, and the `pipeline` job of CI runs it).
-3. `tests/pipeline/run_e2e.sh` runs `scripts/bam_to_psmc.sh` on simulated
-   reads and compares its psmcfa with `vcf2fq -d MIN -D MAX | fq2psmcfa -q20`
-   on the script's own VCF, with MIN and MAX computed independently of
-   psmc-rs; CI runs it with Ubuntu's bcftools and `vcfutils.pl` and with
-   `fq2psmcfa` built from lh3/psmc 0.6.5-r74.
-
-The goldens were made with the `vcfutils.pl` of bcftools 1.24. The few
-inputs where psmc-rs differs on purpose (malformed lines are errors, a
-chromosome without any base is dropped where fq2psmcfa misreads the next
-record, chromosome names must be UTF-8) are listed in the documentation of
-`psmc_rs::io::consensus`; `bcftools call -c` output has none of them.
-fq2psmcfa's `-x` (mask the human pseudoautosomal regions, in NCBI36
-coordinates) and its mutation-class filters (`-v`, `-n`, `-c`, `-C`) have no
-psmc-rs equivalent.
+and a fit of the VCF fits exactly these bins. The tests that check it, and
+the few malformed inputs where psmc-rs differs on purpose, are in
+[validation.md](validation.md#the-classic-tools). fq2psmcfa's `-x` (mask the
+human pseudoautosomal regions, in NCBI36 coordinates) and its
+mutation-class filters (`-v`, `-n`, `-c`, `-C`) have no psmc-rs
+equivalent.
 
 Consensus mode also accepts `--vcf-mask` and `--vcf-negative-mask` (for
 example a mappability mask): bases outside the callable set become missing.
@@ -329,12 +314,10 @@ for SNPable output). Li & Durbin (2011) used such a filter; route A
 benefits from it too.
 
 psmc-rs intersects all `--vcf-mask` files (a site must be in every one) and
-removes every `--vcf-negative-mask` region. A mask row with three or more
-columns is BED (`chrom start end`, 0-based, end-exclusive); a row with
-exactly two is `start end`, 1-based inclusive, for every chromosome.
-Overlapping and adjacent intervals are fine, and rows need not be sorted.
-Rows are merged as they are read, so a mask of one row per callable site
-costs only the memory of its merged intervals.
+removes every `--vcf-negative-mask` region. Rows may be BED or `start end`,
+overlapping and unsorted ([inputs.md](inputs.md#masks)); they are merged as
+they are read, so a mask of one row per callable site costs only the memory
+of its merged intervals.
 
 Each `--vcf-mask` file must therefore cover every chromosome you analyse:
 a chromosome that one of them lacks has no callable site at all (psmc-rs
@@ -385,11 +368,8 @@ missing data, heterozygosity per sequence, depth, sequence lengths, bin
 saturation, the callable bases of the called bins (exact for a VCF,
 approximate for multihetsep) and what the bootstrap would have to work
 with, with findings
-that name a code (`INVALID_START`, `VARIANTS_ONLY_NO_MASK`,
-`PARTLY_CALLABLE_BINS`, `HIGH_MISSING`, `BIN_SATURATION`, `FEW_HETS`,
-`TOO_SHORT`, `SHORT_SEQUENCES`, `SEX_OR_ORGANELLE`, `HET_OUTLIER`,
-`APPROX_MISSING_PLACEMENT`, `DEPTH`, `DROPPED_SEQUENCES`),
-a severity and a recommendation. `--json FILE` writes it for scripts,
+that each name a code, a severity and a recommendation
+([qc.md](qc.md) lists them). `--json FILE` writes it for scripts,
 `--strict` exits with status 2 when a finding is a warning, and every
 inference run prints the same findings and stores their codes in its JSON
 output. The script keeps the report as `PREFIX.qc.txt` and `.qc.json`.
@@ -425,9 +405,8 @@ mapping and base quality, indel windows) and masks of short gaps leave
 missing bases scattered over called bins rather than whole `N` bins; a
 called bin with a third of its bases missing shows a heterozygous site
 about a third less often, so θ, N0, the times and Ne all come out low by
-the missing share of the called bins or more (θ by 34 to 37% in
-simulations with 30% of the bases missing in runs of about 20 bp, and by
-11 to 13% with 10%). Long runs of missing data
+the missing share of the called bins or more
+([validation.md](validation.md#missing-data)). Long runs of missing data
 mostly make whole bins `N`, which do no harm.
 
 psmc-rs counts the callable bases of every bin of a VCF (exactly, in both
@@ -451,11 +430,9 @@ the routes above:
   worse in the validation, so `--bin-callable auto` does not use them and
   fits every called bin of multihetsep input as a full bin
   (`--bin-callable approximate` uses them). The placement itself still
-  biases θ and Ne low whatever the mode: in the validation θ came out
-  0.82 to 0.86 of the fit without missing data with 10% of the sites
-  uncalled in runs of about 20 bp, 0.67 to 0.70 with 30%, and 0.89 to 0.93
-  with 30% in runs of about 20 kb (QC warns, `APPROX_MISSING_PLACEMENT`,
-  when more than 5% of the sites are uncalled). The VCF with its callable
+  biases θ and Ne low whatever the mode
+  ([validation.md](validation.md#missing-data)); QC warns,
+  `APPROX_MISSING_PLACEMENT`, when more than 5% of the sites are uncalled. The VCF with its callable
   mask gives exact bins and counts; `psmc-rs convert --multihetsep` says
   so when the VCF has uncalled sites.
 
