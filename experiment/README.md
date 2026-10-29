@@ -61,7 +61,7 @@ experiment/
 ├── pipeline/                          # python -m experiment.pipeline: E1-E7, FIG, the runner, the tools
 ├── slurm/                             # the pipeline in SLURM allocations
 ├── real_data/                         # input psmcfa: the three turtles and NA12878's chr1-22 (E2);
-│                                      #   Papuan chr1 (the Rust tests, the top-level README's benchmarks)
+│                                      #   Papuan chr1 (the Rust tests, docs/performance.md's benchmarks)
 ├── runs/                              # E1 ... E7, FIG: fits, truth and provenance records, tables, figures
 ├── validation/                        # the --bin-callable simulation study
 ├── crossplatform/                     # laptop against Ibex

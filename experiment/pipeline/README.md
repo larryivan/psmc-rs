@@ -318,8 +318,8 @@ E7's on 32 wrote the same 103 files byte for byte (Supplementary Note 1,
 section 8). `fig3_real_genomes` and the article's Fig 1c draw E2's band;
 no figure draws E7's.
 `real_data/Papuan_highlands_diploid.psmcfa`, the chromosome 1 of a Papuan
-Highlands human that E2 fitted before, stays for the top-level README's
-benchmarks and the Rust tests; E2 does not read it.
+Highlands human that E2 fitted before, stays for the benchmarks of
+`docs/performance.md` and the Rust tests; E2 does not read it.
 `config.RealGenome.scaling_source` gives the citations in full, and
 `E2_fit_summary.csv` repeats them. Per genome: `fit-c` (C
 psmc), `fit-rs` (psmc-rs 0.2, the identical file and settings),

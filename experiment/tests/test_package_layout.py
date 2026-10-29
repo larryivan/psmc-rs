@@ -46,7 +46,7 @@ class PackagedData(unittest.TestCase):
                 self.assertFalse(needle in text, f"{table.relative_to(ROOT)} contains {needle!r}")
 
     def test_papuan_sample_is_chromosome_1_only(self):
-        # The psmcfa the Rust tests and the top-level README's benchmarks read holds one sequence, '>chr1'
+        # The psmcfa the Rust tests and docs/performance.md's benchmarks read holds one sequence, '>chr1'
         # (2,487,383 bins).
         psmcfa = ROOT / "experiment" / "real_data" / "Papuan_highlands_diploid.psmcfa"
         with psmcfa.open(encoding="utf-8") as f:
