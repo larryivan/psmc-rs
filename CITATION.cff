@@ -3,7 +3,6 @@ message: "If you use psmc-rs, please cite it using the metadata below, together 
 title: "psmc-rs: a Rust implementation of the Pairwise Sequentially Markovian Coalescent (PSMC)"
 type: software
 authors:
-  # TODO(author): add `orcid: "https://orcid.org/XXXX-XXXX-XXXX-XXXX"`.
   - given-names: Yufan
     family-names: Han
     alias: larryivanhan
@@ -12,9 +11,9 @@ license: MIT
 # Zenodo's DOI of every version, which resolves to the latest; each release
 # has its own DOI on Zenodo as well.
 doi: 10.5281/zenodo.18759759
-# The version of Cargo.toml. TODO(release): add `date-released` when v0.2.0
-# is tagged.
+# The version of Cargo.toml, and the day it was tagged.
 version: "0.2.0"
+date-released: "2026-10-29"
 abstract: >-
   psmc-rs reimplements Heng Li's PSMC (Pairwise Sequentially Markovian
   Coalescent) in Rust. It infers the history of effective population size
