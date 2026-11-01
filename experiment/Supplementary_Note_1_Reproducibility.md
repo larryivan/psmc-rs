@@ -188,7 +188,7 @@ would run, and `start --only REGEX` restricts it to the matching jobs.
 ## 5) The runs, on a SLURM cluster
 
 The production runs of E1 to E7 were made with the scripts of
-`experiment/slurm/` on KAUST's Ibex cluster (E3's repeats as `e3` jobs,
+`experiment/slurm/` on the Ibex cluster (E3's repeats as `e3` jobs,
 section 10; E7's data stage as `e7-prep`), and the figures drawn on the
 laptop from the runs directory copied back. The scripts run the same pipeline in SLURM allocations;
 site settings (account, partition, node constraints, paths, C psmc's

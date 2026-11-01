@@ -204,7 +204,7 @@ Pro and peaks at 36 MB.
 ## Speed and memory
 
 Experiment E3 timed the programs under a controlled protocol on AMD EPYC
-7702 nodes of KAUST's Ibex cluster: each run alone on an exclusive node, 5
+7702 nodes of a computing cluster: each run alone on an exclusive node, 5
 repeats on four nodes, 25 EM iterations of
 `-N25 -t15 -r5 -p "4+25*2+4+6"` on simulated genomes of 100 Mb chromosomes,
 C psmc built by gcc with `-O3 -march=x86-64-v3`.

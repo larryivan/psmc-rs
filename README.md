@@ -49,7 +49,7 @@ The evidence, and what the manuscript's experiments measured, is in
 
 *Wall time (**a**) and peak memory (**b**) of 25 EM iterations on a
 simulated genome of 30 chromosomes of 100 Mb, each run alone on a node of
-KAUST's Ibex cluster (AMD EPYC 7702), medians of five repeats. In **a**,
+a computing cluster (AMD EPYC 7702), medians of five repeats. In **a**,
 the grey line is perfect scaling of psmc-rs's one-thread time, and the
 dotted line psmc-rs's time on a genome of one 100 Mb chromosome: psmc-rs
 fits each sequence on one thread, so a genome's longest sequence bounds its
