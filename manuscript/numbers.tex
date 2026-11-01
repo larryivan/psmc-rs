@@ -20,14 +20,16 @@
 \newcommand{\EtwoTurtles}{3}  % E2_fit_summary turtle genomes
 \newcommand{\EtwoBootReps}{100}  % E2_bootstrap replicates
 \newcommand{\EtwoBootThreads}{50}  % E2_bootstrap threads
+\newcommand{\EtwoBandOverDeltaMin}{260}  % E2_bootstrap band_width_log10_median / E2_rs_vs_c rmse, smallest over the genomes, floored to 2 digits
 \newcommand{\EtwoSplitFits}{6}  % E2_split_patterns split rows
 \newcommand{\EtwoSplitGainMin}{\ensuremath{49}}  % E2_split_patterns loglike_gain_vs_default
 \newcommand{\EtwoSplitGainMax}{\ensuremath{586}}  % E2_split_patterns loglike_gain_vs_default
 \newcommand{\EthreeRepeats}{5}  % config.E3.repeats
 \newcommand{\EthreeBigMb}{3,000}  % config.E3.genome_sizes_mb
 \newcommand{\EthreeCWall}{4,456}  % E3_table2 c 1 thread
-\newcommand{\EthreeCMin}{\ensuremath{74}}  % E3_table2 c 1 thread (min)
+\newcommand{\EthreeCMin}{74.3}  % E3_table2 c 1 thread (min)
 \newcommand{\EthreeRsOneWall}{317}  % E3_table2 rs02 1 thread
+\newcommand{\EthreeRsOneMin}{5.28}  % E3_table2 rs02 1 thread (min)
 \newcommand{\EthreeSpeedOne}{\ensuremath{14.1}}  % E3_table2 rs02 1 speedup
 \newcommand{\EthreeSpeedEight}{\ensuremath{101}}  % E3_table2 rs02 8 speedup
 \newcommand{\EthreeSpeedSixteen}{\ensuremath{198}}  % E3_table2 rs02 16 speedup
@@ -52,6 +54,10 @@
 \newcommand{\EfourDispThirtyAutoTheta}{1.8\%}  % E4_routes dispersed30 mask_auto -theta_rel (median)
 \newcommand{\EfourDispTenFqTheta}{11.9\%}  % E4_routes dispersed10 fq2psmcfa -theta_rel (median)
 \newcommand{\EfourDispTenAutoTheta}{0.7\%}  % E4_routes dispersed10 mask_auto -theta_rel (median)
+\newcommand{\EfourDispThirtyMhsTheta}{31.9\%}  % E4_routes dispersed30 multihetsep -theta_rel (median)
+\newcommand{\EfourDispThirtyNomaskTheta}{35.5\%}  % E4_routes dispersed30 nomask -theta_rel (median)
+\newcommand{\EfourClusThirtyMhsTheta}{9.1\%}  % E4_routes clustered30 multihetsep -theta_rel (median)
+\newcommand{\EfourClusThirtyNomaskTheta}{56.8\%}  % E4_routes clustered30 nomask -theta_rel (median)
 \newcommand{\EfourReps}{5}  % config.E4.replicates
 \newcommand{\EfourDispTenPartly}{48\%}  % E4_summary dispersed10 mask_auto
 \newcommand{\EfourDispThirtyPartly}{92\%}  % E4_summary dispersed30 mask_auto
@@ -72,6 +78,7 @@
 \newcommand{\EfiveFiveTrunks}{60}  % E5_summary trunks
 \newcommand{\EfiveBias}{\ensuremath{0.061}}  % E5_summary abs_bias_log10_median
 \newcommand{\EfiveSdTrue}{\ensuremath{0.028}}  % E5_summary sd_true_log10_median
+\newcommand{\EsixMhsRmseMax}{\ensuremath{6.7\times10^{-3}}}  % E6_S2_fits multihetsep rmse_log10_ne_vs_psmcfa_per_interval, max over E1's first replicates
 \newcommand{\EsixDecodeCov}{95.6\%}  % E6_S3_summary coverage95_states
 \newcommand{\EsevenGenomes}{2,504}  % E7_samples rows
 \newcommand{\EsevenPops}{26}  % E7_samples populations
@@ -79,9 +86,12 @@
 \newcommand{\EsevenPerPopMin}{61}  % E7_samples per population
 \newcommand{\EsevenPerPopMax}{113}  % E7_samples per population
 \newcommand{\EsevenDepth}{\ensuremath{36.2}}  % E7_inputs raw_depth median
-\newcommand{\EsevenMissingShare}{7.6\%}  % E7_route_shift missing share
+\newcommand{\EsevenMissingShare}{7.6\%}  % E7_route_shift missing share, median
 \newcommand{\EsevenThetaExpected}{8.2\%}  % 1 / (1 - missing share) - 1
-\newcommand{\EsevenThetaShift}{8.4\%}  % E7_route_shift theta_rel mean
+\newcommand{\EsevenThetaShift}{8.5\%}  % E7_route_shift theta_rel median
+\newcommand{\EsevenRouteShiftMedian}{\ensuremath{0.044}}  % E7_route_shift mean_log10_ne_vcf_vs_psmcfa, median
+\newcommand{\EsevenRouteShapeMedian}{\ensuremath{0.008}}  % E7_route_shift sqrt(rmse^2 - mean^2) of log10 Ne vcf vs psmcfa (the change of shape), median
+\newcommand{\EsevenSplitSpanMedian}{\ensuremath{1.1}}  % E7_split log10(max / min) of the four split lambdas' Ne, median
 \newcommand{\EsevenRsCRmseMin}{\ensuremath{5.7\times10^{-6}}}  % E7_rs_vs_c
 \newcommand{\EsevenRsCRmseMax}{\ensuremath{2.1\times10^{-5}}}  % E7_rs_vs_c
 \newcommand{\RealGenomes}{55}  % E2_rs_vs_c and E7_rs_vs_c samples (NA12878 in both)
@@ -89,15 +99,17 @@
 \newcommand{\EsevenGiabRecall}{\ensuremath{0.9966}}  % E7_giab recall
 \newcommand{\EsevenGiabMb}{2,109}  % E7_giab eval_bases (Mb)
 \newcommand{\EsevenRsCoreHours}{257}  % E7_throughput rs-psmcfa core_hours
-\newcommand{\EsevenRsFitMin}{6.2}  % E7_throughput rs-psmcfa wall median (min)
+\newcommand{\EsevenRsFitMin}{6.22}  % E7_throughput rs-psmcfa wall median (min)
 \newcommand{\EsevenCFitMin}{88.0}  % E7_throughput c wall median (min)
 \newcommand{\EsevenCCoreHoursAll}{3,700}  % E7_throughput c wall median x genomes (estimate)
+\newcommand{\EsevenPairedSpeedMedian}{\ensuremath{13.8}}  % E7_fits: C psmc's wall time over psmc-rs's on the same genome, median over the comparison subset
 \newcommand{\EsevenBootReps}{100}  % E7_bootstrap replicates
 \newcommand{\EsevenBootThreads}{32}  % E7_bootstrap threads
 \newcommand{\EsevenMu}{\ensuremath{1.25\times10^{-8}}}  % config.E7.scaling
 \newcommand{\EsevenG}{29}  % config.E7.scaling
 \newcommand{\EsevenBootFiles}{103}  % E2/bootstrap and E7/boot NA12878 files
 \newcommand{\EsevenBootFilesIdentical}{103}  % E2/bootstrap and E7/boot NA12878 files byte-identical
+\newcommand{\EsevenWindowLoKy}{\ensuremath{10.6}}  % E7_pop_bands all window_lo_years (ky)
 \newcommand{\EsevenWindowHiMy}{\ensuremath{4.6}}  % E7_pop_bands all window_hi_years (My)
 \newcommand{\EsevenNonAfrMinNeLo}{1,961}  % E7_pop_bands non-AFR superpopulation minima
 \newcommand{\EsevenNonAfrMinNeHi}{2,902}  % E7_pop_bands non-AFR superpopulation minima
@@ -111,9 +123,15 @@
 \newcommand{\EsevenPopSpreadMidLo}{\ensuremath{0.19}}  % E7_pop_bands populations' max log10 spread, after it to 150 ky
 \newcommand{\EsevenPopSpreadMidHi}{\ensuremath{0.24}}  % E7_pop_bands populations' max log10 spread, after it to 150 ky
 \newcommand{\EsevenPopSpreadOldMax}{\ensuremath{0.11}}  % E7_pop_bands populations' max log10 spread, >= 150 ky
+\newcommand{\EsevenPopSpreadMidMedLo}{\ensuremath{0.015}}  % E7_pop_bands populations' log10 spread after the first window to 150 ky, median over times
+\newcommand{\EsevenPopSpreadMidMedHi}{\ensuremath{0.084}}  % E7_pop_bands populations' log10 spread after the first window to 150 ky, median over times
+\newcommand{\EsevenPopSpreadOldMed}{\ensuremath{0.015}}  % E7_pop_bands populations' log10 spread >= 150 ky, median over times, largest over the superpopulations
+\newcommand{\EsevenIndivSpreadLo}{\ensuremath{0.035}}  % E7_pop_bands superpopulations but AMR: log10(ne_hi / ne_lo), 10% to 90% of genomes, median over the times after the first window
+\newcommand{\EsevenIndivSpreadHi}{\ensuremath{0.040}}  % E7_pop_bands superpopulations but AMR: log10(ne_hi / ne_lo), 10% to 90% of genomes, median over the times after the first window
 \newcommand{\EsevenRecords}{123,574,606}  % MANIFEST chromosomes records
 \newcommand{\EsevenNonpass}{11,256,876}  % MANIFEST chromosomes nonpass
 \newcommand{\EsevenPilotChrom}{21}  % experiment/e7_pilot/pilot_chr21.json
+\newcommand{\EsevenLongestMb}{249}  % experiment/real_data NA12878 psmcfa (E7's input): longest sequence, bins x bin size (Mb)
 \newcommand{\AgreeIntervals}{4,620}  % every interval in the window of every genome both tools fitted
 \newcommand{\AgreeGenomes}{95}  % genomes both tools fitted (NA12878 once)
 \newcommand{\AgreeMedianAbs}{\ensuremath{5.5\times10^{-6}}}  % every interval in the window of every genome both tools fitted: median |log10 Ne difference|
@@ -125,8 +143,11 @@
 \newcommand{\EoneSoneLastIter}{24}  % Fig S1: last iteration both programs report
 \newcommand{\EoneSoneFirstAbsMax}{\ensuremath{4.9\times10^{-7}}}  % E1_traces: largest |LL_rs - LL_c| at the start
 \newcommand{\EoneSoneRsHigher}{23}  % E1_traces: genomes whose psmc-rs log-likelihood is higher at the last common iteration
-\newcommand{\EoneSoneThetaMax}{\ensuremath{3.9\times10^{-4}}}  % E1_traces: largest relative theta difference
-\newcommand{\EoneSoneRhoMax}{\ensuremath{3.4\times10^{-4}}}  % E1_traces: largest relative rho difference
+\newcommand{\EoneSoneDiffMax}{\ensuremath{0.065}}  % E1_traces: largest |LL_rs - LL_c| after any iteration
+\newcommand{\EoneSoneRatioMin}{84}  % E1_traces: a model's smallest gain in iteration i over its largest |LL_rs - LL_c| after i, smallest over the models and iterations (Fig S1's panels), floored to 2 digits
+\newcommand{\EoneSoneThetaMax}{\ensuremath{3.9\times10^{-4}}}  % E1_traces and E1_rs_vs_c theta_rel_diff: largest relative theta difference, any iteration
+\newcommand{\EoneSoneRhoMax}{\ensuremath{3.6\times10^{-4}}}  % E1_traces and E1_rs_vs_c rho_rel_diff: largest relative rho difference, any iteration
+\newcommand{\DiagOverCBuilds}{3}  % c_equivalence/summary.json default rmse_vs_c median / c_builds_rmse median, rounded: the median Delta in units of C psmc's own noise
 \newcommand{\DiagMedianDefault}{\ensuremath{2.5\times10^{-5}}}  % c_equivalence/summary.json default rmse_vs_c median
 \newcommand{\DiagMedianLastBin}{\ensuremath{6.2\times10^{-6}}}  % c_equivalence/summary.json lastbin rmse_vs_c median
 \newcommand{\DiagMedianHookeJeeves}{\ensuremath{2.6\times10^{-5}}}  % c_equivalence/summary.json hj rmse_vs_c median
@@ -136,6 +157,7 @@
 \newcommand{\DiagPrecisionMedian}{\ensuremath{1.0\times10^{-7}}}  % c_equivalence/summary.json prec rmse_vs_default median
 \newcommand{\DiagPrecisionMax}{\ensuremath{2.5\times10^{-6}}}  % c_equivalence/summary.json prec rmse_vs_default max
 \newcommand{\XpRsRmseMax}{\ensuremath{2.4\times10^{-6}}}  % crossplatform rs RMSE window max (E1)
+\newcommand{\XpParamRelMax}{\ensuremath{2.1\times10^{-5}}}  % crossplatform rs param_max_rel max (E1): largest relative difference of any parameter
 \newcommand{\XpRatioCMedian}{\ensuremath{124}}  % side_by_side ratio C cross-build / rs cross-platform, median
 \newcommand{\EoneModelsW}{four}  % config.E1.models (in words)
 \newcommand{\EtwoTurtlesW}{three}  % E2_fit_summary turtle genomes (in words)
@@ -145,4 +167,5 @@
 \newcommand{\EfourRepsW}{five}  % config.E4.replicates (in words)
 \newcommand{\EfiveChromsW}{six}  % config.E5.genome (in words)
 \newcommand{\EfiveFiftyTrunksW}{six}  % E5_summary trunks (in words)
+\newcommand{\DiagOverCBuildsW}{three}  % c_equivalence/summary.json default rmse_vs_c median / c_builds_rmse median, rounded: the median Delta in units of C psmc's own noise (in words)
 \newcommand{\DiagLastBinOtherW}{three}  % c_equivalence/summary.json lastbin genomes not closer (in words)
