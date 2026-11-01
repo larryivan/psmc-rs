@@ -3,7 +3,7 @@
 `xcpu.sbatch` refits E1's bottleneck replicate 1 with the production's psmc-rs binary (sha256 1d141b81…, `src`
 dcf29ca, built on an AMD EPYC 7702 node) and its exact command, on a node of another CPU model, and compares the
 bytes of the `.json` and `.psmc` it writes with the committed fit (`experiment/runs/E1/fits/bottleneck/rep01.rs.*`).
-Run on Ibex on 2026-10-26 (four shared jobs on three CPU models, glibc 2.34 on every node):
+Run on the cluster on 2026-10-26 (four shared jobs on three CPU models, glibc 2.34 on every node):
 
 | job | CPU | kernels | result |
 | --- | --- | --- | --- |
@@ -21,7 +21,7 @@ for c in turin cascadelake skylake; do sbatch -A <account> -p batch --constraint
 sbatch -A <account> -p batch --constraint=cpu_intel_gold_6248 --cpus-per-task=2 --mem=8G --time=00:30:00 -J xcpu-6248 -o $D/xcpu-6248-%j.out --parsable $D/xcpu.sbatch
 ```
 
-`P` (line 4 of `xcpu.sbatch`) is the production worktree on Ibex, at 4b2c636f when these jobs ran (`PROD` of
+`P` (line 4 of `xcpu.sbatch`) is the production worktree on the cluster, at 4b2c636f when these jobs ran (`PROD` of
 `experiment/slurm/site.env.example`). Elsewhere, set it to a checkout whose `target/release/psmc-rs` is the binary
 to test and whose `experiment/runs` holds E1's simulated genomes: the script reads
 `experiment/runs/E1/sims/bottleneck/rep01/genome.psmcfa`, which is not committed, so E1's simulation of that
@@ -30,7 +30,7 @@ replicate must have run there.
 ## C psmc's production build
 
 The production's C psmc (gcc 11.4.1, `-g -Wall -O3 -march=x86-64-v3 -ffp-contract=off -Wno-unused-function`, as its
-provenance records hold) was compared with the Makefile's `-O2` on Ibex on 2026-10-06, in three shared jobs, one per
+provenance records hold) was compared with the Makefile's `-O2` on the cluster on 2026-10-06, in three shared jobs, one per
 CPU model. Each job built C psmc from the same sources (lh3/psmc's, `experiment/.tools/psmc_c`) with gcc 11.4.1 three
 ways, `make CFLAGS="-g -Wall <flags> -Wno-unused-function"` with `-O2`, `-O3 -march=x86-64-v3 -ffp-contract=off` and
 `-O3 -march=native -ffp-contract=off`, and ran each build once on HLpelCas1

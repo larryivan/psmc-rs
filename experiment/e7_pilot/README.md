@@ -7,7 +7,7 @@ own build.
 ## The chr21 pilot
 
 `pilot_chr21.json` is E7's chr21 pilot run with that binary by `pilot.py`,
-which chains `kg1000`'s own functions: KAUST Ibex, SLURM job 54553272 on 25
+which chains `kg1000`'s own functions: the cluster, SLURM job 54553272 on 25
 October 2026. The joint chr21 VCF was downloaded whole by
 `kg1000.fetch_ranges` (`fetch`: its size and MD5 those of E7's
 `MANIFEST.json`), streamed once through `bcftools view` (`commands.stream`)
@@ -52,7 +52,7 @@ into `MANIFEST.json`, which E7's report reads.
 ## The default genomes' conversions
 
 `stage1.json` (the counts), `stage1_chrom.tsv` (one row per genome and
-chromosome) and `stage1_samples.tsv` (one row per genome): KAUST Ibex, SLURM
+chromosome) and `stage1_samples.tsv` (one row per genome): the cluster, SLURM
 job 54553271 on 25 October 2026, an AMD EPYC 7702 node; `stage1.json`'s
 `psmc-rs` and `where` (the binary, its source and the node) are from the
 job's identity record, since `e7_check.py` records counts and checksums

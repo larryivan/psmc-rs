@@ -1,12 +1,12 @@
 # Cross-platform comparison
 
-How much the production's results, computed on KAUST's Ibex cluster (AMD
+How much the production's results, computed on the cluster (AMD
 EPYC 7702, x86-64, Linux), depend on the platform: E1's 40 simulated
 genomes and NA12878 fitted again by psmc-rs 0.2 on the development laptop
 (Apple M1 Pro, arm64, macOS), built from the sources of the production's
 psmc-rs fits (`src` dcf29ca) and run with their commands; the laptop's C
-psmc fits of the 40 genomes compared with Ibex's; and the reports of E1,
-E2, E4 and E5 run again on the laptop on the committed fits. The Ibex
+psmc fits of the 40 genomes compared with the cluster's; and the reports of E1,
+E2, E4 and E5 run again on the laptop on the committed fits. The cluster
 results are those of `experiment/runs` (the production committed at
 392ef084, whose psmc-rs fits ran at ae34d727; its C psmc fits come from
 earlier jobs of the same C psmc binary). Supplementary Note 1, section 9,
@@ -20,14 +20,14 @@ again on 2026-10-27 on the production's results for psmc-rs 0.2.0 (below):
 
 | script | what it does |
 | --- | --- |
-| `scripts/make_jobs.py` | the laptop command of each Ibex fit, from its provenance record (`jobs.json`; with `--bin`, `--runs`, `--out` and `--only`, the job lists of the two controls) |
+| `scripts/make_jobs.py` | the laptop command of each cluster fit, from its provenance record (`jobs.json`; with `--bin`, `--runs`, `--out` and `--only`, the job lists of the two controls) |
 | `scripts/run_job.py` | runs one job, or `all` of a job list (each in its own process, at most `-P 4` at once, under `nice 19`), and writes its record (`records/`) |
 | `scripts/toolchain.py` | the laptop, the two builds, the builds that ran the fits (the records name them) and the laptop C psmc binary (`toolchain.txt`) |
-| `scripts/inputs.py` | step 1: the laptop's genomes against the Ibex records |
+| `scripts/inputs.py` | step 1: the laptop's genomes against the cluster records |
 | `scripts/compare.py` | the comparisons (the CSV tables, `summary.json`) |
 | `scripts/reports.py` | E1, E2, E4 and E5's tables written again on the laptop, against the committed ones (`reports_laptop_vs_ibex.csv`, `reports.json`) |
-| `scripts/make_summary.py` | `summary.md`, every number in it from the files the scripts above write and the Ibex records |
-| `scripts/tiers_2026-10-07.py` | the earlier laptop-against-Ibex review that fixed the agreement tiers on 2026-10-07, before these runs, kept as it was |
+| `scripts/make_summary.py` | `summary.md`, every number in it from the files the scripts above write and the cluster records |
+| `scripts/tiers_2026-10-07.py` | the earlier laptop-against-cluster review that fixed the agreement tiers on 2026-10-07, before these runs, kept as it was |
 
 ```bash
 cargo build --release --locked                                   # from a clean checkout of src dcf29ca; then
@@ -47,7 +47,7 @@ $PY -B scripts/reports.py
 $PY -I -B scripts/make_summary.py
 ```
 
-The scripts read the Ibex results from `experiment/runs`, and the laptop's
+The scripts read the cluster results from `experiment/runs`, and the laptop's
 simulated genomes and C psmc fits from a frozen laptop run,
 `experiment/.production` (not in the repository; the C fits it compared
 are copied to `laptop_c/`, and `compare.py` checks the copies);
@@ -78,14 +78,14 @@ adds crates.io's package fields to the one the laptop's fits were built
 from (c0be5cf); `src`, `Cargo.lock`, the production's binary and every
 fit's output are unchanged, and the laptop's fits were not run again. On
 2026-10-27 the job lists were made again from the new provenance records
-(the same commands and input checksums; new Ibex hosts, job ids, times
+(the same commands and input checksums; new cluster hosts, job ids, times
 and source ids), and the two builds were made again at 392ef084, from the
 production's sources: each reproduces the zeroed sha256 of the build that
 ran the fits, made at ac4fed5d (`toolchain.txt` at 91ffaf09 describes
 it; `toolchain.py --fits-built-in 91ffaf09` compares the two), not its
 whole-file sha256, which the records name. `inputs.py`, `compare.py`,
 `reports.py` and `make_summary.py` then ran again: every comparison is
-the same but for the Ibex records' metadata, their hosts, job ids and
+the same but for the cluster records' metadata, their hosts, job ids and
 wall times and, in 30 of E1's 40 sim records, the words naming the
 model's source (`summary.md`, sections 1, 2 and 4.6).
 

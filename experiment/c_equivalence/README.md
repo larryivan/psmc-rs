@@ -24,7 +24,7 @@ applied to `src/`, and the variants are in no release.
 interval by interval over the genome's informative window, as
 `E1_rs_vs_c.csv` computes it (the default rows reproduce it), next to the
 difference between two builds of C psmc (the laptop's `-O1` clang build
-and Ibex's `-O3` gcc build, `experiment/crossplatform/side_by_side_E1.csv`:
+and the cluster's `-O3` gcc build, `experiment/crossplatform/side_by_side_E1.csv`:
 median 8.5e-6, 3.6e-6 to 2.4e-5; 2.2e-5 on bottleneck replicate 1):
 
 | variant | median | min to max | closer to C psmc than the default | at or below the two C psmc builds' difference | bottleneck replicate 1 |
@@ -77,7 +77,7 @@ left out.
 
 ## What ran
 
-- `fits/` (E1): KAUST Ibex, SLURM job 54553237 on 25 October 2026, a
+- `fits/` (E1): the cluster, SLURM job 54553237 on 25 October 2026, a
   shared AMD EPYC 7702 node, with the commands of `scripts/run_e1.py` on
   the production's genomes. The diagnostic build was made as
   `scripts/build.sh` makes it, from commit 4b2c636f (`src/` dcf29ca) with

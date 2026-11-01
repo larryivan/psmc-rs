@@ -115,7 +115,7 @@ give. For the other ten the notes say what the figure shows.
   widens to the next 1-2-5 value where a difference needs it); Delta is its
   root mean square over log time. In e, the light-grey row under Simulated,
   'C psmc on two platforms', is the noise floor of Delta: the same metric
-  between C psmc's fits of the simulated genomes on Ibex (gcc, x86-64) and
+  between C psmc's fits of the simulated genomes on the cluster (gcc, x86-64) and
   on the laptop (Apple clang, arm64), from the committed
   `experiment/crossplatform/side_by_side_E1.csv`. The figure ties each of
   its rows to an E1 genome by Delta: the tiny profile draws no such row,

@@ -138,9 +138,9 @@ seeds. Both need the simulated genomes, which section 4 regenerates.
 The analysis depends on the platform only slightly: the reports of E1,
 E2, E4 and E5, run on an Apple M1 Pro laptop (macOS, arm64) on the
 committed fits, with the code that wrote the committed
-tables on the Ibex cluster (Linux, x86-64) in the production of section 5
+tables on the cluster (Linux, x86-64) in the production of section 5
 (the same code digests and package versions), wrote 16 of the 38 tables
-byte for byte; the others agreed with those written on Ibex to a relative
+byte for byte; the others agreed with those written on the cluster to a relative
 2.5e-13 in every value of magnitude 1e-3 or more, and to a relative
 1.9e-11 in the differences between psmc-rs and C psmc, of order 1e-5 (at
 most 8.9e-16 absolute); the differences come from the two platforms' math
@@ -188,7 +188,7 @@ would run, and `start --only REGEX` restricts it to the matching jobs.
 ## 5) The runs, on a SLURM cluster
 
 The production runs of E1 to E7 were made with the scripts of
-`experiment/slurm/` on the Ibex cluster (E3's repeats as `e3` jobs,
+`experiment/slurm/` on the cluster (E3's repeats as `e3` jobs,
 section 10; E7's data stage as `e7-prep`), and the figures drawn on the
 laptop from the runs directory copied back. The scripts run the same pipeline in SLURM allocations;
 site settings (account, partition, node constraints, paths, C psmc's
@@ -259,7 +259,7 @@ sources and checks in `MANIFEST.json`). Its conversions ran psmc-rs from
 content: converting with the stage's command, chromosome by chromosome,
 the per-sample VCFs the stage kept (those of the 52 genomes of the comparison subset) gave
 1,144 of 1,144 chromosome files and 52 of 52 genomes identical to E7's
-after decompression, with equal QC; only the gzip bytes differ (Ibex job
+after decompression, with equal QC; only the gzip bytes differ (cluster job
 54553271, an EPYC 7702 node; `experiment/e7_pilot/stage1.json`). The chr21
 pilot, run again with the production's binary, gave the same files from
 the joint VCF directly as through the per-sample VCFs, both identical to
@@ -311,7 +311,7 @@ where `-O2` segfaults) and records the compiler,
 flags, commands and checksums in `psmc_c/BUILD.json`, which adds the
 compiler and the flags to C psmc's identity.
 
-- **Production (Ibex).** gcc 11.4.1 with `-g -Wall -O3 -march=x86-64-v3
+- **Production (the cluster).** gcc 11.4.1 with `-g -Wall -O3 -march=x86-64-v3
   -ffp-contract=off -Wno-unused-function`, as every C psmc provenance
   record of E1, E2, E3 and E7 holds. Its output was byte-identical to the
   Makefile's `-O2` build on AMD Zen 2, Zen 5 and Intel Cascade Lake nodes,
@@ -319,7 +319,7 @@ compiler and the flags to C psmc's identity.
   `experiment/crossplatform/x86_cpus/`, section "C psmc's production
   build"); `-ffp-contract=off` keeps gcc from fusing multiply-adds, which
   would change the results. These are the C psmc results of the
-  manuscript. The build's record, `psmc_c/BUILD.json` in Ibex's tools
+  manuscript. The build's record, `psmc_c/BUILD.json` in the cluster's tools
   directory, adds what no provenance record holds: the build date,
   2026-10-07; the platform,
   `Linux-5.14.0-427.20.1.el9_4.0.1.x86_64-x86_64-with-glibc2.34`; LIBS
@@ -400,23 +400,23 @@ two builds of it differ is part of section 9.
 
 ## 9) Cross-platform comparison
 
-The production of section 5 ran on Ibex (x86-64). To measure how much its
+The production of section 5 ran on the cluster (x86-64). To measure how much its
 results depend on the platform, its 40 E1 genomes and NA12878 were fitted
 again with psmc-rs on the development laptop, built from the `src/` tree
 and `Cargo.lock` of the production's psmc-rs fits (dcf29ca and ae10354)
 and run with the production's commands (only the paths changed), and the
 laptop's C psmc fits of the same 40 genomes, from an earlier laptop run,
-were compared with Ibex's, made by the same C psmc binary as every C psmc
+were compared with the cluster's, made by the same C psmc binary as every C psmc
 fit of the production (section 5). The scripts, tables and laptop fits are in
 `experiment/crossplatform/`, whose `summary.md` gives every number below.
 
-| | laptop | Ibex (production) |
+| | laptop | cluster (production) |
 | --- | --- | --- |
 | CPU and system | Apple M1 Pro (arm64), macOS 27.0, Apple's math library | AMD EPYC 7702 (x86-64), Linux, glibc 2.34 |
 | psmc-rs | the same `src/` tree and `Cargo.lock` (dcf29ca, ae10354; no uncommitted changes), rustc 1.97.1, release profile, no build flags; NEON kernels | rustc 1.99.0, release profile, no build flags; AVX2 and FMA kernels |
 | C psmc | lh3/psmc 0.6.5-r74, the laptop's `-O1` build by Apple clang, which fuses multiply-adds (identified by its machine code; it has no build record) | gcc 11.4.1, `-O3 -march=x86-64-v3 -ffp-contract=off` (section 7) |
 
-**Inputs.** The laptop's 40 E1 genomes were byte-identical to Ibex's
+**Inputs.** The laptop's 40 E1 genomes were byte-identical to the cluster's
 (psmcfa, VCF and index, 40 of 40; the heterozygous positions and counts of
 all 400 chromosomes), and both platforms fitted the same NA12878 file.
 
@@ -424,9 +424,9 @@ all 400 chromosomes), and both platforms fitted the same NA12878 file.
 program (psmc-rs 0 of 41, C psmc 0 of 40), but psmc-rs agreed with itself
 far more closely than the two builds of C psmc agreed with each other
 (minimum / median / maximum over the 40 E1 fits; the last column is the
-difference between the programs in the production on Ibex):
+difference between the programs in the production on the cluster):
 
-| | psmc-rs, laptop vs Ibex | C psmc, laptop vs Ibex | psmc-rs vs C psmc, Ibex |
+| | psmc-rs, laptop vs cluster | C psmc, laptop vs cluster | psmc-rs vs C psmc, cluster |
 | --- | --- | --- | --- |
 | theta, relative | 9.1e-9 / 1.2e-7 / 1.9e-6 | 1.5e-7 / 5.8e-6 / 5.3e-5 | 8.5e-7 / 6.3e-5 / 3.8e-4 |
 | largest relative difference of any parameter | 3.1e-8 / 5.3e-7 / 2.1e-5 | 3.0e-5 / 1.1e-4 / 0.21 | 6.0e-5 / 2.2e-4 / 0.99 |
@@ -461,7 +461,7 @@ psmc's builds part at the first M-step's evaluation count in every fit;
 they differ in compiler, optimization level, floating-point contraction
 and math library, which this comparison cannot separate.
 
-**Controls.** The same sources built on the laptop by Ibex's rustc 1.99.0
+**Controls.** The same sources built on the laptop by the cluster's rustc 1.99.0
 wrote the same bytes as the rustc 1.97.1 build in 41 of 41 fits, and one
 laptop binary run twice wrote the same bytes (2 of 2): the differences are
 the platform's, not the compiler version's, nor noise from run to run.
@@ -511,7 +511,7 @@ pipeline's thread-scaling figure): 19 setups and 95 timed runs, all
 measured (`E3_table2.csv`, `status`). The numbers below are computed from
 E3's tables in `runs/E3/tables/`, named with each.
 
-**Machines and builds.** Each repeat ran on an exclusive Ibex node, four
+**Machines and builds.** Each repeat ran on an exclusive cluster node, four
 nodes of one CPU model: AMD EPYC 7702, 128 cores, 503.7 GB of
 memory, the cpufreq governor `performance` (acpi-cpufreq) with boost on,
 Linux 5.14.0-427.20.1.el9_4.0.1.x86_64 and glibc 2.34

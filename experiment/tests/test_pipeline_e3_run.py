@@ -151,7 +151,7 @@ def proc(pid: int, ppid: int, cpu: float, created: float = 1.0, name: str = "p",
 LINUX_METHOD = functools.partial(e3_run.process_method, platform="linux")
 
 
-# An idle 128-core node as Ibex's: init, kthreadd and a kworker, the WekaFS
+# An idle 128-core node as the cluster's: init, kthreadd and a kworker, the WekaFS
 # client and the timing wrapper, before and after a run of 100 s (the
 # wrapper has reaped the tool, of 3000 s, by then).
 IDLE_BEFORE = [proc(1, 0, 100.0, name="systemd", reaped=40.0), proc(2, 0, 0.0, name="kthreadd"),

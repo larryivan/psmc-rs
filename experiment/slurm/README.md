@@ -1,6 +1,6 @@
 # Running the experiments on a SLURM cluster
 
-The production runs of the paper were made on KAUST's Ibex cluster with
+The production runs of the paper were made on a SLURM cluster with
 these scripts. They run the same pipeline as a single machine
 (`python -m experiment.pipeline`, see `experiment/pipeline/README.md`), in
 SLURM allocations:

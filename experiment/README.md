@@ -43,10 +43,10 @@ Where to read on:
   determinism, the cross-platform comparison and the performance results
   (E3).
 - [`slurm/README.md`](slurm/README.md): the scripts that ran the
-  production on KAUST's Ibex cluster.
+  production on the cluster.
 - [`validation/README.md`](validation/README.md): the simulation study of
   `--bin-callable`, what E4 expects; [`crossplatform/README.md`](crossplatform/README.md):
-  the same jobs on a laptop and on Ibex.
+  the same jobs on a laptop and on the cluster.
 - [`c_equivalence/README.md`](c_equivalence/README.md): where the remaining
   difference from C psmc's fits comes from (variants of psmc-rs as a patch,
   their fits of E1's genomes and the results); [`e7_pilot/README.md`](e7_pilot/README.md):
@@ -65,7 +65,7 @@ experiment/
 │                                      #   Papuan chr1 (the Rust tests, docs/performance.md's benchmarks)
 ├── runs/                              # E1 ... E7, FIG: fits, truth and provenance records, tables, figures
 ├── validation/                        # the --bin-callable simulation study
-├── crossplatform/                     # laptop against Ibex
+├── crossplatform/                     # laptop against the cluster
 ├── c_equivalence/                     # the remaining difference from C psmc: variants, fits, results
 ├── e7_pilot/                          # E7's chr21 pilot and conversions, run again with the production's binary
 └── tests/                             # python -m unittest discover -s experiment/tests

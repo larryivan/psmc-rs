@@ -228,7 +228,7 @@ Laptop measurements are in [performance.md](performance.md#measured-on-a-laptop)
 
 The production's psmc-rs fits of E1 and NA12878 were made again on a
 laptop (Apple M1 Pro, NEON kernels, macOS) from the same sources and
-compared with Ibex's (x86-64, AVX2 and FMA kernels, Linux)
+compared with the cluster's (x86-64, AVX2 and FMA kernels, Linux)
 ([experiment/crossplatform/summary.md](../experiment/crossplatform/summary.md)):
 
 - none of the 41 outputs is byte-identical: the kernels and the system math
@@ -238,8 +238,8 @@ compared with Ibex's (x86-64, AVX2 and FMA kernels, Linux)
   RMSE of log10 Ne;
 - psmc-rs's cross-platform difference is a median 383 times smaller than
   its difference from C psmc, and 124 times smaller than C psmc's own
-  difference between a laptop build and Ibex's;
-- the laptop's build by Ibex's rustc (1.99.0) gives outputs byte-identical
+  difference between a laptop build and the cluster's;
+- the laptop's build by the cluster's rustc (1.99.0) gives outputs byte-identical
   to its build by rustc 1.97.1 (41/41), and one binary run twice gives
   identical bytes: the differences are the platform's, not the compiler
   version's.

@@ -515,7 +515,7 @@ _add("E7_throughput", "E7", "route and tool", {
 # ---------------------------------------------------------------------------
 
 # experiment/crossplatform/ (its README): E1's genomes fitted again on the development laptop (Apple M1 Pro, arm64,
-# macOS; C psmc built by Apple clang) and compared with the production's fits on Ibex (x86-64, Linux; gcc).
+# macOS; C psmc built by Apple clang) and compared with the production's fits on the cluster (x86-64, Linux; gcc).
 _add_committed("crossplatform/side_by_side_E1.csv", "E1", "simulated genome of E1 (model and replicate)", {
     "model": "demographic model",
     "replicate": "replicate",

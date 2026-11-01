@@ -12,7 +12,7 @@
 #   of many clusters; on Ubuntu 22.04 (glibc 2.35) a binary linked against a
 #   newer glibc prints "weak version `GLIBC_2.39' not found" on every run.
 # - in Rocky Linux 9 the fit's JSON equals, but for its version, the one the
-#   production binary (sha256 1d141b81..., the manuscript's) wrote on Ibex
+#   production binary (sha256 1d141b81..., the manuscript's) wrote on the cluster
 #   (Rocky Linux 9.4, glibc 2.34) with the same command:
 #   tests/data/release_check/papuan_chr1_3seg.fit.json. The same glibc
 #   gives the same exp and log, so a release that changes no fit matches it

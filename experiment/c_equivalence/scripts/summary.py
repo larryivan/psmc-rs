@@ -1,5 +1,5 @@
 """summary.json from e1_variants.csv: each variant over E1's 40 genomes and on bottleneck replicate 1, next to
-the difference between two builds of C psmc (the laptop's and Ibex's, experiment/crossplatform/side_by_side_E1.csv,
+the difference between two builds of C psmc (the laptop's and the cluster's, experiment/crossplatform/side_by_side_E1.csv,
 on the same windows with the same metric). manuscript/make_numbers.py reads summary.json.
 
 Usage: python3 -I -B scripts/summary.py
