@@ -285,7 +285,7 @@ psmc with matched settings, records how every output was made, and draws
 the figures from the tables.
 [experiment/pipeline/README.md](experiment/pipeline/README.md) describes
 it, and
-[Supplementary Note 1](experiment/Supplementary_Note_1_Reproducibility.md)
+[experiment/REPRODUCIBILITY.md](experiment/REPRODUCIBILITY.md)
 how to reproduce the results on a laptop or a SLURM cluster. The results
 are in `experiment/runs/E1` to `E7` and `FIG`;
 [experiment/README.md](experiment/README.md) gives an overview.

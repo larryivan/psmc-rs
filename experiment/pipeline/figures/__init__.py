@@ -73,7 +73,7 @@ class FigureSpec:
 
 
 FIGURES: Tuple[FigureSpec, ...] = (
-    # The article's Figs 1 and 2 (Supplementary Note 1, section 3, maps every article figure to its file); its
+    # The article's Figs 1 and 2 (REPRODUCIBILITY.md, section 3, maps every article figure to its file); its
     # Fig 3 is fig7_1000_genomes, and the supplement's Figs S1-S3 are figS1_em_convergence,
     # fig5_input_preparation and fig6_bootstrap_calibration.
     # Fig 1e's noise floor, C psmc's own fits on two platforms, comes from experiment/crossplatform/.

@@ -599,7 +599,7 @@ def c_equivalence() -> None:
     side = pd.read_csv(ROOT / "experiment" / "crossplatform" / "side_by_side_E1.csv")
     cb = s["c_builds_rmse"]["median"]
     assert math.isclose(cb, side.rmse_window_c_laptop_vs_ibex.median(), rel_tol=1e-12), \
-        "two builds of C psmc as in Supplementary Note 1, section 9"
+        "two builds of C psmc as in REPRODUCIBILITY.md, section 9"
     lb, hj = v["lastbin"], v["hj"]
     noise = v["default"]["rmse_vs_c"]["median"] / cb
     assert 1 < noise < 10, "the text says the median Delta is a few times C psmc's own noise, its fits on two platforms"
@@ -620,7 +620,7 @@ def c_equivalence() -> None:
 
 
 def crossplatform() -> None:
-    """The laptop (arm64) against the production (x86-64): experiment/crossplatform, Supplementary Note 1 section 9."""
+    """The laptop (arm64) against the production (x86-64): experiment/crossplatform, REPRODUCIBILITY.md section 9."""
     xp = ROOT / "experiment" / "crossplatform"
     rs = pd.read_csv(xp / "rs_laptop_vs_ibex.csv")
     toolchain = (xp / "toolchain.txt").read_text()
@@ -640,7 +640,7 @@ def crossplatform() -> None:
     assert (side.rmse_window_rs_laptop_vs_ibex < side.rmse_window_c_laptop_vs_ibex).all(), \
         "the text says psmc-rs's curves agree across the platforms more closely than two builds of C psmc"
     put("XpRsRmseMax", sci(rs[rs.exp == "E1"].dlog10ne_rmse_window.max()), "crossplatform rs RMSE window max (E1)")
-    # the largest relative difference of any parameter (theta, rho, t_max, every lambda), as Supplementary Note 1,
+    # the largest relative difference of any parameter (theta, rho, t_max, every lambda), as REPRODUCIBILITY.md,
     # section 9; NA12878's refit is within it too
     rel = rs[rs.exp == "E1"].param_max_rel.max()
     assert (rs.param_max_rel <= rel).all() and \

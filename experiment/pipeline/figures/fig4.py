@@ -7,7 +7,7 @@ size's tick label.
 
 psmc-rs runs the E-step of each sequence on one thread, in parallel across
 sequences, so on t threads a genome of n equal chromosomes
-takes about ceil(n / t) times one chromosome's time (Supplementary Note 1,
+takes about ceil(n / t) times one chromosome's time (REPRODUCIBILITY.md,
 section 10). Threads beyond the chromosome count add nothing: at 100 Mb
 (one chromosome) the 1-, 8- and 30-thread points coincide, the 30-thread
 lines are flat, and the 30-thread speed-up at 3,000 Mb holds because its

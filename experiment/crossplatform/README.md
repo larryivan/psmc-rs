@@ -9,7 +9,7 @@ psmc fits of the 40 genomes compared with the cluster's; and the reports of E1,
 E2, E4 and E5 run again on the laptop on the committed fits. The cluster
 results are those of `experiment/runs` (the production committed at
 392ef084, whose psmc-rs fits ran at ae34d727; its C psmc fits come from
-earlier jobs of the same C psmc binary). Supplementary Note 1, section 9,
+earlier jobs of the same C psmc binary). REPRODUCIBILITY.md, section 9,
 gives the results; `summary.md` gives every number, the toolchains, the
 controls, the agreement tiers and the deviations from them. An earlier
 version of this directory is in git history (c6bbb340).

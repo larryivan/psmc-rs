@@ -110,8 +110,8 @@ python3 -I -B scripts/summary.py             # summary.json, which manuscript/ma
 `$RUNS` is the production's runs directory, the laptop's identical copy
 (`experiment/.production/experiment/runs`, not in the repository; see
 `experiment/crossplatform`) or one where the pipeline simulated E1 again
-(Supplementary Note 1, section 4). On an x86-64 CPU with AVX2 and FMA and
+(REPRODUCIBILITY.md, section 4). On an x86-64 CPU with AVX2 and FMA and
 glibc 2.34 the build reproduces the production's bytes (the no-variant
 check above); elsewhere the fits differ in their last digits
-(Supplementary Note 1, sections 8 and 9). Not kept: the binaries, logs,
+(REPRODUCIBILITY.md, sections 8 and 9). Not kept: the binaries, logs,
 traces and the HTML reports psmc-rs writes beside each JSON.

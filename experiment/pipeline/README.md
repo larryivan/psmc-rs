@@ -9,7 +9,7 @@ and equivalence, Fig 2, Table 1, Fig S1), E2 (real genomes, Fig 3), E3
 (bootstrap calibration, Fig 6), E6 (supplementary analyses, Figs S2 and S3),
 E7 (1000 Genomes, Fig 7, Figs S5 and S6) and FIG (every figure,
 Fig 1 included). Figure and table numbers in this README follow an earlier
-plan of the article; Supplementary Note 1, section 3, maps them to the
+plan of the article; REPRODUCIBILITY.md, section 3, maps them to the
 article's.
 
 Run it from the repository root with the experiment's environment
@@ -314,7 +314,7 @@ tools read the gzip file as it is. E7 fits the same file with the same
 settings (`fit-c`, `fit-rs-psmcfa`), and E2 bootstraps it with E7's seed,
 replicates, trunks and iterations
 (`config.RealGenome.bootstrap_shared_with`): E2's run on 50 threads and
-E7's on 32 wrote the same 103 files byte for byte (Supplementary Note 1,
+E7's on 32 wrote the same 103 files byte for byte (REPRODUCIBILITY.md,
 section 8). `fig3_real_genomes` and the article's Fig 1c draw E2's band;
 no figure draws E7's.
 `real_data/Papuan_highlands_diploid.psmcfa`, the chromosome 1 of a Papuan
@@ -491,7 +491,7 @@ node per repeat: 12.3 CPU hours in the 95 timed runs (the sum of
 `cpu_seconds` in `E3_runs.csv`: C psmc 9.0, psmc-rs 0.2 3.3) and 10.3
 hours of wall time, 2.04 to 2.07 per repeat (the sum of `wall_seconds`);
 C psmc took a median 74 minutes on 3000 Mb.
-[Supplementary Note 1, section 10](../Supplementary_Note_1_Reproducibility.md#10-performance-e3)
+[REPRODUCIBILITY.md, section 10](../REPRODUCIBILITY.md#10-performance-e3)
 gives the results.
 
 ## E4: input preparation
@@ -873,7 +873,7 @@ back.
 | experiment | jobs | CPU hours | wall hours alone (7 cores) | CPU hours measured on the cluster | limits |
 | --- | --- | --- | --- | --- | --- |
 | E1 | 121 | 10 | 1.4 | 12.4 | C psmc 12.5 min (the cluster: 15 to 17.5) and 0.6 GB per fit |
-| E2 | 23 | 47 | 2.1 (50 cores) | 41.4 (the C psmc fits, 4.5, from earlier `prod` jobs, the rest from the production's; Supplementary Note 1, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on the cluster) and 3.4 GB |
+| E2 | 23 | 47 | 2.1 (50 cores) | 41.4 (the C psmc fits, 4.5, from earlier `prod` jobs, the rest from the production's; REPRODUCIBILITY.md, section 5) | bootstraps on 50 threads: `--cores 50`; C psmc up to 72 min (NA12878; the turtles' 46 to 49 took 57 to 60 on the cluster) and 3.4 GB |
 | E3 | 100 | 15 | 9.9 (exclusive) | 12.3 (the 95 timed runs: the sum of `cpu_seconds` in `E3_runs.csv`; five exclusive `e3` jobs on four nodes, below) | needs the machine to itself; busy periods defer runs |
 | E4 | 286 | 4 | 0.6 | 3.4 | at most 1.5 GB per job |
 | E5 | 121 | 16 | 2.3 | 12.2 | 20 bootstrap runs of about 45 min (the cluster: 28 to 35) on one thread |
@@ -896,7 +896,7 @@ running.
 The production run of E1, E2 and E4 to E6 (`experiment/slurm`'s `prod` job
 54629001 on one cluster node, at ae34d727) ran 498 of their 572 jobs in 1
 hour 6 minutes, 53.4 CPU hours in all; the other 74 come from earlier
-`prod` jobs with the same keys (Supplementary Note 1, section 5): the C
+`prod` jobs with the same keys (REPRODUCIBILITY.md, section 5): the C
 psmc fits of E1 and E2 (53386770 and 53452276), E4's cross-checks against
 generate_multihetsep.py (54256959) and its `bins` jobs (54232546). E7's
 2,639 jobs, C psmc's and psmc-rs's fits, the bootstraps, the GIAB

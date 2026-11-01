@@ -4,7 +4,7 @@ How psmc-rs is checked against C psmc and the classic tools, and what the
 manuscript's experiments measured. The experiments are described in
 [experiment/pipeline/README.md](../experiment/pipeline/README.md) and their
 reproduction in
-[Supplementary Note 1](../experiment/Supplementary_Note_1_Reproducibility.md);
+[REPRODUCIBILITY.md](../experiment/REPRODUCIBILITY.md);
 their tables are under `experiment/runs/`.
 
 - [Agreement with C psmc](#agreement-with-c-psmc)
@@ -221,7 +221,7 @@ C psmc built by gcc with `-O3 -march=x86-64-v3`.
 
 Every size and thread count, the ranges over the repeats, the thread
 scaling and the outputs' determinism are in
-[Supplementary Note 1, section 10](../experiment/Supplementary_Note_1_Reproducibility.md#10-performance-e3).
+[REPRODUCIBILITY.md, section 10](../experiment/REPRODUCIBILITY.md#10-performance-e3).
 Laptop measurements are in [performance.md](performance.md#measured-on-a-laptop).
 
 ## Across platforms

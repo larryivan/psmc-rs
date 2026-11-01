@@ -1,4 +1,4 @@
-# Supplementary Note 1 — Reproducibility
+# Reproducing the results
 
 This note describes how to reproduce the manuscript's experiments, tables
 and figures from the `psmc-rs` repository: from the committed results

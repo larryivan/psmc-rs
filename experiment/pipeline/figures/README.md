@@ -39,7 +39,7 @@ figures in its own order: its Fig 1 is `art1_agreement` (from E1, E2 and
 E7's tables and `experiment/crossplatform/`), its Fig 2 `art2_performance`
 (from E3 and E7's), and its Fig 3 `fig7_1000_genomes`; the supplement's
 Figs S1, S2 and S3 are `figS1_em_convergence`, `fig5_input_preparation`
-and `fig6_bootstrap_calibration` (Supplementary Note 1, section 3). These
+and `fig6_bootstrap_calibration` (REPRODUCIBILITY.md, section 3). These
 six are drawn in the house style of `style.py`; the article leaves the
 other ten out.
 
@@ -60,9 +60,9 @@ other ten out.
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
 | `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
 | `fig7_1000_genomes` (the article's Fig 3) | `E7/figures/` | `E7_pop_bands`, `E7_curves`, `E7_fits` | 183 x 99 mm |
-| `figS5_1000g_populations` (not in the article; Supplementary Note 1, section 3) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
-| `figS6_1000g_checks` (not in the article; Supplementary Note 1, section 3) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_fits`, `E7_curves`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
-| `figS_turtle_patterns` (not in the article; Supplementary Note 1, section 3) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
+| `figS5_1000g_populations` (not in the article; REPRODUCIBILITY.md, section 3) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
+| `figS6_1000g_checks` (not in the article; REPRODUCIBILITY.md, section 3) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_fits`, `E7_curves`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
+| `figS_turtle_patterns` (not in the article; REPRODUCIBILITY.md, section 3) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
 
 What each panel shows is in the module's docstring (`fig2.py`, ...), written
 so that it can be turned into a caption. The notes below name each figure by
@@ -207,7 +207,7 @@ give. For the other ten the notes say what the figure shows.
   with the reason E3 recorded. psmc-rs runs the E-step of each sequence on
   one thread, in parallel across sequences, so on t threads a genome of n
   equal chromosomes takes about ceil(n / t) times one chromosome's time:
-  10.4 to 11.5 s for every psmc-rs 0.2 setup (Supplementary Note 1, section
+  10.4 to 11.5 s for every psmc-rs 0.2 setup (REPRODUCIBILITY.md, section
   10). The genomes are 1, 3, 10 and 30 chromosomes of 100 Mb (the second
   line of the size ticks). Threads beyond the chromosome count add nothing:
   the 30-thread lines are flat, and the 30-thread speed-up at 3,000 Mb
@@ -217,7 +217,7 @@ give. For the other ten the notes say what the figure shows.
   sampled peak; for psmc-rs 0.2 on 100 and 300 Mb, and on 1000 Mb on one
   thread, it is `ru_maxrss`, 24.0 to 26.0 MB (26.0 in 33 of the 35 runs),
   above the sampled 7.0 to 22.0 MB, so those points are an upper bound
-  (Supplementary Note 1, section 10).
+  (REPRODUCIBILITY.md, section 10).
 - **The supplement's Fig S2** (`fig5_input_preparation`): taking partly
   callable bins as full biases PSMC, and psmc-rs's per-bin weighting
   removes most of the bias. With a dispersed mask almost every bin stays

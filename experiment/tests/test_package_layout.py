@@ -72,7 +72,7 @@ class Documentation(unittest.TestCase):
         for needle in (
             "python -m experiment.pipeline",
             "pipeline/README.md",
-            "Supplementary_Note_1_Reproducibility.md",
+            "REPRODUCIBILITY.md",
             "slurm/README.md",
             "pipeline/requirements.lock",
             "tools --build-c",

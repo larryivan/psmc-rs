@@ -215,7 +215,7 @@ def rq(k, q):
 
 out = []
 w = out.append
-w("# Cross-platform comparison: laptop vs Ibex (data for Supplementary Note 1, section 9)\n")
+w("# Cross-platform comparison: laptop vs Ibex (data for REPRODUCIBILITY.md, section 9)\n")
 w(f"Computed by the scripts of `scripts/` (`make_jobs.py`, `run_job.py`, `toolchain.py`, `inputs.py`, `compare.py`, `reports.py`, `make_summary.py`; README.md gives the order) from the laptop's fits, which ran on {' and '.join(run_dates)} (their records), and the production's results. The tiers of section 5 are those `scripts/tiers_2026-10-07.py` defined on 2026-10-07, before these runs.\n")
 w(f"The Ibex fits compared are the production's, committed at {PRODUCTION_COMMIT}: its psmc-rs fits ran at {PRODUCTION_RUN_AT} with a binary built from `src` {ib_ids['src'][:7]}, `Cargo.toml` {ib_ids['Cargo.toml'][:7]} and `Cargo.lock` {ib_ids['Cargo.lock'][:7]}, "
   + ("the sources the laptop built" if ib_ids == ids else "not the sources the laptop built (section 1)")
@@ -238,7 +238,7 @@ w(f"- **The analysis code:** E1, E2, E4 and E5's reports, run on the laptop on t
 w("## 1. Machines and toolchains\n")
 w("| | Laptop | Ibex (production) |")
 w("|---|---|---|")
-w(f"| CPU | {cpu} (arm64; {cores.group(1)} cores: {cores.group(2)} performance, {cores.group(3)} efficiency; {cores.group(4)} GB) | {env['machine.cpu'].replace(' 64-Core Processor', '')} (x86-64, Zen 2), as SN1 and E3's environment table give for the cluster's nodes; the fit records name the hosts (psmc-rs, E1 and NA12878: {rs_hosts}; C psmc, E1: {c_hosts}) but not their CPU model |")
+w(f"| CPU | {cpu} (arm64; {cores.group(1)} cores: {cores.group(2)} performance, {cores.group(3)} efficiency; {cores.group(4)} GB) | {env['machine.cpu'].replace(' 64-Core Processor', '')} (x86-64, Zen 2), as REPRODUCIBILITY.md and E3's environment table give for the cluster's nodes; the fit records name the hosts (psmc-rs, E1 and NA12878: {rs_hosts}; C psmc, E1: {c_hosts}) but not their CPU model |")
 w(f"| OS | macOS {macos} ({macbuild}), Darwin {darwin}, Apple libm | Linux x86-64 (E3's nodes: {env['machine.release'].replace('.0.1.x86_64', '')}, {env['machine.libc']}; not recorded for the E1/E2 jobs) |")
 src_note = "clean" if dirty == 0 else f"{dirty} uncommitted files"
 w(f"| psmc-rs sources | `src` {ids['src'][:7]}, `Cargo.toml` {ids['Cargo.toml'][:7]}, `Cargo.lock` {ids['Cargo.lock'][:7]}, {src_note} (HEAD {head[:7]} for both builds"
@@ -307,7 +307,7 @@ w(f"- **psmc-rs.** The log-likelihood after 0 iterations (the E-step at the star
   + "The first log-likelihood that differs is that after iteration " + ", ".join(f"{k} ({plural(v, 'fit')})" for k, v in sorted(fl.items(), key=lambda kv: int(kv[0])))
   + f", at the level of the last digits; the first differing `.psmc` line is mostly the M-step's evaluation count (`IT`) of iterations {fd_rounds[0]} to {fd_rounds[-1]} ("
   + ", ".join(f"round {k[0]} {k[1]}: {v}" for k, v in sorted(fd.items(), key=lambda kv: (-kv[1], kv[0])))
-  + "). Rust does not contract floating-point operations, and per SN1 section 8 (and `src/hmm/simd.rs`) the NEON and the AVX2+FMA kernels fuse the same multiply-adds and no sum changes its order with the vector width, which the identical iteration-0 log-likelihoods bear out; what remains to differ is the system math library (Apple libm vs glibc, whose `exp`/`log` can round differently in the last bit) and any other architecture-specific code path. This run does not separate them. The M-step, stopping on a flat optimum, turns the last-digit differences into the parameter differences below.")
+  + "). Rust does not contract floating-point operations, and per REPRODUCIBILITY.md section 8 (and `src/hmm/simd.rs`) the NEON and the AVX2+FMA kernels fuse the same multiply-adds and no sum changes its order with the vector width, which the identical iteration-0 log-likelihoods bear out; what remains to differ is the system math library (Apple libm vs glibc, whose `exp`/`log` can round differently in the last bit) and any other architecture-specific code path. This run does not separate them. The M-step, stopping on a flat optimum, turns the last-digit differences into the parameter differences below.")
 cfd = S["c"]["psmc_first_diff"]
 w(f"- **C psmc.** In {'all 40' if sum(cfd.values()) == 40 and len(cfd) == 1 else 'the 40'} fits the first differing line is the `IT` count of iteration 1's Hooke–Jeeves M-step ({', '.join(f'{k}: {v}' for k, v in cfd.items())}); iteration 1's LK and QD-before lines are identical in {S['c']['round1_lk_and_qd_before_identical']}/40 (the E-step at the starting parameters agrees to C's printed precision, 6 decimals), and from there the evaluation counts differ in a median {int(med(c, 'mstep_counts_differ'))} of 25 iterations. The two C builds differ in compiler, optimisation level, FP contraction (the laptop binary fuses multiply-adds in the E-step and the M-step objective; Ibex's does not) and math library, which this comparison cannot separate.\n")
 
