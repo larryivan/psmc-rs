@@ -10,12 +10,16 @@ curves, in a fraction of the time and memory.
 ![psmc-rs over C psmc on simulated and real genomes](experiment/runs/FIG/figures/art1_agreement.png)
 
 *psmc-rs (blue) drawn over C psmc (orange) on two simulated genomes with
-their true history (dashed), a human genome and a turtle genome (**a–d**;
-grey, the range of psmc-rs's fits to every replicate of a simulated model,
-and psmc-rs's bootstrap 95% band for a real genome; Δ, the RMSE of log10 Ne
-between the two programs), and that difference on the 95 genomes both
-fitted, next to each program's error against the truth on the simulated
-ones (**e**).*
+their true history (dashed), a human genome and a turtle genome, each over
+its informative window (**a–d**); pale blue, psmc-rs's bootstrap 95% band
+of the two real genomes (**c**, **d**). Under each panel, psmc-rs's log10
+Ne minus C psmc's, interval by interval, in units of 10⁻⁴; Δ is its root
+mean square over log time. (**e**) Δ on the 95 genomes both programs
+fitted (rings: the genomes of **a–d**); in light grey, the same measure
+between C psmc's own fits of the simulated genomes on two platforms (gcc on
+x86-64, Apple clang on arm64); and each program's error against the truth
+on the simulated genomes. Bars are medians; the arrow joins the simulated
+genomes' median Δ, 7,000 times smaller, to psmc-rs's median error.*
 
 ## Why psmc-rs
 
@@ -45,9 +49,14 @@ The evidence, and what the manuscript's experiments measured, is in
 
 *Wall time (**a**) and peak memory (**b**) of 25 EM iterations on a
 simulated genome of 30 chromosomes of 100 Mb, each run alone on a node of
-KAUST's Ibex cluster (AMD EPYC 7702), medians of five repeats; (**c**) wall
-time per genome of the 1000 Genomes fits, each on one core of a shared
-node: C psmc on 52 genomes and psmc-rs on all 2,504, in one job.*
+KAUST's Ibex cluster (AMD EPYC 7702), medians of five repeats. In **a**,
+the grey line is perfect scaling of psmc-rs's one-thread time, and the
+dotted line psmc-rs's time on a genome of one 100 Mb chromosome: psmc-rs
+fits each sequence on one thread, so a genome's longest sequence bounds its
+time on many threads. (**c**) Wall time per genome of the 1000 Genomes
+fits, one thread each on a shared node: C psmc on 52 genomes and psmc-rs
+on all 2,504, in one job; bars are medians, and the arrow is the ratio of
+the medians.*
 
 ## Install
 

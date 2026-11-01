@@ -1,4 +1,4 @@
-"""Fig 7 (E7; the article's Fig 3): the 1000 Genomes genomes, five superpopulations and their 26 populations.
+"""The article's Fig 3 (E7): population size histories of the 1000 Genomes individuals, each genome fitted by psmc-rs.
 
 Six equal small multiples, 2 rows by 3 columns (183 x 99 mm), sharing one
 log time axis (thousands of years ago) and one log Ne axis (thousands), so
@@ -10,44 +10,67 @@ a: each superpopulation's curve, the median of all its genomes' fits (the
 fits of their psmcfa, ``fit-rs-psmcfa``), the five on one axis; the title
 gives the number of genomes in all.
 b-f: one panel per superpopulation (``config.E7.superpopulations``, in
-that order): the median curve of each of its populations in the
-superpopulation's colour, over the other four superpopulations' medians
-from a in light grey (``style.CONTEXT``); each title gives the
-continent's number of genomes.
+that order): each of its genomes' fits as a faint hairline (the halo), the
+median curve of each of its populations in the superpopulation's colour,
+and the other four superpopulations' medians from a in light grey
+(``style.CONTEXT``); each title gives the continent's number of genomes.
+A median is pointwise: at each time of ``E7_pop_bands``' grid, the median
+of its genomes' Ne.
 
 Weights rank summary, message and context: a's medians 1 pt
 (``style.LW_EMPH``), b-f's populations 0.75 pt (``style.LW_DATA``), the
-grey context 0.5 pt (``style.LW_THIN``). a has five emphasised summaries,
-not the house's one per panel: it is the summary panel whose curves b-f
-repeat in grey, and its curves are never drawn beside thinner ones.
+grey context 0.5 pt (``style.LW_THIN``), each genome 0.35 pt
+(``style.LW_HAIR``). a has five emphasised summaries, not the house's one
+per panel: it is the summary panel whose curves b-f repeat in grey, and
+its curves are never drawn beside thinner ones.
+
+PSMC's first window is the first free lambda of the pattern fitted (the
+first term of ``E7_fits.pattern``; in 4+25*2+4+6, one parameter for the
+four most recent intervals): a single parameter, which one genome
+constrains poorly. A genome's first window ends where the next interval
+of its curve starts (19-41 kya here). Each median is drawn in a 50% tint
+of its colour (``style.FIRST_WINDOW_SHARE``), at its own weight and just
+beneath, until its group has left that window: up to, and including its
+step at, the first time of the grid after :data:`SPLIT_QUANTILE` (90%) of
+its genomes' first windows have ended (25-41 kya). Its step out of the
+window, outside Africa its largest (a drop), is pale too. Each genome's
+hairline starts where its own first window ends, and each grey median at
+the time it turns full in a.
+
+The halo (``style.cloud_kw``) is the one alpha of the article's figures:
+each genome a hairline in a 45% tint of its superpopulation's colour at
+alpha 0.07. It darkens where many genomes run together and fades where few
+stray: where a continent's genomes agree, its hairlines merge into a soft
+band around the medians; where they part, they fan out. It lies above the
+grey context and beneath the medians, and is rasterized at 600 dpi in the
+PDF and SVG; a has none. Its genomes are those the medians and titles
+count (each group's number is checked against ``E7_pop_bands``). It has no
+key: the caption names it.
 
 Every curve is a PSMC step curve over the cohort's comparison window
 (``E7_pop_bands``, group ``all``: the medians over all 2,504 genomes of
 their 1% and 99% pairwise coalescence times, 10.6 kya to 4.6 Mya), the
-same window for every curve, so that all curves start at one x, where
-their names stand in one column, and end at one x, in full colour
-throughout. A group's own window is not marked: some start later than the
-cohort's (East Asia at 17 kya, CHB and CHS at 23 kya, BEB at 29 kya), but
-only inside the first flat stretch of every curve, PSMC's first time
-interval (it ends 21-41 kya here), a single parameter that one genome
-constrains poorly; the caption says so, and the populations' spread there
-is not to be read as demography.
+same window for every curve, so that all medians start at one x, where
+their names stand in one column, and end at one x. A group's own window is
+not marked: some start later than the cohort's (BEB's, the latest, at 29
+kya), each inside its group's pale first window.
 
-There is no legend: every curve is named directly, in a label column left
+There is no legend: every median is named directly, in a label column left
 of where the curves start, in its superpopulation's text colour, each name
-tied to its curve's start by its own thin grey leader (``style.REF``,
-``style.LW_HAIR``); the names in a are the key to the five colours, and
-each title of b-f names the continent whose colour it uses. A leader is
-horizontal where its name sits within :data:`STRAIGHT_MM` of its curve,
-and otherwise an elbow (short flats at both ends, a long diagonal), so
-that leaders of curves that start together converge there and never
-cross. Admixed populations (``config.E7.admixed``) carry an asterisk, hung
-right of the code so that the codes of a column stay right-aligned.
+tied to its curve's start by its own thin grey leader
+(``style.LABEL_LEADER_KW``); the names in a are the key to the five
+colours, and each title of b-f names the continent whose colour it uses.
+A leader is horizontal where its name sits within :data:`STRAIGHT_MM` of
+its curve, and otherwise an elbow (short flats at both ends, a long
+diagonal), so that leaders of curves that start together converge there
+and never cross. Admixed populations (``config.E7.admixed``) carry an
+asterisk, hung right of the code so that the codes of a column stay
+right-aligned.
 
 Letters and titles: the first column's letters stand at
 ``style.LETTER_X_MM``; the others at the left edge of their label column,
 or at the leftmost ink of the column's codes where a code passes that edge
-(b's GWD, by 0.25 mm), aligned by their ink down a column. Each title
+(b's GWD, by 0.1 mm), aligned by their ink down a column. Each title
 stands :data:`TITLE_GAP_MM` of clear space right of its letter's ink, on
 the letter's baseline, ``style.TITLE_RISE_MM`` above the axes: Fig 3's
 deliberate exception to the house rule of titles at the left spine, since
@@ -58,27 +81,34 @@ only where widened data label it at decades.
 
 A psmcfa records no callable bases per bin, so these fits take every called
 bin as full, which makes theta, and every size and time, a little low: the
-VCF route on the default set gives theta 8.4% higher, a shift that leaves
-the populations' order and shapes as they are. Curves are scaled with
-``config.E7.scaling`` (mu = 1.25e-8 per bp per generation, g = 29 years).
+VCF fits of the 52 default genomes, each bin weighted by its callable
+bases, give theta 8.5% higher (the median, ``E7_route_shift``), a shift
+that leaves the populations' order and shapes as they are. Curves are
+scaled with ``config.E7.scaling`` (mu = 1.25e-8 per bp per generation,
+g = 29 years).
 
 Colours: :data:`style.SUPERPOP_COLORS` (AFR amber, AMR green, EAS violet,
 EUR pink, SAS sienna), hues apart from the programs' blue and orange.
 The five pass an external palette validator's all-pairs check on white
 (not in this repository): worst CVD dE 8.4 (protan, EUR against AMR),
-normal vision 19.6 (EUR against AFR). Amber
-(2.17:1) and pink (2.69:1) are below 3:1 on white, which the direct labels
-relieve: they are set in the darker :data:`style.SUPERPOP_TEXT` colours,
-at least 4.38:1 on white.
+normal vision 19.6 (EUR against AFR). Amber (2.17:1) and pink (2.69:1)
+are below 3:1 on white, which the direct labels relieve: they are set in
+the darker :data:`style.SUPERPOP_TEXT` colours, at least 4.38:1 on white.
+The grey context (``style.CONTEXT``, #d9d9d9) parts from all five: in
+greyscale by at least Delta L* 14.8 (AFR amber), under colour-vision
+deficiency by at least Delta E 16.3 (deuteranopia, EUR pink).
 
-Everything comes from E7's table ``E7_pop_bands``.
+Everything comes from E7's tables: ``E7_pop_bands`` (the medians, the
+window and the counts), ``E7_curves`` (each genome's fit) and ``E7_fits``
+(each genome's population, superpopulation and pattern).
 """
 
 from __future__ import annotations
 
 import math
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple
 
+from ..results import pattern_groups
 from . import style
 
 ROUTE = "rs-psmcfa"  # every genome's psmcfa fit
@@ -86,6 +116,9 @@ SUP_NAMES = {"AFR": "Africa", "AMR": "Americas", "EAS": "East Asia", "EUR": "Eur
 Z_A = {"AMR": 4.0, "EUR": 4.1, "SAS": 4.2, "EAS": 4.3, "AFR": 4.4}  # a: the smooth Americas underneath, Africa on top
 LABEL_LINE = 1.1  # a label's height, in font sizes
 ADMIXED_MARK = "*"
+# A median leaves PSMC's first window at the first time of its grid after this share of its genomes' first windows
+# have ended: by then nearly all its genomes are past theirs, and its drop out of the window lies before.
+SPLIT_QUANTILE = 0.9
 
 # Shared limits (production: window 10.6 kya-4.6 Mya, medians 1.9k-52k); widened to 1-2-5 values if data exceed them
 XLIM, YLIM = (1e4, 5e6), (1.5e3, 6e4)
@@ -108,6 +141,21 @@ CELLS = ((0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2))  # a b c / d e f
 LEADER_MM, LEADER_FLAT_MM, LEADER_END_MM, TEXT_GAP_MM, STRAIGHT_MM = 3.1, 0.4, 0.25, 0.5, 0.1
 TITLE_GAP_MM = 1.6  # clear space from a letter's ink to its title's ink
 XLABEL_BOTTOM_MM = 1.2  # the x label's bottom above the figure's bottom edge
+
+
+class GenomeFit(NamedTuple):
+    """One genome's psmcfa fit: its groups, its step curve and the length of its first window."""
+
+    population: str
+    superpopulation: str
+    years: Sequence[float]  # each interval's start, years ago
+    ne: Sequence[float]  # each interval's Ne
+    first: int  # intervals in PSMC's first window: the width of the pattern's first free lambda
+
+    @property
+    def first_end(self) -> float:
+        """Where the first window ends: the start of the interval after it, in years."""
+        return float(self.years[self.first])
 
 
 def _isotonic(z: Sequence[float]) -> List[float]:
@@ -146,6 +194,71 @@ def _group(bands, kind: str, route: str) -> Dict[str, object]:
     """``{group: rows sorted by years}`` of one kind and route of ``E7_pop_bands``."""
     sub = bands[(bands.group_kind == kind) & (bands.route == route)]
     return {g: d.sort_values("years") for g, d in sub.groupby("group", sort=True) if len(d)}
+
+
+def genome_fits(fits, curves) -> Dict[str, GenomeFit]:
+    """``{sample: its fit}`` of every genome's psmcfa fit (:data:`ROUTE`), from ``E7_fits`` and ``E7_curves``."""
+    who = fits[fits.route == ROUTE].set_index("sample_id")
+    mine = curves[curves.route == ROUTE].sort_values(["sample_id", "interval"])
+    out: Dict[str, GenomeFit] = {}
+    for sample, d in mine.groupby("sample_id", sort=True):
+        f = who.loc[sample]
+        out[str(sample)] = GenomeFit(str(f.population), str(f.superpopulation), d["years"].to_numpy(float),
+                                     d["ne"].to_numpy(float), pattern_groups(str(f.pattern))[0][1])
+    return out
+
+
+def first_window_splits(fits: Mapping[str, GenomeFit], grid: Sequence[float]) -> Dict[Tuple[str, str], float]:
+    """``{(kind, group): time}`` where each median leaves PSMC's first window (kind ``population`` or
+    ``superpopulation``): the first time of ``grid`` after :data:`SPLIT_QUANTILE` of the group's genomes' first
+    windows have ended (that quantile itself where no time of the grid follows it)."""
+    import numpy as np
+
+    ends: Dict[Tuple[str, str], List[float]] = {}
+    for g in fits.values():
+        ends.setdefault(("population", g.population), []).append(g.first_end)
+        ends.setdefault(("superpopulation", g.superpopulation), []).append(g.first_end)
+    grid = np.sort(np.asarray(grid, dtype=float))
+    out: Dict[Tuple[str, str], float] = {}
+    for key, v in ends.items():
+        q = float(np.quantile(v, SPLIT_QUANTILE))
+        i = int(np.searchsorted(grid, q, side="right"))
+        out[key] = float(grid[i]) if i < len(grid) else q
+    return out
+
+
+def _split(xy, at: float):
+    """Steps-post coordinates ``xy`` cut at ``at``: ``(before, after)``, either None where empty.
+
+    A step that starts at ``at`` goes after it, the drop into it before.
+    """
+    import numpy as np
+
+    x, y = (np.asarray(v, dtype=float) for v in xy)
+    if at <= x[0]:
+        return None, (x, y)
+    if at >= x[-1]:
+        return (x, y), None
+    k = int(np.searchsorted(x, at, side="right")) - 1  # the step that holds ``at``
+    if x[k] == at:
+        return (x[:k + 1], y[:k + 1]), (x[k:], y[k:])
+    before = (np.append(x[:k + 1], at), np.append(y[:k + 1], y[k]))
+    return before, (np.append(at, x[k + 1:]), np.append(y[k], y[k + 1:]))
+
+
+def _halo(fits: Mapping[str, GenomeFit], window: Tuple[float, float]) -> Dict[str, list]:
+    """``{superpopulation: vertices}``: each genome's step curve from the end of its first window to the window's
+    end, as the vertices of the steps (one array per genome, for a ``LineCollection``)."""
+    import numpy as np
+
+    out: Dict[str, list] = {}
+    for g in fits.values():
+        start = max(window[0], g.first_end)
+        if start >= window[1]:
+            continue
+        x, y = style.step_xy(g.years[g.first:], g.ne[g.first:], (start, window[1]))
+        out.setdefault(g.superpopulation, []).append(np.column_stack([np.repeat(x, 2)[1:], np.repeat(y, 2)[:-1]]))
+    return out
 
 
 def _genomes(n: int) -> str:
@@ -226,11 +339,33 @@ def _xy(d, window: Tuple[float, float]):
     return style.step_xy(d.years.values, d.ne_median.values, window)
 
 
-def _curve(ax, xy, **kw) -> float:
-    """Draw one step curve; the Ne where it starts (its label's target)."""
-    x, y = xy
-    style.step_line(ax, x, y, **kw)
-    return float(y[0])
+def _median(ax, xy, split: float, color: str, linewidth: float, zorder: float, dex_mm: float) -> float:
+    """Draw one median: its first window, up to ``split``, pale and just beneath; the rest in full ``color``.
+
+    The step at ``split`` is pale too: the colour changes straight across
+    the line where that step's ink ends, half the line's width later
+    (``dex_mm``: log10 time per mm). The full part is clipped there, over
+    the pale part, which runs on beneath it for a line's width; so the line
+    keeps its corners, and neither colour pokes into the other, whatever
+    the size of the steps around the split. Returns the Ne where the median
+    starts (its label's target).
+    """
+    from matplotlib.patches import Rectangle
+    from matplotlib.transforms import blended_transform_factory
+
+    pale, full = _split(xy, split)
+    half = 10 ** (linewidth / style.PT_PER_MM / 2.0 * dex_mm)  # half the line's width, as a factor of time
+    if pale is not None:
+        under = pale if full is None else _split(xy, split * half * half)[0]
+        style.step_line(ax, *under, color=style.tint(color, style.FIRST_WINDOW_SHARE), linewidth=linewidth,
+                        zorder=zorder - 0.5)
+    if full is not None:
+        line, = style.step_line(ax, *full, color=color, linewidth=linewidth, zorder=zorder)
+        if pale is not None:  # not passed to ax.plot, where the axes' own clip box would replace it
+            cut = split * half
+            line.set_clip_path(Rectangle((cut, 0.0), full[0][-1] * half - cut, 1.0,
+                                         transform=blended_transform_factory(ax.transData, ax.transAxes)))
+    return float(xy[1][0])
 
 
 def _ink(text: str, size_pt: float, bold: bool = False) -> Tuple[float, float, float]:
@@ -283,8 +418,8 @@ def _labels(ax, starts: Mapping[str, float], size_pt: float, colors: Mapping[str
     marked = any(k.endswith(ADMIXED_MARK) for k in names)
     x_text = x0 - TEXT_GAP_MM - (_ink(ADMIXED_MARK, size_pt)[0] if marked else 0.0)
     text_kw = {"transform": tr, "va": "center", "fontsize": size_pt, "clip_on": False, "zorder": style.Z_TEXT}
-    leader = {"transform": tr, "color": style.REF, "linewidth": style.LW_HAIR, "clip_on": False,
-              "zorder": style.Z_TEXT, "solid_joinstyle": "miter", "solid_capstyle": "butt"}
+    leader = {**style.LABEL_LEADER_KW, "transform": tr, "clip_on": False, "zorder": style.Z_TEXT,
+              "solid_joinstyle": "miter", "solid_capstyle": "butt"}
     left = math.inf
     for text, y, c in zip(names, targets, centres):
         code = text[:-len(ADMIXED_MARK)] if text.endswith(ADMIXED_MARK) else text
@@ -302,6 +437,8 @@ def _labels(ax, starts: Mapping[str, float], size_pt: float, colors: Mapping[str
 
 
 def draw(src):
+    from matplotlib.collections import LineCollection
+
     cfg = src.profile.e7
     bands = src.table("E7_pop_bands")
     pops = _group(bands, "population", ROUTE)
@@ -315,8 +452,21 @@ def draw(src):
     else:
         window = tuple(float(v) for v in cfg.figure_years)
 
+    # Each genome's fit: where its first window ends, for its hairline and its groups' medians. The halo must hold
+    # the genomes the medians and the titles count.
+    fits = genome_fits(src.table("E7_fits"), src.table("E7_curves"))
+    for kind, groups in (("population", pops), ("superpopulation", sups)):
+        for name, d in groups.items():
+            n, want = sum(getattr(g, kind) == name for g in fits.values()), int(d.n.iloc[0])
+            if n != want:
+                raise ValueError(f"E7_curves holds {n} psmcfa fits of {name}, E7_pop_bands {want}: the tables are "
+                                 "of different runs")
+    split = first_window_splits(fits, bands[bands.route == ROUTE].years.unique())
+    halo = _halo(fits, window)
+
     # Every curve, cut to the cohort's window, before any is drawn: the limits must hold them all.
     xlim = _widen(XLIM, window)
+    dex_mm = math.log10(xlim[1] / xlim[0]) / DW_MM  # log10 time per mm
     sup_xy = {s: _xy(sups[s], window) for s in present}
     pop_xy = {g: _xy(d, window) for g, d in pops.items() if pop_sup[g] in present}
     ylim = _widen(YLIM, [float(v) for _, y in list(sup_xy.values()) + list(pop_xy.values()) for v in y])
@@ -334,26 +484,34 @@ def draw(src):
     starts, colors = {}, {}
     for s in present:
         name = SUP_NAMES.get(s, s)
-        starts[name] = _curve(axes[0], sup_xy[s], color=style.SUPERPOP_COLORS.get(s, style.INK2),
-                              linewidth=style.LW_EMPH, zorder=Z_A.get(s, style.Z_DATA))
+        starts[name] = _median(axes[0], sup_xy[s], split[("superpopulation", s)],
+                               style.SUPERPOP_COLORS.get(s, style.INK2), style.LW_EMPH, Z_A.get(s, style.Z_DATA),
+                               dex_mm)
         colors[name] = style.SUPERPOP_TEXT.get(s, style.INK)
     _frame(axes[0], True, xlim, ylim)
     name_curves(axes[0], 0, starts, style.TEXT_PT, colors)
     titles = [f"All {_genomes(int(every.n.iloc[0]))}" if every is not None else "All genomes"]
 
-    # b-f: each superpopulation's populations over the other four superpopulations' medians.
+    # b-f: each superpopulation's genomes and populations, over the other four superpopulations' medians from
+    # where they turn full in a.
     for i, (ax, (_, col)) in enumerate(zip(axes[1:], CELLS[1:])):
         s = slots[i] if i < len(slots) else None
         name = SUP_NAMES.get(s, s) if s is not None else ""
         if s in sups:
+            color = style.SUPERPOP_COLORS.get(s, style.INK2)
+            if halo.get(s):
+                ax.add_collection(LineCollection(halo[s], **style.cloud_kw(color)))
             for o in present:
                 if o != s:
-                    _curve(ax, sup_xy[o], color=style.CONTEXT, linewidth=style.LW_THIN, zorder=style.Z_CONTEXT)
+                    _, full = _split(sup_xy[o], split[("superpopulation", o)])
+                    if full is not None:
+                        style.step_line(ax, *full, color=style.CONTEXT, linewidth=style.LW_THIN,
+                                        zorder=style.Z_CONTEXT)
             starts = {}
             for g in sorted(g for g in pop_xy if pop_sup[g] == s):
                 code = g + (ADMIXED_MARK if g in cfg.admixed else "")
-                starts[code] = _curve(ax, pop_xy[g], color=style.SUPERPOP_COLORS.get(s, style.INK2),
-                                      linewidth=style.LW_DATA, zorder=style.Z_DATA)
+                starts[code] = _median(ax, pop_xy[g], split[("population", g)], color, style.LW_DATA, style.Z_DATA,
+                                       dex_mm)
             name_curves(ax, col, starts, style.LABEL_PT, dict.fromkeys(starts, style.SUPERPOP_TEXT.get(s, style.INK)))
             name = f"{name}, {_genomes(int(sups[s].n.iloc[0]))}"
         _frame(ax, col == 0, xlim, ylim)
@@ -378,4 +536,4 @@ def draw(src):
     return fig
 
 
-__all__ = ["ROUTE", "draw", "place_labels"]
+__all__ = ["ROUTE", "GenomeFit", "draw", "first_window_splits", "genome_fits", "place_labels"]

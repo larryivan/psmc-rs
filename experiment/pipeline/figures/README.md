@@ -36,30 +36,30 @@ which reads none), `fig2_simulated_accuracy` and `figS1_em_convergence`;
 the other eight are blocked, their tables missing, and run at a `start`
 with or after the experiments that write them. The article numbers its
 figures in its own order: its Fig 1 is `art1_agreement` (from E1, E2 and
-E7's tables), its Fig 2 `art2_performance` (from E3 and E7's), and its Fig
-3 `fig7_1000_genomes`; the supplement's Figs S1, S2 and S3 are
-`figS1_em_convergence`, `fig5_input_preparation` and
-`fig6_bootstrap_calibration` (Supplementary Note 1, section 3). These six
-are drawn in the house style of `style.py`; the article leaves the other
-ten out.
+E7's tables and `experiment/crossplatform/`), its Fig 2 `art2_performance`
+(from E3 and E7's), and its Fig 3 `fig7_1000_genomes`; the supplement's
+Figs S1, S2 and S3 are `figS1_em_convergence`, `fig5_input_preparation`
+and `fig6_bootstrap_calibration` (Supplementary Note 1, section 3). These
+six are drawn in the house style of `style.py`; the article leaves the
+other ten out.
 
 ## The figures
 
 | figure | written to | reads | width x height |
 | --- | --- | --- | --- |
-| `art1_agreement` (the article's Fig 1) | `FIG/figures/` | `E1_curves`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E2_curves`, `E2_bands`, `E2_rs_vs_c`, `E7_rs_vs_c` | 183 x 88 mm |
+| `art1_agreement` (the article's Fig 1) | `FIG/figures/` | `E1_curves`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E2_curves`, `E2_bands`, `E2_rs_vs_c`, `E7_rs_vs_c`; committed: `experiment/crossplatform/side_by_side_E1.csv` | 183 x 99 mm |
 | `art2_performance` (the article's Fig 2) | `E3/figures/` | `E3_table2`, `E7_fits` | 183 x 55 mm |
 | `fig1_workflow` | `FIG/figures/` | nothing (schematic) | 183 x 86 mm |
 | `fig2_simulated_accuracy` | `E1/figures/` | `E1_curves`, `E1_truth`, `E1_table1`, `E1_replicates`, `E1_rs_vs_c`, `E1_mstep` | 183 x 150 mm |
 | `fig3_real_genomes` | `E2/figures/` | `E2_curves`, `E2_bands`, `E2_bootstrap`, `E2_rs_vs_c`, `E2_fit_summary` | 183 x 112 mm |
 | `fig4_performance` | `E3/figures/` | `E3_table2`, `E3_runs` | 183 x 70 mm |
 | `fig5_input_preparation` (the supplement's Fig S2) | `E4/figures/` | `E4_routes`, `E4_curves` | 183 x 60 mm |
-| `fig6_bootstrap_calibration` (the supplement's Fig S3) | `E5/figures/` | `E5_summary`, `E5_sampling`, `E5_bands`, `E5_sd_ratio`, `E5_coverage` | 183 x 56 mm |
-| `figS1_em_convergence` (the supplement's Fig S1) | `E1/figures/` | `E1_traces` | 183 x 52 mm |
+| `fig6_bootstrap_calibration` (the supplement's Fig S3) | `E5/figures/` | `E5_summary`, `E5_sampling`, `E5_bands`, `E5_sd_ratio`, `E5_coverage` | 183 x 107 mm |
+| `figS1_em_convergence` (the supplement's Fig S1) | `E1/figures/` | `E1_traces` | 183 x 62 mm |
 | `figS2_format_consistency` | `E6/figures/` | `E6_S2_curves`, `E6_S2_bins`, `E6_S2_fits` | 183 x 96 mm |
 | `figS3_tmrca_decoding` | `E6/figures/` | `E6_S3_track`, `E6_S3_density`, `E6_S3_calibration`, `E6_S3_summary` | 183 x 118 mm |
 | `figS4_thread_scaling` | `E3/figures/` | `E3_thread_scaling`, `E3_table2`, `E3_runs`, `E3_determinism` | 183 x 62 mm |
-| `fig7_1000_genomes` (the article's Fig 3) | `E7/figures/` | `E7_pop_bands` | 183 x 99 mm |
+| `fig7_1000_genomes` (the article's Fig 3) | `E7/figures/` | `E7_pop_bands`, `E7_curves`, `E7_fits` | 183 x 99 mm |
 | `figS5_1000g_populations` (not in the article; Supplementary Note 1, section 3) | `E7/figures/` | `E7_pop_bands`, `E7_samples` | 183 x 172 mm |
 | `figS6_1000g_checks` (not in the article; Supplementary Note 1, section 3) | `E7/figures/` | `E7_inputs`, `E7_route_shift`, `E7_split`, `E7_fits`, `E7_curves`, `E7_giab`, `E7_throughput` | 183 x 110 mm |
 | `figS_turtle_patterns` (not in the article; Supplementary Note 1, section 3) | `E2/figures/` | `E2_split_curves`, `E2_split_patterns` | 183 x 72 mm |
@@ -83,8 +83,8 @@ give. For the other ten the notes say what the figure shows.
   Figs S2 and S3). In `fig2_simulated_accuracy` and
   `figS2_format_consistency` grey shading marks times outside the model's
   informative window (1% to 99% quantiles of the true pairwise coalescence
-  time), where no metric is computed; the supplement's Fig S2a and Fig S3
-  draw that window only.
+  time), where no metric is computed; the supplement's Fig S2a and Fig
+  S3a and c draw that window only.
 - **`fig2_simulated_accuracy`**: in a-d, Ne values of the fits outside the
   axis are clipped; a replicate's first or last free lambda, which the data
   barely constrain, can lie far above it. In expansion replicate 5 the first
@@ -97,42 +97,65 @@ give. For the other ten the notes say what the figure shows.
   the two, set by psmc-rs's bound, not a disagreement on what the data say.
 - **`fig2_simulated_accuracy` e-i, `fig3_real_genomes`,
   `figS2_format_consistency` e-h and the article's Fig 1**
-  (`art1_agreement`'s Delta and e): two fits of the same pattern are
+  (`art1_agreement`'s Delta, strips and e): two fits of the same pattern are
   compared interval by interval, not at fixed times: interval k of one with
   interval k of the other, drawn on the reference's intervals (C psmc's, the
   psmcfa fit's). Their boundaries differ in years only through theta and
   t_max, and a fixed time between two nearly equal boundaries would read a
   whole step. The RMSE weighs each interval by its log-time width inside the
   window.
-- **The article's Fig 1** (`art1_agreement`): every curve and band of a-d
-  is clipped to its genome's window: a simulated model's informative window
-  (`E1_table1`), a real genome's comparison window (1% to 99% of
-  coalescences under C psmc's fit, `E2_rs_vs_c`). Their grey spread of
-  estimates is the range (pointwise minimum to maximum) of psmc-rs's fits
-  to every replicate of a simulated model, and psmc-rs's bootstrap 95% band
-  at the default blocks for a real genome. The fold on e's arrow ('7,000x
-  smaller' in production) is `\EoneFoldMedian`: the median error of
-  psmc-rs against the truth over the median Delta, on the simulated
-  genomes, to one significant digit.
+- **The article's Fig 1** (`art1_agreement`): every curve, band and
+  difference strip of a-d is clipped to its genome's informative window, 1%
+  to 99% of its pairwise coalescence times: under the true history for a
+  simulated genome (`E1_table1`), under C psmc's fit for a real one
+  (`E2_rs_vs_c`). c and d draw psmc-rs's bootstrap 95% band at the default
+  blocks in pale blue (`style.RS_BAND`); a and b draw no band. The strip
+  under each panel is psmc-rs's log10 Ne minus C psmc's, interval by
+  interval, in units of 1e-4 (a-c share -1 to 1, d has -5 to 5; a scale
+  widens to the next 1-2-5 value where a difference needs it); Delta is its
+  root mean square over log time. In e, the light-grey row under Simulated,
+  'C psmc on two platforms', is the noise floor of Delta: the same metric
+  between C psmc's fits of the simulated genomes on Ibex (gcc, x86-64) and
+  on the laptop (Apple clang, arm64), from the committed
+  `experiment/crossplatform/side_by_side_E1.csv`. The figure ties each of
+  its rows to an E1 genome by Delta: the tiny profile draws no such row,
+  and a stale file is refused. The fold on e's arrow ('7,000x smaller' in
+  production) is `\EoneFoldMedian`: the median error of psmc-rs against
+  the truth over the median Delta, on the simulated genomes, to one
+  significant digit.
 - **The article's Fig 2** (`art2_performance`): a and b are the medians of
   E3's clean repeats on the thread-scaling genome (30 chromosomes of 100 Mb
-  in production), each run alone on its machine. psmc-rs fits each sequence
-  on one thread, in parallel across sequences, so the speed-up on many
-  threads needs as many sequences of similar length (see
-  `fig4_performance`). c's times are one-thread fits of the 1000 Genomes
-  cohort, both programs' in one job on one node shared with other fits
-  (`E7_fits.wall_seconds`). Their ratio, of C psmc's median over the default
-  genomes (52 in production) to psmc-rs's over every genome (2,504),
-  compares the programs under the same conditions; their absolute values are
-  not comparable with a's.
+  in production), each run alone on its machine. a's grey line is perfect
+  scaling of psmc-rs's one-thread time. Its dotted line is psmc-rs's time
+  on E3's genome of one 100 Mb chromosome: the `E3_table2` rows with one
+  chromosome, their median over the threads it was timed on (1, 8 and 30
+  in production). psmc-rs fits each sequence on one thread, in parallel
+  across sequences, so that time bounds the thread-scaling genome's, and
+  the speed-up on many threads needs as many sequences of similar length
+  (see `fig4_performance`). a's second arrow and both lines are drawn only
+  where the most threads are at least 4 times the fewest, so not in the
+  tiny and smoke profiles. c's times are one-thread fits of the 1000
+  Genomes cohort, both programs' in one job on one node shared with other
+  fits (`E7_fits.wall_seconds`). Its arrow is the ratio of the medians: C
+  psmc's over the comparison subset (52 genomes in production) to
+  psmc-rs's over every genome (2,504). It is not the median of the
+  per-genome ratios (`\EsevenPairedSpeedMedian`). The absolute times are
+  not comparable with a's. C psmc's line in a and b and its median in c
+  sit at the same height of their axes.
 - **The article's Fig 3** (`fig7_1000_genomes`): medians over genomes of
-  their psmcfa fits, every curve over the cohort's comparison window. A
-  group whose own window starts later (in production East Asia, CHB, CHS
-  and BEB) starts inside PSMC's first interval, a single parameter one
-  genome constrains poorly, so the populations' spread there is not
-  demography. A psmcfa takes every called bin as full, which makes theta,
-  and every size and time, a little low (`fig7.py` gives the shift of the
-  VCF route).
+  their psmcfa fits, every curve over the cohort's comparison window. In
+  b-f each genome's fit is also drawn as a faint hairline, the one alpha of
+  the article figures (rasterized at 600 dpi). PSMC's first window, the
+  pattern's first free lambda, is a single parameter that one genome
+  constrains poorly; its length is the first term of `E7_fits.pattern`.
+  Every median is pale until 90% of its group's genomes have left that
+  window, its step at that time included. Each genome's hairline starts
+  where its own first window ends, and each grey context median where it
+  turns full in a. A group whose own window starts later than the
+  cohort's (BEB the latest, at 29 kya in production) starts inside its
+  pale first window. A psmcfa takes every called bin as full, which makes
+  theta, and every size and time, a little low (`fig7.py` gives the shift
+  of the VCF route).
 - **`fig3_real_genomes`**: each species with its own mu and g, in the panel
   with their source in a few words (in full:
   `config.RealGenome.scaling_source`, repeated in
@@ -195,41 +218,69 @@ give. For the other ten the notes say what the figure shows.
   thread, it is `ru_maxrss`, 24.0 to 26.0 MB (26.0 in 33 of the 35 runs),
   above the sampled 7.0 to 22.0 MB, so those points are an upper bound
   (Supplementary Note 1, section 10).
-- **The supplement's Fig S2** (`fig5_input_preparation`): binning with
-  partly callable bins biases PSMC, and psmc-rs's per-bin model removes most
-  of the bias. With a dispersed mask almost every bin stays called with
-  about (1 - f) of its bases; taking them as full makes theta, and every
-  time and size, low by about 1.2 times the missing share of the called bins
-  (E4: theta 12% low with 10% missing, 35% with 30%). The figure draws bins
-  taken as full as the classic consensus FASTA -> fq2psmcfa route (C psmc's
-  input and model, orange): its bins equal the VCF + mask bins read with
+- **The supplement's Fig S2** (`fig5_input_preparation`): taking partly
+  callable bins as full biases PSMC, and psmc-rs's per-bin weighting
+  removes most of the bias. With a dispersed mask almost every bin stays
+  called, and many hold only part of their bases (about half of the called
+  bins with 10% missing, nearly all with 30%); taking them as full makes
+  theta, and every time and size, low by about 1.2 times the missing share
+  of the called bins (E4 medians: theta 0.88 times the complete-data fit's
+  with 10% missing, 0.65 times with 30%). The figure draws bins taken as
+  full as the classic consensus FASTA -> fq2psmcfa route (C psmc's input
+  and model, orange): its bins equal the VCF + mask bins read with
   `--bin-callable ignore` and its fit equals theirs (both asserted by E4's
-  report; `fig5.full_route` checks theta), so `mask_ignore` is drawn only
-  where the tables have no fq2psmcfa rows. Weighting each bin by its
-  callable bases (`auto`, psmc-rs's default, blue) comes close to the
-  complete-data fit (the wide grey underlay in a; E4: theta 0.7% low on
-  average with 10% missing, 1.9% with 30%). Clustered missing data empty
-  whole bins and change little (b's left facet). multihetsep (the uncalled
-  sites of an interval are placed at its start, and every called bin is
-  taken as full: `auto` fits exact counts only) and a VCF without its mask
-  are not drawn; the caption gives their numbers (`E4_routes`). The
-  complete-data fit is the control's VCF + mask fit, identical under both
-  models (asserted).
-- **The supplement's Fig S3** (`fig6_bootstrap_calibration`): a's band and
-  the independent fits' range run off the top of the axis in the first
-  interval (the Ne axis spans half the truth's smallest size to five times
-  its largest). b's grey band is where a bootstrap with the true SD would
-  fall, given the true SD's own chi-square 95% interval. In c a dot is one
-  genome's share of the window's times at which its band holds the fits'
-  mean or the truth, and a bar the mean over the genomes (`E5_summary`); the
-  gap between the two groups is PSMC's bias, not the bootstrap's.
+  report; `fig5.full_route` checks theta), so `mask_ignore` is drawn, in
+  the same orange, only where the tables have no fq2psmcfa rows. Weighting
+  each bin by its callable bases (`auto`, psmc-rs's default, blue) leaves
+  theta only slightly low, close to the complete-data fit (the wide grey
+  underlay in a; E4 medians: 0.7% low with 10% missing, 1.8% with 30%). b
+  draws theta as a ratio to the complete-data fit, the unit of a's arrow
+  (ticks 0.6 to 1.0), and prints the 30% medians number first (0.65x,
+  0.98x). Its facets are titled by what the masks do to the bins, chosen
+  from `E4_routes` (`fig5.facet_title`: the weighted fits' median
+  `partly_callable_fraction` against their median `missing_bin_fraction`
+  at the structure's largest missing fraction): dispersed runs leave bins
+  partly callable (left facet, beside a's example); clustered runs empty
+  whole bins, which both models drop, and change little (right facet).
+  multihetsep (the uncalled sites of an interval are placed at its start,
+  and every called bin is taken as full: `auto` fits exact counts only)
+  and a VCF without its mask are not drawn; the caption gives their theta
+  (`E4_routes` medians). The complete-data fit is the control's VCF + mask
+  fit, identical under both models (asserted).
+- **The supplement's Fig S3** (`fig6_bootstrap_calibration`): two rows, a
+  over c on the window's time axis, and b over d. a's Ne axis is widened to
+  round values that hold the first interval's band and the independent
+  fits' range whole, so nothing runs off the panel; the truth, the
+  genome's fit and band, and the range are named in place. b's grey band
+  around the identity line is where a bootstrap SD equal to the true SD
+  would fall: the true SD is itself estimated from the independent fits,
+  and the band is that estimate's chi-square 95% interval (its bounds are
+  fixed multiples of the SD; the band takes their median over the window).
+  b keeps a key, inside the panel and with each block count's median SD
+  ratio, the house's one exception to its key rule: the 6-block light blue
+  cannot be text. c gives, at each time, the share of the bootstrapped
+  genomes whose band (the most blocks) holds the fits' mean (blue) or the
+  truth (dashed ink, the truth's style, drawn over the blue where the two
+  are equal), from `E5_coverage`. It shows where the bands miss the truth:
+  where PSMC smooths the truth's sudden changes in size. c and d share a
+  coverage axis from -3 to 103%, so that 0 and 100 lie clear of the axes'
+  edges. In d a dot is one genome's share of the window's times at which
+  its band holds the fits' mean or the truth, and a bar is the mean over
+  the genomes (`E5_summary`); each strip's dots are a deterministic swarm,
+  so that no genome hides another. The gap between the two groups is
+  PSMC's bias, not the bootstrap's.
 - **The supplement's Fig S1** (`figS1_em_convergence`): iteration i counts
   completed EM iterations (C psmc's LK of round i + 1, psmc-rs's
-  `loglike[i]`); both programs are drawn up to the last iteration both give,
-  as C psmc prints no log-likelihood after its last. Iteration 0 (the same
-  start in both), the sign of the difference, and theta and rho are left to
-  the caption. The arrows' ratios are floored to two significant figures, so
-  each is a bound.
+  `loglike[i]`). Both rows are drawn up to the last iteration both programs
+  give, as C psmc prints no log-likelihood after its last. The lower row,
+  psmc-rs's log-likelihood minus C psmc's, starts at i = 0, the same
+  starting model in both. Its label, "Difference", leaves that quantity to
+  the caption. Also left to the caption: how closely the two agreed at
+  i = 0, the largest difference, theta and rho, and how many times each
+  iteration's smallest gain exceeded the largest difference after that
+  iteration. That ratio is taken in each panel. It is at least 84 in E1;
+  across panels, or over all of a panel's iterations at once, it would be
+  only 23.
 
 ## Style (`style.py`)
 
@@ -242,22 +293,56 @@ full in `style.py`'s docstring; in short:
   (in ink) and context notes (in a dark grey). Superscripts and subscripts
   at 0.84 of their text (`style.MATH_SHRINK`; mathtext's own 0.7 would set
   a 6 pt tick label's exponent at 4.2 pt), so no text is below 5 pt (the
-  tests check every figure's SVG with `style.small_text`). Sizes and times
-  on log axes are plain numbers in thousands.
+  tests check every figure's SVG with `style.small_text`). The PDF and SVG
+  set mathtext up to 1 pt above its baseline; `style.on_baseline` puts a
+  mathtext text that shares a baseline or a column with other text (Fig
+  1d's italic title, y labels hung at one distance from their spines) back
+  on it, as the PNG has it.
+- **Notation**: sizes and times on log axes are plain numbers in thousands.
+  Tick labels have the fewest decimals, except on a linear axis stepped in
+  tenths or hundredths, whose every tick carries the step's decimals (Fig
+  S2b's 0.6 to 1.0: `style.plain_formatter(decimals=1)`); an axis
+  symmetric about zero may print zero as 0 (Fig S1's -0.05, 0, 0.05). A
+  wall-time axis's ticks carry their unit (10 s, 1 min, 1 h). Folds put
+  the number first (14.1x, 0.65x); an article figure's headline fold is
+  7 pt bold ink with its verb (`style.FOLD_HEADLINE`: 14.1x faster).
 - **Neutral greys by role** (ink `#1a1a1a`, spines `#404040`, notes
-  `#595959`, reference lines `#8c8c8c`, context curves `#c4c4c4`, the one
+  `#595959`, reference lines `#8c8c8c`, context curves `#d9d9d9`, the one
   neutral band `#e8e8e8`, hairlines `#e6e6e6`): colour belongs to the data.
-- **Line weights**: 0.35 pt hairlines, 0.5 pt axes, reference and context
-  lines, 0.75 pt data lines (the truth included), 1.0 pt for at most one
+- **Line weights**: 0.35 pt hairlines (a label's leader, Fig 3's individual
+  genomes), 0.5 pt axes, reference and context lines, rings and an arrow's
+  leaders, 0.75 pt data lines (the truth included), 1.0 pt for at most one
   emphasised summary per panel, and a 2.4 pt pale underlay where two curves
   coincide (the underlay rule: C psmc's wide pale-orange line beneath
-  psmc-rs's thin blue one; never a dashed line over a solid one).
-- **Bands** are opaque tints, never alpha (psmc-rs's `#dde9f8`); the
-  pipeline-only figures keep alpha 0.18 (`style.BAND_ALPHA`).
+  psmc-rs's thin blue one; never a dashed line over a solid one, except
+  the truth's dashed line, which lies over every curve it meets, as in Fig
+  S3c).
+- **Leaders**: a solid 0.35 pt reference-grey hairline from a name to its
+  mark through white space (Fig 3's population names;
+  `style.LABEL_LEADER_KW`); a dotted 0.5 pt spine-grey line where a leader
+  carries an arrow's end across the data (Fig 1e's fold;
+  `style.LEADER_KW`).
+- **Bands** are opaque tints, never alpha (psmc-rs's `#caddf5`, its blue at
+  25%); the pipeline-only figures keep alpha 0.18 (`style.BAND_ALPHA`). The
+  one alpha of the article figures is Fig 3's halo of individual genomes:
+  each a 0.35 pt line in a 45% tint of its superpopulation's colour at
+  alpha 0.07, rasterized at 600 dpi in the PDF and SVG (`style.cloud_kw`).
+- **Markers**: psmc-rs a filled circle, C psmc a filled square, no edge
+  and no alpha, except where points overlap in a dense strip (Fig 1e, Fig
+  2c's squares): there a 0.25 pt white edge keeps them apart
+  (`style.STRIP_EDGE_LW`). A ring marks a point that another panel draws
+  (Fig 1e's genomes of a-d).
 - **Layout**: no top or right spines, no dual axes, no grid on N_e(t)
-  panels; letters and titles share one baseline 1.5 mm above the axes; a
-  key, where the data cannot be named in place, is one line at the top.
-  Widths are the journal's: 89, 120 and 183 mm, printed at 100%.
+  panels; letters and titles share one baseline 1.5 mm above the axes, and
+  every panel of the six has a title; a key, where the data cannot be named
+  in place, is one line at the top, its box 1.1 mm below the figure's edge
+  (`style.KEY_TOP_MM`). The first axes are 4.6 mm below the figure's top
+  (`style.TOP_MM`; 8.6 mm under a key, `style.TOP_LEGEND_MM`), so that the
+  bold first-row letters and the key's round capitals ink outside the 1 mm
+  margin in the PNG and in the PDF; the last axes 7.25 mm above the bottom
+  (`style.BOTTOM_MM`; 7.85 mm under power-of-ten tick labels,
+  `style.BOTTOM_POW10_MM`). Widths are the journal's: 89, 120 and 183 mm,
+  printed at 100%.
 
 Colours follow the entity in every figure (a reference palette for light
 mode; pairwise contrast on white and separation under colour-vision
@@ -266,13 +351,13 @@ repository):
 
 | entity | colour | check |
 | --- | --- | --- |
-| psmc-rs | `#2a78d6` blue; its band `#dde9f8` | pass, with C psmc's orange |
+| psmc-rs | `#2a78d6` blue; its band `#caddf5` | pass, with C psmc's orange |
 | C psmc | `#eb6834` orange; its underlay `#f6bba4` | |
 | truth | `#1a1a1a` (ink), dashed | |
 | a series named in place (no legend) | its text colour: C psmc `#c4501f`, psmc-rs `#1c5cab`, a superpopulation's `style.SUPERPOP_TEXT` | at least 4.3:1 on white |
-| routes of the supplement's Fig S2 (`fig5_input_preparation`) | weighted bins (`mask_auto`) blue; bins taken as full through fq2psmcfa orange, from the VCF (`mask_ignore`) `#104281` (blue ramp 650); multihetsep `#b07800`, a VCF without its mask `#c94f80` (not drawn) | pass (ordered: blue, then `#104281`) |
+| routes of the supplement's Fig S2 (`fig5_input_preparation`) | weighted bins (`mask_auto`) blue; bins taken as full orange, whether through fq2psmcfa or, where the tables have no fq2psmcfa rows, from the VCF (`mask_ignore`); multihetsep `#b07800`, a VCF without its mask `#c94f80` (not drawn) | pass, as psmc-rs's blue with C psmc's orange |
 | block sizes (the supplement's Fig S3, `fig6_bootstrap_calibration`) | the most blocks `#2a78d6`, the fewest `#86b6ef` (blue ramp) | |
-| superpopulations (the article's Fig 3, `fig7_1000_genomes`) | AFR `#eda100`, AMR `#12966b`, EAS `#4a3aa7`, EUR `#e87ba4`, SAS `#a0522d` | pass (`fig7.py`'s docstring gives the separations) |
+| superpopulations (the article's Fig 3, `fig7_1000_genomes`) | AFR `#eda100`, AMR `#12966b`, EAS `#4a3aa7`, EUR `#e87ba4`, SAS `#a0522d`; the other superpopulations' medians in context grey `#d9d9d9` | pass (`fig7.py`'s docstring gives the separations, the grey's included) |
 | a psmc-rs variant in the pipeline-only figures (VCF input, 5 Mb trunks, the split-first-window patterns) | `#104281` (blue ramp 650), dotted or dashed | |
 | counts (`figS3_tmrca_decoding`, pipeline-only) | sequential blue ramp, steps 100-700 | |
 
@@ -280,7 +365,8 @@ repository):
 
 The figures read only these tables, which the experiments' `report` jobs
 write (and `config.py`: the demographic models, whose true Ne(t) is drawn
-with its exact change times, and the figure settings in `config.FIGURES`).
+with its exact change times, and the figure settings in `config.FIGURES`),
+and the one table committed outside the runs directory, at the end.
 `data.read` checks that the columns a figure needs are present and names the
 missing ones; other columns may be there. The unit tests run every
 experiment at the tiny profile and draw every figure from the tables it
@@ -310,7 +396,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E3/tables/E3_runs.csv` | timed run | `tool`, `threads`, `size_mb`, `repeat`, `wall_seconds`, `peak_rss_mb`, `clean` |
 | `E3/tables/E3_thread_scaling.csv` | thread count (psmc-rs 0.2 on the thread-scaling genome) | `size_mb`, `threads`, `wall_median_s`, `efficiency`, `peak_rss_median_mb` |
 | `E3/tables/E3_determinism.csv` | run, against its tool's reference at the same size | `tool`, `size_mb`, `threads`, `sha256`, `max_rel_diff_params` |
-| `E4/tables/E4_routes.csv` | mask, route and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `rmse_log10_ne_vs_truth`, `rmse_log10_ne_vs_complete` |
+| `E4/tables/E4_routes.csv` | mask, route and replicate | `mask`, `route`, `replicate`, `theta_rel_complete`, `missing_bin_fraction`, `partly_callable_fraction`, `rmse_log10_ne_vs_truth`, `rmse_log10_ne_vs_complete` |
 | `E4/tables/E4_curves.csv` | mask, route, replicate and interval | `mask`, `route`, `replicate`, `interval`, `years`, `ne` |
 | `E5/tables/E5_summary.csv` | trunk size and window | `trunk_bins`, `trunk_mb`, `trunks`, `window`, `sd_ratio_median`, `coverage_mean`, `coverage_mean_ci_lo`, `coverage_mean_ci_hi`, `coverage_of_fit_mean_mean`, `coverage_projected_mean`, `coverage_projected_mean_ci_lo`, `coverage_projected_mean_ci_hi` |
 | `E5/tables/E5_sampling.csv` | time of the informative window | `point`, `years`, `true_ne`, `fits`, `mean_log10_ne`, `lo_ne`, `hi_ne` |
@@ -325,7 +411,7 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E6/tables/E6_S3_calibration.csv` | class (decile) of the true TMRCA or of the posterior mean | `by`, `class`, `median_true_years`, `coverage95_states`, `coverage95_point` |
 | `E6/tables/E6_S3_summary.csv` | set of bins (all, heterozygous, homozygous) | `bins`, `n_bins`, `pearson_log10_mean`, `coverage95_states`, `coverage95_point` |
 | `E7/tables/E7_samples.csv` | sample of the cohort | `sample_id`, `population`, `superpopulation`, `admixed`, `raw_depth`, `default`, `bootstrap` |
-| `E7/tables/E7_fits.csv` | sample and route | `sample_id`, `route`, `n0`, `threads`, `wall_seconds` |
+| `E7/tables/E7_fits.csv` | sample and route | `sample_id`, `population`, `superpopulation`, `route`, `pattern`, `n0`, `threads`, `wall_seconds` |
 | `E7/tables/E7_curves.csv` | sample, route and interval | `sample_id`, `route`, `interval`, `years`, `ne` |
 | `E7/tables/E7_pop_bands.csv` | group, route and time on the display grid | `group_kind`, `group`, `superpopulation`, `admixed`, `route`, `n`, `years`, `ne_median`, `ne_lo`, `ne_hi`, `window_lo_years`, `window_hi_years` |
 | `E7/tables/E7_rs_vs_c.csv` | sample of the default set fitted by both tools | `sample_id`, `population`, `superpopulation`, `admixed`, `window_lo_years`, `window_hi_years`, `rmse_log10_ne_rs_vs_c_per_interval`, `max_abs_log10_ne_rs_vs_c_per_interval` |
@@ -334,6 +420,24 @@ one row per PSMC interval: `ne` holds from `years` to the next row's
 | `E7/tables/E7_split.csv` | sample of the split-first-window check | `sample_id`, `population`, `superpopulation`, `admixed`, `log10_first_vs_next_default`, `log10_first_vs_next_split`, `log10_first_vs_next_split_lo`, `log10_first_vs_next_split_hi`, `max_abs_log10_ne_split_vs_default_per_interval`, `ne_next_split` |
 | `E7/tables/E7_giab.csv` | sample compared with GIAB | `sample_id`, `precision`, `recall`, `truth_het_snvs`, `eval_bases` |
 | `E7/tables/E7_throughput.csv` | route and tool | `route`, `tool`, `jobs`, `threads`, `wall_median_s`, `core_hours`, `peak_rss_median_mb` |
+
+`schemas.COMMITTED` declares the tables a figure reads that no experiment
+writes: a one-off analysis's results, committed with the repository in
+`experiment/` outside the runs directory. A figure names them in its
+`FigureSpec.committed` and reads them with `CommittedTable.read`, which
+checks their columns as `data.read` checks a table's. They are inputs of
+the figure's job like its tables, at their path in the repository whatever
+the runs directory, so a change to one redraws the figure, and `figures
+--list` lists them. They describe the production's results, not the tiny
+profile's, so a figure checks that a committed table matches the tables it
+is drawn with, by a value both hold, before drawing from it:
+`art1_agreement` keeps a row of `side_by_side_E1.csv` only where its
+`rmse_window_rs_vs_c_ibex` is that genome's Delta in `E1_rs_vs_c` (none in
+the tiny profile), and refuses a file that matches only some genomes.
+
+| committed table | one row per | columns the figures need |
+| --- | --- | --- |
+| `experiment/crossplatform/side_by_side_E1.csv` (the article's Fig 1e) | simulated genome of E1 (model and replicate) | `model`, `replicate`, `rmse_window_c_laptop_vs_ibex`, `rmse_window_rs_vs_c_ibex` |
 
 ## Production
 

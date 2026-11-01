@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import math
 import shutil
 import sys
 import tempfile
@@ -351,6 +352,203 @@ class Draw(unittest.TestCase):
         self.assertEqual("Bootstrap 95% band" in labels, not fine)
         self.assertEqual(any(label.endswith(" Mb blocks") for label in labels), fine)
 
+    def test_keyed_article_figures_put_their_first_row_under_the_key(self):
+        from experiment.pipeline import figures
+        from experiment.pipeline.figures import style
+
+        keyed = []
+        for name in ARTICLE_FIGURES:
+            fig = self._draw(figures.spec(name).module)
+            if not fig.legends:  # fig7 keeps its own top, without a key
+                continue
+            keyed.append(name)
+            with self.subTest(figure=name):
+                h = fig.get_figheight() * 25.4
+                self.assertAlmostEqual(min((1 - ax.get_position().y1) * h for ax in fig.axes if ax.axison),
+                                       style.TOP_LEGEND_MM, places=2)
+        self.assertEqual(keyed, ["art1_agreement", "figS1_em_convergence"])
+
+    def test_art1_noise_floor_is_tied_to_e1s_fits(self):
+        import numpy as np
+
+        from experiment.pipeline.figures import art1_agreement as A
+        from experiment.pipeline.figures.schemas import COMMITTED
+
+        side = COMMITTED[A.FLOOR_FILE].read()
+        # The production's fits, as the committed file holds them: every genome has its noise floor.
+        e1d = side[["model", "replicate"]].assign(rmse_log10_ne_rs_vs_c_per_interval=side.rmse_window_rs_vs_c_ibex)
+        floor = A.noise_floor(e1d)
+        self.assertEqual(len(floor), len(side))
+        self.assertAlmostEqual(float(np.median(list(floor.values()))), float(side.rmse_window_c_laptop_vs_ibex.median()))
+        # The tiny profile's fits are not the production's: no row is tied to them, and e draws no such row.
+        self.assertEqual(A.noise_floor(self._table("E1_rs_vs_c")), {})
+        self.assertFalse([t for t in self._draw("art1_agreement").axes[8].texts
+                          if t.get_text().startswith(A.FLOOR_NAME)])
+        # A file that holds the Delta of only some of the genomes describes other fits: refused.
+        stale = e1d.copy()
+        stale.loc[0, "rmse_log10_ne_rs_vs_c_per_interval"] *= 1.001
+        with self.assertRaises(ValueError):
+            A.noise_floor(stale)
+
+    def test_art1_draws_each_panels_differences_under_it(self):
+        import re
+
+        import numpy as np
+
+        from experiment.pipeline.figures import art1_agreement as A
+
+        fig = self._draw("art1_agreement")
+        drawn = []
+        for i, (ax, st) in enumerate(zip(fig.axes[:4], fig.axes[4:8])):
+            self.assertEqual(ax.axison, st.axison)  # a strip under each drawn panel, none under an empty column
+            if not st.axison:
+                continue
+            drawn.append(i)
+            with self.subTest(column=i):
+                ln = next(ln for ln in st.lines if ln.get_drawstyle() == "steps-post")
+                lo, hi = st.get_ylim()
+                self.assertEqual(lo, -hi)  # symmetric about the zero line
+                self.assertGreaterEqual(hi, A.STRIP_LIM[0 if i < 3 else 1])  # a-c's scale and d's, or wider
+                self.assertLessEqual(np.nanmax(np.abs(np.asarray(ln.get_ydata(), dtype=float))), A.STRIP_FILL * hi)
+                self.assertIn(hi / 10 ** math.floor(math.log10(hi)), (1.0, 2.0, 5.0))
+        self.assertTrue(drawn)
+        self.assertEqual(fig.axes[4 + drawn[0]].get_ylabel(), r"$\times10^{-4}$")  # the unit, on the first strip
+        # e's rings name the genomes of the drawn panels by their letters, which run on past an empty column.
+        rings = [t.get_text() for t in fig.axes[8].texts if re.fullmatch(r"[a-d](, [a-d])*", t.get_text())]
+        self.assertEqual(sorted(x for t in rings for x in t.split(", ")), list("abcd"[:len(drawn)]))
+
+    def test_art1_texts_that_share_a_baseline_stay_on_it(self):
+        from experiment.pipeline.figures import style
+
+        fig = self._draw("art1_agreement")
+        a, sa = fig.axes[0], fig.axes[4]
+        labels = (a.yaxis.label, sa.yaxis.label)
+        xs = [label.get_transform().transform(label.get_position())[0] for label in labels]
+        self.assertAlmostEqual(*xs)  # one column: N_e and the strips' unit
+        for label in labels:  # on their baselines in every output (style.on_baseline marks what it puts back)
+            self.assertEqual(label.get_verticalalignment(), "baseline")
+            self.assertTrue(getattr(label, "_house_on_baseline", False))
+        titles = [t for t in fig.texts if t.get_fontsize() == style.TEXT_PT and "$" in t.get_text()]
+        self.assertTrue(titles)  # d's binomial, in italics
+        for t in titles:
+            self.assertTrue(getattr(t, "_house_on_baseline", False), t.get_text())
+        # e's headers are plain text (its Delta is U+0394), which every output sets on its baseline.
+        self.assertFalse([t.get_text() for t in fig.axes[8].texts
+                          if t.get_fontsize() == style.TEXT_PT and "$" in t.get_text()])
+
+    def test_art1_draws_the_truth_without_joins_that_change_nothing(self):
+        import numpy as np
+
+        from experiment.pipeline.figures import art1_agreement as A
+        from experiment.pipeline.figures.data import truth_xy
+
+        # A vertex that repeats its neighbour makes a miter join of zero length, which strokes as a spike.
+        for model in config.MODELS:
+            x, y = A._truth_line(model, 25.0, (5e3, 5e6))
+            same = np.isclose(x[1:], x[:-1], rtol=1e-9, atol=0) & np.isclose(y[1:], y[:-1], rtol=1e-4, atol=0)
+            self.assertFalse(same.any(), model)
+        # The zigzag loses its four epoch joins; the bottleneck keeps its four steps.
+        self.assertEqual(len(A._truth_line("zigzag", 25.0, (5e3, 5e6))[0]), len(truth_xy("zigzag", 25.0, (5e3, 5e6))[0]) - 4)
+        self.assertEqual(int((np.diff(A._truth_line("bottleneck", 25.0, (1e4, 1.3e6))[0]) == 0).sum()), 4)
+
+    def test_art2_titles_every_panel(self):
+        titles = [ax.get_title(loc="left") for ax in self._draw("art2_performance").axes]
+        self.assertEqual(len(titles), 3)  # the tiny profile writes E7_fits, so c is drawn
+        self.assertTrue(titles[0].endswith(", alone on a node"), titles[0])
+        self.assertEqual(titles[1:], ["Same genome", "1000 Genomes, one thread each"])
+
+    def test_fig7_draws_each_genome_as_a_halo(self):
+        from matplotlib.collections import LineCollection
+        from matplotlib.colors import to_hex
+
+        from experiment.pipeline.figures import style
+
+        fig = self._draw("fig7")
+        fits = self._table("E7_fits")
+        rs = fits[fits.route == "rs-psmcfa"]
+        self.assertFalse([c for c in fig.axes[0].collections if isinstance(c, LineCollection)])  # a has none
+        drawn = 0
+        for ax, s in zip(fig.axes[1:], config.TINY.e7.superpopulations):
+            if not (rs.superpopulation == s).any():
+                continue
+            with self.subTest(superpopulation=s):
+                lcs = [c for c in ax.collections if isinstance(c, LineCollection)]
+                self.assertEqual(len(lcs), 1)
+                halo = lcs[0]
+                # The one alpha of the article figures: rasterized hairlines in a tint of the continent's colour.
+                self.assertTrue(halo.get_rasterized())
+                self.assertEqual(halo.get_alpha(), style.CLOUD_ALPHA)
+                self.assertEqual(halo.get_linewidth()[0], style.LW_HAIR)
+                self.assertEqual(to_hex(halo.get_colors()[0]), style.tint(style.SUPERPOP_COLORS[s], style.CLOUD_SHARE))
+                # Every genome at most once: one whose first window ends past the cohort's window has no line.
+                self.assertGreater(len(halo.get_segments()), 0)
+                self.assertLessEqual(len(halo.get_segments()), int((rs.superpopulation == s).sum()))
+                drawn += 1
+        self.assertGreater(drawn, 0)
+
+    def test_fig7_turns_each_median_full_straight_after_its_split(self):
+        import numpy as np
+        from matplotlib.colors import to_hex
+
+        from experiment.pipeline.figures import fig7, style
+
+        # The tiny cohort's window starts after every group has left its first window; the production's (10.6
+        # kya) starts inside it. Started earlier, as there, it puts every median's split inside the window.
+        window_lo = 2e4
+        runs = self._runs_with("E7", E7_pop_bands=lambda t: t.assign(
+            window_lo_years=t.window_lo_years.where(t.group_kind != "all", window_lo)))
+        fig = self._draw("fig7", runs)
+        fig.canvas.draw()
+        bands = self._table("E7_pop_bands")
+        grid = bands[bands.route == fig7.ROUTE].years.unique()
+        split_of = fig7.first_window_splits(fig7.genome_fits(self._table("E7_fits"), self._table("E7_curves")), grid)
+        self.assertGreater(min(split_of.values()), window_lo)
+        splits = set(split_of.values())
+
+        def same_steps(pale, full, split) -> bool:
+            """Whether ``pale`` runs on beneath ``full`` past the split as the same steps (steps-post)."""
+            fx, fy = np.asarray(full.get_xdata(), dtype=float), np.asarray(full.get_ydata(), dtype=float)
+            return all(fy[np.searchsorted(fx, x, side="right") - 1] == y
+                       for x, y in zip(pale.get_xdata(), pale.get_ydata()) if x >= split)
+
+        cut = 0
+        for i, ax in enumerate(fig.axes):
+            xlim = ax.get_xlim()
+            dex_mm = math.log10(xlim[1] / xlim[0]) / fig7.DW_MM
+            for ln in ax.lines:
+                box = ln.get_clip_box()
+                if box is None or abs(box.x0 - ax.bbox.x0) < 1e-6:  # clipped by its axes (the leaders too)
+                    continue
+                cut += 1
+                with self.subTest(axes=i, color=ln.get_color()):
+                    half = 10 ** (ln.get_linewidth() / style.PT_PER_MM / 2.0 * dex_mm)
+                    split = float(ln.get_xdata()[0])
+                    self.assertIn(split, splits)
+                    # The colour changes half a line's width after the split, straight across the line...
+                    x_cut = ax.transData.inverted().transform((box.x0, box.y0))[0]
+                    self.assertAlmostEqual(x_cut / (split * half), 1.0, places=6)
+                    # ...over its pale first window, from the window's start, just beneath at the same width,
+                    # its step at the split included, a line's width further.
+                    pale = [p for p in ax.lines if to_hex(p.get_color()) == style.tint(to_hex(ln.get_color()),
+                                                                                      style.FIRST_WINDOW_SHARE)
+                            and p.get_linewidth() == ln.get_linewidth() and p.get_zorder() == ln.get_zorder() - 0.5
+                            and math.isclose(float(p.get_xdata()[-1]), split * half ** 2, rel_tol=1e-6)
+                            and same_steps(p, ln, split)]
+                    self.assertEqual(len(pale), 1)
+                    self.assertAlmostEqual(float(pale[0].get_xdata()[0]), window_lo)
+            # The grey context medians start where they turn full in a, or at the window's start.
+            for ln in ax.lines:
+                if to_hex(ln.get_color()) == style.CONTEXT:
+                    x0 = float(ln.get_xdata()[0])
+                    self.assertTrue(x0 in splits or np.isclose(x0, window_lo), x0)
+        self.assertEqual(cut, len(split_of))  # every median, once: a's superpopulations, b-f's populations
+
+    def test_fig7_refuses_tables_of_different_runs(self):
+        # E7_curves without one genome's fits counts one genome fewer than E7_pop_bands.
+        runs = self._runs_with("E7", E7_curves=lambda t: t[t.sample_id != sorted(t.sample_id)[0]])
+        with self.assertRaises(ValueError):
+            self._draw("fig7", runs)
+
     def test_fig5_draws_the_weighted_bins_above_the_bins_taken_as_full(self):
         from matplotlib.colors import to_hex
 
@@ -378,6 +576,42 @@ class Draw(unittest.TestCase):
                 # psmc-rs's default (blue) above the bins taken as full (orange): lines and medians alike.
                 self.assertGreater(max(z[style.BLUE]), max(z[style.ORANGE]))
 
+    def test_fig5_draws_b_as_a_ratio_dispersed_first_with_its_numbers_first(self):
+        from matplotlib.colors import to_hex
+
+        from experiment.pipeline.figures import fig5, style
+
+        fig = self._draw("fig5")
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        a, left, right = fig.axes
+        # b's facets: the dispersed runs beside a's example, then the clustered ones, titled by what they do.
+        self.assertEqual([ax.get_title(loc="left").split(":")[0] for ax in (left, right)], ["Dispersed", "Clustered"])
+        # theta as a ratio to the complete-data fit: a grey line at 1, ticks with the step's one decimal.
+        ref = [ln for ln in left.lines if to_hex(ln.get_color()) == style.REF]
+        self.assertEqual(list(ref[0].get_ydata()), [1.0, 1.0])
+        lo, hi = left.get_ylim()
+        ticks = [t.get_text() for t in left.get_yticklabels() if lo <= t.get_position()[1] <= hi]
+        self.assertTrue(ticks)
+        self.assertTrue(all(len(t.split(".")[-1]) == 1 for t in ticks), ticks)
+        # Folds number first: the medians of the largest dispersed fraction, of the two routes drawn.
+        folds = [t for t in left.texts if t.get_text().endswith(style.TIMES)]
+        self.assertFalse([t for ax in fig.axes for t in ax.texts if t.get_text().startswith(style.TIMES)])
+        routes = self._table("E4_routes")
+        cfg = config.TINY.e4
+        top = max((m for m in cfg.masks if m.structure == "dispersed"), key=lambda m: m.missing_fraction)
+        want = {r: f"{1 + routes[(routes['mask'] == top.name) & (routes.route == r)].theta_rel_complete.median():.2f}"
+                   f"{style.TIMES}" for r in (fig5.full_route(routes), fig5.WEIGHTED)}
+        self.assertEqual(sorted(t.get_text() for t in folds), sorted(want.values()))
+        # 'Bins taken as full' ends where the weighted fold does, on b's right edge of labels.
+        full = next(t for t in left.texts if t.get_text() == fig5.B_NAMES[fig5.FULL])
+        blue = next(t for t in folds if t.get_text() == want[fig5.WEIGHTED])
+        mm = fig.dpi / 25.4
+        self.assertAlmostEqual(full.get_window_extent(renderer).x1 / mm, blue.get_window_extent(renderer).x1 / mm,
+                               delta=0.01)
+        # The y labels sit on their baselines in the PDF too (style.on_baseline).
+        self.assertTrue(a.yaxis.label._house_on_baseline and left.yaxis.label._house_on_baseline)
+
     def test_fig5_names_the_bins_taken_as_full_for_what_they_are(self):
         from experiment.pipeline.figures import fig5, style
 
@@ -395,73 +629,117 @@ class Draw(unittest.TestCase):
         self.assertIn(style.ROUTES["mask_ignore"].label, b)
         self.assertFalse(any("fq2psmcfa" in t for t in b))
 
-    def test_fig6_draws_one_row_of_three_panels_from_e5s_numbers(self):
+    def test_fig6_draws_two_rows_of_two_panels_from_e5s_numbers(self):
+        import numpy as np
         from matplotlib.colors import to_hex
         from matplotlib.text import Text
 
-        from experiment.pipeline.figures import style
+        from experiment.pipeline.figures import fig6, style
 
         summary, sampling, bands = self._table("E5_summary"), self._table("E5_sampling"), self._table("E5_bands")
+        sd, cov = self._table("E5_sd_ratio"), self._table("E5_coverage")
         rows = summary[(summary.window == "informative") & summary.trunk_bins.isin(set(bands.trunk_bins))]
         arms = len(rows)
         self.assertGreater(arms, 0)
+        many = rows.sort_values("trunks").iloc[-1]  # a and c draw the most blocks only
+        n = int(many.trunks)
         fig = self._draw("fig6")
         texts = [t.get_text() for t in fig.findobj(Text)]
-        self.assertEqual((len(fig.axes), fig.legends), (3, []))  # no figure legend
-        ax_a, ax_b, ax_c = fig.axes
+        self.assertEqual((len(fig.axes), fig.legends), (4, []))  # a over c, b over d; no figure legend
+        ax_a, ax_b, ax_c, ax_d = fig.axes
+        self.assertEqual([ax.get_title(loc="left") for ax in fig.axes],
+                         [f"One genome, {n} blocks", "Spread at each time", f"Coverage at each time, {n} blocks",
+                          "Coverage of each genome"])
         # a: the truth, one genome's fit, its band and the independent fits' range, as PSMC steps at the grid's
-        # times; the band is the panel's only fill.
-        labels = [t.get_text() for t in ax_a.get_legend().get_texts()]
-        self.assertEqual(len(labels), 4)
-        fits = int(sampling.fits.iloc[0])
-        self.assertEqual((labels[0], labels[-1]), ("Truth", f"95% range of {fits} independent fits"))
+        # times, each named in place; the band is the panel's only fill, and nothing runs off the panel.
+        self.assertIsNone(ax_a.get_legend())
+        self.assertEqual(sorted(t.get_text() for t in ax_a.texts),
+                         sorted([fig6.TRUTH_NAME, fig6.RANGE_NAME, fig6.BAND_NAME]))
         self.assertEqual(len(ax_a.collections), 1)
         self.assertTrue(all(ln.get_drawstyle() == "steps-mid" for ln in ax_a.lines))
-        # b: each block count's median SD ratio, in the key.
+        lo, hi = ax_a.get_ylim()
+        drawn = [np.asarray(ln.get_ydata(), dtype=float) for ln in ax_a.lines]
+        drawn.append(ax_a.collections[0].get_paths()[0].vertices[:, 1])
+        for y in drawn:
+            y = y[np.isfinite(y)]
+            self.assertTrue(((y >= lo) & (y <= hi)).all())
+        # b: each block count's median SD ratio, in its key; the grey band is the true SD's chi-square interval,
+        # its bounds' median ratios to the true SD over the window.
         keys = [t.get_text() for t in ax_b.get_legend().get_texts()]
         self.assertEqual(len(keys), arms)
         for row in rows.itertuples():
             self.assertTrue(any(f"{int(row.trunks)} blocks" in k and f"{row.sd_ratio_median:.2f}×" in k for k in keys),
                             (row.trunks, keys))
-        # c: per block count a strip of genomes and a mean bar, for the fits' mean and for the truth.
-        bars = [ln for ln in ax_c.lines if len(ln.get_ydata()) == 2 and ln.get_ydata()[0] == ln.get_ydata()[1]
+        band = ax_b.collections[0]
+        self.assertEqual(to_hex(band.get_facecolor()[0]), style.FILL)
+        v = band.get_paths()[0].vertices
+        ratio = v[:, 1] / v[:, 0]
+        known = sd[sd.sd_true_log10 > 0]
+        self.assertAlmostEqual(ratio.min(), float(np.median(known.sd_true_ci_lo / known.sd_true_log10)))
+        self.assertAlmostEqual(ratio.max(), float(np.median(known.sd_true_ci_hi / known.sd_true_log10)))
+        # c: at each time, the share of the genomes whose band holds the fits' mean (blue) or the truth (dashed
+        # ink, over the blue), from E5_coverage; c and d share one coverage axis.
+        c = cov[cov.trunk_bins == many.trunk_bins].sort_values("point")
+        lines = {(to_hex(ln.get_color()), ln.get_linestyle()): ln for ln in ax_c.lines if len(ln.get_xdata()) > 2}
+        mean, truth = lines[(style.BLUE, "-")], lines[(style.INK, "--")]
+        np.testing.assert_allclose(mean.get_ydata(), 100.0 * c.coverage_fit_mean)
+        np.testing.assert_allclose(truth.get_ydata(), 100.0 * c.coverage)
+        self.assertGreater(truth.get_zorder(), mean.get_zorder())
+        self.assertEqual(sorted(t.get_text() for t in ax_c.texts), sorted([fig6.MEAN_NAME, fig6.TRUTH_NAME]))
+        self.assertEqual((ax_c.get_ylim(), ax_d.get_ylim()), (fig6.COVERAGE_LIM, fig6.COVERAGE_LIM))
+        # d: per block count a strip of genomes and a mean bar, for the fits' mean and for the truth.
+        bars = [ln for ln in ax_d.lines if len(ln.get_ydata()) == 2 and ln.get_ydata()[0] == ln.get_ydata()[1]
                 and ln.get_marker() in ("None", "", None) and to_hex(ln.get_color()) == style.INK]
         want = sorted(100.0 * v for v in list(rows.coverage_of_fit_mean_mean) + list(rows.coverage_mean))
         got = sorted(float(ln.get_ydata()[0]) for ln in bars)
         self.assertEqual(len(got), 2 * arms)
         for g, w in zip(got, want):
             self.assertAlmostEqual(g, w, delta=1e-9)
-        dots = [ln for ln in ax_c.lines if ln.get_marker() == "o"]
+        for ln in bars:
+            x0, x1 = ln.get_xdata()
+            self.assertAlmostEqual((x1 - x0) / 2.0, style.STRIP_BAR_HALF * fig6.ARM_STEP)
+        dots = [ln for ln in ax_d.lines if ln.get_marker() == "o"]
         self.assertEqual(len(dots), 2 * arms)
         per_arm = bands.groupby("trunk_bins").dataset.nunique()
         self.assertEqual(sorted(len(ln.get_xdata()) for ln in dots),
                          sorted(int(per_arm[t]) for t in rows.trunk_bins for _ in range(2)))
-        self.assertIn("Nominal 95%", [t.get_text() for t in ax_c.texts])
+        self.assertIn("Nominal 95%", [t.get_text() for t in ax_d.texts])
+        # Each strip is a swarm in which no genome hides another: dot centres a dot's diameter apart, in mm.
+        fig.canvas.draw()
+        mm = fig.dpi / 25.4
+        for ln in dots:
+            xy = ax_d.transData.transform(np.column_stack([ln.get_xdata(), ln.get_ydata()])) / mm
+            gaps = [math.dist(p, q) for k, p in enumerate(xy) for q in xy[k + 1:]]
+            self.assertGreaterEqual(min(gaps, default=math.inf), style.STRIP_MS / style.PT_PER_MM - 1e-6)
         self.assertFalse(any(t == "Median ratio" or "↑" in t for t in texts))
 
     def test_figs1_ends_both_tools_where_c_psmc_stops(self):
-        from matplotlib.collections import LineCollection
         from matplotlib.text import Text
 
-        from experiment.pipeline.figures import figs1
+        from experiment.pipeline.figures import figs1, style
         from experiment.pipeline.figures.fig2 import model_order
 
         traces = self._table("E1_traces")
         last_c = int(traces[(traces.tool == "c") & traces.loglike.notna()]["iteration"].max())
         fig = self._draw("figs1")
         shown = [ax for ax in fig.axes if ax.axison]
-        per = figs1.series(traces)
+        per, diffs = figs1.series(traces), figs1.differences(traces)
         models = model_order(per.keys())
-        self.assertEqual(len(shown), traces["model"].nunique())  # one panel per model
-        for ax, m in zip(shown, models):
-            for ln in ax.lines:
+        n = traces["model"].nunique()
+        self.assertEqual(len(shown), 2 * n)  # per model, the gains above and the differences below
+        for ax, bx, m in zip(shown[:n], shown[n:], models):
+            for ln in ax.lines:  # the gains, from iteration 1
+                self.assertGreaterEqual(min(ln.get_xdata()), 1)
                 self.assertLessEqual(max(ln.get_xdata()), last_c)
+            lines = [ln for ln in bx.lines if ln.get_color() == style.INK2]  # the differences, from iteration 0
+            self.assertEqual(len(lines), len(diffs[m]))
+            for ln in ax.lines + lines:
                 self.assertIn(ln.get_marker(), ("None", "", None))  # continuous lines carry no markers
-            # No band: the y hairlines are the only collection.
-            self.assertLessEqual(len(ax.collections), 1)
-            self.assertTrue(all(type(c) is LineCollection for c in ax.collections))
-            if per[m]["arrow"] is not None:  # the arrow's ratio, floored: a bound
-                self.assertIn(per[m]["arrow"]["label"], [t.get_text() for t in ax.texts])
+            for ln in lines:
+                self.assertEqual((min(ln.get_xdata()), max(ln.get_xdata())), (0, last_c))
+            self.assertEqual(ax.collections + bx.collections, [])  # no band, no hairlines
+            self.assertFalse([t for t in ax.texts + bx.texts if style.TIMES in t.get_text()])  # no arrows' folds
+        self.assertEqual([t.get_text() for t in shown[n].texts], ["psmc-rs higher", "C psmc higher"])
         self.assertEqual(self._labels(fig), ["C psmc", "psmc-rs"])
         self.assertFalse(any("Rounding" in t.get_text() or "psmc-rs 0." in t.get_text() for t in fig.findobj(Text)))
 

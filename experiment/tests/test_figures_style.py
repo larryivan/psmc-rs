@@ -20,8 +20,8 @@ if HAS_PLOTTING:  # the figures package, schemas too, needs matplotlib on import
     import numpy as np
     import pandas as pd
 
-    from experiment.pipeline.figures import data, fig1, fig4, fig5, fig6, figs4, style
-    from experiment.pipeline.figures.schemas import SCHEMAS
+    from experiment.pipeline.figures import art2_performance, data, fig1, fig4, fig5, fig6, fig7, figs4, style
+    from experiment.pipeline.figures.schemas import COMMITTED, SCHEMAS
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
@@ -39,12 +39,14 @@ class Style(unittest.TestCase):
     def test_neutral_chrome_and_line_weights(self):
         from matplotlib.colors import to_rgb
 
-        greys = {"INK": "#1a1a1a", "AXIS": "#404040", "INK2": "#595959", "REF": "#8c8c8c", "CONTEXT": "#c4c4c4",
+        greys = {"INK": "#1a1a1a", "AXIS": "#404040", "INK2": "#595959", "REF": "#8c8c8c", "CONTEXT": "#d9d9d9",
                  "FILL": "#e8e8e8", "GRID": "#e6e6e6", "UNDERLAY_GREY": "#d9d9d9"}
         for name, value in greys.items():
             self.assertEqual(getattr(style, name), value, name)
             r, g, b = to_rgb(value)
             self.assertTrue(r == g == b, name)  # neutral: colour belongs to the data
+        # Fig 3's context curves, light enough to part from the five superpopulations, are the neutral underlay's grey.
+        self.assertEqual(style.CONTEXT, style.UNDERLAY_GREY)
         self.assertEqual((style.LW_HAIR, style.LW_THIN, style.LW_DATA, style.LW_EMPH, style.UNDERLAY_LW),
                          (0.35, 0.5, 0.75, 1.0, 2.4))
         self.assertEqual((style.DASH, style.DOT), ((0, (2.5, 1.5)), (0, (0.8, 1.2))))
@@ -66,7 +68,8 @@ class Style(unittest.TestCase):
         self.assertEqual(style.TRUTH.color, "#1a1a1a")
         self.assertEqual(style.TRUTH.linestyle, style.DASH)
         self.assertEqual(style.C_HALO, "#f6bba4")
-        self.assertEqual(style.RS_BAND, "#dde9f8")
+        self.assertEqual(style.RS_BAND, "#caddf5")
+        self.assertEqual(style.RS_BAND, style.tint(style.BLUE, style.BAND_SHARE))  # its blue at 25% over white
         # Routes and formats reuse the same colour for the same thing.
         self.assertEqual(style.ROUTES["multihetsep"].color, style.FORMATS["multihetsep"].color)
         # psmc-rs's default (the callable-length model) is psmc-rs's blue; every called bin taken
@@ -299,10 +302,83 @@ class Style(unittest.TestCase):
         fig.canvas.draw()
         box = leg.get_window_extent(fig.canvas.get_renderer())
         self.assertAlmostEqual(box.x0, axes[0].get_window_extent().x0, delta=0.5)
-        self.assertAlmostEqual((fig.bbox.y1 - box.y1) / fig.dpi / style.MM, style.MARGIN_MM, delta=0.05)
+        # Its box 0.1 mm inside the margin, so that its round capitals ink outside it.
+        self.assertEqual(style.KEY_TOP_MM, style.MARGIN_MM + 0.1)
+        self.assertAlmostEqual((fig.bbox.y1 - box.y1) / fig.dpi / style.MM, style.KEY_TOP_MM, delta=0.05)
         self.assertEqual([t.get_text() for t in leg.get_texts()], ["Truth", "C psmc", "psmc-rs"])
         ys = {round(t.get_window_extent().y0, 1) for t in leg.get_texts()}
         self.assertEqual(len(ys), 1)  # one line
+
+    def test_top_and_bottom_of_the_axes(self):
+        # The first axes 4.6 mm below the figure's top (8.6 under a key, whose box is 1.1 mm below it), the last
+        # 7.25 mm above its bottom (7.85 under power-of-ten tick labels).
+        self.assertEqual((style.TOP_MM, style.TOP_LEGEND_MM, style.KEY_TOP_MM, style.BOTTOM_MM, style.BOTTOM_POW10_MM),
+                         (4.6, 8.6, 1.1, 7.25, 7.85))
+
+    @unittest.skipUnless(has_font("Arial"), "the margins are measured in Arial, the house font")
+    def test_first_row_letters_ink_outside_the_margin_at_any_height(self):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        # Agg rounds the canvas height down at its top, so the letter's distance from the edge depends on the
+        # figure's fractional pixel height: a bold 'b' at TOP_MM stays 24 pixel rows (1.02 mm) clear at 600 dpi.
+        px_per_mm = style.PNG_DPI / 25.4
+        for frac in (0.0, 0.2, 0.4, 0.6, 0.8, 0.99):
+            h_mm = (round(30.0 * px_per_mm) + frac) / px_per_mm
+            with self.subTest(fraction=frac):
+                fig = style.figure("single", h_mm, dpi=style.PNG_DPI)
+                style.panel_letter(fig, style.LETTER_X_MM, style.TOP_MM - style.TITLE_RISE_MM, "b")
+                canvas = FigureCanvasAgg(fig)
+                canvas.draw()
+                rgba = np.asarray(canvas.buffer_rgba())
+                ink = np.nonzero((rgba[:, :, :3] < 250).any(axis=(1, 2)))[0]
+                self.assertGreaterEqual(int(ink.min()), 24)
+
+    def test_tick_labels_in_tenths_carry_the_step_decimals(self):
+        fmt = style.plain_formatter(decimals=1)
+        self.assertEqual([fmt(v, None) for v in (0.6, 0.9999999999, 1.0, 0.0, -0.0, -0.2)],
+                         ["0.6", "1.0", "1.0", "0.0", "0.0", "−0.2"])  # no minus at zero; U+2212 elsewhere
+        self.assertEqual([style.plain_formatter()(v, None) for v in (1.0, 0.5, 1500.0)], ["1", "0.5", "1,500"])
+
+    def test_on_baseline_lowers_mathtext_in_the_vector_outputs_only(self):
+        def draw(fix: bool):
+            fig = style.figure("single", 20)
+            t = style.fig_text(fig, 10.0, 10.0, "Title " + style.NE, ha="left", va="baseline")
+            if fix:
+                self.assertIs(style.on_baseline(t), t)
+                draw_once = t.draw
+                self.assertIs(style.on_baseline(t), t)  # a second call changes nothing
+                self.assertIs(t.draw, draw_once)
+                self.assertTrue(t._house_on_baseline)
+            return fig
+
+        with tempfile.TemporaryDirectory() as d:
+            plain = {p.suffix: p.read_bytes() for p in style.save(draw(False), Path(d) / "plain", "f", dpi=200)}
+            fixed = {p.suffix: p.read_bytes() for p in style.save(draw(True), Path(d) / "fixed", "f", dpi=200)}
+        self.assertEqual(plain[".png"], fixed[".png"])  # Agg sets mathtext on its baseline already
+        self.assertNotEqual(plain[".pdf"], fixed[".pdf"])
+        self.assertNotEqual(plain[".svg"], fixed[".svg"])
+
+    def test_leaders_and_dense_strips(self):
+        # A label's leader through white space: a solid reference-grey hairline. An arrow's leader across the
+        # data: dotted, at the axes' weight and grey.
+        self.assertEqual(style.LABEL_LEADER_KW, {"color": style.REF, "linewidth": style.LW_HAIR, "linestyle": "-"})
+        self.assertEqual(style.LEADER_KW, {"color": style.AXIS, "linewidth": style.LW_THIN, "linestyle": style.DOT})
+        self.assertEqual(style.STRIP_EDGE_LW, 0.25)  # the white edge of a point in a dense strip
+
+    def test_the_exceptions_style_names_in_other_modules_exist(self):
+        import importlib
+        import re
+
+        # style's closed vocabulary names the values a figure keeps in its own module: a rename there would make
+        # the docstring false.
+        doc = " ".join(style.__doc__.split())
+        cited = re.findall(r"``(\w+)\.([A-Z_]+)``", doc)
+        cited.append(("art2_performance", "COHORT_BAR_HALF"))  # named bare, after art2_performance.COHORT_MS
+        self.assertIn(("fig5", "MEDIAN_EDGE_PT"), cited)
+        for module, name in cited:
+            with self.subTest(name=f"{module}.{name}"):
+                self.assertTrue(hasattr(importlib.import_module(f"experiment.pipeline.figures.{module}"), name))
+        self.assertIn("``COHORT_BAR_HALF``", doc)
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
@@ -401,7 +477,7 @@ class Schemas(unittest.TestCase):
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class FigureContent(unittest.TestCase):
-    """What Figs 1, 5 and 6 draw, without the experiments' tables."""
+    """What Figs 1, 5, 6 and 7 draw, without the experiments' tables."""
 
     def test_fig1_shows_the_callable_length_model_and_the_fit_feeds_the_outputs(self):
         from matplotlib.colors import to_hex
@@ -462,6 +538,14 @@ class FigureContent(unittest.TestCase):
             self.assertEqual({m for m, _ in masks[1:]}, {m.name for m in cfg.masks if m.structure == structure})
         self.assertEqual(fig5.example_mask(cfg, pd.DataFrame({"mask": [m.name for m in cfg.masks]})),
                          config.FIGURES.e4_example_mask)
+        # b: the dispersed runs first, beside a's example; each facet titled by what its masks do to the bins, as
+        # the weighted fits measure it at its largest missing fraction.
+        self.assertEqual(fig5.STRUCTURES, ("dispersed", "clustered"))
+        routes = pd.DataFrame([("dispersed30", "mask_auto", 1, 0.92, 0.008), ("clustered30", "mask_auto", 1, 0.004, 0.30)],
+                              columns=["mask", "route", "replicate", "partly_callable_fraction", "missing_bin_fraction"])
+        self.assertEqual(fig5.facet_title(routes, cfg, "dispersed"), "Dispersed: bins partly callable")
+        self.assertEqual(fig5.facet_title(routes, cfg, "clustered"), "Clustered: whole bins missing")
+        self.assertEqual(fig5.facet_title(routes.iloc[:0], cfg, "clustered"), "Clustered")
 
     def test_fig6_recomputes_each_genomes_coverage_and_checks_it(self):
         def summary(**kw):  # an E5_summary row, as fig6 reads it
@@ -490,6 +574,32 @@ class FigureContent(unittest.TestCase):
         self.assertEqual(labels, ["60 blocks" + fig6.RATIO_SEP + "1.31×",
                                   fig6.FIGURE_SPACE + "6 blocks" + fig6.RATIO_SEP + "0.93×"])
         self.assertEqual((fig6.FIGURE_SPACE, fig6.RATIO_SEP), ("\u2007", "\u00a0\u00a0"))
+        # d's swarm: dots of one height step aside, nearest the centre first (left first); apart, they stay put.
+        np.testing.assert_allclose(fig6._swarm([0.0, 0.0, 0.0]), [0.0, -0.85, 0.85])
+        np.testing.assert_allclose(fig6._swarm([0.0, 5.0, 10.0]), [0.0, 0.0, 0.0])
+        # The stretches a steps-mid line holds one value over, which c's names are placed in.
+        self.assertEqual(fig6._runs([1, 2, 3, 4], [5, 5, 1, 1]), [(5.0, 1.0, 2.5), (1.0, 2.5, 4.0)])
+
+    def test_fig7_reads_the_first_window_from_the_pattern(self):
+        fits = pd.DataFrame({"sample_id": ["S1", "S2"], "route": "rs-psmcfa", "population": ["YRI", "CEU"],
+                             "superpopulation": ["AFR", "EUR"], "pattern": ["4+25*2+4+6", "1+1+1+1+25*2+4+6"]})
+        years = [0.0, 1e3, 2e3, 4e3, 8e3, 16e3, 32e3, 64e3]
+        curves = pd.DataFrame([(sid, "rs-psmcfa", k, y, 1e4) for sid in ("S1", "S2") for k, y in enumerate(years)],
+                              columns=["sample_id", "route", "interval", "years", "ne"])
+        got = fig7.genome_fits(fits, curves)
+        # The first window is the pattern's first free lambda: four intervals, or one once it is split.
+        self.assertEqual((got["S1"].first, got["S2"].first), (4, 1))
+        self.assertEqual((got["S1"].first_end, got["S2"].first_end), (years[4], years[1]))
+        self.assertEqual((got["S1"].population, got["S2"].superpopulation), ("YRI", "EUR"))
+        # A median turns full at the first time of the grid after 90% of its genomes have left their first window.
+        ends = [10.0, 20.0, 30.0, 40.0, 50.0]
+        group = {f"S{k}": fig7.GenomeFit("P", "S", [0.0, e], [1.0, 1.0], 1) for k, e in enumerate(ends)}
+        self.assertEqual(fig7.SPLIT_QUANTILE, 0.9)
+        q = float(np.quantile(ends, 0.9))  # 46
+        split = fig7.first_window_splits(group, np.arange(1.0, 101.0))
+        self.assertEqual(split, {("population", "P"): 47.0, ("superpopulation", "S"): 47.0})
+        # On a grid that ends before the quantile, the quantile itself.
+        self.assertEqual(fig7.first_window_splits(group, [1.0, 2.0, 40.0])[("population", "P")], q)
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
@@ -501,11 +611,111 @@ class Readme(unittest.TestCase):
             self.assertEqual(len(rows), 1, s.file)
             for col in s.names:
                 self.assertIn(f"`{col}`", rows[0], f"{s.file}: {col}")
+        # The tables committed outside the runs directory, at their path in the repository.
+        self.assertTrue(COMMITTED)
+        for key, c in COMMITTED.items():
+            rows = [line for line in text.splitlines() if line.startswith(f"| `experiment/{c.file}`")]
+            self.assertEqual(len(rows), 1, key)
+            for col in c.names:
+                self.assertIn(f"`{col}`", rows[0], f"{key}: {col}")
+            self.assertTrue(c.path().exists(), c.path())
 
 
 @unittest.skipUnless(HAS_PLOTTING, "numpy, pandas and matplotlib are needed")
 class Performance(unittest.TestCase):
-    """Figs 4 and S4 (E3): thread counts and the ceiling of the thread scaling."""
+    """The article's Fig 2 and Figs 4 and S4 (E3): thread counts and the ceiling of the thread scaling."""
+
+    TH = [1, 2, 4, 8, 16, 30]  # the production's thread counts
+    MEM = [36, 39, 47, 59, 88, 148]
+
+    def _time_panel(self, th, one=(10.47, 100.0)):
+        """a of the article's Fig 2 on a production-like thread scaling: its axes and its times."""
+        import matplotlib.pyplot as plt
+
+        th = np.asarray(th, dtype=float)
+        wall = 317.0 / th * np.where(th > 1, 1.05, 1.0)
+        fig = style.figure("double", 55, dpi=style.PNG_DPI)
+        self.addCleanup(plt.close, fig)
+        ax = fig.add_subplot(111)
+        art2_performance._panel_time(ax, th, wall, 4456.0 / wall, 4456.0, 0.885, one)
+        return ax, th, wall
+
+    def test_art2_reference_lines_follow_the_thread_span(self):
+        # Over the production's 1-30 threads: perfect scaling, solid, and one chromosome's time, dotted, both grey.
+        ax, th, wall = self._time_panel(self.TH)
+        texts = [t.get_text() for t in ax.texts]
+        self.assertIn("Perfect scaling", texts)
+        self.assertIn("One 100 Mb chromosome", texts)
+        ref = [ln for ln in ax.lines if ln.get_color() == style.REF]
+        self.assertEqual(len(ref), 2)
+        solid = next(ln for ln in ref if ln.get_linestyle() == "-")
+        dotted = next(ln for ln in ref if ln.get_linestyle() != "-")
+        self.assertEqual(dotted._unscaled_dash_pattern, style.DOT)
+        self.assertAlmostEqual(float(solid.get_ydata()[-1]), 317.0 / 30)  # the one-thread time over 30
+        self.assertEqual(ax.get_ylim()[0], 5.0)
+        self.assertEqual(len([t for t in texts if t.endswith(" faster")]), 2)  # on one thread and on the most
+        # Over 1 and 2 threads (the small profiles) neither line nor the second arrow has room.
+        ax, _, _ = self._time_panel([1, 2])
+        texts = [t.get_text() for t in ax.texts]
+        self.assertNotIn("Perfect scaling", texts)
+        self.assertFalse([t for t in texts if "chromosome" in t])
+        self.assertFalse([ln for ln in ax.lines if ln.get_color() == style.REF])
+        self.assertEqual(len([t for t in texts if t.endswith(" faster")]), 1)
+        self.assertEqual(ax.get_ylim()[0], 100.0)
+        # Without E3's genome of one chromosome, perfect scaling alone.
+        ax, _, _ = self._time_panel(self.TH, one=None)
+        self.assertEqual(len([ln for ln in ax.lines if ln.get_color() == style.REF]), 1)
+        self.assertFalse([t for t in ax.texts if "chromosome" in t.get_text()])
+
+    def test_art2_arrow_tips_leave_the_same_white(self):
+        # Each tip stops TIP_CLEAR_PT short of what it points at: psmc-rs's circle below; C psmc's square on one
+        # thread, but only the end of its line on the most.
+        ax, _, _ = self._time_panel(self.TH)
+        arrows = sorted((t for t in ax.texts if t.arrowprops), key=lambda t: t.xy[0])
+        clear = art2_performance.TIP_CLEAR_PT
+        self.assertEqual([(t.arrowprops["shrinkA"], t.arrowprops["shrinkB"]) for t in arrows],
+                         [(clear + style.MARKER_MS / 2, clear + style.MARKER_MS / 2),
+                          (clear + style.LW_DATA / 2, clear + style.MARKER_MS / 2)])
+
+    def test_art2_names_and_values_are_joined_by_no_break_spaces(self):
+        # An SVG collapses two ASCII spaces into one ('C psmc 74.3 min'): name and value are joined by two U+00A0.
+        import matplotlib.pyplot as plt
+
+        A = art2_performance
+        a, _, _ = self._time_panel(self.TH)
+        fig = style.figure("double", 55, dpi=style.PNG_DPI)
+        self.addCleanup(plt.close, fig)
+        b = fig.add_subplot(111)
+        A._panel_memory(b, np.asarray(self.TH, dtype=float), self.MEM, 1062.0, *A._memory_axis(self.MEM, 1062.0))
+        texts = [t.get_text() for ax in (a, b) for t in ax.texts]
+        named = [t for t in texts if t.startswith(("C psmc", "psmc-rs"))]
+        self.assertEqual(len(named), 4)
+        self.assertTrue(all(A.NAME_GAP in t for t in named), named)
+        self.assertEqual(A.NAME_GAP, "\u00a0\u00a0")
+        self.assertFalse([t for t in texts if "  " in t])
+
+    def test_art2_c_psmc_level_lines_up_across_the_row(self):
+        # C psmc's line in a and b and its median in c stand at one height of their axes.
+        import matplotlib.pyplot as plt
+
+        A = art2_performance
+        th = np.asarray(self.TH, dtype=float)
+        wall = 317.0 / th * np.where(th > 1, 1.05, 1.0)
+        step, ticks, top = A._memory_axis(self.MEM, 1062.0)
+        c_frac = 1062.0 / top
+        fig = style.figure("double", 55, dpi=style.PNG_DPI)
+        self.addCleanup(plt.close, fig)
+        a, b, c = (fig.add_subplot(1, 3, k) for k in (1, 2, 3))
+        A._panel_time(a, th, wall, 4456.0 / wall, 4456.0, c_frac, (10.47, 100.0))
+        A._panel_memory(b, th, self.MEM, 1062.0, step, ticks, top)
+        c_min = np.array([78, 82, 86, 88, 90, 92, 95.0])
+        A._panel_cohort(c, c_min * 60.0, np.linspace(5.8, 6.8, 40) * 60.0, c_frac)
+        lo, hi = a.get_ylim()
+        in_b = 1062.0 / b.get_ylim()[1]
+        self.assertAlmostEqual(math.log(4456.0 / lo) / math.log(hi / lo), in_b, places=6)
+        bar = next(ln for ln in c.lines if abs(float(np.mean(ln.get_xdata()))) < 1e-9)  # C psmc's median bar
+        self.assertAlmostEqual(float(bar.get_ydata()[0]) / c.get_ylim()[1], in_b, places=6)
+        self.assertAlmostEqual(float(bar.get_ydata()[0]), float(np.median(c_min)))
 
     def test_fig4_draws_each_thread_count_of_a_tool_in_its_own_style(self):
         cfg = config.PRODUCTION.e3

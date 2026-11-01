@@ -3,7 +3,8 @@
 Every figure module draws through this module, so the six figures of the
 article and its supplement read as one set. The style is a **closed
 vocabulary**: anything a figure needs that is not named here needs a
-written reason beside its constant here.
+written reason here, beside its constant (or beside its name, for a value
+one figure keeps in its own module).
 
 The figures are designed and checked at their print size, 183 mm (the
 manuscript places them at 100%, never scaled).
@@ -21,12 +22,28 @@ manuscript places them at 100%, never scaled).
   a 7 pt N_e's subscript 5.9 pt: **no text is below :data:`MIN_TEXT_PT`
   (5 pt)**, the journal's minimum (:func:`small_text` finds any in a
   written SVG). PDF and SVG keep text as text (TrueType, fonttype 42; SVG
-  ``svg.fonttype = none``).
+  ``svg.fonttype = none``). There matplotlib sets mathtext up to 1 pt above
+  its baseline; :func:`on_baseline` puts a mathtext text that shares a
+  baseline or a column with other text back on it, as the PNG has it.
 * **Notation.** One spelling per quantity, matching the article: italic
   variables through :data:`NE`, :data:`LOGNE` and :data:`THETA`; U+2212
   for every minus (:data:`MINUS`), U+00D7 for times and fold changes
   written ``14.1×`` (:data:`TIMES`), U+2013 for ranges;
-  units in the axis label, never in tick labels.
+  units in the axis label, never in tick labels, except on a wall-time
+  axis: its ticks carry their unit (10 s, 1 min, 1 h; :func:`fmt_seconds`),
+  because on a log axis of seconds 60, 600 and 3,600 would hide the minute
+  and the hour. Tick labels have the fewest decimals (:func:`fmt_num`),
+  except on a linear axis stepped in tenths or hundredths: there every tick
+  carries the step's decimals (0.6 to 1.0, not 0.6 to 1;
+  ``plain_formatter(decimals=1)``), so that the column is even and no tick
+  reads as another kind of number. An axis whose ticks are symmetric about
+  zero may print zero as 0 (Fig S1's −0.05, 0, 0.05).
+* **Fold changes.** The number first, then × (14.1×, 0.65×). A double
+  arrow (:data:`ARROW_PROPS`) marks a gap between two things, a single
+  arrow (:data:`SCALE_ARROW_PROPS`) a scaling. An article figure's headline
+  fold, its message, is 7 pt bold :data:`INK` with its verb (14.1× faster,
+  7,000× smaller; :data:`FOLD_HEADLINE`); any other fold is a 6 pt regular
+  label in :data:`INK` (:func:`direct_label`).
 * **Log axes.** Sizes and times are plain numbers in thousands
   (:func:`ne_axis`, :func:`years_axis`, :func:`thousands_axis`): ticks 1,
   10, 100, 1,000 under the labels :data:`NE_LABEL` and :data:`YEARS_LABEL`;
@@ -40,12 +57,15 @@ manuscript places them at 100%, never scaled).
   notes, :data:`REF` reference lines (zero, y = x, nominal 95%, perfect
   scaling), :data:`CONTEXT` context curves, :data:`FILL` the one neutral
   band, :data:`GRID` hairlines. :data:`UNDERLAY_GREY` is the underlay of a
-  neutral reference (see the underlay rule).
-* **Line weights.** :data:`LW_HAIR` 0.35 pt (minor ticks, leaders, grid,
-  the edges of a second interval); :data:`LW_THIN` 0.5 pt (axes, reference
-  lines, replicate and context curves); :data:`LW_DATA` 0.75 pt (every data
-  line, the truth included); :data:`LW_EMPH` 1.0 pt (at most one emphasised
-  summary per panel); :data:`UNDERLAY_LW` 2.4 pt (a pale underlay only).
+  neutral reference (see the underlay rule), the same grey as
+  :data:`CONTEXT`.
+* **Line weights.** :data:`LW_HAIR` 0.35 pt (minor ticks, a label's
+  leader, grid, the edges of a second interval, Fig 3's individual
+  genomes); :data:`LW_THIN` 0.5 pt (axes, reference lines, replicate and
+  context curves, rings, an arrow's leaders); :data:`LW_DATA` 0.75 pt
+  (every data line, the truth included); :data:`LW_EMPH` 1.0 pt (at most
+  one emphasised summary per panel); :data:`UNDERLAY_LW` 2.4 pt (a pale
+  underlay only).
   Nothing else. Hierarchy, heaviest first: the message series, the
   comparison or reference series, annotations, axes, grid.
 * **The underlay rule.** Where two curves coincide, the reference is a
@@ -53,49 +73,106 @@ manuscript places them at 100%, never scaled).
   its own colour, :data:`C_HALO` for C psmc, :data:`UNDERLAY_SHARE` of the
   colour otherwise) and the tested curve a thin saturated line on top
   (:func:`overlay_kw`). Never a dashed line over a solid one of similar
-  weight. Legend keys use exactly the drawn widths and colours
-  (:func:`handle` with ``kind="underlay"``).
+  weight. The truth is the exception: its dashed line (:func:`truth_kw`)
+  lies over every curve it meets, as in Fig S3c, where the coverage of the
+  truth lies over that of the fits' mean where the two are equal; the rule
+  is about two compared curves. Legend keys use exactly the drawn widths
+  and colours (:func:`handle` with ``kind="underlay"``).
 * **Dashes.** Two patterns: :data:`DASH` for the truth (:func:`truth_kw`:
-  0.75 pt :data:`INK`, drawn on top) and the admixed populations of the
-  1000 Genomes figure, and :data:`DOT` for leaders and secondary reference
-  lines. matplotlib scales a pattern by the line's width.
+  0.75 pt :data:`INK`, drawn on top), and :data:`DOT` for an arrow's
+  leaders and secondary reference lines. matplotlib scales a pattern by
+  the line's width. (The 1000 Genomes figure marks its admixed populations
+  with an asterisk after their code, not with a dash.)
+* **Leaders.** A label's leader, a few millimetres through white space from
+  a name to the mark it names (Fig 3's population names), is a solid
+  :data:`LW_HAIR` line in :data:`REF` (:data:`LABEL_LEADER_KW`). A leader
+  that carries an arrow's end across the data to a mark it measures (Fig
+  1e's fold, from its arrow to the two medians) is dotted, :data:`LW_THIN`
+  in :data:`AXIS` (:data:`LEADER_KW`): a :data:`REF` hairline vanished
+  there at print size among the points it crosses, and dotted it stays
+  lighter than the solid arrow it extends.
 * **Bands.** Opaque tints only, never alpha (alpha blends to violet under
   the orange underlay and makes legend keys that differ from the fill):
-  :data:`RS_BAND` for psmc-rs's band (:func:`band_kw`), :data:`FILL` for a
-  neutral one, at most one filled band per panel; a second interval is
-  drawn as :data:`LW_HAIR` edges in its line's colour.
+  :data:`RS_BAND` for psmc-rs's band (:func:`band_kw`; Figs 1c-d and S3a),
+  its blue at :data:`BAND_SHARE` (25%) over white, because the band must
+  read beside 0.5 pt grey lines and under C psmc's pale-orange underlay (at
+  16% it faded beside both at print size); :data:`FILL` for a neutral one,
+  at most one filled band per panel; a second interval is drawn as
+  :data:`LW_HAIR` edges in its line's colour.
   The legend key of a band is the plotted fill itself.
+* **The one alpha of the article figures** is Fig 3's halo of individual
+  genomes (:func:`cloud_kw`): each genome a :data:`LW_HAIR` line in its
+  superpopulation's colour at :data:`CLOUD_SHARE` (45%) over white, at
+  alpha :data:`CLOUD_ALPHA` (0.07), rasterized at :data:`PNG_DPI` in the PDF
+  and SVG. The reasons for opaque tints do not hold there: the density of
+  the overlapping lines is the information, and only alpha shows it; no
+  other hue lies beneath them (the grey context is below, the medians on
+  top); and the halo has no legend key.
+* **Fig 3's first window.** A fit's first PSMC window (its first free λ,
+  a single parameter for the four most recent intervals, which one genome
+  constrains poorly) is drawn in its colour's :data:`FIRST_WINDOW_SHARE`
+  (50%) tint (:func:`tint`) at the same weight, just beneath the rest of
+  the curve. Fig 1 draws it in full colour, because there the point is
+  that the two programs agree on it too.
 * **Grids.** None on N_e(t) or other time-series panels (every helper's
   default). :data:`GRID` hairlines on the value axis only where values are
   read off (bars and timings).
 * **Markers.** psmc-rs a filled circle, C psmc a filled square, anything
   else a filled circle; no edge and no alpha. :data:`MARKER_MS` (3.0 pt) on
-  line-and-marker plots, :data:`STRIP_MS` (2.4 pt) in strip plots.
+  line-and-marker plots, :data:`STRIP_MS` (2.4 pt) in strip plots,
+  :data:`REPLICATE_MS` (1.6 pt) for replicates behind a median.
   Continuous lines never carry markers. Strip plots: jitter
-  ±:data:`STRIP_JITTER` of a category, a :data:`LW_DATA` :data:`INK`
-  summary bar ±:data:`STRIP_BAR_HALF`, differences in :data:`INK2`.
+  ±:data:`STRIP_JITTER` of a category or, for a few points whose values
+  cluster, a deterministic swarm within that width in which no point
+  overlaps another (Fig S3d); a :data:`LW_DATA` :data:`INK` summary bar
+  ±:data:`STRIP_BAR_HALF`; differences in :data:`INK2`. A ring
+  (:func:`ring_kw`: an unfilled :data:`INK` circle of :data:`RING_S`,
+  :data:`LW_THIN`) marks a point that another panel draws (Fig 1e's
+  genomes of a-d). The written exceptions: points that overlap in a dense
+  strip (Fig 1e, Fig 2c's squares) carry a :data:`STRIP_EDGE_LW` (0.25 pt)
+  white edge that keeps them apart; Fig 2c's psmc-rs points, one per
+  genome of the cohort, are 1.7 pt (``art2_performance.COHORT_MS``) and
+  its bars span only the jitter (``COHORT_BAR_HALF``), so that the band of
+  points, about 1 mm tall, shows around its median bar; Fig S2b's medians
+  carry a 0.5 pt white edge (``fig5.MEDIAN_EDGE_PT``) that keeps each
+  apart from its line, its replicates and the other route's median
+  0.73 mm away, and its 1.6 pt replicate dots take their colour at 55%
+  (``fig5.REPLICATE_SHARE``), as at :data:`REPLICATE_ALPHA` so small a dot
+  fades into the white.
 * **Layout** (millimetres, shared by all six figures): outer ink margin
   :data:`MARGIN_MM`; first left spine at :data:`LEFT_MM`; right margin
-  :data:`RIGHT_MM`; column gutters :data:`GUTTER_MM` (each panel has y tick
-  labels) or :data:`GUTTER_SHARED_MM` (y shared and hidden); row gaps
+  :data:`RIGHT_MM`; first axes top :data:`TOP_MM` below the figure's top
+  (:data:`TOP_LEGEND_MM` under a key), so that the first row's letters ink
+  outside the margin; last axes bottom :data:`BOTTOM_MM` above the figure's
+  bottom (:data:`BOTTOM_POW10_MM` under power-of-ten tick labels); column
+  gutters :data:`GUTTER_MM` (each panel has y tick labels) or
+  :data:`GUTTER_SHARED_MM` (y shared and hidden); row gaps
   :data:`ROW_GAP_MM` under x tick labels, :data:`ROW_GAP_TITLED_MM` under an
   x label (letters and titles sit above every row); N_e(t) panels between
   :data:`NE_ASPECT` w:h. Within a row the x and y limits are identical, on
   round 1-2-5 values, with one axis label per row (:func:`row_xlabel`).
+  A module that places anything by measured text (window extents, tight
+  bounding boxes) measures it as it prints, its figure at the output's
+  :data:`PNG_DPI` (``figure(..., dpi=PNG_DPI)``): at matplotlib's default
+  100 dpi Agg's hinted metrics are off by up to 14% (6 pt digits narrower,
+  7 pt words wider; Fig 2's y label once printed 0.47 mm from the edge),
+  at 600 dpi within about 1% of the PDF's. Metrics read without hinting
+  (:class:`~matplotlib.textpath.TextPath`) need no such care.
 * **Letters, titles, legends.** Every first-column letter sits at
   :data:`LETTER_X_MM` from the figure's edge, the others at the left edge of
-  their panel's ink, aligned in columns (:func:`panel_letters`). A letter
-  shares its baseline with its panel's title, :data:`TITLE_RISE_MM` above
-  the axes (:func:`panel_title`: 7 pt :data:`INK`, left-aligned with the
-  left spine). A key, when the data cannot be labelled directly, is one
-  line at the figure's top, left-aligned with the first left spine
-  (:func:`top_legend`), at most four words per entry, no numbers and no
-  panel references (the caption holds those).
+  their panel's ink, aligned in columns (:func:`panel_letters`). Every
+  panel of the paper's six figures has a title, which shares its letter's
+  baseline, :data:`TITLE_RISE_MM` above the axes (:func:`panel_title`: 7 pt
+  :data:`INK`, left-aligned with the left spine). A key, when the data
+  cannot be labelled directly, is one line at the figure's top, its box
+  :data:`KEY_TOP_MM` below the figure's edge, left-aligned with the first
+  left spine (:func:`top_legend`), at most four words per entry, no
+  numbers and no panel references (the caption holds those).
 * **Colour follows the entity in every figure** (checked with an external
   palette validator, not in this repository; contrast on white in brackets):
 
   ===============  =========  =================================================
-  psmc-rs          #2a78d6    blue (4.4:1); its band :data:`RS_BAND` #dde9f8
+  psmc-rs          #2a78d6    blue (4.4:1); its band :data:`RS_BAND` #caddf5
   C psmc           #eb6834    orange (3.2:1); its underlay :data:`C_HALO`
                               #f6bba4
   truth            #1a1a1a    :data:`INK`, dashed
@@ -113,8 +190,13 @@ manuscript places them at 100%, never scaled).
   :data:`RASPBERRY` #c94f80 4.3:1), so colour carries them without
   markers. The 1000 Genomes superpopulations (:data:`SUPERPOP_COLORS`) take
   five hues apart from blue and orange (South Asia sienna #a0522d, not a
-  second green); :data:`SUPERPOP_TEXT` are their text colours.
-  **One exception to ink-coloured text:** a figure without a legend may
+  second green); :data:`SUPERPOP_TEXT` are their text colours. The grey of
+  Fig 3's context curves (:data:`CONTEXT`) stays apart from all five: in
+  greyscale by at least ΔL* 14.8 (CIELAB; AFR amber), and under any of the
+  three colour-vision deficiencies by at least ΔE 16.3 (deuteranopia, EUR
+  pink; the validator's ΔE: OKLab distance × 100 after Machado et al.
+  2009's full-severity simulation).
+  **One exception to ink-coloured text:** a panel without a legend may
   name a series in the series' text colour (:data:`ORANGE_TEXT`,
   :data:`BLUE_TEXT`, :data:`SUPERPOP_TEXT`: the mark colour, or a darker
   step of it where the mark is below 4.3:1 on white), because there the
@@ -174,8 +256,8 @@ YEARS_LABEL = "Thousands of years ago"  # every N_e(t) time axis (years_axis)
 # Line weights: four weights and one underlay width
 # ---------------------------------------------------------------------------
 
-LW_HAIR = 0.35  # minor ticks, leaders, grid, the edges of a second interval
-LW_THIN = 0.5  # axes, reference lines, replicate and context curves
+LW_HAIR = 0.35  # minor ticks, a label's leader, grid, the edges of a second interval
+LW_THIN = 0.5  # axes, reference lines, replicate and context curves, an arrow's leaders
 LW_DATA = 0.75  # every data line, the truth included
 LW_EMPH = 1.0  # at most one emphasised summary per panel
 UNDERLAY_LW = 2.4  # the pale underlay of a reference curve (the underlay rule)
@@ -198,8 +280,11 @@ SURFACE = "#ffffff"
 INK = "#1a1a1a"  # all text, tick labels included; the truth
 AXIS = "#404040"  # spines and ticks
 INK2 = "#595959"  # secondary notes; differences in strip plots
-REF = "#8c8c8c"  # reference lines (y = 0, y = x, nominal 95%, perfect scaling), leaders
-CONTEXT = "#c4c4c4"  # context curves (e.g. the other populations)
+REF = "#8c8c8c"  # reference lines (y = 0, y = x, nominal 95%, perfect scaling), a label's leaders
+# Context curves (Fig 3's other superpopulations), the same grey as UNDERLAY_GREY. Lighter than the #c4c4c4 it
+# replaces, so that it parts from the superpopulations' colours: in greyscale (CIELAB) Delta L* 14.8 from AFR amber,
+# was 7.3; under deuteranopia Delta E 16.3 from EUR pink, was 9.8 (OKLab x 100, Machado et al. 2009, full severity).
+CONTEXT = "#d9d9d9"
 FILL = "#e8e8e8"  # the one neutral band
 GRID = "#e6e6e6"  # hairline grid, where values are read off
 # The underlay of a neutral reference curve (e.g. complete data): black at
@@ -211,14 +296,27 @@ UNDERLAY_GREY = "#d9d9d9"
 # Dashes, bands, markers
 # ---------------------------------------------------------------------------
 
-DASH = (0, (2.5, 1.5))  # the truth (and admixed populations)
-DOT = (0, (0.8, 1.2))  # leaders and secondary reference lines
+DASH = (0, (2.5, 1.5))  # the truth (Fig 3 marks admixed populations with an asterisk, not a dash)
+DOT = (0, (0.8, 1.2))  # an arrow's leaders (LEADER_KW) and secondary reference lines
 
-BAND_SHARE = 0.16  # an entity's band: its colour at 16% over white, opaque
+# An entity's band: its colour at 25% over white, opaque (RS_BAND for psmc-rs: Fig 1c-d, Fig S3a). The band must
+# read beside 0.5 pt grey lines and under C psmc's 2.4 pt pale-orange underlay; at 16% (#dde9f8) it faded beside
+# both at print size.
+BAND_SHARE = 0.25
 UNDERLAY_SHARE = 0.30  # the underlay of a reference variant: its colour at 30%
 C_HALO_SHARE = 0.45  # C psmc's underlay: orange at 30% no longer reads as orange
 REPLICATE_ALPHA = 0.35  # thin replicate lines in an entity's colour (see tint), opaque
 BAND_ALPHA = 0.18  # former alpha of bands, pipeline-only figures; article figures use band_kw
+# The one alpha of the article figures, Fig 3's halo of individual genomes (cloud_kw): each genome a LW_HAIR line in
+# its superpopulation's colour at 45% over white, at alpha 0.07, rasterized. Its density is the information, which
+# only alpha shows; nothing of another hue lies beneath it (the grey context is below, the medians on top); and it
+# has no legend key: so the reasons for opaque tints do not hold there.
+CLOUD_SHARE = 0.45
+CLOUD_ALPHA = 0.07
+# Fig 3 only: a fit's first PSMC window (its first free lambda, a single parameter for the four most recent
+# intervals, which one genome constrains poorly) in its colour at 50% over white. Fig 1 keeps it in full colour:
+# there the point is that the two programs agree on it too.
+FIRST_WINDOW_SHARE = 0.5
 
 MARKER_MS = 3.0  # markers of a line-and-marker plot (e.g. timings)
 STRIP_MS = 2.4  # points of a strip plot
@@ -227,10 +325,29 @@ STRIP_MS = 2.4  # points of a strip plot
 REPLICATE_MS = 1.6
 STRIP_JITTER = 0.15  # vertical (or horizontal) jitter of a strip, in categories
 STRIP_BAR_HALF = 0.3  # half-length of a strip's summary bar, in categories
+# The white edge of a point in a dense strip (Fig 1e, Fig 2c's squares), an exception to edgeless markers: where
+# hundreds of points overlap, it keeps each one a point instead of merging them into a blot.
+STRIP_EDGE_LW = 0.25
+# A ring marks a point that another panel draws (Fig 1e's genomes of a-d; ring_kw): an unfilled INK circle,
+# LW_THIN, of 3.2 times a strip point's area (scatter size, pt^2): 4.3 pt across, around a 2.4 pt point.
+RING_S = STRIP_MS ** 2 * 3.2
 
 # A double-headed arrow marking a gap (e.g. the fold change between two medians).
 ARROW_PROPS = {"arrowstyle": "<|-|>", "linewidth": LW_THIN, "color": AXIS, "mutation_scale": 5.0,
                "shrinkA": 0.0, "shrinkB": 0.0}
+# A single-headed arrow marking a scaling (Fig S2a: taking partly callable bins as full scales theta, and with it
+# every size and time).
+SCALE_ARROW_PROPS = {**ARROW_PROPS, "arrowstyle": "-|>"}
+# Leaders: ax.plot keywords. A label's leader runs a few mm through white space from a name to the mark it names
+# (Fig 3's population names), where a hairline reads. An arrow's leader carries an arrow's end across the data to a
+# mark it measures (Fig 1e's fold, from its arrow to the two medians): a REF hairline vanished there at print size
+# among the points it crosses, so it is LW_THIN in the spines' grey, and dotted so that it stays lighter than the
+# solid arrow it extends.
+LABEL_LEADER_KW = {"color": REF, "linewidth": LW_HAIR, "linestyle": "-"}
+LEADER_KW = {"color": AXIS, "linewidth": LW_THIN, "linestyle": DOT}
+# An article figure's headline fold, its message, with its verb (14.1x faster, 7,000x smaller): text keywords. The
+# number comes first, then TIMES; any other fold is a 6 pt regular label in INK (direct_label).
+FOLD_HEADLINE = {"fontsize": TEXT_PT, "fontweight": "bold", "color": INK}
 
 PNG_DPI = 600
 
@@ -241,11 +358,24 @@ PNG_DPI = 600
 MARGIN_MM = 1.0  # outer ink margin on every side
 LEFT_MM = 11.0  # the first left spine (fits a 6 pt '1,000' and a 7 pt y label)
 RIGHT_MM = 1.5  # right edge of the last axes to the figure's edge
-# Measured at these rc settings: a letter (and a title) reaches 3.55 mm above
-# its axes, x tick labels 3.6 mm below them and an x label 6.25 mm below them.
-TOP_MM = 4.5  # figure top to the first axes top: 1 mm margin, letter, title rise
-TOP_LEGEND_MM = 8.5  # the same with a one-line key (1.0-3.3 mm) above the letters
+# The top, measured at these rc settings at 600 dpi, in the PNG and in a pdftoppm raster of the PDF (ink: any pixel
+# not white). A first-row letter's baseline is TITLE_RISE_MM above its axes, and a bold 8 pt b or d, the tallest of
+# the first rows' letters, inks 2.03 mm above it (hinted to 48 pixels); the PNG can lose one more pixel row at its
+# top, as Agg rounds the figure's height down to whole pixels there. At 4.6 their ink stays at least 24 rows
+# (1.02 mm) below the edge in the PNG at any figure height, and 25 rows (1.06 mm) in the PDF's raster: the smallest
+# value on a 0.05 mm step that clears the margin (at 4.5 b printed 0.93 mm from the edge; a first-row f, 0.03 mm
+# taller, would need 4.65).
+TOP_MM = 4.6  # figure top to the first axes top: 1 mm margin, letter, title rise
+# The top of the key's box (top_legend). Round capitals (the C of 'C psmc') ink 0.03 mm above the box, and Agg
+# snaps them up by up to a pixel: at MARGIN_MM they printed 0.93-0.97 mm from the edge. 0.1 mm lower, they stay at
+# least 25 rows (1.06 mm) below it in both rasters at any figure height (1.05 mm does not clear).
+KEY_TOP_MM = MARGIN_MM + 0.1
+TOP_LEGEND_MM = 8.6  # TOP_MM under a one-line key (its box 1.1-3.4 mm), the letters' ink 1.6 mm below the key's
+# The bottom: x tick labels reach 3.6 mm below their axes and an x label 6.25 mm below them.
 BOTTOM_MM = 7.25  # last axes bottom to the figure bottom: x ticks, x label, 1 mm margin
+# The same under power-of-ten tick labels (log_axis's "pow10"; Fig 1e): their superscripts push the x label down
+# to 6.8 mm below the axes (in the PDF's raster), so 1.05 mm remain.
+BOTTOM_POW10_MM = 7.85
 GUTTER_MM = 6.0  # between columns whose panels each show y tick labels
 GUTTER_SHARED_MM = 3.0  # between columns that share a hidden y axis
 ROW_GAP_MM = 9.0  # between rows: x tick labels above, letters (and titles) below
@@ -359,7 +489,7 @@ def tint(color: str, share: float = REPLICATE_ALPHA) -> str:
 
 
 C_HALO = tint(ORANGE, C_HALO_SHARE)  # #f6bba4: C psmc's underlay
-RS_BAND = tint(BLUE, BAND_SHARE)  # #dde9f8: psmc-rs's band
+RS_BAND = tint(BLUE, BAND_SHARE)  # #caddf5: psmc-rs's band (Figs 1c-d and S3a)
 
 
 def blue_cmap():
@@ -410,6 +540,23 @@ def truth_kw(**kw) -> Dict:
 def band_kw(color: str = BLUE, share: float = BAND_SHARE, **kw) -> Dict:
     """``fill_between`` arguments of an entity's band: an opaque tint (:data:`RS_BAND` for psmc-rs)."""
     return {"color": tint(color, share), "linewidth": 0.0, "zorder": Z_BAND, **kw}
+
+
+def cloud_kw(color: str, **kw) -> Dict:
+    """``LineCollection`` arguments of Fig 3's halo of individual genomes, the one alpha of the article figures.
+
+    Each genome a :data:`LW_HAIR` line in ``color`` at :data:`CLOUD_SHARE` over white, at alpha
+    :data:`CLOUD_ALPHA`, above the grey context and beneath the medians (:data:`Z_UNDERLAY`), and rasterized:
+    the PDF and SVG hold it as an image at the save's dpi (:data:`PNG_DPI`), not as thousands of paths.
+    """
+    return {"colors": tint(color, CLOUD_SHARE), "alpha": CLOUD_ALPHA, "linewidths": LW_HAIR, "capstyle": "butt",
+            "joinstyle": "miter", "zorder": Z_UNDERLAY, "rasterized": True, **kw}
+
+
+def ring_kw(**kw) -> Dict:
+    """``ax.scatter`` arguments of a ring around a point another panel draws: an unfilled :data:`INK` circle."""
+    return {"s": RING_S, "marker": "o", "facecolors": "none", "edgecolors": INK, "linewidths": LW_THIN,
+            "zorder": Z_TEXT, **kw}
 
 
 def step_line(ax, years: Sequence[float], ne: Sequence[float], **kw):
@@ -537,13 +684,18 @@ def apply() -> None:
         matplotlib.mathtext.MathTextParser._parse_cached.cache_clear()
 
 
-def figure(width: Union[str, float], height_mm: float):
-    """A new figure ``width`` (``single``, ``onehalf``, ``double`` or mm) by ``height_mm``."""
+def figure(width: Union[str, float], height_mm: float, dpi: Optional[float] = None):
+    """A new figure ``width`` (``single``, ``onehalf``, ``double`` or mm) by ``height_mm``.
+
+    ``dpi`` is the dpi it is laid out at: :data:`PNG_DPI` for a module that places anything by measured text, so
+    that text measures as it prints (Layout); matplotlib's 100 by default. The files :func:`save` writes keep
+    their own resolution (the PNG its ``dpi``; the PDF and SVG are vectors, rasterized parts at :data:`PNG_DPI`).
+    """
     import matplotlib.pyplot as plt
 
     apply()
     w = WIDTH_MM[width] if isinstance(width, str) else float(width)
-    return plt.figure(figsize=(w * MM, height_mm * MM))
+    return plt.figure(figsize=(w * MM, height_mm * MM), dpi=dpi)
 
 
 def _fig_mm(fig) -> Tuple[float, float]:
@@ -614,15 +766,24 @@ def thousands_formatter():
     return FuncFormatter(lambda v, _pos: fmt_num(v / 1000.0))
 
 
-def plain_formatter():
-    """Tick labels as plain numbers with thousands separators (10, 30, 100, 1,000)."""
+def plain_formatter(decimals: Optional[int] = None):
+    """Tick labels as plain numbers with thousands separators (10, 30, 100, 1,000).
+
+    By default each label has the fewest decimals (:func:`fmt_num`). With
+    ``decimals``, every label has that many (0.6, 0.7, ..., 1.0 with 1): for
+    a linear axis stepped in tenths or hundredths, whose whole numbers would
+    otherwise lose their decimals (Notation).
+    """
     from matplotlib.ticker import FuncFormatter
 
-    return FuncFormatter(lambda v, _pos: fmt_num(v))
+    if decimals is None:
+        return FuncFormatter(lambda v, _pos: fmt_num(v))
+    # Rounded first and + 0.0, so that a tick at zero never prints a minus.
+    return FuncFormatter(lambda v, _pos: f"{round(v, decimals) + 0.0:,.{decimals}f}".replace("-", MINUS))
 
 
 def fmt_seconds(v: float) -> str:
-    """A run time's tick label: 10 s, 1 min, 10 min, 1 h."""
+    """A run time's tick label: 10 s, 1 min, 10 min, 1 h (the one tick label with a unit; see Notation)."""
     for unit, size in (("h", 3600.0), ("min", 60.0)):
         if v >= size * 0.999:
             return f"{v / size:g} {unit}"
@@ -763,6 +924,67 @@ def direct_label(ax, x: float, y: float, text: str, *, ha: str = "left", va: str
 
 
 # ---------------------------------------------------------------------------
+# Mathtext on its baseline
+# ---------------------------------------------------------------------------
+
+
+def on_baseline(text):
+    """Draw ``text``'s mathtext on its baseline in the PDF and SVG, as Agg draws it in the PNG; returns ``text``.
+
+    matplotlib lays out mathtext for a vector output at 72 dpi and rounds
+    the math box's height up to a whole point
+    (``_mathtext.Output.to_vector``), which raises every glyph by the
+    difference: up to 1 pt (0.35 mm), e.g. 0.98 pt for Fig 1d's italic
+    binomial in its 7 pt title and 0.9 pt for a 7 pt N_e label. Agg lays it
+    out at the PNG's dpi, where the rounding is a fraction of a pixel. The
+    raise is the height of the first glyph, which sits on the baseline; any
+    renderer but Agg draws ``text`` lowered by it, reckoned as it is drawn
+    (so a text changed later is lowered by its own raise).
+
+    Use it on a mathtext text that must share a baseline or a column with
+    other text: a title in italics beside its panel letter, y labels hung at
+    one distance from their spines, x labels on one baseline. It is exact
+    for a text set on its baseline (``va="baseline"``). Plain text is drawn
+    as it is, and a second call on the same text changes nothing.
+    """
+    if getattr(text, "_house_on_baseline", False):
+        return text
+    draw = text.draw
+
+    def draw_on_baseline(renderer):
+        from matplotlib.backends.backend_agg import RendererAgg
+        from matplotlib.transforms import ScaledTranslation
+
+        lift = 0.0 if isinstance(renderer, RendererAgg) else _vector_math_lift(text)
+        if not lift > 0.0:
+            return draw(renderer)
+        a = math.radians(text.get_rotation())
+        down = ScaledTranslation(math.sin(a) * lift / 72.0, -math.cos(a) * lift / 72.0, text.figure.dpi_scale_trans)
+        tr = text.get_transform()
+        text.set_transform(tr + down)
+        try:
+            return draw(renderer)
+        finally:
+            text.set_transform(tr)
+
+    text.draw = draw_on_baseline
+    text._house_on_baseline = True
+    return text
+
+
+def _vector_math_lift(text) -> float:
+    """How far a vector output sets ``text``'s mathtext above its baseline, in points (0 for plain text)."""
+    from matplotlib.cbook import is_math_text
+    from matplotlib.mathtext import MathTextParser
+
+    s = text.get_text()
+    if not is_math_text(s):
+        return 0.0
+    glyphs = MathTextParser("path").parse(s, 72, text.get_fontproperties()).glyphs
+    return float(glyphs[0][-1]) if glyphs else 0.0
+
+
+# ---------------------------------------------------------------------------
 # Legends
 # ---------------------------------------------------------------------------
 
@@ -785,11 +1007,13 @@ def key_above(fig, handles: Sequence, labels: Optional[Sequence[str]] = None, **
 
 
 def top_legend(fig, handles: Sequence, labels: Optional[Sequence[str]] = None, *, ax=None,
-               x_mm: Optional[float] = None, top_mm: float = MARGIN_MM, **kw):
+               x_mm: Optional[float] = None, top_mm: float = KEY_TOP_MM, **kw):
     """The figure's key: one line at its top, left-aligned with the first left spine.
 
     The key's left edge is ``ax``'s left spine (the leftmost axes by
-    default) or ``x_mm``; its top is ``top_mm`` below the figure's top.
+    default) or ``x_mm``; the top of its box is ``top_mm`` below the
+    figure's top (:data:`KEY_TOP_MM`, where its round capitals ink outside
+    the margin).
     """
     if labels is None:
         labels = [h.get_label() for h in handles]

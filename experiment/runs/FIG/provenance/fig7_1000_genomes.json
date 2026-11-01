@@ -1,5 +1,5 @@
 {
-  "digest": "7c16a6d6bc8e3dc923d5ec1c01deac9cdb5fdbee477f8c93511921650ab503bd",
+  "digest": "7c4d168436f39f252add32d55cd5ff516f6d37962205cf5f340dd2722d305c0f",
   "key": {
     "command": [
       "<python>",
@@ -13,6 +13,8 @@
     ],
     "env": {},
     "inputs": {
+      "<runs>/E7/tables/E7_curves.csv": "14452223753c28b3c2c0035184dabac165fd25e7d3d4139aa7848996b507073d",
+      "<runs>/E7/tables/E7_fits.csv": "574346b013b5e4b2ed5896c9f1afb8e5c93e8b56481a6e582a03ff6347704ba2",
       "<runs>/E7/tables/E7_pop_bands.csv": "4ec5e9cf5432b426c9b03b77f90262f97b8b2aec95fd348b4ee0e8ca2c1608cd"
     },
     "job": "FIG/fig7_1000_genomes",
@@ -175,7 +177,7 @@
         "sha256": "525979822591a3447cfc49d943d6f7683508e25543407871c0ed8fed05fd2bd9"
       },
       "pipeline": {
-        "code": "1d9e9b416f2e4c79510eb289157011a41a734163c620f92111bef06b26f4dd24",
+        "code": "64ec952d37b7c674bd9a684962d5ac6ab9aea4eb03a9427ee280558b1c3d9281",
         "matplotlib": "3.11.2",
         "numpy": "2.5.3",
         "pandas": "3.0.6",
@@ -184,14 +186,14 @@
     }
   },
   "outputs": {
-    "<runs>/E7/figures/fig7_1000_genomes.pdf": "1d90a4abd5e52360e8731b2d1a4ba12f961f017bc64057bd456fe183e5ae1540",
-    "<runs>/E7/figures/fig7_1000_genomes.png": "44c15a47e62689d0a1e704266d100e3d8e913a4a41dcd842bcc54a4bd62b00c9",
-    "<runs>/E7/figures/fig7_1000_genomes.svg": "9465db92fcdbaaeab080faf318d3b1d45a687f464937e64e0c3281f65315e1b1"
+    "<runs>/E7/figures/fig7_1000_genomes.pdf": "2c480527096861882e2f58b5da38ad48a456c14ed51c85b5cef3ea54d3ef583f",
+    "<runs>/E7/figures/fig7_1000_genomes.png": "23a2cc33d7f2d103bf235ad684f8d4d2fe6101aea036a002c313b6e44fdda9af",
+    "<runs>/E7/figures/fig7_1000_genomes.svg": "feff36db80f0803600293ebd83e2798758ea9baad0e9986f7ddc992417884abf"
   },
   "record_version": 1,
   "run": {
     "cores": 1,
-    "end": "2026-10-27T21:05:19",
+    "end": "2026-11-01T12:12:08",
     "exclusive": false,
     "executables": {
       "<python>": "a34efc8d85a21ded9643cf202ef3141e1ede897e0ef10c71113735d6ca0aadb6"
@@ -199,22 +201,22 @@
     "exit_status": 0,
     "host": "Larryivanhans-MacBook-Pro.local",
     "loadavg_after": [
-      2.21,
-      2.98,
-      3.31
+      4.52,
+      5.11,
+      3.62
     ],
     "loadavg_before": [
-      2.21,
-      2.98,
-      3.31
+      3.61,
+      4.94,
+      3.55
     ],
-    "maxrss_main_mb": 196.3,
+    "maxrss_main_mb": 460.8,
     "mem_gb": 1.0,
-    "peak_rss_mb": 196.3,
-    "peak_rss_tree_sampled_mb": 195.2,
-    "start": "2026-10-27T21:05:17",
-    "system_seconds": 0.147,
-    "user_seconds": 1.706,
-    "wall_seconds": 2.085
+    "peak_rss_mb": 460.8,
+    "peak_rss_tree_sampled_mb": 460.4,
+    "start": "2026-11-01T12:12:04",
+    "system_seconds": 0.246,
+    "user_seconds": 2.974,
+    "wall_seconds": 3.583
   }
 }

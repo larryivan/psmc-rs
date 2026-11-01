@@ -704,14 +704,16 @@ on the run).
 | `E5_seeds.csv` | every seed |
 
 **Figure 6** (`figures/fig6_bootstrap_calibration.{pdf,svg,png}`, drawn by
-`FIG` from the tables, see `figures/README.md`; the supplement's Fig S3): a,
-one bootstrapped genome's fit and bootstrap 95% band (5 Mb blocks) over the
-true Ne and the 95% range of the 50 independent fits; b, the bootstrap SD
-(median over the 10 genomes) against the true SD, one dot per time of the
-window, for both block sizes, with the band where a calibrated bootstrap
-would fall; c, per genome, the share of the window's times at which its band
-holds the fits' mean and the truth, for both block sizes, against the
-nominal 95%.
+`FIG` from the tables, see `figures/README.md`; the supplement's Fig S3), two
+rows of two panels: a, one bootstrapped genome's fit and bootstrap 95% band
+(60 blocks of 5 Mb) over the true Ne and the 95% range of the 50
+independent fits; b, the bootstrap SD (median over the 10 genomes) against
+the true SD, one dot per distinct pair of values over the window's times,
+for both block sizes, with the band where a bootstrap SD equal to the true
+SD would fall; c, at each time of a's window, the share of the 10 genomes
+whose band (60 blocks) holds the fits' mean and the truth; d, per genome,
+the share of the window's times at which its band holds the fits' mean and
+the truth, for both block sizes; c and d against the nominal 95%.
 
 Layout of `experiment/runs/E5/`: `sims/` (genomes; not committed),
 `truth/`, `fits/bottleneck/repNN.rs.json`, `boot/trunk<B>/repNN.rs.json` (the
@@ -878,7 +880,7 @@ back.
 | E5 | 121 | 16 | 2.3 | 12.2 | 20 bootstrap runs of about 45 min (Ibex: 28 to 35) on one thread |
 | E6 | 21 | under 1 | 0.1 after E1 | 0.2 | S1-S3 wait for E1 |
 | E7 | 2,639 | 480 | 11 (50 cores) | 358.1 (the C psmc fits 71.7; every fit and bootstrap in one job, below) | after its data stage; bootstraps on 32 threads |
-| FIG | 16 | under 0.1 | minutes | (laptop: 16 figures in 8 s, 32 CPU seconds) | each figure waits for its tables |
+| FIG | 16 | under 0.1 | minutes | (laptop: 16 figures in 8 s, 37 CPU seconds) | each figure waits for its tables |
 
 The estimates come from `config.Costs` and `config.ResourceModel`, measured
 on the development machine (Apple M1 Pro, 8 cores, 16 GB) under load, so

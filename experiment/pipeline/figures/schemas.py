@@ -8,6 +8,16 @@ otherwise. Extra columns are allowed. The unit tests run every experiment
 at the tiny profile and draw every figure from the tables it writes, so a
 schema cannot drift from its table unnoticed.
 
+:data:`COMMITTED` declares the few tables a figure reads that no
+experiment writes: a one-off analysis's results, committed with the
+repository outside the runs directory (``experiment/crossplatform/``). A
+figure names them in :attr:`..FigureSpec.committed` and reads them with
+:meth:`CommittedTable.read`; they are inputs of its job like its tables, at
+their path in the repository whatever the runs directory, so that a change
+to one redraws the figure. They describe the production's results, not the
+tiny profile's: a figure checks that a committed table matches the tables
+it is drawn with (by a value both hold) before drawing from it.
+
 Conventions, as in the experiments' tables: times in ``years`` (scaled with
 the experiment's mu and g), sizes ``ne`` in diploid individuals, replicates
 and datasets counted from 1, ``tool`` is ``c`` (C psmc), ``rs`` (psmc-rs
@@ -23,6 +33,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
+
+from .. import paths
 
 CURVE_COLUMNS = {
     "interval": "PSMC interval k (0-based)",
@@ -46,11 +58,60 @@ class TableSchema:
         return Path(runs_dir) / self.experiment / "tables" / self.file
 
 
+class CommittedPath(Path):
+    """The absolute path of a committed table, which can be written relative to any directory.
+
+    ``relative_to`` walks up (``../crossplatform/side_by_side_E1.csv`` from ``experiment/runs``), so that
+    ``python -m experiment.pipeline.figures --list``, which prints every file a figure reads relative to the
+    runs directory, lists it too.
+    """
+
+    def relative_to(self, other, /, *_deprecated, walk_up: bool = True):
+        return super().relative_to(other, *_deprecated, walk_up=walk_up)
+
+
+@dataclass(frozen=True)
+class CommittedTable:
+    """A table committed with the repository outside the runs directory (:data:`COMMITTED`)."""
+
+    experiment: str  # the experiment whose results it describes
+    file: str  # its path relative to experiment/, also its key in COMMITTED
+    columns: Tuple[Tuple[str, str], ...]  # (name, meaning), in order
+    rows: str  # what one row is
+
+    @property
+    def names(self) -> Tuple[str, ...]:
+        return tuple(c for c, _ in self.columns)
+
+    def path(self) -> CommittedPath:
+        return CommittedPath(paths.EXPERIMENT / self.file)
+
+    def read(self):
+        """The table as a DataFrame, its columns checked as :func:`.data.read` checks an experiment's table."""
+        import pandas as pd
+
+        from .data import MissingTable, SchemaError
+
+        path = self.path()
+        if not path.exists():
+            raise MissingTable(f"{path} does not exist (it is committed with the repository)")
+        df = pd.read_csv(path)
+        missing = [c for c in self.names if c not in df.columns]
+        if missing:
+            raise SchemaError(f"{path}: missing column(s) {', '.join(missing)}; expected {', '.join(self.names)}")
+        return df
+
+
 SCHEMAS: Dict[str, TableSchema] = {}
+COMMITTED: Dict[str, CommittedTable] = {}
 
 
 def _add(key: str, experiment: str, rows: str, columns: Dict[str, str]) -> None:
     SCHEMAS[key] = TableSchema(experiment, f"{key}.csv", tuple(columns.items()), rows)
+
+
+def _add_committed(file: str, experiment: str, rows: str, columns: Dict[str, str]) -> None:
+    COMMITTED[file] = CommittedTable(experiment, file, tuple(columns.items()), rows)
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +275,9 @@ _add("E4_routes", "E4", "mask, route and replicate", {
     "route": "mask_auto, mask_ignore, fq2psmcfa, multihetsep or nomask",
     "replicate": "replicate",
     "theta_rel_complete": "theta / theta of the complete-data fit of the same genome (the control's mask_auto) - 1",
+    "missing_bin_fraction": "share of the input's bins that are missing (N)",
+    "partly_callable_fraction": "share of the called bins with fewer callable bases than the bin size (empty for "
+                                "an input that does not count them)",
     "rmse_log10_ne_vs_truth": "RMSE of log10 Ne against the truth on the informative window",
     "rmse_log10_ne_vs_complete": "RMSE of log10 Ne against the complete-data fit of the same genome, same window, "
                                  "exact over log time (metrics.log_time_diff)",
@@ -412,10 +476,14 @@ _add("E7_split", "E7", "sample of the split-first-window check", {
 })
 _add("E7_fits", "E7", "sample and route", {
     "sample_id": "sample",
+    "population": "population code",
+    "superpopulation": "superpopulation",
     "route": "rs-psmcfa, rs-vcf, c or rs-split",
+    "pattern": "the pattern fitted: 4+25*2+4+6, whose first free lambda spans the first 4 intervals (its first "
+               "term), or rs-split's 1+1+1+1+25*2+4+6",
     "n0": "N0 of the fit (Ne = lambda N0)",
     "threads": "threads of the fit (1 for C psmc)",
-    "wall_seconds": "wall time of the fit, on one core of a node shared with other fits",
+    "wall_seconds": "wall time of the fit, on one thread of a node shared with other fits",
 })
 _add("E7_curves", "E7", "sample, route and interval", {
     "sample_id": "sample",
@@ -442,4 +510,21 @@ _add("E7_throughput", "E7", "route and tool", {
 })
 
 
-__all__ = ["CURVE_COLUMNS", "SCHEMAS", "TableSchema"]
+# ---------------------------------------------------------------------------
+# Committed outside the runs directory (the article's Fig 1e)
+# ---------------------------------------------------------------------------
+
+# experiment/crossplatform/ (its README): E1's genomes fitted again on the development laptop (Apple M1 Pro, arm64,
+# macOS; C psmc built by Apple clang) and compared with the production's fits on Ibex (x86-64, Linux; gcc).
+_add_committed("crossplatform/side_by_side_E1.csv", "E1", "simulated genome of E1 (model and replicate)", {
+    "model": "demographic model",
+    "replicate": "replicate",
+    "rmse_window_c_laptop_vs_ibex": "RMSE of log10 Ne between C psmc's fits of the genome on the two platforms, "
+                                    "interval by interval over the informative window, as Delta: the noise floor "
+                                    "of Delta",
+    "rmse_window_rs_vs_c_ibex": "Delta of the production's fits, psmc-rs against C psmc (E1_rs_vs_c's "
+                                "rmse_log10_ne_rs_vs_c_per_interval, the same value): it ties a row to E1's fits",
+})
+
+
+__all__ = ["COMMITTED", "CURVE_COLUMNS", "SCHEMAS", "CommittedPath", "CommittedTable", "TableSchema"]

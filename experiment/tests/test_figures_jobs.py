@@ -49,6 +49,23 @@ class Jobs(unittest.TestCase):
         kg1000.write_json(kg1000.layout(self.runs).manifest, {})
         self.assertTrue(e7_figs <= self.ids())
 
+    def test_a_committed_table_is_an_input_of_its_figure(self):
+        # The article's Fig 1 reads C psmc's fits on two platforms, committed in experiment/crossplatform/ outside
+        # the runs directory: its job redraws the figure when that file changes, whatever the runs directory.
+        from experiment.pipeline import figures, kg1000
+        from experiment.pipeline.figures.schemas import COMMITTED
+
+        fs = figures.spec("art1")
+        self.assertEqual(fs.committed, ("crossplatform/side_by_side_E1.csv",))
+        committed = COMMITTED[fs.committed[0]].path()
+        self.assertTrue(committed.exists(), committed)
+        self.assertNotIn(self.runs, committed.parents)
+        self.assertEqual(fs.sources, ("E1", "E2", "E7"))
+        kg1000.write_json(kg1000.layout(self.runs).manifest, {})
+        job = {j.id: j for j in fig.jobs(self.ctx)}["FIG/art1_agreement"]
+        self.assertEqual(job.inputs[-1], committed)
+        self.assertEqual(job.inputs[:-1], [p for p in fs.table_paths(self.runs) if p != committed])
+
     def test_e7s_figures_from_its_tables_without_its_inputs(self):
         # Committed runs hold E7's tables and its data stage's MANIFEST.json, records, sample table and chunk plan,
         # but not the psmcfa inputs; FIG's E7 figures come from the tables.

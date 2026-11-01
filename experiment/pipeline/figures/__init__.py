@@ -10,8 +10,9 @@ tables, and ``python -m experiment.pipeline.figures`` draws them directly.
 
 :mod:`.style` holds the shared style (type, sizes, colours, export),
 :mod:`.schemas` the experiments' tables the figures read (the columns they
-need), and :mod:`.data` their readers and the curve arithmetic. Every
-figure of the manuscript is drawn here, and only here.
+need) and the few tables committed outside the runs directory, and
+:mod:`.data` their readers and the curve arithmetic. Every figure of the
+manuscript is drawn here, and only here.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .. import config
 from . import style
-from .schemas import SCHEMAS
+from .schemas import COMMITTED, SCHEMAS
 
 HERE = Path(__file__).resolve().parent
 _FROM_SIBLING = re.compile(r"^from \.(\w+) import", re.M)  # a module of this package another one imports from
@@ -37,14 +38,17 @@ class FigureSpec:
     experiment: str  # written to <runs>/<experiment>/figures/
     tables: Tuple[str, ...]  # keys of schemas.SCHEMAS
     title: str  # what the figure shows (the caption carries it)
+    committed: Tuple[str, ...] = ()  # keys of schemas.COMMITTED: tables committed outside the runs directory
 
     @property
     def sources(self) -> Tuple[str, ...]:
-        """The experiments whose tables the figure reads, in order."""
-        return tuple(dict.fromkeys(SCHEMAS[key].experiment for key in self.tables))
+        """The experiments whose tables the figure reads, in order (then those its committed tables describe)."""
+        return tuple(dict.fromkeys([*(SCHEMAS[key].experiment for key in self.tables),
+                                    *(COMMITTED[key].experiment for key in self.committed)]))
 
     def table_paths(self, runs_dir: Path) -> List[Path]:
-        return [SCHEMAS[k].path(runs_dir) for k in self.tables]
+        """Every file the figure reads: its tables in ``runs_dir``, then its committed tables, where they are."""
+        return [SCHEMAS[k].path(runs_dir) for k in self.tables] + [COMMITTED[k].path() for k in self.committed]
 
     def outputs(self, runs_dir: Path) -> List[Path]:
         d = Path(runs_dir) / self.experiment / "figures"
@@ -72,12 +76,14 @@ FIGURES: Tuple[FigureSpec, ...] = (
     # The article's Figs 1 and 2 (Supplementary Note 1, section 3, maps every article figure to its file); its
     # Fig 3 is fig7_1000_genomes, and the supplement's Figs S1-S3 are figS1_em_convergence,
     # fig5_input_preparation and fig6_bootstrap_calibration.
+    # Fig 1e's noise floor, C psmc's own fits on two platforms, comes from experiment/crossplatform/.
     FigureSpec("art1_agreement", "art1_agreement", "FIG",
                ("E1_curves", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E2_curves", "E2_bands", "E2_rs_vs_c",
                 "E7_rs_vs_c"),
-               "psmc-rs reproduces C psmc, on simulated and on real genomes"),
+               "psmc-rs reproduces C psmc, on simulated and on real genomes",
+               committed=("crossplatform/side_by_side_E1.csv",)),
     FigureSpec("art2_performance", "art2_performance", "E3", ("E3_table2", "E7_fits"),
-               "psmc-rs is fast and lean: run time, speed-up over C psmc and memory, and the 1000 Genomes fits"),
+               "psmc-rs is faster than C psmc and needs less memory"),
     FigureSpec("fig1_workflow", "fig1", "FIG", (), "From reads to a PSMC history with psmc-rs"),
     FigureSpec("fig2_simulated_accuracy", "fig2", "E1",
                ("E1_curves", "E1_truth", "E1_table1", "E1_replicates", "E1_rs_vs_c", "E1_mstep"),
@@ -88,12 +94,13 @@ FIGURES: Tuple[FigureSpec, ...] = (
     FigureSpec("fig4_performance", "fig4", "E3", ("E3_table2", "E3_runs"),
                "Run time and memory against genome size, and the speed-up over C psmc"),
     FigureSpec("fig5_input_preparation", "fig5", "E4", ("E4_routes", "E4_curves"),
-               "Partly callable bins bias PSMC; weighting each bin by its callable bases removes most of the bias"),
+               "Taking partly callable bins as full biases PSMC; weighting each bin by its callable bases removes most "
+               "of the bias"),
     FigureSpec("fig6_bootstrap_calibration", "fig6", "E5",
                ("E5_summary", "E5_sampling", "E5_bands", "E5_sd_ratio", "E5_coverage"),
-               "Calibration of the bootstrap"),
+               "The bootstrap measures the sampling variation of a PSMC fit, not PSMC's bias"),
     FigureSpec("figS1_em_convergence", "figs1", "E1", ("E1_traces",),
-               "The EM iterations of C psmc and psmc-rs"),
+               "C psmc and psmc-rs climb the same likelihood at every EM iteration"),
     FigureSpec("figS2_format_consistency", "figs2", "E6", ("E6_S2_curves", "E6_S2_bins", "E6_S2_fits"),
                "One genome read as psmcfa, VCF and multihetsep"),
     FigureSpec("figS3_tmrca_decoding", "figs3", "E6",
@@ -102,8 +109,9 @@ FIGURES: Tuple[FigureSpec, ...] = (
     FigureSpec("figS4_thread_scaling", "figs4", "E3", ("E3_thread_scaling", "E3_table2", "E3_runs", "E3_determinism"),
                "Thread scaling and determinism of psmc-rs 0.2"),
     # fig7_1000_genomes is the article's Fig 3; the other E7 figures are not in the article.
-    FigureSpec("fig7_1000_genomes", "fig7", "E7", ("E7_pop_bands",),
-               "1000 Genomes: the superpopulations compared, and their populations"),
+    # Its halo of individual genomes reads E7_curves; E7_fits' pattern gives where each genome's first window ends.
+    FigureSpec("fig7_1000_genomes", "fig7", "E7", ("E7_pop_bands", "E7_curves", "E7_fits"),
+               "Population size histories of the 1000 Genomes individuals, each genome fitted by psmc-rs"),
     FigureSpec("figS5_1000g_populations", "figs5", "E7", ("E7_pop_bands", "E7_samples"),
                "1000 Genomes: every population, every genome's spread"),
     FigureSpec("figS6_1000g_checks", "figs6", "E7",
@@ -140,4 +148,4 @@ def render(fs: FigureSpec, runs_dir: Path, profile: config.Profile, dpi: int = s
     return style.save(fig, target, fs.name, dpi=dpi)
 
 
-__all__ = ["BY_NAME", "FIGURES", "SCHEMAS", "FigureSpec", "missing_tables", "render", "spec"]
+__all__ = ["BY_NAME", "COMMITTED", "FIGURES", "SCHEMAS", "FigureSpec", "missing_tables", "render", "spec"]
