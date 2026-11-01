@@ -1,6 +1,9 @@
 % Fetched from doi.org (content negotiation); years checked against Crossref's print
-% dates; titles in sentence case; author lists cut after ten names; software
-% entries checked against their GitHub repositories.
+% dates, article numbers and book details against Crossref and PubMed; titles in
+% sentence case; author lists cut after ten names; software entries checked against
+% their GitHub repositories (version, commit, and the authors and title of a
+% CITATION.cff or DESCRIPTION file), the 1000 Genomes PSMC release against its FTP
+% directory and README.
 
 @article{li2011,
   author = {Li, Heng and Durbin, Richard},
@@ -71,11 +74,15 @@
 @incollection{schiffels2020,
   author = {Schiffels, Stephan and Wang, Ke},
   title = {{{MSMC} and {MSMC2}: the multiple sequentially {M}arkovian coalescent}},
+  editor = {Dutheil, Julien Y.},
   booktitle = {Statistical Population Genomics},
+  series = {Methods in Molecular Biology},
+  volume = {2090},
   pages = {147--166},
   year = {2020},
   doi = {10.1007/978-1-0716-0199-0_7},
   publisher = {Springer US},
+  address = {New York, NY},
 }
 
 @article{terhorst2017,
@@ -205,6 +212,7 @@
   journal = {Molecular Ecology Resources},
   volume = {25},
   number = {8},
+  pages = {e70040},
   year = {2025},
   doi = {10.1111/1755-0998.70040},
 }
@@ -236,6 +244,7 @@
   journal = {Genetics},
   volume = {220},
   number = {3},
+  pages = {iyab229},
   year = {2022},
   doi = {10.1093/genetics/iyab229},
 }
@@ -245,6 +254,7 @@
   title = {{A community-maintained standard library of population genetic models}},
   journal = {eLife},
   volume = {9},
+  pages = {e54967},
   year = {2020},
   doi = {10.7554/elife.54967},
 }
@@ -255,6 +265,7 @@
   journal = {GigaScience},
   volume = {10},
   number = {2},
+  pages = {giab008},
   year = {2021},
   doi = {10.1093/gigascience/giab008},
 }
@@ -296,6 +307,7 @@
   journal = {BMC Genomics},
   volume = {23},
   number = {1},
+  pages = {785},
   year = {2022},
   doi = {10.1186/s12864-022-09021-6},
 }
@@ -312,7 +324,7 @@
 }
 
 @article{kunsch1989,
-  author = {Kunsch, Hans R.},
+  author = {K{\"u}nsch, Hans R.},
   title = {{The jackknife and the bootstrap for general stationary observations}},
   journal = {The Annals of Statistics},
   volume = {17},
@@ -336,6 +348,7 @@
 @inproceedings{harris2014,
   author = {Harris, Kelley and Sheehan, Sara and Kamm, John A. and Song, Yun S.},
   title = {{Decoding coalescent hidden {M}arkov models in linear time}},
+  editor = {Sharan, Roded},
   booktitle = {Research in Computational Molecular Biology (RECOMB 2014)},
   series = {Lecture Notes in Computer Science},
   volume = {8394},
@@ -350,7 +363,7 @@
   title = {{On the limited memory {BFGS} method for large scale optimization}},
   journal = {Mathematical Programming},
   volume = {45},
-  number = {1-3},
+  number = {1--3},
   pages = {503--528},
   year = {1989},
   doi = {10.1007/bf01589116},
@@ -358,7 +371,7 @@
 
 @misc{psmcC,
   author = {Li, Heng},
-  title = {{psmc}: implementation of the Pairwise Sequentially Markovian Coalescent ({PSMC}) model, version 0.6.5-r74},
+  title = {{psmc}: implementation of the Pairwise Sequentially {M}arkovian Coalescent ({PSMC}) model, version 0.6.5-r74},
   year = {2025},
   howpublished = {\url{https://github.com/lh3/psmc}, commit 82fa2ad},
 }
@@ -371,29 +384,30 @@
 }
 
 @misc{psmcr,
-  author = {Paradis, Emmanuel},
-  title = {psmcr: {R} port of psmc},
-  year = {2019},
-  howpublished = {\url{https://github.com/emmanuelparadis/psmcr}},
+  author = {Paradis, Emmanuel and Li, Heng},
+  title = {psmcr: {R} port of psmc, version 0.1-4},
+  year = {2023},
+  howpublished = {\url{https://github.com/emmanuelparadis/psmcr}, commit a784ee7},
 }
 
 @misc{psmcpython,
   author = {Lomakin, Artem},
   title = {psmc-python: a reimplementation of the {PSMC} method in {Python}},
-  year = {2023},
-  howpublished = {\url{https://github.com/tulerpetontidae/psmc-python}},
+  year = {2024},
+  howpublished = {\url{https://github.com/tulerpetontidae/psmc-python}, commit 5a6484f},
 }
 
 @misc{smckit,
   author = {Korfmann, Kevin},
-  title = {smckit: a home for {SMC} algorithms},
+  title = {smckit: a preservation-first interface for {SMC} methods, version 0.0.1b2},
   year = {2026},
-  howpublished = {\url{https://github.com/kevinkorfmann/smckit}},
+  howpublished = {\url{https://github.com/kevinkorfmann/smckit}, commit b5f0a20},
 }
 
 @misc{kgpPsmc,
   author = {{The 1000 Genomes Project Consortium}},
-  title = {{PSMC} output for the Phase 3 individuals},
+  title = {{PSMC} output for {P}hase 3 individuals},
   year = {2015},
   howpublished = {\url{https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/supporting/psmc/}},
+  note = {Tarballs \texttt{psmc\_\allowbreak{}low\_\allowbreak{}coverage\_\allowbreak{}20141021.tar.gz} and \texttt{psmc\_\allowbreak{}26\_\allowbreak{}wgs\_\allowbreak{}pcr\_\allowbreak{}free\_\allowbreak{}20141103.tar.gz}, and their README (A. Auton, 21 July 2015)},
 }

@@ -35,8 +35,8 @@ production runs of E1 to E7 and FIG:
 | E4's masks, bins and cross-checks; QC reports (E7's: NA12878's heterozygous SNVs against GIAB) | `runs/E4/{masks,bins,consensus,crosscheck}/`, `runs/{E2,E7}/qc/` |
 | one provenance record per job | `runs/<EXP>/provenance/` |
 | tables and figures | `runs/<EXP>/tables/`, `runs/<EXP>/figures/` (`runs/FIG/figures/`: the article's Fig 1, `art1_agreement`, and the software's schematic, `fig1_workflow`, which the article leaves out) |
-| E7's inputs, every file its jobs read (12.5 GB): one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the default set's het-or-missing VCFs, the callable and non-PASS masks, the per-sample QC table and GIAB's NA12878 benchmark | on Zenodo, [doi:10.5281/zenodo.23764975](https://doi.org/10.5281/zenodo.23764975), not in the repository (extracted into `runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000` in a runs directory without the stage's committed records, section 5) |
-| E7's data stage: its sample table and chunk plan (`samples.tsv`, `chunks.tsv`, which E7's job graph reads), `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the default genomes' conversions redone with the production's binary | `runs/E7/inputs/{samples.tsv,chunks.tsv,MANIFEST.json}`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
+| E7's inputs, every file its jobs read (12.5 GB): one psmcfa per 1000 Genomes sample (the strict mask applied, non-PASS positions missing), the comparison subset's het-or-missing VCFs, the callable and non-PASS masks, the per-sample QC table and GIAB's NA12878 benchmark | on Zenodo, [doi:10.5281/zenodo.23764975](https://doi.org/10.5281/zenodo.23764975), not in the repository (extracted into `runs/E7/inputs/`; remade by `python -m experiment.pipeline.kg1000` in a runs directory without the stage's committed records, section 5) |
+| E7's data stage: its sample table and chunk plan (`samples.tsv`, `chunks.tsv`, which E7's job graph reads), `MANIFEST.json` (sources, tool versions, commands, checks, SHA-256 of every file it wrote) and its records (how each chromosome was read, its chunks, the chr21 pilot as the stage ran it); the chr21 pilot and the comparison subset's conversions redone with the production's binary | `runs/E7/inputs/{samples.tsv,chunks.tsv,MANIFEST.json}`, `runs/E7/inputs/records/`, `experiment/e7_pilot/` |
 | the analyses outside the pipeline, each with its scripts, results and README: the cross-platform comparison (section 9) and the diagnostic of the residual difference from C psmc (variants of psmc-rs, as a patch, and their fits of E1's genomes) | `experiment/crossplatform/`, `experiment/c_equivalence/` |
 
 Not committed, and remade on demand from the seeds: the simulated genomes
@@ -95,9 +95,10 @@ $PY -m experiment.pipeline.figures --runs-dir $CHECK    # every figure whose tab
 The reports write their tables into `$CHECK/<EXP>/tables/` and the
 figures go into `$CHECK/<EXP>/figures/`. Neither updates the jobs'
 provenance records (section 6), so run in `experiment/runs` itself on
-another platform they would change committed tables in their last digits
-(as on the laptop, the last paragraph of this section), and those reports
-and the figures that read their tables would then count as not done.
+another platform they would change committed tables slightly (on the
+laptop, by at most a relative 2.5e-13 in every value of magnitude 1e-3 or
+more; the last paragraph of this section), and those reports and the
+figures that read their tables would then count as not done.
 
 `python -m experiment.pipeline.figures --list` names the tables each
 figure reads. The article's figures and tables are these files of the
@@ -105,7 +106,7 @@ runs (`manuscript/make_numbers.py` writes the tables' LaTeX):
 
 | article | file |
 | --- | --- |
-| Fig 1 | `runs/FIG/figures/art1_agreement` (from E1, E2 and E7's tables) |
+| Fig 1 | `runs/FIG/figures/art1_agreement` (from E1, E2 and E7's tables and `experiment/crossplatform/side_by_side_E1.csv`, section 9) |
 | Fig 2 | `runs/E3/figures/art2_performance` (from E3 and E7's tables) |
 | Fig 3 | `runs/E7/figures/fig7_1000_genomes` |
 | Table 1 | from `E1_rs_vs_c`, `E1_replicates`, `E2_rs_vs_c`, `E2_fit_summary`, `E7_rs_vs_c` and `E7_fits` |
@@ -134,9 +135,9 @@ multihetsep, and reads the simulated psmcfa to count the bins; S3 compares
 the decoded TMRCA with the true one re-simulated from the replicate's
 seeds. Both need the simulated genomes, which section 4 regenerates.
 
-The analysis does not depend on the platform beyond its last digits.
-The reports of E1, E2, E4 and E5, run on an Apple M1 Pro laptop (macOS,
-arm64) on the committed fits, with the code that wrote the committed
+The analysis depends on the platform only slightly: the reports of E1,
+E2, E4 and E5, run on an Apple M1 Pro laptop (macOS, arm64) on the
+committed fits, with the code that wrote the committed
 tables on the Ibex cluster (Linux, x86-64) in the production of section 5
 (the same code digests and package versions), wrote 16 of the 38 tables
 byte for byte; the others agreed with those written on Ibex to a relative
@@ -256,7 +257,7 @@ VCFs (each step's host and job are in `runs/E7/inputs/records/`, the
 sources and checks in `MANIFEST.json`). Its conversions ran psmc-rs from
 `src/` 4c0d777 (`MANIFEST.json`); the production's binary writes the same
 content: converting with the stage's command, chromosome by chromosome,
-the per-sample VCFs the stage kept (those of the 52 default genomes) gave
+the per-sample VCFs the stage kept (those of the 52 genomes of the comparison subset) gave
 1,144 of 1,144 chromosome files and 52 of 52 genomes identical to E7's
 after decompression, with equal QC; only the gzip bytes differ (Ibex job
 54553271, an EPYC 7702 node; `experiment/e7_pilot/stage1.json`). The chr21
@@ -489,10 +490,11 @@ floating-point contraction was not run. Only E1 and NA12878 were refitted
 on the laptop; E2's turtles, the bootstraps and E3 to E7 were not.
 
 **Conclusion.** The production's psmc-rs results depend on the platform
-only in their last digits: across two processor architectures, operating
-systems and math libraries its curves agreed to an RMSE of at most 2.4e-6
-in log10 Ne, a median of 383 times (at least 39 times) below the
-difference between psmc-rs and C psmc on the same genome, and a median of
+only slightly: across two processor architectures, operating systems and
+math libraries no parameter differed by more than a relative 2.1e-5, and
+its curves agreed to an RMSE of at most 2.4e-6 in log10 Ne, a median of
+383 times (at least 39 times) below the difference between psmc-rs and C
+psmc on the same genome, and a median of
 124 times (at least 10 times) below the difference between two builds of
 C psmc on these platforms. Byte-identical results across platforms need
 the same kernels and the same math library on both (section 8).
