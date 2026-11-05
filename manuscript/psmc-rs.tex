@@ -78,7 +78,7 @@ Here we present \psmcrs{}, a reimplementation of PSMC in Rust. We show that it r
 psmc-rs NA12878.psmcfa.gz NA12878.json 25 --pattern "4+25*2+4+6" --t-max 15 \
     --tr-ratio 5 --mu 1.25e-8 --gen-years 29 --threads 8 --psmc-out NA12878.psmc
 \end{verbatim}
-\psmcrs{} differs from C psmc in four ways (Methods). First, it processes the sequences of a genome (its chromosomes or scaffolds) in parallel, each on one thread. Second, its maximization step (M-step) runs L-BFGS to convergence, within bounds on the parameters, where C psmc runs a Hooke--Jeeves search. Third, it counts the last bin of each sequence, which C psmc leaves out of its expected emission counts. Fourth, when the input records how many of a bin's bases are callable, that is, could be genotyped, it weights the bin by that number.
+\psmcrs{} differs from C psmc in four ways (Methods). First, it processes the sequences of a genome (its chromosomes or scaffolds) in parallel, each on one thread. Second, its maximization step (M-step) runs L-BFGS to convergence, within bounds on the parameters, where C psmc runs a Hooke--Jeeves search. Third, its expected emission counts include the last bin of each sequence, as both programs' log-likelihoods do; C psmc leaves that bin out of its counts. Fourth, when the input records how many of a bin's bases are callable, that is, could be genotyped, it weights the bin by that number.
 
 \subsection*{\psmcrs{} reproduces C psmc}
 
@@ -118,7 +118,7 @@ To measure speed, we timed both programs on simulated constant-size genomes of 1
 
 \begin{table}[tbp]
 \centering\small
-\caption{\textbf{Run time and memory of C psmc and \psmcrs{} (E3).} Median wall time of 25 EM iterations over \EthreeRepeatsW{} repeats on exclusive \EthreeCpu{} nodes, for simulated constant-size genomes of 100~Mb chromosomes; speed-up over C psmc and peak memory (median, MB of $2^{20}$ bytes) on \EthreeBigMb{}~Mb. -- marks a setup not timed.}
+\caption{\textbf{Run time and memory of C psmc and \psmcrs{} (E3).} Median wall time of 25 EM iterations over \EthreeRepeatsW{} repeats on exclusive \EthreeCpu{} nodes, for simulated constant-size genomes of 100~Mb chromosomes; speed-up over C psmc (a ratio of unrounded medians) and peak memory (median, MB of $2^{20}$ bytes) on \EthreeBigMb{}~Mb. -- marks a setup not timed.}
 \label{tab:timing}
 \input{table2.tex}
 \end{table}
@@ -162,13 +162,13 @@ The Project's own PSMC release holds only the output of fits made from the low-c
 
 \section*{Discussion}
 
-\psmcrs{} reproduces C psmc's fits. On the same inputs, its histories differ from C psmc's by far less than the method's own error and than the sampling uncertainty of a fit. Most of the remaining difference comes from one bookkeeping choice, the last bin of each sequence: with that bin left out, as C psmc leaves it out, the two programs differ about as little as C psmc's own fits on two platforms. Analyses of inputs like these can therefore move to \psmcrs{}, and published PSMC analyses can be repeated or extended with it, without their conclusions changing because of the program. We tested one pattern of parameters and 25 EM iterations, which do not reach convergence (Fig.~S1), on genomes of up to \EtwoTurtleSeqMax{} sequences. In Tasmanian devils, PSMC curves changed little with assembly quality \citep{patton2019}. Among the four genomes of E2, however, the difference between the two programs grew with the number of sequences, so fits of highly fragmented assemblies are worth comparing with C psmc's.
+\psmcrs{} reproduces C psmc's fits. On the same inputs, its histories differ from C psmc's by far less than the method's own error and than the sampling uncertainty of a fit. Most of the remaining difference comes from one bookkeeping choice, the last bin of each sequence: with that bin left out, as C psmc leaves it out, the two programs differ about as little as C psmc's own fits on two platforms. Analyses of inputs like these can therefore move to \psmcrs{}, and published PSMC analyses can be repeated or extended with it, without their conclusions changing because of the program. A VCF read with its callable mask is the exception: by default \psmcrs{} weights its partly callable bins, which C psmc's model does not, and \opt{--bin-callable ignore} fits it as C psmc's input would be fitted. We tested one pattern of parameters and 25 EM iterations, which do not reach convergence (Fig.~S1), on genomes of up to \EtwoTurtleSeqMax{} sequences. In Tasmanian devils, PSMC curves changed little with assembly quality \citep{patton2019}. Among the four genomes of E2, however, the difference between the two programs grew with the number of sequences, so fits of highly fragmented assemblies are worth comparing with C psmc's.
 
 \psmcrs{} is an order of magnitude faster than C psmc on one thread and, on genomes of many sequences, two orders of magnitude faster on many threads. It needs a small fraction of C psmc's memory and gives the same results on any number of threads. For one genome, threads cut the wait. For a cohort or a bootstrap, which run many fits side by side, the speed per core and the smaller memory count: the \EsevenGenomes{} genomes took \EsevenRsCoreHours{} core-hours, where C psmc would have needed about \EsevenCCoreHoursAll{}.
 
 Because it keeps PSMC's model, \psmcrs{} also keeps PSMC's limits. One genome says little about the last few thousand generations, where the first free $\lambda$ can run away; \psmcrs{} bounds it and warns when it does. Ancestral population structure can produce changes in a single-genome curve that are not changes in size \citep{mazet2016,cousins2025}, and methods that combine many genomes, such as MSMC2 \citep{schiffels2020}, SMC++ \citep{terhorst2017} or PHLASH \citep{terhorst2025}, resolve recent times better. The bootstrap measures sampling variation, not these biases (Fig.~S3). Finally, because \psmcrs{} parallelizes across sequences, a genome assembled into a few long sequences gains less from many threads than one assembled into many.
 
-For single genomes, \psmcrs{} makes the reference method fast and reproducible. Its machinery, a checkpointed E-step run in parallel across sequences with results that do not depend on the number of threads, could also serve MSMC2 \citep{schiffels2020}, whose composite likelihood sums PSMC-like hidden Markov models over pairs of haplotypes within and between populations.
+For single genomes, \psmcrs{} makes the reference method fast without changing its results. Its machinery, a checkpointed E-step run in parallel across sequences with results that do not depend on the number of threads, could also serve MSMC2 \citep{schiffels2020}, whose composite likelihood sums PSMC-like hidden Markov models over pairs of haplotypes within and between populations.
 
 \FloatBarrier
 \section*{Methods}
@@ -229,6 +229,7 @@ The author declares no conflict of interest.
 \section*{Use of AI tools}
 The text of this manuscript was polished with the assistance of AI. The author takes full responsibility for the results and the content of the article.
 
+\singlespacing  % the references single-spaced, as usual
 \bibliographystyle{plainnat}
 \bibliography{references}
 
