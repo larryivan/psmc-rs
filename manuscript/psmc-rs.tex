@@ -16,7 +16,7 @@
 \usepackage{microtype}
 \usepackage{setspace}
 \usepackage{caption}
-\usepackage[hidelinks]{hyperref}
+\usepackage[hidelinks,pdftitle={psmc-rs: fast PSMC inference that reproduces the reference implementation},pdfauthor={Yufan Han}]{hyperref}
 \usepackage{xurl}
 \def\UrlBreaks{\do\/\do\-\do\_\do\.}  % URLs break after these, not inside words
 \Urlmuskip=0mu\relax  % and are never letter-spaced to fill a line
@@ -168,7 +168,7 @@ The Project's own PSMC release holds only the output of fits made from the low-c
 
 \psmcrs{} keeps PSMC's model, and with it PSMC's limits. One genome says little about the last few thousand generations, where the first free $\lambda$ can run away; \psmcrs{} bounds it and warns when it does. Ancestral population structure can produce changes in a single-genome curve that are not changes in size \citep{mazet2016,cousins2025}, and methods that combine many genomes, such as MSMC2 \citep{schiffels2020}, SMC++ \citep{terhorst2017} or PHLASH \citep{terhorst2025}, resolve recent times better. The bootstrap measures sampling variation, not these biases (Fig.~S3). Finally, because \psmcrs{} parallelizes across sequences, a genome assembled into a few long sequences gains less from many threads than one assembled into many.
 
-\psmcrs{} does not replace methods for many genomes; it makes the single-genome reference fast and reproducible.
+\psmcrs{} does not replace methods for many genomes; it makes the single-genome reference fast and reproducible. The same machinery, a checkpointed E-step run in parallel across sequences with results that do not depend on the number of threads, could also serve MSMC2 \citep{schiffels2020}, whose composite likelihood sums PSMC-like hidden Markov models over pairs of haplotypes within and between populations.
 
 \FloatBarrier
 \section*{Methods}
