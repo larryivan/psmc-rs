@@ -19,8 +19,21 @@ table1.tex table2.tex tableS1.tex: numbers.tex ;
 
 numbers: numbers.tex
 
-$(BUILD)/psmc-rs.pdf: psmc-rs.tex numbers.tex table1.tex table2.tex tableS1.tex references.bib $(call figures,psmc-rs.tex)
+$(BUILD)/psmc-rs.pdf: psmc-rs.tex supplement-floats.tex numbers.tex table1.tex table2.tex tableS1.tex references.bib $(call figures,psmc-rs.tex supplement-floats.tex)
 	mkdir -p $(BUILD) && $(TECTONIC) --outdir $(BUILD) psmc-rs.tex
+
+# The GigaByte version: build/gigabyte/ holds what to upload to GigaByte's Overleaf template (gigabyte.tex,
+# numbers.tex, the two tables, references.bib, the three figures), a preview of it (gigabyte.pdf, compiled
+# without the template's class) and Additional file 1 (additional-file-1.pdf, Figs S1-S3 and Table S1).
+GB := $(BUILD)/gigabyte
+GB_FIGURES := FIG/figures/art1_agreement.pdf E3/figures/art2_performance.pdf E7/figures/fig7_1000_genomes.pdf
+gigabyte: numbers.tex
+	mkdir -p $(GB)
+	cp gigabyte.tex numbers.tex table1.tex table2.tex references.bib $(GB)/
+	cp $(addprefix ../experiment/runs/,$(GB_FIGURES)) $(GB)/
+	cd $(GB) && $(TECTONIC) gigabyte.tex
+	$(TECTONIC) --outdir $(GB) gigabyte-additional-file-1.tex
+	mv $(GB)/gigabyte-additional-file-1.pdf $(GB)/additional-file-1.pdf
 
 # exit 1 if numbers.tex or a table is not what the committed results give
 check:
@@ -29,4 +42,4 @@ check:
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all numbers check clean FORCE
+.PHONY: all numbers check clean gigabyte FORCE
