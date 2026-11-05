@@ -22,14 +22,15 @@ numbers: numbers.tex
 $(BUILD)/psmc-rs.pdf: psmc-rs.tex supplement-floats.tex numbers.tex table1.tex table2.tex tableS1.tex references.bib $(call figures,psmc-rs.tex supplement-floats.tex)
 	mkdir -p $(BUILD) && $(TECTONIC) --outdir $(BUILD) psmc-rs.tex
 
-# The GigaByte version: build/gigabyte/ holds what to upload to GigaByte's Overleaf template (gigabyte.tex,
-# numbers.tex, the two tables, references.bib, the three figures), a preview of it (gigabyte.pdf, compiled
-# without the template's class) and Additional file 1 (additional-file-1.pdf, Figs S1-S3 and Table S1).
+# The GigaByte version: build/gigabyte/ holds the manuscript compiled in GigaByte's template class
+# (gigabyte.pdf), every file it needs (gigabyte.tex, numbers.tex, the two tables, references.bib, the three
+# figures and the template's class, bibliography style and logo, from gigabyte-template/) and Additional
+# file 1 (additional-file-1.pdf, Figs S1-S3 and Table S1).
 GB := $(BUILD)/gigabyte
 GB_FIGURES := FIG/figures/art1_agreement.pdf E3/figures/art2_performance.pdf E7/figures/fig7_1000_genomes.pdf
 gigabyte: numbers.tex
 	mkdir -p $(GB)
-	cp gigabyte.tex numbers.tex table1.tex table2.tex references.bib $(GB)/
+	cp gigabyte.tex numbers.tex table1.tex table2.tex references.bib gigabyte-template/* $(GB)/
 	cp $(addprefix ../experiment/runs/,$(GB_FIGURES)) $(GB)/
 	cd $(GB) && $(TECTONIC) gigabyte.tex
 	$(TECTONIC) --outdir $(GB) gigabyte-additional-file-1.tex
