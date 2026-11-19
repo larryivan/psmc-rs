@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use psmc-rs, please cite it using the metadata below, together with the original PSMC paper listed under references."
+message: "If you use psmc-rs, please cite the preprint given as the preferred citation, together with the original PSMC paper listed under references."
 title: "psmc-rs: a Rust implementation of the Pairwise Sequentially Markovian Coalescent (PSMC)"
 type: software
 authors:
@@ -31,6 +31,18 @@ keywords:
   - PSMC
   - effective population size
   - Rust
+preferred-citation:
+  type: article
+  title: "psmc-rs: fast PSMC inference that reproduces the reference implementation"
+  authors:
+    - given-names: Yufan
+      family-names: Han
+  journal: EcoEvoRxiv
+  status: preprint
+  year: 2026
+  month: 11
+  doi: 10.32942/X2P97K
+  url: "https://ecoevorxiv.org/repository/view/15992/"
 references:
   - type: article
     title: "Inference of human population history from individual whole-genome sequences"

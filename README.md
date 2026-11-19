@@ -292,14 +292,22 @@ are in `experiment/runs/E1` to `E7` and `FIG`;
 
 ## Citing
 
-If you use psmc-rs, please cite it as given in [CITATION.cff](CITATION.cff)
-(GitHub's "Cite this repository"; every release is archived on Zenodo,
-[doi:10.5281/zenodo.18759759](https://doi.org/10.5281/zenodo.18759759)),
+If you use psmc-rs, please cite the preprint that describes and validates
+it:
+
+> Han Y (2026). psmc-rs: fast PSMC inference that reproduces the reference
+> implementation. *EcoEvoRxiv*.
+> doi:[10.32942/X2P97K](https://doi.org/10.32942/X2P97K)
+
 together with the PSMC paper:
 
 > Li H, Durbin R (2011). Inference of human population history from
 > individual whole-genome sequences. *Nature* 475:493-496.
 > doi:10.1038/nature10231
+
+[CITATION.cff](CITATION.cff) (GitHub's "Cite this repository") gives both.
+Every release of the software is archived on Zenodo,
+[doi:10.5281/zenodo.18759759](https://doi.org/10.5281/zenodo.18759759).
 
 Its O(states) forward and backward steps, and its sums of the expected
 transition counts, use the rank-one triangles of the transition matrix, as
