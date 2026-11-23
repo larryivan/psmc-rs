@@ -60,6 +60,9 @@ the medians.*
 
 ## Install
 
+- **With conda** (Linux and macOS, from
+  [Bioconda](https://anaconda.org/bioconda/psmc-rs)):
+  `conda install -c conda-forge -c bioconda psmc-rs`.
 - **Release binaries** for Linux (x86-64, glibc 2.17 or later: CentOS and
   RHEL 7 and newer distributions) and macOS (Intel and Apple silicon) are
   on the [releases page](https://github.com/larryivan/psmc-rs/releases),
